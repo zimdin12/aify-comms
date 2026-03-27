@@ -68,9 +68,12 @@ async def lifespan(app: FastAPI):
 
     # Mount MCP server if enabled
     if config.mcp_enabled:
-        from mcp.sse_server import setup_mcp_server
-        setup_mcp_server(app)
-        logger.info(f"MCP SSE at {config.mcp_path_prefix}/sse")
+        try:
+            from mcp.sse_server import setup_mcp_server
+            setup_mcp_server(app)
+            logger.info(f"MCP SSE at {config.mcp_path_prefix}/sse")
+        except ImportError:
+            logger.info("MCP SSE server not available, skipping")
 
     yield
 
