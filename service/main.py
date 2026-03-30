@@ -14,11 +14,47 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from service.config import get_config
 from service.routers import health, api, containers as containers_router
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """
+    Enforces API key auth when API_KEY is set in .env.
+
+    - Checks X-API-Key header or ?api_key= query param
+    - Skips: /health, /ready, /docs, /redoc, /openapi.json
+    - Dashboard accessible with ?api_key= in URL (for browser access)
+    """
+
+    def __init__(self, app, api_key: str):
+        super().__init__(app)
+        self.api_key = api_key
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip auth for health/docs endpoints
+        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json"]
+        if any(request.url.path.startswith(p) for p in skip_paths):
+            return await call_next(request)
+
+        # Check header first, then query param
+        provided_key = (
+            request.headers.get("X-API-Key")
+            or request.query_params.get("api_key")
+        )
+
+        if provided_key != self.api_key:
+            return Response(
+                content='{"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}',
+                status_code=401,
+                media_type="application/json",
+            )
+
+        return await call_next(request)
 
 
 def _setup_logging(config):
@@ -104,6 +140,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # API key auth — only enforced when API_KEY is set in .env
+    if config.api_key:
+        app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
+        logger.info("API key auth enabled")
 
     app.include_router(health.router)
     app.include_router(api.router, prefix="/api/v1")

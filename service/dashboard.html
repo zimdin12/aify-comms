@@ -228,6 +228,17 @@ tr:hover{background:#1c2128}
 const API = '/api/v1';
 let refreshInterval;
 
+// Extract API key from URL query param and include in all fetch calls
+const _urlParams = new URLSearchParams(window.location.search);
+const _apiKey = _urlParams.get('api_key') || '';
+const _authHeaders = _apiKey ? {'X-API-Key': _apiKey} : {};
+
+// Wrapper around fetch that auto-includes the API key
+function apiFetch(url, opts = {}) {
+  opts.headers = {..._authHeaders, ...(opts.headers || {})};
+  return fetch(url, opts);
+}
+
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
@@ -262,9 +273,9 @@ function fmtSize(b) {
 async function refreshDashboard() {
   try {
     const [statsRes, agentsRes, sharedRes] = await Promise.all([
-      fetch(API + '/stats').then(r => r.json()),
-      fetch(API + '/agents').then(r => r.json()),
-      fetch(API + '/shared').then(r => r.json()),
+      apiFetch(API + '/stats').then(r => r.json()),
+      apiFetch(API + '/agents').then(r => r.json()),
+      apiFetch(API + '/shared').then(r => r.json()),
     ]);
 
     // Stats cards
@@ -297,7 +308,7 @@ async function refreshDashboard() {
     let allMsgs = [];
     for (const [id] of agents) {
       try {
-        const inbox = await fetch(API + '/messages/inbox/' + id + '?filter=all&limit=200').then(r => r.json());
+        const inbox = await apiFetch(API + '/messages/inbox/' + id + '?filter=all&limit=200').then(r => r.json());
         for (const m of inbox.messages) { m._to = id; allMsgs.push(m); }
       } catch(e) {}
     }
@@ -369,20 +380,20 @@ function filterMessages() {
 
 async function deleteAgent(id) {
   if (!confirm('Remove agent "' + id + '"?')) return;
-  await fetch(API + '/agents/' + id, {method:'DELETE'});
+  await apiFetch(API + '/agents/' + id, {method:'DELETE'});
   toast('Agent removed');
   refreshDashboard();
 }
 
 async function deleteFile(name) {
   if (!confirm('Delete "' + name + '"?')) return;
-  await fetch(API + '/shared/' + name, {method:'DELETE'});
+  await apiFetch(API + '/shared/' + name, {method:'DELETE'});
   toast('File deleted');
   refreshDashboard();
 }
 
 async function runRotation() {
-  const r = await fetch(API + '/rotate', {method:'POST'}).then(r=>r.json());
+  const r = await apiFetch(API + '/rotate', {method:'POST'}).then(r=>r.json());
   if (r.ok) {
     const s = r.stats;
     toast(`Rotated: ${s.expired_messages} expired, ${s.trimmed_messages} trimmed, ${s.expired_files} files`);
@@ -394,7 +405,7 @@ async function runRotation() {
 
 async function clearAll() {
   if (!confirm('Clear ALL agents, messages, and shared files?')) return;
-  await fetch(API + '/clear', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target:'all'})});
+  await apiFetch(API + '/clear', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target:'all'})});
   toast('All data cleared');
   refreshDashboard();
 }
@@ -402,7 +413,7 @@ async function clearAll() {
 // ─── Settings ──────────────────────────────
 
 async function loadSettings() {
-  const s = await fetch(API + '/settings').then(r=>r.json());
+  const s = await apiFetch(API + '/settings').then(r=>r.json());
   document.getElementById('s-retention').value = s.retention_days;
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
@@ -425,7 +436,7 @@ async function saveSettings(e) {
     dashboard_refresh_seconds: parseInt(document.getElementById('s-refresh').value),
     rotation_enabled: document.getElementById('s-rotation').value === 'true',
   };
-  await fetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   toast('Settings saved');
   loadSettings();
 }
