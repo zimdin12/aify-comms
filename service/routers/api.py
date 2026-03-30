@@ -70,6 +70,9 @@ class AgentRegister(BaseModel):
     agentId: str
     role: str
     name: Optional[str] = None
+    cwd: Optional[str] = None
+    model: Optional[str] = None
+    instructions: Optional[str] = None
 
 class MessageSend(BaseModel):
     from_agent: str
@@ -81,9 +84,23 @@ class MessageSend(BaseModel):
     inReplyTo: Optional[str] = None
 
 class ClearRequest(BaseModel):
-    target: str  # inbox, shared, agents, all
+    target: str  # inbox, shared, agents, all, channels
     agentId: Optional[str] = None
     olderThanHours: Optional[float] = None
+
+class ChannelCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    createdBy: str
+
+class ChannelMessage(BaseModel):
+    from_agent: str
+    channel: str
+    body: str
+    type: str = "info"
+
+class ChannelJoin(BaseModel):
+    agentId: str
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -174,6 +191,9 @@ async def register_agent(req: AgentRegister, request: Request):
     registry["agents"][req.agentId] = {
         "role": req.role,
         "name": req.name or req.agentId,
+        "cwd": req.cwd or "",
+        "model": req.model or "",
+        "instructions": req.instructions or "",
         "registeredAt": _now(),
         "lastSeen": _now(),
     }
@@ -342,6 +362,141 @@ async def delete_shared(name: str, request: Request):
     for f in [shared_dir / name, shared_dir / f"{name}.meta.json"]:
         if f.exists(): f.unlink(); deleted = True
     return {"ok": deleted}
+
+# ─── Channels (group chat) ───────────────────────────────────────────────────
+
+def _channels_dir(request: Request) -> Path:
+    d = _data_dir(request) / "channels"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _read_channel(channels_dir: Path, name: str) -> dict:
+    f = channels_dir / f"{name}.json"
+    try:
+        return json.loads(f.read_text())
+    except Exception:
+        return None
+
+def _write_channel(channels_dir: Path, name: str, data: dict):
+    (channels_dir / f"{name}.json").write_text(json.dumps(data, indent=2))
+
+@router.get("/channels")
+async def list_channels(request: Request):
+    cdir = _channels_dir(request)
+    channels = []
+    for f in sorted(cdir.glob("*.json")):
+        try:
+            ch = json.loads(f.read_text())
+            channels.append({
+                "name": ch["name"],
+                "description": ch.get("description", ""),
+                "members": ch.get("members", []),
+                "messageCount": len(ch.get("messages", [])),
+                "createdBy": ch.get("createdBy", "?"),
+                "createdAt": ch.get("createdAt", ""),
+            })
+        except Exception:
+            continue
+    return {"channels": channels}
+
+@router.post("/channels")
+async def create_channel(req: ChannelCreate, request: Request):
+    cdir = _channels_dir(request)
+    if _read_channel(cdir, req.name):
+        raise HTTPException(409, f"Channel '{req.name}' already exists")
+    ch = {
+        "name": req.name,
+        "description": req.description or "",
+        "createdBy": req.createdBy,
+        "createdAt": _now(),
+        "members": [req.createdBy],
+        "messages": [],
+    }
+    _write_channel(cdir, req.name, ch)
+    return {"ok": True, "channel": req.name}
+
+@router.get("/channels/{name}")
+async def get_channel(name: str, request: Request, limit: int = Query(50, ge=1, le=500), offset: int = 0):
+    cdir = _channels_dir(request)
+    ch = _read_channel(cdir, name)
+    if not ch:
+        raise HTTPException(404, f"Channel '{name}' not found")
+    msgs = ch.get("messages", [])
+    total = len(msgs)
+    # Return newest messages (from end), with pagination
+    sliced = msgs[max(0, total - offset - limit):total - offset] if offset else msgs[-limit:]
+    return {
+        "name": ch["name"],
+        "description": ch.get("description", ""),
+        "members": ch.get("members", []),
+        "totalMessages": total,
+        "messages": sliced,
+    }
+
+@router.delete("/channels/{name}")
+async def delete_channel(name: str, request: Request):
+    cdir = _channels_dir(request)
+    f = cdir / f"{name}.json"
+    if f.exists():
+        f.unlink()
+        return {"ok": True}
+    raise HTTPException(404, f"Channel '{name}' not found")
+
+@router.post("/channels/{name}/join")
+async def join_channel(name: str, req: ChannelJoin, request: Request):
+    cdir = _channels_dir(request)
+    ch = _read_channel(cdir, name)
+    if not ch:
+        raise HTTPException(404, f"Channel '{name}' not found")
+    if req.agentId not in ch["members"]:
+        ch["members"].append(req.agentId)
+        # System message
+        ch["messages"].append({
+            "id": f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}",
+            "from": "_system",
+            "type": "info",
+            "body": f"{req.agentId} joined the channel",
+            "timestamp": int(time.time() * 1000),
+        })
+        _write_channel(cdir, name, ch)
+    return {"ok": True, "members": ch["members"]}
+
+@router.post("/channels/{name}/leave")
+async def leave_channel(name: str, req: ChannelJoin, request: Request):
+    cdir = _channels_dir(request)
+    ch = _read_channel(cdir, name)
+    if not ch:
+        raise HTTPException(404, f"Channel '{name}' not found")
+    if req.agentId in ch["members"]:
+        ch["members"].remove(req.agentId)
+        ch["messages"].append({
+            "id": f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}",
+            "from": "_system",
+            "type": "info",
+            "body": f"{req.agentId} left the channel",
+            "timestamp": int(time.time() * 1000),
+        })
+        _write_channel(cdir, name, ch)
+    return {"ok": True, "members": ch["members"]}
+
+@router.post("/channels/{name}/send")
+async def send_channel_message(name: str, req: ChannelMessage, request: Request):
+    cdir = _channels_dir(request)
+    ch = _read_channel(cdir, name)
+    if not ch:
+        raise HTTPException(404, f"Channel '{name}' not found")
+    if req.from_agent not in ch["members"]:
+        raise HTTPException(403, f"Agent '{req.from_agent}' is not a member of #{name}. Join first.")
+    msg = {
+        "id": f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}",
+        "from": req.from_agent,
+        "type": req.type,
+        "body": req.body,
+        "timestamp": int(time.time() * 1000),
+    }
+    ch["messages"].append(msg)
+    _write_channel(cdir, name, ch)
+    return {"ok": True, "messageId": msg["id"], "members": ch["members"]}
 
 # ─── Clear ───────────────────────────────────────────────────────────────────
 

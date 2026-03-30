@@ -346,26 +346,39 @@ server.tool(
 
 server.tool(
   "cc_register",
-  "Register this Claude Code instance as an agent with an ID and role.",
+  "Register this Claude Code instance as an agent with an ID and role. " +
+    "Optionally set a working directory and model so other agents can trigger you.",
   {
     agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
     role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
     name: z.string().optional().describe("Friendly name"),
+    cwd: z.string().optional().describe("Working directory for this agent (used when others trigger you)"),
+    model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
+    instructions: z.string().optional().describe("Standing instructions for when this agent is triggered (e.g. 'always run tests before responding')"),
   },
-  async ({ agentId, role, name }) => {
+  async ({ agentId, role, name, cwd, model, instructions }) => {
+    const agentData = {
+      agentId, role, name,
+      cwd: cwd || DEFAULT_CWD,
+      model: model || "",
+      instructions: instructions || "",
+    };
     if (IS_REMOTE) {
-      const r = await httpCall("POST", "/agents", { agentId, role, name });
+      const r = await httpCall("POST", "/agents", agentData);
       return { content: [{ type: "text", text: `Registered "${r.agentId}" (role: ${r.role}).` }] };
     }
     const registry = readAgents();
     registry.agents[agentId] = {
       role, name: name || agentId,
+      cwd: cwd || DEFAULT_CWD,
+      model: model || "",
+      instructions: instructions || "",
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
     };
     writeAgents(registry);
     fs.mkdirSync(path.join(INBOX_DIR, agentId), { recursive: true });
-    return { content: [{ type: "text", text: `Registered "${agentId}" (role: ${role}).` }] };
+    return { content: [{ type: "text", text: `Registered "${agentId}" (role: ${role}, cwd: ${cwd || DEFAULT_CWD}).` }] };
   }
 );
 
@@ -939,6 +952,365 @@ server.tool(
       const reg = readAgents();
       if (reg.agents[spawnedId]) { reg.agents[spawnedId].status = "error"; writeAgents(reg); }
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANNELS — group chat between multiple agents
+// ═════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "cc_channel_create",
+  "Create a new channel (group chat) for multiple agents to communicate.",
+  {
+    name: z.string().describe("Channel name (e.g. 'backend-team', 'code-review')"),
+    from: z.string().describe("Your agent ID (you'll be auto-joined)"),
+    description: z.string().optional().describe("Channel description"),
+  },
+  async ({ name, from, description }) => {
+    if (IS_REMOTE) {
+      const r = await httpCall("POST", "/channels", { name, createdBy: from, description });
+      return { content: [{ type: "text", text: `Channel #${name} created. You're a member.` }] };
+    }
+    // Local mode: channels stored in .messages/channels/<name>.json
+    const chDir = path.join(MESSAGES_DIR, "channels");
+    fs.mkdirSync(chDir, { recursive: true });
+    const chFile = path.join(chDir, `${name}.json`);
+    if (fs.existsSync(chFile)) {
+      return { content: [{ type: "text", text: `Channel #${name} already exists.` }] };
+    }
+    fs.writeFileSync(chFile, JSON.stringify({
+      name, description: description || "", createdBy: from,
+      createdAt: new Date().toISOString(),
+      members: [from], messages: [],
+    }, null, 2));
+    return { content: [{ type: "text", text: `Channel #${name} created. You're a member.` }] };
+  }
+);
+
+server.tool(
+  "cc_channel_join",
+  "Join an existing channel.",
+  {
+    channel: z.string().describe("Channel name to join"),
+    from: z.string().describe("Your agent ID"),
+  },
+  async ({ channel, from }) => {
+    if (IS_REMOTE) {
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: from });
+      return { content: [{ type: "text", text: `Joined #${channel}. Members: ${r.members.join(", ")}` }] };
+    }
+    const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
+    if (!fs.existsSync(chFile)) return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
+    const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
+    if (!ch.members.includes(from)) {
+      ch.members.push(from);
+      ch.messages.push({ id: `${Date.now()}`, from: "_system", type: "info", body: `${from} joined`, timestamp: Date.now() });
+      fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
+    }
+    return { content: [{ type: "text", text: `Joined #${channel}. Members: ${ch.members.join(", ")}` }] };
+  }
+);
+
+server.tool(
+  "cc_channel_send",
+  "Send a message to a channel. All members will see it.",
+  {
+    channel: z.string().describe("Channel name"),
+    from: z.string().describe("Your agent ID"),
+    body: z.string().describe("Message content"),
+    type: z.enum(["info", "request", "response", "error", "review", "approval"]).optional()
+      .describe("Message type (default: info)"),
+  },
+  async ({ channel, from, body, type }) => {
+    if (IS_REMOTE) {
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
+        from_agent: from, channel, body, type: type || "info",
+      });
+      return { content: [{ type: "text", text: `Sent to #${channel} (${r.members.length} members).` }] };
+    }
+    const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
+    if (!fs.existsSync(chFile)) return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
+    const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
+    if (!ch.members.includes(from)) return { content: [{ type: "text", text: `Not a member of #${channel}. Join first.` }], isError: true };
+    ch.messages.push({
+      id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
+      from, type: type || "info", body, timestamp: Date.now(),
+    });
+    fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
+    return { content: [{ type: "text", text: `Sent to #${channel} (${ch.members.length} members).` }] };
+  }
+);
+
+server.tool(
+  "cc_channel_read",
+  "Read recent messages from a channel.",
+  {
+    channel: z.string().describe("Channel name"),
+    limit: z.number().optional().describe("Number of messages to show (default: 20, newest first)"),
+  },
+  async ({ channel, limit }) => {
+    const maxN = limit || 20;
+    let ch;
+    if (IS_REMOTE) {
+      ch = await httpCall("GET", `/channels/${encodeURIComponent(channel)}?limit=${maxN}`);
+    } else {
+      const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
+      if (!fs.existsSync(chFile)) return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
+      const data = JSON.parse(fs.readFileSync(chFile, "utf-8"));
+      ch = { ...data, totalMessages: data.messages.length, messages: data.messages.slice(-maxN) };
+    }
+
+    if (!ch.messages.length) {
+      return { content: [{ type: "text", text: `#${channel} — no messages yet. Members: ${ch.members.join(", ")}` }] };
+    }
+
+    const header = `#${channel} — ${ch.totalMessages} messages, ${ch.members.length} members (${ch.members.join(", ")})`;
+    const lines = ch.messages.map((m) => {
+      const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : "?";
+      const safeBody = "```\n" + (m.body || "").replace(/```/g, "'''") + "\n```";
+      return `[${time}] ${m.from}: ${safeBody}`;
+    });
+
+    return {
+      content: [{
+        type: "text",
+        text: `${SAFETY_HEADER}\n\n${header}\n\n${lines.join("\n\n")}`,
+      }],
+    };
+  }
+);
+
+server.tool(
+  "cc_channel_list",
+  "List all channels.",
+  {},
+  async () => {
+    if (IS_REMOTE) {
+      const r = await httpCall("GET", "/channels");
+      if (!r.channels.length) return { content: [{ type: "text", text: "No channels." }] };
+      const lines = r.channels.map((c) =>
+        `#${c.name} — ${c.description || "(no description)"} | ${c.members.length} members, ${c.messageCount} messages`
+      );
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+    const chDir = path.join(MESSAGES_DIR, "channels");
+    if (!fs.existsSync(chDir)) return { content: [{ type: "text", text: "No channels." }] };
+    const files = fs.readdirSync(chDir).filter((f) => f.endsWith(".json"));
+    if (!files.length) return { content: [{ type: "text", text: "No channels." }] };
+    const lines = files.map((f) => {
+      const ch = JSON.parse(fs.readFileSync(path.join(chDir, f), "utf-8"));
+      return `#${ch.name} — ${ch.description || "(no description)"} | ${ch.members.length} members, ${ch.messages.length} messages`;
+    });
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  }
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TRIGGER — send a message AND spawn an instance to handle it
+// ═════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "cc_trigger",
+  "Send a message to an agent AND spawn a Claude Code instance to handle it. " +
+    "The target agent doesn't need to be running — the system spawns a new instance " +
+    "with the agent's registered role, working directory, and instructions. " +
+    "Use this when you want another agent to actually DO something, not just read a message.",
+  {
+    from: z.string().describe("Your agent ID"),
+    to: z.string().describe("Target agent ID to trigger"),
+    message: z.string().describe("The message/task for the target agent"),
+    type: z.enum(["request", "response", "info", "review"])
+      .optional().describe("Message type (default: request)"),
+    wait: z.boolean().optional()
+      .describe("Wait for the triggered agent to finish (default: false)"),
+    timeout: z.number().optional()
+      .describe("Timeout in ms (default: 600000 = 10 min)"),
+  },
+  async ({ from, to, message, type, wait, timeout }) => {
+    const msgType = type || "request";
+
+    // 1. Look up the target agent's config
+    let targetInfo;
+    if (IS_REMOTE) {
+      try {
+        const r = await httpCall("GET", "/agents");
+        targetInfo = r.agents?.[to];
+      } catch { /* fall through */ }
+    } else {
+      const registry = readAgents();
+      targetInfo = registry.agents?.[to];
+    }
+
+    if (!targetInfo) {
+      return {
+        content: [{ type: "text", text: `Agent "${to}" is not registered. Register it first with cc_register.` }],
+        isError: true,
+      };
+    }
+
+    // 2. Deliver the message to their inbox
+    const msgId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const msgPayload = {
+      id: msgId, from, type: msgType,
+      subject: `[TRIGGER] ${message.slice(0, 80)}`,
+      body: message,
+    };
+
+    if (IS_REMOTE) {
+      await httpCall("POST", "/messages/send", {
+        from_agent: from, to, type: msgType,
+        subject: msgPayload.subject, body: message,
+      });
+    } else {
+      deliverMessage(to, msgPayload);
+    }
+
+    // 3. Build the system prompt from the target's registration
+    const agentRole = targetInfo.role || "agent";
+    const agentCwd = targetInfo.cwd || DEFAULT_CWD;
+    const agentModel = targetInfo.model || undefined;
+    const agentInstructions = targetInfo.instructions || "";
+
+    const systemPrompt = [
+      `You are agent "${to}" with role "${agentRole}".`,
+      `You were triggered by agent "${from}".`,
+      agentInstructions ? `\nYour standing instructions: ${agentInstructions}` : "",
+      "",
+      "A message was delivered to your inbox. Here it is:",
+      "",
+      `From: ${from}`,
+      `Type: ${msgType}`,
+      `Message: ${message}`,
+      "",
+      "Act on this message. When done, send your response back to the sender.",
+      `To reply, write your results to a file or use the tools available to you.`,
+    ].filter(Boolean).join("\n");
+
+    // 4. Build CLI args
+    const args = ["--print", "--verbose", "--output-format", "text"];
+    if (agentModel) args.push("--model", agentModel);
+    args.push("--max-turns", "15");
+    args.push("--system-prompt", systemPrompt);
+    args.push(message);
+
+    // 5. Ensure sender's inbox exists for the reply
+    if (!IS_REMOTE) {
+      fs.mkdirSync(path.join(INBOX_DIR, from), { recursive: true });
+    }
+
+    // Helper to handle completion
+    const handleResult = async (result) => {
+      const output = result.stdout || result.stderr || "(no output)";
+      const status = result.code === 0 ? "completed" : "failed";
+
+      // Update agent status
+      if (IS_REMOTE) {
+        try {
+          await httpCall("POST", "/agents", {
+            agentId: to, role: agentRole, name: targetInfo.name,
+            cwd: agentCwd, model: agentModel || "", instructions: agentInstructions,
+          });
+        } catch { /* best effort */ }
+      } else {
+        const reg = readAgents();
+        if (reg.agents[to]) {
+          reg.agents[to].status = status;
+          reg.agents[to].lastSeen = new Date().toISOString();
+          writeAgents(reg);
+        }
+      }
+
+      // Save result as shared artifact
+      const artifactName = `${to}-trigger-${Date.now()}.md`;
+      if (IS_REMOTE) {
+        try {
+          const formData = new URLSearchParams({
+            from_agent: to, name: artifactName,
+            description: `Trigger result from ${agentRole}`,
+            content: output,
+          });
+          const headers = {};
+          if (API_KEY) headers["X-API-Key"] = API_KEY;
+          await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: formData });
+        } catch { /* best effort */ }
+      } else {
+        const artifactPath = path.join(SHARED_DIR, artifactName);
+        fs.writeFileSync(artifactPath, output);
+        fs.writeFileSync(artifactPath + ".meta.json", JSON.stringify({
+          from: to, name: artifactName,
+          description: `Trigger result from ${agentRole}`,
+          sharedAt: new Date().toISOString(), size: output.length,
+        }, null, 2));
+      }
+
+      // Send reply to the triggering agent's inbox
+      const replyMsg = {
+        id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
+        from: to, type: "response",
+        subject: `[${status.toUpperCase()}] ${message.slice(0, 60)}`,
+        body: output.length > 2000
+          ? output.slice(0, 2000) + `\n\n... (full output: "${artifactName}")`
+          : output,
+      };
+
+      if (IS_REMOTE) {
+        await httpCall("POST", "/messages/send", {
+          from_agent: to, to: from, type: "response",
+          subject: replyMsg.subject, body: replyMsg.body,
+        });
+      } else {
+        deliverMessage(from, replyMsg);
+      }
+
+      return output;
+    };
+
+    // 6. Spawn the instance
+    if (wait) {
+      // Synchronous — wait for result
+      try {
+        const result = await runClaude(args, { cwd: agentCwd, timeout: timeout || 600_000 });
+        const output = await handleResult(result);
+        return {
+          content: [{
+            type: "text",
+            text: `Triggered "${to}" (${agentRole}) — ${result.code === 0 ? "completed" : "failed"}:\n\n${output}`,
+          }],
+        };
+      } catch (err) {
+        return { content: [{ type: "text", text: `Trigger failed: ${err.message}` }], isError: true };
+      }
+    } else {
+      // Async — fire and forget
+      runClaude(args, { cwd: agentCwd, timeout: timeout || 600_000 })
+        .then(handleResult)
+        .catch((err) => {
+          const errMsg = {
+            id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
+            from: to, type: "error",
+            subject: `[ERROR] Trigger failed`,
+            body: err.message,
+          };
+          if (IS_REMOTE) {
+            httpCall("POST", "/messages/send", {
+              from_agent: to, to: from, type: "error",
+              subject: errMsg.subject, body: errMsg.body,
+            }).catch(() => {});
+          } else {
+            deliverMessage(from, errMsg);
+          }
+        });
+
+      return {
+        content: [{
+          type: "text",
+          text: `Triggered "${to}" (${agentRole}) in ${agentCwd}.\n` +
+            `Message delivered + instance spawned in background.\n` +
+            `Results will be sent to your inbox when done.`,
+        }],
+      };
     }
   }
 );
