@@ -172,6 +172,36 @@ Live at `http://localhost:8800/api/v1/dashboard` with 3 pages:
 | `/api/v1/clear` | POST | Clear data |
 | `/api/v1/dashboard` | GET | Web dashboard |
 
+## Installation Methods
+
+| Method | Who | Local files? | Command |
+|--------|-----|-------------|---------|
+| **Plugin** | Claude Code users | Clone repo | `claude plugin add ./aify-claude` |
+| **install.sh** | Claude Code users | Clone repo | `bash install.sh http://localhost:8800 --with-hook` |
+| **SSE** | Any MCP client | None | Connect to `http://SERVER:8800/mcp/sse` |
+| **Docker only** | API users | None | `docker compose up -d` → REST API at `:8800` |
+
+### Plugin install (Claude Code marketplace compatible)
+
+```bash
+git clone https://github.com/zimdin12/aify-claude.git
+cd aify-claude/mcp/stdio && npm install && cd ../..
+
+# With server:
+AIFY_SERVER_URL=http://localhost:8800 claude plugin add .
+
+# Local only:
+claude plugin add .
+```
+
+### For other MCP clients (OpenCode, Cursor, etc.)
+
+Connect via SSE — no local files needed:
+```
+MCP Server URL: http://SERVER:8800/mcp/sse
+Transport: SSE
+```
+
 ## Security
 
 - **API key** (optional): Set `API_KEY` in `.env`. Clients need `CLAUDE_MCP_API_KEY` env var.

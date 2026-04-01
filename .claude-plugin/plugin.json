@@ -1,0 +1,67 @@
+{
+  "name": "aify-claude",
+  "description": "Inter-agent communication hub for Claude Code — messaging, channels, file sharing, triggers, and dashboard. Connect multiple Claude Code instances for multi-agent workflows.",
+  "version": "3.1.0",
+  "author": {
+    "name": "zimdin12"
+  },
+  "homepage": "https://github.com/zimdin12/aify-claude",
+  "license": "MIT",
+  "keywords": [
+    "multi-agent",
+    "messaging",
+    "mcp",
+    "inter-agent",
+    "orchestration",
+    "channels",
+    "file-sharing"
+  ],
+  "mcp": {
+    "stdio": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/stdio/server.js"],
+      "env": {
+        "CLAUDE_MCP_SERVER_URL": "${AIFY_SERVER_URL:-}",
+        "CLAUDE_MCP_API_KEY": "${AIFY_API_KEY:-}"
+      }
+    },
+    "sse": {
+      "url": "${AIFY_SERVER_URL:-http://localhost:8800}/mcp/sse"
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/stdio/notify-check.js\""
+          }
+        ]
+      }
+    ]
+  },
+  "setup": {
+    "npm": {
+      "path": "mcp/stdio",
+      "install": true
+    },
+    "docker": {
+      "optional": true,
+      "compose": "docker-compose.yml",
+      "description": "Run the server for multi-machine/remote agent support"
+    }
+  },
+  "env": {
+    "AIFY_SERVER_URL": {
+      "description": "aify-claude server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
+      "required": false,
+      "default": ""
+    },
+    "AIFY_API_KEY": {
+      "description": "API key for authenticated access. Must match API_KEY in server's .env.",
+      "required": false,
+      "default": ""
+    }
+  }
+}
