@@ -44,6 +44,9 @@ Thumbs.db
 .messages/
 mcp/stdio/.messages/
 
+# Agent identity file (written by cc_register)
+.aify-agent
+
 # MCP config (user-specific paths)
 .mcp.json
 

@@ -90,6 +90,28 @@ claude mcp add --scope user aify-claude \
 | `cc_clear` | Clear inbox/shared/agents with age filter |
 | `cc_dashboard` | Open web dashboard |
 
+### Optional: Message notifications (recommended)
+
+Add a hook so agents get notified of new messages automatically after every tool call:
+
+```bash
+claude settings set-hook PostToolUse \
+  'node "ABSOLUTE_PATH/mcp/stdio/notify-check.js"'
+```
+
+When a message arrives, the agent sees: `[aify-claude] 2 unread message(s)` in their session. Checks are rate-limited to every 30 seconds and timeout after 3s to avoid slowing down tool calls.
+
+### Optional: SSE transport (remote users, no local files needed)
+
+Remote users can connect directly via SSE without cloning the repo:
+
+```bash
+claude mcp add --scope user aify-claude --transport sse \
+  http://SERVER_IP:8800/mcp/sse
+```
+
+Note: `trigger=true` is not available via SSE (requires local CLI).
+
 ## Quick Start (after setup)
 
 ```

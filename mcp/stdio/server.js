@@ -226,6 +226,10 @@ server.tool(
       instructions: instructions || "",
     };
 
+    // Write agent ID to cwd so the notification hook can find it
+    const agentCwd = cwd || DEFAULT_CWD;
+    try { fs.writeFileSync(path.join(agentCwd, ".aify-agent"), agentId); } catch { /* best effort */ }
+
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/agents", agentData);
       return { content: [{ type: "text", text: `Registered "${r.agentId}" (role: ${r.role}).` }] };
@@ -235,7 +239,7 @@ server.tool(
     registry.agents[agentId] = {
       role,
       name: name || agentId,
-      cwd: cwd || DEFAULT_CWD,
+      cwd: agentCwd,
       model: model || "",
       instructions: instructions || "",
       registeredAt: new Date().toISOString(),
@@ -244,7 +248,7 @@ server.tool(
     writeAgents(registry);
     fs.mkdirSync(path.join(INBOX_DIR, agentId), { recursive: true });
     return {
-      content: [{ type: "text", text: `Registered "${agentId}" (role: ${role}, cwd: ${cwd || DEFAULT_CWD}).` }],
+      content: [{ type: "text", text: `Registered "${agentId}" (role: ${role}, cwd: ${agentCwd}).` }],
     };
   }
 );
