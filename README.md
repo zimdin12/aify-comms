@@ -6,72 +6,69 @@ Multiple Claude Code instances can register as agents, send messages, share file
 
 Built on [aify-container](https://github.com/zimdin12/aify-container).
 
-## Quick Start
+## Setup
 
-### 1. Start the server
+### Server (run once, on the machine hosting the service)
 
 ```bash
 git clone https://github.com/zimdin12/aify-claude.git
 cd aify-claude
 bash setup.sh
 docker compose up -d --build
-# Dashboard: http://localhost:8800
 ```
 
-### 2. Install into Claude Code
+Verify: `curl http://localhost:8800/health` should return `{"status":"healthy"}`.
+Dashboard: http://localhost:8800
 
+### Client (run on every machine that needs the tools)
+
+> **Important**: Always point at `server.js` in this repo — do NOT copy it elsewhere.
+
+**Option A: install.sh (recommended)**
 ```bash
-# With inbox notifications (recommended):
+git clone https://github.com/zimdin12/aify-claude.git
+cd aify-claude
 bash install.sh http://localhost:8800 --with-hook
-
-# Without notifications:
-bash install.sh http://localhost:8800
-
-# Remote server:
-bash install.sh http://SERVER_IP:8800 --with-hook
-
-# Local only (no Docker):
-bash install.sh --with-hook
+# Restart Claude Code after this
 ```
 
-### 3. Restart Claude Code
-
-The 15 `cc_*` tools appear automatically. Try:
-```
-/aify-claude:register my-agent coder
-/aify-claude:agents
-/aify-claude:send other-agent Hello!
-```
-
-### SSE transport (remote users, no clone needed)
-
-Remote users can skip cloning entirely and connect via SSE:
-
+For a remote server, replace `localhost` with the server's IP:
 ```bash
-claude mcp add --scope user aify-claude --transport sse \
-  http://SERVER_IP:8800/mcp/sse
+bash install.sh http://192.168.1.100:8800 --with-hook
 ```
 
-<details>
-<summary>Manual setup (without install.sh)</summary>
+**Option B: SSE (no clone needed, works with any MCP client)**
+```bash
+claude mcp add --scope user aify-claude --transport sse http://SERVER_IP:8800/mcp/sse
+```
+Works with Claude Code, OpenCode, Cursor, or any MCP-compatible client.
 
+**Option C: Manual**
 ```bash
 cd aify-claude/mcp/stdio && npm install && cd ../..
 claude mcp add --scope user aify-claude \
   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+  -- node "/full/path/to/aify-claude/mcp/stdio/server.js"
 ```
+On Windows use forward slashes: `C:/Users/yourname/aify-claude/mcp/stdio/server.js`
 
-> **Windows**: Replace `$HOME/aify-claude` with full path, e.g. `C:/Users/yourname/aify-claude`
+### After install
 
-</details>
+Restart Claude Code. The 15 `cc_*` tools appear automatically.
+
+```
+cc_register(agentId="my-agent", role="coder")
+cc_agents()
+cc_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there!")
+cc_inbox(agentId="my-agent")
+```
 
 ## Architecture
 
 ```
 Claude Code (any machine)         Claude Code (any machine)
      |                                  |
-     | MCP client (server.js)           | MCP client (server.js)
+     | stdio MCP (server.js)            | SSE MCP (direct)
      |                                  |
      └─────────── HTTP ────────────────┘
                    |
@@ -80,10 +77,10 @@ Claude Code (any machine)         Claude Code (any machine)
          │  aify-claude         │
          │  Docker, port 8800   │
          │                      │
+         │  REST API + SSE MCP  │
          │  agents, inboxes,    │
          │  channels, shared    │
-         │  files, settings,    │
-         │  dashboard           │
+         │  files, dashboard    │
          └──────────────────────┘
 ```
 
@@ -133,9 +130,22 @@ Agent A: cc_send(to="tester", body="run tests", trigger=true)
 
 Only works on the **same machine** (the MCP client spawns the process). Cross-machine: message is delivered, but the receiver acts on it when they check inbox.
 
+## Notifications
+
+If installed with `--with-hook`, agents get notified of new messages automatically:
+
+```
+[aify-claude] 2 unread message(s):
+  - From worker-1: "Task complete"
+  - From tester: "Tests passed"
+Use cc_inbox to read them.
+```
+
+This runs after every tool call (rate-limited to 30s, 3s timeout). No polling loops needed.
+
 ## Dashboard
 
-Live at `http://localhost:8800/api/v1/dashboard` with 3 pages:
+Live at `http://localhost:8800` (redirects to `/api/v1/dashboard`):
 - **Dashboard** — agents, messages, files, stats, actions
 - **Instructions** — setup guide, slash commands, API reference
 - **Settings** — retention (90d), max messages (1000), rotation, refresh interval
@@ -156,6 +166,7 @@ Live at `http://localhost:8800/api/v1/dashboard` with 3 pages:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
+| `/mcp/sse` | GET | MCP SSE endpoint (any MCP client) |
 | `/api/v1/agents` | GET/POST/DELETE | Agents |
 | `/api/v1/messages/send` | POST | Send message |
 | `/api/v1/messages/inbox/{id}` | GET | Check inbox |
@@ -172,42 +183,12 @@ Live at `http://localhost:8800/api/v1/dashboard` with 3 pages:
 | `/api/v1/clear` | POST | Clear data |
 | `/api/v1/dashboard` | GET | Web dashboard |
 
-## Installation Methods
-
-| Method | Who | Local files? | Command |
-|--------|-----|-------------|---------|
-| **Plugin** | Claude Code users | Clone repo | `claude plugin add ./aify-claude` |
-| **install.sh** | Claude Code users | Clone repo | `bash install.sh http://localhost:8800 --with-hook` |
-| **SSE** | Any MCP client | None | Connect to `http://SERVER:8800/mcp/sse` |
-| **Docker only** | API users | None | `docker compose up -d` → REST API at `:8800` |
-
-### Plugin install (Claude Code marketplace compatible)
-
-```bash
-git clone https://github.com/zimdin12/aify-claude.git
-cd aify-claude/mcp/stdio && npm install && cd ../..
-
-# With server:
-AIFY_SERVER_URL=http://localhost:8800 claude plugin add .
-
-# Local only:
-claude plugin add .
-```
-
-### For other MCP clients (OpenCode, Cursor, etc.)
-
-Connect via SSE — no local files needed:
-```
-MCP Server URL: http://SERVER:8800/mcp/sse
-Transport: SSE
-```
-
 ## Security
 
-- **API key** (optional): Set `API_KEY` in `.env`. Clients need `CLAUDE_MCP_API_KEY` env var.
+- **API key** (optional): Set `API_KEY` in `.env`. Clients need `CLAUDE_MCP_API_KEY` env var or `-e AIFY_API_KEY=...`.
 - **Prompt injection protection**: Message bodies wrapped in code fences with safety warnings.
-- **Input validation**: Agent IDs, channel names, and artifact names must be alphanumeric (plus `.`, `-`, `_`), 1-128 chars. Path traversal attempts are rejected.
-- **Process isolation**: Triggered Claude CLI processes run without shell interpretation.
+- **Input validation**: Agent IDs, channel names, artifact names: alphanumeric + `.` `-` `_`, 1-128 chars.
+- **Timing-safe auth**: API key comparison uses `hmac.compare_digest`.
 - Leave `API_KEY` empty for no auth (local use).
 
 ## License
