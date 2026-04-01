@@ -8,60 +8,63 @@ Built on [aify-container](https://github.com/zimdin12/aify-container).
 
 ## Quick Start
 
+### 1. Start the server
+
 ```bash
 git clone https://github.com/zimdin12/aify-claude.git
 cd aify-claude
 bash setup.sh
 docker compose up -d --build
-# Dashboard: http://localhost:8800/api/v1/dashboard
+# Dashboard: http://localhost:8800
 ```
 
-### Connect Claude Code
-
-> **Important**: Always point at `server.js` in this repo — do NOT copy it elsewhere. This ensures you always get the latest code with security fixes.
+### 2. Install into Claude Code
 
 ```bash
-# 1. Install MCP dependencies
-cd aify-claude/mcp/stdio && npm install && cd ../..
+# With inbox notifications (recommended):
+bash install.sh http://localhost:8800 --with-hook
 
-# 2. Register with Claude Code (point at repo source)
-claude mcp add --scope user aify-claude \
-  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+# Without notifications:
+bash install.sh http://localhost:8800
 
-# 3. Restart Claude Code
+# Remote server:
+bash install.sh http://SERVER_IP:8800 --with-hook
+
+# Local only (no Docker):
+bash install.sh --with-hook
 ```
 
-> **Windows**: Replace `$HOME/aify-claude` with full path using forward slashes, e.g. `C:/Users/yourname/aify-claude`
+### 3. Restart Claude Code
 
-<details>
-<summary>Other setups (remote server, local-only, API key)</summary>
-
-```bash
-# Remote server — replace with server IP:
-claude mcp add --scope user aify-claude \
-  -e CLAUDE_MCP_SERVER_URL=http://192.168.1.100:8800 \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"
-
-# Local-only (no Docker, single machine):
-claude mcp add --scope user aify-claude \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"
-
-# With API key:
-claude mcp add --scope user aify-claude \
-  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -e CLAUDE_MCP_API_KEY=your-secret \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"
-```
-
-</details>
-
-After restart, the 15 `cc_*` tools appear automatically. Try:
+The 15 `cc_*` tools appear automatically. Try:
 ```
 /aify-claude:register my-agent coder
 /aify-claude:agents
-/aify-claude:dashboard
+/aify-claude:send other-agent Hello!
 ```
+
+### SSE transport (remote users, no clone needed)
+
+Remote users can skip cloning entirely and connect via SSE:
+
+```bash
+claude mcp add --scope user aify-claude --transport sse \
+  http://SERVER_IP:8800/mcp/sse
+```
+
+<details>
+<summary>Manual setup (without install.sh)</summary>
+
+```bash
+cd aify-claude/mcp/stdio && npm install && cd ../..
+claude mcp add --scope user aify-claude \
+  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
+  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+```
+
+> **Windows**: Replace `$HOME/aify-claude` with full path, e.g. `C:/Users/yourname/aify-claude`
+
+</details>
 
 ## Architecture
 
