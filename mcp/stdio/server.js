@@ -19,6 +19,7 @@ import { z } from "zod";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ function runClaude(args, options = {}) {
     const proc = spawn("claude", args, {
       cwd: options.cwd || DEFAULT_CWD,
       env: { ...process.env, ...(options.env || {}) },
-      shell: false,
+      shell: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -379,16 +380,24 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     `You are agent "${targetId}" with role "${agentRole}".`,
     `Triggered by "${from}".`,
     targetInfo.instructions ? `Instructions: ${targetInfo.instructions}` : "",
-    `\nMessage (${type}): ${body}`,
-    "\nAct on this message.",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const args = ["--print", "--verbose", "--output-format", "text"];
-  if (agentModel) args.push("--model", agentModel);
-  args.push("--max-turns", "15", "--system-prompt", sysPrompt, body);
+  const userPrompt = `Message (${type}): ${subject}\n\n${body}`;
 
+  // Write prompts to temp files to avoid shell escaping issues (Windows cmd.exe
+  // splits unquoted args at spaces). os.tmpdir() is used for space-free paths.
+  const tmpDir = path.join(os.tmpdir(), "aify-claude-triggers");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const sysFile = path.join(tmpDir, `sys-${Date.now()}.txt`);
+  const userFile = path.join(tmpDir, `user-${Date.now()}.txt`);
+  fs.writeFileSync(sysFile, sysPrompt);
+  fs.writeFileSync(userFile, userPrompt);
+
+  const args = ["--print", "--output-format", "text"];
+  if (agentModel) args.push("--model", agentModel);
+  args.push("--max-turns", "15", "--system-prompt-file", sysFile);
   const sendReply = (replyBody, replyType, replySubject) => {
     const reply = {
       id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
@@ -407,14 +416,21 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     }
   };
 
-  runClaude(args, { cwd: agentCwd, timeout: 600_000 })
+  const cleanup = () => {
+    try { fs.unlinkSync(sysFile); } catch { /* ignore */ }
+    try { fs.unlinkSync(userFile); } catch { /* ignore */ }
+  };
+
+  runClaude(args, { cwd: agentCwd, timeout: 600_000, stdin: userPrompt })
     .then((result) => {
+      cleanup();
       const output = result.stdout || result.stderr || "(no output)";
       const truncated = output.length > 2000 ? output.slice(0, 2000) + "\n..." : output;
       const tag = result.code === 0 ? "DONE" : "FAILED";
       sendReply(truncated, "response", `[${tag}] ${subject}`);
     })
     .catch((err) => {
+      cleanup();
       sendReply(err.message, "error", `[ERROR] ${subject}`);
     });
 }
