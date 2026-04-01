@@ -20,18 +20,27 @@ docker compose up -d --build
 Verify: `curl http://localhost:8800/health` should return `{"status":"healthy"}`.
 Dashboard: http://localhost:8800
 
-### Client (run on every machine that needs the tools)
+### Client — Claude Code plugin install (recommended)
 
-**Option A: Plugin install (recommended)**
+Install aify-claude as a Claude Code plugin. This sets up the MCP server, skill, and notification hook — same as a marketplace install.
+
+**Step 1: Clone and install dependencies**
 ```bash
-# Add aify-claude as a marketplace source
-claude plugin marketplace add https://github.com/zimdin12/aify-claude
-
-# Install the plugin
-claude plugin install aify-claude
+git clone https://github.com/zimdin12/aify-claude.git ~/.claude/plugins/aify-claude
+cd ~/.claude/plugins/aify-claude/mcp/stdio && npm install && cd ~
 ```
 
-Then add your server URL to `~/.claude/settings.local.json`:
+**Step 2: Register the MCP server**
+```bash
+claude mcp add --scope user aify-claude \
+  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/server.js"
+```
+
+On Windows, replace `$HOME` with your home directory using forward slashes (e.g. `C:/Users/yourname`).
+
+**Step 3: Configure the server URL**
+
+Create or edit `~/.claude/settings.local.json`:
 ```json
 {
   "env": {
@@ -40,32 +49,62 @@ Then add your server URL to `~/.claude/settings.local.json`:
 }
 ```
 
-Restart Claude Code. Done — no clone, no npm, no manual MCP registration.
+Replace `SERVER_IP` with the machine running the Docker container. Use `localhost` if it's the same machine.
 
-**Option B: SSE (zero install, works with any MCP client)**
+For per-project overrides, add `.claude/settings.local.json` in the project root (gitignored).
+
+**Step 4: Copy skill and commands (optional but recommended)**
+```bash
+# Skill — auto-activates and teaches Claude how to use the cc_* tools
+cp -r ~/.claude/plugins/aify-claude/.claude/skills/aify-claude ~/.claude/skills/aify-claude
+
+# Slash commands — /register, /send, /inbox, etc.
+mkdir -p ~/.claude/commands/aify-claude
+cp ~/.claude/plugins/aify-claude/.claude/commands/*.md ~/.claude/commands/aify-claude/
+```
+
+**Step 5: Restart Claude Code**
+
+The 15 `cc_*` tools appear automatically. The skill tells Claude how to use them.
+
+### Client — other install methods
+
+<details>
+<summary>SSE (zero install, works with any MCP client)</summary>
+
+No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-compatible client:
 ```bash
 claude mcp add --scope user aify-claude --transport sse http://SERVER_IP:8800/mcp/sse
 ```
-Works with Claude Code, OpenCode, Cursor, or any MCP-compatible client. No local files.
+Note: no skill, no triggers, no notifications — just the 15 tools.
 
-**Option C: Clone + install.sh**
+</details>
+
+<details>
+<summary>install.sh (quick setup on same machine as server)</summary>
+
 ```bash
 git clone https://github.com/zimdin12/aify-claude.git
 cd aify-claude
-bash install.sh http://SERVER_IP:8800 --with-hook
+bash install.sh http://localhost:8800 --with-hook
 ```
 
-**Option D: Manual**
+</details>
+
+<details>
+<summary>Marketplace install (when added to a marketplace)</summary>
+
+If aify-claude is registered in a Claude Code marketplace:
 ```bash
-cd aify-claude/mcp/stdio && npm install && cd ../..
-claude mcp add --scope user aify-claude \
-  -e CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
-  -- node "/full/path/to/aify-claude/mcp/stdio/server.js"
+claude plugin install aify-claude
 ```
+Then add `AIFY_SERVER_URL` to `~/.claude/settings.local.json`.
+
+</details>
 
 ### After install
 
-Restart Claude Code. The 15 `cc_*` tools appear automatically.
+Restart Claude Code. Try:
 
 ```
 cc_register(agentId="my-agent", role="coder")
