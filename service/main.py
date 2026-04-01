@@ -103,11 +103,15 @@ async def lifespan(app: FastAPI):
     # Mount MCP server if enabled
     if config.mcp_enabled:
         try:
-            from mcp.sse_server import setup_mcp_server
-            setup_mcp_server(app)
+            import importlib.util
+            _sse_path = Path(__file__).resolve().parent.parent / "mcp" / "sse_server.py"
+            _spec = importlib.util.spec_from_file_location("sse_server", _sse_path)
+            _mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            _mod.setup_mcp_server(app)
             logger.info(f"MCP SSE at {config.mcp_path_prefix}/sse")
-        except ImportError:
-            logger.info("MCP SSE server not available, skipping")
+        except Exception as e:
+            logger.info(f"MCP SSE server not available: {e}")
 
     yield
 
@@ -147,6 +151,13 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(api.router, prefix="/api/v1")
     app.include_router(containers_router.router)
+
+    # Redirect root to dashboard
+    from fastapi.responses import RedirectResponse
+
+    @app.get("/", include_in_schema=False)
+    async def root_redirect():
+        return RedirectResponse(url="/api/v1/dashboard")
 
     return app
 
