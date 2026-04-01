@@ -317,7 +317,7 @@ async function refreshDashboard() {
     let allMsgs = [];
     for (const [id] of agents) {
       try {
-        const inbox = await apiFetch(API + '/messages/inbox/' + id + '?filter=all&limit=200').then(r => r.json());
+        const inbox = await apiFetch(API + '/messages/inbox/' + id + '?filter=all&limit=200&peek=true').then(r => r.json());
         for (const m of inbox.messages) { m._to = id; allMsgs.push(m); }
       } catch(e) {}
     }

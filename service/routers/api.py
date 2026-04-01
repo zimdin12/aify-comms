@@ -270,7 +270,9 @@ async def get_inbox(
         messages = [m for m in messages if m.get("type") == type]
     total = len(messages)
     shown = messages[:limit]
-    _mark_read(inbox_dir, agent_id, shown)
+    # Only mark as read when explicitly requested (not during dashboard/peek views)
+    if not request.query_params.get("peek"):
+        _mark_read(inbox_dir, agent_id, shown)
     clean = []
     for m in shown:
         c = {k: v for k, v in m.items() if not k.startswith("_")}
