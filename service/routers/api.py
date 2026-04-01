@@ -9,6 +9,7 @@ and view a dashboard — all over HTTP.
 """
 
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -17,6 +18,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
+
+SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
+
+def validate_name(name: str, label: str = "name") -> None:
+    """Reject names that could escape filesystem boundaries."""
+    if not SAFE_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
 
 router = APIRouter(tags=["api"])
 
@@ -187,6 +195,7 @@ async def list_agents(request: Request):
 
 @router.post("/agents")
 async def register_agent(req: AgentRegister, request: Request):
+    validate_name(req.agentId, "agent ID")
     agents_file, inbox_dir, _ = _dirs(request)
     registry = _read_agents(agents_file)
     registry["agents"][req.agentId] = {
@@ -246,6 +255,7 @@ async def get_inbox(
     fromAgent: Optional[str] = None, fromRole: Optional[str] = None,
     type: Optional[str] = None, limit: int = Query(20, ge=1, le=200),
 ):
+    validate_name(agent_id, "agent ID")
     agents_file, inbox_dir, _ = _dirs(request)
     registry = _read_agents(agents_file)
     if registry["agents"].get(agent_id):
@@ -328,6 +338,7 @@ async def share_artifact(
     description: str = Form(""), content: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
 ):
+    validate_name(name, "artifact name")
     _, _, shared_dir = _dirs(request)
     dest = shared_dir / name
     if file:
@@ -342,6 +353,7 @@ async def share_artifact(
 
 @router.get("/shared/{name}")
 async def get_shared(name: str, request: Request):
+    validate_name(name, "artifact name")
     _, _, shared_dir = _dirs(request)
     artifact = shared_dir / name
     if not artifact.exists():
@@ -358,6 +370,7 @@ async def get_shared(name: str, request: Request):
 
 @router.delete("/shared/{name}")
 async def delete_shared(name: str, request: Request):
+    validate_name(name, "artifact name")
     _, _, shared_dir = _dirs(request)
     deleted = False
     for f in [shared_dir / name, shared_dir / f"{name}.meta.json"]:
@@ -402,6 +415,7 @@ async def list_channels(request: Request):
 
 @router.post("/channels")
 async def create_channel(req: ChannelCreate, request: Request):
+    validate_name(req.name, "channel name")
     cdir = _channels_dir(request)
     if _read_channel(cdir, req.name):
         raise HTTPException(409, f"Channel '{req.name}' already exists")
@@ -418,6 +432,7 @@ async def create_channel(req: ChannelCreate, request: Request):
 
 @router.get("/channels/{name}")
 async def get_channel(name: str, request: Request, limit: int = Query(50, ge=1, le=500), offset: int = 0):
+    validate_name(name, "channel name")
     cdir = _channels_dir(request)
     ch = _read_channel(cdir, name)
     if not ch:
@@ -445,6 +460,7 @@ async def delete_channel(name: str, request: Request):
 
 @router.post("/channels/{name}/join")
 async def join_channel(name: str, req: ChannelJoin, request: Request):
+    validate_name(name, "channel name")
     cdir = _channels_dir(request)
     ch = _read_channel(cdir, name)
     if not ch:
@@ -464,6 +480,7 @@ async def join_channel(name: str, req: ChannelJoin, request: Request):
 
 @router.post("/channels/{name}/leave")
 async def leave_channel(name: str, req: ChannelJoin, request: Request):
+    validate_name(name, "channel name")
     cdir = _channels_dir(request)
     ch = _read_channel(cdir, name)
     if not ch:
@@ -482,6 +499,7 @@ async def leave_channel(name: str, req: ChannelJoin, request: Request):
 
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
+    validate_name(name, "channel name")
     cdir = _channels_dir(request)
     ch = _read_channel(cdir, name)
     if not ch:

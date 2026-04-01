@@ -8,6 +8,7 @@ This is the entry point. An AI agent building on this template should:
 4. Update integrations/ (Claude Code skill, OpenClaw plugin, Open WebUI tool)
 """
 
+import hmac
 import json
 import logging
 import sys
@@ -47,7 +48,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             or request.query_params.get("api_key")
         )
 
-        if provided_key != self.api_key:
+        if not provided_key or not hmac.compare_digest(provided_key, self.api_key):
             return Response(
                 content='{"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}',
                 status_code=401,

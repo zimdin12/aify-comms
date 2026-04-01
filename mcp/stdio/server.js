@@ -42,6 +42,14 @@ const AGENTS_FILE = path.join(MESSAGES_DIR, "agents.json");
 const INBOX_DIR = path.join(MESSAGES_DIR, "inbox");
 const SHARED_DIR = path.join(MESSAGES_DIR, "shared");
 
+// ── Input validation ────────────────────────────────────────────────────────
+const SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+function validateName(name, label = "name") {
+  if (!SAFE_NAME_RE.test(name)) {
+    throw new Error(`Invalid ${label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores. Got: "${name}"`);
+  }
+}
+
 if (!IS_REMOTE) {
   for (const dir of [MESSAGES_DIR, INBOX_DIR, SHARED_DIR]) {
     fs.mkdirSync(dir, { recursive: true });
@@ -152,7 +160,7 @@ function runClaude(args, options = {}) {
     const proc = spawn("claude", args, {
       cwd: options.cwd || DEFAULT_CWD,
       env: { ...process.env, ...(options.env || {}) },
-      shell: true,
+      shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -206,6 +214,8 @@ server.tool(
     instructions: z.string().optional().describe("Standing instructions for when triggered"),
   },
   async ({ agentId, role, name, cwd, model, instructions }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     const agentData = {
       agentId,
       role,
@@ -426,6 +436,8 @@ server.tool(
     limit: z.number().optional().describe("Max messages (default: 20)"),
   },
   async ({ agentId, filter, fromAgent, fromRole, type, limit }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     const maxN = limit || 20;
     const msgFilter = filter || "unread";
 
@@ -584,6 +596,8 @@ server.tool(
     description: z.string().optional().describe("Short description"),
   },
   async ({ from, name, content, filePath, description }) => {
+    try { validateName(name); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     if (IS_REMOTE) {
       let body = content;
       if (filePath && !content) body = fs.readFileSync(filePath, "utf-8");
@@ -637,6 +651,8 @@ server.tool(
     name: z.string().describe("Artifact name to read"),
   },
   async ({ name }) => {
+    try { validateName(name); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     if (IS_REMOTE) {
       const r = await httpCall("GET", `/shared/${encodeURIComponent(name)}`);
       if (r.content) {
@@ -731,6 +747,8 @@ server.tool(
     description: z.string().optional().describe("Channel description"),
   },
   async ({ name, from, description }) => {
+    try { validateName(name, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     if (IS_REMOTE) {
       await httpCall("POST", "/channels", { name, createdBy: from, description });
       return { content: [{ type: "text", text: `Channel #${name} created. You're a member.` }] };
@@ -766,6 +784,8 @@ server.tool(
     from: z.string().describe("Your agent ID"),
   },
   async ({ channel, from }) => {
+    try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     if (IS_REMOTE) {
       const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: from });
       return { content: [{ type: "text", text: `Joined #${channel}. Members: ${r.members.join(", ")}` }] };
@@ -805,6 +825,8 @@ server.tool(
       .describe("Message type (default: info)"),
   },
   async ({ channel, from, body, type }) => {
+    try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     if (IS_REMOTE) {
       const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
         from_agent: from, channel, body, type: type || "info",
@@ -841,6 +863,8 @@ server.tool(
     limit: z.number().optional().describe("Number of messages (default: 20, newest first)"),
   },
   async ({ channel, limit }) => {
+    try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
     const maxN = limit || 20;
     let ch;
 

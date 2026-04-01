@@ -20,37 +20,46 @@ docker compose up -d --build
 
 ```bash
 # 1. Install MCP client
-cd aify-claude/mcp/stdio
-npm install
+cd aify-claude/mcp/stdio && npm install && cd ../..
 
-# 2. Register with Claude Code (same machine)
+# 2. Register with Claude Code
 claude mcp add --scope user aify-claude \
   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
   -- node "$HOME/aify-claude/mcp/stdio/server.js"
 
-# Remote server — replace with server IP:
-# claude mcp add --scope user aify-claude \
-#   -e CLAUDE_MCP_SERVER_URL=http://192.168.1.100:8800 \
-#   -- node "$HOME/aify-claude/mcp/stdio/server.js"
-
-# With API key:
-# claude mcp add --scope user aify-claude \
-#   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-#   -e CLAUDE_MCP_API_KEY=your-secret \
-#   -- node "$HOME/aify-claude/mcp/stdio/server.js"
-
-# 3. Install slash commands (optional)
-cd ~/aify-claude
-mkdir -p ~/.claude/commands/aify-claude
-cp .claude/commands/*.md ~/.claude/commands/aify-claude/
-
-# 4. Restart Claude Code, then:
-#    /aify-claude:register my-agent coder
-#    /aify-claude:agents
-#    /aify-claude:dashboard
+# 3. Restart Claude Code
 ```
 
 > **Windows**: Replace `$HOME/aify-claude` with full path, e.g. `C:/Users/yourname/aify-claude`
+
+<details>
+<summary>Other setups (remote server, local-only, API key)</summary>
+
+```bash
+# Remote server — replace with server IP:
+claude mcp add --scope user aify-claude \
+  -e CLAUDE_MCP_SERVER_URL=http://192.168.1.100:8800 \
+  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+
+# Local-only (no Docker, single machine):
+claude mcp add --scope user aify-claude \
+  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+
+# With API key:
+claude mcp add --scope user aify-claude \
+  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
+  -e CLAUDE_MCP_API_KEY=your-secret \
+  -- node "$HOME/aify-claude/mcp/stdio/server.js"
+```
+
+</details>
+
+After restart, the 15 `cc_*` tools appear automatically. Try:
+```
+/aify-claude:register my-agent coder
+/aify-claude:agents
+/aify-claude:dashboard
+```
 
 ## Architecture
 
@@ -162,6 +171,8 @@ Live at `http://localhost:8800/api/v1/dashboard` with 3 pages:
 
 - **API key** (optional): Set `API_KEY` in `.env`. Clients need `CLAUDE_MCP_API_KEY` env var.
 - **Prompt injection protection**: Message bodies wrapped in code fences with safety warnings.
+- **Input validation**: Agent IDs, channel names, and artifact names must be alphanumeric (plus `.`, `-`, `_`), 1-128 chars. Path traversal attempts are rejected.
+- **Process isolation**: Triggered Claude CLI processes run without shell interpretation.
 - Leave `API_KEY` empty for no auth (local use).
 
 ## License
