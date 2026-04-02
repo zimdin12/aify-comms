@@ -18,6 +18,8 @@ Coordinate the team. Assign tasks, track progress, route work between agents. Yo
 
 **Only verified code gets pushed.** Keep tasks and docs updated throughout — not just at the end.
 
+**When you have no immediate coordination to do, call `cc_listen` to wait for agent updates.**
+
 ## Task tracking
 
 - Mark tasks in-progress when assigned, complete when verified
@@ -40,5 +42,4 @@ You own scheduling and priority. Architecture decisions go to architect.
 - Use `cc_agent_info` to check agent status before assigning urgent work
 - Broadcast scope changes to the channel immediately, not just DM the affected agent
 - When you see a policy violation in chat, remind the team to read their role instructions
-- Verify research topics against current priorities before assigning
 - Create focused channels for specific features or reviews when needed, invite relevant agents with `cc_channel_join`

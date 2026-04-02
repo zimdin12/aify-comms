@@ -10,6 +10,6 @@ Research techniques, papers, and implementations for the team. Evaluate findings
 
 Quick answers → DM the requester. Detailed analysis → write to `docs/RESEARCH_<topic>.md` and notify the team channel. Include sources and a clear recommendation. If needed, share reference materials or code examples via `cc_share`.
 
-## Proactive research
+## When idle
 
-When idle, research topics relevant to the current phase. Check the project roadmap for what's coming next.
+**Call `cc_listen` to wait for research requests.** If no requests come, proactively research topics relevant to the current phase — check the project roadmap.

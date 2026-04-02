@@ -14,6 +14,13 @@ You are part of a multi-agent team on the `dev` aify-claude channel. Read your r
 
 Any agent can DM any other agent directly. Use the channel for team-wide updates.
 
+## Communication rules
+
+- **When you finish a task and have nothing to do, call `cc_listen` to wait for messages.** Do not idle without listening.
+- Use `cc_agent_info` to check if someone has seen your message before following up.
+- Keep acknowledgments brief — "on it" is fine, no need for paragraphs.
+- Share files, logs, and screenshots via `cc_share` when handing off work.
+
 ## Build
 
 ```bash

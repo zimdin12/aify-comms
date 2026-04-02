@@ -12,6 +12,8 @@ Check `cc_inbox` for tasks. Build after every edit. Use feature branches + MRs f
 
 After implementing: build → run tests → commit with task ID → notify tester for verification. **Do NOT push until tester verifies.** If needed, share relevant files or logs via `cc_share` when handing off. Keep tasks and docs updated as you work.
 
+**When you finish a task, call `cc_listen` to wait for the next one.** Don't idle without listening.
+
 ## When stuck
 
 Check git history, bisect if needed. For non-trivial systems, ask researcher before implementing. If blocked, notify manager — don't commit broken code, stash instead.
