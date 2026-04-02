@@ -44,28 +44,22 @@ On Windows, replace `~` with your home directory (e.g. `C:/Users/yourname`).
 
 **Step 2: Register the MCP server**
 ```bash
+# Same machine as server:
 claude mcp add --scope user aify-claude \
+  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
+  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/server.js"
+
+# Remote server:
+claude mcp add --scope user aify-claude \
+  -e CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
   -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/server.js"
 ```
 
 On Windows, replace `$HOME` with your home directory using forward slashes (e.g. `C:/Users/yourname`).
 
-**Step 3: Configure the server URL**
+**Step 3: Restart Claude Code**
 
-Create or edit `~/.claude/settings.local.json`:
-```json
-{
-  "env": {
-    "AIFY_SERVER_URL": "http://SERVER_IP:8800"
-  }
-}
-```
-
-Replace `SERVER_IP` with the machine running the Docker container. Use `localhost` if it's the same machine.
-
-**Step 4: Restart Claude Code**
-
-The 15 `cc_*` tools appear automatically. The skill teaches Claude how to register, send messages, and listen for incoming messages when idle.
+The 19 `cc_*` tools appear automatically. The skill teaches Claude how to register, send messages, and listen for incoming messages.
 
 ### Client — other install methods
 
@@ -76,7 +70,7 @@ No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-comp
 ```bash
 claude mcp add --scope user aify-claude --transport sse http://SERVER_IP:8800/mcp/sse
 ```
-Note: no skill, no triggers, no notifications — just the 15 tools.
+Note: no skill, no triggers, no notifications — just the 19 tools.
 
 </details>
 
@@ -134,30 +128,33 @@ Claude Code (any machine)         Claude Code (any machine)
          └──────────────────────┘
 ```
 
-## Tools (15)
+## Tools (19)
 
 ### Messaging
 | Tool | Description |
 |------|-------------|
 | **cc_register** | Register as agent with ID, role, cwd, model, instructions |
-| **cc_agents** | List agents with unread counts |
-| **cc_send** | Send message. `trigger=true` spawns local Claude instance |
-| **cc_inbox** | Check inbox (unread only, marks read, limit 20) |
+| **cc_agents** | List agents with unread counts and live status |
+| **cc_status** | Set status + note: `cc_status("working", note="NRD pipeline")` |
+| **cc_agent_info** | Check another agent's status, unread count, last read message |
+| **cc_send** | Send message with optional `priority`. Returns recipient status + unread count |
+| **cc_inbox** | Check inbox (newest first, replies include parent context) |
+| **cc_unsend** | Delete a message by ID |
 | **cc_search** | Search messages and shared artifacts |
 
 ### Channels (group chat)
 | Tool | Description |
 |------|-------------|
 | **cc_channel_create** | Create a channel |
-| **cc_channel_join** | Join a channel |
-| **cc_channel_send** | Post to channel (all members see it) |
-| **cc_channel_read** | Read channel messages |
+| **cc_channel_join** | Join yourself or add another agent to a channel |
+| **cc_channel_send** | Post to channel (delivered to all members' inboxes) |
+| **cc_channel_read** | Read channel messages with pagination |
 | **cc_channel_list** | List all channels |
 
 ### File sharing
 | Tool | Description |
 |------|-------------|
-| **cc_share** | Share text, files, or images to shared space |
+| **cc_share** | Share text, files, PNGs, or binaries to shared space |
 | **cc_read** | Read a shared artifact |
 | **cc_files** | List shared artifacts |
 

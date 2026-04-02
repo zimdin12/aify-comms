@@ -1,11 +1,5 @@
 """
-Agentify Container - Main FastAPI Application
-
-This is the entry point. An AI agent building on this template should:
-1. Add domain-specific routes in service/routers/api.py
-2. Register MCP tools in mcp/sse_server.py
-3. Update config/service.example.json with service-specific settings
-4. Update integrations/ (Claude Code skill, OpenClaw plugin, Open WebUI tool)
+aify-claude — Main FastAPI Application (v2 SQLite)
 """
 
 import hmac
@@ -15,51 +9,40 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from service.config import get_config
-from service.routers import health, api, containers as containers_router
+from service.routers import health, containers as containers_router
+from service.routers.api_v2 import router as api_router
+from service.db import init_db
+from service.ws import ConnectionManager
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
-    """
-    Enforces API key auth when API_KEY is set in .env.
-
-    - Checks X-API-Key header or ?api_key= query param
-    - Skips: /health, /ready, /docs, /redoc, /openapi.json
-    - Dashboard accessible with ?api_key= in URL (for browser access)
-    """
-
     def __init__(self, app, api_key: str):
         super().__init__(app)
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next):
-        # Skip auth for health/docs endpoints
-        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json"]
+        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json", "/ws"]
         if any(request.url.path.startswith(p) for p in skip_paths):
             return await call_next(request)
-
-        # Check header first, then query param
         provided_key = (
             request.headers.get("X-API-Key")
             or request.query_params.get("api_key")
         )
-
         if not provided_key or not hmac.compare_digest(provided_key, self.api_key):
             return Response(
                 content='{"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}',
                 status_code=401,
                 media_type="application/json",
             )
-
         return await call_next(request)
 
 
 def _setup_logging(config):
-    """Configure logging based on config."""
     level = getattr(logging, config.log_level.upper(), logging.INFO)
     if config.log_format == "json":
         fmt = '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
@@ -73,12 +56,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle."""
     config = get_config()
     _setup_logging(config)
-    logger.info(f"Starting {config.name} v{config.version}")
+    logger.info(f"Starting {config.name} v{config.version} (SQLite)")
 
-    # --- STARTUP ---
+    # Init SQLite database
+    db_path = Path(config.data_dir) / "aify.db"
+    await init_db(db_path)
+    logger.info(f"Database: {db_path}")
+
+    # WebSocket manager
+    app.state.ws_manager = ConnectionManager()
+
+    # Store config on app state
+    app.state.config = config
+
+    # Container manager (optional)
     container_manager = None
     json_path = Path(config.config_dir) / "service.json"
     if json_path.exists():
@@ -143,14 +136,26 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # API key auth — only enforced when API_KEY is set in .env
+    # API key auth
     if config.api_key:
         app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
         logger.info("API key auth enabled")
 
     app.include_router(health.router)
-    app.include_router(api.router, prefix="/api/v1")
+    app.include_router(api_router, prefix="/api/v1")
     app.include_router(containers_router.router)
+
+    # WebSocket endpoint
+    @app.websocket("/ws")
+    async def websocket_endpoint(ws: WebSocket):
+        agent_id = ws.query_params.get("agent_id")
+        manager = app.state.ws_manager
+        await manager.connect(ws, agent_id)
+        try:
+            while True:
+                await ws.receive_text()  # Keep alive, ignore client messages
+        except WebSocketDisconnect:
+            manager.disconnect(ws)
 
     # Redirect root to dashboard
     from fastapi.responses import RedirectResponse

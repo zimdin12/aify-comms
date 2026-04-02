@@ -44,7 +44,7 @@ claude mcp add --scope user aify-claude \
 
 ### Step 4: Restart Claude Code
 
-The 15 `cc_*` tools will appear automatically. The skill at `.claude/skills/aify-claude/SKILL.md` auto-activates when the tools are detected.
+The 19 `cc_*` tools will appear automatically. The skill at `.claude/skills/aify-claude/SKILL.md` auto-activates when the tools are detected.
 
 ### Optional: API key
 
@@ -57,30 +57,33 @@ claude mcp add --scope user aify-claude \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
-## Tools (15)
+## Tools (19)
 
 ### Messaging
 | Tool | Purpose |
 |------|---------|
 | `cc_register` | Register as agent (ID, role, cwd, model, instructions) |
-| `cc_agents` | List agents with unread counts |
-| `cc_send` | Send message. `trigger=true` spawns local Claude instance to handle it |
-| `cc_inbox` | Check inbox (unread only, marks read, limit 20) |
+| `cc_agents` | List agents with unread counts and live status |
+| `cc_status` | Set status + note: `cc_status("working", note="NRD pipeline")` |
+| `cc_agent_info` | Check another agent's status, unread count, last read message |
+| `cc_send` | Send message with optional `priority`. Returns recipient status + unread count |
+| `cc_inbox` | Check inbox (newest first, replies include parent context) |
+| `cc_unsend` | Delete a message by ID |
 | `cc_search` | Search messages + shared artifacts |
 
 ### Channels (group chat)
 | Tool | Purpose |
 |------|---------|
 | `cc_channel_create` | Create a channel |
-| `cc_channel_join` | Join a channel |
-| `cc_channel_send` | Send to channel (all members see it) |
-| `cc_channel_read` | Read channel messages |
+| `cc_channel_join` | Join yourself or add another agent to a channel |
+| `cc_channel_send` | Send to channel (delivered to all members' inboxes) |
+| `cc_channel_read` | Read channel messages with pagination |
 | `cc_channel_list` | List all channels |
 
 ### File sharing
 | Tool | Purpose |
 |------|---------|
-| `cc_share` | Share text/file/image to shared space |
+| `cc_share` | Share text, files, PNGs, or binaries to shared space |
 | `cc_read` | Read a shared artifact |
 | `cc_files` | List shared artifacts |
 

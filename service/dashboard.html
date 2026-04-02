@@ -3,13 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Claude Code MCP</title>
+<title>aify-claude</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;min-height:100vh}
 
-/* Sidebar */
-.sidebar{width:220px;background:#161b22;border-right:1px solid #21262d;padding:16px;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar{width:220px;background:#161b22;border-right:1px solid #21262d;padding:16px;flex-shrink:0;display:flex;flex-direction:column;transition:width .2s,padding .2s}
+.sidebar.collapsed{width:48px;padding:16px 8px;overflow:hidden}
+.sidebar.collapsed h1,.sidebar.collapsed .ver,.sidebar.collapsed .sidebar-footer{display:none}
+.sidebar.collapsed .nav a{font-size:0;padding:8px;text-align:center}
+.sidebar.collapsed .nav a::first-letter{font-size:.9rem}
+.toggle-btn{background:none;border:none;color:#8b949e;cursor:pointer;font-size:1.2em;padding:4px;margin-bottom:12px;text-align:right}
+.toggle-btn:hover{color:#c9d1d9}
 .sidebar h1{color:#58a6ff;font-size:1.1em;margin-bottom:4px}
 .sidebar .ver{color:#484f58;font-size:.75em;margin-bottom:20px}
 .nav a{display:block;padding:8px 12px;color:#8b949e;text-decoration:none;border-radius:6px;margin-bottom:2px;font-size:.9em;cursor:pointer}
@@ -17,38 +22,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nav a.active{color:#58a6ff;font-weight:600}
 .sidebar-footer{margin-top:auto;padding-top:12px;border-top:1px solid #21262d;font-size:.75em;color:#484f58}
 
-/* Main */
 .main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
 .page{display:none}.page.active{display:block}
 
-/* Common */
 h2{color:#58a6ff;margin:0 0 12px;font-size:1.3em}
 h3{color:#c9d1d9;margin:18px 0 8px;font-size:1em}
 .stats{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .sc{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 20px;min-width:130px}
 .sc .n{font-size:2em;font-weight:bold;color:#58a6ff}.sc .l{color:#8b949e;font-size:.8em}
-.sc.warn .n{color:#d29922}.sc.err .n{color:#f85149}.sc.ok .n{color:#3fb950}
+.sc.warn .n{color:#d29922}
 
-table{width:100%;border-collapse:collapse;background:#161b22;border-radius:8px;overflow:hidden;margin-bottom:16px}
+table{width:100%;border-collapse:separate;border-spacing:0;background:#161b22;border-radius:8px;overflow:hidden;margin-bottom:16px}
 th{background:#21262d;color:#8b949e;text-align:left;padding:8px 12px;font-size:.8em;text-transform:uppercase;letter-spacing:.3px}
-td{padding:8px 12px;border-top:1px solid #21262d;font-size:.85em;vertical-align:top}
+td{padding:8px 14px;border-top:1px solid #21262d;font-size:.85em;vertical-align:top}
 tr:hover{background:#1c2128}
 .t{color:#8b949e;font-size:.82em;white-space:nowrap}
-.mb{color:#8b949e;max-width:400px;word-break:break-word}
 .mu{background:#12201f}.mu td:first-child::before{content:"\25CF ";color:#3fb950}
 .rb{background:#1f6feb33;color:#58a6ff;padding:2px 8px;border-radius:12px;font-size:.8em}
 .tb{padding:2px 8px;border-radius:12px;font-size:.78em;font-weight:500}
 .t-request{background:#da363333;color:#f85149}.t-response{background:#3fb95033;color:#3fb950}
 .t-info{background:#1f6feb33;color:#58a6ff}.t-error{background:#da363366;color:#f85149}
 .t-review{background:#a371f733;color:#a371f7}.t-approval{background:#3fb95033;color:#3fb950}
-.st-idle{color:#8b949e}.st-working{color:#d29922}.st-completed{color:#3fb950}
-.st-failed,.st-error{color:#f85149}.st-stale{color:#da3633}
+.t-channel{background:#d2992233;color:#d29922}
+.st-active{color:#3fb950}.st-idle{color:#8b949e}.st-working{color:#d29922}
+.st-blocked{color:#f85149}.st-completed{color:#3fb950}.st-stale{color:#da3633}.st-offline{color:#484f58}
 .em{color:#484f58;font-style:italic;padding:16px;text-align:center}
-.fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap}
+.fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fb input,.fb select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:.85em}
 .fb input:focus,.fb select:focus{border-color:#58a6ff;outline:none}
+.p-urgent{background:#da363366;color:#f85149;padding:2px 6px;border-radius:4px;font-size:.75em;font-weight:600}
+.p-high{background:#d2992233;color:#d29922;padding:2px 6px;border-radius:4px;font-size:.75em;font-weight:600}
 
-/* Buttons */
 .btn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.85em}
 .btn:hover{background:#30363d}.btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
 .btn-primary:hover{background:#388bfd}.btn-danger{background:#da3633;border-color:#da3633;color:#fff}
@@ -56,7 +60,6 @@ tr:hover{background:#1c2128}
 .btn-sm{padding:3px 8px;font-size:.78em}
 .btn-row{display:flex;gap:8px;margin:12px 0}
 
-/* Settings form */
 .form-group{margin-bottom:14px}
 .form-group label{display:block;color:#8b949e;font-size:.82em;margin-bottom:4px}
 .form-group input,.form-group select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:8px 12px;border-radius:6px;font-size:.9em;width:280px}
@@ -64,7 +67,31 @@ tr:hover{background:#1c2128}
 .form-group .hint{color:#484f58;font-size:.75em;margin-top:2px}
 .toast{position:fixed;top:16px;right:16px;background:#3fb950;color:#0d1117;padding:10px 18px;border-radius:8px;font-size:.85em;display:none;z-index:100}
 
-/* Instructions */
+.send-form{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
+.send-form h3{margin:0 0 12px;font-size:1em}
+.send-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.send-row input,.send-row select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:.85em}
+.send-row input[name="to"]{width:120px}.send-row input[name="subject"]{width:200px}.send-row input[name="body"]{flex:1;min-width:200px}
+
+/* Message body - truncated, click to expand */
+.msg-body{color:#8b949e;word-break:break-all;max-height:1.4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;transition:max-height .2s}
+.msg-body.expanded{white-space:pre-wrap;max-height:none;overflow:visible}
+#mt{table-layout:fixed;width:100%}
+#mt th:nth-child(1),#mt td:nth-child(1){width:130px;white-space:nowrap}
+#mt th:nth-child(2),#mt td:nth-child(2){width:160px;white-space:nowrap}
+#mt th:nth-child(3),#mt td:nth-child(3){width:90px}
+#mt th:nth-child(4),#mt td:nth-child(4){width:20%}
+#mt th:nth-child(5),#mt td:nth-child(5){width:auto}
+
+/* Channel messages */
+.ch-msg{background:#161b22;border:1px solid #21262d;border-radius:6px;padding:10px 14px;margin-bottom:6px}
+.ch-msg .ch-from{color:#58a6ff;font-weight:600;font-size:.85em}
+.ch-msg .ch-time{color:#484f58;font-size:.75em;margin-left:8px}
+.ch-msg .ch-body{color:#c9d1d9;margin-top:4px;font-size:.85em;white-space:pre-wrap;word-break:break-word}
+.ch-sys{color:#484f58;font-style:italic;font-size:.82em;padding:4px 14px}
+
+.pagination{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.85em;color:#8b949e}
+
 .instructions{max-width:700px}
 .instructions code{background:#161b22;padding:2px 6px;border-radius:4px;font-size:.85em;color:#79c0ff}
 .instructions pre{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px;margin:10px 0;overflow-x:auto;font-size:.82em;color:#c9d1d9}
@@ -76,11 +103,14 @@ tr:hover{background:#1c2128}
 </head>
 <body>
 
-<div class="sidebar">
-  <h1>Claude Code MCP</h1>
-  <div class="ver">v2.0.0</div>
+<div class="sidebar" id="sidebar">
+  <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
+  <h1>aify-claude</h1>
+  <div class="ver">v2.1.0</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
+    <a onclick="showPage('channels')" id="nav-channels">Channels</a>
+    <a onclick="showPage('files')" id="nav-files">Files</a>
     <a onclick="showPage('instructions')" id="nav-instructions">Instructions</a>
     <a onclick="showPage('settings')" id="nav-settings">Settings</a>
   </div>
@@ -93,7 +123,7 @@ tr:hover{background:#1c2128}
 <div class="main">
   <div class="toast" id="toast"></div>
 
-  <!-- ============ DASHBOARD PAGE ============ -->
+  <!-- ============ DASHBOARD ============ -->
   <div class="page active" id="page-dashboard">
     <h2>Dashboard</h2>
     <div class="stats" id="stats-cards"></div>
@@ -101,9 +131,23 @@ tr:hover{background:#1c2128}
     <h3>Agents</h3>
     <div id="agents-table"></div>
 
+    <div class="send-form">
+      <h3>Send Message</h3>
+      <div class="send-row">
+        <input name="to" id="send-to" placeholder="To (agent ID)">
+        <select id="send-type"><option>info</option><option>request</option><option>review</option><option>error</option><option>approval</option><option>response</option></select>
+        <select id="send-priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+        <input name="subject" id="send-subject" placeholder="Subject">
+        <input name="body" id="send-body" placeholder="Message body">
+        <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
     <h3>Messages</h3>
     <div class="fb">
-      <input id="mf" placeholder="Filter messages..." oninput="filterMessages()">
+      <input id="mf" placeholder="Filter..." oninput="filterMessages()">
+      <select id="af1" onchange="filterMessages()"><option value="">From: All</option></select>
+      <select id="af2" onchange="filterMessages()"><option value="">To: All</option></select>
       <select id="tf" onchange="filterMessages()"><option value="">All types</option>
         <option>request</option><option>response</option><option>info</option>
         <option>error</option><option>review</option><option>approval</option></select>
@@ -112,83 +156,90 @@ tr:hover{background:#1c2128}
     </div>
     <div id="messages-table"></div>
 
-    <h3>Shared Files</h3>
-    <div id="files-table"></div>
-
     <div class="btn-row">
       <button class="btn" onclick="runRotation()">Run Rotation</button>
       <button class="btn btn-danger" onclick="clearAll()">Clear All Data</button>
     </div>
   </div>
 
-  <!-- ============ INSTRUCTIONS PAGE ============ -->
+  <!-- ============ CHANNELS ============ -->
+  <div class="page" id="page-channels">
+    <div id="channels-list"></div>
+    <div id="channel-detail" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <button class="btn btn-sm" onclick="showChannelList()">&larr; Back</button>
+        <h2 id="channel-title" style="margin:0"></h2>
+        <span class="t" id="channel-meta"></span>
+      </div>
+      <div id="channel-messages"></div>
+      <div id="channel-pagination"></div>
+      <div class="send-form" style="margin-top:12px">
+        <div class="send-row">
+          <input id="ch-send-from" placeholder="Your agent ID" style="width:120px">
+          <input id="ch-send-body" placeholder="Message..." style="flex:1;min-width:200px">
+          <button class="btn btn-primary" onclick="sendChannelMsg()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ FILES ============ -->
+  <div class="page" id="page-files">
+    <h2>Shared Files</h2>
+    <div id="files-table"></div>
+  </div>
+
+  <!-- ============ INSTRUCTIONS ============ -->
   <div class="page" id="page-instructions">
     <h2>Instructions</h2>
     <div class="instructions">
       <h3>What is this?</h3>
-      <p>This is the <b>Claude Code MCP message bus</b> — a central server that lets multiple Claude Code instances communicate with each other across any machine or environment.</p>
+      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets multiple Claude Code instances register as agents, send messages, chat in channels, share files, trigger each other, and monitor everything through this dashboard.</p>
 
       <h3>Quick Setup</h3>
       <p>1. Clone the repo and install the MCP client:</p>
       <pre>git clone https://github.com/zimdin12/aify-claude.git
-cd aify-claude/mcp/stdio
-npm install</pre>
-      <p>2. Register with Claude Code (same machine as this server):</p>
+cd aify-claude/mcp/stdio &amp;&amp; npm install</pre>
+      <p>2. Register with Claude Code (replace <code>ABSOLUTE_PATH</code> with the full path to aify-claude):</p>
       <pre>claude mcp add --scope user aify-claude \
   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -- node "$HOME/aify-claude/mcp/stdio/server.js"</pre>
-      <p>For a remote server, replace <code>localhost</code> with the server's IP address.</p>
-      <p>3. Install slash commands (optional):</p>
-      <pre>cd ~/aify-claude
+  -- node "ABSOLUTE_PATH/mcp/stdio/server.js"</pre>
+      <p>3. Copy the skill and slash commands:</p>
+      <pre>cp -r aify-claude/.claude/skills/aify-claude ~/.claude/skills/aify-claude
 mkdir -p ~/.claude/commands/aify-claude
-cp .claude/commands/*.md ~/.claude/commands/aify-claude/</pre>
+cp aify-claude/.claude/commands/*.md ~/.claude/commands/aify-claude/</pre>
       <p>4. <b>Restart Claude Code</b>, then register as an agent:</p>
       <pre>/aify-claude:register my-agent coder</pre>
 
-      <h3>Slash Commands</h3>
+      <h3>Tools (19)</h3>
       <ul>
-        <li><code>/aify-claude:register &lt;id&gt; &lt;role&gt;</code> — Register as an agent</li>
-        <li><code>/aify-claude:agents</code> — List all agents</li>
-        <li><code>/aify-claude:send &lt;to&gt; &lt;message&gt;</code> — Send a message</li>
-        <li><code>/aify-claude:inbox</code> — Check your inbox (unread only)</li>
-        <li><code>/aify-claude:search &lt;query&gt;</code> — Search messages &amp; files</li>
-        <li><code>/aify-claude:share &lt;file&gt;</code> — Share a file/artifact</li>
-        <li><code>/aify-claude:files</code> — List shared files</li>
-        <li><code>/aify-claude:dispatch &lt;role&gt; &lt;task&gt;</code> — Spawn an agent for a task</li>
-        <li><code>/aify-claude:dashboard</code> — Open this dashboard</li>
-        <li><code>/aify-claude:clear &lt;target&gt;</code> — Clear data</li>
-      </ul>
-
-      <h3>How Messaging Works</h3>
-      <p><code>cc_send</code> delivers short messages to an agent's inbox (like Slack DMs). <code>cc_share</code> puts files in a shared space (like a shared drive). Messages are marked as read when viewed, not deleted — they're cleaned up by the rotation policy.</p>
-
-      <h3>Dispatch</h3>
-      <p><code>cc_dispatch</code> spawns a brand new Claude Code instance to handle a task. The spawned agent works in the background and sends results back to your inbox when done.</p>
-
-      <h3>Two Modes</h3>
-      <ul>
-        <li><b>Local</b> (default) — Messages stored in <code>.messages/</code> on disk. Same-machine only.</li>
-        <li><b>Remote</b> — Set <code>CLAUDE_MCP_SERVER_URL</code> to point at this server. Cross-machine.</li>
+        <li><b>Messaging:</b> <code>cc_register</code>, <code>cc_agents</code>, <code>cc_status</code>, <code>cc_agent_info</code>, <code>cc_send</code>, <code>cc_inbox</code>, <code>cc_unsend</code>, <code>cc_search</code></li>
+        <li><b>Channels:</b> <code>cc_channel_create</code>, <code>cc_channel_join</code> (+ invite others), <code>cc_channel_send</code>, <code>cc_channel_read</code>, <code>cc_channel_list</code></li>
+        <li><b>File sharing:</b> <code>cc_share</code> (text + binary), <code>cc_read</code>, <code>cc_files</code></li>
+        <li><b>Management:</b> <code>cc_clear</code>, <code>cc_dashboard</code></li>
       </ul>
 
       <h3>API Endpoints</h3>
       <ul>
         <li><code>GET /health</code> — Health check</li>
-        <li><code>GET /api/v1/agents</code> — List agents</li>
-        <li><code>POST /api/v1/agents</code> — Register agent</li>
-        <li><code>POST /api/v1/messages/send</code> — Send message</li>
-        <li><code>GET /api/v1/messages/inbox/{id}</code> — Check inbox</li>
-        <li><code>GET /api/v1/messages/search</code> — Search</li>
-        <li><code>GET/POST /api/v1/shared</code> — List/upload artifacts</li>
-        <li><code>GET/PUT /api/v1/settings</code> — View/update settings</li>
-        <li><code>POST /api/v1/rotate</code> — Run message rotation</li>
-        <li><code>GET /api/v1/stats</code> — Aggregate statistics</li>
-        <li><code>POST /api/v1/clear</code> — Clear data</li>
+        <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
+        <li><code>GET/POST/DELETE /api/v1/agents</code> — Agents</li>
+        <li><code>PATCH /api/v1/agents/{id}</code> — Update status + note</li>
+        <li><code>GET /api/v1/agents/{id}/last-read</code> — Last message agent read</li>
+        <li><code>POST /api/v1/agents/{id}/heartbeat</code> — Alive signal</li>
+        <li><code>POST /api/v1/messages/send</code> — Send message (returns recipient status)</li>
+        <li><code>GET /api/v1/messages/inbox/{id}</code> — Check inbox (replies include parent context)</li>
+        <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
+        <li><code>GET/POST /api/v1/channels</code> — Channels</li>
+        <li><code>POST /api/v1/channels/{name}/join</code> — Join or invite agent</li>
+        <li><code>POST /api/v1/channels/{name}/send</code> — Post to channel</li>
+        <li><code>GET/POST /api/v1/shared</code> — Shared files (text + binary upload)</li>
+        <li><code>GET/PUT /api/v1/settings</code> — Settings</li>
       </ul>
     </div>
   </div>
 
-  <!-- ============ SETTINGS PAGE ============ -->
+  <!-- ============ SETTINGS ============ -->
   <div class="page" id="page-settings">
     <h2>Settings</h2>
     <form id="settings-form" onsubmit="saveSettings(event)">
@@ -208,22 +259,23 @@ cp .claude/commands/*.md ~/.claude/commands/aify-claude/</pre>
         <div class="hint">Oldest files deleted when total exceeds this. Default: 500</div>
       </div>
       <div class="form-group">
-        <label>Stale Agent Threshold (hours)</label>
-        <input type="number" id="s-stale" min="1" max="8760">
-        <div class="hint">Agents not seen for this long are marked stale. Default: 24</div>
-      </div>
-      <div class="form-group">
         <label>Dashboard Refresh (seconds)</label>
         <input type="number" id="s-refresh" min="5" max="300">
         <div class="hint">How often this dashboard auto-updates. Default: 15</div>
       </div>
       <div class="form-group">
+        <label>Idle Threshold (minutes)</label>
+        <input type="number" id="s-idle" min="1" max="120">
+        <div class="hint">Agent shows "idle" after this many minutes of inactivity. Default: 5</div>
+      </div>
+      <div class="form-group">
+        <label>Offline Threshold (minutes)</label>
+        <input type="number" id="s-offline" min="5" max="1440">
+        <div class="hint">Agent shows "offline" after this many minutes of inactivity. Default: 30</div>
+      </div>
+      <div class="form-group">
         <label>Auto-Rotation</label>
-        <select id="s-rotation">
-          <option value="true">Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
-        <div class="hint">Whether the rotation policy is active</div>
+        <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
       </div>
       <div class="btn-row">
         <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -236,13 +288,10 @@ cp .claude/commands/*.md ~/.claude/commands/aify-claude/</pre>
 <script>
 const API = '/api/v1';
 let refreshInterval;
-
-// Extract API key from URL query param and include in all fetch calls
 const _urlParams = new URLSearchParams(window.location.search);
 const _apiKey = _urlParams.get('api_key') || '';
 const _authHeaders = _apiKey ? {'X-API-Key': _apiKey} : {};
 
-// Wrapper around fetch that auto-includes the API key
 function apiFetch(url, opts = {}) {
   opts.headers = {..._authHeaders, ...(opts.headers || {})};
   return fetch(url, opts);
@@ -253,14 +302,14 @@ function showPage(name) {
   document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   document.getElementById('nav-' + name).classList.add('active');
+  if (name === 'channels') loadChannels();
+  if (name === 'files') loadFiles();
 }
 
 function toast(msg, color) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.background = color || '#3fb950';
-  t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 3000);
+  t.textContent = msg; t.style.background = color || '#3fb950';
+  t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000);
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
@@ -277,35 +326,31 @@ function fmtSize(b) {
   return b + ' B';
 }
 
-// ─── Dashboard data ──────────────────────────────
+// ─── Dashboard ──────────────────────────────
 
 async function refreshDashboard() {
   try {
-    const [statsRes, agentsRes, sharedRes] = await Promise.all([
+    const [statsRes, agentsRes] = await Promise.all([
       apiFetch(API + '/stats').then(r => r.json()),
       apiFetch(API + '/agents').then(r => r.json()),
-      apiFetch(API + '/shared').then(r => r.json()),
     ]);
 
-    // Stats cards
     document.getElementById('stats-cards').innerHTML =
       `<div class="sc"><div class="n">${statsRes.agents}</div><div class="l">Agents</div></div>` +
       `<div class="sc${statsRes.unread_messages ? ' warn' : ''}"><div class="n">${statsRes.unread_messages}</div><div class="l">Unread</div></div>` +
-      `<div class="sc"><div class="n">${statsRes.total_messages}</div><div class="l">Total Messages</div></div>` +
+      `<div class="sc"><div class="n">${statsRes.total_messages}</div><div class="l">Messages</div></div>` +
       `<div class="sc"><div class="n">${statsRes.messages_today}</div><div class="l">Today</div></div>` +
-      `<div class="sc"><div class="n">${statsRes.shared_files}</div><div class="l">Files</div></div>` +
-      `<div class="sc"><div class="n">${statsRes.shared_size_mb}</div><div class="l">MB Used</div></div>`;
+      `<div class="sc"><div class="n">${statsRes.shared_files}</div><div class="l">Files</div></div>`;
 
-    // Agents table
     const agents = Object.entries(agentsRes.agents || {});
     if (!agents.length) {
       document.getElementById('agents-table').innerHTML = '<p class="em">No agents registered.</p>';
     } else {
-      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Name</th><th>Status</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Status</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
       for (const [id, info] of agents) {
         const st = info.status || 'idle';
         html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
-          `<td>${esc(info.name)}</td><td><span class="st-${st}">${st}</span></td>` +
+          `<td><span class="st-${st}">${st}</span></td>` +
           `<td>${info.unread || 0}</td><td class="t">${esc(info.lastSeen)}</td>` +
           `<td><button class="btn btn-sm btn-danger" onclick="deleteAgent('${esc(id)}')">Remove</button></td></tr>`;
       }
@@ -313,34 +358,32 @@ async function refreshDashboard() {
       document.getElementById('agents-table').innerHTML = html;
     }
 
-    // Messages — fetch all inboxes
+    // From/To dropdowns
+    const agentIds = agents.map(([id]) => id).concat(['dashboard']);
+    for (const selId of ['af1', 'af2']) {
+      const sel = document.getElementById(selId);
+      const cur = sel.value;
+      const label = selId === 'af1' ? 'From' : 'To';
+      sel.innerHTML = `<option value="">${label}: All</option>` + agentIds.map(id => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
+      sel.value = cur;
+    }
+
+    // Messages — all inboxes, DMs only (exclude channel-sourced)
     let allMsgs = [];
     for (const [id] of agents) {
       try {
         const inbox = await apiFetch(API + '/messages/inbox/' + id + '?filter=all&limit=200&peek=true').then(r => r.json());
-        for (const m of inbox.messages) { m._to = id; allMsgs.push(m); }
+        for (const m of inbox.messages) {
+          if (m.source === 'channel') continue; // shown on channels page
+          m._to = id;
+          allMsgs.push(m);
+        }
       } catch(e) {}
     }
     allMsgs.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
     window._allMsgs = allMsgs;
-
-    renderMessages(allMsgs);
-
-    // Shared files
-    const files = sharedRes.files || [];
-    if (!files.length) {
-      document.getElementById('files-table').innerHTML = '<p class="em">No shared files.</p>';
-    } else {
-      let html = '<table><thead><tr><th>Name</th><th>From</th><th>Size</th><th>Description</th><th>Shared At</th><th></th></tr></thead><tbody>';
-      for (const f of files) {
-        html += `<tr><td><b>${esc(f.name)}</b></td><td>${esc(f.from)}</td>` +
-          `<td>${fmtSize(f.size)}</td><td>${esc(f.description)}</td>` +
-          `<td class="t">${esc(f.sharedAt)}</td>` +
-          `<td><button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.name)}')">Delete</button></td></tr>`;
-      }
-      html += '</tbody></table>';
-      document.getElementById('files-table').innerHTML = html;
-    }
+    window._msgPage = window._msgPage || 0;
+    applyFiltersAndRender();
 
     document.getElementById('last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
     document.getElementById('status-dot').style.color = '#3fb950';
@@ -351,38 +394,185 @@ async function refreshDashboard() {
   }
 }
 
-function renderMessages(msgs) {
+const MSG_PER_PAGE = 30;
+
+function renderMessages(msgs, page) {
   if (!msgs.length) {
     document.getElementById('messages-table').innerHTML = '<p class="em">No messages.</p>';
     return;
   }
-  let html = '<table id="mt"><thead><tr><th>Time</th><th>From</th><th>To</th><th>Type</th><th>Subject</th><th>Body</th></tr></thead><tbody>';
-  for (const m of msgs.slice(0, 200)) {
+  const total = msgs.length;
+  const totalPages = Math.ceil(total / MSG_PER_PAGE);
+  const pg = Math.min(page || 0, totalPages - 1);
+  const start = pg * MSG_PER_PAGE;
+  const slice = msgs.slice(start, start + MSG_PER_PAGE);
+
+  let html = '<table id="mt"><thead><tr><th>Time</th><th>From &rarr; To</th><th>Type</th><th>Subject</th><th>Body</th></tr></thead><tbody>';
+  for (const m of slice) {
     const cls = m.read ? 'mr' : 'mu';
-    html += `<tr class="${cls}"><td class="t">${fmtTime(m.timestamp)}</td>` +
-      `<td>${esc(m.from)}</td><td>${esc(m._to)}</td>` +
-      `<td><span class="tb t-${esc(m.type||'info')}">${esc(m.type)}</span></td>` +
+    const pri = (m.priority && m.priority !== 'normal') ? `<br><span class="p-${esc(m.priority)}">${esc(m.priority).toUpperCase()}</span>` : '';
+    html += `<tr class="${cls}" data-from="${esc(m.from)}" data-to="${esc(m._to)}">` +
+      `<td class="t">${fmtTime(m.timestamp)}</td>` +
+      `<td class="t">${esc(m.from)} &nbsp;&rarr;&nbsp; ${esc(m._to)}</td>` +
+      `<td><span class="tb t-${esc(m.type||'info')}">${esc(m.type)}</span>${pri}</td>` +
       `<td><b>${esc(m.subject)}</b></td>` +
-      `<td class="mb">${esc((m.body||'').slice(0,200))}</td></tr>`;
+      `<td><div class="msg-body" onclick="this.classList.toggle('expanded')">${esc(m.body||'')}</div></td></tr>`;
   }
   html += '</tbody></table>';
+  if (totalPages > 1) {
+    html += `<div class="pagination">`;
+    if (pg > 0) html += `<button class="btn btn-sm" onclick="msgPage(-1)">Newer</button>`;
+    html += `<span>Page ${pg+1} of ${totalPages} (${total} messages)</span>`;
+    if (pg < totalPages - 1) html += `<button class="btn btn-sm" onclick="msgPage(1)">Older</button>`;
+    html += `</div>`;
+  }
   document.getElementById('messages-table').innerHTML = html;
 }
 
-function filterMessages() {
+function msgPage(dir) {
+  window._msgPage = Math.max(0, (window._msgPage || 0) + dir);
+  renderMessages(window._filteredMsgs || window._allMsgs, window._msgPage);
+}
+
+function applyFiltersAndRender() {
   const text = document.getElementById('mf').value.toLowerCase();
   const type = document.getElementById('tf').value;
   const read = document.getElementById('rf').value;
-  const rows = document.querySelectorAll('#mt tbody tr');
-  rows.forEach(r => {
-    const c = r.textContent.toLowerCase();
-    const isUnread = r.classList.contains('mu');
-    const badge = r.querySelector('.tb');
-    const ok = (!text || c.includes(text)) &&
-               (!type || badge?.textContent === type) &&
-               (!read || (read==='unread'&&isUnread) || (read==='read'&&!isUnread));
-    r.style.display = ok ? '' : 'none';
+  const fromA = document.getElementById('af1').value;
+  const toA = document.getElementById('af2').value;
+  const filtered = (window._allMsgs || []).filter(m => {
+    const haystack = `${m.from} ${m._to} ${m.type} ${m.subject} ${m.body}`.toLowerCase();
+    const isRead = !!m.read;
+    return (!text || haystack.includes(text)) &&
+           (!type || m.type === type) &&
+           (!read || (read==='unread' && !isRead) || (read==='read' && isRead)) &&
+           (!fromA || m.from === fromA) &&
+           (!toA || m._to === toA);
   });
+  window._filteredMsgs = filtered;
+  window._msgPage = 0;
+  renderMessages(filtered, 0);
+}
+
+function filterMessages() { applyFiltersAndRender(); }
+
+// ─── Channels ──────────────────────────────
+
+let _chPage = 0;
+let _chName = '';
+
+async function loadChannels() {
+  showChannelList();
+}
+
+async function showChannelList() {
+  document.getElementById('channels-list').style.display = 'block';
+  document.getElementById('channel-detail').style.display = 'none';
+  try {
+    const res = await apiFetch(API + '/channels').then(r => r.json());
+    const channels = res.channels || [];
+    if (!channels.length) {
+      document.getElementById('channels-list').innerHTML = '<h2>Channels</h2><p class="em">No channels.</p>';
+      return;
+    }
+    let html = '<h2>Channels</h2><table><thead><tr><th>Channel</th><th>Members</th><th>Messages</th><th>Created By</th></tr></thead><tbody>';
+    for (const ch of channels) {
+      html += `<tr style="cursor:pointer" onclick="openChannel('${esc(ch.name)}')">` +
+        `<td><b style="color:#58a6ff">#${esc(ch.name)}</b><br><span class="t">${esc(ch.description||'')}</span></td>` +
+        `<td>${(ch.members||[]).join(', ')}</td>` +
+        `<td>${ch.messageCount || 0}</td>` +
+        `<td class="t">${esc(ch.createdBy)}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('channels-list').innerHTML = html;
+  } catch(e) {
+    document.getElementById('channels-list').innerHTML = '<h2>Channels</h2><p class="em">Failed to load.</p>';
+  }
+}
+
+async function openChannel(name) {
+  _chName = name;
+  _chPage = 0;
+  document.getElementById('channels-list').style.display = 'none';
+  document.getElementById('channel-detail').style.display = 'block';
+  await renderChannel();
+}
+
+async function renderChannel() {
+  try {
+    const detail = await apiFetch(API + `/channels/${_chName}?limit=30&offset=${_chPage * 30}`).then(r => r.json());
+    document.getElementById('channel-title').textContent = `#${_chName}`;
+    document.getElementById('channel-meta').textContent = `${detail.members?.length || 0} members, ${detail.totalMessages || 0} messages`;
+
+    const msgs = detail.messages || [];
+    let html = '';
+    if (!msgs.length) {
+      html = '<p class="em">No messages.</p>';
+    } else {
+      for (const m of msgs) {
+        if (m.from === '_system') {
+          html += `<div class="ch-sys">${esc(m.body)}</div>`;
+        } else {
+          html += `<div class="ch-msg"><span class="ch-from">${esc(m.from)}</span><span class="ch-time">${fmtTime(m.timestamp)}</span><div class="ch-body">${esc(m.body)}</div></div>`;
+        }
+      }
+    }
+    document.getElementById('channel-messages').innerHTML = html;
+
+    const total = detail.totalMessages || 0;
+    const totalPages = Math.ceil(total / 30);
+    let pag = '';
+    if (totalPages > 1) {
+      pag = '<div class="pagination">';
+      if (_chPage > 0) pag += '<button class="btn btn-sm" onclick="chPage(-1)">Newer</button>';
+      pag += `<span>Page ${_chPage+1} of ${totalPages}</span>`;
+      if (_chPage < totalPages - 1) pag += '<button class="btn btn-sm" onclick="chPage(1)">Older</button>';
+      pag += '</div>';
+    }
+    document.getElementById('channel-pagination').innerHTML = pag;
+  } catch(e) {
+    document.getElementById('channel-messages').innerHTML = '<p class="em">Failed to load.</p>';
+  }
+}
+
+function chPage(dir) { _chPage = Math.max(0, _chPage + dir); renderChannel(); }
+
+async function sendChannelMsg() {
+  const from = document.getElementById('ch-send-from').value.trim() || 'dashboard';
+  const body = document.getElementById('ch-send-body').value.trim();
+  if (!body) { toast('Need a message', '#f85149'); return; }
+  try {
+    await apiFetch(API + `/channels/${_chName}/send`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from_agent: from, channel: _chName, body}),
+    });
+    document.getElementById('ch-send-body').value = '';
+    renderChannel();
+  } catch(e) { toast('Send failed', '#f85149'); }
+}
+
+// ─── Files ──────────────────────────────
+
+async function loadFiles() {
+  try {
+    const res = await apiFetch(API + '/shared').then(r => r.json());
+    const files = res.files || [];
+    if (!files.length) {
+      document.getElementById('files-table').innerHTML = '<p class="em">No shared files.</p>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Name</th><th>From</th><th>Size</th><th>Description</th><th>Shared At</th><th></th></tr></thead><tbody>';
+    for (const f of files) {
+      html += `<tr><td><b>${esc(f.name)}</b></td><td>${esc(f.from)}</td>` +
+        `<td>${fmtSize(f.size)}</td><td>${esc(f.description)}</td>` +
+        `<td class="t">${esc(f.sharedAt)}</td>` +
+        `<td><button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.name)}')">Delete</button></td></tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('files-table').innerHTML = html;
+  } catch(e) {
+    document.getElementById('files-table').innerHTML = '<p class="em">Failed to load files.</p>';
+  }
 }
 
 // ─── Actions ──────────────────────────────
@@ -390,33 +580,44 @@ function filterMessages() {
 async function deleteAgent(id) {
   if (!confirm('Remove agent "' + id + '"?')) return;
   await apiFetch(API + '/agents/' + id, {method:'DELETE'});
-  toast('Agent removed');
-  refreshDashboard();
+  toast('Agent removed'); refreshDashboard();
 }
 
 async function deleteFile(name) {
   if (!confirm('Delete "' + name + '"?')) return;
   await apiFetch(API + '/shared/' + name, {method:'DELETE'});
-  toast('File deleted');
-  refreshDashboard();
+  toast('File deleted'); loadFiles();
 }
 
 async function runRotation() {
   const r = await apiFetch(API + '/rotate', {method:'POST'}).then(r=>r.json());
+  if (r.ok) { toast(`Rotated: ${r.stats.expired_messages} expired, ${r.stats.trimmed_messages} trimmed`); refreshDashboard(); }
+  else toast(r.reason || 'Rotation failed', '#f85149');
+}
+
+async function sendMessage() {
+  const to = document.getElementById('send-to').value.trim();
+  const type = document.getElementById('send-type').value;
+  const priority = document.getElementById('send-priority').value;
+  const subject = document.getElementById('send-subject').value.trim();
+  const body = document.getElementById('send-body').value.trim();
+  if (!to || !subject) { toast('Need "To" and "Subject"', '#f85149'); return; }
+  const r = await apiFetch(API + '/messages/send', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from_agent: 'dashboard', to, type, subject, body: body || subject, priority}),
+  }).then(r => r.json());
   if (r.ok) {
-    const s = r.stats;
-    toast(`Rotated: ${s.expired_messages} expired, ${s.trimmed_messages} trimmed, ${s.expired_files} files`);
+    toast(`Sent to ${r.recipients.join(', ')}`);
+    document.getElementById('send-subject').value = '';
+    document.getElementById('send-body').value = '';
     refreshDashboard();
-  } else {
-    toast(r.reason || 'Rotation failed', '#f85149');
-  }
+  } else toast(r.error || 'Send failed', '#f85149');
 }
 
 async function clearAll() {
-  if (!confirm('Clear ALL agents, messages, and shared files?')) return;
+  if (!confirm('Clear ALL data?')) return;
   await apiFetch(API + '/clear', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target:'all'})});
-  toast('All data cleared');
-  refreshDashboard();
+  toast('All data cleared'); refreshDashboard();
 }
 
 // ─── Settings ──────────────────────────────
@@ -426,28 +627,27 @@ async function loadSettings() {
   document.getElementById('s-retention').value = s.retention_days;
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
-  document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-refresh').value = s.dashboard_refresh_seconds;
+  document.getElementById('s-idle').value = s.idle_minutes || 5;
+  document.getElementById('s-offline').value = s.offline_minutes || 30;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
-
-  // Apply refresh interval
   if (refreshInterval) clearInterval(refreshInterval);
   refreshInterval = setInterval(refreshDashboard, s.dashboard_refresh_seconds * 1000);
 }
 
 async function saveSettings(e) {
   e.preventDefault();
-  const body = {
-    retention_days: parseInt(document.getElementById('s-retention').value),
-    max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
-    max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
-    stale_agent_hours: parseInt(document.getElementById('s-stale').value),
-    dashboard_refresh_seconds: parseInt(document.getElementById('s-refresh').value),
-    rotation_enabled: document.getElementById('s-rotation').value === 'true',
-  };
-  await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  toast('Settings saved');
-  loadSettings();
+  await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      retention_days: parseInt(document.getElementById('s-retention').value),
+      max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
+      max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
+      dashboard_refresh_seconds: parseInt(document.getElementById('s-refresh').value),
+      idle_minutes: parseInt(document.getElementById('s-idle').value),
+      offline_minutes: parseInt(document.getElementById('s-offline').value),
+      rotation_enabled: document.getElementById('s-rotation').value === 'true',
+    })});
+  toast('Settings saved'); loadSettings();
 }
 
 // ─── Init ──────────────────────────────

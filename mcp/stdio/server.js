@@ -2,8 +2,8 @@
 //
 // claude-code-mcp -- MCP server for inter-agent communication between Claude Code instances.
 //
-// 15 tools (all prefixed "cc_"):
-//   cc_register, cc_agents, cc_send, cc_inbox, cc_search,
+// 16 tools (all prefixed "cc_"):
+//   cc_register, cc_agents, cc_status, cc_send, cc_inbox, cc_search,
 //   cc_share, cc_read, cc_files,
 //   cc_channel_create, cc_channel_join, cc_channel_send, cc_channel_read, cc_channel_list,
 //   cc_clear, cc_dashboard
@@ -97,7 +97,7 @@ function readInbox(agentId, filter = "unread") {
   const dir = path.join(INBOX_DIR, agentId);
   fs.mkdirSync(dir, { recursive: true });
   try {
-    let files = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+    let files = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort().reverse();
     if (filter === "unread") files = files.filter((f) => !f.endsWith(".read.json"));
     else if (filter === "read") files = files.filter((f) => f.endsWith(".read.json"));
     return files.map((f) => {
@@ -290,6 +290,39 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 2b. cc_status -- Update your agent status
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "cc_status",
+  "Update your status. Use note to say what you're working on (e.g. status='working', note='NRD pipeline').",
+  {
+    agentId: z.string().describe("Your agent ID"),
+    status: z
+      .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "completed", "focused"])
+      .describe("Current status"),
+    note: z.string().optional().describe("What you're working on (e.g. 'NRD createPipelines')"),
+  },
+  async ({ agentId, status, note }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
+    if (IS_REMOTE) {
+      const r = await httpCall("PATCH", `/agents/${agentId}`, { status, note });
+      return { content: [{ type: "text", text: `Status updated: ${r.agentId} → ${r.status}` }] };
+    }
+
+    const registry = readAgents();
+    if (!registry.agents[agentId]) {
+      return { content: [{ type: "text", text: `Agent "${agentId}" not found. Register first.` }], isError: true };
+    }
+    registry.agents[agentId].status = note ? `${status}: ${note}` : status;
+    registry.agents[agentId].lastSeen = new Date().toISOString();
+    writeAgents(registry);
+    return { content: [{ type: "text", text: `Status updated: ${agentId} → ${registry.agents[agentId].status}` }] };
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 3. cc_send -- Send message to agent by ID or role, with optional trigger
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -307,10 +340,11 @@ server.tool(
       .describe("Message type"),
     subject: z.string().describe("Short subject"),
     body: z.string().describe("Message content"),
+    priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
     trigger: z.boolean().optional().describe("Spawn Claude Code to handle this message locally"),
   },
-  async ({ from, to, toRole, type, subject, body, inReplyTo, trigger }) => {
+  async ({ from, to, toRole, type, subject, body, priority, inReplyTo, trigger }) => {
     if (!to && !toRole) {
       return { content: [{ type: "text", text: "Error: need 'to' or 'toRole'" }], isError: true };
     }
@@ -318,7 +352,7 @@ server.tool(
     // -- Remote mode --
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/messages/send", {
-        from_agent: from, to, toRole, type, subject, body, inReplyTo, trigger: !!trigger,
+        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: !!trigger,
       });
       if (!r.ok) return { content: [{ type: "text", text: r.error || "No recipients found." }] };
 
@@ -332,8 +366,14 @@ server.tool(
         };
       }
 
+      // Include recipient status in response
+      const statusParts = (r.recipients || []).map(rid => {
+        const info = r.recipientStatus?.[rid];
+        if (info) return `${rid} [${info.status}, ${info.unread} unread]`;
+        return rid;
+      });
       return {
-        content: [{ type: "text", text: `Sent (${r.messageId}) to ${r.recipients.join(", ")}. Subject: ${subject}` }],
+        content: [{ type: "text", text: `Sent (${r.messageId}) to ${statusParts.join(", ")}. Subject: ${subject}` }],
       };
     }
 
@@ -345,7 +385,7 @@ server.tool(
     }
 
     const messageId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
-    const message = { id: messageId, from, type, subject, body, inReplyTo };
+    const message = { id: messageId, from, type, subject, body, priority: priority || "normal", inReplyTo };
 
     const recipients = [];
     if (to) recipients.push(to);
@@ -605,6 +645,95 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 5b. cc_agent_info -- Check another agent's status and last read message
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "cc_agent_info",
+  "Check another agent's current status, unread count, and last message they read. " +
+    "Useful for knowing if they've seen your message.",
+  {
+    agentId: z.string().describe("Agent ID to check"),
+  },
+  async ({ agentId }) => {
+    if (IS_REMOTE) {
+      try {
+        const agents = await httpCall("GET", "/agents");
+        const info = agents.agents?.[agentId];
+        if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
+
+        let lastRead = "unknown";
+        try {
+          const lr = await httpCall("GET", `/agents/${agentId}/last-read`);
+          if (lr.lastRead) {
+            lastRead = `"${lr.lastRead.subject}" from ${lr.lastRead.from} (read at ${lr.lastRead.readAt})`;
+          } else {
+            lastRead = "no messages read yet";
+          }
+        } catch { /* best effort */ }
+
+        return { content: [{ type: "text", text:
+          `${agentId} (${info.role}) [${info.status}]\n` +
+          `  Unread: ${info.unread}\n` +
+          `  Last seen: ${info.lastSeen}\n` +
+          `  Last read: ${lastRead}`
+        }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+      }
+    }
+
+    // Local mode
+    const registry = readAgents();
+    const info = registry.agents[agentId];
+    if (!info) return { content: [{ type: "text", text: `Agent "${agentId}" not found.` }], isError: true };
+    const unread = readInbox(agentId, "unread").length;
+    return { content: [{ type: "text", text:
+      `${agentId} (${info.role}) [${info.status || "idle"}]\n` +
+      `  Unread: ${unread}\n` +
+      `  Last seen: ${info.lastSeen}`
+    }] };
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5c. cc_unsend -- Delete a message by ID
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "cc_unsend",
+  "Delete a sent message by its ID.",
+  {
+    messageId: z.string().describe("The message ID to delete"),
+  },
+  async ({ messageId }) => {
+    if (IS_REMOTE) {
+      try {
+        const r = await httpCall("DELETE", `/messages/${encodeURIComponent(messageId)}`);
+        return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Failed to delete: ${e.message}` }], isError: true };
+      }
+    }
+    // Local mode: find and delete the file
+    const inbox = path.join(MESSAGES_DIR, "inbox");
+    try {
+      for (const agentDir of fs.readdirSync(inbox)) {
+        const dir = path.join(inbox, agentDir);
+        if (!fs.statSync(dir).isDirectory()) continue;
+        for (const f of fs.readdirSync(dir)) {
+          if (f.includes(messageId.split("-").slice(0, 2).join("-"))) {
+            fs.unlinkSync(path.join(dir, f));
+            return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
+          }
+        }
+      }
+    } catch { /* best effort */ }
+    return { content: [{ type: "text", text: `Message ${messageId} not found.` }], isError: true };
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 6. cc_share -- Share text content or file to shared space
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -623,17 +752,36 @@ server.tool(
     try { validateName(name); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
     if (IS_REMOTE) {
-      let body = content;
-      if (filePath && !content) body = fs.readFileSync(filePath, "utf-8");
-      if (!body) return { content: [{ type: "text", text: "Need content or filePath." }], isError: true };
-      const formData = new URLSearchParams({
-        from_agent: from, name, description: description || "", content: body,
-      });
       const headers = {};
       if (API_KEY) headers["X-API-Key"] = API_KEY;
+
+      // Binary file upload (images, etc.)
+      if (filePath && fs.existsSync(filePath)) {
+        const fileData = fs.readFileSync(filePath);
+        const boundary = `----aify${Date.now()}`;
+        const parts = [];
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="from_agent"\r\n\r\n${from}`);
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="name"\r\n\r\n${name}`);
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="description"\r\n\r\n${description || ""}`);
+        if (content) {
+          parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="content"\r\n\r\n${content}`);
+        }
+        parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
+        const bodyParts = [Buffer.from(parts.join("\r\n") + "\r\n"), fileData, Buffer.from(`\r\n--${boundary}--\r\n`)];
+        headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
+        const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: Buffer.concat(bodyParts) });
+        const r = await res.json();
+        return { content: [{ type: "text", text: `Shared "${name}" (${fileData.length} bytes, binary) on server.` }] };
+      }
+
+      // Text content
+      if (!content && !filePath) return { content: [{ type: "text", text: "Need content or filePath." }], isError: true };
+      let body = content;
+      if (filePath && !content) { try { body = fs.readFileSync(filePath, "utf-8"); } catch { return { content: [{ type: "text", text: `Cannot read file: ${filePath}` }], isError: true }; } }
+      const formData = new URLSearchParams({ from_agent: from, name, description: description || "", content: body });
       const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: formData });
       const r = await res.json();
-      return { content: [{ type: "text", text: `Shared "${r.name}" (${r.size} bytes) on server.` }] };
+      return { content: [{ type: "text", text: `Shared "${r.name || name}" on server.` }] };
     }
 
     const destPath = path.join(SHARED_DIR, name);
@@ -802,17 +950,20 @@ server.tool(
 
 server.tool(
   "cc_channel_join",
-  "Join an existing channel.",
+  "Join a channel yourself, or add another agent to a channel.",
   {
     channel: z.string().describe("Channel name to join"),
     from: z.string().describe("Your agent ID"),
+    agentId: z.string().optional().describe("Agent to add (omit to join yourself)"),
   },
-  async ({ channel, from }) => {
+  async ({ channel, from, agentId }) => {
+    const target = agentId || from;
     try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
     if (IS_REMOTE) {
-      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: from });
-      return { content: [{ type: "text", text: `Joined #${channel}. Members: ${r.members.join(", ")}` }] };
+      const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/join`, { agentId: target });
+      const action = target === from ? "Joined" : `Added ${target} to`;
+      return { content: [{ type: "text", text: `${action} #${channel}. Members: ${r.members.join(", ")}` }] };
     }
 
     const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
@@ -820,15 +971,16 @@ server.tool(
       return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
     }
     const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
-    if (!ch.members.includes(from)) {
-      ch.members.push(from);
+    if (!ch.members.includes(target)) {
+      ch.members.push(target);
       ch.messages.push({
         id: `${Date.now()}`, from: "_system", type: "info",
-        body: `${from} joined`, timestamp: Date.now(),
+        body: `${target} joined`, timestamp: Date.now(),
       });
       fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
     }
-    return { content: [{ type: "text", text: `Joined #${channel}. Members: ${ch.members.join(", ")}` }] };
+    const action = target === from ? "Joined" : `Added ${target} to`;
+    return { content: [{ type: "text", text: `${action} #${channel}. Members: ${ch.members.join(", ")}` }] };
   }
 );
 
@@ -866,11 +1018,19 @@ server.tool(
     if (!ch.members.includes(from)) {
       return { content: [{ type: "text", text: `Not a member of #${channel}. Join first.` }], isError: true };
     }
+    const msgId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
     ch.messages.push({
-      id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
-      from, type: type || "info", body, timestamp: Date.now(),
+      id: msgId, from, type: type || "info", body, timestamp: Date.now(),
     });
     fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
+    // Deliver to each member's inbox (except sender) so notifications work
+    for (const member of ch.members) {
+      if (member !== from) {
+        deliverMessage(member, {
+          id: msgId, from, type: type || "info", source: "channel", channel, subject: `#${channel}: ${body.slice(0, 80)}`, body,
+        });
+      }
+    }
     return { content: [{ type: "text", text: `Sent to #${channel} (${ch.members.length} members).` }] };
   }
 );

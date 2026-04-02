@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 /**
- * aify-claude inbox notification checker.
- * Called by Claude Code PostToolUse hook to check for unread messages.
+ * aify-claude inbox notification checker + heartbeat.
+ * Called by Claude Code PostToolUse hook.
  *
- * Reads agent ID from .aify-agent file in cwd (written by cc_register).
- * If unread messages exist, prints a notification to stdout which
- * gets injected into the Claude Code session context.
- *
- * Usage: node notify-check.js [server-url]
+ * 1. Sends heartbeat to server (signals agent is alive/working)
+ * 2. Checks for unread messages
+ * 3. Prints notification if unread messages exist
  */
 
 import fs from "fs";
@@ -20,7 +18,6 @@ const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || proce
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const AGENT_FILE = path.join(process.cwd(), ".aify-agent");
 
-// Skip if no server URL (local mode) or no agent file
 if (!SERVER_URL) process.exit(0);
 if (!fs.existsSync(AGENT_FILE)) process.exit(0);
 
@@ -35,23 +32,32 @@ try {
 } catch { /* first check */ }
 fs.writeFileSync(RATE_FILE, String(Date.now()));
 
-// Check inbox
 const headers = { "Accept": "application/json" };
 if (API_KEY) headers["X-API-Key"] = API_KEY;
 
 try {
-  const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3`;
+  // Heartbeat — signals agent is alive (sets status to "working")
+  fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
+    method: "POST", headers, signal: AbortSignal.timeout(2000),
+  }).catch(() => {});
+
+  // Check inbox
+  const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3&peek=true`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
   if (!resp.ok) process.exit(0);
   const data = await resp.json();
 
   if (data.total > 0) {
     const msgs = data.messages || [];
-    const previews = msgs.map(m => `  - From ${m.from}: "${m.subject}"`).join("\n");
+    const hasUrgent = msgs.some(m => m.priority === "urgent" || m.priority === "high");
+    const tag = hasUrgent ? " ⚠ URGENT" : "";
+    const previews = msgs.map(m => {
+      const p = (m.priority && m.priority !== "normal") ? ` [${m.priority.toUpperCase()}]` : "";
+      return `  - From ${m.from}${p}: "${m.subject}"`;
+    }).join("\n");
     const more = data.total > 3 ? `\n  ...and ${data.total - 3} more` : "";
-    console.log(`[aify-claude] ${data.total} unread message(s):\n${previews}${more}\nUse cc_inbox to read them.`);
+    console.log(`[aify-claude]${tag} ${data.total} unread message(s):\n${previews}${more}\nUse cc_inbox to read them.`);
   }
 } catch {
-  // Silently fail — don't disrupt the session
   process.exit(0);
 }

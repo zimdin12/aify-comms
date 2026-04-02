@@ -56,3 +56,4 @@ logs/
 
 # Data (persisted in volumes, not git)
 data/
+v1-export.json

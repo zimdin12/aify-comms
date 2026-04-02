@@ -8,6 +8,7 @@ Agents (Claude Code instances) register, send messages, share artifacts,
 and view a dashboard — all over HTTP.
 """
 
+import datetime
 import json
 import re
 import time
@@ -64,13 +65,13 @@ def _settings_file(request: Request) -> Path:
 def _read_settings(request: Request) -> dict:
     f = _settings_file(request)
     try:
-        saved = json.loads(f.read_text())
+        saved = json.loads(f.read_text(encoding="utf-8"))
         return {**DEFAULT_SETTINGS, **saved}
     except Exception:
         return dict(DEFAULT_SETTINGS)
 
 def _write_settings(request: Request, settings: dict):
-    _settings_file(request).write_text(json.dumps(settings, indent=2))
+    _settings_file(request).write_text(encoding="utf-8", data=json.dumps(settings, indent=2))
 
 # ─── Models ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,10 @@ class AgentRegister(BaseModel):
     cwd: Optional[str] = None
     model: Optional[str] = None
     instructions: Optional[str] = None
+    status: Optional[str] = None
+
+class AgentStatusUpdate(BaseModel):
+    status: str  # idle, working, reviewing, testing, researching, blocked, completed
 
 class MessageSend(BaseModel):
     from_agent: str
@@ -89,6 +94,7 @@ class MessageSend(BaseModel):
     type: str = "info"
     subject: str
     body: str
+    priority: str = "normal"  # normal, high, urgent
     inReplyTo: Optional[str] = None
     trigger: bool = False  # If true, spawn a Claude Code instance to handle this message
 
@@ -115,20 +121,20 @@ class ChannelJoin(BaseModel):
 
 def _read_agents(agents_file: Path) -> dict:
     try:
-        return json.loads(agents_file.read_text())
+        return json.loads(agents_file.read_text(encoding="utf-8"))
     except Exception:
         return {"agents": {}}
 
 def _write_agents(agents_file: Path, data: dict):
-    agents_file.write_text(json.dumps(data, indent=2))
+    agents_file.write_text(encoding="utf-8", data=json.dumps(data, indent=2))
 
 def _read_inbox(inbox_dir: Path, agent_id: str, filter_: str = "unread") -> list:
     d = inbox_dir / agent_id
     d.mkdir(parents=True, exist_ok=True)
     messages = []
-    for f in sorted(d.glob("*.json")):
+    for f in sorted(d.glob("*.json"), reverse=True):
         try:
-            msg = json.loads(f.read_text())
+            msg = json.loads(f.read_text(encoding="utf-8"))
             msg["_file"] = f.name
             msg["_read"] = f.name.endswith(".read.json")
             if filter_ == "unread" and msg["_read"]:
@@ -142,22 +148,39 @@ def _read_inbox(inbox_dir: Path, agent_id: str, filter_: str = "unread") -> list
 
 def _mark_read(inbox_dir: Path, agent_id: str, messages: list):
     d = inbox_dir / agent_id
+    now = _now()
     for m in messages:
         if m.get("_read"):
             continue
         old = d / m["_file"]
         new = d / m["_file"].replace(".json", ".read.json")
         try:
+            content = json.loads(old.read_text(encoding="utf-8"))
+            content["readAt"] = now
+            old.write_text(encoding="utf-8", data=json.dumps(content))
             old.rename(new)
         except Exception:
             pass
+
+# Manual statuses that auto-status should not override
+_MANUAL_STATUSES = {"blocked", "completed"}
+
+def _touch_agent(agents_file: Path, registry: dict, agent_id: str):
+    """Update lastSeen and auto-set status to 'active' (unless manually set to blocked/completed)."""
+    agent = registry["agents"].get(agent_id)
+    if not agent:
+        return
+    agent["lastSeen"] = _now()
+    if agent.get("status") not in _MANUAL_STATUSES:
+        agent["status"] = "active"
+    _write_agents(agents_file, registry)
 
 def _deliver(inbox_dir: Path, to_id: str, message: dict):
     d = inbox_dir / to_id
     d.mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000)
     uid = uuid.uuid4().hex[:8]
-    (d / f"{ts}-{uid}.json").write_text(json.dumps({**message, "timestamp": ts}))
+    (d / f"{ts}-{uid}.json").write_text(encoding="utf-8", data=json.dumps({**message, "timestamp": ts}))
 
 def _now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -187,10 +210,20 @@ async def root():
 async def list_agents(request: Request):
     agents_file, inbox_dir, _ = _dirs(request)
     registry = _read_agents(agents_file)
+    idle_cutoff = time.time() - 300  # 5 minutes
     result = {}
     for aid, info in registry["agents"].items():
         unread = len(_read_inbox(inbox_dir, aid, "unread"))
-        result[aid] = {**info, "unread": unread}
+        # Auto-idle: if not manually set and inactive for 5+ min
+        status = info.get("status", "idle")
+        if status not in _MANUAL_STATUSES and status != "stale":
+            try:
+                dt = datetime.datetime.fromisoformat(info.get("lastSeen", "").replace("Z", "+00:00"))
+                if dt.timestamp() < idle_cutoff:
+                    status = "idle"
+            except Exception:
+                pass
+        result[aid] = {**info, "status": status, "unread": unread}
     return {"agents": result}
 
 @router.post("/agents")
@@ -204,12 +237,13 @@ async def register_agent(req: AgentRegister, request: Request):
         "cwd": req.cwd or "",
         "model": req.model or "",
         "instructions": req.instructions or "",
+        "status": req.status or "idle",
         "registeredAt": _now(),
         "lastSeen": _now(),
     }
     _write_agents(agents_file, registry)
     (inbox_dir / req.agentId).mkdir(parents=True, exist_ok=True)
-    return {"ok": True, "agentId": req.agentId, "role": req.role}
+    return {"ok": True, "agentId": req.agentId, "role": req.role, "status": registry["agents"][req.agentId]["status"]}
 
 @router.delete("/agents/{agent_id}")
 async def unregister_agent(agent_id: str, request: Request):
@@ -220,6 +254,18 @@ async def unregister_agent(agent_id: str, request: Request):
     _write_agents(agents_file, registry)
     return {"ok": removed}
 
+@router.patch("/agents/{agent_id}")
+async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
+    """Update an agent's status. Valid statuses: idle, working, reviewing, testing, researching, blocked, completed."""
+    agents_file, _, _ = _dirs(request)
+    registry = _read_agents(agents_file)
+    if agent_id not in registry["agents"]:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    registry["agents"][agent_id]["status"] = req.status
+    registry["agents"][agent_id]["lastSeen"] = _now()
+    _write_agents(agents_file, registry)
+    return {"ok": True, "agentId": agent_id, "status": req.status}
+
 # ─── Messages ────────────────────────────────────────────────────────────────
 
 @router.post("/messages/send")
@@ -228,11 +274,9 @@ async def send_message(req: MessageSend, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
     registry = _read_agents(agents_file)
-    if registry["agents"].get(req.from_agent):
-        registry["agents"][req.from_agent]["lastSeen"] = _now()
-        _write_agents(agents_file, registry)
+    _touch_agent(agents_file, registry, req.from_agent)
     msg_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
-    message = {"id": msg_id, "from": req.from_agent, "type": req.type, "subject": req.subject, "body": req.body}
+    message = {"id": msg_id, "from": req.from_agent, "type": req.type, "subject": req.subject, "body": req.body, "priority": req.priority}
     if req.inReplyTo:
         message["inReplyTo"] = req.inReplyTo
     recipients = []
@@ -253,14 +297,11 @@ async def get_inbox(
     agent_id: str, request: Request,
     filter: str = Query("unread", pattern="^(unread|read|all)$"),
     fromAgent: Optional[str] = None, fromRole: Optional[str] = None,
-    type: Optional[str] = None, limit: int = Query(20, ge=1, le=200),
+    type: Optional[str] = None, limit: int = Query(200, ge=1, le=1000),
 ):
     validate_name(agent_id, "agent ID")
     agents_file, inbox_dir, _ = _dirs(request)
     registry = _read_agents(agents_file)
-    if registry["agents"].get(agent_id):
-        registry["agents"][agent_id]["lastSeen"] = _now()
-        _write_agents(agents_file, registry)
     messages = _read_inbox(inbox_dir, agent_id, filter)
     if fromAgent:
         messages = [m for m in messages if m.get("from") == fromAgent]
@@ -303,13 +344,13 @@ async def search_messages(
             meta = {}
             mf = shared_dir / f"{f.name}.meta.json"
             if mf.exists():
-                try: meta = json.loads(mf.read_text())
+                try: meta = json.loads(mf.read_text(encoding="utf-8"))
                 except Exception: pass
             haystack = f"{f.name} {meta.get('description', '')} {meta.get('from', '')}".lower()
             content_match = False
             if f.stat().st_size < 1_000_000:
                 try:
-                    if q in f.read_text().lower(): content_match = True
+                    if q in f.read_text(encoding="utf-8").lower(): content_match = True
                 except Exception: pass
             if q in haystack or content_match:
                 results.append({"type": "artifact", "name": f.name, "from": meta.get("from", "?"),
@@ -328,7 +369,7 @@ async def list_shared(request: Request):
         meta = {}
         mf = shared_dir / f"{f.name}.meta.json"
         if mf.exists():
-            try: meta = json.loads(mf.read_text())
+            try: meta = json.loads(mf.read_text(encoding="utf-8"))
             except Exception: pass
         files.append({"name": f.name, "size": f.stat().st_size, "from": meta.get("from", "?"),
             "description": meta.get("description", ""), "sharedAt": meta.get("sharedAt", "")})
@@ -346,11 +387,11 @@ async def share_artifact(
     if file:
         data = await file.read(); dest.write_bytes(data); size = len(data)
     elif content:
-        dest.write_text(content); size = len(content)
+        dest.write_text(encoding="utf-8", data=content); size = len(content)
     else:
         raise HTTPException(400, "Need 'content' or 'file'")
     meta = {"from": from_agent, "name": name, "description": description, "sharedAt": _now(), "size": size}
-    (shared_dir / f"{name}.meta.json").write_text(json.dumps(meta, indent=2))
+    (shared_dir / f"{name}.meta.json").write_text(encoding="utf-8", data=json.dumps(meta, indent=2))
     return {"ok": True, "name": name, "size": size}
 
 @router.get("/shared/{name}")
@@ -366,9 +407,9 @@ async def get_shared(name: str, request: Request):
     meta = {}
     mf = shared_dir / f"{name}.meta.json"
     if mf.exists():
-        try: meta = json.loads(mf.read_text())
+        try: meta = json.loads(mf.read_text(encoding="utf-8"))
         except Exception: pass
-    return {"content": artifact.read_text(), "meta": meta}
+    return {"content": artifact.read_text(encoding="utf-8"), "meta": meta}
 
 @router.delete("/shared/{name}")
 async def delete_shared(name: str, request: Request):
@@ -389,12 +430,12 @@ def _channels_dir(request: Request) -> Path:
 def _read_channel(channels_dir: Path, name: str) -> dict:
     f = channels_dir / f"{name}.json"
     try:
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding="utf-8"))
     except Exception:
         return None
 
 def _write_channel(channels_dir: Path, name: str, data: dict):
-    (channels_dir / f"{name}.json").write_text(json.dumps(data, indent=2))
+    (channels_dir / f"{name}.json").write_text(encoding="utf-8", data=json.dumps(data, indent=2))
 
 @router.get("/channels")
 async def list_channels(request: Request):
@@ -402,7 +443,7 @@ async def list_channels(request: Request):
     channels = []
     for f in sorted(cdir.glob("*.json")):
         try:
-            ch = json.loads(f.read_text())
+            ch = json.loads(f.read_text(encoding="utf-8"))
             channels.append({
                 "name": ch["name"],
                 "description": ch.get("description", ""),
@@ -502,14 +543,18 @@ async def leave_channel(name: str, req: ChannelJoin, request: Request):
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
     validate_name(name, "channel name")
+    agents_file, _, _ = _dirs(request)
+    registry = _read_agents(agents_file)
+    _touch_agent(agents_file, registry, req.from_agent)
     cdir = _channels_dir(request)
     ch = _read_channel(cdir, name)
     if not ch:
         raise HTTPException(404, f"Channel '{name}' not found")
     if req.from_agent not in ch["members"]:
         raise HTTPException(403, f"Agent '{req.from_agent}' is not a member of #{name}. Join first.")
+    msg_id = f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
     msg = {
-        "id": f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}",
+        "id": msg_id,
         "from": req.from_agent,
         "type": req.type,
         "body": req.body,
@@ -517,7 +562,21 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
     }
     ch["messages"].append(msg)
     _write_channel(cdir, name, ch)
-    return {"ok": True, "messageId": msg["id"], "members": ch["members"]}
+    # Deliver to each member's inbox (except sender) so notifications work
+    _, inbox_dir, _ = _dirs(request)
+    inbox_msg = {
+        "id": msg_id,
+        "from": req.from_agent,
+        "type": req.type,
+        "source": "channel",
+        "channel": name,
+        "subject": f"#{name}: {req.body[:80]}",
+        "body": req.body,
+    }
+    for member in ch["members"]:
+        if member != req.from_agent:
+            _deliver(inbox_dir, member, inbox_msg)
+    return {"ok": True, "messageId": msg_id, "members": ch["members"]}
 
 # ─── Clear ───────────────────────────────────────────────────────────────────
 
@@ -536,7 +595,7 @@ async def clear_data(req: ClearRequest, request: Request):
             for f in p.glob("*.json"):
                 if cutoff:
                     try:
-                        msg = json.loads(f.read_text())
+                        msg = json.loads(f.read_text(encoding="utf-8"))
                         if msg.get("timestamp", 0) > cutoff: continue
                     except Exception: pass
                 f.unlink(); cleared["messages"] += 1
@@ -592,7 +651,7 @@ async def rotate_messages(request: Request):
             if not agent_dir.is_dir(): continue
             for f in sorted(agent_dir.glob("*.json")):
                 try:
-                    msg = json.loads(f.read_text())
+                    msg = json.loads(f.read_text(encoding="utf-8"))
                     if msg.get("timestamp", 0) < cutoff:
                         f.unlink(); stats["expired_messages"] += 1
                 except Exception: pass
@@ -655,7 +714,7 @@ async def get_stats(request: Request):
                 total_messages += 1; agent_total += 1
                 if not f.name.endswith(".read.json"): unread_messages += 1
                 try:
-                    msg = json.loads(f.read_text())
+                    msg = json.loads(f.read_text(encoding="utf-8"))
                     mtype = msg.get("type", "info")
                     messages_by_type[mtype] = messages_by_type.get(mtype, 0) + 1
                     if msg.get("timestamp", 0) >= today_start: messages_today += 1
@@ -681,4 +740,4 @@ async def get_stats(request: Request):
 async def dashboard():
     """Serve the SPA dashboard. Data fetched client-side via API calls."""
     html_path = Path(__file__).parent.parent / "dashboard.html"
-    return HTMLResponse(html_path.read_text())
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
