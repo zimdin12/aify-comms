@@ -20,6 +20,13 @@ const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
 
 if (!SERVER_URL) process.exit(0);
 
+// If server was unreachable recently, skip entirely (check every 60s)
+const DOWN_FILE = path.join(tmpDir, "aify-server-down.ts");
+try {
+  const lastDown = parseInt(fs.readFileSync(DOWN_FILE, "utf-8"), 10);
+  if (Date.now() - lastDown < 60_000) process.exit(0);
+} catch { /* no file = never failed */ }
+
 // Find agent ID: check session-specific temp file first (by parent PID), then cwd
 let agentId = "";
 const SESSION_FILE = path.join(tmpDir, `aify-agent-${process.ppid || ""}`);
@@ -53,6 +60,8 @@ try {
   const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3&peek=true`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
   if (!resp.ok) process.exit(0);
+  // Server is up — clear any previous down marker
+  try { fs.unlinkSync(DOWN_FILE); } catch {}
   const data = await resp.json();
 
   if (data.total > 0) {
@@ -67,5 +76,7 @@ try {
     console.log(`[aify-claude]${tag} ${data.total} unread message(s):\n${previews}${more}\nUse cc_inbox to read them.`);
   }
 } catch {
+  // Server unreachable — cache the failure so we skip quickly next time
+  try { fs.writeFileSync(DOWN_FILE, String(Date.now())); } catch {}
   process.exit(0);
 }
