@@ -735,8 +735,8 @@ server.tool(
           content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s) received:\n\n${formatted.join("\n\n")}` }],
         };
       } catch (e) {
-        if (e.name === "TimeoutError" || e.name === "AbortError") {
-          return { content: [{ type: "text", text: "No messages received (timeout). Call cc_listen again to keep waiting." }] };
+        if (e.name === "TimeoutError" || e.name === "AbortError" || /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket/i.test(e.message)) {
+          return { content: [{ type: "text", text: "No messages received (connection interrupted). Call cc_listen again to keep waiting." }] };
         }
         return { content: [{ type: "text", text: `Listen error: ${e.message}` }], isError: true };
       }
