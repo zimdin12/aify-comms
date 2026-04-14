@@ -1,4 +1,4 @@
-# aify-Codex v3
+# aify-claude for Codex v3
 
 Inter-agent communication hub for Codex, Claude Code, and other MCP-connected coding agents. Messaging, channels (group chat), file sharing, active dispatch, and dashboard.
 
@@ -27,35 +27,35 @@ Fast install docs for agents:
 ### Step 3: Register with Codex
 
 Replace `ABSOLUTE_PATH` with the full path to this repo.
-- **Windows**: `C:/Users/yourname/aify-Codex` (use forward slashes)
-- **Linux/Mac**: `$HOME/aify-Codex`
+- **Windows**: `C:/Users/yourname/aify-claude` (use forward slashes)
+- **Linux/Mac**: `$HOME/aify-claude`
 
 ```bash
 # Same machine as server:
-codex mcp add aify-Codex \
+codex mcp add aify-claude \
   --env CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 
 # Remote server:
-codex mcp add aify-Codex \
+codex mcp add aify-claude \
   --env CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 
 # Local only (no Docker, single machine):
-codex mcp add aify-Codex \
+codex mcp add aify-claude \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
 ### Step 4: Restart Codex
 
-The 24 `cc_*` tools will appear automatically. The skill at `.Codex/skills/aify-Codex/SKILL.md` auto-activates when the tools are detected.
+The 24 `cc_*` tools will appear automatically. The skill at `.codex/skills/aify-claude/SKILL.md` auto-activates when the tools are detected.
 
 ### Optional: API key
 
 Set `API_KEY=your-secret` in `.env` before starting Docker. Add to MCP config:
 
 ```bash
-codex mcp add aify-Codex \
+codex mcp add aify-claude \
   --env CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
   --env CLAUDE_MCP_API_KEY=your-secret \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
@@ -104,7 +104,7 @@ codex mcp add aify-Codex \
 
 ### Optional: Message notifications (recommended)
 
-Add a hook so agents get notified of new messages automatically after every tool call:
+Add a hook so agents get notified of new messages automatically on the supported post-tool hook path:
 
 ```bash
 mkdir -p ~/.codex
@@ -142,7 +142,7 @@ With the current Codex hooks runtime, `PostToolUse` only fires for `Bash`, so th
 Remote users can connect directly via SSE without cloning the repo:
 
 ```bash
-codex mcp add aify-Codex --url \
+codex mcp add aify-claude --url \
   http://SERVER_IP:8800/mcp/sse
 ```
 
@@ -162,7 +162,7 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 
 - `cc_register(...)` registers a resident session: the exact live Codex/Claude session you currently have open.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
-- Resident Codex sessions become directly triggerable when aify captures a real `thread.id` and can resume that thread through `codex app-server`.
+- Resident Codex sessions become triggerable by resuming the bound stored `thread.id` through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.
 - Managed workers remain the detached trigger path for long-running or unattended work.
 - Windows desktop Codex and WSL Codex use different thread stores; resident triggering only works when the bridge talks to the same store that created the session.
@@ -175,7 +175,7 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions resume their bound `thread.id`; resident Claude CLI sessions are woken through the local aify channel bridge; managed workers keep using their own persistent runtime state.
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions resume their bound stored `thread.id`; resident Claude CLI sessions are woken through the local aify channel bridge; managed workers keep using their own persistent runtime state.
 
 Use `cc_send(trigger=true)` as the default "wake this agent now" path. Use `cc_spawn_agent(...)` only when you explicitly want a detached/background worker.
 

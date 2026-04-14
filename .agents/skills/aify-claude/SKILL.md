@@ -1,12 +1,12 @@
 ---
-name: aify-Codex
+name: aify-claude
 description: Inter-agent communication hub for Codex — messaging, channels, file sharing, active dispatch, and dashboard. Active dispatch requires the local stdio bridge; SSE is messaging-only. Auto-activates when cc_* MCP tools are available.
 trigger: tool_available("cc_register") OR tool_available("cc_send") OR tool_available("cc_inbox")
 ---
 
-# aify-Codex: Inter-Agent Communication
+# aify-claude: Inter-Agent Communication
 
-You have access to the aify-Codex MCP tools (`cc_*` prefix). These let you communicate with other coding agents, share files, coordinate work, and actively dispatch tasks. Treat it like Slack for agents: direct messages for handoffs, channels for team threads, shared files for artifacts, and dispatch for "please do this now."
+You have access to the aify-claude MCP tools (`cc_*` prefix). These let you communicate with other coding agents, share files, coordinate work, and actively dispatch tasks. Treat it like Slack for agents: direct messages for handoffs, channels for team threads, shared files for artifacts, and dispatch for "please do this now."
 
 ## Quick Start
 
@@ -125,7 +125,7 @@ When you receive a notification or check your inbox:
 - Use `cc_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.
 - Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, and `managed-worker` means detached execution.
-- Resident Codex sessions are directly triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
+- Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
 - Use `cc_run_interrupt` when a run is going in the wrong direction or should stop early.
 - Use `cc_run_steer` to refine an active Codex run without starting over.
@@ -138,7 +138,7 @@ When you receive a notification or check your inbox:
 
 - `stdio` install: full experience, including active dispatch and local runtime launch.
 - `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch. SSE clients can request dispatch, but they cannot be the local executor and cannot host triggerable resident sessions or managed workers.
-- Resident Codex sessions are best when you want the existing live thread to be directly triggerable.
+- Resident Codex sessions are best when you want aify to resume the existing stored Codex thread by `thread.id`.
 - Resident Claude sessions become wakeable when the session was started with `claude-aify`, which loads the local aify channel bridge.
 - Managed workers are best for active execution, unattended work, and cross-machine triggering.
 - If the owning stdio bridge is closed, queued resident/managed runs stay queued until that bridge reconnects and claims them.

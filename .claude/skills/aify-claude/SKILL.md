@@ -126,7 +126,7 @@ When you receive a notification or check your inbox:
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.
 - Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, and `managed-worker` means detached execution.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
-- Resident Codex sessions are directly triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
+- Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
 - Use `cc_run_interrupt` when a run is going in the wrong direction or should stop early.
 - Use `cc_run_steer` to refine an active Codex run without starting over.
 - Use channels for shared workstreams like `frontend-team`, `release-war-room`, or `bug-bash`.
@@ -138,7 +138,7 @@ When you receive a notification or check your inbox:
 
 - `stdio` install: full experience, including active dispatch and local runtime launch.
 - `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch. SSE clients can request dispatch, but they cannot be the local executor and cannot host triggerable resident sessions or managed workers.
-- Resident Codex sessions are best when you want the existing live thread to be directly triggerable.
+- Resident Codex sessions are best when you want aify to resume the existing stored Codex thread by `thread.id`.
 - Resident Claude sessions become wakeable when the session was started with `claude-aify`, which loads the local aify channel bridge.
 - Managed workers are best for active execution, unattended work, and cross-machine triggering.
 - If the owning stdio bridge is closed, queued resident/managed runs stay queued until that bridge reconnects and claims them.

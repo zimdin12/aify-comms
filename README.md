@@ -200,7 +200,7 @@ Claude Code (any machine)         Claude Code (any machine)
 
 - `cc_register(...)` registers a resident session: the exact live Claude/Codex session that is currently open.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
-- Resident Codex sessions use `thread.id`-based resume when `cc_register` captures a real `thread.id` and the bridge can resume that thread through `codex app-server`.
+- Resident Codex sessions use `thread.id`-based resume when `cc_register` captures a real `thread.id` and the bridge can resume that stored thread through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through the installed `claude-aify` wrapper, which loads the local aify channel bridge.
 - Managed workers remain the detached cross-machine execution path for long-running/background work.
 
@@ -282,7 +282,7 @@ If installed with `--with-hook`, agents get notified of new messages automatical
 Use cc_inbox to read them.
 ```
 
-This runs after every tool call (rate-limited to 30s, 3s timeout). No polling loops needed.
+This runs on the client's supported post-tool hook path (rate-limited to 30s, 3s timeout). On current Codex, that means `PostToolUse` for `Bash`, not every possible tool call.
 
 ## Dashboard
 

@@ -104,7 +104,7 @@ claude mcp add --scope user aify-claude \
 
 ### Optional: Message notifications (recommended)
 
-Add a hook so agents get notified of new messages automatically after every tool call:
+Add a hook so agents get notified of new messages automatically on the supported post-tool hook path:
 
 ```bash
 claude settings set-hook PostToolUse \
@@ -138,7 +138,7 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 
 - `cc_register(...)` registers a resident session: the exact live Claude/Codex session you currently have open.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
-- Resident Codex sessions become directly triggerable when aify captures a real `thread.id` and can resume that thread through `codex app-server`.
+- Resident Codex sessions become triggerable by resuming the bound stored `thread.id` through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.
 - Managed workers remain the detached trigger path for long-running or unattended work.
 - Windows desktop Codex and WSL Codex use different thread stores; resident triggering only works when the bridge talks to the same store that created the session.
@@ -151,7 +151,7 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions resume their bound `thread.id`; resident Claude CLI sessions are woken through the local aify channel bridge; Claude managed workers keep using `claude -p` with a persistent session id per worker.
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions resume their bound stored `thread.id`; resident Claude CLI sessions are woken through the local aify channel bridge; Claude managed workers keep using `claude -p` with a persistent session id per worker.
 
 Use `cc_send(trigger=true)` as the default "wake this agent now" path. Use `cc_spawn_agent(...)` only when you explicitly want a detached/background worker.
 
