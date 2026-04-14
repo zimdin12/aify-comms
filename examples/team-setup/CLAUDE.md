@@ -16,7 +16,7 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 
 ## Communication rules
 
-- **Stay registered and triggerable.** Use `comms_send(...)` as the normal wake-up path across the team. Use `comms_send(silent=true)` only when you want inbox delivery without waking the target.
+- **Stay registered and triggerable.** Use `comms_send(...)` or `comms_channel_send(...)` as the normal wake-up paths across the team. Use `silent=true` only when a DM or channel post should stay background-only.
 - **Use `comms_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `comms_listen` to be reachable.
 - Use `comms_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.

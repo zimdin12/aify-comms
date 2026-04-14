@@ -3,9 +3,10 @@
 Read CLAUDE.md first, then find your role below and follow the prompt.
 
 General coordination pattern:
-- Use `comms_send` for conversation and handoffs
-- Use `comms_send(...)` as the default "wake this agent now" path
-- Use `comms_send(silent=true)` when you want inbox delivery without waking the target
+- Use `comms_send` for direct conversation and handoffs
+- Use `comms_channel_send` for team-wide updates or group wakeups
+- Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
+- Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` when you want background delivery without waking the target
 - Use `comms_dispatch` when you want explicit run tracking from the start
 - Use `comms_spawn_agent` only when you need a detached managed worker
 - Use `comms_run_status` to watch active work

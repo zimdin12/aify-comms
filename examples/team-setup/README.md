@@ -23,10 +23,10 @@ Example CLAUDE.md files for a 5-agent development team using aify-comms for coor
 ## Key patterns
 
 - **Push workflow**: Coder commits locally → Tester verifies → Manager tells coder to push
-- **Communication**: `game-dev` channel for team updates, DMs for direct collaboration
+- **Communication**: `game-dev` channel for team updates and group wakeups, DMs for direct collaboration
 - **Status awareness**: Agents use `comms_agent_info` to check before messaging
 - **File sharing**: `comms_share` for handoffs (logs, screenshots, test results)
-- **Active starts**: register the live resident session first, then use `comms_send(...)` or `comms_dispatch` to wake that agent immediately. Use `comms_send(silent=true)` for message-only delivery
+- **Active starts**: register the live resident session first, then use `comms_send(...)`, `comms_channel_send(...)`, or `comms_dispatch` to wake the right agents immediately. Use `silent=true` when a DM or channel post should be background-only
 - **Live wake startup**: use `claude-aify` for Claude live wakeups and `codex-aify` for Codex live wakeups when you want the visible session itself to wake
 - **Detached workers**: use `comms_spawn_agent` only when you want a separate background worker with its own runtime state
 - **Run correction**: use `comms_run_steer` or `comms_run_interrupt` when active work needs intervention

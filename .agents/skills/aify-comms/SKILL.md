@@ -75,7 +75,7 @@ If another agent says you are not triggerable:
 |------|-----|
 | `comms_channel_create` | Create a named channel. You're auto-joined. |
 | `comms_channel_join` | Join yourself or add another agent: `comms_channel_join(channel, from, agentId="coder")`. |
-| `comms_channel_send` | Send to a channel. All members see it via inbox. |
+| `comms_channel_send` | Send to a channel. By default this also wakes channel members other than the sender; use `silent=true` for background-only updates. |
 | `comms_channel_read` | Read recent channel messages. |
 | `comms_channel_list` | List all channels with member/message counts. |
 
@@ -121,8 +121,9 @@ When you receive a notification or check your inbox:
 ## Agent Workflow
 
 - Use `comms_send` for normal conversation, coordination, quick asks, and status updates.
-- Use `comms_send(...)` as the default "wake this agent and start work now" path.
-- Use `comms_send(silent=true)` only when you intentionally want inbox delivery without waking the target.
+- Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths when the recipient or whole channel should start working now.
+- Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` only when you intentionally want background delivery without waking the target.
+- Use `comms_channel_send(...)` for group wakeups and coordinated team starts when the whole channel should see and act on the same update.
 - Re-registering the same agent ID intentionally supersedes the older bridge instance for that agent on that machine.
 - Use `comms_dispatch` when you want explicit run IDs and active-run tracking from the start.
 - Use `comms_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.

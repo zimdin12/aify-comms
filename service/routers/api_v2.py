@@ -2208,32 +2208,106 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
 
         msg_id = f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
+        subject = f"#{name}: {req.body[:80]}"
 
         # Channel message (canonical)
         await db.execute(
             "INSERT INTO messages (id, from_agent, channel, source, type, subject, body, timestamp) VALUES (?,?,?,?,?,?,?,?)",
-            (msg_id, req.from_agent, name, "channel", req.type, f"#{name}: {req.body[:80]}", req.body, ts)
+            (msg_id, req.from_agent, name, "channel", req.type, subject, req.body, ts)
         )
 
         # Deliver to each member's inbox (except sender)
         mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (name,))
         members = [r["agent_id"] for r in await mem_c.fetchall()]
+        recipients = []
+        inbox_message_ids = {}
         for member in members:
             if member != req.from_agent:
+                recipient_msg_id = f"{msg_id}-{member}"
+                recipients.append(member)
+                inbox_message_ids[member] = recipient_msg_id
                 await db.execute(
                     "INSERT INTO messages (id, from_agent, to_agent, channel, source, type, subject, body, priority, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (f"{msg_id}-{member}", req.from_agent, member, name, "channel", req.type, f"#{name}: {req.body[:80]}", req.body, "normal", ts)
+                    (recipient_msg_id, req.from_agent, member, name, "channel", req.type, subject, req.body, req.priority or "normal", ts)
                 )
+
+        should_trigger = False if req.silent else req.trigger is not False
+        dispatch_runs = []
+        not_started = []
+        if should_trigger and recipients:
+            launchable_recipients = []
+            for recipient_id in recipients:
+                agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
+                row = await agent_cursor.fetchone()
+                if not row:
+                    not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
+                    continue
+                execution_mode, reason = _agent_execution_mode(row)
+                if reason or not execution_mode:
+                    not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
+                    continue
+                launchable_recipients.append((recipient_id, execution_mode))
+            dispatch_runs = await _create_dispatch_runs(
+                db,
+                [recipient_id for recipient_id, _ in launchable_recipients],
+                from_agent=req.from_agent,
+                message_type=req.type,
+                subject=subject,
+                body=req.body,
+                priority=req.priority or "normal",
+                in_reply_to=None,
+                dispatch_mode="start_if_possible",
+                execution_mode="managed",
+                requested_runtime=None,
+                message_id=inbox_message_ids.get(recipients[0]) if len(recipients) == 1 else None,
+            )
+            for run, (_, execution_mode) in zip(dispatch_runs, launchable_recipients):
+                await db.execute(
+                    "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
+                    (execution_mode, run["runId"])
+                )
+                dispatch_state = await _get_dispatch_state_for_agent(db, run["targetAgentId"])
+                active = dispatch_state.get("activeRun")
+                if active:
+                    run["queuedBehindActiveRun"] = {
+                        "runId": active["runId"],
+                        "status": active["status"],
+                        "subject": active["subject"],
+                    }
+                run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
+
+        recipient_info = {}
+        for recipient_id in recipients:
+            info = await _get_recipient_info(db, recipient_id)
+            if info:
+                recipient_info[recipient_id] = {
+                    "status": info["status"],
+                    "unread": info["unread"],
+                    "runtime": info["runtime"],
+                    "machineId": info["machineId"],
+                }
 
         await db.commit()
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("channel_message", {"channel": name, "from": req.from_agent, "body": req.body[:200]})
+            for recipient_id in recipients:
+                await ws.notify_agent(recipient_id, "new_message", {"from": req.from_agent, "subject": subject, "channel": name})
+            for run in dispatch_runs:
+                await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
         # Wake up any listening members
         for member in members:
             if member != req.from_agent:
                 _wake_agent(member)
-        return {"ok": True, "messageId": msg_id, "members": members}
+        return {
+            "ok": True,
+            "messageId": msg_id,
+            "members": members,
+            "recipients": recipients,
+            "recipientStatus": recipient_info,
+            "dispatchRuns": dispatch_runs,
+            "notStarted": not_started,
+        }
     finally:
         await db.close()
 

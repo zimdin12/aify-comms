@@ -1855,7 +1855,7 @@ server.tool(
 
 server.tool(
   "comms_channel_send",
-  "Send a message to a channel. All members will see it.",
+  "Send a message to a channel. By default this also requests active work for channel members other than the sender. Pass silent=true for a background-only channel update.",
   {
     channel: z.string().describe("Channel name"),
     from: z.string().describe("Your agent ID"),
@@ -1864,14 +1864,31 @@ server.tool(
       .enum(["info", "request", "response", "error", "review", "approval"])
       .optional()
       .describe("Message type (default: info)"),
+    priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
+    trigger: z.boolean().optional().describe("Legacy override for active dispatch behavior"),
+    silent: z.boolean().optional().describe("When true, send only the channel post and do not request active dispatch"),
   },
-  async ({ channel, from, body, type }) => {
+  async ({ channel, from, body, type, priority, trigger, silent }) => {
     try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+    const shouldTrigger = silent === true ? false : (trigger !== false);
+    const subject = `#${channel}: ${body.slice(0, 80)}`;
 
     if (IS_REMOTE) {
       const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
-        from_agent: from, channel, body, type: type || "info",
+        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, silent: silent === true,
       });
+      if (shouldTrigger && (r.dispatchRuns?.length || r.notStarted?.length)) {
+        const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
+        const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
+        return {
+          content: [{
+            type: "text",
+            text:
+              `Sent to #${channel} and queued dispatch for ${queued.join(", ") || "no launchable recipients"}. Use comms_run_status(...) to inspect progress.` +
+              (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
+          }],
+        };
+      }
       return { content: [{ type: "text", text: `Sent to #${channel} (${r.members.length} members).` }] };
     }
 
@@ -1889,12 +1906,49 @@ server.tool(
     });
     fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
     // Deliver to each member's inbox (except sender) so notifications work
+    const recipients = [];
     for (const member of ch.members) {
       if (member !== from) {
+        recipients.push(member);
         deliverMessage(member, {
-          id: msgId, from, type: type || "info", source: "channel", channel, subject: `#${channel}: ${body.slice(0, 80)}`, body,
+          id: msgId, from, type: type || "info", source: "channel", channel, subject, body, priority: priority || "normal",
         });
       }
+    }
+    if (shouldTrigger && recipients.length > 0) {
+      const started = [];
+      const skipped = [];
+      const registry = readAgents();
+      for (const targetId of recipients) {
+        const targetInfo = registry.agents[targetId] || {};
+        const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
+        const runtime = normalizeRuntime(targetInfo.runtime || "generic");
+        const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
+        const residentRunnable = sessionMode === "resident" && capabilities.includes("resident-run") && targetInfo.sessionHandle;
+        const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
+        if (!residentRunnable && !managedRunnable) {
+          skipped.push(
+            sessionMode === "resident"
+              ? `${targetId} (resident session has no triggerable session handle; re-register that live session)`
+              : `${targetId} (managed worker is missing launch capabilities)`,
+          );
+          continue;
+        }
+        if (!canLaunchRuntime(runtime)) {
+          skipped.push(`${targetId} (${runtime})`);
+          continue;
+        }
+        spawnTriggeredAgent({ targetId, targetInfo, from, type: type || "info", subject, body });
+        started.push(`${targetId} (${runtime})`);
+      }
+      return {
+        content: [{
+          type: "text",
+          text:
+            `Sent to #${channel} + triggered locally for ${started.join(", ") || "no launchable recipients"}.` +
+            (skipped.length ? `\nSkipped: ${skipped.join(", ")}` : ""),
+        }],
+      };
     }
     return { content: [{ type: "text", text: `Sent to #${channel} (${ch.members.length} members).` }] };
   }

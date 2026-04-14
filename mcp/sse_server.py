@@ -460,13 +460,40 @@ async def comms_channel_join(channel: str, from_agent: str) -> str:
 
 
 @mcp_server.tool()
-async def comms_channel_send(channel: str, from_agent: str, body: str, type: str = "info") -> str:
-    """Send a message to a channel. All members will see it."""
+async def comms_channel_send(
+    channel: str,
+    from_agent: str,
+    body: str,
+    type: str = "info",
+    priority: str = "normal",
+    trigger: bool = True,
+    silent: bool = False,
+) -> str:
+    """Send a message to a channel. By default this also requests active work for channel members other than the sender; use silent=true for a background-only channel update."""
+    should_trigger = False if silent else trigger is not False
     r = await _api("POST", f"/channels/{channel}/send", {
-        "from_agent": from_agent, "channel": channel, "body": body, "type": type,
+        "from_agent": from_agent, "channel": channel, "body": body, "type": type, "priority": priority, "trigger": should_trigger, "silent": silent,
     })
     if "detail" in r:
         return f"Error: {r['detail']}"
+    if should_trigger and (r.get("dispatchRuns") or r.get("notStarted")):
+        queued = [
+            (
+                f"{run.get('targetAgentId', '?')} ({run.get('runId', '?')})"
+                + (
+                    f" queued behind active run {run['queuedBehindActiveRun']['runId']}"
+                    if run.get("queuedBehindActiveRun", {}).get("runId")
+                    else ""
+                )
+            )
+            for run in r.get("dispatchRuns", [])
+        ]
+        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
+        note = f"Sent to #{channel} and queued dispatch for {', '.join(queued) if queued else 'no launchable recipients'}."
+        if skipped:
+            note += f" Not started: {'; '.join(skipped)}."
+        note += " Use comms_run_status(...) to inspect progress."
+        return note
     return f"Sent to #{channel} ({r.get('members', {})  if isinstance(r.get('members'), int) else len(r.get('members', []))} members)."
 
 

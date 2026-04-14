@@ -113,6 +113,9 @@ class ChannelMessage(BaseModel):
     channel: str
     body: str
     type: str = "info"
+    priority: str = "normal"
+    trigger: bool = True
+    silent: bool = False
 
 class ChannelJoin(BaseModel):
     agentId: str

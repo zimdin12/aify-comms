@@ -87,7 +87,7 @@ codex mcp add aify-comms \
 |------|---------|
 | `comms_channel_create` | Create a channel |
 | `comms_channel_join` | Join yourself or add another agent to a channel |
-| `comms_channel_send` | Send to channel (delivered to all members' inboxes) |
+| `comms_channel_send` | Send to channel. By default this also wakes channel members other than the sender; use `silent=true` for background-only updates |
 | `comms_channel_read` | Read channel messages with pagination |
 | `comms_channel_list` | List all channels |
 
@@ -182,9 +182,9 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`comms_send(...)` and `comms_dispatch(...)` queue work on the server. `comms_send(silent=true)` is the message-only exception. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions started with `codex-aify` use `codex-live` and target the same shared local WebSocket App Server as the visible TUI; plain resident Codex sessions still resume their bound stored `thread.id` in a separate background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; managed workers keep using their own persistent runtime state.
+`comms_send(...)`, `comms_channel_send(...)`, and `comms_dispatch(...)` queue work on the server. `comms_send(silent=true)` and `comms_channel_send(silent=true)` are the background-only exceptions. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions started with `codex-aify` use `codex-live` and target the same shared local WebSocket App Server as the visible TUI; plain resident Codex sessions still resume their bound stored `thread.id` in a separate background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; managed workers keep using their own persistent runtime state.
 
-Use `comms_send(...)` as the default "wake this agent now" path. Use `comms_send(silent=true)` when you only want inbox delivery. Use `comms_spawn_agent(...)` only when you explicitly want a detached/background worker.
+Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths. Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` when you only want background delivery. Use `comms_spawn_agent(...)` only when you explicitly want a detached/background worker.
 
 When you dispatch a task, the target run's final plain-text answer is kept in the live session and dispatch record. If you want a message back, tell the target to use `comms_send(...)` explicitly.
 
@@ -215,7 +215,7 @@ Recommended roles:
 
 ## Key Behaviors
 
-- `comms_send` = DM plus wake by default. Add `silent=true` for DM-only. `comms_share` = file. `comms_channel_*` = group chat.
+- `comms_send` = DM plus wake by default. `comms_channel_send` = channel post plus wake by default. Add `silent=true` when either should be background-only. `comms_share` = file. `comms_channel_*` = group chat.
 - Messages wrapped in code fences to prevent prompt injection.
 - Agent IDs, channel names, artifact names: alphanumeric + `.` `-` `_`, 1-128 chars.
 - Rotation: configurable via dashboard settings (default 90 days).

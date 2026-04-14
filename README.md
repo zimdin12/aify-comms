@@ -27,6 +27,7 @@ Important mental model:
 - dispatch does **not** automatically send a reply message back
 - if the target should answer you, it must explicitly use `comms_send(...)`
 - `comms_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
+- `comms_channel_send(...)` also wakes channel members by default; use `silent=true` for background-only channel updates
 
 ## Setup
 
@@ -277,7 +278,7 @@ Claude Code (any machine)         Claude Code (any machine)
 |------|-------------|
 | **comms_channel_create** | Create a channel |
 | **comms_channel_join** | Join yourself or add another agent to a channel |
-| **comms_channel_send** | Post to channel (delivered to all members' inboxes) |
+| **comms_channel_send** | Post to channel. By default this also wakes channel members other than the sender; use `silent=true` for background-only updates |
 | **comms_channel_read** | Read channel messages with pagination |
 | **comms_channel_list** | List all channels |
 
@@ -307,7 +308,7 @@ Claude Code (any machine)         Claude Code (any machine)
 
 ## Active Dispatch
 
-`comms_send(...)` and `comms_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. `comms_send(silent=true)` is the message-only exception. If the target is a resident Codex session started through `codex-aify`, aify uses `codex-live` and talks to the same shared local WebSocket App Server as the visible TUI. If the target is a plain resident Codex session with a bound `thread.id`, aify still falls back to `codex-thread-resume` in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
+`comms_send(...)`, `comms_channel_send(...)`, and `comms_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. `comms_send(silent=true)` and `comms_channel_send(silent=true)` are the background-only exceptions. If the target is a resident Codex session started through `codex-aify`, aify uses `codex-live` and talks to the same shared local WebSocket App Server as the visible TUI. If the target is a plain resident Codex session with a bound `thread.id`, aify still falls back to `codex-thread-resume` in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
 
 ```
 Agent A: comms_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
@@ -337,7 +338,7 @@ Important:
 Practical rule:
 - use `comms_send(...)` for conversation
 - use `comms_send(...)` to wake another agent now
-- use `comms_send(silent=true)` for a message without waking the target
+- use `comms_send(silent=true)` or `comms_channel_send(silent=true)` for background information without waking the target
 - use `comms_dispatch(...)` when you want an explicit tracked run
 - use `comms_send(...)` again if you want an actual reply message back
 

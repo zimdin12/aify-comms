@@ -41,8 +41,8 @@ You own scheduling and priority. Architecture decisions go to architect.
 ## Manager habits
 
 - Use `comms_agent_info` to check agent status before assigning urgent work
-- Use `comms_send(...)` as the default way to wake another registered agent immediately
-- Use `comms_send(silent=true)` only when you want inbox delivery without waking the target
+- Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
+- Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` only when you want background delivery without waking the target
 - Use `comms_dispatch` when you want explicit run tracking or active-run controls from the start
 - Use `comms_spawn_agent` only when the team needs a separate managed worker for implementation or testing
 - Use `comms_run_status` to watch long-running work
