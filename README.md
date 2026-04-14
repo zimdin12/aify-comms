@@ -203,7 +203,7 @@ Claude Code (any machine)         Claude Code (any machine)
 
 ## Resident Sessions vs Managed Workers
 
-- `cc_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session that is currently open.
+- `cc_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session that is currently open for presence, inbox, and runtime metadata.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
 - Resident Codex sessions use `thread.id`-based resume when `cc_register` captures a real `thread.id` and the bridge can resume that stored thread through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through the installed `claude-aify` wrapper, which loads the local aify channel bridge.
@@ -212,7 +212,7 @@ Claude Code (any machine)         Claude Code (any machine)
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. If the target is a resident Codex session with a bound `thread.id`, aify resumes that exact stored thread. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session. Otherwise the managed worker path is used:
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. If the target is a resident Codex session with a bound `thread.id`, aify resumes that stored thread in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
 
 ```
 Agent A: cc_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
@@ -231,6 +231,7 @@ Important:
 - Resident OpenCode sessions currently use `opencode-session-resume`, not a guaranteed visible foreground-session wake.
 - Managed workers are best for triggerable execution, long-lived runtime state, and unattended background work.
 - If the owning stdio bridge is closed, queued resident/managed runs stay on the server until that bridge reconnects.
+- Only one active dispatched run is processed at a time per registered agent/worker, so later triggers queue behind the current run instead of starting immediately.
 - Active dispatch requires the local `stdio` MCP server. SSE-only clients are message/control clients, not local launchers.
 
 ### Trigger Tradeoffs

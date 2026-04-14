@@ -117,7 +117,7 @@ tr:hover{background:#1c2128}
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
   <h1>aify-claude</h1>
-  <div class="ver">v3.5.0</div>
+  <div class="ver">v3.5.1</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
     <a onclick="showPage('channels')" id="nav-channels">Channels</a>
@@ -245,7 +245,8 @@ cd ~/aify-claude
 bash install.sh --client opencode http://localhost:8800</pre>
       <p>Restart the client after install. Then re-register from the exact live session you want other agents to trigger. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. Resident Codex sessions become triggerable when aify captures a real <code>thread.id</code> and can resume that stored thread through <code>codex app-server</code>. Resident Claude sessions become wakeable through the local <code>aify-claude-channel</code> bridge when Claude is started with <code>claude-aify</code>. OpenCode supports managed workers now and resident session resume when you register with a real <code>sessionHandle</code>. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. Use spawning only when you want a detached/background worker; for normal wakeups, prefer <code>cc_send(trigger=true)</code>. On Windows, desktop Codex and WSL Codex use different thread stores, so resident triggering only works when the bridge talks to the same store that created the session.</p>
+      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open for presence, inbox, and runtime metadata. Resident Codex sessions become triggerable when aify captures a real <code>thread.id</code> and resumes that stored thread through <code>codex app-server</code> in a background worker. Resident Claude sessions become wakeable through the local <code>aify-claude-channel</code> bridge when Claude is started with <code>claude-aify</code>. OpenCode supports managed workers now and resident session resume when you register with a real <code>sessionHandle</code>, also through a background worker. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. Use spawning only when you want a detached/background worker; for normal wakeups, prefer <code>cc_send(trigger=true)</code>. On Windows, desktop Codex and WSL Codex use different thread stores, so resident triggering only works when the bridge talks to the same store that created the session.</p>
+      <p><b>Queueing:</b> only one active dispatched run is processed at a time per agent. If an agent is already working, later triggers stay queued behind that run. The agent table and run list now surface that backlog explicitly.</p>
 
       <h3>Tools (24 stdio / 19 SSE)</h3>
       <ul>
@@ -403,17 +404,21 @@ async function refreshDashboard() {
     if (!agents.length) {
       document.getElementById('agents-table').innerHTML = '<p class="em">No agents registered.</p>';
     } else {
-      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Status</th><th>Session</th><th>Wake</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Status</th><th>Session</th><th>Wake</th><th>Dispatch</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
       for (const [id, info] of agents) {
         const rawStatus = info.status || 'idle';
         const st = rawStatus.split(':')[0].trim();
         const runtime = `${info.runtime || 'generic'}${info.machineId ? ' @ ' + info.machineId : ''}`;
         const session = `${info.sessionMode || 'resident'}${info.managedBy ? ' by ' + info.managedBy : ''}`;
         const wake = info.wakeMode || 'message-only';
+        const dispatch = info.dispatchState?.activeRun
+          ? `active ${info.dispatchState.activeRun.runId}${info.dispatchState.activeRun.subject ? `: ${info.dispatchState.activeRun.subject}` : ''}${info.dispatchState.queuedRuns ? ` (+${info.dispatchState.queuedRuns} queued)` : ''}`
+          : (info.dispatchState?.queuedRuns ? `${info.dispatchState.queuedRuns} queued` : '');
         html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
           `<td><span class="st-${st}">${esc(rawStatus)}</span></td>` +
           `<td class="t">${esc(session)}</td>` +
           `<td class="t">${esc(wake)}</td>` +
+          `<td class="t">${esc(dispatch)}</td>` +
           `<td class="t">${esc(runtime)}</td>` +
           `<td>${info.unread || 0}</td><td class="t">${esc(info.lastSeen)}</td>` +
           `<td><button class="btn btn-sm btn-danger" onclick="deleteAgent('${esc(id)}')">Remove</button></td></tr>`;
@@ -468,7 +473,8 @@ function renderRuns(runs) {
   let html = '<table><thead><tr><th>Requested</th><th>From → Target</th><th>Status</th><th>Exec</th><th>Runtime</th><th>Subject</th><th>Summary / Error</th><th></th></tr></thead><tbody>';
   for (const run of runs) {
     const status = run.status || 'queued';
-    const summary = run.error || run.summary || '';
+    const blocked = run.blockedByActiveRun;
+    const summary = run.error || run.summary || (blocked ? `Queued behind active run ${blocked.runId}${blocked.subject ? ` (${blocked.subject})` : ''}` : '');
     const active = status === 'running' || status === 'claimed';
     html += `<tr>` +
       `<td class="t">${esc(run.requestedAt || '')}</td>` +
@@ -497,6 +503,7 @@ async function viewRun(runId) {
     const controls = (run.controls || []).slice(-10).map(c => `${c.requestedAt} [${c.action}/${c.status}] ${c.from || 'unknown'}${c.response ? ' -> ' + c.response : ''}`).join('\n');
     alert(
       `Run: ${run.id}\nStatus: ${run.status}\nExecution: ${run.executionMode || 'managed'}\nRuntime: ${run.runtime || 'unknown'}\nSubject: ${run.subject || ''}\n\n` +
+      (run.blockedByActiveRun ? `Blocked by: ${run.blockedByActiveRun.runId}${run.blockedByActiveRun.subject ? ' (' + run.blockedByActiveRun.subject + ')' : ''}\n\n` : '') +
       (run.summary ? `Summary:\n${run.summary}\n\n` : '') +
       (run.error ? `Error:\n${run.error}\n\n` : '') +
       (events ? `Recent events:\n${events}\n\n` : '') +

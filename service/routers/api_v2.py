@@ -268,7 +268,57 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
     return hint
 
 
-def _agent_record_to_dict(row, status: str, unread: int):
+def _format_dispatch_state(active_row, queued_count: int) -> dict[str, Any]:
+    active = None
+    if active_row:
+        active = {
+            "runId": active_row["id"],
+            "status": active_row["status"],
+            "subject": active_row["subject"],
+            "from": active_row["from_agent"],
+            "executionMode": active_row["execution_mode"] or "managed",
+            "runtime": active_row["runtime"] or "",
+            "requestedAt": active_row["requested_at"] or "",
+            "startedAt": active_row["started_at"] or active_row["claimed_at"] or "",
+        }
+    return {
+        "hasActiveRun": bool(active),
+        "activeRun": active,
+        "queuedRuns": max(int(queued_count or 0), 0),
+    }
+
+
+async def _get_dispatch_state_for_agent(db, agent_id: str) -> dict[str, Any]:
+    active_cursor = await db.execute(
+        """
+        SELECT id, from_agent, subject, status, execution_mode, runtime, requested_at, claimed_at, started_at
+        FROM dispatch_runs
+        WHERE target_agent = ? AND status IN ('claimed', 'running')
+        ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
+        LIMIT 1
+        """,
+        (agent_id,)
+    )
+    active_row = await active_cursor.fetchone()
+    queued_cursor = await db.execute(
+        "SELECT COUNT(*) FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
+        (agent_id,)
+    )
+    queued_count = (await queued_cursor.fetchone())[0]
+    return _format_dispatch_state(active_row, queued_count)
+
+
+async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") -> Optional[dict[str, Any]]:
+    state = await _get_dispatch_state_for_agent(db, agent_id)
+    active = state.get("activeRun")
+    if not active:
+        return None
+    if exclude_run_id and active.get("runId") == exclude_run_id:
+        return None
+    return active
+
+
+def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     return {
@@ -291,6 +341,7 @@ def _agent_record_to_dict(row, status: str, unread: int):
         "capabilities": _json_loads_or(row["capabilities"], []),
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
         "runtimeState": _json_loads_or(row["runtime_state"], {}),
+        "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
     }
 
 
@@ -333,7 +384,8 @@ async def _get_recipient_info(db, recipient_id: str):
         (recipient_id, recipient_id)
     )
     unread = (await uc.fetchone())[0]
-    return _agent_record_to_dict(row, status, unread)
+    dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
+    return _agent_record_to_dict(row, status, unread, dispatch_state)
 
 
 async def _append_dispatch_event(db, run_id: str, event_type: str, body: str = ""):
@@ -405,7 +457,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.5.0",
+        "version": "3.5.1",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -440,7 +492,8 @@ async def list_agents(request: Request):
             )
             unread = (await c.fetchone())[0]
             status = await _compute_agent_status(a, idle_minutes, offline_minutes)
-            result[aid] = _agent_record_to_dict(a, status, unread)
+            dispatch_state = await _get_dispatch_state_for_agent(db, aid)
+            result[aid] = _agent_record_to_dict(a, status, unread, dispatch_state)
         return {"agents": result}
     finally:
         await db.close()
@@ -518,7 +571,8 @@ async def get_agent(agent_id: str, request: Request):
         )
         unread = (await uc.fetchone())[0]
         status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30))
-        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, status, unread)}
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, status, unread, dispatch_state)}
     finally:
         await db.close()
 
@@ -769,6 +823,15 @@ async def send_message(req: MessageSend, request: Request):
                     "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
                     (execution_mode, run["runId"])
                 )
+                dispatch_state = await _get_dispatch_state_for_agent(db, run["targetAgentId"])
+                active = dispatch_state.get("activeRun")
+                if active:
+                    run["queuedBehindActiveRun"] = {
+                        "runId": active["runId"],
+                        "status": active["status"],
+                        "subject": active["subject"],
+                    }
+                run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
 
         # Gather recipient status info for sender context
         recipient_info = {}
@@ -1133,6 +1196,15 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
                     (execution_mode, run["runId"])
                 )
+                dispatch_state = await _get_dispatch_state_for_agent(db, run["targetAgentId"])
+                active = dispatch_state.get("activeRun")
+                if active:
+                    run["queuedBehindActiveRun"] = {
+                        "runId": active["runId"],
+                        "status": active["status"],
+                        "subject": active["subject"],
+                    }
+                run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
 
         recipient_info = {}
         for recipient_id in recipients:
@@ -1183,6 +1255,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             return {"ok": True, "run": None}
 
         agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
+        active_state = await _get_dispatch_state_for_agent(db, req.agentId)
+        active_run = active_state.get("activeRun")
+        if active_run:
+            await db.commit()
+            return {"ok": True, "run": None, "blockedBy": active_run}
         run_cursor = await db.execute(
             """
             SELECT * FROM dispatch_runs
@@ -1305,6 +1382,9 @@ async def list_dispatch_runs(
         cursor = await db.execute(query, params)
         runs = []
         for row in await cursor.fetchall():
+            blocked_by = None
+            if row["status"] == "queued":
+                blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
             runs.append({
                 "id": row["id"],
                 "messageId": row["message_id"],
@@ -1322,6 +1402,7 @@ async def list_dispatch_runs(
                 "claimedAt": row["claimed_at"],
                 "startedAt": row["started_at"],
                 "finishedAt": row["finished_at"],
+                "blockedByActiveRun": blocked_by,
             })
         return {"runs": runs}
     finally:
@@ -1365,6 +1446,9 @@ async def get_dispatch_run(run_id: str, request: Request):
             }
             for control in await cc.fetchall()
         ]
+        blocked_by = None
+        if row["status"] == "queued":
+            blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
         return {
             "run": {
                 "id": row["id"],
@@ -1390,6 +1474,7 @@ async def get_dispatch_run(run_id: str, request: Request):
                 "claimedAt": row["claimed_at"],
                 "startedAt": row["started_at"],
                 "finishedAt": row["finished_at"],
+                "blockedByActiveRun": blocked_by,
                 "events": events,
                 "controls": controls,
             }

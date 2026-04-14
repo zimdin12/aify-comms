@@ -161,7 +161,7 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 
 ## Resident Sessions vs Managed Workers
 
-- `cc_register(...)` registers a resident session: the exact live Codex/Claude/OpenCode session you currently have open.
+- `cc_register(...)` registers a resident session: the exact live Codex/Claude/OpenCode session you currently have open for presence, inbox, and runtime metadata.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
 - Resident Codex sessions become triggerable by resuming the bound stored `thread.id` through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.
@@ -177,7 +177,7 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions resume their bound stored `thread.id`; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session; managed workers keep using their own persistent runtime state.
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it on the correct runtime. Resident Codex sessions resume their bound stored `thread.id` in a background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; managed workers keep using their own persistent runtime state.
 
 Use `cc_send(trigger=true)` as the default "wake this agent now" path. Use `cc_spawn_agent(...)` only when you explicitly want a detached/background worker.
 
@@ -189,6 +189,7 @@ WSL note:
 
 Current limits:
 - One active dispatched run per registered agent/worker.
+- `cc_agent_info` and dispatch responses now show when new work is queued behind an already-running run.
 - Claude supports interruption but not in-flight steering.
 - Codex supports both interruption and steering.
 - OpenCode supports interruption, but not in-flight steering.

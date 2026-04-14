@@ -126,6 +126,7 @@ When you receive a notification or check your inbox:
 - Use `cc_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.
 - Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
+- For Codex and OpenCode resident sessions, that resume happens in a background worker. Do not assume the foreground TUI will visibly wake the way Claude does.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
 - Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
 - Resident OpenCode sessions are triggerable only when the live session has a real bound `sessionHandle`.
@@ -135,6 +136,7 @@ When you receive a notification or check your inbox:
 - Use `cc_share` for logs, screenshots, patches, and reports so other agents can inspect the same artifact.
 - Use `cc_listen` only when you intentionally want a waiting loop; otherwise rely on triggering plus unread notifications.
 - If you dispatch work, track it with `cc_run_status` when timing matters.
+- If a trigger does not appear to "arrive", check `cc_agent_info` for an active run first. Later work queues behind the currently running run for that agent.
 
 ## Transport Notes
 

@@ -158,6 +158,31 @@ function supportedExecutionModes(info = {}) {
   return modes;
 }
 
+function formatDispatchState(info = {}) {
+  const state = info.dispatchState || {};
+  const active = state.activeRun;
+  const lines = [];
+  if (active?.runId) {
+    lines.push(`  Active run: ${active.runId} [${active.status || "running"}]`);
+    if (active.subject) lines.push(`    Subject: ${active.subject}`);
+  }
+  if (Number(state.queuedRuns || 0) > 0) {
+    lines.push(`  Queued runs: ${state.queuedRuns}`);
+  }
+  return lines.join("\n");
+}
+
+function formatQueuedRun(run = {}) {
+  let text = `${run.targetAgentId} (${run.runId})`;
+  if (run.queuedBehindActiveRun?.runId) {
+    text += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
+    if (run.queuedBehindActiveRun.subject) {
+      text += ` (${run.queuedBehindActiveRun.subject})`;
+    }
+  }
+  return text;
+}
+
 // ── Local filesystem helpers ─────────────────────────────────────────────────
 
 function readAgents() {
@@ -440,7 +465,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.5.0",
+  version: "3.5.1",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -817,7 +842,7 @@ server.tool(
       if (!r.ok) return { content: [{ type: "text", text: r.error || "No recipients found." }] };
 
       if (trigger && r.recipients?.length > 0) {
-        const queued = (r.dispatchRuns || []).map((x) => `${x.targetAgentId} (${x.runId})`);
+        const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
         return {
           content: [{
@@ -950,7 +975,16 @@ server.tool(
       return { content: [{ type: "text", text: r.error || "Dispatch failed." }], isError: true };
     }
 
-    const lines = (r.runs || []).map((run) => `- ${run.targetAgentId}: ${run.runId} [${run.status}]`);
+    const lines = (r.runs || []).map((run) => {
+      let line = `- ${run.targetAgentId}: ${run.runId} [${run.status}]`;
+      if (run.queuedBehindActiveRun?.runId) {
+        line += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
+        if (run.queuedBehindActiveRun.subject) {
+          line += ` (${run.queuedBehindActiveRun.subject})`;
+        }
+      }
+      return line;
+    });
     const skipped = (r.notStarted || []).map((item) => `- ${item.targetAgentId}: ${item.reason}`);
     return {
       content: [{
@@ -992,6 +1026,7 @@ server.tool(
           `Requested: ${run.requestedAt}\n` +
           (run.startedAt ? `Started: ${run.startedAt}\n` : "") +
           (run.finishedAt ? `Finished: ${run.finishedAt}\n` : "") +
+          (run.blockedByActiveRun?.runId ? `Blocked by active run: ${run.blockedByActiveRun.runId}${run.blockedByActiveRun.subject ? ` (${run.blockedByActiveRun.subject})` : ""}\n` : "") +
           (run.externalThreadId ? `Thread: ${run.externalThreadId}\n` : "") +
           (run.externalTurnId ? `Turn: ${run.externalTurnId}\n` : "") +
           (run.summary ? `\nSummary:\n${run.summary}\n` : "") +
@@ -1355,7 +1390,8 @@ server.tool(
           `  Wake mode: ${wakeModeSummary(info)}\n` +
           `  Unread: ${info.unread}\n` +
           `  Last seen: ${info.lastSeen}\n` +
-          `  Last read: ${lastRead}`
+          `  Last read: ${lastRead}` +
+          (formatDispatchState(info) ? `\n${formatDispatchState(info)}` : "")
         }] };
       } catch (e) {
         return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
