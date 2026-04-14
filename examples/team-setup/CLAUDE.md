@@ -16,7 +16,8 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 
 ## Communication rules
 
-- **When you finish a task and have nothing to do, call `cc_listen` to wait for messages.** Do not idle without listening.
+- **Stay registered and triggerable.** Use `cc_send(trigger=true)` as the normal wake-up path across the team.
+- **Use `cc_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `cc_listen` to be reachable.
 - Use `cc_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.
 - Share files, logs, and screenshots via `cc_share` when handing off work.

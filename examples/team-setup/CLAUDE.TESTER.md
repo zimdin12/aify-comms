@@ -16,7 +16,7 @@ Own testing. Write and maintain tests, run regression suites, verify coder's wor
 
 When you get a "Verify" message: build fresh → run tests → verify the change works → report pass/fail to manager and coder. On PASS, tell manager it's safe to push. On FAIL, coder fixes before anything gets pushed. For MRs, approve or leave review comments. **You do NOT commit or push code.**
 
-**When you finish verifying, call `cc_listen` to wait for the next verification request.**
+**When you finish verifying, stay registered and triggerable for the next verification request.** Use `cc_listen` only when you intentionally want a waiting loop.
 
 ## Bugs
 

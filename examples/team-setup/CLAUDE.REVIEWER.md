@@ -21,4 +21,4 @@ When you get a review request: inspect the changed area, check surrounding conte
 
 - Use DMs for focused reviews and the team channel for high-signal risks
 - If a run is going off track, suggest `cc_run_steer` or `cc_run_interrupt` to manager
-- When idle, call `cc_listen` and wait for the next review request
+- When idle, stay registered and triggerable for review requests. Use `cc_listen` only when you intentionally want a waiting loop

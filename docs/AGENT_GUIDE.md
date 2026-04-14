@@ -20,6 +20,8 @@ When building on `aify-container`, prefer these patterns so services stay consis
 - If a feature is unsupported for a runtime, return a clear capability error instead of silently falling back.
 - Separate message delivery from active execution. A message bus and a dispatch system are different layers.
 - Prefer one small installer or handoff doc per client runtime so another agent can install the service without reverse-engineering the repo.
+- If you support "resident sessions" and "managed workers", document them explicitly and make the default wake-up path obvious.
+- Do not teach agents to depend on polling loops when a resident wake-up or trigger path exists; reserve waiting loops for intentional inbox-driven workers.
 
 ## File Map: What to Modify
 

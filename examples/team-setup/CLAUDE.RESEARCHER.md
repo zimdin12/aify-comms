@@ -12,4 +12,4 @@ Quick answers → DM the requester. Detailed analysis → write to `docs/RESEARC
 
 ## When idle
 
-**Call `cc_listen` to wait for research requests.** If no requests come, proactively research topics relevant to the current phase — check the project roadmap.
+Stay registered and triggerable for research requests. Use `cc_listen` only when you intentionally want a waiting loop. If no requests come, proactively research topics relevant to the current phase — check the project roadmap.

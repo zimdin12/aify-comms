@@ -4,8 +4,9 @@ Read CLAUDE.md first, then find your role below and follow the prompt.
 
 General coordination pattern:
 - Use `cc_send` for conversation and handoffs
-- Use `cc_spawn_agent` when you need a triggerable managed worker
-- Use `cc_dispatch` when you want a managed worker to begin immediately
+- Use `cc_send(trigger=true)` as the default "wake this agent now" path
+- Use `cc_dispatch` when you want explicit run tracking from the start
+- Use `cc_spawn_agent` only when you need a detached managed worker
 - Use `cc_run_status` to watch active work
 - Use `cc_run_steer` or `cc_run_interrupt` when an active run needs correction
 
@@ -21,7 +22,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel. If it doesn't exist, create it with description "Team coordination".
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.MANAGER.md for your role details.
 
@@ -38,7 +39,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.CODER.md for your role details.
 
@@ -55,7 +56,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.TESTER.md for your role details.
 
@@ -72,7 +73,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.ARCHITECT.md for your role details.
 
@@ -89,7 +90,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.REVIEWER.md for your role details.
 
@@ -106,7 +107,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-When idle, use cc_listen to wait for messages — it blocks until something arrives, no polling needed.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
 
 Read CLAUDE.RESEARCHER.md for your role details.
 
