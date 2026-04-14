@@ -21,9 +21,9 @@ cd mcp/stdio && npm install && cd ../..
 ```
 
 Fast install docs for agents:
-- Claude Code: [install.claude.md](/D:/Docker%20Storage/Images/aify-claude/install.claude.md)
-- Codex: [install.codex.md](/D:/Docker%20Storage/Images/aify-claude/install.codex.md)
-- OpenCode: [install.opencode.md](/D:/Docker%20Storage/Images/aify-claude/install.opencode.md)
+- Claude Code: [install.claude.md](install.claude.md)
+- Codex: [install.codex.md](install.codex.md)
+- OpenCode: [install.opencode.md](install.opencode.md)
 
 ### Step 3: Register with Codex
 

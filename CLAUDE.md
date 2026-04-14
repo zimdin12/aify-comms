@@ -21,9 +21,9 @@ cd mcp/stdio && npm install && cd ../..
 ```
 
 Fast install docs for agents:
-- Claude Code: [install.claude.md](/D:/Docker%20Storage/Images/aify-claude/install.claude.md)
-- Codex: [install.codex.md](/D:/Docker%20Storage/Images/aify-claude/install.codex.md)
-- OpenCode: [install.opencode.md](/D:/Docker%20Storage/Images/aify-claude/install.opencode.md)
+- Claude Code: [install.claude.md](install.claude.md)
+- Codex: [install.codex.md](install.codex.md)
+- OpenCode: [install.opencode.md](install.opencode.md)
 
 ### Step 3: Register with Claude Code
 
@@ -51,7 +51,7 @@ claude mcp add --scope user aify-claude \
 
 The 24 `cc_*` tools will appear automatically. The skill at `.claude/skills/aify-claude/SKILL.md` auto-activates when the tools are detected.
 
-For resident Claude wakeups, use [install.claude.md](/D:/Docker%20Storage/Images/aify-claude/install.claude.md) or additionally register `aify-claude-channel` in user scope and start the session with `claude-aify`.
+For resident Claude wakeups, use [install.claude.md](install.claude.md) or additionally register `aify-claude-channel` in user scope and start the session with `claude-aify`.
 
 ### Optional: API key
 

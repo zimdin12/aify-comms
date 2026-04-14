@@ -1,10 +1,31 @@
 # aify-claude
 
-Inter-agent communication hub for Claude Code, Codex, OpenCode, and other MCP-connected coding agents. Messaging, group chat (channels), file sharing, active dispatch, and a live dashboard — all in a Docker container.
+Inter-agent communication hub for Claude Code, Codex, OpenCode, and other MCP-connected coding agents. It gives coding agents shared messaging, channels, file sharing, active dispatch, and a live dashboard through one service.
 
-Multiple agent runtimes can register, send messages, share files, chat in channels, dispatch work to each other, and monitor everything through a web dashboard.
+Use it when you want multiple coding agents to coordinate like teammates:
+- send direct messages
+- chat in shared channels
+- share files and artifacts
+- trigger each other to start work
+- inspect queued/running/completed work from one dashboard
 
 Built on [aify-container](https://github.com/zimdin12/aify-container).
+
+## How It Works
+
+1. Run the aify service on one machine.
+2. Install the local `stdio` bridge on each agent machine that should be able to launch work.
+3. Start the live session the way that runtime expects:
+   - Claude Code: `claude-aify`
+   - Codex live wake: `codex-aify`
+   - OpenCode: normal session today; live wake is not implemented yet
+4. Register the live session with `cc_register(...)`.
+5. Use `cc_send(trigger=true)` or `cc_dispatch(...)` to wake another agent.
+
+Important mental model:
+- dispatch wakes the target and records run status on the server
+- dispatch does **not** automatically send a reply message back
+- if the target should answer you, it must explicitly use `cc_send(...)`
 
 ## Setup
 
@@ -24,9 +45,9 @@ Dashboard: http://localhost:8800
 
 For agent-friendly setup, point installers at these files:
 
-- Claude Code: [install.claude.md](/D:/Docker%20Storage/Images/aify-claude/install.claude.md)
-- Codex: [install.codex.md](/D:/Docker%20Storage/Images/aify-claude/install.codex.md)
-- OpenCode: [install.opencode.md](/D:/Docker%20Storage/Images/aify-claude/install.opencode.md)
+- Claude Code: [install.claude.md](install.claude.md)
+- Codex: [install.codex.md](install.codex.md)
+- OpenCode: [install.opencode.md](install.opencode.md)
 
 Fast path:
 
@@ -57,6 +78,28 @@ If that still reports `message-only` from inside a `codex-aify` session, use:
 
 ```text
 cc_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
+```
+
+### Typical usage
+
+After install, the common flow is:
+
+```text
+cc_register(agentId="my-agent", role="coder", runtime="claude-code")
+cc_send(from="my-agent", to="other-agent", type="request", subject="Need help", body="Please review the failing test", trigger=true)
+cc_run_status(runId="...")
+```
+
+If you want the target agent to answer you, ask it to send a message explicitly:
+
+```text
+Please reply with cc_send(from="other-agent", to="my-agent", type="response", subject="Review done", body="I found the bug in parser.ts")
+```
+
+If you only want the work to happen and be tracked, use dispatch without expecting an inbox reply:
+
+```text
+cc_dispatch(from="lead", to="tester-worker", type="request", subject="Run tests", body="Run the repo test suite and update the run summary with the result")
 ```
 
 ### Client — Claude Code install (manual)
@@ -282,6 +325,12 @@ Important:
 - Only one active dispatched run is processed at a time per registered agent/worker, so later triggers queue behind the current run instead of starting immediately.
 - Re-registering the same agent on the same machine now immediately supersedes older bridge-owned active runs for that agent, so stale background work stops blocking the queue right away.
 - Active dispatch requires the local `stdio` MCP server. SSE-only clients are message/control clients, not local launchers.
+
+Practical rule:
+- use `cc_send(...)` for conversation
+- use `cc_send(trigger=true)` to wake another agent now
+- use `cc_dispatch(...)` when you want an explicit tracked run
+- use `cc_send(...)` again if you want an actual reply message back
 
 ### Trigger Tradeoffs
 
