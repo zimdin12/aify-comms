@@ -264,6 +264,7 @@ Claude Code (any machine)         Claude Code (any machine)
 | **comms_agent_info** | Check another agent's status, unread count, last read message |
 | **comms_send** | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends |
 | **comms_dispatch** | Queue active runtime dispatch explicitly and return run IDs |
+| **comms_listen** | Wait for incoming messages when you intentionally want an inbox-driven loop |
 | **comms_inbox** | Check inbox (newest first, replies include parent context) |
 | **comms_unsend** | Delete a message by ID |
 | **comms_search** | Search messages and shared artifacts |

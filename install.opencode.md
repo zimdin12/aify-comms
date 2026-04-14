@@ -52,6 +52,6 @@ Current OpenCode note:
 comms_register(agentId="my-agent", role="coder", runtime="opencode")
 comms_agents()
 comms_agent_info(agentId="my-agent")
-comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there")
+comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
 comms_inbox(agentId="my-agent")
 ```
