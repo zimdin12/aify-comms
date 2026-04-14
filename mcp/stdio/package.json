@@ -1,6 +1,6 @@
 {
   "name": "aify-claude-mcp",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "MCP client for aify-claude inter-agent communication",
   "type": "module",
   "main": "server.js",
@@ -20,6 +20,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.28.0"
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@opencode-ai/sdk": "^1.4.3"
   }
 }

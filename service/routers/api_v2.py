@@ -62,9 +62,10 @@ _RUNTIME_ALIASES = {
     "claude-code": "claude-code",
     "claude_code": "claude-code",
     "codex": "codex",
+    "opencode": "opencode",
     "generic": "generic",
 }
-_LAUNCHABLE_RUNTIMES = {"claude-code", "codex"}
+_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "opencode"}
 _SESSION_MODES = {"resident", "managed"}
 
 async def _get_ws(request: Request):
@@ -117,6 +118,8 @@ def _default_capabilities_for(runtime: str, session_mode: str, session_handle: s
     if normalized_session_mode == "managed":
         if normalized_runtime == "codex":
             return ["managed-run", "resume", "interrupt", "steer", "spawn"]
+        if normalized_runtime == "opencode":
+            return ["managed-run", "resume", "interrupt", "spawn"]
         if normalized_runtime == "claude-code":
             return ["managed-run", "resume", "interrupt", "spawn"]
         return []
@@ -124,6 +127,10 @@ def _default_capabilities_for(runtime: str, session_mode: str, session_handle: s
         if not session_handle:
             return []
         return ["resident-run", "resume", "interrupt", "steer"]
+    if normalized_runtime == "opencode":
+        if not session_handle:
+            return []
+        return ["resident-run", "resume", "interrupt"]
     if normalized_runtime == "claude-code":
         return ["resident-run", "interrupt"]
     return []
@@ -155,8 +162,12 @@ def _agent_wake_mode(row) -> str:
         return "claude-live"
     if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
         return "codex-thread-resume"
+    if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
+        return "opencode-session-resume"
     if session_mode == "resident" and runtime == "codex" and not session_handle:
         return "codex-missing-handle"
+    if session_mode == "resident" and runtime == "opencode" and not session_handle:
+        return "opencode-missing-handle"
     if session_mode == "resident" and runtime == "claude-code":
         return "claude-needs-channel"
     return "message-only"
@@ -183,6 +194,11 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
         return None, (
             f'agent "{row["id"]}" is a resident Codex session without a bound session handle. '
             "Re-register that live session or provide sessionHandle explicitly."
+        )
+    if runtime == "opencode" and not session_handle:
+        return None, (
+            f'agent "{row["id"]}" is a resident OpenCode session without a bound session handle. '
+            "Re-register that live session with sessionHandle explicitly or use a managed worker."
         )
     if (row["launch_mode"] or "detached") == "none":
         return None, "launch mode is disabled"
@@ -221,6 +237,18 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["suggestedCommands"] = [
             "claude-aify",
             f'cc_register(agentId="{recipient_id}", role="{role}", runtime="claude-code")',
+            f'cc_agent_info(agentId="{recipient_id}")',
+        ]
+        return hint
+
+    if runtime == "opencode" and session_mode == "resident" and not session_handle:
+        hint["fix"] = (
+            "Re-register the live OpenCode session with runtime=\"opencode\" and a real sessionHandle, "
+            "or use cc_spawn_agent to create a managed worker."
+        )
+        hint["suggestedCommands"] = [
+            f'cc_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
+            f'cc_spawn_agent(from="<your-agent>", agentId="{recipient_id}-worker", role="{role}", runtime="opencode")',
             f'cc_agent_info(agentId="{recipient_id}")',
         ]
         return hint
@@ -377,7 +405,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.4.0",
+        "version": "3.5.0",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",

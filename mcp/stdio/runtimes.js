@@ -1,12 +1,14 @@
 import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import readline from "readline";
+import { createOpencode } from "@opencode-ai/sdk";
 
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
   ["claude-code", "claude-code"],
   ["claude_code", "claude-code"],
   ["codex", "codex"],
+  ["opencode", "opencode"],
   ["generic", "generic"],
 ]);
 
@@ -38,6 +40,49 @@ function buildUserPrompt(run) {
     "",
     run.body || "",
   ].join("\n");
+}
+
+function splitProviderModel(value) {
+  const text = String(value || "").trim();
+  if (!text || !text.includes("/")) return null;
+  const [providerID, ...modelParts] = text.split("/");
+  const modelID = modelParts.join("/").trim();
+  if (!providerID || !modelID) return null;
+  return { providerID: providerID.trim(), modelID };
+}
+
+function opencodePermissionConfig(config = {}) {
+  if (config.permission && typeof config.permission === "object") {
+    return config.permission;
+  }
+  const policy = String(config.approvalPolicy || "").trim().toLowerCase();
+  if (policy === "never" || policy === "auto") {
+    return { bash: "allow", edit: "allow", webfetch: "allow" };
+  }
+  if (policy === "ask") {
+    return { bash: "ask", edit: "ask", webfetch: "ask" };
+  }
+  return undefined;
+}
+
+function summarizeOpenCodeParts(parts = []) {
+  const textChunks = [];
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "text" && part.text) {
+      textChunks.push(String(part.text));
+    }
+  }
+  return textChunks.join("").trim();
+}
+
+function requireOpenCodeData(response, fallbackMessage) {
+  if (response?.data) return response.data;
+  const errorMessage =
+    response?.error?.data?.message ||
+    response?.error?.message ||
+    fallbackMessage;
+  throw new Error(errorMessage);
 }
 
 function defaultCodexCommand() {
@@ -106,13 +151,15 @@ export function normalizeRuntime(runtime) {
 }
 
 export function canLaunchRuntime(runtime) {
-  return normalizeRuntime(runtime) === "claude-code" || normalizeRuntime(runtime) === "codex";
+  return ["claude-code", "codex", "opencode"].includes(normalizeRuntime(runtime));
 }
 
 export function controlCapabilitiesForRuntime(runtime) {
   switch (normalizeRuntime(runtime)) {
     case "codex":
       return { interrupt: true, steer: true };
+    case "opencode":
+      return { interrupt: true, steer: false };
     case "claude-code":
       return { interrupt: true, steer: false };
     default:
@@ -124,6 +171,8 @@ export function defaultSessionHandleForRuntime(runtime) {
   switch (normalizeRuntime(runtime)) {
     case "codex":
       return process.env.CODEX_THREAD_ID || "";
+    case "opencode":
+      return process.env.OPENCODE_SESSION_ID || process.env.OPENCODE_SESSION || "";
     case "claude-code":
       return process.env.CLAUDE_SESSION_ID || "";
     default:
@@ -517,10 +566,147 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   };
 }
 
+function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const config = getRuntimeConfig(agentInfo);
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
+  const cwd = agentInfo.cwd || process.cwd();
+  const timeoutMs = Number(config.timeoutMs || 20 * 60 * 1000);
+  const model = splitProviderModel(agentInfo.model || config.model || "");
+  const permission = opencodePermissionConfig(config);
+  const selectedAgent = String(config.agent || "").trim() || undefined;
+  let sessionId =
+    executionMode === "resident"
+      ? residentSessionId
+      : String(runtimeState?.sessionId || residentSessionId || "").trim();
+
+  if (executionMode === "resident" && !sessionId) {
+    throw new Error(
+      `Resident OpenCode session "${agentId}" has no bound session ID. ` +
+      "Re-register with sessionHandle explicitly or use a managed worker.",
+    );
+  }
+
+  let interrupted = false;
+  let open = null;
+
+  const promise = new Promise(async (resolve, reject) => {
+    const timer = setTimeout(async () => {
+      interrupted = true;
+      try {
+        if (open?.client && sessionId) {
+          await open.client.session.abort({
+            path: { id: sessionId },
+            query: { directory: cwd },
+          });
+        }
+      } catch {
+        // best effort
+      }
+      reject(new Error(`OpenCode run timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    try {
+      open = await createOpencode({
+        port: 0,
+        config: permission ? { permission } : undefined,
+      });
+      const client = open.client;
+
+      if (!sessionId) {
+        const created = await client.session.create({
+          query: { directory: cwd },
+          body: { title: run.subject || `aify:${agentId}` },
+        });
+        sessionId = requireOpenCodeData(created, "Failed to create OpenCode session").id;
+      } else {
+        requireOpenCodeData(await client.session.get({
+          path: { id: sessionId },
+          query: { directory: cwd },
+        }), `OpenCode session "${sessionId}" was not found`);
+      }
+
+      callbacks.onRuntimeState?.({ sessionId });
+      callbacks.onRefs?.({ threadId: sessionId });
+      callbacks.onEvent?.("thread", `Using ${executionMode} OpenCode session ${sessionId}`);
+
+      const response = await client.session.prompt({
+        path: { id: sessionId },
+        query: { directory: cwd },
+        body: {
+          ...(model ? { model } : {}),
+          ...(selectedAgent ? { agent: selectedAgent } : {}),
+          system: buildSystemPrompt(agentId, agentInfo, run),
+          parts: [{ type: "text", text: buildUserPrompt(run) }],
+        },
+      });
+
+      clearTimeout(timer);
+      const data = requireOpenCodeData(response, "OpenCode prompt failed");
+      const info = data.info || {};
+      const parts = data.parts || [];
+      const summary = summarizeOpenCodeParts(parts);
+      const errorMessage =
+        info?.error?.data?.message ||
+        info?.error?.message ||
+        info?.error?.name ||
+        "";
+
+      if (interrupted || /aborted/i.test(errorMessage || "")) {
+        resolve({
+          status: "cancelled",
+          summary: summary || errorMessage || "Run interrupted",
+          runtimeState: { sessionId },
+          externalRefs: { threadId: sessionId, turnId: info.id || "" },
+        });
+        return;
+      }
+
+      if (errorMessage) {
+        reject(new Error(errorMessage));
+        return;
+      }
+
+      resolve({
+        status: "completed",
+        summary: summary || "(no output)",
+        runtimeState: { sessionId },
+        externalRefs: { threadId: sessionId, turnId: info.id || "" },
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      reject(error);
+    } finally {
+      try {
+        open?.server?.close?.();
+      } catch {
+        // ignore close errors
+      }
+    }
+  });
+
+  return {
+    capabilities: controlCapabilitiesForRuntime("opencode"),
+    interrupt: async () => {
+      interrupted = true;
+      if (!open?.client || !sessionId) return;
+      await open.client.session.abort({
+        path: { id: sessionId },
+        query: { directory: cwd },
+      });
+    },
+    steer: async () => {
+      throw new Error('Runtime "opencode" does not support steer');
+    },
+    promise,
+  };
+}
+
 export function detectRuntime(explicitRuntime) {
   if (explicitRuntime) return normalizeRuntime(explicitRuntime);
   if (process.env.AIFY_AGENT_RUNTIME) return normalizeRuntime(process.env.AIFY_AGENT_RUNTIME);
   if (process.env.CODEX_HOME || process.env.CODEX_SANDBOX) return "codex";
+  if (process.env.OPENCODE_CLIENT || process.env.OPENCODE_CONFIG_DIR) return "opencode";
   if (process.env.CLAUDE_PROJECT_DIR || process.env.CLAUDECODE) return "claude-code";
   return "generic";
 }
@@ -534,6 +720,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
     switch (normalizedRuntime) {
       case "codex":
         return ["managed-run", "resume", "interrupt", "steer", "spawn"];
+      case "opencode":
+        return ["managed-run", "resume", "interrupt", "spawn"];
       case "claude-code":
         return ["managed-run", "resume", "interrupt", "spawn"];
       default:
@@ -546,6 +734,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
     case "codex":
       if (!canUseDefaultResidentCodexBridge()) return [];
       return ["resident-run", "resume", "interrupt", "steer"];
+    case "opencode":
+      return ["resident-run", "resume", "interrupt"];
     case "claude-code":
       if (!canUseResidentClaudeChannel()) return [];
       return ["resident-run", "interrupt"];
@@ -564,6 +754,9 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
   const runtime = normalizeRuntime(agentInfo.runtime || "generic");
   if (runtime === "codex") {
     return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
+  if (runtime === "opencode") {
+    return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
   }
   if (runtime === "claude-code") {
     return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });

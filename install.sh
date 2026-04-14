@@ -1,10 +1,11 @@
 #!/bin/bash
-# Unified installer for aify-claude on Claude Code or Codex.
+# Unified installer for aify-claude on Claude Code, Codex, or OpenCode.
 #
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
 #   bash install.sh --client codex http://localhost:8800 --with-hook
+#   bash install.sh --client opencode http://localhost:8800
 
 set -euo pipefail
 
@@ -16,12 +17,13 @@ WITH_HOOK=false
 usage() {
   cat <<EOF
 Usage:
-  bash install.sh --client <claude|codex> [SERVER_URL] [--with-hook]
+  bash install.sh --client <claude|codex|opencode> [SERVER_URL] [--with-hook]
 
 Examples:
   bash install.sh --client claude
   bash install.sh --client claude http://localhost:8800 --with-hook
   bash install.sh --client codex http://localhost:8800
+  bash install.sh --client opencode http://localhost:8800
 EOF
 }
 
@@ -51,7 +53,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ]; then
+if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "opencode" ]; then
   echo "Unsupported client: $CLIENT"
   usage
   exit 1
@@ -97,6 +99,43 @@ copy_codex_assets() {
   mkdir -p "$(dirname "$skill_dst")"
   rm -rf "$skill_dst"
   cp -R "$SCRIPT_DIR/.agents/skills/aify-claude" "$skill_dst"
+}
+
+install_opencode_config() {
+  local config_root="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  local config_file="$config_root/opencode.json"
+  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  mkdir -p "$config_root"
+  if [ ! -f "$config_file" ]; then
+    cat > "$config_file" <<'EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+EOF
+  fi
+
+  node -e "
+    const fs = require('fs');
+    const file = process.argv[1];
+    const serverUrl = process.argv[2];
+    const apiKey = process.argv[3];
+    const serverPath = process.argv[4];
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (_) {}
+    if (!data || typeof data !== 'object') data = {};
+    if (!data['\$schema']) data['\$schema'] = 'https://opencode.ai/config.json';
+    if (!data.mcp || typeof data.mcp !== 'object' || Array.isArray(data.mcp)) data.mcp = {};
+    const environment = {};
+    if (serverUrl) environment.CLAUDE_MCP_SERVER_URL = serverUrl;
+    if (apiKey) environment.CLAUDE_MCP_API_KEY = apiKey;
+    data.mcp['aify-claude'] = {
+      type: 'local',
+      enabled: true,
+      command: ['node', serverPath],
+      ...(Object.keys(environment).length ? { environment } : {}),
+    };
+    fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+  " "$config_file" "$SERVER_URL" "$api_key" "$SCRIPT_DIR/mcp/stdio/server.js"
 }
 
 enable_codex_hooks_feature() {
@@ -216,6 +255,9 @@ register_stdio_server() {
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
+  elif [ "$cli" = "opencode" ]; then
+    install_opencode_config
+    return
   else
     "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
   fi
@@ -283,7 +325,7 @@ echo "  Done."
 echo "[2/4] Installing agent guidance..."
 if [ "$CLIENT" = "claude" ]; then
   copy_claude_assets
-else
+elif [ "$CLIENT" = "codex" ]; then
   copy_codex_assets
 fi
 echo "  Done."
@@ -299,8 +341,10 @@ if [ "$WITH_HOOK" = true ]; then
   echo "[4/4] Installing notification hook..."
   if [ "$CLIENT" = "claude" ]; then
     install_claude_hook
-  else
+  elif [ "$CLIENT" = "codex" ]; then
     install_codex_hook
+  else
+    echo "  OpenCode hook install is not implemented yet; skipping."
   fi
   echo "  Done."
 else
@@ -326,8 +370,10 @@ if [ "$CLIENT" = "claude" ]; then
     echo "Local-only install: resident Claude wakeups are disabled because no shared server URL was provided."
     echo "No claude-aify wrapper was installed."
   fi
-else
+elif [ "$CLIENT" = "codex" ]; then
   echo "Restart Codex for changes to take effect."
+else
+  echo "Restart OpenCode for changes to take effect."
 fi
 echo ""
 echo "Quick start:"

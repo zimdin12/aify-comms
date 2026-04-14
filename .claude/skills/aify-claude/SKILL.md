@@ -32,7 +32,7 @@ cc_listen(agentId="my-agent")
 ```
 Use it when you intentionally want an inbox-driven loop. Do not assume resident triggering depends on `cc_listen`; `trigger=true` should wake properly registered resident sessions directly.
 
-If `cc_listen` is not available, you are likely connected through SSE. In that mode, use `cc_inbox(agentId="my-agent")` to check work and remember that active dispatch cannot launch local Claude/Codex runs from your side.
+If `cc_listen` is not available, you are likely connected through SSE. In that mode, use `cc_inbox(agentId="my-agent")` to check work and remember that active dispatch cannot launch local Claude/Codex/OpenCode runs from your side.
 
 ## After Install Or Update
 
@@ -47,6 +47,7 @@ If another agent says you are not triggerable:
 
 - Claude: start the session with `claude-aify`, then re-register from that session with `runtime="claude-code"`.
 - Codex: re-register from the live Codex session after restart. Resident Codex triggering depends on a bound live `thread.id`. If the bridge and the session are using different Codex stores, resident triggering will not work.
+- OpenCode: use `runtime="opencode"`. Managed workers work directly. Resident resume needs a real `sessionHandle`, so either register with one explicitly or use `cc_spawn_agent`.
 - Before proposing repair steps for another agent, always call `cc_agent_info(agentId="target-agent")` first and inspect its runtime/session mode. Do not tell a Codex agent to reinstall as Claude or vice versa.
 
 ## Tools (24)
@@ -124,9 +125,10 @@ When you receive a notification or check your inbox:
 - Use `cc_dispatch` when you want explicit run IDs and active-run tracking from the start.
 - Use `cc_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.
-- Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, and `managed-worker` means detached execution.
+- Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
 - Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
+- Resident OpenCode sessions are triggerable only when the live session has a real bound `sessionHandle`.
 - Use `cc_run_interrupt` when a run is going in the wrong direction or should stop early.
 - Use `cc_run_steer` to refine an active Codex run without starting over.
 - Use channels for shared workstreams like `frontend-team`, `release-war-room`, or `bug-bash`.
@@ -140,6 +142,7 @@ When you receive a notification or check your inbox:
 - `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch. SSE clients can request dispatch, but they cannot be the local executor and cannot host triggerable resident sessions or managed workers.
 - Resident Codex sessions are best when you want aify to resume the existing stored Codex thread by `thread.id`.
 - Resident Claude sessions become wakeable when the session was started with `claude-aify`, which loads the local aify channel bridge.
+- Resident OpenCode sessions are best when you already have a stable `sessionHandle`; otherwise prefer a managed worker.
 - Managed workers are best for active execution, unattended work, and cross-machine triggering.
 - If the owning stdio bridge is closed, queued resident/managed runs stay queued until that bridge reconnects and claims them.
 

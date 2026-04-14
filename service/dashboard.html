@@ -117,7 +117,7 @@ tr:hover{background:#1c2128}
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
   <h1>aify-claude</h1>
-  <div class="ver">v3.4.0</div>
+  <div class="ver">v3.5.0</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
     <a onclick="showPage('channels')" id="nav-channels">Channels</a>
@@ -148,7 +148,7 @@ tr:hover{background:#1c2128}
       <div class="send-row">
         <input id="spawn-from" placeholder="Owner agent ID">
         <input id="spawn-agent-id" placeholder="Worker agent ID">
-        <select id="spawn-runtime"><option value="codex">codex</option><option value="claude-code">claude-code</option></select>
+        <select id="spawn-runtime"><option value="codex">codex</option><option value="claude-code">claude-code</option><option value="opencode">opencode</option></select>
         <select id="spawn-role"><option value="coder">coder</option><option value="reviewer">reviewer</option><option value="tester">tester</option><option value="researcher">researcher</option><option value="architect">architect</option><option value="manager">manager</option><option value="operator">operator</option></select>
         <input id="spawn-cwd" placeholder="Working directory">
         <input id="spawn-subject" placeholder="Initial task subject (optional)">
@@ -228,7 +228,7 @@ tr:hover{background:#1c2128}
     <h2>Instructions</h2>
     <div class="instructions">
       <h3>What is this?</h3>
-      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets coding agents register resident sessions, spawn managed workers, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
+      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets Claude Code, Codex, OpenCode, and other coding agents register resident sessions, spawn managed workers, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
 
       <h3>Quick Setup</h3>
       <p>Fast path for Claude Code:</p>
@@ -239,9 +239,13 @@ bash install.sh --client claude http://localhost:8800 --with-hook</pre>
       <pre>git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
 cd ~/aify-claude
 bash install.sh --client codex http://localhost:8800 --with-hook</pre>
-      <p>Restart the client after install. Then re-register from the exact live session you want other agents to trigger. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex work themselves.</p>
+      <p>Fast path for OpenCode:</p>
+      <pre>git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
+cd ~/aify-claude
+bash install.sh --client opencode http://localhost:8800</pre>
+      <p>Restart the client after install. Then re-register from the exact live session you want other agents to trigger. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. Resident Codex sessions become triggerable when aify captures a real <code>thread.id</code> and can resume that stored thread through <code>codex app-server</code>. Resident Claude sessions become wakeable through the local <code>aify-claude-channel</code> bridge when Claude is started with <code>claude-aify</code>. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. Use spawning only when you want a detached/background worker; for normal wakeups, prefer <code>cc_send(trigger=true)</code>. On Windows, desktop Codex and WSL Codex use different thread stores, so resident triggering only works when the bridge talks to the same store that created the session.</p>
+      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. Resident Codex sessions become triggerable when aify captures a real <code>thread.id</code> and can resume that stored thread through <code>codex app-server</code>. Resident Claude sessions become wakeable through the local <code>aify-claude-channel</code> bridge when Claude is started with <code>claude-aify</code>. OpenCode supports managed workers now and resident session resume when you register with a real <code>sessionHandle</code>. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. Use spawning only when you want a detached/background worker; for normal wakeups, prefer <code>cc_send(trigger=true)</code>. On Windows, desktop Codex and WSL Codex use different thread stores, so resident triggering only works when the bridge talks to the same store that created the session.</p>
 
       <h3>Tools (24 stdio / 19 SSE)</h3>
       <ul>

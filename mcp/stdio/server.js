@@ -121,7 +121,9 @@ function wakeModeSummary(info = {}) {
   if (sessionMode === "managed" && capabilities.includes("managed-run")) return "managed-worker";
   if (sessionMode === "resident" && runtime === "claude-code" && capabilities.includes("resident-run")) return "claude-live";
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
+  if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
+  if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
   return "message-only";
 }
@@ -151,7 +153,7 @@ function supportedExecutionModes(info = {}) {
     modes.push("managed");
   }
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex") modes.push("resident");
+    if (runtime === "codex" || runtime === "opencode") modes.push("resident");
   }
   return modes;
 }
@@ -438,7 +440,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.4.0",
+  version: "3.5.0",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
