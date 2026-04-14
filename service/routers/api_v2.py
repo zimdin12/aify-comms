@@ -346,6 +346,55 @@ async def _bridge_registered_at(db, bridge_id: str, agent_id: str) -> str:
     return row["registered_at"] or ""
 
 
+async def _fail_active_runs_for_superseded_bridges(
+    db,
+    *,
+    agent_id: str,
+    machine_id: str,
+    superseding_bridge_id: str,
+    finished_at: str,
+) -> list[str]:
+    cursor = await db.execute(
+        """
+        SELECT id, claim_bridge_id
+        FROM dispatch_runs
+        WHERE target_agent = ?
+          AND status IN ('claimed', 'running')
+          AND claim_machine_id = ?
+          AND COALESCE(claim_bridge_id, '') != ?
+        """,
+        (agent_id, machine_id, superseding_bridge_id),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return []
+
+    affected_run_ids: list[str] = []
+    for row in rows:
+        affected_run_ids.append(row["id"])
+        previous_bridge_id = (row["claim_bridge_id"] or "").strip()
+        owner_label = previous_bridge_id or "legacy-unowned"
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'failed', error_text = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (
+                f'Run was owned by superseded bridge instance "{owner_label}" and was replaced by "{superseding_bridge_id}" during re-registration',
+                finished_at,
+                row["id"],
+            ),
+        )
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "failed",
+            f"Register supersession: {owner_label} -> {superseding_bridge_id}",
+        )
+    return affected_run_ids
+
+
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
@@ -485,7 +534,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.5.3",
+        "version": "3.5.4",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -588,6 +637,13 @@ async def register_agent(req: AgentRegister, request: Request):
                 WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
                 """,
                 (bridge_id, now, req.agentId, req.machineId or "", bridge_id)
+            )
+            await _fail_active_runs_for_superseded_bridges(
+                db,
+                agent_id=req.agentId,
+                machine_id=req.machineId or "",
+                superseding_bridge_id=bridge_id,
+                finished_at=now,
             )
         await db.commit()
         ws = await _get_ws(request)

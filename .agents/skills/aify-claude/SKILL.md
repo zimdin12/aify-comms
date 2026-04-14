@@ -138,7 +138,7 @@ When you receive a notification or check your inbox:
 - Use `cc_listen` only when you intentionally want a waiting loop; otherwise rely on triggering plus unread notifications.
 - If you dispatch work, track it with `cc_run_status` when timing matters.
 - If a trigger does not appear to "arrive", check `cc_agent_info` for an active run first. Later work queues behind the currently running run for that agent.
-- If an agent was restarted or re-registered, newer bridge instances now supersede stale older bridge instances for that same agent so stuck old runs can be recovered automatically.
+- If an agent was restarted or re-registered on the same machine, the newer bridge now supersedes older bridge-owned active runs for that same agent immediately.
 
 ## Transport Notes
 
