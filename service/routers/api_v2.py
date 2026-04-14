@@ -925,6 +925,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", agent_runtime, selected_run["id"])
         )
+        if selected_run["message_id"]:
+            await db.execute(
+                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                (selected_run["message_id"], req.agentId, claimed_at)
+            )
         await _append_dispatch_event(db, selected_run["id"], "claimed", f"machine={req.machineId or ''}")
         await db.commit()
 
