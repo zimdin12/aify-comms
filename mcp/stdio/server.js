@@ -1251,7 +1251,9 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
 
   controller.promise
     .then(() => {})
-    .catch(() => {});
+    .catch((err) => {
+      console.error("[aify] local triggered run failed:", err);
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
