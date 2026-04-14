@@ -243,6 +243,7 @@ Important:
 - Codex managed workers use `codex app-server` with a persistent thread per worker.
 - Codex resident sessions use the `CODEX_THREAD_ID` exposed by the live session and resume that thread through App Server instead of creating a fresh detached thread.
 - Claude resident wakeups use the local `aify-claude-channel` server plus Claude Channels. The installer adds the server and a `claude-aify` wrapper that starts Claude with the required development-channel flag.
+- For Claude, the installer registers both `aify-claude` and `aify-claude-channel` in Claude user scope so the wrapper works across projects and sessions.
 - On Windows, the Codex bridge defaults to `wsl.exe -e codex app-server`. If your Codex CLI lives in WSL, prefer running the Codex-side MCP server from inside WSL so the registered `cwd` is already a Linux path.
 - For resident Codex triggering, the bridge must talk to the same Codex thread store that created the session. A Windows desktop session and a WSL CLI session are different stores.
 - Because of that store mismatch, Windows desktop Codex does not auto-advertise resident triggering by default when the bridge is using WSL Codex.

@@ -48,8 +48,8 @@ Important:
 
 ## What This Installs
 
-- The `aify-claude` stdio MCP server
-- The `aify-claude-channel` MCP server used for resident Claude wakeups
+- The `aify-claude` stdio MCP server, registered in Claude user scope
+- The `aify-claude-channel` MCP server used for resident Claude wakeups, also registered in Claude user scope
 - The aify skill in `~/.claude/skills/aify-claude`
 - Slash commands in `~/.claude/commands/aify-claude`
 - Optional unread-message hook notifications

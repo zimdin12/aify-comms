@@ -209,20 +209,31 @@ register_stdio_server() {
   local cli="$1"
   local server_name="aify-claude"
   local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  local -a scope_args=()
 
-  "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
+  if [ "$cli" = "claude" ]; then
+    scope_args=(--scope user)
+    "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
+    "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
+    "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
+  else
+    "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
+  fi
 
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
     "$cli" mcp add "$server_name" \
+      "${scope_args[@]}" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add "$server_name" \
+      "${scope_args[@]}" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   else
     "$cli" mcp add "$server_name" \
+      "${scope_args[@]}" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   fi
 }
@@ -232,19 +243,23 @@ register_claude_channel_server() {
   local server_name="aify-claude-channel"
   local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
 
-  "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
+  "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
+  "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
+  "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
 
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
-    "$cli" mcp add "$server_name" \
+    "$cli" mcp add --scope user "$server_name" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
       -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
   elif [ -n "$SERVER_URL" ]; then
-    "$cli" mcp add "$server_name" \
+    "$cli" mcp add --scope user "$server_name" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
   else
-    "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
+    "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
+    "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
+    "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
     return
   fi
 }
