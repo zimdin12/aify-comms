@@ -23,8 +23,17 @@ Restart Codex after install.
 After every update:
 
 1. Restart Codex.
-2. Re-register from the exact live Codex session you want other agents to trigger.
-3. Confirm with `cc_agent_info(agentId="...")`.
+2. If you want visible live wakeups, start the session with `codex-aify`.
+3. Re-register from that exact live Codex session.
+4. Confirm with `cc_agent_info(agentId="...")`.
+
+For the live-wake path, start Codex with:
+
+```bash
+codex-aify
+```
+
+That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, launches the visible TUI with `codex --remote ...`, and exports the shared app-server URL so aify can send resident turns back into the same session.
 
 ## WSL Note
 
@@ -34,7 +43,8 @@ After every update:
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `cc_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
-- Resident Codex sessions can then be triggered directly by resuming that bound thread through `codex app-server`.
+- If the session was started with `codex-aify`, resident Codex wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`.
+- If the session was started with plain `codex`, resident Codex still falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `cc_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers, and they cannot launch local work themselves.
@@ -45,13 +55,14 @@ Important:
 - The `aify-claude` stdio MCP server for Codex
 - The aify skill in `$CODEX_HOME/skills/aify-claude`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
+- A `codex-aify` wrapper in `~/.local/bin`
 
 Current Codex CLI note:
 - The installer uses the current `codex mcp add ... --env ...` syntax.
 - For hooks, Codex now reads `hooks.json` and requires `features.codex_hooks = true` in `config.toml`.
 - The unread hook is installed for `PostToolUse` on `Bash`, which matches the current Codex hooks runtime.
 - Resident triggering only works when the bridge talks to the same Codex installation/thread store that created the live session. A Windows desktop session and a WSL CLI session are different stores.
-- Because of that, Windows desktop Codex does not auto-advertise resident triggering by default when aify is launching Codex through WSL.
+- `codex-aify` avoids the extra hidden-resume hop by pointing both the visible TUI and aify at the same local WebSocket app-server.
 
 ## Quick Start
 

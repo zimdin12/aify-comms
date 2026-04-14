@@ -9,6 +9,8 @@ General coordination pattern:
 - Use `cc_spawn_agent` only when you need a detached managed worker
 - Use `cc_run_status` to watch active work
 - Use `cc_run_steer` or `cc_run_interrupt` when an active run needs correction
+- If you are using Claude CLI, prefer starting the live session with `claude-aify`
+- If you are using Codex CLI and want visible live wakeups, prefer starting the live session with `codex-aify`
 
 ---
 

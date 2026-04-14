@@ -111,7 +111,18 @@ def _dedupe_preserve(values: list[str]) -> list[str]:
     return result
 
 
-def _default_capabilities_for(runtime: str, session_mode: str, session_handle: str = "") -> list[str]:
+def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) -> bool:
+    if not isinstance(runtime_config, dict):
+        return False
+    return str(runtime_config.get("appServerUrl") or "").strip().lower().startswith(("ws://", "wss://"))
+
+
+def _default_capabilities_for(
+    runtime: str,
+    session_mode: str,
+    session_handle: str = "",
+    runtime_config: Optional[dict[str, Any]] = None,
+) -> list[str]:
     normalized_runtime = _normalize_runtime(runtime)
     normalized_session_mode = _normalize_session_mode(session_mode)
     session_handle = str(session_handle or "").strip()
@@ -155,11 +166,14 @@ def _agent_wake_mode(row) -> str:
     session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
     session_handle = str((row["session_handle"] if row else "") or "").strip()
     capabilities = _row_capabilities(row) if row else []
+    runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
 
     if session_mode == "managed" and "managed-run" in capabilities:
         return "managed-worker"
     if session_mode == "resident" and runtime == "claude-code" and "resident-run" in capabilities:
         return "claude-live"
+    if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle and _has_codex_live_app_server(runtime_config):
+        return "codex-live"
     if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
         return "codex-thread-resume"
     if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
@@ -580,7 +594,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.5.5",
+        "version": "3.6.0",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -638,7 +652,7 @@ async def register_agent(req: AgentRegister, request: Request):
         session_handle = req.sessionHandle or (row["session_handle"] if row else "") or ""
         capabilities = req.capabilities
         if capabilities is None:
-            capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle)
+            capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
         bridge_id = (req.bridgeId or "").strip()
         await db.execute(
             """

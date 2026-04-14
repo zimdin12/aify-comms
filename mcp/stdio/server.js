@@ -28,6 +28,7 @@ import {
   defaultSessionHandleForRuntime,
   defaultMachineId,
   detectRuntime,
+  hasCodexLiveAppServer,
   launchRuntimeRun,
   normalizeRuntime,
 } from "./runtimes.js";
@@ -121,6 +122,15 @@ function wakeModeSummary(info = {}) {
   const capabilities = Array.isArray(info.capabilities) ? info.capabilities : [];
   if (sessionMode === "managed" && capabilities.includes("managed-run")) return "managed-worker";
   if (sessionMode === "resident" && runtime === "claude-code" && capabilities.includes("resident-run")) return "claude-live";
+  if (
+    sessionMode === "resident" &&
+    runtime === "codex" &&
+    capabilities.includes("resident-run") &&
+    info.sessionHandle &&
+    hasCodexLiveAppServer(parseJson(info.runtimeConfig, {}))
+  ) {
+    return "codex-live";
+  }
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
@@ -143,6 +153,23 @@ function dedupePreserveOrder(values) {
 function normalizeSessionMode(mode) {
   const value = String(mode || "resident").trim().toLowerCase();
   return value === "managed" ? "managed" : "resident";
+}
+
+function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null) {
+  const normalizedRuntime = normalizeRuntime(runtime || "generic");
+  const previousRuntimeConfig = parseJson(previousInfo?.runtimeConfig, {});
+  const runtimeConfig = { ...previousRuntimeConfig };
+
+  if (normalizedRuntime === "codex") {
+    const appServerUrl = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim();
+    const remoteAuthTokenEnv = String(process.env.AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV || "").trim();
+    if (appServerUrl) runtimeConfig.appServerUrl = appServerUrl;
+    else delete runtimeConfig.appServerUrl;
+    if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
+    else delete runtimeConfig.remoteAuthTokenEnv;
+  }
+
+  return runtimeConfig;
 }
 
 function supportedExecutionModes(info = {}) {
@@ -481,7 +508,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.5.3",
+  version: "3.6.0",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -513,12 +540,13 @@ server.tool(
     const resolvedMachineId = machineId || MACHINE_ID;
     const resolvedSessionMode = normalizeSessionMode(sessionMode);
     const previousInfo = REMOTE_AGENT_STATE.get(agentId)?.info;
+    const runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo);
     const resolvedSessionHandle =
       sessionHandle ||
       defaultSessionHandleForRuntime(resolvedRuntime) ||
       previousInfo?.sessionHandle ||
       "";
-    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle);
+    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle, runtimeConfig);
 
     const agentData = {
       agentId,
@@ -535,6 +563,7 @@ server.tool(
       managedBy: managedBy || "",
       bridgeId: BRIDGE_INSTANCE_ID,
       capabilities,
+      runtimeConfig,
     };
 
     // Write agent ID to temp so the notification hook can find it (session-specific).
@@ -634,6 +663,7 @@ server.tool(
       sessionHandle: resolvedSessionHandle,
       managedBy: managedBy || "",
       capabilities,
+      runtimeConfig,
       runtimeState: registry.agents[agentId]?.runtimeState || {},
       registeredAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),

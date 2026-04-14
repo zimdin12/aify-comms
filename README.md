@@ -43,8 +43,9 @@ bash install.sh --client opencode http://localhost:8800
 After every install or update:
 
 1. Restart the client.
-2. Re-register from the exact live session you want other agents to trigger.
-3. Confirm your runtime and resident state with `cc_agent_info(...)`.
+2. For visible Codex live wakeups, start Codex with `codex-aify`.
+3. Re-register from the exact live session you want other agents to trigger.
+4. Confirm your runtime and resident state with `cc_agent_info(...)`.
 
 ### Client — Claude Code install (manual)
 
@@ -227,14 +228,15 @@ Claude Code (any machine)         Claude Code (any machine)
 - `cc_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session that is currently open for presence, inbox, and runtime metadata.
 - Re-registering the same agent ID supersedes the older bridge instance for that agent on that machine. This is how stale-run recovery works after a restart.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
-- Resident Codex sessions use `thread.id`-based resume when `cc_register` captures a real `thread.id` and the bridge can resume that stored thread through `codex app-server`.
+- Resident Codex sessions started with `codex-aify` become `codex-live`: the visible TUI and the aify bridge share the same local WebSocket `codex app-server`.
+- Resident Codex sessions started with plain `codex` still use `thread.id`-based `codex-thread-resume` through a separate App Server worker.
 - Resident Claude CLI sessions become wakeable when Claude is started through the installed `claude-aify` wrapper, which loads the local aify channel bridge.
 - OpenCode supports managed workers directly, and resident OpenCode resume when `cc_register` is given a real `sessionHandle`.
 - Managed workers remain the detached cross-machine execution path for long-running/background work.
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. If the target is a resident Codex session with a bound `thread.id`, aify resumes that stored thread in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. If the target is a resident Codex session started through `codex-aify`, aify uses `codex-live` and talks to the same shared local WebSocket App Server as the visible TUI. If the target is a plain resident Codex session with a bound `thread.id`, aify still falls back to `codex-thread-resume` in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
 
 ```
 Agent A: cc_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
@@ -249,7 +251,8 @@ This works across machines as long as the target machine has a live stdio MCP br
 
 Important:
 - Dispatched runs automatically send their final response back to the requesting agent. For ordinary reply tasks, write the reply in plain text; do not ask the dispatched runtime to call `cc_send(...)` just to answer the sender.
-- Resident Codex sessions currently use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
+- Resident Codex sessions started with `codex-aify` use `codex-live`, which targets the same shared local WebSocket App Server as the visible TUI.
+- Resident Codex sessions started with plain `codex` still use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
 - Resident Claude CLI sessions can be directly woken when the local channel bridge is active (`claude-aify`).
 - Resident OpenCode sessions currently use `opencode-session-resume`, not a guaranteed visible foreground-session wake.
 - Managed workers are best for triggerable execution, long-lived runtime state, and unattended background work.
@@ -266,7 +269,7 @@ Important:
 - Resident Claude wakeups only work when the session was started with `claude-aify`, because the local channel bridge must be loaded into that exact live session.
 - Resident OpenCode resume currently requires a real `sessionHandle`; arbitrary existing OpenCode sessions are not auto-bound yet.
 - `claude-aify` only makes sense when the Claude install was done with a real shared aify server URL. In local-only mode, the wrapper/channel wake path is intentionally disabled.
-- In aify surfaces, wake modes are intentionally distinct: `claude-live`, `codex-thread-resume`, `opencode-session-resume`, `managed-worker`, and `message-only`.
+- In aify surfaces, wake modes are intentionally distinct: `claude-live`, `codex-live`, `codex-thread-resume`, `opencode-session-resume`, `managed-worker`, and `message-only`.
 - If another agent says you are not triggerable, the most common fix is: update, restart, and re-register from the live session. Missing `thread.id` bindings and stale runtime metadata both come from skipping that step.
 
 ### Runtime Notes
@@ -276,7 +279,8 @@ Important:
 - Claude managed workers use the local `claude -p` CLI with a persistent `session-id` per worker.
 - Codex managed workers use `codex app-server` with a persistent thread per worker.
 - OpenCode managed workers use the official OpenCode SDK/server flow with a persistent `sessionId` per worker.
-- Codex resident sessions use the `CODEX_THREAD_ID` exposed by the live session and resume that thread through App Server instead of creating a fresh detached thread.
+- Codex resident sessions started with `codex-aify` export a shared `AIFY_CODEX_APP_SERVER_URL`, so aify can drive the same local WebSocket App Server as the visible TUI and report `codex-live`.
+- Plain Codex resident sessions still use the `CODEX_THREAD_ID` exposed by the live session and resume that thread through a separate App Server worker as `codex-thread-resume`.
 - Claude resident wakeups use the local `aify-claude-channel` server plus Claude Channels. The installer adds the server and a `claude-aify` wrapper that starts Claude with the required development-channel flag.
 - OpenCode resident resume works when you register with a real `sessionHandle`; interrupt is supported, steering is not wired yet.
 - For Claude, the installer registers both `aify-claude` and `aify-claude-channel` in Claude user scope so the wrapper works across projects and sessions.
@@ -292,7 +296,8 @@ Important:
 - Codex supports interruption and steering through App Server.
 - OpenCode supports interruption, but not in-flight steering.
 - Claude resident wakeups currently rely on the Channels research-preview flow, so custom local channels still require the `--dangerously-load-development-channels` startup flag. The `claude-aify` wrapper adds it for you.
-- Resident Codex triggering is proven for CLI/WSL threads that App Server can list and resume. Desktop/WSL mixed environments still need the bridge to point at the same Codex installation that owns the thread.
+- `codex-live` currently requires starting the session through `codex-aify`, which launches the visible TUI against a local shared WebSocket App Server.
+- Plain resident Codex triggering is still proven for CLI/WSL threads that App Server can list and resume. Desktop/WSL mixed environments still need the bridge to point at the same Codex installation that owns the thread.
 - If a runtime asks for unexpected user input or approvals, the run may fail or time out; use permissive runtime settings only in trusted environments.
 
 ### Recommended Roles

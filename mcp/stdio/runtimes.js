@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import readline from "readline";
 import { createOpencode } from "@opencode-ai/sdk";
+import WebSocket from "ws";
 
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
@@ -148,6 +149,11 @@ function getRuntimeConfig(agentInfo) {
   return agentInfo.runtimeConfig || {};
 }
 
+export function hasCodexLiveAppServer(runtimeConfig = {}) {
+  const url = String(runtimeConfig?.appServerUrl || "").trim();
+  return /^wss?:\/\//i.test(url);
+}
+
 export function normalizeRuntime(runtime) {
   const key = String(runtime || "generic").trim().toLowerCase();
   return RUNTIME_ALIASES.get(key) || key || "generic";
@@ -247,6 +253,123 @@ function createRpcClient(proc, { onNotification, onStderr }) {
   }
 
   return { request, notify };
+}
+
+function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
+  return new Promise((resolve, reject) => {
+    const pending = new Map();
+    let nextId = 1;
+    let opened = false;
+    let closed = false;
+
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const socket = new WebSocket(url, Object.keys(headers).length ? { headers } : undefined);
+
+    function failPending(error) {
+      for (const [id, pendingRequest] of pending.entries()) {
+        pending.delete(id);
+        pendingRequest.reject(error);
+      }
+    }
+
+    function onSocketFailure(error) {
+      if (!closed) {
+        closed = true;
+        failPending(error);
+      }
+      if (!opened) {
+        reject(error);
+      } else if (onStderr) {
+        onStderr(error.message || String(error));
+      }
+    }
+
+    socket.on("open", () => {
+      opened = true;
+
+      function send(payload) {
+        if (socket.readyState !== WebSocket.OPEN) {
+          throw new Error("Codex WebSocket app-server connection is not open");
+        }
+        socket.send(JSON.stringify(payload));
+      }
+
+      function request(method, params, timeoutMs = 30000) {
+        return new Promise((resolveRequest, rejectRequest) => {
+          if (socket.readyState !== WebSocket.OPEN) {
+            rejectRequest(new Error("Codex WebSocket app-server connection is not open"));
+            return;
+          }
+
+          const id = nextId++;
+          const timer = setTimeout(() => {
+            pending.delete(id);
+            rejectRequest(new Error(`${method} timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+
+          pending.set(id, {
+            resolve: (result) => {
+              clearTimeout(timer);
+              resolveRequest(result);
+            },
+            reject: (error) => {
+              clearTimeout(timer);
+              rejectRequest(error);
+            },
+          });
+
+          send({ jsonrpc: "2.0", id, method, params });
+        });
+      }
+
+      function notify(method, params) {
+        send({ jsonrpc: "2.0", method, params });
+      }
+
+      function close() {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+        }
+      }
+
+      resolve({ request, notify, close });
+    });
+
+    socket.on("message", (data) => {
+      let message;
+      try {
+        message = JSON.parse(String(data));
+      } catch {
+        return;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(message, "id")) {
+        const pendingRequest = pending.get(message.id);
+        if (!pendingRequest) return;
+        pending.delete(message.id);
+        if (message.error) pendingRequest.reject(new Error(message.error.message || JSON.stringify(message.error)));
+        else pendingRequest.resolve(message.result);
+        return;
+      }
+
+      if (message.method && onNotification) {
+        onNotification(message);
+      }
+    });
+
+    socket.on("error", (error) => {
+      onSocketFailure(error instanceof Error ? error : new Error(String(error)));
+    });
+
+    socket.on("close", (code, reasonBuffer) => {
+      const reasonText = quoteForDisplay(
+        Buffer.isBuffer(reasonBuffer) ? reasonBuffer.toString("utf-8") : String(reasonBuffer || ""),
+      );
+      const detail = reasonText || `Codex WebSocket app-server connection closed (${code})`;
+      onSocketFailure(new Error(detail));
+    });
+  });
 }
 
 function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
@@ -354,9 +477,14 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const summaryMode = config.summary || "concise";
   const approvalPolicy = config.approvalPolicy || "never";
   const networkAccess = config.networkAccess !== false;
-  const proc = spawnProcess(launcher.command, launcher.args, { cwd: spawnCwd });
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
   const residentThreadId = String(agentInfo.sessionHandle || "").trim();
+  const appServerUrl =
+    executionMode === "resident" && hasCodexLiveAppServer(config)
+      ? String(config.appServerUrl || "").trim()
+      : "";
+  const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
+  const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
 
   let activeTurnId = null;
   let activeThreadId =
@@ -369,52 +497,77 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   let settled = false;
   let rejectPromise;
   let interrupted = false;
+  let rpc = null;
+  let proc = null;
 
-  const rpc = createRpcClient(proc, {
-    onNotification: (message) => {
-      const params = message.params || {};
-      if (message.method === "turn/started" && params.turn?.id) {
-        activeTurnId = params.turn.id;
-        callbacks.onRefs?.({ turnId: activeTurnId });
-        callbacks.onEvent?.("turn", `Started turn ${activeTurnId}`);
-      } else if (message.method === "turn/completed") {
-        finalStatus = params.turn?.status || "completed";
-        if (params.turn?.error?.message) {
-          finalError = params.turn.error.message;
-        }
-        if (finalStatus === "completed" || finalStatus === "interrupted" || finalStatus === "failed") {
-          settled = true;
-        }
-      } else if (message.method === "item/agentMessage/delta") {
-        const delta = params.delta || "";
-        if (delta) finalText += delta;
-      } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
-        finalText = params.item.text || finalText;
-      } else if (message.method === "error" && params.error?.message) {
-        finalError = params.error.message;
+  const handleNotification = (message) => {
+    const params = message.params || {};
+    if (message.method === "turn/started" && params.turn?.id) {
+      activeTurnId = params.turn.id;
+      callbacks.onRefs?.({ turnId: activeTurnId });
+      callbacks.onEvent?.("turn", `Started turn ${activeTurnId}`);
+    } else if (message.method === "turn/completed") {
+      finalStatus = params.turn?.status || "completed";
+      if (params.turn?.error?.message) {
+        finalError = params.turn.error.message;
       }
-    },
-    onStderr: (line) => {
-      const text = quoteForDisplay(line);
-      if (text) callbacks.onEvent?.("stderr", text);
-    },
-  });
+      if (finalStatus === "completed" || finalStatus === "interrupted" || finalStatus === "failed") {
+        settled = true;
+      }
+    } else if (message.method === "item/agentMessage/delta") {
+      const delta = params.delta || "";
+      if (delta) finalText += delta;
+    } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
+      finalText = params.item.text || finalText;
+    } else if (message.method === "error" && params.error?.message) {
+      finalError = params.error.message;
+    }
+  };
+
+  const handleRuntimeLog = (line) => {
+    const text = quoteForDisplay(line);
+    if (text) callbacks.onEvent?.("stderr", text);
+  };
 
   const promise = new Promise(async (resolve, reject) => {
     rejectPromise = reject;
     const timer = setTimeout(() => {
       if (!settled) {
-        proc.kill("SIGTERM");
+        try {
+          proc?.kill("SIGTERM");
+        } catch {
+          // ignore shutdown errors
+        }
+        try {
+          rpc?.close?.();
+        } catch {
+          // ignore close errors
+        }
         reject(new Error(`Codex run timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
 
     try {
+      if (appServerUrl) {
+        callbacks.onEvent?.("runtime", `Connecting to shared Codex app-server ${appServerUrl}`);
+        rpc = await createWebSocketRpcClient(appServerUrl, {
+          token: remoteAuthToken || undefined,
+          onNotification: handleNotification,
+          onStderr: handleRuntimeLog,
+        });
+      } else {
+        proc = spawnProcess(launcher.command, launcher.args, { cwd: spawnCwd });
+        rpc = createRpcClient(proc, {
+          onNotification: handleNotification,
+          onStderr: handleRuntimeLog,
+        });
+      }
+
       await rpc.request("initialize", {
         clientInfo: {
           name: "aify-claude",
           title: "aify-claude dispatch bridge",
-          version: "3.0.0",
+          version: "3.6.0",
         },
       });
       rpc.notify("initialized", {});
@@ -510,7 +663,16 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
             runtimeState: { threadId: activeThreadId },
             externalRefs: { threadId: activeThreadId, turnId: activeTurnId },
           });
-          proc.kill("SIGTERM");
+          try {
+            proc?.kill("SIGTERM");
+          } catch {
+            // ignore shutdown errors
+          }
+          try {
+            rpc?.close?.();
+          } catch {
+            // ignore close errors
+          }
           return;
         }
         if (finalStatus === "interrupted" || interrupted) {
@@ -520,17 +682,44 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
             runtimeState: { threadId: activeThreadId },
             externalRefs: { threadId: activeThreadId, turnId: activeTurnId },
           });
-          proc.kill("SIGTERM");
+          try {
+            proc?.kill("SIGTERM");
+          } catch {
+            // ignore shutdown errors
+          }
+          try {
+            rpc?.close?.();
+          } catch {
+            // ignore close errors
+          }
           return;
         }
         const detail = finalError || finalText || `Codex turn finished with status ${finalStatus}`;
         reject(new Error(detail));
-        proc.kill("SIGTERM");
+        try {
+          proc?.kill("SIGTERM");
+        } catch {
+          // ignore shutdown errors
+        }
+        try {
+          rpc?.close?.();
+        } catch {
+          // ignore close errors
+        }
       }, 250);
     } catch (error) {
       clearTimeout(timer);
       reject(error);
-      proc.kill("SIGTERM");
+      try {
+        proc?.kill("SIGTERM");
+      } catch {
+        // ignore shutdown errors
+      }
+      try {
+        rpc?.close?.();
+      } catch {
+        // ignore close errors
+      }
     }
   });
 
@@ -718,6 +907,7 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
   const normalizedRuntime = normalizeRuntime(runtime);
   const normalizedMode = String(sessionMode || "resident").trim().toLowerCase();
   const resolvedSessionHandle = String(sessionHandle || defaultSessionHandleForRuntime(normalizedRuntime) || "").trim();
+  const runtimeConfig = arguments.length > 3 ? arguments[3] || {} : {};
 
   if (normalizedMode === "managed") {
     switch (normalizedRuntime) {
@@ -735,7 +925,7 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
   if (!resolvedSessionHandle) return [];
   switch (normalizedRuntime) {
     case "codex":
-      if (!canUseDefaultResidentCodexBridge()) return [];
+      if (!hasCodexLiveAppServer(runtimeConfig) && !canUseDefaultResidentCodexBridge()) return [];
       return ["resident-run", "resume", "interrupt", "steer"];
     case "opencode":
       return ["resident-run", "resume", "interrupt"];

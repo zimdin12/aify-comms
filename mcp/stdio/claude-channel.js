@@ -100,7 +100,7 @@ function controlContent(agentId, runId, control) {
 }
 
 const mcp = new Server(
-  { name: "aify-claude-channel", version: "3.5.3" },
+  { name: "aify-claude-channel", version: "3.6.0" },
   {
     capabilities: {
       experimental: { "claude/channel": {} },

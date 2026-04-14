@@ -93,6 +93,86 @@ remove_claude_wrapper() {
   rm -f "$wrapper_path"
 }
 
+install_codex_wrapper() {
+  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_path="$wrapper_dir/codex-aify"
+  mkdir -p "$wrapper_dir"
+  cat > "$wrapper_path" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+pick_port() {
+  node -e '
+    const net = require("net");
+    const server = net.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      console.log(address && address.port ? String(address.port) : "");
+      server.close();
+    });
+    server.on("error", () => process.exit(1));
+  '
+}
+
+wait_for_port() {
+  local port="$1"
+  node -e '
+    const net = require("net");
+    const port = Number(process.argv[1]);
+    const deadline = Date.now() + 10000;
+    function attempt() {
+      const socket = net.createConnection({ host: "127.0.0.1", port });
+      socket.on("connect", () => {
+        socket.end();
+        process.exit(0);
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        if (Date.now() > deadline) process.exit(1);
+        setTimeout(attempt, 150);
+      });
+    }
+    attempt();
+  ' "$port"
+}
+
+PORT="$(pick_port)"
+if [ -z "$PORT" ]; then
+  echo "Failed to allocate a local port for codex app-server." >&2
+  exit 1
+fi
+
+APP_SERVER_URL="ws://127.0.0.1:$PORT"
+export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
+
+LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-claude"
+mkdir -p "$LOG_ROOT"
+LOG_FILE="$LOG_ROOT/codex-aify-app-server.log"
+
+codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
+APP_SERVER_PID=$!
+
+cleanup() {
+  if kill -0 "$APP_SERVER_PID" >/dev/null 2>&1; then
+    kill "$APP_SERVER_PID" >/dev/null 2>&1 || true
+    wait "$APP_SERVER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if ! wait_for_port "$PORT"; then
+  echo "codex-aify could not reach the local app-server at $APP_SERVER_URL." >&2
+  echo "Check $LOG_FILE for details." >&2
+  exit 1
+fi
+
+codex --remote "$APP_SERVER_URL" "$@"
+STATUS=$?
+exit "$STATUS"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 copy_codex_assets() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local skill_dst="$codex_home/skills/aify-claude"
@@ -357,6 +437,8 @@ if [ "$CLIENT" = "claude" ]; then
   else
     remove_claude_wrapper
   fi
+elif [ "$CLIENT" = "codex" ]; then
+  install_codex_wrapper
 fi
 
 echo ""
@@ -372,6 +454,8 @@ if [ "$CLIENT" = "claude" ]; then
   fi
 elif [ "$CLIENT" = "codex" ]; then
   echo "Restart Codex for changes to take effect."
+  echo "For live resident wakeups, start Codex with: codex-aify"
+  echo "  (wrapper installed at ~/.local/bin/codex-aify)"
 else
   echo "Restart OpenCode for changes to take effect."
 fi

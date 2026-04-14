@@ -142,12 +142,13 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 - `cc_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session you currently have open for presence, inbox, and runtime metadata.
 - Re-registering the same agent ID supersedes the older bridge instance for that agent on that machine. This is how stale-run recovery works after a restart.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
-- Resident Codex sessions become triggerable by resuming the bound stored `thread.id` through `codex app-server`.
+- Resident Codex sessions started with `codex-aify` become `codex-live`: the visible TUI and the aify bridge share the same local WebSocket `codex app-server`.
+- Resident Codex sessions started with plain `codex` still fall back to `codex-thread-resume`, which resumes the bound stored `thread.id` through a separate App Server worker.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.
 - OpenCode supports managed workers directly, and resident session resume when registered with a real `sessionHandle`.
 - Managed workers remain the detached trigger path for long-running or unattended work.
 - Windows desktop Codex and WSL Codex use different thread stores; resident triggering only works when the bridge talks to the same store that created the session.
-- In agent/tool output, wake modes are intentionally distinct: `claude-live`, `codex-thread-resume`, `opencode-session-resume`, `managed-worker`, and `message-only`.
+- In agent/tool output, wake modes are intentionally distinct: `claude-live`, `codex-live`, `codex-thread-resume`, `opencode-session-resume`, `managed-worker`, and `message-only`.
 
 After every install/update/restart:
 - Re-register from the exact live session you want other agents to trigger.
@@ -156,7 +157,7 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions resume their bound stored `thread.id` in a background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; Claude managed workers keep using `claude -p` with a persistent session id per worker.
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions started with `codex-aify` use `codex-live` and target the same shared local WebSocket App Server as the visible TUI; plain resident Codex sessions still resume their bound stored `thread.id` in a separate background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; Claude managed workers keep using `claude -p` with a persistent session id per worker.
 
 Use `cc_send(trigger=true)` as the default "wake this agent now" path. Use `cc_spawn_agent(...)` only when you explicitly want a detached/background worker.
 
@@ -172,6 +173,7 @@ Current limits:
 - Codex supports both interruption and steering.
 - OpenCode supports interruption, but not in-flight steering.
 - Resident Claude wakeups currently depend on the Claude Channels research-preview flow, so you must start Claude with `claude-aify`.
+- `codex-live` currently requires starting Codex through `codex-aify`, which launches the visible TUI against a local shared WebSocket App Server.
 - Resident Codex triggering only works when the bridge talks to the same Codex installation/thread store that created the live session.
 - Resident OpenCode resume currently requires a real `sessionHandle`; arbitrary existing OpenCode sessions are not auto-bound yet.
 - Unexpected permission prompts or user-input requests can still fail a dispatched run.

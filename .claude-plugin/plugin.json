@@ -1,7 +1,7 @@
 {
   "name": "aify-claude",
-  "description": "Inter-agent communication hub for Claude Code, Codex, and OpenCode — resident sessions for messaging/presence, Codex/OpenCode stored-session resume, Claude resident wakeups through a local channel bridge, managed workers for detached execution, plus channels, file sharing, and dashboard. SSE mode supports communication and monitoring, but not local runtime launch.",
-  "version": "3.5.3",
+  "description": "Inter-agent communication hub for Claude Code, Codex, and OpenCode — resident sessions for messaging/presence, Codex live wakeups through codex-aify or stored-thread resume fallback, Claude resident wakeups through a local channel bridge, managed workers for detached execution, plus channels, file sharing, and dashboard. SSE mode supports communication and monitoring, but not local runtime launch.",
+  "version": "3.6.0",
   "author": {
     "name": "zimdin12"
   },

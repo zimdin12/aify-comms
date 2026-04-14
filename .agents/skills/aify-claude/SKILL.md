@@ -127,8 +127,8 @@ When you receive a notification or check your inbox:
 - Use `cc_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
 - For dispatched work, the bridge automatically sends the final plain-text result back to the requester. For normal reply tasks, ask for the reply content directly instead of instructing the target to call `cc_send(...)` back.
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.
-- Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-thread-resume` means App Server is resuming the stored Codex thread, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
-- For Codex and OpenCode resident sessions, that resume happens in a background worker. Do not assume the foreground TUI will visibly wake the way Claude does.
+- Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-live` means the resident Codex session was started through `codex-aify` and the bridge is using the same shared local WebSocket App Server as the visible TUI, `codex-thread-resume` means App Server is resuming the stored Codex thread in a separate background worker, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
+- Do not treat all Codex resident sessions the same: `codex-live` is the visible-live path; `codex-thread-resume` is the older background-resume fallback.
 - Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
 - Resident OpenCode sessions are triggerable only when the live session has a real bound `sessionHandle`.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
