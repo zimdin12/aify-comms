@@ -176,7 +176,10 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 
 After every install/update/restart:
 - Re-register from the exact live session you want other agents to trigger.
-- For `codex-aify`, first try `comms_register(..., runtime="codex")`. If that still reports `message-only`, re-register from that same session with `sessionHandle="$CODEX_THREAD_ID"`. That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the registered `cwd`. If aify reports the live binding as ambiguous, re-register from that same session with both `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"`.
+- For `codex-aify`, prefer the strongest exact registration first: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")`.
+- If those live env vars are unavailable, fall back to `comms_register(..., runtime="codex")`.
+- If bare registration still reports `message-only`, re-register from that same session with `sessionHandle="$CODEX_THREAD_ID"`.
+- The full `sessionHandle + appServerUrl` form is the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the registered `cwd`.
 - Confirm with `comms_agent_info(...)`.
 - If another agent says you are not triggerable, assume your runtime metadata is stale before assuming the server is broken.
 

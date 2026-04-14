@@ -70,23 +70,25 @@ After every install or update:
 3. Re-register from the exact live session you want other agents to trigger.
 4. Confirm your runtime and resident state with `comms_agent_info(...)`.
 
-For Codex specifically, the reliable live-wake registration sequence is:
+For Codex specifically, the reliable live-wake registration sequence inside `codex-aify` is:
+
+```text
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+```
+
+If those live env vars are unavailable in that session, fall back to:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="codex")
 ```
 
-If that still reports `message-only` from inside a `codex-aify` session, use:
+If bare registration still reports `message-only` from inside a `codex-aify` session, use:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
-That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register. If several live Codex sessions are open and aify still says the live binding is ambiguous, re-register from that same session with both values:
-
-```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
-```
+The full `sessionHandle + appServerUrl` form is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register.
 
 ### Typical usage
 

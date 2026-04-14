@@ -15,6 +15,14 @@ You have access to the aify-comms MCP tools (`comms_*` prefix). These let you co
 comms_register(agentId="my-agent", role="coder", cwd="/path/to/project")
 ```
 
+Codex note:
+- If you are running inside `codex-aify`, do not stop at a bare register when the live env is available.
+- First read `CODEX_THREAD_ID` and `AIFY_CODEX_APP_SERVER_URL` from that same live session, then prefer the strongest exact registration:
+```
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+```
+- Use a bare `comms_register(...)` only when those live Codex env vars are unavailable.
+
 Then confirm the team view and your own registration:
 ```
 comms_agents()

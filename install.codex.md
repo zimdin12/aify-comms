@@ -38,20 +38,22 @@ That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, laun
 Recommended registration from inside `codex-aify`:
 
 ```text
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+```
+
+If those live env vars are unavailable in that session, fall back to:
+
+```text
 comms_register(agentId="my-agent", role="coder", runtime="codex")
 ```
 
-If that still reports `message-only` or does not flip to `codex-live`, use the deterministic fallback from that same session:
+If bare registration still does not flip to `codex-live`, use the deterministic fallback from that same session:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
-That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register. If several live Codex sessions are open and aify still says the binding is ambiguous, re-register from that same session with both values:
-
-```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
-```
+The full `sessionHandle + appServerUrl` form is the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register.
 
 ## WSL Note
 
