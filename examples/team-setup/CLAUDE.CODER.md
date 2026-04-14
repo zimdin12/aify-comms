@@ -12,6 +12,11 @@ Check `comms_inbox` for tasks. Build after every edit. Use feature branches + MR
 
 After implementing: build → run tests → commit with task ID → notify tester for verification. **Do NOT push until tester verifies.** If needed, share relevant files or logs via `comms_share` when handing off. Keep tasks and docs updated as you work.
 
+When reporting back:
+- send a short result first
+- include the task ID or branch/MR reference in the subject when useful
+- if the explanation is long, put the detailed notes/logs in `comms_share` and point to that artifact
+
 **When you finish a task, stay registered and triggerable.** Use `comms_listen` only if you intentionally want a waiting loop; otherwise rely on unread notifications and normal `comms_send(...)` wakeups.
 
 ## When stuck

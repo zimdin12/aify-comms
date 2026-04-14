@@ -10,6 +10,11 @@ Research techniques, papers, and implementations for the team. Evaluate findings
 
 Quick answers → DM the requester. Detailed analysis → write to `docs/RESEARCH_<topic>.md` and notify the team channel. Include sources and a clear recommendation. If needed, share reference materials or code examples via `comms_share`.
 
+Keep research communication efficient:
+- short recommendation in chat first
+- then the supporting detail, sources, or longer notes
+- if the output is long, put the long form in a file or shared artifact and link to it
+
 ## When idle
 
 Stay registered and triggerable for research requests. Use `comms_listen` only when you intentionally want a waiting loop. If no requests come, proactively research topics relevant to the current phase — check the project roadmap.

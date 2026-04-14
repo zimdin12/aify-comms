@@ -20,6 +20,8 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 - **Use `comms_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `comms_listen` to be reachable.
 - Use `comms_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.
+- Keep result messages concise too: short summary first, then deeper detail only if it helps the receiver act.
+- If the details are large, send a short message and attach the rest with `comms_share`.
 - Share files, logs, and screenshots via `comms_share` when handing off work.
 
 ## Build

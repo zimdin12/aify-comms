@@ -11,6 +11,10 @@ General coordination pattern:
 - Use `comms_spawn_agent` only when you need a detached managed worker
 - Use `comms_run_status` to watch active work
 - Use `comms_run_steer` or `comms_run_interrupt` when an active run needs correction
+- Keep messages short by default: one ask, one result, or one status update
+- Use the subject line as the short summary
+- If the detail is long, send the summary first and attach the rest with `comms_share`
+- If you see an unread notice, call `comms_inbox(...)` promptly
 - If you are using Claude CLI, prefer starting the live session with `claude-aify`
 - If you are using Codex CLI and want visible live wakeups, prefer starting the live session with `codex-aify`
 
