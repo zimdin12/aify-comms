@@ -520,6 +520,7 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
   if (!markers.length) return null;
 
   const inspected = [];
+  const sessionMatches = [];
   for (const marker of markers) {
     const info = await inspectCodexLiveMarker(marker, normalizedCwd);
     if (!info) continue;
@@ -529,15 +530,27 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
       normalizedSessionHandle &&
       info.threads.some((thread) => String(thread?.id || "").trim() === normalizedSessionHandle)
     ) {
-      return {
-        runtimeConfig: info.runtimeConfig,
-        threadId: normalizedSessionHandle,
-        ambiguous: false,
-      };
+      sessionMatches.push(info);
     }
   }
 
   if (!inspected.length) return null;
+
+  if (normalizedSessionHandle && sessionMatches.length === 1) {
+    return {
+      runtimeConfig: sessionMatches[0].runtimeConfig,
+      threadId: normalizedSessionHandle,
+      ambiguous: false,
+    };
+  }
+
+  if (normalizedSessionHandle && sessionMatches.length > 1) {
+    return {
+      runtimeConfig: null,
+      threadId: normalizedSessionHandle,
+      ambiguous: true,
+    };
+  }
 
   const byCwd = inspected.filter((info) => String(info.preferredThreadId || "").trim());
   if (!normalizedSessionHandle && byCwd.length === 1) {

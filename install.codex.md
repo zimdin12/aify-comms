@@ -47,7 +47,11 @@ If that still reports `message-only` or does not flip to `codex-live`, use the d
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
-That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register.
+That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register. If several live Codex sessions are open and aify still says the binding is ambiguous, re-register from that same session with both values:
+
+```text
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+```
 
 ## WSL Note
 

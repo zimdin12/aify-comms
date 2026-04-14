@@ -533,9 +533,10 @@ server.tool(
     launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
     sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
     sessionHandle: z.string().optional().describe("Runtime-specific live session handle if known"),
+    appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
     managedBy: z.string().optional().describe("Owning agent ID when registering a managed worker"),
   },
-  async ({ agentId, role, name, cwd, model, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, managedBy }) => {
+  async ({ agentId, role, name, cwd, model, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     const resolvedRuntime = detectRuntime(runtime);
     const resolvedMachineId = machineId || MACHINE_ID;
@@ -548,6 +549,10 @@ server.tool(
       previousInfo?.sessionHandle ||
       "";
     let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
+    const explicitAppServerUrl = String(appServerUrl || "").trim();
+    if (resolvedRuntime === "codex" && explicitAppServerUrl) {
+      runtimeConfig = { ...runtimeConfig, appServerUrl: explicitAppServerUrl };
+    }
     let codexLiveBinding = null;
     if (resolvedRuntime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
       codexLiveBinding = await discoverCodexLiveBinding({
@@ -675,7 +680,7 @@ server.tool(
                 : (
                   resolvedRuntime === "codex" &&
                   codexLiveBinding?.ambiguous
-                    ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same live session.`
+                    ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL") from that same live session.`
                     : ""
                 )
             ),
@@ -718,7 +723,7 @@ server.tool(
               : (
                 resolvedRuntime === "codex" &&
                 codexLiveBinding?.ambiguous
-                  ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same live session.`
+                  ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL") from that same live session.`
                   : ""
               )
           ),
