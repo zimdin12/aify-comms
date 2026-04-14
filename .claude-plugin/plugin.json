@@ -1,7 +1,7 @@
 {
   "name": "aify-claude",
-  "description": "Inter-agent communication hub for Claude Code and Codex — messaging, channels, file sharing, and active dispatch via stdio. SSE mode supports communication and monitoring, but not local runtime launch.",
-  "version": "3.1.0",
+  "description": "Inter-agent communication hub for Claude Code and Codex — resident sessions for messaging/presence, managed workers for triggerable execution, plus channels, file sharing, and dashboard. SSE mode supports communication and monitoring, but not local runtime launch.",
+  "version": "3.2.0",
   "author": {
     "name": "zimdin12"
   },

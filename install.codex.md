@@ -27,8 +27,9 @@ Restart Codex after install.
 
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
-- If the session is idle but still open, it can still be triggered.
-- If the session is closed, queued runs wait until the agent reconnects.
+- `cc_register` creates a resident session for messaging/presence.
+- `cc_spawn_agent` creates a managed worker, which is the reliable triggerable path for Codex/Claude.
+- If the owning stdio bridge is closed, queued managed-worker runs wait until that bridge reconnects.
 
 ## What This Installs
 

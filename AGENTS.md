@@ -48,7 +48,7 @@ codex mcp add aify-Codex \
 
 ### Step 4: Restart Codex
 
-The 23 `cc_*` tools will appear automatically. The skill at `.Codex/skills/aify-Codex/SKILL.md` auto-activates when the tools are detected.
+The 24 `cc_*` tools will appear automatically. The skill at `.Codex/skills/aify-Codex/SKILL.md` auto-activates when the tools are detected.
 
 ### Optional: API key
 
@@ -61,12 +61,13 @@ codex mcp add aify-Codex \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
-## Tools (23)
+## Tools (24)
 
 ### Messaging
 | Tool | Purpose |
 |------|---------|
-| `cc_register` | Register as agent (ID, role, cwd, model, instructions, runtime metadata) |
+| `cc_register` | Register the exact live session you currently have open |
+| `cc_spawn_agent` | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
 | `cc_agents` | List agents with unread counts and live status |
 | `cc_status` | Set status + note: `cc_status("working", note="NRD pipeline")` |
 | `cc_agent_info` | Check another agent's status, unread count, last read message |
@@ -157,9 +158,15 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 /channel create backend-team      # create a group chat
 ```
 
+## Resident Sessions vs Managed Workers
+
+- `cc_register(...)` registers a resident session: the exact live Codex/Claude session you currently have open.
+- `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
+- For current Codex and Claude integrations, managed workers are the reliable active-execution path.
+
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target agent's own stdio MCP server claims that run and starts it locally on the correct runtime. Codex agents use `codex app-server` with a persistent thread per agent.
+`cc_send(trigger=true)` and `cc_dispatch(...)` queue work on the server. The target managed worker's owning stdio MCP server claims that run and starts it locally on the correct runtime. Codex managed workers use `codex app-server` with a persistent thread per worker.
 
 If Codex auto-detection is wrong, pass `runtime="codex"` to `cc_register`.
 
@@ -168,7 +175,7 @@ WSL note:
 - When the bridge runs on Windows, it defaults to `wsl.exe -e codex app-server` for Codex launches.
 
 Current limits:
-- One active dispatched run per registered agent.
+- One active dispatched run per managed worker.
 - Claude supports interruption but not in-flight steering.
 - Codex supports both interruption and steering.
 - Unexpected permission prompts or user-input requests can still fail a dispatched run.
@@ -176,6 +183,7 @@ Current limits:
 
 Recommended roles:
 - `manager`, `coder`, `tester`, `reviewer`, `researcher`, `architect`
+- `operator`
 
 ## Key Behaviors
 

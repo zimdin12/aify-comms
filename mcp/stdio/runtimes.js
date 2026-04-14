@@ -42,9 +42,39 @@ function buildUserPrompt(run) {
 
 function defaultCodexCommand() {
   if (process.platform === "win32") {
-    return { command: "wsl.exe", args: ["-e", "codex", "app-server"] };
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
   }
   return { command: "codex", args: ["app-server"] };
+}
+
+function isWslCodexLauncher(launcher) {
+  if (process.platform !== "win32") return false;
+  const command = String(launcher?.command || "").toLowerCase().replace(/\\/g, "/");
+  return command.endsWith("/wsl.exe") || command === "wsl.exe";
+}
+
+function toWslPath(inputPath) {
+  const value = String(inputPath || "").trim();
+  if (!value) return value;
+  const normalized = value.replace(/\\/g, "/");
+  const match = normalized.match(/^([A-Za-z]):\/(.*)$/);
+  if (!match) return normalized;
+  const drive = match[1].toLowerCase();
+  const rest = match[2];
+  return `/mnt/${drive}/${rest}`;
+}
+
+function codexWorkingPath(launcher, cwd) {
+  if (!isWslCodexLauncher(launcher)) return cwd;
+  return toWslPath(cwd);
+}
+
+function codexSpawnCwd(launcher, cwd) {
+  if (!isWslCodexLauncher(launcher)) return cwd;
+  return process.env.USERPROFILE || process.env.HOMEDRIVE && process.env.HOMEPATH
+    ? `${process.env.HOMEDRIVE || "C:"}${process.env.HOMEPATH || "\\Users\\Default"}`
+    : "C:\\";
 }
 
 function defaultClaudeCommand() {
@@ -72,6 +102,17 @@ export function controlCapabilitiesForRuntime(runtime) {
       return { interrupt: true, steer: false };
     default:
       return { interrupt: false, steer: false };
+  }
+}
+
+export function defaultSessionHandleForRuntime(runtime) {
+  switch (normalizeRuntime(runtime)) {
+    case "codex":
+      return process.env.CODEX_THREAD_ID || "";
+    case "claude-code":
+      return process.env.CLAUDE_SESSION_ID || "";
+    default:
+      return "";
   }
 }
 
@@ -228,13 +269,15 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultCodexCommand();
   const timeoutMs = Number(config.timeoutMs || 20 * 60 * 1000);
-  const cwd = agentInfo.cwd || process.cwd();
+  const hostCwd = agentInfo.cwd || process.cwd();
+  const cwd = codexWorkingPath(launcher, hostCwd);
+  const spawnCwd = codexSpawnCwd(launcher, hostCwd);
   const model = agentInfo.model || config.model || "gpt-5.4";
   const effort = config.effort || "medium";
   const summaryMode = config.summary || "concise";
   const approvalPolicy = config.approvalPolicy || "never";
   const networkAccess = config.networkAccess !== false;
-  const proc = spawnProcess(launcher.command, launcher.args, { cwd });
+  const proc = spawnProcess(launcher.command, launcher.args, { cwd: spawnCwd });
 
   let activeTurnId = null;
   let activeThreadId = runtimeState?.threadId || null;
@@ -294,7 +337,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       });
       rpc.notify("initialized", {});
 
-      if (!activeThreadId) {
+      const startThread = async () => {
         const threadStartParams = {
           model,
           cwd,
@@ -318,13 +361,26 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
             sandbox: "workspaceWrite",
           }, 60000);
         }
-        activeThreadId = started.thread?.id;
+        return started.thread?.id;
+      };
+
+      if (!activeThreadId) {
+        activeThreadId = await startThread();
       } else {
-        const resumed = await rpc.request("thread/resume", {
-          threadId: activeThreadId,
-          personality: "friendly",
-        }, 60000);
-        activeThreadId = resumed.thread?.id || activeThreadId;
+        try {
+          const resumed = await rpc.request("thread/resume", {
+            threadId: activeThreadId,
+            personality: "friendly",
+          }, 60000);
+          activeThreadId = resumed.thread?.id || activeThreadId;
+        } catch (error) {
+          const message = error?.message || "";
+          if (!message.includes("no rollout found for thread id")) {
+            throw error;
+          }
+          callbacks.onEvent?.("thread", `Discarding stale thread ${activeThreadId}`);
+          activeThreadId = await startThread();
+        }
       }
 
       callbacks.onRuntimeState?.({ threadId: activeThreadId });
@@ -428,12 +484,17 @@ export function detectRuntime(explicitRuntime) {
   return "generic";
 }
 
-export function defaultCapabilitiesForRuntime(runtime) {
-  switch (normalizeRuntime(runtime)) {
+export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident") {
+  const normalizedRuntime = normalizeRuntime(runtime);
+  const normalizedMode = String(sessionMode || "resident").trim().toLowerCase();
+  if (normalizedMode !== "managed") {
+    return [];
+  }
+  switch (normalizedRuntime) {
     case "codex":
-      return ["start", "resume", "stream", "interrupt", "steer"];
+      return ["managed-run", "resume", "interrupt", "steer", "spawn"];
     case "claude-code":
-      return ["start", "resume", "interrupt"];
+      return ["managed-run", "resume", "interrupt", "spawn"];
     default:
       return [];
   }

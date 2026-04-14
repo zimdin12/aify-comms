@@ -14,6 +14,9 @@ class AgentRegister(BaseModel):
     runtime: Optional[str] = None
     machineId: Optional[str] = None
     launchMode: Optional[str] = None
+    sessionMode: Optional[str] = None
+    sessionHandle: Optional[str] = None
+    managedBy: Optional[str] = None
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
 
@@ -37,6 +40,22 @@ class MessageSend(BaseModel):
 
 class AgentRuntimeStateUpdate(BaseModel):
     runtimeState: dict[str, Any]
+
+
+class SpawnAgentRequest(BaseModel):
+    from_agent: str
+    agentId: str
+    role: str
+    runtime: str
+    name: Optional[str] = None
+    cwd: Optional[str] = None
+    model: Optional[str] = None
+    instructions: Optional[str] = None
+    machineId: Optional[str] = None
+    priority: str = "normal"
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    runtimeConfig: Optional[dict[str, Any]] = None
 
 
 class DispatchRequest(BaseModel):

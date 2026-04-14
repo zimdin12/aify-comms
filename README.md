@@ -76,7 +76,7 @@ On Windows, replace `$HOME` with your home directory using forward slashes (e.g.
 
 **Step 3: Restart Claude Code**
 
-The 23 `cc_*` tools appear automatically. The skill teaches Claude how to register, send messages, listen for incoming messages, dispatch active work, and control active runs.
+The 24 `cc_*` tools appear automatically. The skill teaches Claude how to register resident sessions, spawn managed workers, send messages, listen for incoming messages, dispatch active work, and control active runs.
 
 ### Client — other install methods
 
@@ -147,12 +147,13 @@ Claude Code (any machine)         Claude Code (any machine)
          └──────────────────────┘
 ```
 
-## Tools (23)
+## Tools (24)
 
 ### Messaging
 | Tool | Description |
 |------|-------------|
-| **cc_register** | Register as agent with ID, role, cwd, model, instructions, runtime metadata |
+| **cc_register** | Register the exact live session you currently have open |
+| **cc_spawn_agent** | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
 | **cc_agents** | List agents with unread counts and live status |
 | **cc_status** | Set status + note: `cc_status("working", note="NRD pipeline")` |
 | **cc_agent_info** | Check another agent's status, unread count, last read message |
@@ -187,36 +188,45 @@ Claude Code (any machine)         Claude Code (any machine)
 | **cc_clear** | Clear data with optional age filter |
 | **cc_dashboard** | Open dashboard in browser |
 
+## Resident Sessions vs Managed Workers
+
+- `cc_register(...)` registers a resident session: the exact live Claude/Codex session that is currently open.
+- `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
+- For current Codex and Claude integrations, managed workers are the reliable active-execution path.
+
 ## Active Dispatch
 
-`cc_send(trigger=true)` and `cc_dispatch(...)` now queue work in the service and let the target agent's own local MCP server claim and execute it on the correct machine/runtime:
+`cc_send(trigger=true)` and `cc_dispatch(...)` now queue work in the service and let the target managed worker's local MCP server claim and execute it on the correct machine/runtime:
 
 ```
-Agent A: cc_dispatch(to="tester", subject="run tests", body="Run the repo test suite")
+Agent A: cc_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
+Agent A: cc_dispatch(to="tester-worker", subject="run tests", body="Run the repo test suite")
   → dispatch run queued on the server
-  → tester's local stdio MCP server claims the run
-  → tester runtime launches locally (Claude Code CLI or Codex App Server)
+  → tester-worker's owning stdio MCP bridge claims the run
+  → runtime launches locally (Claude Code CLI or Codex App Server)
   → result sent back to Agent A's inbox
 ```
 
-This works across machines as long as the target agent is actively registered through the stdio MCP server. SSE clients still receive messages, but they cannot execute active dispatch because there is no local launcher process.
+This works across machines as long as the target machine has a live stdio MCP bridge hosting that managed worker. SSE clients still receive messages, but they cannot execute active dispatch because there is no local launcher process.
 
 Important:
-- `idle` is fine. If the client session is still open and connected through the stdio MCP server, the agent can still be triggered.
-- `closed` is different. If the client app/session is no longer running the stdio bridge, dispatch runs stay queued on the server until that agent reconnects.
+- Resident sessions are best for inbox, channels, file sharing, and presence.
+- Managed workers are best for triggerable execution and long-lived runtime state.
+- If the owning stdio bridge is closed, queued managed-worker runs stay on the server until that bridge reconnects.
 - Active dispatch requires the local `stdio` MCP server. SSE-only clients are message/control clients, not local launchers.
 
 ### Runtime Notes
 
-- `cc_register` now stores runtime metadata (`runtime`, `machineId`, capabilities). If auto-detection is wrong, pass `runtime="claude-code"` or `runtime="codex"` explicitly.
-- Claude dispatch uses the local `claude -p` CLI with a persistent `session-id` per agent.
-- Codex dispatch uses `codex app-server` with a persistent thread per agent.
+- `cc_register` stores runtime metadata plus resident-session metadata (`sessionMode`, `sessionHandle`, `machineId`, capabilities). If auto-detection is wrong, pass `runtime="claude-code"` or `runtime="codex"` explicitly.
+- `cc_spawn_agent` creates managed workers that keep runtime state across runs on the owning bridge.
+- Claude managed workers use the local `claude -p` CLI with a persistent `session-id` per worker.
+- Codex managed workers use `codex app-server` with a persistent thread per worker.
 - On Windows, the Codex bridge defaults to `wsl.exe -e codex app-server`. If your Codex CLI lives in WSL, prefer running the Codex-side MCP server from inside WSL so the registered `cwd` is already a Linux path.
 - Unsupported runtimes stay message-only unless you add a dedicated runtime adapter.
 
 ### Current Limits
 
-- One active dispatched run is processed at a time per registered agent.
+- One active dispatched run is processed at a time per managed worker.
 - Claude supports interruption but not true in-flight steering.
 - Codex supports interruption and steering through App Server.
 - If a runtime asks for unexpected user input or approvals, the run may fail or time out; use permissive runtime settings only in trusted environments.
@@ -224,6 +234,7 @@ Important:
 ### Recommended Roles
 
 - `manager`: triage, assign work, watch run state, unblock others
+- `operator`: own managed workers, runtime settings, and operational coordination
 - `coder`: implement changes and hand off artifacts
 - `tester`: verify behavior, reproduce bugs, report regressions
 - `reviewer`: review code, surface risks, request fixes

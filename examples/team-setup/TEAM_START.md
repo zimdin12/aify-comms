@@ -4,7 +4,8 @@ Read CLAUDE.md first, then find your role below and follow the prompt.
 
 General coordination pattern:
 - Use `cc_send` for conversation and handoffs
-- Use `cc_dispatch` when you want another agent to begin immediately
+- Use `cc_spawn_agent` when you need a triggerable managed worker
+- Use `cc_dispatch` when you want a managed worker to begin immediately
 - Use `cc_run_status` to watch active work
 - Use `cc_run_steer` or `cc_run_interrupt` when an active run needs correction
 

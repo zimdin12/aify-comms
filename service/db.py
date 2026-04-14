@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS agents (
     runtime TEXT DEFAULT 'generic',
     machine_id TEXT DEFAULT '',
     launch_mode TEXT DEFAULT 'detached',
+    session_mode TEXT DEFAULT 'resident',
+    session_handle TEXT DEFAULT '',
+    managed_by TEXT DEFAULT '',
     capabilities TEXT DEFAULT '[]',
     runtime_config TEXT DEFAULT '{}',
     runtime_state TEXT DEFAULT '{}',
@@ -86,6 +89,7 @@ CREATE TABLE IF NOT EXISTS dispatch_runs (
     from_agent TEXT NOT NULL,
     target_agent TEXT NOT NULL,
     dispatch_mode TEXT NOT NULL DEFAULT 'start_if_possible',
+    execution_mode TEXT NOT NULL DEFAULT 'managed',
     requested_runtime TEXT DEFAULT '',
     runtime TEXT DEFAULT '',
     message_type TEXT NOT NULL DEFAULT 'request',
@@ -149,9 +153,16 @@ AGENT_MIGRATIONS = {
     "runtime": "ALTER TABLE agents ADD COLUMN runtime TEXT DEFAULT 'generic'",
     "machine_id": "ALTER TABLE agents ADD COLUMN machine_id TEXT DEFAULT ''",
     "launch_mode": "ALTER TABLE agents ADD COLUMN launch_mode TEXT DEFAULT 'detached'",
+    "session_mode": "ALTER TABLE agents ADD COLUMN session_mode TEXT DEFAULT 'resident'",
+    "session_handle": "ALTER TABLE agents ADD COLUMN session_handle TEXT DEFAULT ''",
+    "managed_by": "ALTER TABLE agents ADD COLUMN managed_by TEXT DEFAULT ''",
     "capabilities": "ALTER TABLE agents ADD COLUMN capabilities TEXT DEFAULT '[]'",
     "runtime_config": "ALTER TABLE agents ADD COLUMN runtime_config TEXT DEFAULT '{}'",
     "runtime_state": "ALTER TABLE agents ADD COLUMN runtime_state TEXT DEFAULT '{}'",
+}
+
+DISPATCH_RUN_MIGRATIONS = {
+    "execution_mode": "ALTER TABLE dispatch_runs ADD COLUMN execution_mode TEXT DEFAULT 'managed'",
 }
 
 
@@ -159,6 +170,14 @@ async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
     existing = {row[1] for row in await cursor.fetchall()}
     for column, statement in AGENT_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
+async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(dispatch_runs)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in DISPATCH_RUN_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
 
@@ -173,6 +192,7 @@ async def init_db(db_path: Path = None):
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA)
         await _migrate_agents_table(db)
+        await _migrate_dispatch_runs_table(db)
         await db.commit()
 
 async def get_db() -> aiosqlite.Connection:

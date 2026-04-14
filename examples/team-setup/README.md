@@ -26,7 +26,7 @@ Example CLAUDE.md files for a 5-agent development team using aify-claude for coo
 - **Communication**: `game-dev` channel for team updates, DMs for direct collaboration
 - **Status awareness**: Agents use `cc_agent_info` to check before messaging
 - **File sharing**: `cc_share` for handoffs (logs, screenshots, test results)
-- **Active starts**: use `cc_dispatch` when another agent should begin now instead of waiting on inbox polling alone
+- **Active starts**: use `cc_spawn_agent` to create triggerable workers, then use `cc_dispatch` when another worker should begin now instead of waiting on inbox polling alone
 - **Run correction**: use `cc_run_steer` or `cc_run_interrupt` when active work needs intervention
 - **Brief acks**: "on it" instead of paragraphs — reduce noise
 

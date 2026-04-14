@@ -20,6 +20,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
+    SpawnAgentRequest,
     AgentRuntimeStateUpdate, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
 )
@@ -64,6 +65,7 @@ _RUNTIME_ALIASES = {
     "generic": "generic",
 }
 _LAUNCHABLE_RUNTIMES = {"claude-code", "codex"}
+_SESSION_MODES = {"resident", "managed"}
 
 async def _get_ws(request: Request):
     try:
@@ -81,6 +83,15 @@ async def _touch_agent(db, agent_id: str):
 def _json_loads_or(value: Any, default):
     if value in (None, ""):
         return default
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _normalize_session_mode(mode: Any) -> str:
+    value = str(mode or "resident").strip().lower()
+    return value if value in _SESSION_MODES else "resident"
 
 
 def _normalize_runtime(runtime: Any) -> str:
@@ -99,6 +110,18 @@ def _dedupe_preserve(values: list[str]) -> list[str]:
     return result
 
 
+def _default_capabilities_for(runtime: str, session_mode: str) -> list[str]:
+    normalized_runtime = _normalize_runtime(runtime)
+    normalized_session_mode = _normalize_session_mode(session_mode)
+    if normalized_session_mode != "managed":
+        return []
+    if normalized_runtime == "codex":
+        return ["managed-run", "resume", "interrupt", "steer", "spawn"]
+    if normalized_runtime == "claude-code":
+        return ["managed-run", "resume", "interrupt", "spawn"]
+    return []
+
+
 async def _resolve_recipient_ids(db, *, to: Optional[str], to_role: Optional[str], from_agent: str) -> list[str]:
     recipients: list[str] = []
     if to:
@@ -115,24 +138,27 @@ def _row_capabilities(row) -> list[str]:
 
 def _agent_launch_reason(row, requested_runtime: Optional[str] = None) -> Optional[str]:
     runtime = _normalize_runtime(row["runtime"] or "generic")
+    session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     if requested_runtime and _normalize_runtime(requested_runtime) != runtime:
         return f'requested runtime "{requested_runtime}" does not match registered runtime "{runtime}"'
     if runtime not in _LAUNCHABLE_RUNTIMES:
         return f'runtime "{runtime}" does not support active dispatch'
+    if session_mode != "managed":
+        return (
+            f'agent "{row["id"]}" is a resident session, not a managed worker. '
+            "Use cc_spawn_agent to create a triggerable worker."
+        )
     if (row["launch_mode"] or "detached") == "none":
         return "launch mode is disabled"
     capabilities = _row_capabilities(row)
-    if capabilities and "start" not in capabilities:
-        return 'agent capabilities do not include "start"'
+    if capabilities and "managed-run" not in capabilities:
+        return 'agent capabilities do not include "managed-run"'
     return None
-    try:
-        return json.loads(value)
-    except Exception:
-        return default
 
 
 def _agent_record_to_dict(row, status: str, unread: int):
     runtime = _normalize_runtime(row["runtime"] or "generic")
+    session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     return {
         "role": row["role"],
         "name": row["name"],
@@ -146,6 +172,9 @@ def _agent_record_to_dict(row, status: str, unread: int):
         "runtime": runtime,
         "machineId": row["machine_id"] or "",
         "launchMode": row["launch_mode"] or "detached",
+        "sessionMode": session_mode,
+        "sessionHandle": row["session_handle"] or "",
+        "managedBy": row["managed_by"] or "",
         "capabilities": _json_loads_or(row["capabilities"], []),
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
         "runtimeState": _json_loads_or(row["runtime_state"], {}),
@@ -233,6 +262,7 @@ async def _create_dispatch_runs(
     priority: str,
     in_reply_to: Optional[str],
     dispatch_mode: str,
+    execution_mode: str,
     requested_runtime: Optional[str],
     message_id: Optional[str] = None,
 ):
@@ -243,12 +273,12 @@ async def _create_dispatch_runs(
         await db.execute(
             """
             INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode, requested_runtime,
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
                 message_type, subject, body, priority, in_reply_to, status, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                run_id, message_id, from_agent, recipient_id, dispatch_mode, requested_runtime or "",
+                run_id, message_id, from_agent, recipient_id, dispatch_mode, execution_mode, requested_runtime or "",
                 message_type, subject, body, priority, in_reply_to, "queued", requested_at
             )
         )
@@ -262,7 +292,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.0.0",
+        "version": "3.2.0",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -309,6 +339,7 @@ async def register_agent(req: AgentRegister, request: Request):
     db = await get_db()
     try:
         normalized_runtime = _normalize_runtime(req.runtime or "generic")
+        normalized_session_mode = _normalize_session_mode(req.sessionMode or "resident")
         now = _now()
         existing_state = "{}"
         existing = await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (req.agentId,))
@@ -319,13 +350,15 @@ async def register_agent(req: AgentRegister, request: Request):
             """
             INSERT OR REPLACE INTO agents (
                 id, role, name, cwd, model, instructions, status, runtime, machine_id,
-                launch_mode, capabilities, runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                launch_mode, session_mode, session_handle, managed_by, capabilities,
+                runtime_config, runtime_state, registered_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 req.agentId, req.role, req.name or req.agentId, req.cwd or "", req.model or "",
                 req.instructions or "", req.status or "idle", normalized_runtime,
                 req.machineId or "", req.launchMode or "detached",
+                normalized_session_mode, req.sessionHandle or "", req.managedBy or "",
                 json.dumps(req.capabilities or []), json.dumps(req.runtimeConfig or {}),
                 existing_state, now, now
             )
@@ -338,6 +371,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 "role": req.role,
                 "runtime": normalized_runtime,
                 "machineId": req.machineId or "",
+                "sessionMode": normalized_session_mode,
             })
         return {
             "ok": True,
@@ -346,6 +380,7 @@ async def register_agent(req: AgentRegister, request: Request):
             "status": req.status or "idle",
             "runtime": normalized_runtime,
             "machineId": req.machineId or "",
+            "sessionMode": normalized_session_mode,
         }
     finally:
         await db.close()
@@ -367,6 +402,106 @@ async def get_agent(agent_id: str, request: Request):
         unread = (await uc.fetchone())[0]
         status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30))
         return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, status, unread)}
+    finally:
+        await db.close()
+
+
+@router.post("/agents/spawn")
+async def spawn_agent(req: SpawnAgentRequest, request: Request):
+    validate_name(req.agentId, "agent ID")
+    db = await get_db()
+    try:
+        await _touch_agent(db, req.from_agent)
+        normalized_runtime = _normalize_runtime(req.runtime)
+        if normalized_runtime not in _LAUNCHABLE_RUNTIMES:
+            raise HTTPException(400, f'Runtime "{normalized_runtime}" does not support managed workers yet')
+
+        owner_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.from_agent,))
+        owner = await owner_cursor.fetchone()
+        if not owner:
+            raise HTTPException(404, f"Agent '{req.from_agent}' not found")
+
+        existing_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
+        existing = await existing_cursor.fetchone()
+        if existing and _normalize_session_mode(existing["session_mode"] or "resident") != "managed":
+            raise HTTPException(409, f'Agent "{req.agentId}" already exists as a resident session')
+
+        machine_id = req.machineId or owner["machine_id"] or ""
+        now = _now()
+        capabilities = _default_capabilities_for(normalized_runtime, "managed")
+        runtime_config = req.runtimeConfig or (existing and _json_loads_or(existing["runtime_config"], {})) or {}
+        runtime_state = existing["runtime_state"] if existing and existing["runtime_state"] else "{}"
+
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO agents (
+                id, role, name, cwd, model, instructions, status, runtime, machine_id,
+                launch_mode, session_mode, session_handle, managed_by, capabilities,
+                runtime_config, runtime_state, registered_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                req.agentId,
+                req.role,
+                req.name or req.agentId,
+                req.cwd or owner["cwd"] or "",
+                req.model or "",
+                req.instructions or "",
+                "idle",
+                normalized_runtime,
+                machine_id,
+                "managed",
+                "managed",
+                "",
+                req.from_agent,
+                json.dumps(capabilities),
+                json.dumps(runtime_config),
+                runtime_state,
+                existing["registered_at"] if existing else now,
+                now,
+            ),
+        )
+
+        runs = []
+        if req.body and str(req.body).strip():
+            runs = await _create_dispatch_runs(
+                db,
+                [req.agentId],
+                from_agent=req.from_agent,
+                message_type="request",
+                subject=req.subject or f"Spawn {req.agentId}",
+                body=req.body,
+                priority=req.priority,
+                in_reply_to=None,
+                dispatch_mode="require_start",
+                execution_mode="managed",
+                requested_runtime=normalized_runtime,
+                message_id=None,
+            )
+
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_registered", {
+                "agentId": req.agentId,
+                "role": req.role,
+                "runtime": normalized_runtime,
+                "machineId": machine_id,
+                "sessionMode": "managed",
+            })
+            for run in runs:
+                await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
+        if runs:
+            _wake_agent(req.agentId)
+
+        return {
+            "ok": True,
+            "agentId": req.agentId,
+            "sessionMode": "managed",
+            "runtime": normalized_runtime,
+            "machineId": machine_id,
+            "runs": runs,
+        }
     finally:
         await db.close()
 
@@ -469,6 +604,7 @@ async def send_message(req: MessageSend, request: Request):
                 priority=req.priority,
                 in_reply_to=req.inReplyTo,
                 dispatch_mode="start_if_possible",
+                execution_mode="managed",
                 requested_runtime=None,
                 message_id=msg_id if len(recipients) == 1 else None,
             )
@@ -826,6 +962,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 priority=req.priority,
                 in_reply_to=req.inReplyTo,
                 dispatch_mode=req.mode,
+                execution_mode="managed",
                 requested_runtime=req.requestedRuntime,
                 message_id=message_id if len(recipients) == 1 else None,
             )
@@ -898,6 +1035,15 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 )
                 await _append_dispatch_event(db, run["id"], "skipped", "Dispatch mode is message_only")
                 continue
+            if (run["execution_mode"] or "managed") != "managed":
+                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                reason = f'Execution mode "{run["execution_mode"]}" is not launchable by the managed worker bridge'
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
+                    (final_status, reason, _now(), run["id"])
+                )
+                await _append_dispatch_event(db, run["id"], "skipped", reason)
+                continue
 
             requested_runtime = run["requested_runtime"] or ""
             if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
@@ -951,6 +1097,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 "inReplyTo": selected_run["in_reply_to"],
                 "status": "claimed",
                 "mode": selected_run["dispatch_mode"],
+                "executionMode": selected_run["execution_mode"] or "managed",
                 "requestedRuntime": selected_run["requested_runtime"] or None,
                 "claimedAt": claimed_at,
             }
@@ -992,6 +1139,7 @@ async def list_dispatch_runs(
                 "targetAgentId": row["target_agent"],
                 "status": row["status"],
                 "mode": row["dispatch_mode"],
+                "executionMode": row["execution_mode"] or "managed",
                 "runtime": row["runtime"] or "",
                 "requestedRuntime": row["requested_runtime"] or "",
                 "subject": row["subject"],
@@ -1057,6 +1205,7 @@ async def get_dispatch_run(run_id: str, request: Request):
                 "inReplyTo": row["in_reply_to"],
                 "status": row["status"],
                 "mode": row["dispatch_mode"],
+                "executionMode": row["execution_mode"] or "managed",
                 "runtime": row["runtime"] or "",
                 "requestedRuntime": row["requested_runtime"] or "",
                 "summary": row["summary"] or "",

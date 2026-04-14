@@ -41,7 +41,8 @@ You own scheduling and priority. Architecture decisions go to architect.
 ## Manager habits
 
 - Use `cc_agent_info` to check agent status before assigning urgent work
-- Use `cc_dispatch` when the next owner should start immediately
+- Use `cc_spawn_agent` when the team needs a triggerable managed worker for implementation or testing
+- Use `cc_dispatch` when the next managed worker should start immediately
 - Use `cc_run_status` to watch long-running work
 - Use `cc_run_steer` or `cc_run_interrupt` when a run needs intervention
 - Broadcast scope changes to the channel immediately, not just DM the affected agent

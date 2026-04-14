@@ -2,8 +2,8 @@
 //
 // claude-code-mcp -- MCP server for inter-agent communication between Claude Code instances.
 //
-// 23 tools (all prefixed "cc_"):
-//   cc_register, cc_agents, cc_status, cc_send, cc_dispatch, cc_inbox, cc_search,
+// 24 tools (all prefixed "cc_"):
+//   cc_register, cc_spawn_agent, cc_agents, cc_status, cc_send, cc_dispatch, cc_inbox, cc_search,
 //   cc_share, cc_read, cc_files,
 //   cc_channel_create, cc_channel_join, cc_channel_send, cc_channel_read, cc_channel_list,
 //   cc_agent_info, cc_listen, cc_unsend, cc_run_status, cc_run_interrupt, cc_run_steer,
@@ -25,6 +25,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import {
   canLaunchRuntime,
   defaultCapabilitiesForRuntime,
+  defaultSessionHandleForRuntime,
   defaultMachineId,
   detectRuntime,
   launchRuntimeRun,
@@ -107,7 +108,8 @@ function parseJson(value, fallback) {
 function runtimeSummary(info = {}) {
   const runtime = normalizeRuntime(info.runtime || "generic");
   const machine = info.machineId || info.machine_id || MACHINE_ID;
-  return `${runtime} @ ${machine}`;
+  const sessionMode = normalizeSessionMode(info.sessionMode || info.session_mode);
+  return `${runtime} @ ${machine} (${sessionMode})`;
 }
 
 function dedupePreserveOrder(values) {
@@ -119,6 +121,11 @@ function dedupePreserveOrder(values) {
     result.push(value);
   }
   return result;
+}
+
+function normalizeSessionMode(mode) {
+  const value = String(mode || "resident").trim().toLowerCase();
+  return value === "managed" ? "managed" : "resident";
 }
 
 // ── Local filesystem helpers ─────────────────────────────────────────────────
@@ -399,7 +406,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.0.0",
+  version: "3.2.0",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -409,7 +416,8 @@ const server = new McpServer({
 server.tool(
   "cc_register",
   "Register this agent instance. " +
-    "Set cwd/model/instructions/runtime so other agents can message or dispatch work to you.",
+    "Register this exact live session so other agents can message you. " +
+    "Resident sessions are for presence/inbox/channels; managed workers should be created with cc_spawn_agent.",
   {
     agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
     role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
@@ -420,12 +428,17 @@ server.tool(
     runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex')"),
     machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
     launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
+    sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
+    sessionHandle: z.string().optional().describe("Runtime-specific live session handle if known"),
+    managedBy: z.string().optional().describe("Owning agent ID when registering a managed worker"),
   },
-  async ({ agentId, role, name, cwd, model, instructions, runtime, machineId, launchMode }) => {
+  async ({ agentId, role, name, cwd, model, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, managedBy }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     const resolvedRuntime = detectRuntime(runtime);
     const resolvedMachineId = machineId || MACHINE_ID;
-    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime);
+    const resolvedSessionMode = normalizeSessionMode(sessionMode);
+    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode);
+    const resolvedSessionHandle = sessionHandle || defaultSessionHandleForRuntime(resolvedRuntime);
 
     const agentData = {
       agentId,
@@ -437,17 +450,23 @@ server.tool(
       runtime: resolvedRuntime,
       machineId: resolvedMachineId,
       launchMode: launchMode || "detached",
+      sessionMode: resolvedSessionMode,
+      sessionHandle: resolvedSessionHandle,
+      managedBy: managedBy || "",
       capabilities,
     };
 
-    // Write agent ID to temp so the notification hook can find it (session-specific)
+    // Write agent ID to temp so the notification hook can find it (session-specific).
+    // Only resident sessions represent the current UI/CLI session.
     const agentCwd = cwd || DEFAULT_CWD;
-    try { fs.writeFileSync(path.join(agentCwd, ".aify-agent"), agentId); } catch { /* best effort */ }
-    // Also write to a session-specific temp file keyed by PID
-    try {
-      const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
-      fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), agentId);
-    } catch { /* best effort */ }
+    if (resolvedSessionMode === "resident") {
+      try { fs.writeFileSync(path.join(agentCwd, ".aify-agent"), agentId); } catch { /* best effort */ }
+      // Also write to a session-specific temp file keyed by PID
+      try {
+        const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
+        fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), agentId);
+      } catch { /* best effort */ }
+    }
 
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/agents", agentData);
@@ -464,11 +483,42 @@ server.tool(
           runtimeState,
         },
       });
+      try {
+        const agentsRes = await httpCall("GET", "/agents");
+        for (const [managedId, managedInfo] of Object.entries(agentsRes.agents || {})) {
+          if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
+          if ((managedInfo.managedBy || "") !== agentId) continue;
+          if ((managedInfo.machineId || "") !== resolvedMachineId) continue;
+          REMOTE_AGENT_STATE.set(managedId, {
+            info: {
+              agentId: managedId,
+              role: managedInfo.role,
+              name: managedInfo.name,
+              cwd: managedInfo.cwd || DEFAULT_CWD,
+              model: managedInfo.model || "",
+              instructions: managedInfo.instructions || "",
+              runtime: managedInfo.runtime || "generic",
+              machineId: managedInfo.machineId || resolvedMachineId,
+              launchMode: managedInfo.launchMode || "managed",
+              sessionMode: managedInfo.sessionMode || "managed",
+              sessionHandle: managedInfo.sessionHandle || "",
+              managedBy: managedInfo.managedBy || agentId,
+              capabilities: managedInfo.capabilities || [],
+              runtimeConfig: managedInfo.runtimeConfig || {},
+              runtimeState: managedInfo.runtimeState || {},
+            },
+          });
+        }
+      } catch {
+        // best effort
+      }
       ensureDispatchLoop();
       return {
         content: [{
           type: "text",
-          text: `Registered "${r.agentId}" (role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).`,
+          text:
+            `Registered "${r.agentId}" (${resolvedSessionMode}, role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).` +
+            (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : ""),
         }],
       };
     }
@@ -483,6 +533,9 @@ server.tool(
       runtime: resolvedRuntime,
       machineId: resolvedMachineId,
       launchMode: launchMode || "detached",
+      sessionMode: resolvedSessionMode,
+      sessionHandle: resolvedSessionHandle,
+      managedBy: managedBy || "",
       capabilities,
       runtimeState: registry.agents[agentId]?.runtimeState || {},
       registeredAt: new Date().toISOString(),
@@ -493,7 +546,134 @@ server.tool(
     return {
       content: [{
         type: "text",
-        text: `Registered "${agentId}" (role: ${role}, cwd: ${agentCwd}, runtime: ${resolvedRuntime}).`,
+        text:
+          `Registered "${agentId}" (${resolvedSessionMode}, role: ${role}, cwd: ${agentCwd}, runtime: ${resolvedRuntime}).` +
+          (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : ""),
+      }],
+    };
+  }
+);
+
+server.tool(
+  "cc_spawn_agent",
+  "Create a managed worker agent on this machine. Managed workers are the triggerable path for Codex/Claude runtimes and keep their own runtime state between dispatched runs.",
+  {
+    from: z.string().describe("Owning agent ID"),
+    agentId: z.string().describe("Stable managed worker ID to create"),
+    role: z.string().describe("Worker role: coder, reviewer, tester, researcher, etc."),
+    runtime: z.string().describe("Runtime for the worker (e.g. codex, claude-code)"),
+    name: z.string().optional().describe("Friendly name"),
+    cwd: z.string().optional().describe("Working directory for dispatched runs"),
+    model: z.string().optional().describe("Preferred model"),
+    instructions: z.string().optional().describe("Standing instructions for the worker"),
+    subject: z.string().optional().describe("Initial task subject"),
+    body: z.string().optional().describe("Initial task or bootstrap prompt"),
+    priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
+  },
+  async ({ from, agentId, role, runtime, name, cwd, model, instructions, subject, body, priority }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
+    const resolvedRuntime = normalizeRuntime(runtime || "generic");
+    const resolvedCwd = cwd || DEFAULT_CWD;
+    const machineId = MACHINE_ID;
+    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, "managed");
+    const agentData = {
+      agentId,
+      role,
+      name,
+      cwd: resolvedCwd,
+      model: model || "",
+      instructions: instructions || "",
+      runtime: resolvedRuntime,
+      machineId,
+      launchMode: "managed",
+      sessionMode: "managed",
+      sessionHandle: "",
+      managedBy: from,
+      capabilities,
+    };
+
+    if (IS_REMOTE) {
+      const r = await httpCall("POST", "/agents/spawn", {
+        from_agent: from,
+        agentId,
+        role,
+        runtime: resolvedRuntime,
+        name,
+        cwd: resolvedCwd,
+        model: model || "",
+        instructions: instructions || "",
+        machineId,
+        priority: priority || "normal",
+        subject,
+        body: body || "",
+      });
+
+      let runtimeState = {};
+      try {
+        const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+        runtimeState = agentInfo.agent?.runtimeState || {};
+      } catch {
+        // best effort
+      }
+      REMOTE_AGENT_STATE.set(agentId, { info: { ...agentData, runtimeState } });
+      ensureDispatchLoop();
+
+      const runLine = (r.runs || []).map((run) => `${run.runId} [${run.status}]`).join(", ");
+      return {
+        content: [{
+          type: "text",
+          text:
+            `Spawned managed worker "${agentId}" (${resolvedRuntime} @ ${machineId}).` +
+            (runLine ? ` Initial run: ${runLine}.` : ""),
+        }],
+      };
+    }
+
+    const registry = readAgents();
+    registry.agents[agentId] = {
+      role,
+      name: name || agentId,
+      cwd: resolvedCwd,
+      model: model || "",
+      instructions: instructions || "",
+      runtime: resolvedRuntime,
+      machineId,
+      launchMode: "managed",
+      sessionMode: "managed",
+      sessionHandle: "",
+      managedBy: from,
+      capabilities,
+      runtimeState: registry.agents[agentId]?.runtimeState || {},
+      registeredAt: registry.agents[agentId]?.registeredAt || new Date().toISOString(),
+      lastSeen: new Date().toISOString(),
+      status: "idle",
+    };
+    for (const [managedId, info] of Object.entries(registry.agents)) {
+      if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
+      if ((info.managedBy || "") !== agentId) continue;
+      if ((info.machineId || "") !== resolvedMachineId) continue;
+      registry.agents[managedId].lastSeen = registry.agents[managedId].lastSeen || new Date().toISOString();
+    }
+    writeAgents(registry);
+
+    if (body && String(body).trim()) {
+      spawnTriggeredAgent({
+        targetId: agentId,
+        targetInfo: registry.agents[agentId],
+        from,
+        type: "request",
+        subject: subject || `Spawn ${agentId}`,
+        body,
+      });
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text:
+          `Spawned managed worker "${agentId}" (${resolvedRuntime} @ ${machineId}).` +
+          (body ? " Initial task started locally." : ""),
       }],
     };
   }
@@ -571,7 +751,7 @@ server.tool(
 server.tool(
   "cc_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
-    "Set trigger=true to request active dispatch on the target agent's runtime. Results arrive in your inbox.",
+    "Set trigger=true to request active work on the target agent. Resident sessions only trigger if that exact runtime/session supports it; managed workers are the reliable trigger path.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -650,7 +830,12 @@ server.tool(
       const skipped = [];
       for (const targetId of uniqueRecipients) {
         const targetInfo = registry.agents[targetId] || {};
+        const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
         const runtime = normalizeRuntime(targetInfo.runtime || "generic");
+        if (sessionMode !== "managed") {
+          skipped.push(`${targetId} (resident session; use cc_spawn_agent for managed workers)`);
+          continue;
+        }
         if (!canLaunchRuntime(runtime)) {
           skipped.push(`${targetId} (${runtime})`);
           continue;
@@ -676,7 +861,7 @@ server.tool(
 
 server.tool(
   "cc_dispatch",
-  "Send a task and queue active runtime dispatch for the target agent when possible.",
+  "Send a task and queue active runtime dispatch for a triggerable managed worker when possible.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -829,7 +1014,18 @@ server.tool(
  * Fire-and-forget: the result is delivered back to the sender's inbox.
  */
 function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }) {
+  const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
   const runtime = normalizeRuntime(targetInfo.runtime || "generic");
+  if (sessionMode !== "managed") {
+    deliverMessage(from, {
+      id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
+      from: targetId,
+      type: "error",
+      subject: `[FAILED] ${subject}`,
+      body: `Agent "${targetId}" is a resident session. Use cc_spawn_agent to create a managed worker.`,
+    });
+    return;
+  }
   if (!canLaunchRuntime(runtime)) {
     deliverMessage(from, {
       id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
@@ -1832,7 +2028,7 @@ th{background:#21262d;color:#8b949e}tr:hover{background:#1c2128}
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("claude-code-mcp v3 running on stdio");
+  console.error("claude-code-mcp v3.2 running on stdio");
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
 }

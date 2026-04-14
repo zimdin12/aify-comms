@@ -13,6 +13,7 @@ You have access to the aify-claude MCP tools (`cc_*` prefix). These let you comm
 **Register first** — always do this at session start:
 ```
 cc_register(agentId="my-agent", role="coder", cwd="/path/to/project")
+cc_spawn_agent(from="my-agent", agentId="my-worker", role="coder", runtime="claude-code")
 ```
 
 **When idle, listen for messages if `cc_listen` is available:**
@@ -23,12 +24,13 @@ This blocks until a message arrives. When a message comes in, it returns immedia
 
 If `cc_listen` is not available, you are likely connected through SSE. In that mode, use `cc_inbox(agentId="my-agent")` to check work and remember that active dispatch cannot launch local Claude/Codex runs from your side.
 
-## Tools (23)
+## Tools (24)
 
 ### Messaging
 | Tool | Use |
 |------|-----|
-| `cc_register` | Register yourself with ID, role, cwd. |
+| `cc_register` | Register the exact live session you currently have open. |
+| `cc_spawn_agent` | Create a managed worker on your local stdio bridge for reliable triggering. |
 | `cc_agents` | List all agents, their status, and unread counts. |
 | `cc_status` | Set status + optional note: `cc_status("working", note="NRD pipeline")`. |
 | `cc_agent_info` | Check another agent's status, unread count, and last message they read. |
@@ -93,8 +95,9 @@ When you receive a notification or check your inbox:
 ## Agent Workflow
 
 - Use `cc_send` for normal conversation, coordination, quick asks, and status updates.
-- Use `cc_dispatch` when you want another agent to start immediately on its own runtime and return a result.
-- `cc_send(trigger=true)` is the lightweight "wake them up now" version of dispatch.
+- Use `cc_spawn_agent` when you need a triggerable worker with its own durable runtime state.
+- Use `cc_dispatch` when you want a managed worker to start immediately and return a result.
+- `cc_send(trigger=true)` is the lightweight "deliver + try active work" version; managed workers are the reliable target.
 - Use `cc_run_interrupt` when a run is going in the wrong direction or should stop early.
 - Use `cc_run_steer` to refine an active Codex run without starting over.
 - Use channels for shared workstreams like `frontend-team`, `release-war-room`, or `bug-bash`.
@@ -106,12 +109,14 @@ When you receive a notification or check your inbox:
 
 - `stdio` install: full experience, including active dispatch and local runtime launch.
 - `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch.
-- An idle agent can still be triggered as long as its local stdio bridge is open and connected.
-- If an agent session is closed, dispatch requests stay queued until that agent reconnects and claims them.
+- Resident sessions are best for presence, inbox, channels, and file sharing.
+- Managed workers are best for active execution and cross-machine triggering.
+- If the owning stdio bridge is closed, managed-worker runs stay queued until that bridge reconnects and claims them.
 
 ## Recommended Roles
 
 - `manager`: routing, prioritization, follow-ups
+- `operator`: managed workers, runtime settings, operational coordination
 - `coder`: implementation and fixes
 - `tester`: verification and regression checks
 - `reviewer`: code review and risk spotting

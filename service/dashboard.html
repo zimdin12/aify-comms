@@ -117,7 +117,7 @@ tr:hover{background:#1c2128}
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
   <h1>aify-claude</h1>
-  <div class="ver">v3.1.0</div>
+  <div class="ver">v3.2.0</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
     <a onclick="showPage('channels')" id="nav-channels">Channels</a>
@@ -142,6 +142,20 @@ tr:hover{background:#1c2128}
 
     <h3>Agents</h3>
     <div id="agents-table"></div>
+
+    <div class="send-form">
+      <h3>Spawn Managed Worker</h3>
+      <div class="send-row">
+        <input id="spawn-from" placeholder="Owner agent ID">
+        <input id="spawn-agent-id" placeholder="Worker agent ID">
+        <select id="spawn-runtime"><option value="codex">codex</option><option value="claude-code">claude-code</option></select>
+        <select id="spawn-role"><option value="coder">coder</option><option value="reviewer">reviewer</option><option value="tester">tester</option><option value="researcher">researcher</option><option value="architect">architect</option><option value="manager">manager</option><option value="operator">operator</option></select>
+        <input id="spawn-cwd" placeholder="Working directory">
+        <input id="spawn-subject" placeholder="Initial task subject (optional)">
+        <input id="spawn-body" placeholder="Initial task / bootstrap prompt (optional)">
+        <button class="btn btn-primary" onclick="spawnAgent()">Spawn</button>
+      </div>
+    </div>
 
     <div class="send-form">
       <h3>Message Or Dispatch</h3>
@@ -214,7 +228,7 @@ tr:hover{background:#1c2128}
     <h2>Instructions</h2>
     <div class="instructions">
       <h3>What is this?</h3>
-      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets coding agents register, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
+      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets coding agents register resident sessions, spawn managed workers, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
 
       <h3>Quick Setup</h3>
       <p>Fast path for Claude Code:</p>
@@ -226,10 +240,11 @@ bash install.sh --client claude http://localhost:8800 --with-hook</pre>
 cd ~/aify-claude
 bash install.sh --client codex http://localhost:8800 --with-hook</pre>
       <p>Restart the client after install. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex work themselves.</p>
+      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge. Today, Codex and Claude managed workers are the reliable trigger path; resident sessions are primarily for messaging, inbox, channels, and presence.</p>
 
-      <h3>Tools (23 stdio / 19 SSE)</h3>
+      <h3>Tools (24 stdio / 19 SSE)</h3>
       <ul>
-        <li><b>Messaging:</b> <code>cc_register</code>, <code>cc_agents</code>, <code>cc_status</code>, <code>cc_agent_info</code>, <code>cc_send</code>, <code>cc_dispatch</code>, <code>cc_inbox</code>, <code>cc_unsend</code>, <code>cc_search</code></li>
+        <li><b>Messaging:</b> <code>cc_register</code>, <code>cc_spawn_agent</code>, <code>cc_agents</code>, <code>cc_status</code>, <code>cc_agent_info</code>, <code>cc_send</code>, <code>cc_dispatch</code>, <code>cc_inbox</code>, <code>cc_unsend</code>, <code>cc_search</code></li>
         <li><b>Run control:</b> <code>cc_run_status</code>, <code>cc_run_interrupt</code>, <code>cc_run_steer</code></li>
         <li><b>Channels:</b> <code>cc_channel_create</code>, <code>cc_channel_join</code> (+ invite others), <code>cc_channel_send</code>, <code>cc_channel_read</code>, <code>cc_channel_list</code></li>
         <li><b>File sharing:</b> <code>cc_share</code> (text + binary), <code>cc_read</code>, <code>cc_files</code></li>
@@ -247,7 +262,8 @@ bash install.sh --client codex http://localhost:8800 --with-hook</pre>
         <li><code>POST /api/v1/messages/send</code> — Send message (returns recipient status)</li>
         <li><code>GET /api/v1/messages/inbox/{id}</code> — Check inbox (replies include parent context)</li>
         <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
-        <li><code>POST /api/v1/dispatch</code> — Queue active work for launchable agents</li>
+        <li><code>POST /api/v1/agents/spawn</code> — Create a managed worker on a specific machine</li>
+        <li><code>POST /api/v1/dispatch</code> — Queue active work for managed workers / triggerable agents</li>
         <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a dispatch run, events, and controls</li>
         <li><code>POST /api/v1/dispatch/runs/{id}/control</code> — Request interrupt or steer for an active run</li>
         <li><code>GET/POST /api/v1/channels</code> — Channels</li>
@@ -382,13 +398,15 @@ async function refreshDashboard() {
     if (!agents.length) {
       document.getElementById('agents-table').innerHTML = '<p class="em">No agents registered.</p>';
     } else {
-      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Status</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>ID</th><th>Role</th><th>Status</th><th>Session</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
       for (const [id, info] of agents) {
         const rawStatus = info.status || 'idle';
         const st = rawStatus.split(':')[0].trim();
         const runtime = `${info.runtime || 'generic'}${info.machineId ? ' @ ' + info.machineId : ''}`;
+        const session = `${info.sessionMode || 'resident'}${info.managedBy ? ' by ' + info.managedBy : ''}`;
         html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
           `<td><span class="st-${st}">${esc(rawStatus)}</span></td>` +
+          `<td class="t">${esc(session)}</td>` +
           `<td class="t">${esc(runtime)}</td>` +
           `<td>${info.unread || 0}</td><td class="t">${esc(info.lastSeen)}</td>` +
           `<td><button class="btn btn-sm btn-danger" onclick="deleteAgent('${esc(id)}')">Remove</button></td></tr>`;
@@ -440,7 +458,7 @@ function renderRuns(runs) {
     document.getElementById('runs-table').innerHTML = '<p class="em">No dispatch runs yet.</p>';
     return;
   }
-  let html = '<table><thead><tr><th>Requested</th><th>From → Target</th><th>Status</th><th>Runtime</th><th>Subject</th><th>Summary / Error</th><th></th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Requested</th><th>From → Target</th><th>Status</th><th>Exec</th><th>Runtime</th><th>Subject</th><th>Summary / Error</th><th></th></tr></thead><tbody>';
   for (const run of runs) {
     const status = run.status || 'queued';
     const summary = run.error || run.summary || '';
@@ -449,6 +467,7 @@ function renderRuns(runs) {
       `<td class="t">${esc(run.requestedAt || '')}</td>` +
       `<td class="t">${esc(run.from)} &nbsp;&rarr;&nbsp; ${esc(run.targetAgentId)}</td>` +
       `<td><span class="st-${esc(status)}">${esc(status)}</span></td>` +
+      `<td>${esc(run.executionMode || 'managed')}</td>` +
       `<td>${esc(run.runtime || run.requestedRuntime || '')}</td>` +
       `<td><b>${esc(run.subject || '')}</b></td>` +
       `<td><div class="run-summary">${esc(summary)}</div></td>` +
@@ -470,7 +489,7 @@ async function viewRun(runId) {
     const events = (run.events || []).slice(-10).map(e => `${e.createdAt} [${e.type}] ${e.body || ''}`).join('\n');
     const controls = (run.controls || []).slice(-10).map(c => `${c.requestedAt} [${c.action}/${c.status}] ${c.from || 'unknown'}${c.response ? ' -> ' + c.response : ''}`).join('\n');
     alert(
-      `Run: ${run.id}\nStatus: ${run.status}\nRuntime: ${run.runtime || 'unknown'}\nSubject: ${run.subject || ''}\n\n` +
+      `Run: ${run.id}\nStatus: ${run.status}\nExecution: ${run.executionMode || 'managed'}\nRuntime: ${run.runtime || 'unknown'}\nSubject: ${run.subject || ''}\n\n` +
       (run.summary ? `Summary:\n${run.summary}\n\n` : '') +
       (run.error ? `Error:\n${run.error}\n\n` : '') +
       (events ? `Recent events:\n${events}\n\n` : '') +
@@ -750,6 +769,39 @@ async function sendMessage() {
     document.getElementById('send-body').value = '';
     refreshDashboard();
   } else toast(r.error || 'Send failed', '#f85149');
+}
+
+async function spawnAgent() {
+  const from = document.getElementById('spawn-from').value.trim();
+  const agentId = document.getElementById('spawn-agent-id').value.trim();
+  const runtime = document.getElementById('spawn-runtime').value;
+  const role = document.getElementById('spawn-role').value;
+  const cwd = document.getElementById('spawn-cwd').value.trim();
+  const subject = document.getElementById('spawn-subject').value.trim();
+  const body = document.getElementById('spawn-body').value.trim();
+  if (!from || !agentId) { toast('Need owner agent ID and worker agent ID', '#f85149'); return; }
+  const r = await apiFetch(API + '/agents/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      from_agent: from,
+      agentId,
+      role,
+      runtime,
+      cwd: cwd || undefined,
+      subject: subject || undefined,
+      body: body || undefined,
+    }),
+  }).then(r => r.json());
+  if (r.ok) {
+    toast(`Spawned ${agentId}` + ((r.runs || []).length ? ` | run ${(r.runs || [])[0].runId}` : ''));
+    document.getElementById('spawn-agent-id').value = '';
+    document.getElementById('spawn-subject').value = '';
+    document.getElementById('spawn-body').value = '';
+    refreshDashboard();
+  } else {
+    toast(r.detail || r.error || 'Spawn failed', '#f85149');
+  }
 }
 
 async function clearAll() {
