@@ -32,17 +32,17 @@ Replace `ABSOLUTE_PATH` with the full path to this repo.
 
 ```bash
 # Same machine as server:
-Codex mcp add --scope user aify-Codex \
-  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
+codex mcp add aify-Codex \
+  --env CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 
 # Remote server:
-Codex mcp add --scope user aify-Codex \
-  -e CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
+codex mcp add aify-Codex \
+  --env CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 
 # Local only (no Docker, single machine):
-Codex mcp add --scope user aify-Codex \
+codex mcp add aify-Codex \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
@@ -55,9 +55,9 @@ The 23 `cc_*` tools will appear automatically. The skill at `.Codex/skills/aify-
 Set `API_KEY=your-secret` in `.env` before starting Docker. Add to MCP config:
 
 ```bash
-Codex mcp add --scope user aify-Codex \
-  -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -e CLAUDE_MCP_API_KEY=your-secret \
+codex mcp add aify-Codex \
+  --env CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
+  --env CLAUDE_MCP_API_KEY=your-secret \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
@@ -106,18 +106,42 @@ Codex mcp add --scope user aify-Codex \
 Add a hook so agents get notified of new messages automatically after every tool call:
 
 ```bash
-Codex settings set-hook PostToolUse \
-  'node "ABSOLUTE_PATH/mcp/stdio/notify-check.js"'
+mkdir -p ~/.codex
+cat > ~/.codex/hooks.json <<'EOF'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"ABSOLUTE_PATH/mcp/stdio/notify-check.js\"",
+            "statusMessage": "Checking aify unread messages",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+if ! grep -q '^\[features\]' ~/.codex/config.toml 2>/dev/null; then
+  printf '\n[features]\ncodex_hooks = true\n' >> ~/.codex/config.toml
+elif ! grep -q '^[[:space:]]*codex_hooks[[:space:]]*=' ~/.codex/config.toml; then
+  awk '/^\[features\]$/{print; print "codex_hooks = true"; next}1' ~/.codex/config.toml > ~/.codex/config.toml.tmp && mv ~/.codex/config.toml.tmp ~/.codex/config.toml
+fi
 ```
 
-When a message arrives, the agent sees: `[aify-Codex] 2 unread message(s)` in their session. Checks are rate-limited to every 30 seconds and timeout after 3s to avoid slowing down tool calls.
+With the current Codex hooks runtime, `PostToolUse` only fires for `Bash`, so this unread check runs after Bash tool use rather than after every possible tool call.
 
 ### Optional: SSE transport (remote users, no local files needed)
 
 Remote users can connect directly via SSE without cloning the repo:
 
 ```bash
-Codex mcp add --scope user aify-Codex --transport sse \
+codex mcp add aify-Codex --url \
   http://SERVER_IP:8800/mcp/sse
 ```
 

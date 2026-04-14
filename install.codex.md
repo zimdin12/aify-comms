@@ -34,7 +34,12 @@ Important:
 
 - The `aify-claude` stdio MCP server for Codex
 - The aify skill in `$CODEX_HOME/skills/aify-claude`
-- Optional unread-message hook notifications
+- Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
+
+Current Codex CLI note:
+- The installer uses the current `codex mcp add ... --env ...` syntax.
+- For hooks, Codex now reads `hooks.json` and requires `features.codex_hooks = true` in `config.toml`.
+- The unread hook is installed for `PostToolUse` on `Bash`, which matches the current Codex hooks runtime.
 
 ## Quick Start
 

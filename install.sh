@@ -81,6 +81,87 @@ copy_codex_assets() {
   cp -R "$SCRIPT_DIR/.agents/skills/aify-claude" "$skill_dst"
 }
 
+enable_codex_hooks_feature() {
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local config_file="$codex_home/config.toml"
+  mkdir -p "$codex_home"
+
+  if [ ! -f "$config_file" ]; then
+    cat > "$config_file" <<'EOF'
+[features]
+codex_hooks = true
+EOF
+    return
+  fi
+
+  if grep -Eq '^[[:space:]]*codex_hooks[[:space:]]*=' "$config_file"; then
+    awk '
+      /^[[:space:]]*codex_hooks[[:space:]]*=/ {
+        print "codex_hooks = true"
+        next
+      }
+      { print }
+    ' "$config_file" > "$config_file.tmp"
+    mv "$config_file.tmp" "$config_file"
+    return
+  fi
+
+  if grep -Eq '^\[features\][[:space:]]*$' "$config_file"; then
+    awk '
+      /^\[features\][[:space:]]*$/ && !done {
+        print
+        print "codex_hooks = true"
+        done = 1
+        next
+      }
+      { print }
+    ' "$config_file" > "$config_file.tmp"
+    mv "$config_file.tmp" "$config_file"
+    return
+  fi
+
+  printf '\n[features]\ncodex_hooks = true\n' >> "$config_file"
+}
+
+install_codex_hook() {
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local hooks_file="$codex_home/hooks.json"
+  mkdir -p "$codex_home"
+  if [ ! -f "$hooks_file" ]; then
+    echo '{"hooks":{}}' > "$hooks_file"
+  fi
+
+  enable_codex_hooks_feature
+
+  node -e "
+    const fs = require('fs');
+    const hooksPath = process.argv[1];
+    const command = process.argv[2];
+    let data = { hooks: {} };
+    try {
+      data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
+    } catch (_) {}
+    if (!data || typeof data !== 'object') data = {};
+    if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
+    if (!Array.isArray(data.hooks.PostToolUse)) data.hooks.PostToolUse = [];
+    const matcher = 'Bash';
+    data.hooks.PostToolUse = data.hooks.PostToolUse.filter(group => {
+      if (!group || group.matcher !== matcher || !Array.isArray(group.hooks)) return true;
+      return !group.hooks.some(h => h && h.command === command);
+    });
+    data.hooks.PostToolUse.push({
+      matcher,
+      hooks: [{
+        type: 'command',
+        command,
+        statusMessage: 'Checking aify unread messages',
+        timeout: 3
+      }]
+    });
+    fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
+  " "$hooks_file" "node \"$SCRIPT_DIR/mcp/stdio/notify-check.js\""
+}
+
 install_claude_hook() {
   local settings_file="$HOME/.claude/settings.json"
   mkdir -p "$(dirname "$settings_file")"
@@ -114,16 +195,16 @@ register_stdio_server() {
   "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
 
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
-    "$cli" mcp add --scope user "$server_name" \
-      -e CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
-      -e CLAUDE_MCP_API_KEY="$api_key" \
+    "$cli" mcp add "$server_name" \
+      --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
+      --env CLAUDE_MCP_API_KEY="$api_key" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   elif [ -n "$SERVER_URL" ]; then
-    "$cli" mcp add --scope user "$server_name" \
-      -e CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
+    "$cli" mcp add "$server_name" \
+      --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   else
-    "$cli" mcp add --scope user "$server_name" \
+    "$cli" mcp add "$server_name" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   fi
 }
@@ -161,7 +242,7 @@ if [ "$WITH_HOOK" = true ]; then
   if [ "$CLIENT" = "claude" ]; then
     install_claude_hook
   else
-    "$CLIENT" settings set-hook PostToolUse "node \"$SCRIPT_DIR/mcp/stdio/notify-check.js\""
+    install_codex_hook
   fi
   echo "  Done."
 else
