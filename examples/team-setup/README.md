@@ -26,7 +26,7 @@ Example CLAUDE.md files for a 5-agent development team using aify-claude for coo
 - **Communication**: `game-dev` channel for team updates, DMs for direct collaboration
 - **Status awareness**: Agents use `cc_agent_info` to check before messaging
 - **File sharing**: `cc_share` for handoffs (logs, screenshots, test results)
-- **Active starts**: register the live resident session first, then use `cc_send(trigger=true)` or `cc_dispatch` to wake that agent immediately
+- **Active starts**: register the live resident session first, then use `cc_send(...)` or `cc_dispatch` to wake that agent immediately. Use `cc_send(silent=true)` for message-only delivery
 - **Live wake startup**: use `claude-aify` for Claude live wakeups and `codex-aify` for Codex live wakeups when you want the visible session itself to wake
 - **Detached workers**: use `cc_spawn_agent` only when you want a separate background worker with its own runtime state
 - **Run correction**: use `cc_run_steer` or `cc_run_interrupt` when active work needs intervention

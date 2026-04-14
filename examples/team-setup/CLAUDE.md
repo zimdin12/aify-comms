@@ -16,7 +16,7 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 
 ## Communication rules
 
-- **Stay registered and triggerable.** Use `cc_send(trigger=true)` as the normal wake-up path across the team.
+- **Stay registered and triggerable.** Use `cc_send(...)` as the normal wake-up path across the team. Use `cc_send(silent=true)` only when you want inbox delivery without waking the target.
 - **Use `cc_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `cc_listen` to be reachable.
 - Use `cc_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.

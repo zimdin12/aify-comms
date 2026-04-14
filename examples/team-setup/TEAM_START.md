@@ -4,7 +4,8 @@ Read CLAUDE.md first, then find your role below and follow the prompt.
 
 General coordination pattern:
 - Use `cc_send` for conversation and handoffs
-- Use `cc_send(trigger=true)` as the default "wake this agent now" path
+- Use `cc_send(...)` as the default "wake this agent now" path
+- Use `cc_send(silent=true)` when you want inbox delivery without waking the target
 - Use `cc_dispatch` when you want explicit run tracking from the start
 - Use `cc_spawn_agent` only when you need a detached managed worker
 - Use `cc_run_status` to watch active work
@@ -24,7 +25,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel. If it doesn't exist, create it with description "Team coordination".
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.MANAGER.md for your role details.
 
@@ -41,7 +42,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.CODER.md for your role details.
 
@@ -58,7 +59,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.TESTER.md for your role details.
 
@@ -75,7 +76,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.ARCHITECT.md for your role details.
 
@@ -92,7 +93,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.REVIEWER.md for your role details.
 
@@ -109,7 +110,7 @@ Register as an aify-claude agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on trigger=true and unread notifications.
+After registration, confirm your live resident session with cc_agent_info. Use cc_listen only if you intentionally want a waiting loop; otherwise rely on cc_send(...) and unread notifications.
 
 Read CLAUDE.RESEARCHER.md for your role details.
 
