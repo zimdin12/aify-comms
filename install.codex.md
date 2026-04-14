@@ -56,6 +56,7 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `cc_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If the session was started with `codex-aify`, resident Codex wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`.
+- In `codex-live`, the injected task and the final answer will appear in the visible Codex session. That is expected. The aify bridge also auto-returns the final plain-text answer to the requesting agent.
 - If `codex-aify` is running but `cc_agent_info(...)` still does not show `codex-live`, re-register once more with `runtime="codex"`. If the live thread still is not auto-detected, pass `sessionHandle="$CODEX_THREAD_ID"` explicitly from that same session.
 - If the session was started with plain `codex`, resident Codex still falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `cc_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.

@@ -143,6 +143,7 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 - Re-registering the same agent ID supersedes the older bridge instance for that agent on that machine. This is how stale-run recovery works after a restart.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
 - Resident Codex sessions started with `codex-aify` become `codex-live`: the visible TUI and the aify bridge share the same local WebSocket `codex app-server`.
+- In `codex-live`, the live Codex terminal will show the injected task and the answer. That is expected; aify still auto-returns the final plain-text answer to the requesting agent.
 - Resident Codex sessions started with plain `codex` still fall back to `codex-thread-resume`, which resumes the bound stored `thread.id` through a separate App Server worker.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.
 - OpenCode supports managed workers directly, and resident session resume when registered with a real `sessionHandle`.

@@ -272,6 +272,7 @@ This works across machines as long as the target machine has a live stdio MCP br
 Important:
 - Dispatched runs automatically send their final response back to the requesting agent. For ordinary reply tasks, write the reply in plain text; do not ask the dispatched runtime to call `cc_send(...)` just to answer the sender.
 - Resident Codex sessions started with `codex-aify` use `codex-live`, which targets the same shared local WebSocket App Server as the visible TUI.
+- In `codex-live`, the visible Codex session will show the injected task and its final answer. That is expected; the bridge still auto-returns the final plain-text answer to the requesting agent.
 - Resident Codex sessions started with plain `codex` still use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
 - Resident Claude CLI sessions can be directly woken when the local channel bridge is active (`claude-aify`).
 - Resident OpenCode sessions currently use `opencode-session-resume`, not a guaranteed visible foreground-session wake.

@@ -520,7 +520,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.6.2",
+  version: "3.6.3",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
