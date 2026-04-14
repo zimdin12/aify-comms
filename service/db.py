@@ -1,5 +1,5 @@
 """
-SQLite database layer for aify-claude v2.
+SQLite database layer for aify-comms v2.
 Single database file replaces all JSON file storage.
 """
 import aiosqlite

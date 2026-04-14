@@ -21,7 +21,7 @@ function stateRoot() {
 }
 
 function markerBaseDir() {
-  return path.join(stateRoot(), "aify-claude", "runtime-markers");
+  return path.join(stateRoot(), "aify-comms", "runtime-markers");
 }
 
 function markerHash(cwd) {

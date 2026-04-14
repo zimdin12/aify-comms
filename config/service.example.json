@@ -1,7 +1,7 @@
 {
-  "name": "my-service",
-  "version": "0.1.0",
-  "description": "AI agent-accessible service with managed sub-containers",
+  "name": "aify-comms",
+  "version": "3.6.6",
+  "description": "Inter-agent communication hub for Claude Code, Codex, OpenCode, and other MCP-connected coding agents",
 
   "mcp_enabled": true,
   "mcp_path_prefix": "/mcp",
@@ -30,7 +30,7 @@
   },
 
   "custom": {
-    "compose_project_name": "aify",
-    "network_name": "aify-network"
+    "compose_project_name": "aify-comms",
+    "network_name": "aify-comms-network"
   }
 }

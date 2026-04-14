@@ -44,7 +44,7 @@ Thumbs.db
 .messages/
 mcp/stdio/.messages/
 
-# Agent identity file (written by cc_register)
+# Agent identity file (written by comms_register)
 .aify-agent
 
 # MCP config (user-specific, root level only — .claude-plugin/.mcp.json is tracked)

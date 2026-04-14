@@ -1,4 +1,4 @@
-"""Pydantic models for aify-claude API."""
+"""Pydantic models for aify-comms API."""
 from typing import Any, Optional
 from pydantic import BaseModel
 

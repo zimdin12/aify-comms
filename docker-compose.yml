@@ -12,7 +12,7 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE_PORT: ${SERVICE_PORT:-8800}
-    container_name: ${COMPOSE_PROJECT_NAME:-aify}-service
+    container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-service
     restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "${SERVICE_PORT:-8800}:8800"
@@ -49,5 +49,5 @@ volumes:
 
 networks:
   service-network:
-    name: ${COMPOSE_PROJECT_NAME:-aify}-network
+    name: ${COMPOSE_PROJECT_NAME:-aify-comms}-network
     driver: bridge

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>aify-claude</title>
+<title>aify-comms</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;min-height:100vh}
@@ -116,8 +116,8 @@ tr:hover{background:#1c2128}
 
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
-  <h1>aify-claude</h1>
-  <div class="ver">v3.6.5</div>
+  <h1>aify-comms</h1>
+  <div class="ver">v3.6.6</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
     <a onclick="showPage('channels')" id="nav-channels">Channels</a>
@@ -228,34 +228,34 @@ tr:hover{background:#1c2128}
     <h2>Instructions</h2>
     <div class="instructions">
       <h3>What is this?</h3>
-      <p>This is the <b>aify-claude</b> inter-agent communication hub — a central server that lets Claude Code, Codex, OpenCode, and other coding agents register resident sessions, spawn managed workers, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
+      <p>This is the <b>aify-comms</b> inter-agent communication hub — a central server that lets Claude Code, Codex, OpenCode, and other coding agents register resident sessions, spawn managed workers, send messages, chat in channels, share files, dispatch active work, control active runs, and monitor everything through this dashboard.</p>
 
       <h3>Quick Setup</h3>
       <p>Fast path for Claude Code:</p>
-      <pre>git clone https://github.com/zimdin12/aify-claude.git ~/.claude/plugins/aify-claude
-cd ~/.claude/plugins/aify-claude
+      <pre>git clone https://github.com/zimdin12/aify-comms.git ~/.claude/plugins/aify-comms
+cd ~/.claude/plugins/aify-comms
 bash install.sh --client claude http://localhost:8800 --with-hook</pre>
       <p>Fast path for Codex:</p>
-      <pre>git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
-cd ~/aify-claude
+      <pre>git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
+cd ~/aify-comms
 bash install.sh --client codex http://localhost:8800 --with-hook</pre>
       <p>Fast path for OpenCode:</p>
-      <pre>git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
-cd ~/aify-claude
+      <pre>git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
+cd ~/aify-comms
 bash install.sh --client opencode http://localhost:8800</pre>
       <p>Restart the client after install. Then re-register from the exact live session you want other agents to trigger. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Codex CLI note: if you want visible live wakeups instead of background thread resume, start Codex through <code>codex-aify</code> before registering. Plain <code>codex</code> still works, but it advertises the older <code>codex-thread-resume</code> fallback.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-<p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open for presence, inbox, and runtime metadata. Resident Codex sessions started with <code>codex-aify</code> become <code>codex-live</code>: the visible TUI and the aify bridge share the same local WebSocket <code>codex app-server</code>. Plain resident Codex sessions still fall back to <code>codex-thread-resume</code>, which resumes the stored thread through a separate background worker. Resident Claude sessions become wakeable through the local <code>aify-claude-channel</code> bridge when Claude is started with <code>claude-aify</code>. OpenCode supports managed workers now and resident session resume when you register with a real <code>sessionHandle</code>, also through a background worker. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. For normal wakeups, prefer <code>cc_send(...)</code>; use <code>cc_send(silent=true)</code> only when you want message-only delivery. On Windows, desktop Codex and WSL Codex use different thread stores, so plain resident triggering only works when the bridge talks to the same store that created the session.</p>
+<p><b>Resident vs managed:</b> <code>comms_register</code> binds the exact live session you have open for presence, inbox, and runtime metadata. Resident Codex sessions started with <code>codex-aify</code> become <code>codex-live</code>: the visible TUI and the aify bridge share the same local WebSocket <code>codex app-server</code>. Plain resident Codex sessions still fall back to <code>codex-thread-resume</code>, which resumes the stored thread through a separate background worker. Resident Claude sessions become wakeable through the local <code>aify-comms-channel</code> bridge when Claude is started with <code>claude-aify</code>. OpenCode supports managed workers now and resident session resume when you register with a real <code>sessionHandle</code>, also through a background worker. <code>comms_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. For normal wakeups, prefer <code>comms_send(...)</code>; use <code>comms_send(silent=true)</code> only when you want message-only delivery. On Windows, desktop Codex and WSL Codex use different thread stores, so plain resident triggering only works when the bridge talks to the same store that created the session.</p>
       <p><b>Queueing:</b> only one active dispatched run is processed at a time per agent. If an agent is already working, later triggers stay queued behind that run. The agent table and run list now surface that backlog explicitly.</p>
 
       <h3>Tools (24 stdio / 19 SSE)</h3>
       <ul>
-        <li><b>Messaging:</b> <code>cc_register</code>, <code>cc_spawn_agent</code>, <code>cc_agents</code>, <code>cc_status</code>, <code>cc_agent_info</code>, <code>cc_send</code>, <code>cc_dispatch</code>, <code>cc_inbox</code>, <code>cc_unsend</code>, <code>cc_search</code></li>
-        <li><b>Run control:</b> <code>cc_run_status</code>, <code>cc_run_interrupt</code>, <code>cc_run_steer</code></li>
-        <li><b>Channels:</b> <code>cc_channel_create</code>, <code>cc_channel_join</code> (+ invite others), <code>cc_channel_send</code>, <code>cc_channel_read</code>, <code>cc_channel_list</code></li>
-        <li><b>File sharing:</b> <code>cc_share</code> (text + binary), <code>cc_read</code>, <code>cc_files</code></li>
-        <li><b>Management:</b> <code>cc_clear</code>, <code>cc_dashboard</code></li>
+        <li><b>Messaging:</b> <code>comms_register</code>, <code>comms_spawn_agent</code>, <code>comms_agents</code>, <code>comms_status</code>, <code>comms_agent_info</code>, <code>comms_send</code>, <code>comms_dispatch</code>, <code>comms_inbox</code>, <code>comms_unsend</code>, <code>comms_search</code></li>
+        <li><b>Run control:</b> <code>comms_run_status</code>, <code>comms_run_interrupt</code>, <code>comms_run_steer</code></li>
+        <li><b>Channels:</b> <code>comms_channel_create</code>, <code>comms_channel_join</code> (+ invite others), <code>comms_channel_send</code>, <code>comms_channel_read</code>, <code>comms_channel_list</code></li>
+        <li><b>File sharing:</b> <code>comms_share</code> (text + binary), <code>comms_read</code>, <code>comms_files</code></li>
+        <li><b>Management:</b> <code>comms_clear</code>, <code>comms_dashboard</code></li>
       </ul>
 
       <h3>API Endpoints</h3>

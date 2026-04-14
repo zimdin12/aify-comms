@@ -1,6 +1,6 @@
 # agents
 
-List all registered agents using cc_agents.
+List all registered agents using comms_agents.
 
 ## Instructions
-Call cc_agents and display the results.
+Call comms_agents and display the results.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * aify-claude inbox notification checker + heartbeat.
+ * aify-comms inbox notification checker + heartbeat.
  *
  * Claude Code hooks tolerate plain stdout notices.
  * Codex PostToolUse hooks expect JSON when anything is emitted.
@@ -106,7 +106,7 @@ try {
       return `  - From ${m.from}${p}: "${m.subject}"`;
     }).join("\n");
     const more = data.total > 3 ? `\n  ...and ${data.total - 3} more` : "";
-    emitNotice(`[aify-claude]${tag} ${data.total} unread message(s):\n${previews}${more}\nUse cc_inbox to read them.`, hookPayload);
+    emitNotice(`[aify-comms]${tag} ${data.total} unread message(s):\n${previews}${more}\nUse comms_inbox to read them.`, hookPayload);
   }
 } catch {
   // Server unreachable — cache the failure so we skip quickly next time

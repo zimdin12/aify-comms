@@ -1,11 +1,11 @@
 {
-  "name": "aify-claude",
+  "name": "aify-comms",
   "description": "Inter-agent communication hub for Claude Code, Codex, and OpenCode — resident sessions for messaging/presence, Codex live wakeups through codex-aify or stored-thread resume fallback, Claude resident wakeups through a local channel bridge, managed workers for detached execution, plus channels, file sharing, and dashboard. SSE mode supports communication and monitoring, but not local runtime launch.",
-  "version": "3.6.5",
+  "version": "3.6.6",
   "author": {
     "name": "zimdin12"
   },
-  "homepage": "https://github.com/zimdin12/aify-claude",
+  "homepage": "https://github.com/zimdin12/aify-comms",
   "license": "MIT",
   "keywords": [
     "multi-agent",
@@ -54,7 +54,7 @@
   },
   "env": {
     "AIFY_SERVER_URL": {
-      "description": "aify-claude server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
+      "description": "aify-comms server URL (e.g. http://localhost:8800). Leave empty for local-only mode.",
       "required": false,
       "default": ""
     },

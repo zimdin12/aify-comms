@@ -13,7 +13,7 @@ loadSettingsEnv();
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const MACHINE_ID = defaultMachineId();
-const POLL_MS = Number(process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
+const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 
 let activeRunId = "";
@@ -100,15 +100,15 @@ function controlContent(agentId, runId, control) {
 }
 
 const mcp = new Server(
-  { name: "aify-claude-channel", version: "3.6.5" },
+  { name: "aify-comms-channel", version: "3.6.6" },
   {
     capabilities: {
       experimental: { "claude/channel": {} },
     },
     instructions:
-      'Events from aify resident dispatch arrive as <channel source="aify-claude-channel" ...>. ' +
+      'Events from aify resident dispatch arrive as <channel source="aify-comms-channel" ...>. ' +
       "These are real wake-up events for the current session. Handle them directly in this session. " +
-      "Use the existing cc_* tools to coordinate and reply. " +
+      "Use the existing comms_* tools to coordinate and reply. " +
       "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically.",
   },
 );

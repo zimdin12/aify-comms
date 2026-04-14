@@ -1,6 +1,6 @@
 # files
 
-List shared artifacts using cc_files.
+List shared artifacts using comms_files.
 
 ## Instructions
-Call cc_files and display the results.
+Call comms_files and display the results.

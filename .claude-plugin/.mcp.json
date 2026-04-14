@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "aify-claude": {
+    "aify-comms": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/stdio/server.js"],
       "env": {

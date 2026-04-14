@@ -1,5 +1,5 @@
 """
-aify-claude — Main FastAPI Application (v2 SQLite)
+aify-comms — Main FastAPI Application (v2 SQLite)
 """
 
 import hmac

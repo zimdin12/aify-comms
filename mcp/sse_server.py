@@ -147,7 +147,7 @@ async def container_logs(name: str, tail: int = 50) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Internal API helper — all cc_* tools call the local HTTP API
+# Internal API helper — all comms_* tools call the local HTTP API
 # ---------------------------------------------------------------------------
 
 _BASE_URL = None
@@ -193,11 +193,11 @@ def _fence(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Messaging Tools (cc_*)
+# Messaging Tools (comms_*)
 # ---------------------------------------------------------------------------
 
 @mcp_server.tool()
-async def cc_register(
+async def comms_register(
     agentId: str,
     role: str,
     name: str = "",
@@ -205,7 +205,7 @@ async def cc_register(
     model: str = "",
     instructions: str = "",
 ) -> str:
-    """Register this Claude Code instance as an agent. Set cwd/model/instructions so other agents can trigger you via cc_send."""
+    """Register this MCP client as an agent for messaging and presence. SSE clients can coordinate work, but cannot host local runtime launches."""
     r = await _api("POST", "/agents", {
         "agentId": agentId, "role": role, "name": name or agentId,
         "cwd": cwd, "model": model, "instructions": instructions,
@@ -216,7 +216,7 @@ async def cc_register(
 
 
 @mcp_server.tool()
-async def cc_agents() -> str:
+async def comms_agents() -> str:
     """List all registered agents, their roles, and unread message counts."""
     r = await _api("GET", "/agents")
     entries = r.get("agents", {})
@@ -233,7 +233,7 @@ async def cc_agents() -> str:
 
 
 @mcp_server.tool()
-async def cc_send(
+async def comms_send(
     from_agent: str,
     type: str,
     subject: str,
@@ -241,11 +241,22 @@ async def cc_send(
     to: str = "",
     toRole: str = "",
     inReplyTo: str = "",
+    priority: str = "normal",
+    trigger: bool = True,
+    silent: bool = False,
 ) -> str:
-    """Send a message to an agent by ID or to all agents with a given role. Note: trigger is not supported via SSE (requires local CLI)."""
+    """Send a message to an agent by ID or to all agents with a given role. By default this also requests active work on the target; use silent=true for inbox-only delivery."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
-    data = {"from_agent": from_agent, "type": type, "subject": subject, "body": body}
+    should_trigger = False if silent else trigger is not False
+    data = {
+        "from_agent": from_agent,
+        "type": type,
+        "subject": subject,
+        "body": body,
+        "priority": priority,
+        "trigger": should_trigger,
+    }
     if to:
         data["to"] = to
     if toRole:
@@ -255,11 +266,19 @@ async def cc_send(
     r = await _api("POST", "/messages/send", data)
     if not r.get("ok"):
         return r.get("error", "No recipients found.")
+    if should_trigger and r.get("recipients"):
+        queued = [run.get("targetAgentId", "?") for run in r.get("dispatchRuns", [])]
+        skipped = [f"{item.get('targetAgentId', '?')}: {item.get('reason', 'not started')}" for item in r.get("notStarted", [])]
+        note = f"Sent + queued dispatch for {', '.join(queued) if queued else 'no launchable recipients'}."
+        if skipped:
+            note += f" Not started: {'; '.join(skipped)}."
+        note += " Use comms_run_status(...) to inspect progress. No reply message will be sent unless the target sends one explicitly."
+        return note
     return f"Sent ({r['messageId']}) to {', '.join(r['recipients'])}. Subject: {subject}"
 
 
 @mcp_server.tool()
-async def cc_dispatch(
+async def comms_dispatch(
     from_agent: str,
     type: str,
     subject: str,
@@ -299,7 +318,7 @@ async def cc_dispatch(
 
 
 @mcp_server.tool()
-async def cc_run_status(runId: str) -> str:
+async def comms_run_status(runId: str) -> str:
     """Inspect a dispatched run, including recent events and control requests."""
     r = await _api("GET", f"/dispatch/runs/{runId}")
     run = r.get("run")
@@ -334,7 +353,7 @@ async def cc_run_status(runId: str) -> str:
 
 
 @mcp_server.tool()
-async def cc_run_interrupt(runId: str, from_agent: str = "") -> str:
+async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
     """Request interruption of an active dispatched run."""
     r = await _api("POST", f"/dispatch/runs/{runId}/control", {
         "from_agent": from_agent,
@@ -346,7 +365,7 @@ async def cc_run_interrupt(runId: str, from_agent: str = "") -> str:
 
 
 @mcp_server.tool()
-async def cc_run_steer(runId: str, body: str, from_agent: str = "") -> str:
+async def comms_run_steer(runId: str, body: str, from_agent: str = "") -> str:
     """Request additional guidance for an active dispatched run."""
     r = await _api("POST", f"/dispatch/runs/{runId}/control", {
         "from_agent": from_agent,
@@ -359,7 +378,7 @@ async def cc_run_steer(runId: str, body: str, from_agent: str = "") -> str:
 
 
 @mcp_server.tool()
-async def cc_inbox(
+async def comms_inbox(
     agentId: str,
     filter: str = "unread",
     fromAgent: str = "",
@@ -394,7 +413,7 @@ async def cc_inbox(
 
 
 @mcp_server.tool()
-async def cc_search(
+async def comms_search(
     query: str,
     agentId: str = "",
     scope: str = "all",
@@ -423,7 +442,7 @@ async def cc_search(
 # ---------------------------------------------------------------------------
 
 @mcp_server.tool()
-async def cc_channel_create(name: str, from_agent: str, description: str = "") -> str:
+async def comms_channel_create(name: str, from_agent: str, description: str = "") -> str:
     """Create a new channel (group chat) for multiple agents to communicate."""
     r = await _api("POST", "/channels", {"name": name, "createdBy": from_agent, "description": description})
     if "detail" in r:
@@ -432,7 +451,7 @@ async def cc_channel_create(name: str, from_agent: str, description: str = "") -
 
 
 @mcp_server.tool()
-async def cc_channel_join(channel: str, from_agent: str) -> str:
+async def comms_channel_join(channel: str, from_agent: str) -> str:
     """Join an existing channel."""
     r = await _api("POST", f"/channels/{channel}/join", {"agentId": from_agent})
     if "detail" in r:
@@ -441,7 +460,7 @@ async def cc_channel_join(channel: str, from_agent: str) -> str:
 
 
 @mcp_server.tool()
-async def cc_channel_send(channel: str, from_agent: str, body: str, type: str = "info") -> str:
+async def comms_channel_send(channel: str, from_agent: str, body: str, type: str = "info") -> str:
     """Send a message to a channel. All members will see it."""
     r = await _api("POST", f"/channels/{channel}/send", {
         "from_agent": from_agent, "channel": channel, "body": body, "type": type,
@@ -452,7 +471,7 @@ async def cc_channel_send(channel: str, from_agent: str, body: str, type: str = 
 
 
 @mcp_server.tool()
-async def cc_channel_read(channel: str, limit: int = 20) -> str:
+async def comms_channel_read(channel: str, limit: int = 20) -> str:
     """Read recent messages from a channel."""
     r = await _api("GET", f"/channels/{channel}", params={"limit": str(limit)})
     if "detail" in r:
@@ -470,7 +489,7 @@ async def cc_channel_read(channel: str, limit: int = 20) -> str:
 
 
 @mcp_server.tool()
-async def cc_channel_list() -> str:
+async def comms_channel_list() -> str:
     """List all channels."""
     r = await _api("GET", "/channels")
     channels = r.get("channels", [])
@@ -490,7 +509,7 @@ async def cc_channel_list() -> str:
 # ---------------------------------------------------------------------------
 
 @mcp_server.tool()
-async def cc_share(from_agent: str, name: str, content: str, description: str = "") -> str:
+async def comms_share(from_agent: str, name: str, content: str, description: str = "") -> str:
     """Share an artifact (code, results, text) with other agents."""
     # Use form-encoded data to match the API
     url = f"{_api_url()}/shared"
@@ -509,7 +528,7 @@ async def cc_share(from_agent: str, name: str, content: str, description: str = 
 
 
 @mcp_server.tool()
-async def cc_read(name: str) -> str:
+async def comms_read(name: str) -> str:
     """Read a shared artifact by name."""
     r = await _api("GET", f"/shared/{name}")
     if "detail" in r:
@@ -524,7 +543,7 @@ async def cc_read(name: str) -> str:
 
 
 @mcp_server.tool()
-async def cc_files() -> str:
+async def comms_files() -> str:
     """List all shared artifacts."""
     r = await _api("GET", "/shared")
     files = r.get("files", [])
@@ -543,7 +562,7 @@ async def cc_files() -> str:
 # ---------------------------------------------------------------------------
 
 @mcp_server.tool()
-async def cc_clear(target: str, agentId: str = "", olderThanHours: float = 0) -> str:
+async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0) -> str:
     """Clear messages, shared files, agents, or everything. Optional age filter."""
     data = {"target": target}
     if agentId:
@@ -559,7 +578,7 @@ async def cc_clear(target: str, agentId: str = "", olderThanHours: float = 0) ->
 
 
 @mcp_server.tool()
-async def cc_dashboard() -> str:
+async def comms_dashboard() -> str:
     """Get the dashboard URL."""
     cfg = get_config()
     return f"Dashboard: http://localhost:{cfg.port}/api/v1/dashboard"

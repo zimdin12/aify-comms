@@ -1,11 +1,11 @@
 {
-  "name": "aify-claude-mcp",
-  "version": "3.6.5",
-  "description": "MCP client for aify-claude inter-agent communication",
+  "name": "aify-comms-mcp",
+  "version": "3.6.6",
+  "description": "MCP client for aify-comms inter-agent communication",
   "type": "module",
   "main": "server.js",
   "bin": {
-    "aify-claude-mcp": "./server.js"
+    "aify-comms-mcp": "./server.js"
   },
   "scripts": {
     "start": "node server.js"

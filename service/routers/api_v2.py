@@ -1,5 +1,5 @@
 """
-aify-claude v2 API — SQLite backend.
+aify-comms v2 API — SQLite backend.
 Drop-in replacement for api.py with identical endpoint signatures.
 """
 import asyncio
@@ -13,7 +13,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse
 
-# Per-agent wake-up events for cc_listen
+# Per-agent wake-up events for comms_listen
 _listen_events: dict[str, asyncio.Event] = {}
 
 from service.db import get_db
@@ -241,8 +241,8 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
     if runtime == "codex" and session_mode == "resident" and not session_handle:
         hint["fix"] = "Restart Codex, then re-register from the exact live Codex session you want to wake."
         hint["suggestedCommands"] = [
-            f'cc_register(agentId="{recipient_id}", role="{role}", runtime="codex")',
-            f'cc_agent_info(agentId="{recipient_id}")',
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="codex")',
+            f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
 
@@ -250,35 +250,35 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["fix"] = "Start Claude with claude-aify, then re-register from that exact live Claude session."
         hint["suggestedCommands"] = [
             "claude-aify",
-            f'cc_register(agentId="{recipient_id}", role="{role}", runtime="claude-code")',
-            f'cc_agent_info(agentId="{recipient_id}")',
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="claude-code")',
+            f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
 
     if runtime == "opencode" and session_mode == "resident" and not session_handle:
         hint["fix"] = (
             "Re-register the live OpenCode session with runtime=\"opencode\" and a real sessionHandle, "
-            "or use cc_spawn_agent to create a managed worker."
+            "or use comms_spawn_agent to create a managed worker."
         )
         hint["suggestedCommands"] = [
-            f'cc_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
-            f'cc_spawn_agent(from="<your-agent>", agentId="{recipient_id}-worker", role="{role}", runtime="opencode")',
-            f'cc_agent_info(agentId="{recipient_id}")',
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
+            f'comms_spawn_agent(from="<your-agent>", agentId="{recipient_id}-worker", role="{role}", runtime="opencode")',
+            f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
 
     if runtime not in _LAUNCHABLE_RUNTIMES:
-        hint["fix"] = "This target is message-only right now. Check cc_agent_info before suggesting any runtime-specific reinstall or restart steps."
-        hint["suggestedCommands"] = [f'cc_agent_info(agentId="{recipient_id}")']
+        hint["fix"] = "This target is message-only right now. Check comms_agent_info before suggesting any runtime-specific reinstall or restart steps."
+        hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
         return hint
 
     if session_mode == "managed" and (row["launch_mode"] or "detached") == "none":
         hint["fix"] = "Enable launch mode or recreate this agent as a managed worker."
-        hint["suggestedCommands"] = [f'cc_agent_info(agentId="{recipient_id}")']
+        hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
         return hint
 
-    hint["fix"] = "Inspect the target runtime/session with cc_agent_info, then retry with runtime-specific steps."
-    hint["suggestedCommands"] = [f'cc_agent_info(agentId="{recipient_id}")']
+    hint["fix"] = "Inspect the target runtime/session with comms_agent_info, then retry with runtime-specific steps."
+    hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
     return hint
 
 
@@ -593,8 +593,8 @@ async def _create_dispatch_runs(
 @router.get("/")
 async def root():
     return {
-        "service": "aify-claude",
-        "version": "3.6.5",
+        "service": "aify-comms",
+        "version": "3.6.6",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",

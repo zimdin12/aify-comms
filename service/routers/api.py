@@ -1,10 +1,10 @@
 """
-Claude Code MCP — Message Bus API
+aify-comms — Legacy Message Bus API
 
 HTTP endpoints for inter-agent communication. Replaces the filesystem-based
 .messages/ directory, enabling cross-machine agent communication.
 
-Agents (Claude Code instances) register, send messages, share artifacts,
+Agents register, send messages, share artifacts,
 and view a dashboard — all over HTTP.
 """
 
@@ -190,8 +190,8 @@ def _now():
 @router.get("/")
 async def root():
     return {
-        "service": "claude-code-mcp",
-        "version": "2.0.0",
+        "service": "aify-comms",
+        "version": "3.6.6",
         "endpoints": {
             "agents": "/api/v1/agents",
             "messages": "/api/v1/messages",

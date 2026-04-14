@@ -8,11 +8,11 @@ Implement features, fix bugs, commit code. Follow task assignments from manager 
 
 ## Workflow
 
-Check `cc_inbox` for tasks. Build after every edit. Use feature branches + MRs for non-trivial work.
+Check `comms_inbox` for tasks. Build after every edit. Use feature branches + MRs for non-trivial work.
 
-After implementing: build → run tests → commit with task ID → notify tester for verification. **Do NOT push until tester verifies.** If needed, share relevant files or logs via `cc_share` when handing off. Keep tasks and docs updated as you work.
+After implementing: build → run tests → commit with task ID → notify tester for verification. **Do NOT push until tester verifies.** If needed, share relevant files or logs via `comms_share` when handing off. Keep tasks and docs updated as you work.
 
-**When you finish a task, stay registered and triggerable.** Use `cc_listen` only if you intentionally want a waiting loop; otherwise rely on unread notifications and normal `cc_send(...)` wakeups.
+**When you finish a task, stay registered and triggerable.** Use `comms_listen` only if you intentionally want a waiting loop; otherwise rely on unread notifications and normal `comms_send(...)` wakeups.
 
 ## When stuck
 

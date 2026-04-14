@@ -2,7 +2,7 @@
 
 ## Team
 
-You are part of a multi-agent team on the `dev` aify-claude channel. Read your role file before working:
+You are part of a multi-agent team on the `dev` aify-comms channel. Read your role file before working:
 
 | Role | File |
 |------|------|
@@ -16,11 +16,11 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 
 ## Communication rules
 
-- **Stay registered and triggerable.** Use `cc_send(...)` as the normal wake-up path across the team. Use `cc_send(silent=true)` only when you want inbox delivery without waking the target.
-- **Use `cc_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `cc_listen` to be reachable.
-- Use `cc_agent_info` to check if someone has seen your message before following up.
+- **Stay registered and triggerable.** Use `comms_send(...)` as the normal wake-up path across the team. Use `comms_send(silent=true)` only when you want inbox delivery without waking the target.
+- **Use `comms_listen` only when you intentionally want a waiting loop.** Do not assume resident sessions depend on `comms_listen` to be reachable.
+- Use `comms_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.
-- Share files, logs, and screenshots via `cc_share` when handing off work.
+- Share files, logs, and screenshots via `comms_share` when handing off work.
 
 ## Build
 

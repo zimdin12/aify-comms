@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# Agentify Container - Initial Setup
+# aify-comms - Initial Setup
 # =============================================================================
 set -e
 
-echo "Agentify Container Setup"
+echo "aify-comms Setup"
 echo "========================"
 
 # Copy config files if they don't exist

@@ -1,4 +1,4 @@
-# aify-claude
+# aify-comms
 
 Inter-agent communication hub for Claude Code, Codex, OpenCode, and other MCP-connected coding agents. It gives coding agents shared messaging, channels, file sharing, active dispatch, and a live dashboard through one service.
 
@@ -19,22 +19,22 @@ Built on [aify-container](https://github.com/zimdin12/aify-container).
    - Claude Code: `claude-aify`
    - Codex live wake: `codex-aify`
    - OpenCode: normal session today; live wake is not implemented yet
-4. Register the live session with `cc_register(...)`.
-5. Use `cc_send(...)` or `cc_dispatch(...)` to wake another agent.
+4. Register the live session with `comms_register(...)`.
+5. Use `comms_send(...)` or `comms_dispatch(...)` to wake another agent.
 
 Important mental model:
 - dispatch wakes the target and records run status on the server
 - dispatch does **not** automatically send a reply message back
-- if the target should answer you, it must explicitly use `cc_send(...)`
-- `cc_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
+- if the target should answer you, it must explicitly use `comms_send(...)`
+- `comms_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
 
 ## Setup
 
 ### Server (run once, on the machine hosting the service)
 
 ```bash
-git clone https://github.com/zimdin12/aify-claude.git
-cd aify-claude
+git clone https://github.com/zimdin12/aify-comms.git
+cd aify-comms
 bash setup.sh
 docker compose up -d --build
 ```
@@ -53,8 +53,8 @@ For agent-friendly setup, point installers at these files:
 Fast path:
 
 ```bash
-git clone https://github.com/zimdin12/aify-claude.git
-cd aify-claude
+git clone https://github.com/zimdin12/aify-comms.git
+cd aify-comms
 bash install.sh --client claude http://localhost:8800 --with-hook
 # or:
 bash install.sh --client codex http://localhost:8800 --with-hook
@@ -67,18 +67,18 @@ After every install or update:
 1. Restart the client.
 2. For visible Codex live wakeups, start Codex with `codex-aify`.
 3. Re-register from the exact live session you want other agents to trigger.
-4. Confirm your runtime and resident state with `cc_agent_info(...)`.
+4. Confirm your runtime and resident state with `comms_agent_info(...)`.
 
 For Codex specifically, the reliable live-wake registration sequence is:
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="codex")
+comms_register(agentId="my-agent", role="coder", runtime="codex")
 ```
 
 If that still reports `message-only` from inside a `codex-aify` session, use:
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
 ### Typical usage
@@ -86,47 +86,47 @@ cc_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$C
 After install, the common flow is:
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="claude-code")
-cc_send(from="my-agent", to="other-agent", type="request", subject="Need help", body="Please review the failing test")
-cc_run_status(runId="...")
+comms_register(agentId="my-agent", role="coder", runtime="claude-code")
+comms_send(from="my-agent", to="other-agent", type="request", subject="Need help", body="Please review the failing test")
+comms_run_status(runId="...")
 ```
 
 If you want the target agent to answer you, ask it to send a message explicitly:
 
 ```text
-Please reply with cc_send(from="other-agent", to="my-agent", type="response", subject="Review done", body="I found the bug in parser.ts")
+Please reply with comms_send(from="other-agent", to="my-agent", type="response", subject="Review done", body="I found the bug in parser.ts")
 ```
 
 If you only want the work to happen and be tracked, use dispatch without expecting an inbox reply:
 
 ```text
-cc_dispatch(from="lead", to="tester-worker", type="request", subject="Run tests", body="Run the repo test suite and update the run summary with the result")
+comms_dispatch(from="lead", to="tester-worker", type="request", subject="Run tests", body="Run the repo test suite and update the run summary with the result")
 ```
 
 If you only want to send a note without waking the target, use:
 
 ```text
-cc_send(from="my-agent", to="other-agent", type="info", subject="FYI", body="No need to act on this now", silent=true)
+comms_send(from="my-agent", to="other-agent", type="info", subject="FYI", body="No need to act on this now", silent=true)
 ```
 
 ### Client — Claude Code install (manual)
 
-Install aify-claude as a Claude Code plugin. For resident Claude wakeups, manual setup needs both the normal MCP server and the separate `aify-claude-channel` bridge.
+Install aify-comms as a Claude Code plugin. For resident Claude wakeups, manual setup needs both the normal MCP server and the separate `aify-comms-channel` bridge.
 
 **Step 1: Clone, install dependencies, and copy skill**
 ```bash
 # Clone the plugin
-git clone https://github.com/zimdin12/aify-claude.git ~/.claude/plugins/aify-claude
+git clone https://github.com/zimdin12/aify-comms.git ~/.claude/plugins/aify-comms
 
 # Install MCP dependencies
-cd ~/.claude/plugins/aify-claude/mcp/stdio && npm install && cd ~
+cd ~/.claude/plugins/aify-comms/mcp/stdio && npm install && cd ~
 
 # Copy skill (teaches Claude how to use the tools, register, and listen for messages)
-cp -r ~/.claude/plugins/aify-claude/.claude/skills/aify-claude ~/.claude/skills/aify-claude
+cp -r ~/.claude/plugins/aify-comms/.claude/skills/aify-comms ~/.claude/skills/aify-comms
 
 # Copy slash commands — /register, /send, /inbox, etc.
-mkdir -p ~/.claude/commands/aify-claude
-cp ~/.claude/plugins/aify-claude/.claude/commands/*.md ~/.claude/commands/aify-claude/
+mkdir -p ~/.claude/commands/aify-comms
+cp ~/.claude/plugins/aify-comms/.claude/commands/*.md ~/.claude/commands/aify-comms/
 ```
 
 On Windows, replace `~` with your home directory (e.g. `C:/Users/yourname`).
@@ -134,22 +134,22 @@ On Windows, replace `~` with your home directory (e.g. `C:/Users/yourname`).
 **Step 2: Register the MCP servers**
 ```bash
 # Same machine as server:
-claude mcp add --scope user aify-claude \
+claude mcp add --scope user aify-comms \
   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/server.js"
+  -- node "$HOME/.claude/plugins/aify-comms/mcp/stdio/server.js"
 
-claude mcp add --scope user aify-claude-channel \
+claude mcp add --scope user aify-comms-channel \
   -e CLAUDE_MCP_SERVER_URL=http://localhost:8800 \
-  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/claude-channel.js"
+  -- node "$HOME/.claude/plugins/aify-comms/mcp/stdio/claude-channel.js"
 
 # Remote server:
-claude mcp add --scope user aify-claude \
+claude mcp add --scope user aify-comms \
   -e CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
-  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/server.js"
+  -- node "$HOME/.claude/plugins/aify-comms/mcp/stdio/server.js"
 
-claude mcp add --scope user aify-claude-channel \
+claude mcp add --scope user aify-comms-channel \
   -e CLAUDE_MCP_SERVER_URL=http://SERVER_IP:8800 \
-  -- node "$HOME/.claude/plugins/aify-claude/mcp/stdio/claude-channel.js"
+  -- node "$HOME/.claude/plugins/aify-comms/mcp/stdio/claude-channel.js"
 ```
 
 On Windows, replace `$HOME` with your home directory using forward slashes (e.g. `C:/Users/yourname`).
@@ -162,13 +162,13 @@ cat > ~/.local/bin/claude-aify <<'EOF'
 #!/bin/bash
 set -euo pipefail
 MARKER_CWD="$(pwd)"
-node "$HOME/.claude/plugins/aify-claude/mcp/stdio/runtime-markers.js" write claude-code "$MARKER_CWD" "{\"channelEnabled\":true,\"pid\":$$}" >/dev/null
+node "$HOME/.claude/plugins/aify-comms/mcp/stdio/runtime-markers.js" write claude-code "$MARKER_CWD" "{\"channelEnabled\":true,\"pid\":$$}" >/dev/null
 cleanup() {
-  node "$HOME/.claude/plugins/aify-claude/mcp/stdio/runtime-markers.js" remove claude-code "$MARKER_CWD" >/dev/null 2>&1 || true
+  node "$HOME/.claude/plugins/aify-comms/mcp/stdio/runtime-markers.js" remove claude-code "$MARKER_CWD" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-claude --dangerously-load-development-channels server:aify-claude-channel "$@"
+claude --dangerously-load-development-channels server:aify-comms-channel "$@"
 STATUS=$?
 exit "$STATUS"
 EOF
@@ -177,7 +177,7 @@ chmod +x ~/.local/bin/claude-aify
 
 **Step 4: Restart Claude Code**
 
-The 24 `cc_*` tools appear automatically. The skill teaches Claude how to register resident sessions, spawn managed workers, send messages, listen for incoming messages, dispatch active work, and control active runs.
+The 24 `comms_*` tools appear automatically. The skill teaches Claude how to register resident sessions, spawn managed workers, send messages, listen for incoming messages, dispatch active work, and control active runs.
 
 ### Client — other install methods
 
@@ -186,11 +186,11 @@ The 24 `cc_*` tools appear automatically. The skill teaches Claude how to regist
 
 No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-compatible client. Example for Claude Code:
 ```bash
-claude mcp add --scope user aify-claude --transport sse http://SERVER_IP:8800/mcp/sse
+claude mcp add --scope user aify-comms --transport sse http://SERVER_IP:8800/mcp/sse
 ```
 Use the equivalent SSE-registration flow for other clients.
 Note: no skill, no triggers, no notifications — just the 19 tools.
-SSE clients can still request `cc_dispatch`, `cc_run_status`, and run controls. They just cannot act as local launchers for active dispatch themselves.
+SSE clients can still request `comms_dispatch`, `comms_run_status`, and run controls. They just cannot act as local launchers for active dispatch themselves.
 
 </details>
 
@@ -198,8 +198,8 @@ SSE clients can still request `cc_dispatch`, `cc_run_status`, and run controls. 
 <summary>install.sh (recommended scripted setup)</summary>
 
 ```bash
-git clone https://github.com/zimdin12/aify-claude.git
-cd aify-claude
+git clone https://github.com/zimdin12/aify-comms.git
+cd aify-comms
 bash install.sh --client claude http://localhost:8800 --with-hook
 bash install.sh --client codex http://localhost:8800 --with-hook
 bash install.sh --client opencode http://localhost:8800
@@ -210,9 +210,9 @@ bash install.sh --client opencode http://localhost:8800
 <details>
 <summary>Marketplace install (when added to a marketplace)</summary>
 
-If aify-claude is registered in a Claude Code marketplace:
+If aify-comms is registered in a Claude Code marketplace:
 ```bash
-claude plugin install aify-claude
+claude plugin install aify-comms
 ```
 Then add `AIFY_SERVER_URL` to `~/.claude/settings.local.json`.
 
@@ -223,10 +223,10 @@ Then add `AIFY_SERVER_URL` to `~/.claude/settings.local.json`.
 Restart Claude Code. Try:
 
 ```
-cc_register(agentId="my-agent", role="coder")
-cc_agents()
-cc_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there!", silent=true)
-cc_inbox(agentId="my-agent")
+comms_register(agentId="my-agent", role="coder")
+comms_agents()
+comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there!", silent=true)
+comms_inbox(agentId="my-agent")
 ```
 
 For resident-session triggering, re-register after every restart/update from the exact live session you want other agents to wake. For Claude CLI, that session must be started with `claude-aify`. For Codex resident sessions, the bridge must talk to the same Codex thread store that created the session. OpenCode managed workers work out of the box; resident OpenCode resume requires a real `sessionHandle`.
@@ -242,7 +242,7 @@ Claude Code (any machine)         Claude Code (any machine)
                    |
                    v
          ┌──────────────────────┐
-         │  aify-claude         │
+         │  aify-comms         │
          │  Docker, port 8800   │
          │                      │
          │  REST API + SSE MCP  │
@@ -257,71 +257,71 @@ Claude Code (any machine)         Claude Code (any machine)
 ### Messaging
 | Tool | Description |
 |------|-------------|
-| **cc_register** | Register the exact live session you currently have open |
-| **cc_spawn_agent** | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
-| **cc_agents** | List agents with unread counts and live status |
-| **cc_status** | Set status + note: `cc_status("working", note="NRD pipeline")` |
-| **cc_agent_info** | Check another agent's status, unread count, last read message |
-| **cc_send** | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends |
-| **cc_dispatch** | Queue active runtime dispatch explicitly and return run IDs |
-| **cc_inbox** | Check inbox (newest first, replies include parent context) |
-| **cc_unsend** | Delete a message by ID |
-| **cc_search** | Search messages and shared artifacts |
-| **cc_run_status** | Inspect a dispatched run and its recent events |
-| **cc_run_interrupt** | Request interruption of an active dispatched run |
-| **cc_run_steer** | Send additional guidance to an active run when the runtime supports steering |
+| **comms_register** | Register the exact live session you currently have open |
+| **comms_spawn_agent** | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
+| **comms_agents** | List agents with unread counts and live status |
+| **comms_status** | Set status + note: `comms_status("working", note="NRD pipeline")` |
+| **comms_agent_info** | Check another agent's status, unread count, last read message |
+| **comms_send** | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends |
+| **comms_dispatch** | Queue active runtime dispatch explicitly and return run IDs |
+| **comms_inbox** | Check inbox (newest first, replies include parent context) |
+| **comms_unsend** | Delete a message by ID |
+| **comms_search** | Search messages and shared artifacts |
+| **comms_run_status** | Inspect a dispatched run and its recent events |
+| **comms_run_interrupt** | Request interruption of an active dispatched run |
+| **comms_run_steer** | Send additional guidance to an active run when the runtime supports steering |
 
 ### Channels (group chat)
 | Tool | Description |
 |------|-------------|
-| **cc_channel_create** | Create a channel |
-| **cc_channel_join** | Join yourself or add another agent to a channel |
-| **cc_channel_send** | Post to channel (delivered to all members' inboxes) |
-| **cc_channel_read** | Read channel messages with pagination |
-| **cc_channel_list** | List all channels |
+| **comms_channel_create** | Create a channel |
+| **comms_channel_join** | Join yourself or add another agent to a channel |
+| **comms_channel_send** | Post to channel (delivered to all members' inboxes) |
+| **comms_channel_read** | Read channel messages with pagination |
+| **comms_channel_list** | List all channels |
 
 ### File sharing
 | Tool | Description |
 |------|-------------|
-| **cc_share** | Share text, files, PNGs, or binaries to shared space |
-| **cc_read** | Read a shared artifact |
-| **cc_files** | List shared artifacts |
+| **comms_share** | Share text, files, PNGs, or binaries to shared space |
+| **comms_read** | Read a shared artifact |
+| **comms_files** | List shared artifacts |
 
 ### Management
 | Tool | Description |
 |------|-------------|
-| **cc_clear** | Clear data with optional age filter |
-| **cc_dashboard** | Open dashboard in browser |
+| **comms_clear** | Clear data with optional age filter |
+| **comms_dashboard** | Open dashboard in browser |
 
 ## Resident Sessions vs Managed Workers
 
-- `cc_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session that is currently open for presence, inbox, and runtime metadata.
+- `comms_register(...)` registers a resident session: the exact live Claude/Codex/OpenCode session that is currently open for presence, inbox, and runtime metadata.
 - Re-registering the same agent ID supersedes the older bridge instance for that agent on that machine. This is how stale-run recovery works after a restart.
-- `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
+- `comms_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
 - Resident Codex sessions started with `codex-aify` become `codex-live`: the visible TUI and the aify bridge share the same local WebSocket `codex app-server`.
 - Resident Codex sessions started with plain `codex` still use `thread.id`-based `codex-thread-resume` through a separate App Server worker.
 - Resident Claude CLI sessions become wakeable when Claude is started through the installed `claude-aify` wrapper, which loads the local aify channel bridge.
-- OpenCode supports managed workers directly, and resident OpenCode resume when `cc_register` is given a real `sessionHandle`.
+- OpenCode supports managed workers directly, and resident OpenCode resume when `comms_register` is given a real `sessionHandle`.
 - Managed workers remain the detached cross-machine execution path for long-running/background work.
 
 ## Active Dispatch
 
-`cc_send(...)` and `cc_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. `cc_send(silent=true)` is the message-only exception. If the target is a resident Codex session started through `codex-aify`, aify uses `codex-live` and talks to the same shared local WebSocket App Server as the visible TUI. If the target is a plain resident Codex session with a bound `thread.id`, aify still falls back to `codex-thread-resume` in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
+`comms_send(...)` and `comms_dispatch(...)` queue work in the service and let the target agent's local MCP server claim and execute it on the correct machine/runtime. `comms_send(silent=true)` is the message-only exception. If the target is a resident Codex session started through `codex-aify`, aify uses `codex-live` and talks to the same shared local WebSocket App Server as the visible TUI. If the target is a plain resident Codex session with a bound `thread.id`, aify still falls back to `codex-thread-resume` in a background App Server worker. If the target is a resident Claude CLI session started through `claude-aify`, the local channel bridge wakes that exact session live. If the target is a resident OpenCode session with a bound `sessionHandle`, aify resumes that stored session in a background worker. Otherwise the managed worker path is used:
 
 ```
-Agent A: cc_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
-Agent A: cc_dispatch(to="tester-worker", subject="run tests", body="Run the repo test suite")
+Agent A: comms_spawn_agent(from="lead", agentId="tester-worker", role="tester", runtime="codex")
+Agent A: comms_dispatch(to="tester-worker", subject="run tests", body="Run the repo test suite")
   → dispatch run queued on the server
   → tester-worker's owning stdio MCP bridge claims the run
   → runtime launches locally (Claude Code CLI or Codex App Server)
   → run status/summary recorded on the server
-  → Agent A can inspect with cc_run_status(...) or receive a separate reply only if tester-worker sends one explicitly
+  → Agent A can inspect with comms_run_status(...) or receive a separate reply only if tester-worker sends one explicitly
 ```
 
 This works across machines as long as the target machine has a live stdio MCP bridge for that agent. SSE clients still receive messages, but they cannot execute active dispatch because there is no local launcher process.
 
 Important:
-- Dispatched runs do not auto-send their final response back to the requesting agent. If you want the requester to receive a message, the target runtime must explicitly call `cc_send(...)` or another inter-agent tool.
+- Dispatched runs do not auto-send their final response back to the requesting agent. If you want the requester to receive a message, the target runtime must explicitly call `comms_send(...)` or another inter-agent tool.
 - Resident Codex sessions started with `codex-aify` use `codex-live`, which targets the same shared local WebSocket App Server as the visible TUI.
 - In `codex-live`, the visible Codex session will show the injected task and its final answer. That is expected. Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
 - Resident Codex sessions started with plain `codex` still use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
@@ -334,11 +334,11 @@ Important:
 - Active dispatch requires the local `stdio` MCP server. SSE-only clients are message/control clients, not local launchers.
 
 Practical rule:
-- use `cc_send(...)` for conversation
-- use `cc_send(...)` to wake another agent now
-- use `cc_send(silent=true)` for a message without waking the target
-- use `cc_dispatch(...)` when you want an explicit tracked run
-- use `cc_send(...)` again if you want an actual reply message back
+- use `comms_send(...)` for conversation
+- use `comms_send(...)` to wake another agent now
+- use `comms_send(silent=true)` for a message without waking the target
+- use `comms_dispatch(...)` when you want an explicit tracked run
+- use `comms_send(...)` again if you want an actual reply message back
 
 ### Trigger Tradeoffs
 
@@ -353,16 +353,16 @@ Practical rule:
 
 ### Runtime Notes
 
-- `cc_register` stores runtime metadata plus resident-session metadata (`sessionMode`, `sessionHandle`, `machineId`, capabilities). If auto-detection is wrong, pass `runtime="claude-code"`, `runtime="codex"`, or `runtime="opencode"` explicitly.
-- `cc_spawn_agent` creates managed workers that keep runtime state across runs on the owning bridge.
+- `comms_register` stores runtime metadata plus resident-session metadata (`sessionMode`, `sessionHandle`, `machineId`, capabilities). If auto-detection is wrong, pass `runtime="claude-code"`, `runtime="codex"`, or `runtime="opencode"` explicitly.
+- `comms_spawn_agent` creates managed workers that keep runtime state across runs on the owning bridge.
 - Claude managed workers use the local `claude -p` CLI with a persistent `session-id` per worker.
 - Codex managed workers use `codex app-server` with a persistent thread per worker.
 - OpenCode managed workers use the official OpenCode SDK/server flow with a persistent `sessionId` per worker.
 - Codex resident sessions started with `codex-aify` record the shared local WebSocket App Server binding through the wrapper, so aify can drive the same App Server as the visible TUI and report `codex-live`.
 - Plain Codex resident sessions still use the `CODEX_THREAD_ID` exposed by the live session and resume that thread through a separate App Server worker as `codex-thread-resume`.
-- Claude resident wakeups use the local `aify-claude-channel` server plus Claude Channels. The installer adds the server and a `claude-aify` wrapper that starts Claude with the required development-channel flag and records the live resident binding for `cc_register`.
+- Claude resident wakeups use the local `aify-comms-channel` server plus Claude Channels. The installer adds the server and a `claude-aify` wrapper that starts Claude with the required development-channel flag and records the live resident binding for `comms_register`.
 - OpenCode resident resume works when you register with a real `sessionHandle`; interrupt is supported, steering is not wired yet.
-- For Claude, the installer registers both `aify-claude` and `aify-claude-channel` in Claude user scope so the wrapper works across projects and sessions.
+- For Claude, the installer registers both `aify-comms` and `aify-comms-channel` in Claude user scope so the wrapper works across projects and sessions.
 - On Windows, the Codex bridge defaults to `wsl.exe -e codex app-server`. If your Codex CLI lives in WSL, prefer running the Codex-side MCP server from inside WSL so the registered `cwd` is already a Linux path.
 - For resident Codex triggering, the bridge must talk to the same Codex thread store that created the session. A Windows desktop session and a WSL CLI session are different stores.
 - Because of that store mismatch, Windows desktop Codex does not auto-advertise resident triggering by default when the bridge is using WSL Codex.
@@ -396,10 +396,10 @@ These roles are conventions, not hard-coded types. They help agents coordinate p
 If installed with `--with-hook`, agents get notified of new messages automatically:
 
 ```
-[aify-claude] 2 unread message(s):
+[aify-comms] 2 unread message(s):
   - From worker-1: "Task complete"
   - From tester: "Tests passed"
-Use cc_inbox to read them.
+Use comms_inbox to read them.
 ```
 
 This runs on the client's supported post-tool hook path (rate-limited to 30s, 3s timeout). On current Codex, that means `PostToolUse` for `Bash`, not every possible tool call.

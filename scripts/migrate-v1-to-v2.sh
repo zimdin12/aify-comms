@@ -1,20 +1,20 @@
 #!/bin/bash
 # =============================================================================
-# Migrate aify-claude v1 (JSON files) to v2 (SQLite)
+# Migrate aify-comms v1 (JSON files) to v2 (SQLite)
 #
 # Prerequisites:
 #   - v1 container stopped (docker compose down)
 #   - Python 3.12 with aiosqlite installed
-#   - Run from the aify-claude repo root
+#   - Run from the aify-comms repo root
 # =============================================================================
 set -e
 
-echo "=== aify-claude v1 -> v2 migration ==="
+echo "=== aify-comms v1 -> v2 migration ==="
 echo ""
 
 # Check we're in the right directory
 if [ ! -f "docker-compose.yml" ]; then
-    echo "ERROR: Run this from the aify-claude repo root"
+    echo "ERROR: Run this from the aify-comms repo root"
     exit 1
 fi
 

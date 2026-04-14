@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unified installer for aify-claude on Claude Code, Codex, or OpenCode.
+# Unified installer for aify-comms on Claude Code, Codex, or OpenCode.
 #
 # Usage:
 #   bash install.sh --client claude
@@ -67,11 +67,11 @@ require_cmd() {
 }
 
 copy_claude_assets() {
-  local skill_dst="$HOME/.claude/skills/aify-claude"
-  local commands_dst="$HOME/.claude/commands/aify-claude"
+  local skill_dst="$HOME/.claude/skills/aify-comms"
+  local commands_dst="$HOME/.claude/commands/aify-comms"
   mkdir -p "$(dirname "$skill_dst")" "$commands_dst"
   rm -rf "$skill_dst"
-  cp -R "$SCRIPT_DIR/.claude/skills/aify-claude" "$skill_dst"
+  cp -R "$SCRIPT_DIR/.claude/skills/aify-comms" "$skill_dst"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
 }
 
@@ -89,7 +89,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-claude --dangerously-load-development-channels server:aify-claude-channel "\$@"
+claude --dangerously-load-development-channels server:aify-comms-channel "\$@"
 STATUS=\$?
 exit "\$STATUS"
 EOF
@@ -154,7 +154,7 @@ APP_SERVER_URL="ws://127.0.0.1:$PORT"
 export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
 MARKER_CWD="$(pwd)"
 
-LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-claude"
+LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
 mkdir -p "$LOG_ROOT"
 LOG_FILE="$LOG_ROOT/codex-aify-app-server.log"
 
@@ -188,10 +188,10 @@ EOF
 
 copy_codex_assets() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
-  local skill_dst="$codex_home/skills/aify-claude"
+  local skill_dst="$codex_home/skills/aify-comms"
   mkdir -p "$(dirname "$skill_dst")"
   rm -rf "$skill_dst"
-  cp -R "$SCRIPT_DIR/.agents/skills/aify-claude" "$skill_dst"
+  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$skill_dst"
 }
 
 install_opencode_config() {
@@ -221,7 +221,7 @@ EOF
     const environment = {};
     if (serverUrl) environment.CLAUDE_MCP_SERVER_URL = serverUrl;
     if (apiKey) environment.CLAUDE_MCP_API_KEY = apiKey;
-    data.mcp['aify-claude'] = {
+    data.mcp['aify-comms'] = {
       type: 'local',
       enabled: true,
       command: ['node', serverPath],
@@ -339,7 +339,7 @@ install_claude_hook() {
 
 register_stdio_server() {
   local cli="$1"
-  local server_name="aify-claude"
+  local server_name="aify-comms"
   local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
   local -a scope_args=()
 
@@ -375,7 +375,7 @@ register_stdio_server() {
 
 register_claude_channel_server() {
   local cli="$1"
-  local server_name="aify-claude-channel"
+  local server_name="aify-comms-channel"
   local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
 
   "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
@@ -399,7 +399,7 @@ register_claude_channel_server() {
   fi
 }
 
-echo "=== aify-claude installer ==="
+echo "=== aify-comms installer ==="
 echo "Repo: $SCRIPT_DIR"
 echo "Client: $CLIENT"
 echo "Server: ${SERVER_URL:-local mode (no shared server)}"
@@ -474,7 +474,7 @@ else
 fi
 echo ""
 echo "Quick start:"
-echo "  cc_register(agentId=\"my-agent\", role=\"coder\")"
-echo "  cc_agents()"
-echo "  cc_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")"
-echo "  cc_inbox(agentId=\"my-agent\")"
+echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
+echo "  comms_agents()"
+echo "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")"
+echo "  comms_inbox(agentId=\"my-agent\")"

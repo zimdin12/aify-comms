@@ -1,20 +1,20 @@
 # Install For Codex
 
-Use aify-claude when you want Slack-like coordination for coding agents: direct messages, channels, shared artifacts, and optional active dispatch.
+Use aify-comms when you want Slack-like coordination for coding agents: direct messages, channels, shared artifacts, and optional active dispatch.
 
 ## Copy-Paste Install
 
 ```bash
-git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
-cd ~/aify-claude
+git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
+cd ~/aify-comms
 bash install.sh --client codex http://localhost:8800 --with-hook
 ```
 
 If you are using local-only mode with no shared server:
 
 ```bash
-git clone https://github.com/zimdin12/aify-claude.git ~/aify-claude
-cd ~/aify-claude
+git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
+cd ~/aify-comms
 bash install.sh --client codex --with-hook
 ```
 
@@ -25,7 +25,7 @@ After every update:
 1. Restart Codex.
 2. If you want visible live wakeups, start the session with `codex-aify`.
 3. Re-register from that exact live Codex session.
-4. Confirm with `cc_agent_info(agentId="...")`.
+4. Confirm with `comms_agent_info(agentId="...")`.
 
 For the live-wake path, start Codex with:
 
@@ -38,13 +38,13 @@ That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, laun
 Recommended registration from inside `codex-aify`:
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="codex")
+comms_register(agentId="my-agent", role="coder", runtime="codex")
 ```
 
 If that still reports `message-only` or does not flip to `codex-live`, use the deterministic fallback from that same session:
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
+comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
 ## WSL Note
@@ -54,20 +54,20 @@ cc_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$C
 
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
-- `cc_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
+- `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If the session was started with `codex-aify`, resident Codex wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`.
 - In `codex-live`, the injected task and the final answer will appear in the visible Codex session. That is expected. Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
-- If `codex-aify` is running but `cc_agent_info(...)` still does not show `codex-live`, re-register once more with `runtime="codex"`. If the live thread still is not auto-detected, pass `sessionHandle="$CODEX_THREAD_ID"` explicitly from that same session.
+- If `codex-aify` is running but `comms_agent_info(...)` still does not show `codex-live`, re-register once more with `runtime="codex"`. If the live thread still is not auto-detected, pass `sessionHandle="$CODEX_THREAD_ID"` explicitly from that same session.
 - If the session was started with plain `codex`, resident Codex still falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
-- `cc_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.
+- `comms_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers, and they cannot launch local work themselves.
 - If another agent says you are a resident Codex session without a bound session handle, restart Codex and re-register from the live session. That usually means the current registration predates the latest resident-triggering flow or was done from the wrong environment.
 
 ## What This Installs
 
-- The `aify-claude` stdio MCP server for Codex
-- The aify skill in `$CODEX_HOME/skills/aify-claude`
+- The `aify-comms` stdio MCP server for Codex
+- The aify skill in `$CODEX_HOME/skills/aify-comms`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
 - A `codex-aify` wrapper in `~/.local/bin`
 
@@ -81,9 +81,9 @@ Current Codex CLI note:
 ## Quick Start
 
 ```text
-cc_register(agentId="my-agent", role="coder", runtime="codex")
-cc_agents()
-cc_agent_info(agentId="my-agent")
-cc_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
-cc_inbox(agentId="my-agent")
+comms_register(agentId="my-agent", role="coder", runtime="codex")
+comms_agents()
+comms_agent_info(agentId="my-agent")
+comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
+comms_inbox(agentId="my-agent")
 ```

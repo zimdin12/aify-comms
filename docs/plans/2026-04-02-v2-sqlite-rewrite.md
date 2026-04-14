@@ -1,4 +1,4 @@
-# aify-claude v2: SQLite + WebSocket Rewrite
+# aify-comms v2: SQLite + WebSocket Rewrite
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, FastAPI, aiosqlite (async SQLite), WebSocket (fastapi.websockets), existing Node.js MCP server (unchanged).
 
-**Development safety:** The running v1 container uses a baked-in image copy of the code. Source files at `C:\Docker\aify-claude\` are NOT mounted (only `config/` is read-only mounted). All development happens on source files without affecting the running system. Deploy by rebuilding when ready.
+**Development safety:** The running v1 container uses a baked-in image copy of the code. Source files at `C:\Docker\aify-comms\` are NOT mounted (only `config/` is read-only mounted). All development happens on source files without affecting the running system. Deploy by rebuilding when ready.
 
 ---
 
@@ -944,11 +944,11 @@ git commit -m "feat: wire v2 SQLite router into main app"
 
 ```bash
 #!/bin/bash
-# Migrate aify-claude v1 (JSON files) to v2 (SQLite)
+# Migrate aify-comms v1 (JSON files) to v2 (SQLite)
 # Run AFTER stopping v1 container, BEFORE starting v2.
 set -e
 
-echo "=== aify-claude v1 -> v2 migration ==="
+echo "=== aify-comms v1 -> v2 migration ==="
 
 # 1. Export v1 data from Docker volume
 echo "Step 1: Exporting v1 data..."
@@ -1021,5 +1021,5 @@ bash scripts/migrate-v1-to-v2.sh
 
 ```bash
 git tag v2.0.0
-git commit -m "release: aify-claude v2.0.0 — SQLite + WebSocket"
+git commit -m "release: aify-comms v2.0.0 — SQLite + WebSocket"
 ```

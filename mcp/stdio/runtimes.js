@@ -149,7 +149,11 @@ function canUseDefaultResidentCodexBridge() {
 }
 
 export function hasClaudeLiveChannel(runtimeConfig = {}) {
-  return runtimeConfig?.channelEnabled === true || process.env.AIFY_CLAUDE_CHANNEL_ENABLED === "1";
+  return (
+    runtimeConfig?.channelEnabled === true ||
+    process.env.AIFY_COMMS_CHANNEL_ENABLED === "1" ||
+    process.env.AIFY_CLAUDE_CHANNEL_ENABLED === "1"
+  );
 }
 
 function getRuntimeConfig(agentInfo) {
@@ -429,9 +433,9 @@ export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = proces
     });
     await rpc.request("initialize", {
       clientInfo: {
-        name: "aify-claude",
-        title: "aify-claude register bridge",
-        version: "3.6.5",
+        name: "aify-comms",
+        title: "aify-comms register bridge",
+        version: "3.6.6",
       },
     });
     rpc.notify("initialized", {});
@@ -647,9 +651,9 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
       await rpc.request("initialize", {
         clientInfo: {
-          name: "aify-claude",
-          title: "aify-claude dispatch bridge",
-          version: "3.6.5",
+          name: "aify-comms",
+          title: "aify-comms dispatch bridge",
+        version: "3.6.6",
         },
       });
       rpc.notify("initialized", {});
@@ -660,7 +664,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           cwd,
           approvalPolicy,
           personality: "friendly",
-          serviceName: "aify-claude",
+          serviceName: "aify-comms",
         };
         let started;
         try {

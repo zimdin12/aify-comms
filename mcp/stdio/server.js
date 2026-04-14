@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 //
-// claude-code-mcp -- MCP server for inter-agent communication between Claude Code instances.
+// aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
-// 24 tools (all prefixed "cc_"):
-//   cc_register, cc_spawn_agent, cc_agents, cc_status, cc_send, cc_dispatch, cc_inbox, cc_search,
-//   cc_share, cc_read, cc_files,
-//   cc_channel_create, cc_channel_join, cc_channel_send, cc_channel_read, cc_channel_list,
-//   cc_agent_info, cc_listen, cc_unsend, cc_run_status, cc_run_interrupt, cc_run_steer,
-//   cc_clear, cc_dashboard
+// 24 tools (all prefixed "comms_"):
+//   comms_register, comms_spawn_agent, comms_agents, comms_status, comms_send, comms_dispatch, comms_inbox, comms_search,
+//   comms_share, comms_read, comms_files,
+//   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,
+//   comms_agent_info, comms_listen, comms_unsend, comms_run_status, comms_run_interrupt, comms_run_steer,
+//   comms_clear, comms_dashboard
 //
 // Modes:
 //   - Remote: set CLAUDE_MCP_SERVER_URL (e.g. http://localhost:8800) to use HTTP server
@@ -503,19 +503,19 @@ async function processRunControls(agentId, activeRun) {
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
 const server = new McpServer({
-  name: "claude-code-mcp",
-  version: "3.6.5",
+  name: "aify-comms-mcp",
+  version: "3.6.6",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 1. cc_register -- Register agent with ID, role, name, cwd, model, instructions
+// 1. comms_register -- Register agent with ID, role, name, cwd, model, instructions
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_register",
+  "comms_register",
   "Register this agent instance. " +
     "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
-    "Managed workers should be created with cc_spawn_agent when you want a dedicated detached executor.",
+    "Managed workers should be created with comms_spawn_agent when you want a dedicated detached executor.",
   {
     agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
     role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
@@ -651,7 +651,7 @@ server.tool(
               resolvedRuntime === "codex" &&
               hasCodexLiveAppServer(runtimeConfig) &&
               !resolvedSessionHandle
-                ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run cc_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
+                ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
                 : ""
             ),
         }],
@@ -689,7 +689,7 @@ server.tool(
             resolvedRuntime === "codex" &&
             hasCodexLiveAppServer(runtimeConfig) &&
             !resolvedSessionHandle
-              ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run cc_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
+              ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
               : ""
           ),
       }],
@@ -698,7 +698,7 @@ server.tool(
 );
 
 server.tool(
-  "cc_spawn_agent",
+  "comms_spawn_agent",
   "Create a managed worker agent on this machine. Managed workers are the triggerable path for Codex/Claude runtimes and keep their own runtime state between dispatched runs.",
   {
     from: z.string().describe("Owning agent ID"),
@@ -831,11 +831,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2. cc_agents -- List all agents with unread counts
+// 2. comms_agents -- List all agents with unread counts
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_agents",
+  "comms_agents",
   "List all registered agents, their roles, and unread message counts.",
   {},
   async () => {
@@ -863,11 +863,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2b. cc_status -- Update your agent status
+// 2b. comms_status -- Update your agent status
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_status",
+  "comms_status",
   "Update your status. Use note to say what you're working on (e.g. status='working', note='NRD pipeline').",
   {
     agentId: z.string().describe("Your agent ID"),
@@ -896,11 +896,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 3. cc_send -- Send message to agent by ID or role, with optional trigger
+// 3. comms_send -- Send message to agent by ID or role, with optional trigger
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_send",
+  "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
     "By default this also requests active work on the target agent. Pass silent=true for a message-only send. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; managed workers remain the detached fallback.",
@@ -938,7 +938,7 @@ server.tool(
           content: [{
             type: "text",
             text:
-              `Sent + queued dispatch for ${queued.join(", ") || "no launchable recipients"}. Use cc_run_status(...) to inspect progress. No reply message will be sent unless the target sends one explicitly.` +
+              `Sent + queued dispatch for ${queued.join(", ") || "no launchable recipients"}. Use comms_run_status(...) to inspect progress. No reply message will be sent unless the target sends one explicitly.` +
               (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
           }],
         };
@@ -1021,7 +1021,7 @@ server.tool(
 );
 
 server.tool(
-  "cc_dispatch",
+  "comms_dispatch",
   "Send a task and queue active runtime dispatch for a triggerable resident session or managed worker.",
   {
     from: z.string().describe("Your agent ID"),
@@ -1043,7 +1043,7 @@ server.tool(
 
     if (!IS_REMOTE) {
       return {
-        content: [{ type: "text", text: "cc_dispatch currently requires remote server mode. Use cc_send(...) in local mode, or cc_send(silent=true) for message-only delivery." }],
+        content: [{ type: "text", text: "comms_dispatch currently requires remote server mode. Use comms_send(...) in local mode, or comms_send(silent=true) for message-only delivery." }],
         isError: true,
       };
     }
@@ -1082,14 +1082,14 @@ server.tool(
         text:
           `Queued ${r.runs?.length || 0} dispatch run(s):\n${lines.join("\n") || "- none"}` +
           (skipped.length ? `\n\nNot started:\n${skipped.join("\n")}` : "") +
-          `\n\nUse cc_run_status(...) to inspect progress. No reply message will be sent unless the target sends one explicitly.`,
+          `\n\nUse comms_run_status(...) to inspect progress. No reply message will be sent unless the target sends one explicitly.`,
       }],
     };
   }
 );
 
 server.tool(
-  "cc_run_status",
+  "comms_run_status",
   "Check the status of a dispatched run.",
   {
     runId: z.string().describe("Dispatch run ID"),
@@ -1129,7 +1129,7 @@ server.tool(
 );
 
 server.tool(
-  "cc_run_interrupt",
+  "comms_run_interrupt",
   "Request interruption of an active dispatched run. Returns a control request ID.",
   {
     runId: z.string().describe("Dispatch run ID"),
@@ -1154,7 +1154,7 @@ server.tool(
 );
 
 server.tool(
-  "cc_run_steer",
+  "comms_run_steer",
   "Request additional guidance for an active dispatched run. The target runtime will apply it if steer is supported.",
   {
     runId: z.string().describe("Dispatch run ID"),
@@ -1260,11 +1260,11 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 4. cc_inbox -- Check inbox, unread only by default
+// 4. comms_inbox -- Check inbox, unread only by default
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_inbox",
+  "comms_inbox",
   "Check your inbox. Returns only UNREAD messages by default (limit 20). " +
     "Messages are automatically marked as read after viewing.",
   {
@@ -1326,11 +1326,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5. cc_search -- Search inbox messages and shared artifacts by keyword
+// 5. comms_search -- Search inbox messages and shared artifacts by keyword
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_search",
+  "comms_search",
   "Search inbox messages and shared artifacts by keyword.",
   {
     agentId: z.string().optional().describe("Search this agent's inbox (omit to search shared only)"),
@@ -1421,11 +1421,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5b. cc_agent_info -- Check another agent's status and last read message
+// 5b. comms_agent_info -- Check another agent's status and last read message
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_agent_info",
+  "comms_agent_info",
   "Check another agent's current status, unread count, and last message they read. " +
     "Useful for knowing if they've seen your message.",
   {
@@ -1478,11 +1478,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5d. cc_listen -- Block until messages arrive (replaces polling)
+// 5d. comms_listen -- Block until messages arrive (replaces polling)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_listen",
+  "comms_listen",
   "Wait for incoming messages. Blocks until a message arrives or timeout. " +
     "Call this when you're idle — it replaces polling loops. " +
     "Returns immediately if you already have unread messages.",
@@ -1502,7 +1502,7 @@ server.tool(
         const res = await fetch(url, options);
         const r = await res.json();
         if (!r.messages || r.messages.length === 0) {
-          return { content: [{ type: "text", text: "No messages received (timeout). Call cc_listen again to keep waiting." }] };
+          return { content: [{ type: "text", text: "No messages received (timeout). Call comms_listen again to keep waiting." }] };
         }
         const registry = {};
         try { const a = await httpCall("GET", "/agents"); registry.agents = a.agents; } catch {}
@@ -1512,7 +1512,7 @@ server.tool(
         };
       } catch (e) {
         if (e.name === "TimeoutError" || e.name === "AbortError" || /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket/i.test(e.message)) {
-          return { content: [{ type: "text", text: "No messages received (connection interrupted). Call cc_listen again to keep waiting." }] };
+          return { content: [{ type: "text", text: "No messages received (connection interrupted). Call comms_listen again to keep waiting." }] };
         }
         return { content: [{ type: "text", text: `Listen error: ${e.message}` }], isError: true };
       }
@@ -1537,16 +1537,16 @@ server.tool(
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
-    return { content: [{ type: "text", text: "No messages received (timeout). Call cc_listen again to keep waiting." }] };
+    return { content: [{ type: "text", text: "No messages received (timeout). Call comms_listen again to keep waiting." }] };
   }
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5c. cc_unsend -- Delete a message by ID
+// 5c. comms_unsend -- Delete a message by ID
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_unsend",
+  "comms_unsend",
   "Delete a sent message by its ID.",
   {
     messageId: z.string().describe("The message ID to delete"),
@@ -1579,11 +1579,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 6. cc_share -- Share text content or file to shared space
+// 6. comms_share -- Share text content or file to shared space
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_share",
+  "comms_share",
   "Share an artifact (code, results, images, any file) with other agents. " +
     "Pass text content directly, or a file path for images/binaries.",
   {
@@ -1658,11 +1658,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 7. cc_read -- Read a shared artifact
+// 7. comms_read -- Read a shared artifact
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_read",
+  "comms_read",
   "Read a shared artifact by name.",
   {
     name: z.string().describe("Artifact name to read"),
@@ -1735,11 +1735,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 8. cc_files -- List shared artifacts
+// 8. comms_files -- List shared artifacts
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_files",
+  "comms_files",
   "List all shared artifacts.",
   {},
   async () => {
@@ -1772,11 +1772,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 9. cc_channel_create -- Create a channel (group chat)
+// 9. comms_channel_create -- Create a channel (group chat)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_channel_create",
+  "comms_channel_create",
   "Create a new channel (group chat) for multiple agents to communicate.",
   {
     name: z.string().describe("Channel name (e.g. 'backend-team', 'code-review')"),
@@ -1810,11 +1810,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 10. cc_channel_join -- Join a channel
+// 10. comms_channel_join -- Join a channel
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_channel_join",
+  "comms_channel_join",
   "Join a channel yourself, or add another agent to a channel.",
   {
     channel: z.string().describe("Channel name to join"),
@@ -1850,11 +1850,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 11. cc_channel_send -- Send message to channel
+// 11. comms_channel_send -- Send message to channel
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_channel_send",
+  "comms_channel_send",
   "Send a message to a channel. All members will see it.",
   {
     channel: z.string().describe("Channel name"),
@@ -1901,11 +1901,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 12. cc_channel_read -- Read channel messages
+// 12. comms_channel_read -- Read channel messages
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_channel_read",
+  "comms_channel_read",
   "Read recent messages from a channel.",
   {
     channel: z.string().describe("Channel name"),
@@ -1947,11 +1947,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 13. cc_channel_list -- List all channels
+// 13. comms_channel_list -- List all channels
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_channel_list",
+  "comms_channel_list",
   "List all channels.",
   {},
   async () => {
@@ -1977,11 +1977,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 14. cc_clear -- Clear inbox/shared/agents/all with optional age filter
+// 14. comms_clear -- Clear inbox/shared/agents/all with optional age filter
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_clear",
+  "comms_clear",
   "Clear messages, shared files, agents, or everything. Optional age filter.",
   {
     target: z.enum(["inbox", "shared", "agents", "all"]).describe("What to clear"),
@@ -2060,11 +2060,11 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 15. cc_dashboard -- Open dashboard in browser
+// 15. comms_dashboard -- Open dashboard in browser
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
-  "cc_dashboard",
+  "comms_dashboard",
   "Open the dashboard in a browser. Remote mode opens the server dashboard URL. " +
     "Local mode generates a minimal HTML file with current state.",
   {
@@ -2162,7 +2162,7 @@ th{background:#21262d;color:#8b949e}tr:hover{background:#1c2128}
 <h2>Agents</h2>${agents.length ? `<table><tr><th>ID</th><th>Role</th><th>Name</th><th>Unread</th><th>Last Seen</th></tr>${agentRows}</table>` : "<p>No agents.</p>"}
 <h2>Messages (last 50)</h2>${allMessages.length ? `<table><tr><th>Time</th><th>From</th><th>To</th><th>Type</th><th>Subject</th></tr>${msgRows}</table>` : "<p>No messages.</p>"}
 <h2>Shared Files</h2>${sharedFiles.length ? `<table><tr><th>Name</th><th>From</th><th>Size</th><th>Description</th></tr>${fileRows}</table>` : "<p>No files.</p>"}
-<p style="color:#484f58;text-align:center;margin-top:30px">Snapshot. Run cc_dashboard again to refresh.</p>
+<p style="color:#484f58;text-align:center;margin-top:30px">Snapshot. Run comms_dashboard again to refresh.</p>
 </body></html>`;
 
     const dashPath = path.join(MESSAGES_DIR, "dashboard.html");
@@ -2188,7 +2188,7 @@ th{background:#21262d;color:#8b949e}tr:hover{background:#1c2128}
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("claude-code-mcp v3.2 running on stdio");
+  console.error("aify-comms-mcp v3.6.6 running on stdio");
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
 }

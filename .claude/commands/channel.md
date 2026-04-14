@@ -1,18 +1,18 @@
 # channel
 
 Manage channels (group chats). Usage:
-- `/aify-claude:channel create <name> [description]` — Create a channel
-- `/aify-claude:channel join <name>` — Join a channel
-- `/aify-claude:channel send <name> <message>` — Send to a channel
-- `/aify-claude:channel read <name>` — Read recent messages
-- `/aify-claude:channel list` — List all channels
+- `/aify-comms:channel create <name> [description]` — Create a channel
+- `/aify-comms:channel join <name>` — Join a channel
+- `/aify-comms:channel send <name> <message>` — Send to a channel
+- `/aify-comms:channel read <name>` — Read recent messages
+- `/aify-comms:channel list` — List all channels
 
 ## Arguments
 - `$ARGUMENTS` — action and parameters
 
 ## Instructions
 Parse the first word as the action (create/join/send/read/list).
-Call the corresponding cc_channel_* tool.
+Call the corresponding comms_channel_* tool.
 For "create": second word = name, rest = description.
 For "join": second word = channel name.
 For "send": second word = channel, rest = message body.
