@@ -65,7 +65,9 @@ Important:
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If the session was started with `codex-aify`, resident Codex wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`.
 - In `codex-live`, the injected task and the final answer will appear in the visible Codex session. That is expected. Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
-- If `codex-aify` is running but `comms_agent_info(...)` still does not show `codex-live`, re-register once more with `runtime="codex"`. If the live thread still is not auto-detected, pass `sessionHandle="$CODEX_THREAD_ID"` explicitly from that same session.
+- If `codex-aify` is running, prefer the exact live registration from that same session: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")`.
+- If those live env vars are unavailable, try `comms_register(..., runtime="codex")`.
+- If bare registration still does not show `codex-live`, re-register with `sessionHandle="$CODEX_THREAD_ID"` from that same session.
 - If the session was started with plain `codex`, resident Codex still falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `comms_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
