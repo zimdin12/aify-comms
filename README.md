@@ -82,6 +82,8 @@ If that still reports `message-only` from inside a `codex-aify` session, use:
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
+That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register.
+
 ### Typical usage
 
 After install, the common flow is:

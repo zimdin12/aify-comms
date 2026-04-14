@@ -47,6 +47,8 @@ If that still reports `message-only` or does not flip to `codex-live`, use the d
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID")
 ```
 
+That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the `cwd` you register.
+
 ## WSL Note
 
 - If Codex CLI lives in WSL, run the installer from WSL too.

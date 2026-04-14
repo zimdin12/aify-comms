@@ -3,6 +3,7 @@ import { spawn } from "child_process";
 import readline from "readline";
 import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
+import { listRuntimeMarkers } from "./runtime-markers.js";
 
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
@@ -419,6 +420,64 @@ function pickNewestCodexThreadId(listResult, cwd) {
   return String(candidates[0]?.id || "").trim();
 }
 
+async function fetchCodexThreadList(rpc) {
+  try {
+    return await rpc.request("thread/list", { limit: 20, sourceKinds: ["cli", "vscode"] }, 5000);
+  } catch {
+    return await rpc.request("thread/list", {}, 5000);
+  }
+}
+
+function codexMarkerToRuntimeConfig(marker = {}) {
+  const runtimeConfig = {};
+  const appServerUrl = String(marker.appServerUrl || "").trim();
+  const remoteAuthTokenEnv = String(marker.remoteAuthTokenEnv || "").trim();
+  if (appServerUrl) runtimeConfig.appServerUrl = appServerUrl;
+  if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
+  return runtimeConfig;
+}
+
+async function inspectCodexLiveMarker(marker, cwd = process.cwd()) {
+  const runtimeConfig = codexMarkerToRuntimeConfig(marker);
+  if (!hasCodexLiveAppServer(runtimeConfig)) return null;
+
+  const remoteAuthTokenEnv = String(runtimeConfig.remoteAuthTokenEnv || "").trim();
+  const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
+  let rpc = null;
+
+  try {
+    rpc = await createWebSocketRpcClient(runtimeConfig.appServerUrl, {
+      token: remoteAuthToken || undefined,
+    });
+    await rpc.request("initialize", {
+      clientInfo: {
+        name: "aify-comms",
+        title: "aify-comms marker inspector",
+        version: "3.6.6",
+      },
+    });
+    rpc.notify("initialized", {});
+
+    const listResult = await fetchCodexThreadList(rpc);
+    const threads = Array.isArray(listResult?.threads) ? listResult.threads : [];
+    return {
+      marker,
+      runtimeConfig,
+      threads,
+      preferredThreadId: pickNewestCodexThreadId(listResult, cwd),
+      fallbackThreadId: pickNewestCodexThreadId(listResult, ""),
+    };
+  } catch {
+    return null;
+  } finally {
+    try {
+      rpc?.close?.();
+    } catch {
+      // best effort
+    }
+  }
+}
+
 export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = process.cwd()) {
   if (!hasCodexLiveAppServer(runtimeConfig)) return "";
   const appServerUrl = String(runtimeConfig?.appServerUrl || "").trim();
@@ -439,13 +498,7 @@ export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = proces
       },
     });
     rpc.notify("initialized", {});
-
-    let result = null;
-    try {
-      result = await rpc.request("thread/list", { limit: 20, sourceKinds: ["cli", "vscode"] }, 5000);
-    } catch {
-      result = await rpc.request("thread/list", {}, 5000);
-    }
+    const result = await fetchCodexThreadList(rpc);
     return pickNewestCodexThreadId(result, cwd);
   } catch {
     return "";
@@ -456,6 +509,62 @@ export async function discoverCodexLiveThreadId(runtimeConfig = {}, cwd = proces
       // best effort
     }
   }
+}
+
+export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = process.cwd() } = {}) {
+  const normalizedSessionHandle = String(sessionHandle || "").trim();
+  const normalizedCwd = String(cwd || "").trim() || process.cwd();
+  const markers = listRuntimeMarkers("codex").filter((marker) =>
+    hasCodexLiveAppServer(codexMarkerToRuntimeConfig(marker)),
+  );
+  if (!markers.length) return null;
+
+  const inspected = [];
+  for (const marker of markers) {
+    const info = await inspectCodexLiveMarker(marker, normalizedCwd);
+    if (!info) continue;
+    inspected.push(info);
+
+    if (
+      normalizedSessionHandle &&
+      info.threads.some((thread) => String(thread?.id || "").trim() === normalizedSessionHandle)
+    ) {
+      return {
+        runtimeConfig: info.runtimeConfig,
+        threadId: normalizedSessionHandle,
+        ambiguous: false,
+      };
+    }
+  }
+
+  if (!inspected.length) return null;
+
+  const byCwd = inspected.filter((info) => String(info.preferredThreadId || "").trim());
+  if (!normalizedSessionHandle && byCwd.length === 1) {
+    return {
+      runtimeConfig: byCwd[0].runtimeConfig,
+      threadId: String(byCwd[0].preferredThreadId || "").trim(),
+      ambiguous: false,
+    };
+  }
+
+  if (!normalizedSessionHandle && !byCwd.length && inspected.length === 1) {
+    return {
+      runtimeConfig: inspected[0].runtimeConfig,
+      threadId: String(inspected[0].fallbackThreadId || "").trim(),
+      ambiguous: false,
+    };
+  }
+
+  if (!normalizedSessionHandle && byCwd.length > 1) {
+    return {
+      runtimeConfig: null,
+      threadId: "",
+      ambiguous: true,
+    };
+  }
+
+  return null;
 }
 
 function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {

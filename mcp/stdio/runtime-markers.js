@@ -28,10 +28,32 @@ function markerHash(cwd) {
   return createHash("sha256").update(String(cwd || "").trim()).digest("hex");
 }
 
-export function markerFilePath(runtime, cwd) {
+function markerPrefix(runtime, cwd) {
   const normalizedRuntime = normalizeRuntime(runtime);
   const resolvedCwd = String(cwd || "").trim() || process.cwd();
-  return path.join(markerBaseDir(), `${normalizedRuntime}-${markerHash(resolvedCwd)}.json`);
+  return `${normalizedRuntime}-${markerHash(resolvedCwd)}`;
+}
+
+function normalizeMarkerId(markerId) {
+  const text = String(markerId ?? process.pid).trim();
+  return text.replace(/[^a-zA-Z0-9._-]/g, "_") || String(process.pid);
+}
+
+function listMarkerFiles(runtime, cwd = "") {
+  const normalizedRuntime = normalizeRuntime(runtime);
+  const prefix = cwd ? `${markerPrefix(normalizedRuntime, cwd)}-` : `${normalizedRuntime}-`;
+  try {
+    return fs
+      .readdirSync(markerBaseDir())
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+export function markerFilePath(runtime, cwd, markerId = process.pid) {
+  return path.join(markerBaseDir(), `${markerPrefix(runtime, cwd)}-${normalizeMarkerId(markerId)}.json`);
 }
 
 export function isProcessAlive(pid) {
@@ -46,30 +68,47 @@ export function isProcessAlive(pid) {
 }
 
 export function readRuntimeMarker(runtime, cwd) {
-  const file = markerFilePath(runtime, cwd);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    if (!parsed || typeof parsed !== "object") return null;
-    if (!isProcessAlive(parsed.pid)) {
-      try {
-        fs.unlinkSync(file);
-      } catch {
-        // best effort
+  const markers = listRuntimeMarkers(runtime, cwd);
+  if (!markers.length) return null;
+  markers.sort((a, b) => {
+    const aTime = Date.parse(String(a.createdAt || "")) || 0;
+    const bTime = Date.parse(String(b.createdAt || "")) || 0;
+    return bTime - aTime;
+  });
+  return markers[0];
+}
+
+export function listRuntimeMarkers(runtime, cwd = "") {
+  const files = listMarkerFiles(runtime, cwd);
+  const markers = [];
+  for (const name of files) {
+    const file = path.join(markerBaseDir(), name);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+      if (!parsed || typeof parsed !== "object") continue;
+      if (!isProcessAlive(parsed.pid)) {
+        try {
+          fs.unlinkSync(file);
+        } catch {
+          // best effort
+        }
+        continue;
       }
-      return null;
+      markers.push(parsed);
+    } catch {
+      // ignore unreadable markers
     }
-    return parsed;
-  } catch {
-    return null;
   }
+  return markers;
 }
 
 export function writeRuntimeMarker(runtime, cwd, data = {}) {
-  const file = markerFilePath(runtime, cwd);
+  const file = markerFilePath(runtime, cwd, data?.markerId || process.pid);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const payload = {
     runtime: normalizeRuntime(runtime),
     cwd: String(cwd || "").trim() || process.cwd(),
+    markerId: normalizeMarkerId(data?.markerId || process.pid),
     pid: process.pid,
     createdAt: new Date().toISOString(),
     ...data,
@@ -79,11 +118,20 @@ export function writeRuntimeMarker(runtime, cwd, data = {}) {
 }
 
 export function removeRuntimeMarker(runtime, cwd) {
-  const file = markerFilePath(runtime, cwd);
+  const file = markerFilePath(runtime, cwd, process.pid);
   try {
     fs.unlinkSync(file);
   } catch {
-    // best effort
+    for (const name of listMarkerFiles(runtime, cwd)) {
+      const candidate = path.join(markerBaseDir(), name);
+      try {
+        const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8"));
+        if (String(parsed?.markerId || "") !== normalizeMarkerId(process.pid) && Number(parsed?.pid || 0) !== process.pid) continue;
+        fs.unlinkSync(candidate);
+      } catch {
+        // best effort
+      }
+    }
   }
   return file;
 }

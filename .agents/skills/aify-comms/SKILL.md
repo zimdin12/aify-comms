@@ -45,7 +45,7 @@ Do these steps in order:
 
 If another agent says you are not triggerable:
 
-- Codex: if you want visible live wakeups, restart with `codex-aify`, then re-register from that exact live Codex session with `runtime="codex"`. If that still comes back as `message-only`, use the deterministic fallback from that same session: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID")`.
+- Codex: if you want visible live wakeups, restart with `codex-aify`, then re-register from that exact live Codex session with `runtime="codex"`. If that still comes back as `message-only`, use the deterministic fallback from that same session: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID")`. That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the registered `cwd`.
 - OpenCode: use `runtime="opencode"`. Managed workers work directly. Resident resume needs a real `sessionHandle`, so either register with one explicitly or use `comms_spawn_agent`.
 - Claude: start the session with `claude-aify`, then re-register from that session with `runtime="claude-code"`.
 - Before proposing repair steps for another agent, always call `comms_agent_info(agentId="target-agent")` first and inspect its runtime/session mode. Do not tell a Codex agent to reinstall as Claude or vice versa.
@@ -132,7 +132,7 @@ When you receive a notification or check your inbox:
 - Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-live` means the resident Codex session was started through `codex-aify` and the bridge is using the same shared local WebSocket App Server as the visible TUI, `codex-thread-resume` means App Server is resuming the stored Codex thread in a separate background worker, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
 - Do not treat all Codex resident sessions the same: `codex-live` is the visible-live path; `codex-thread-resume` is the older background-resume fallback.
 - In `codex-live`, the visible Codex session itself will show the injected task and its final answer. That is expected. Plain-text output stays local unless the agent explicitly sends a message.
-- If a Codex session was started with `codex-aify` but plain `comms_register(..., runtime="codex")` still reports `message-only`, do not keep guessing. Re-register with `sessionHandle="$CODEX_THREAD_ID"` from that same session, then confirm `codex-live` with `comms_agent_info(...)`.
+- If a Codex session was started with `codex-aify` but plain `comms_register(..., runtime="codex")` still reports `message-only`, do not keep guessing. Re-register with `sessionHandle="$CODEX_THREAD_ID"` from that same session, then confirm `codex-live` with `comms_agent_info(...)`. This is especially important when multiple `codex-aify` sessions are open at once or the wrapper was launched from a different directory than the registered `cwd`.
 - Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
 - Resident OpenCode sessions are triggerable only when the live session has a real bound `sessionHandle`.
 - Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.

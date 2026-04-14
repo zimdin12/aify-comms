@@ -22,13 +22,14 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import { loadSettingsEnv } from "./load-env.js";
-import { readRuntimeMarker } from "./runtime-markers.js";
+import { listRuntimeMarkers, readRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
   defaultCapabilitiesForRuntime,
   defaultSessionHandleForRuntime,
   defaultMachineId,
   detectRuntime,
+  discoverCodexLiveBinding,
   discoverCodexLiveThreadId,
   hasCodexLiveAppServer,
   launchRuntimeRun,
@@ -160,6 +161,10 @@ function normalizeSessionMode(mode) {
 function resolvedRuntimeMarker(runtime, cwd) {
   const normalizedRuntime = normalizeRuntime(runtime || "generic");
   const resolvedCwd = String(cwd || DEFAULT_CWD || process.cwd()).trim() || process.cwd();
+  if (normalizedRuntime === "codex") {
+    const liveMarkers = listRuntimeMarkers(normalizedRuntime, resolvedCwd);
+    if (liveMarkers.length > 1) return null;
+  }
   return readRuntimeMarker(normalizedRuntime, resolvedCwd);
 }
 
@@ -537,15 +542,30 @@ server.tool(
     const resolvedSessionMode = normalizeSessionMode(sessionMode);
     const previousInfo = REMOTE_AGENT_STATE.get(agentId)?.info;
     const resolvedCwd = cwd || DEFAULT_CWD;
-    const runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
+    const initialSessionHandle =
+      sessionHandle ||
+      defaultSessionHandleForRuntime(resolvedRuntime) ||
+      previousInfo?.sessionHandle ||
+      "";
+    let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
+    let codexLiveBinding = null;
+    if (resolvedRuntime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
+      codexLiveBinding = await discoverCodexLiveBinding({
+        sessionHandle: initialSessionHandle,
+        cwd: resolvedCwd,
+      });
+      if (codexLiveBinding?.runtimeConfig) {
+        runtimeConfig = { ...runtimeConfig, ...codexLiveBinding.runtimeConfig };
+      }
+    }
     const discoveredCodexThreadId =
       resolvedRuntime === "codex" && hasCodexLiveAppServer(runtimeConfig)
-        ? await discoverCodexLiveThreadId(runtimeConfig, resolvedCwd)
+        ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, resolvedCwd))
         : "";
     const resolvedSessionHandle =
       sessionHandle ||
       discoveredCodexThreadId ||
-      defaultSessionHandleForRuntime(resolvedRuntime) ||
+      initialSessionHandle ||
       previousInfo?.sessionHandle ||
       "";
     const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle, runtimeConfig);
@@ -652,7 +672,12 @@ server.tool(
               hasCodexLiveAppServer(runtimeConfig) &&
               !resolvedSessionHandle
                 ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
-                : ""
+                : (
+                  resolvedRuntime === "codex" &&
+                  codexLiveBinding?.ambiguous
+                    ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same live session.`
+                    : ""
+                )
             ),
         }],
       };
@@ -690,7 +715,12 @@ server.tool(
             hasCodexLiveAppServer(runtimeConfig) &&
             !resolvedSessionHandle
               ? ` Live Codex app-server detected, but no thread was auto-bound. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same codex-aify session.`
-              : ""
+              : (
+                resolvedRuntime === "codex" &&
+                codexLiveBinding?.ambiguous
+                  ? ` Multiple live codex-aify sessions matched this registration, so aify could not safely auto-bind one. Re-run comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID") from that same live session.`
+                  : ""
+              )
           ),
       }],
     };
