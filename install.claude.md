@@ -22,9 +22,9 @@ Restart Claude Code after install.
 
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
-- `cc_register` creates a resident session for messaging/presence.
-- `cc_spawn_agent` creates a managed worker, which is the reliable triggerable path for Codex/Claude.
-- If the owning stdio bridge is closed, queued managed-worker runs wait until that bridge reconnects.
+- `cc_register` creates a resident session for messaging/presence and stores runtime/session metadata for future resident-trigger support.
+- `cc_spawn_agent` creates a managed worker, which is still the reliable triggerable path for Claude today.
+- If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
 
 ## What This Installs
 

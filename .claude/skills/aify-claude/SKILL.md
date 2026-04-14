@@ -95,9 +95,9 @@ When you receive a notification or check your inbox:
 ## Agent Workflow
 
 - Use `cc_send` for normal conversation, coordination, quick asks, and status updates.
-- Use `cc_spawn_agent` when you need a triggerable worker with its own durable runtime state.
-- Use `cc_dispatch` when you want a managed worker to start immediately and return a result.
-- `cc_send(trigger=true)` is the lightweight "deliver + try active work" version; managed workers are the reliable target.
+- Use `cc_spawn_agent` when you need a detached triggerable worker with its own durable runtime state.
+- Use `cc_dispatch` when you want a triggerable resident Codex session or managed worker to start immediately and return a result.
+- `cc_send(trigger=true)` is the lightweight "deliver + try active work" version; resident Codex sessions with a bound `thread.id` can be triggered directly, while managed workers remain the reliable detached target.
 - Use `cc_run_interrupt` when a run is going in the wrong direction or should stop early.
 - Use `cc_run_steer` to refine an active Codex run without starting over.
 - Use channels for shared workstreams like `frontend-team`, `release-war-room`, or `bug-bash`.
@@ -109,9 +109,10 @@ When you receive a notification or check your inbox:
 
 - `stdio` install: full experience, including active dispatch and local runtime launch.
 - `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch.
-- Resident sessions are best for presence, inbox, channels, and file sharing.
-- Managed workers are best for active execution and cross-machine triggering.
-- If the owning stdio bridge is closed, managed-worker runs stay queued until that bridge reconnects and claims them.
+- Resident Codex sessions are best when you want the existing live thread to be directly triggerable.
+- Resident Claude sessions are still best for presence, inbox, channels, and file sharing until the live-session channel trigger path is enabled.
+- Managed workers are best for active execution, unattended work, and cross-machine triggering.
+- If the owning stdio bridge is closed, queued resident/managed runs stay queued until that bridge reconnects and claims them.
 
 ## Recommended Roles
 

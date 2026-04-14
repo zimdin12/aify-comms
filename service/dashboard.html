@@ -117,7 +117,7 @@ tr:hover{background:#1c2128}
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
   <h1>aify-claude</h1>
-  <div class="ver">v3.2.0</div>
+  <div class="ver">v3.3.0</div>
   <div class="nav">
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active">Dashboard</a>
     <a onclick="showPage('channels')" id="nav-channels">Channels</a>
@@ -240,7 +240,7 @@ bash install.sh --client claude http://localhost:8800 --with-hook</pre>
 cd ~/aify-claude
 bash install.sh --client codex http://localhost:8800 --with-hook</pre>
       <p>Restart the client after install. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex work themselves.</p>
-      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge. Today, Codex and Claude managed workers are the reliable trigger path; resident sessions are primarily for messaging, inbox, channels, and presence.</p>
+      <p><b>Resident vs managed:</b> <code>cc_register</code> binds the exact live session you have open. Resident Codex sessions become directly triggerable when aify captures a real <code>thread.id</code> and can resume it through <code>codex app-server</code>. <code>cc_spawn_agent</code> creates a managed worker owned by that machine/bridge for detached/background execution. Resident Claude sessions are still primarily for messaging, inbox, channels, and presence until the Claude live-session trigger path is enabled. On Windows, desktop Codex and WSL Codex use different thread stores, so resident triggering only works when the bridge talks to the same store that created the session.</p>
 
       <h3>Tools (24 stdio / 19 SSE)</h3>
       <ul>
@@ -263,7 +263,7 @@ bash install.sh --client codex http://localhost:8800 --with-hook</pre>
         <li><code>GET /api/v1/messages/inbox/{id}</code> — Check inbox (replies include parent context)</li>
         <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
         <li><code>POST /api/v1/agents/spawn</code> — Create a managed worker on a specific machine</li>
-        <li><code>POST /api/v1/dispatch</code> — Queue active work for managed workers / triggerable agents</li>
+        <li><code>POST /api/v1/dispatch</code> — Queue active work for triggerable resident sessions or managed workers</li>
         <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a dispatch run, events, and controls</li>
         <li><code>POST /api/v1/dispatch/runs/{id}/control</code> — Request interrupt or steer for an active run</li>
         <li><code>GET/POST /api/v1/channels</code> — Channels</li>

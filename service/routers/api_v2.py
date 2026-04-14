@@ -110,15 +110,20 @@ def _dedupe_preserve(values: list[str]) -> list[str]:
     return result
 
 
-def _default_capabilities_for(runtime: str, session_mode: str) -> list[str]:
+def _default_capabilities_for(runtime: str, session_mode: str, session_handle: str = "") -> list[str]:
     normalized_runtime = _normalize_runtime(runtime)
     normalized_session_mode = _normalize_session_mode(session_mode)
-    if normalized_session_mode != "managed":
+    session_handle = str(session_handle or "").strip()
+    if normalized_session_mode == "managed":
+        if normalized_runtime == "codex":
+            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
+        if normalized_runtime == "claude-code":
+            return ["managed-run", "resume", "interrupt", "spawn"]
+        return []
+    if not session_handle:
         return []
     if normalized_runtime == "codex":
-        return ["managed-run", "resume", "interrupt", "steer", "spawn"]
-    if normalized_runtime == "claude-code":
-        return ["managed-run", "resume", "interrupt", "spawn"]
+        return ["resident-run", "resume", "interrupt", "steer"]
     return []
 
 
@@ -136,24 +141,31 @@ def _row_capabilities(row) -> list[str]:
     return _json_loads_or(row["capabilities"], [])
 
 
-def _agent_launch_reason(row, requested_runtime: Optional[str] = None) -> Optional[str]:
+def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
+    session_handle = str(row["session_handle"] or "").strip()
     if requested_runtime and _normalize_runtime(requested_runtime) != runtime:
-        return f'requested runtime "{requested_runtime}" does not match registered runtime "{runtime}"'
+        return None, f'requested runtime "{requested_runtime}" does not match registered runtime "{runtime}"'
     if runtime not in _LAUNCHABLE_RUNTIMES:
-        return f'runtime "{runtime}" does not support active dispatch'
-    if session_mode != "managed":
-        return (
-            f'agent "{row["id"]}" is a resident session, not a managed worker. '
-            "Use cc_spawn_agent to create a triggerable worker."
-        )
-    if (row["launch_mode"] or "detached") == "none":
-        return "launch mode is disabled"
+        return None, f'runtime "{runtime}" does not support active dispatch'
     capabilities = _row_capabilities(row)
-    if capabilities and "managed-run" not in capabilities:
-        return 'agent capabilities do not include "managed-run"'
-    return None
+    if session_mode == "managed":
+        if (row["launch_mode"] or "detached") == "none":
+            return None, "launch mode is disabled"
+        if capabilities and "managed-run" not in capabilities:
+            return None, 'agent capabilities do not include "managed-run"'
+        return "managed", None
+    if not session_handle:
+        return None, (
+            f'agent "{row["id"]}" is a resident session without a bound session handle. '
+            "Re-register that live session or provide sessionHandle explicitly."
+        )
+    if capabilities and "resident-run" not in capabilities:
+        return None, 'agent capabilities do not include "resident-run"'
+    if (row["launch_mode"] or "detached") == "none":
+        return None, "launch mode is disabled"
+    return "resident", None
 
 
 def _agent_record_to_dict(row, status: str, unread: int):
@@ -292,7 +304,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.2.0",
+        "version": "3.3.0",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -342,10 +354,14 @@ async def register_agent(req: AgentRegister, request: Request):
         normalized_session_mode = _normalize_session_mode(req.sessionMode or "resident")
         now = _now()
         existing_state = "{}"
-        existing = await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (req.agentId,))
+        existing = await db.execute("SELECT runtime_state, session_handle, capabilities, registered_at FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
         if row and row["runtime_state"]:
             existing_state = row["runtime_state"]
+        session_handle = req.sessionHandle or (row["session_handle"] if row else "") or ""
+        capabilities = req.capabilities
+        if capabilities is None:
+            capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle)
         await db.execute(
             """
             INSERT OR REPLACE INTO agents (
@@ -358,9 +374,9 @@ async def register_agent(req: AgentRegister, request: Request):
                 req.agentId, req.role, req.name or req.agentId, req.cwd or "", req.model or "",
                 req.instructions or "", req.status or "idle", normalized_runtime,
                 req.machineId or "", req.launchMode or "detached",
-                normalized_session_mode, req.sessionHandle or "", req.managedBy or "",
-                json.dumps(req.capabilities or []), json.dumps(req.runtimeConfig or {}),
-                existing_state, now, now
+                normalized_session_mode, session_handle, req.managedBy or "",
+                json.dumps(capabilities or []), json.dumps(req.runtimeConfig or {}),
+                existing_state, row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
         await db.commit()
@@ -428,7 +444,7 @@ async def spawn_agent(req: SpawnAgentRequest, request: Request):
 
         machine_id = req.machineId or owner["machine_id"] or ""
         now = _now()
-        capabilities = _default_capabilities_for(normalized_runtime, "managed")
+        capabilities = _default_capabilities_for(normalized_runtime, "managed", "")
         runtime_config = req.runtimeConfig or (existing and _json_loads_or(existing["runtime_config"], {})) or {}
         runtime_state = existing["runtime_state"] if existing and existing["runtime_state"] else "{}"
 
@@ -589,14 +605,14 @@ async def send_message(req: MessageSend, request: Request):
                 if not row:
                     not_started.append({"targetAgentId": recipient_id, "reason": "agent is not registered"})
                     continue
-                reason = _agent_launch_reason(row)
-                if reason:
-                    not_started.append({"targetAgentId": recipient_id, "reason": reason})
+                execution_mode, reason = _agent_execution_mode(row)
+                if reason or not execution_mode:
+                    not_started.append({"targetAgentId": recipient_id, "reason": reason or "active dispatch unavailable"})
                     continue
-                launchable_recipients.append(recipient_id)
+                launchable_recipients.append((recipient_id, execution_mode))
             dispatch_runs = await _create_dispatch_runs(
                 db,
-                launchable_recipients,
+                [recipient_id for recipient_id, _ in launchable_recipients],
                 from_agent=req.from_agent,
                 message_type=req.type,
                 subject=req.subject,
@@ -608,6 +624,11 @@ async def send_message(req: MessageSend, request: Request):
                 requested_runtime=None,
                 message_id=msg_id if len(recipients) == 1 else None,
             )
+            for run, (_, execution_mode) in zip(dispatch_runs, launchable_recipients):
+                await db.execute(
+                    "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
+                    (execution_mode, run["runId"])
+                )
 
         # Gather recipient status info for sender context
         recipient_info = {}
@@ -918,13 +939,14 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 recipient_rows[recipient_id] = row
             if req.mode == "message_only":
                 continue
+            execution_mode = None
             reason = None if row else "agent is not registered"
             if row:
-                reason = _agent_launch_reason(row, req.requestedRuntime)
-            if reason:
-                not_started.append({"targetAgentId": recipient_id, "reason": reason})
+                execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+            if reason or not execution_mode:
+                not_started.append({"targetAgentId": recipient_id, "reason": reason or "active dispatch unavailable"})
             else:
-                launchable_recipients.append(recipient_id)
+                launchable_recipients.append((recipient_id, execution_mode))
 
         if req.mode == "require_start" and not_started:
             details = "; ".join(f"{item['targetAgentId']}: {item['reason']}" for item in not_started)
@@ -954,7 +976,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
         if req.mode != "message_only" and launchable_recipients:
             runs = await _create_dispatch_runs(
                 db,
-                launchable_recipients,
+                [recipient_id for recipient_id, _ in launchable_recipients],
                 from_agent=req.from_agent,
                 message_type=req.type,
                 subject=req.subject,
@@ -966,6 +988,11 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 requested_runtime=req.requestedRuntime,
                 message_id=message_id if len(recipients) == 1 else None,
             )
+            for run, (_, execution_mode) in zip(runs, launchable_recipients):
+                await db.execute(
+                    "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
+                    (execution_mode, run["runId"])
+                )
 
         recipient_info = {}
         for recipient_id in recipients:
@@ -1035,23 +1062,25 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 )
                 await _append_dispatch_event(db, run["id"], "skipped", "Dispatch mode is message_only")
                 continue
-            if (run["execution_mode"] or "managed") != "managed":
-                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
-                reason = f'Execution mode "{run["execution_mode"]}" is not launchable by the managed worker bridge'
-                await db.execute(
-                    "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
-                    (final_status, reason, _now(), run["id"])
-                )
-                await _append_dispatch_event(db, run["id"], "skipped", reason)
-                continue
-
             requested_runtime = run["requested_runtime"] or ""
             if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
                 continue
 
-            reason = _agent_launch_reason(agent, requested_runtime or None)
-            if reason:
+            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None)
+            if reason or not execution_mode:
                 final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
+                    (final_status, reason or "active dispatch unavailable", _now(), run["id"])
+                )
+                await _append_dispatch_event(db, run["id"], "skipped", reason or "active dispatch unavailable")
+                continue
+            if (run["execution_mode"] or execution_mode) != execution_mode:
+                final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
+                reason = (
+                    f'Run execution mode "{run["execution_mode"] or "unknown"}" does not match the '
+                    f'current capabilities of agent "{req.agentId}" ({execution_mode}).'
+                )
                 await db.execute(
                     "UPDATE dispatch_runs SET status = ?, error_text = ?, finished_at = ? WHERE id = ?",
                     (final_status, reason, _now(), run["id"])

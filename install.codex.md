@@ -27,9 +27,10 @@ Restart Codex after install.
 
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
-- `cc_register` creates a resident session for messaging/presence.
-- `cc_spawn_agent` creates a managed worker, which is the reliable triggerable path for Codex/Claude.
-- If the owning stdio bridge is closed, queued managed-worker runs wait until that bridge reconnects.
+- `cc_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
+- Resident Codex sessions can then be triggered directly by resuming that bound thread through `codex app-server`.
+- `cc_spawn_agent` still creates a managed worker for detached/background execution and long-lived worker state.
+- If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
 
 ## What This Installs
 
@@ -41,6 +42,8 @@ Current Codex CLI note:
 - The installer uses the current `codex mcp add ... --env ...` syntax.
 - For hooks, Codex now reads `hooks.json` and requires `features.codex_hooks = true` in `config.toml`.
 - The unread hook is installed for `PostToolUse` on `Bash`, which matches the current Codex hooks runtime.
+- Resident triggering only works when the bridge talks to the same Codex installation/thread store that created the live session. A Windows desktop session and a WSL CLI session are different stores.
+- Because of that, Windows desktop Codex does not auto-advertise resident triggering by default when aify is launching Codex through WSL.
 
 ## Quick Start
 

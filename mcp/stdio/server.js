@@ -406,7 +406,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.2.0",
+  version: "3.3.0",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -416,8 +416,8 @@ const server = new McpServer({
 server.tool(
   "cc_register",
   "Register this agent instance. " +
-    "Register this exact live session so other agents can message you. " +
-    "Resident sessions are for presence/inbox/channels; managed workers should be created with cc_spawn_agent.",
+    "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
+    "Managed workers should be created with cc_spawn_agent when you want a dedicated detached executor.",
   {
     agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
     role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
@@ -437,8 +437,13 @@ server.tool(
     const resolvedRuntime = detectRuntime(runtime);
     const resolvedMachineId = machineId || MACHINE_ID;
     const resolvedSessionMode = normalizeSessionMode(sessionMode);
-    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode);
-    const resolvedSessionHandle = sessionHandle || defaultSessionHandleForRuntime(resolvedRuntime);
+    const previousInfo = REMOTE_AGENT_STATE.get(agentId)?.info;
+    const resolvedSessionHandle =
+      sessionHandle ||
+      defaultSessionHandleForRuntime(resolvedRuntime) ||
+      previousInfo?.sessionHandle ||
+      "";
+    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle);
 
     const agentData = {
       agentId,
@@ -652,7 +657,7 @@ server.tool(
     for (const [managedId, info] of Object.entries(registry.agents)) {
       if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
       if ((info.managedBy || "") !== agentId) continue;
-      if ((info.machineId || "") !== resolvedMachineId) continue;
+        if ((info.machineId || "") !== machineId) continue;
       registry.agents[managedId].lastSeen = registry.agents[managedId].lastSeen || new Date().toISOString();
     }
     writeAgents(registry);
@@ -751,7 +756,7 @@ server.tool(
 server.tool(
   "cc_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
-    "Set trigger=true to request active work on the target agent. Resident sessions only trigger if that exact runtime/session supports it; managed workers are the reliable trigger path.",
+    "Set trigger=true to request active work on the target agent. Resident sessions trigger only when that exact runtime/session handle supports resident execution; managed workers remain the detached fallback.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -832,8 +837,15 @@ server.tool(
         const targetInfo = registry.agents[targetId] || {};
         const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
         const runtime = normalizeRuntime(targetInfo.runtime || "generic");
-        if (sessionMode !== "managed") {
-          skipped.push(`${targetId} (resident session; use cc_spawn_agent for managed workers)`);
+        const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
+        const residentRunnable = sessionMode === "resident" && capabilities.includes("resident-run") && targetInfo.sessionHandle;
+        const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
+        if (!residentRunnable && !managedRunnable) {
+          skipped.push(
+            sessionMode === "resident"
+              ? `${targetId} (resident session has no triggerable session handle; re-register this live session)`
+              : `${targetId} (managed worker is missing launch capabilities)`,
+          );
           continue;
         }
         if (!canLaunchRuntime(runtime)) {
@@ -861,7 +873,7 @@ server.tool(
 
 server.tool(
   "cc_dispatch",
-  "Send a task and queue active runtime dispatch for a triggerable managed worker when possible.",
+  "Send a task and queue active runtime dispatch for a triggerable resident session or managed worker.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -1016,13 +1028,20 @@ server.tool(
 function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }) {
   const sessionMode = normalizeSessionMode(targetInfo.sessionMode);
   const runtime = normalizeRuntime(targetInfo.runtime || "generic");
-  if (sessionMode !== "managed") {
+  const capabilities = Array.isArray(targetInfo.capabilities) ? targetInfo.capabilities : [];
+  const residentRunnable = sessionMode === "resident" && capabilities.includes("resident-run") && targetInfo.sessionHandle;
+  const managedRunnable = sessionMode === "managed" && capabilities.includes("managed-run");
+  if (!residentRunnable && !managedRunnable) {
+    const reason =
+      sessionMode === "resident"
+        ? `Agent "${targetId}" is a resident session without a triggerable session handle. Re-register that live session first.`
+        : `Agent "${targetId}" is not configured as a launchable managed worker.`;
     deliverMessage(from, {
       id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
       from: targetId,
       type: "error",
       subject: `[FAILED] ${subject}`,
-      body: `Agent "${targetId}" is a resident session. Use cc_spawn_agent to create a managed worker.`,
+      body: reason,
     });
     return;
   }
@@ -1045,6 +1064,7 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     subject,
     body,
     mode: "require_start",
+    executionMode: residentRunnable ? "resident" : "managed",
   };
   const baseState = parseJson(targetInfo.runtimeState, {});
   const runtimeState = { ...baseState, ...(LOCAL_RUNTIME_STATE.get(targetId) || {}) };

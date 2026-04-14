@@ -78,7 +78,18 @@ function codexSpawnCwd(launcher, cwd) {
 }
 
 function defaultClaudeCommand() {
+  if (process.platform === "win32") {
+    const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
+    return { command: comspec, args: ["/d", "/s", "/c", "claude.cmd"] };
+  }
   return { command: "claude", args: [] };
+}
+
+function canUseDefaultResidentCodexBridge() {
+  if (process.platform !== "win32") return true;
+  const originator = String(process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || "").trim().toLowerCase();
+  if (originator !== "codex desktop") return true;
+  return process.env.AIFY_CODEX_ALLOW_DESKTOP_RESIDENT === "1";
 }
 
 function getRuntimeConfig(agentInfo) {
@@ -185,9 +196,19 @@ function createRpcClient(proc, { onNotification, onStderr }) {
 function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultClaudeCommand();
-  const sessionId = runtimeState?.sessionId || randomUUID();
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
+  const sessionId =
+    executionMode === "resident"
+      ? residentSessionId
+      : (runtimeState?.sessionId || residentSessionId || randomUUID());
   const maxTurns = String(config.maxTurns || 15);
   const timeoutMs = Number(config.timeoutMs || 15 * 60 * 1000);
+  if (executionMode === "resident" && !sessionId) {
+    throw new Error(
+      `Resident Claude session "${agentId}" has no bound session ID. Re-register from the live Claude session or provide sessionHandle explicitly.`,
+    );
+  }
   const args = [
     ...launcher.args,
     "-p",
@@ -278,9 +299,14 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const approvalPolicy = config.approvalPolicy || "never";
   const networkAccess = config.networkAccess !== false;
   const proc = spawnProcess(launcher.command, launcher.args, { cwd: spawnCwd });
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  const residentThreadId = String(agentInfo.sessionHandle || "").trim();
 
   let activeTurnId = null;
-  let activeThreadId = runtimeState?.threadId || null;
+  let activeThreadId =
+    executionMode === "resident"
+      ? (residentThreadId || null)
+      : (runtimeState?.threadId || null);
   let finalText = "";
   let finalStatus = "failed";
   let finalError = "";
@@ -365,6 +391,11 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       };
 
       if (!activeThreadId) {
+        if (executionMode === "resident") {
+          throw new Error(
+            `Resident Codex session "${agentId}" has no bound thread ID. Re-register from the live Codex session or provide sessionHandle explicitly.`,
+          );
+        }
         activeThreadId = await startThread();
       } else {
         try {
@@ -378,6 +409,12 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           if (!message.includes("no rollout found for thread id")) {
             throw error;
           }
+          if (executionMode === "resident") {
+            throw new Error(
+              `Resident Codex thread "${activeThreadId}" could not be resumed. ` +
+              "Re-register the live session so aify captures the current thread ID.",
+            );
+          }
           callbacks.onEvent?.("thread", `Discarding stale thread ${activeThreadId}`);
           activeThreadId = await startThread();
         }
@@ -385,7 +422,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
       callbacks.onRuntimeState?.({ threadId: activeThreadId });
       callbacks.onRefs?.({ threadId: activeThreadId });
-      callbacks.onEvent?.("thread", `Using thread ${activeThreadId}`);
+      callbacks.onEvent?.("thread", `Using ${executionMode} thread ${activeThreadId}`);
 
       const turn = await rpc.request("turn/start", {
         threadId: activeThreadId,
@@ -484,17 +521,27 @@ export function detectRuntime(explicitRuntime) {
   return "generic";
 }
 
-export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident") {
+export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident", sessionHandle = "") {
   const normalizedRuntime = normalizeRuntime(runtime);
   const normalizedMode = String(sessionMode || "resident").trim().toLowerCase();
-  if (normalizedMode !== "managed") {
-    return [];
+  const resolvedSessionHandle = String(sessionHandle || defaultSessionHandleForRuntime(normalizedRuntime) || "").trim();
+
+  if (normalizedMode === "managed") {
+    switch (normalizedRuntime) {
+      case "codex":
+        return ["managed-run", "resume", "interrupt", "steer", "spawn"];
+      case "claude-code":
+        return ["managed-run", "resume", "interrupt", "spawn"];
+      default:
+        return [];
+    }
   }
+
+  if (!resolvedSessionHandle) return [];
   switch (normalizedRuntime) {
     case "codex":
-      return ["managed-run", "resume", "interrupt", "steer", "spawn"];
-    case "claude-code":
-      return ["managed-run", "resume", "interrupt", "spawn"];
+      if (!canUseDefaultResidentCodexBridge()) return [];
+      return ["resident-run", "resume", "interrupt", "steer"];
     default:
       return [];
   }
