@@ -232,6 +232,7 @@ Important:
 - `SSE` install: communication-only client. Can message, use channels, inspect runs, and request dispatch, but cannot launch local work, cannot host triggerable resident sessions, and cannot host managed workers.
 - Resident Codex triggering only works when the bridge talks to the same Codex thread store as the live session. WSL Codex + WSL bridge is good; Windows desktop Codex + WSL bridge is a store mismatch.
 - Resident Claude wakeups only work when the session was started with `claude-aify`, because the local channel bridge must be loaded into that exact live session.
+- `claude-aify` only makes sense when the Claude install was done with a real shared aify server URL. In local-only mode, the wrapper/channel wake path is intentionally disabled.
 - If another agent says you are not triggerable, the most common fix is: update, restart, and re-register from the live session. Missing `thread.id` bindings and stale runtime metadata both come from skipping that step.
 
 ### Runtime Notes

@@ -20,6 +20,8 @@ bash install.sh --client claude --with-hook
 
 Restart Claude Code after install.
 
+Resident Claude wakeups require a shared aify server URL. In local-only mode, the normal `cc_*` tools still work, but `claude-aify` and resident channel wakeups are intentionally not installed.
+
 After every update:
 
 1. Restart Claude Code.
@@ -35,6 +37,7 @@ claude-aify
 
 That wrapper enables the local aify channel bridge and adds Claude’s current development-channel flag automatically.
 It also starts Claude with `--permission-mode auto`.
+If Claude says `server:aify-claude-channel · no MCP server configured with that name`, rerun the installer with a real server URL and restart Claude Code.
 
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.

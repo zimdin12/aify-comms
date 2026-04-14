@@ -86,6 +86,11 @@ EOF
   chmod +x "$wrapper_path"
 }
 
+remove_claude_wrapper() {
+  local wrapper_path="$HOME/.local/bin/claude-aify"
+  rm -f "$wrapper_path"
+}
+
 copy_codex_assets() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local skill_dst="$codex_home/skills/aify-claude"
@@ -288,15 +293,24 @@ else
 fi
 
 if [ "$CLIENT" = "claude" ]; then
-  install_claude_wrapper
+  if [ -n "$SERVER_URL" ]; then
+    install_claude_wrapper
+  else
+    remove_claude_wrapper
+  fi
 fi
 
 echo ""
 echo "=== Installation complete ==="
 if [ "$CLIENT" = "claude" ]; then
   echo "Restart Claude Code for changes to take effect."
-  echo "For resident-session wakeups, start Claude with: claude-aify"
-  echo "  (wrapper installed at ~/.local/bin/claude-aify)"
+  if [ -n "$SERVER_URL" ]; then
+    echo "For resident-session wakeups, start Claude with: claude-aify"
+    echo "  (wrapper installed at ~/.local/bin/claude-aify)"
+  else
+    echo "Local-only install: resident Claude wakeups are disabled because no shared server URL was provided."
+    echo "No claude-aify wrapper was installed."
+  fi
 else
   echo "Restart Codex for changes to take effect."
 fi
