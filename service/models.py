@@ -13,6 +13,7 @@ class AgentRegister(BaseModel):
     status: Optional[str] = None
     runtime: Optional[str] = None
     machineId: Optional[str] = None
+    bridgeId: Optional[str] = None
     launchMode: Optional[str] = None
     sessionMode: Optional[str] = None
     sessionHandle: Optional[str] = None

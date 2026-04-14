@@ -122,6 +122,7 @@ When you receive a notification or check your inbox:
 
 - Use `cc_send` for normal conversation, coordination, quick asks, and status updates.
 - Use `cc_send(trigger=true)` as the default "wake this agent and start work now" path.
+- Re-registering the same agent ID intentionally supersedes the older bridge instance for that agent on that machine.
 - Use `cc_dispatch` when you want explicit run IDs and active-run tracking from the start.
 - Use `cc_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
 - Before suggesting trigger-fix instructions for another agent, use `cc_agent_info` to inspect the target runtime and resident/managed mode first.

@@ -184,10 +184,6 @@ function formatQueuedRun(run = {}) {
   return text;
 }
 
-function currentBridgeId(info = {}) {
-  return info.runtimeState?.bridgeInstanceId || "";
-}
-
 // ── Local filesystem helpers ─────────────────────────────────────────────────
 
 function readAgents() {
@@ -285,10 +281,9 @@ async function runDispatchLoop() {
         continue;
       }
 
-      let liveAgent = null;
       try {
         const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-        liveAgent = agentRes.agent || null;
+        const liveAgent = agentRes.agent || null;
         if (liveAgent) {
           state.info = {
             ...state.info,
@@ -298,22 +293,6 @@ async function runDispatchLoop() {
         }
       } catch {
         // best effort
-      }
-
-      const liveActiveRun = liveAgent?.dispatchState?.activeRun;
-      const liveBridgeId = currentBridgeId(state.info);
-      if (liveActiveRun?.runId && liveActiveRun.claimBridgeId && liveBridgeId && liveActiveRun.claimBridgeId !== liveBridgeId) {
-        try {
-          await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(liveActiveRun.runId)}`, {
-            status: "failed",
-            error: `Active run was owned by stale bridge instance ${liveActiveRun.claimBridgeId} and was superseded by ${liveBridgeId}`,
-            agentStatus: "idle",
-            appendEvent: `Recovered from stale bridge ${liveActiveRun.claimBridgeId}; superseded by ${liveBridgeId}`,
-            eventType: "failed",
-          });
-        } catch (error) {
-          console.error("[aify] stale run recovery error:", error);
-        }
       }
 
       const executionModes = supportedExecutionModes(state.info);
@@ -502,7 +481,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "claude-code-mcp",
-  version: "3.5.2",
+  version: "3.5.3",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -554,6 +533,7 @@ server.tool(
       sessionMode: resolvedSessionMode,
       sessionHandle: resolvedSessionHandle,
       managedBy: managedBy || "",
+      bridgeId: BRIDGE_INSTANCE_ID,
       capabilities,
     };
 
@@ -598,6 +578,14 @@ server.tool(
           if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
           if ((managedInfo.managedBy || "") !== agentId) continue;
           if ((managedInfo.machineId || "") !== resolvedMachineId) continue;
+          const managedRuntimeState = { ...(managedInfo.runtimeState || {}), bridgeInstanceId: BRIDGE_INSTANCE_ID };
+          try {
+            await httpCall("PATCH", `/agents/${encodeURIComponent(managedId)}/runtime-state`, {
+              runtimeState: managedRuntimeState,
+            });
+          } catch {
+            // best effort
+          }
           REMOTE_AGENT_STATE.set(managedId, {
             info: {
               agentId: managedId,
@@ -614,7 +602,7 @@ server.tool(
               managedBy: managedInfo.managedBy || agentId,
               capabilities: managedInfo.capabilities || [],
               runtimeConfig: managedInfo.runtimeConfig || {},
-              runtimeState: managedInfo.runtimeState || {},
+              runtimeState: managedRuntimeState,
             },
           });
         }
@@ -722,6 +710,14 @@ server.tool(
       try {
         const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
         runtimeState = agentInfo.agent?.runtimeState || {};
+      } catch {
+        // best effort
+      }
+      runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
+      try {
+        await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
+          runtimeState,
+        });
       } catch {
         // best effort
       }

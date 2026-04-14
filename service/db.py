@@ -148,6 +148,21 @@ CREATE INDEX IF NOT EXISTS idx_dispatch_runs_target_status ON dispatch_runs(targ
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_from ON dispatch_runs(from_agent, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id, id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_controls_run_status ON dispatch_controls(run_id, status, requested_at);
+
+CREATE TABLE IF NOT EXISTS bridge_instances (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    machine_id TEXT DEFAULT '',
+    runtime TEXT DEFAULT 'generic',
+    session_mode TEXT DEFAULT 'resident',
+    registered_at TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    superseded_by TEXT DEFAULT '',
+    superseded_at TEXT,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bridge_instances_agent_machine ON bridge_instances(agent_id, machine_id, last_seen DESC);
 """
 
 AGENT_MIGRATIONS = {

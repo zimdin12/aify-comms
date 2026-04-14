@@ -162,6 +162,7 @@ Note: active dispatch is not available via SSE (requires a local stdio MCP serve
 ## Resident Sessions vs Managed Workers
 
 - `cc_register(...)` registers a resident session: the exact live Codex/Claude/OpenCode session you currently have open for presence, inbox, and runtime metadata.
+- Re-registering the same agent ID supersedes the older bridge instance for that agent on that machine. This is how stale-run recovery works after a restart.
 - `cc_spawn_agent(...)` creates a managed worker: a triggerable logical agent hosted by the local stdio bridge on that machine.
 - Resident Codex sessions become triggerable by resuming the bound stored `thread.id` through `codex app-server`.
 - Resident Claude CLI sessions become wakeable when Claude is started through `claude-aify`, which loads the local aify channel bridge.

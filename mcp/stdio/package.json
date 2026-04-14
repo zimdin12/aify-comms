@@ -1,6 +1,6 @@
 {
   "name": "aify-claude-mcp",
-  "version": "3.5.2",
+  "version": "3.5.3",
   "description": "MCP client for aify-claude inter-agent communication",
   "type": "module",
   "main": "server.js",

@@ -320,6 +320,19 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
     return active
 
 
+async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
+    if not bridge_id:
+        return False
+    cursor = await db.execute(
+        "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (bridge_id, agent_id)
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return False
+    return bool((row["superseded_by"] or "").strip())
+
+
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
@@ -459,7 +472,7 @@ async def _create_dispatch_runs(
 async def root():
     return {
         "service": "aify-claude",
-        "version": "3.5.2",
+        "version": "3.5.3",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -518,6 +531,7 @@ async def register_agent(req: AgentRegister, request: Request):
         capabilities = req.capabilities
         if capabilities is None:
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle)
+        bridge_id = (req.bridgeId or "").strip()
         await db.execute(
             """
             INSERT OR REPLACE INTO agents (
@@ -535,6 +549,33 @@ async def register_agent(req: AgentRegister, request: Request):
                 existing_state, row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
+        if bridge_id:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    bridge_id,
+                    req.agentId,
+                    req.machineId or "",
+                    normalized_runtime,
+                    normalized_session_mode,
+                    now,
+                    now,
+                    "",
+                    None,
+                )
+            )
+            await db.execute(
+                """
+                UPDATE bridge_instances
+                SET superseded_by = ?, superseded_at = ?
+                WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
+                """,
+                (bridge_id, now, req.agentId, req.machineId or "", bridge_id)
+            )
         await db.commit()
         ws = await _get_ws(request)
         if ws:
@@ -552,6 +593,7 @@ async def register_agent(req: AgentRegister, request: Request):
             "status": req.status or "idle",
             "runtime": normalized_runtime,
             "machineId": req.machineId or "",
+            "bridgeId": bridge_id,
             "sessionMode": normalized_session_mode,
         }
     finally:
@@ -1260,8 +1302,33 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         active_state = await _get_dispatch_state_for_agent(db, req.agentId)
         active_run = active_state.get("activeRun")
         if active_run:
-            await db.commit()
-            return {"ok": True, "run": None, "blockedBy": active_run}
+            if req.bridgeId and active_run.get("claimBridgeId") and active_run.get("claimBridgeId") != req.bridgeId:
+                if await _bridge_is_superseded(db, active_run["claimBridgeId"], req.agentId):
+                    await db.execute(
+                        """
+                        UPDATE dispatch_runs
+                        SET status = 'failed', error_text = ?, finished_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            f'Run was owned by superseded bridge instance "{active_run["claimBridgeId"]}" and was replaced by "{req.bridgeId}"',
+                            _now(),
+                            active_run["runId"],
+                        )
+                    )
+                    await _append_dispatch_event(
+                        db,
+                        active_run["runId"],
+                        "failed",
+                        f'Superseded bridge recovery: {active_run["claimBridgeId"]} -> {req.bridgeId}',
+                    )
+                    active_run = None
+                else:
+                    await db.commit()
+                    return {"ok": True, "run": None, "blockedBy": active_run}
+            else:
+                await db.commit()
+                return {"ok": True, "run": None, "blockedBy": active_run}
         run_cursor = await db.execute(
             """
             SELECT * FROM dispatch_runs
