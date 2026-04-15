@@ -588,6 +588,25 @@ async def _create_dispatch_runs(
         runs.append({"runId": run_id, "targetAgentId": recipient_id, "status": "queued"})
     return runs
 
+
+async def _resolve_reply_parent_message_id(db, reply_id: Optional[str]) -> tuple[Optional[str], bool]:
+    candidate = str(reply_id or "").strip()
+    if not candidate:
+        return None, True
+
+    cursor = await db.execute("SELECT id FROM messages WHERE id = ? LIMIT 1", (candidate,))
+    row = await cursor.fetchone()
+    if row:
+        return candidate, True
+
+    cursor = await db.execute("SELECT message_id FROM dispatch_runs WHERE id = ? LIMIT 1", (candidate,))
+    row = await cursor.fetchone()
+    resolved = str((row["message_id"] if row else "") or "").strip()
+    if resolved:
+        return resolved, True
+
+    return None, False
+
 # ─── Root ────────────────────────────────────────────────────────────────────
 
 @router.get("/")
@@ -910,6 +929,12 @@ async def send_message(req: MessageSend, request: Request):
         await _touch_agent(db, req.from_agent)
         msg_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
+        resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
+        warnings = []
+        if req.inReplyTo and not reply_parent_found:
+            warnings.append(
+                f'inReplyTo "{req.inReplyTo}" did not match an existing message; message was sent unthreaded.'
+            )
 
         recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
 
@@ -920,10 +945,10 @@ async def send_message(req: MessageSend, request: Request):
             await db.execute(
                 "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (f"{msg_id}-{r}" if len(recipients) > 1 else msg_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, req.inReplyTo, ts)
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, resolved_in_reply_to, ts)
             )
 
-        if req.inReplyTo:
+        if resolved_in_reply_to:
             run_cursor = await db.execute(
                 """
                 SELECT * FROM dispatch_runs
@@ -931,7 +956,7 @@ async def send_message(req: MessageSend, request: Request):
                 ORDER BY requested_at DESC
                 LIMIT 1
                 """,
-                (req.from_agent, req.inReplyTo)
+                (req.from_agent, resolved_in_reply_to)
             )
             replied_run = await run_cursor.fetchone()
             if replied_run:
@@ -985,7 +1010,7 @@ async def send_message(req: MessageSend, request: Request):
                 subject=req.subject,
                 body=req.body,
                 priority=req.priority,
-                in_reply_to=req.inReplyTo,
+                in_reply_to=resolved_in_reply_to,
                 dispatch_mode="start_if_possible",
                 execution_mode="managed",
                 requested_runtime=None,
@@ -1036,6 +1061,7 @@ async def send_message(req: MessageSend, request: Request):
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
             "notStarted": not_started,
+            "warnings": warnings,
         }
     finally:
         await db.close()
@@ -1300,6 +1326,12 @@ async def create_dispatch(req: DispatchRequest, request: Request):
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
+        resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
+        warnings = []
+        if req.inReplyTo and not reply_parent_found:
+            warnings.append(
+                f'inReplyTo "{req.inReplyTo}" did not match an existing message; dispatch was sent unthreaded.'
+            )
         recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
 
         if not recipients:
@@ -1344,7 +1376,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     (
                         f"{message_id}-{recipient_id}" if len(recipients) > 1 else message_id,
                         req.from_agent, recipient_id, "direct", req.type, req.subject, req.body,
-                        req.priority, req.inReplyTo, ts
+                        req.priority, resolved_in_reply_to, ts
                     )
                 )
 
@@ -1358,7 +1390,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 subject=req.subject,
                 body=req.body,
                 priority=req.priority,
-                in_reply_to=req.inReplyTo,
+                in_reply_to=resolved_in_reply_to,
                 dispatch_mode=req.mode,
                 execution_mode="managed",
                 requested_runtime=req.requestedRuntime,
@@ -1407,6 +1439,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
             "recipientStatus": recipient_info,
             "runs": runs,
             "notStarted": not_started,
+            "warnings": warnings,
         }
     finally:
         await db.close()
