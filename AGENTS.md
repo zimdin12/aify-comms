@@ -194,6 +194,19 @@ When you dispatch a task, the target run's final plain-text answer is kept in th
 
 If Codex auto-detection is wrong, pass `runtime="codex"` to `comms_register`.
 
+Windows `cwd` trap:
+- Codex CLI's Rust path deserializer rejects Windows backslash paths with `Invalid request: AbsolutePathBuf deserialized without a base path`, killing every dispatched run instantly.
+- Always register with forward slashes: `cwd="C:/Users/you/project"` (correct), not `cwd="C:\\Users\\you\\project"` (broken).
+- The stdio bridge normalizes `\` → `/` automatically at dispatch time, but you must restart `codex-aify` after updating aify-comms to load the fix.
+
+Orphaned runs:
+- If a dispatched run is stuck in `running` and the owning bridge has died, `comms_run_interrupt` cannot reach it. Clear it manually:
+  ```bash
+  curl -X PATCH http://localhost:8800/api/v1/dispatch/runs/<run_id> \
+    -H "Content-Type: application/json" \
+    -d '{"status":"cancelled","error":"Bridge died, orphaned run"}'
+  ```
+
 WSL note:
 - If your Codex CLI lives in WSL, prefer running the Codex-side MCP server from inside WSL so the registered `cwd` is already a Linux path.
 - When the bridge runs on Windows, it defaults to `wsl.exe -e codex app-server` for Codex launches.

@@ -663,12 +663,14 @@ async def register_agent(req: AgentRegister, request: Request):
         normalized_runtime = _normalize_runtime(req.runtime or "generic")
         normalized_session_mode = _normalize_session_mode(req.sessionMode or "resident")
         now = _now()
-        existing_state = "{}"
         existing = await db.execute("SELECT runtime_state, session_handle, capabilities, registered_at FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
-        if row and row["runtime_state"]:
-            existing_state = row["runtime_state"]
-        session_handle = req.sessionHandle or (row["session_handle"] if row else "") or ""
+        # Re-register is a full state refresh: sessionHandle and runtime_state come
+        # from the new request only. Preserving them across re-register let stale
+        # Codex thread IDs survive a fresh codex-aify start, which then made
+        # thread/resume fail with AbsolutePathBuf or "no rollout found".
+        session_handle = req.sessionHandle or ""
+        existing_state = "{}"
         capabilities = req.capabilities
         if capabilities is None:
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})

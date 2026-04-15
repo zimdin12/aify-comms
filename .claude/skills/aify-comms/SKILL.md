@@ -15,6 +15,8 @@ You have access to the aify-comms MCP tools (`comms_*` prefix). These let you co
 comms_register(agentId="my-agent", role="coder", cwd="/path/to/project")
 ```
 
+On Windows, always pass `cwd` with **forward slashes** (e.g. `cwd="C:/Users/you/project"`), never backslashes. Backslash paths break Codex dispatch with `AbsolutePathBuf deserialized without a base path` and break Codex thread auto-discovery silently.
+
 Codex note:
 - If you are running inside `codex-aify`, do not stop at a bare register when the live env is available.
 - First read `CODEX_THREAD_ID` and `AIFY_CODEX_APP_SERVER_URL` from that same live session, then prefer the strongest exact registration:
@@ -102,18 +104,18 @@ If another agent says you are not triggerable:
 
 ## Understanding Agent Status
 
-`comms_send` returns the recipient's current status and unread count. Statuses are automatic:
+`comms_send` returns the recipient's current status and unread count. Status is automatic:
 
 | Status | How it's set | Meaning |
 |--------|-------------|---------|
-| **working** | Agent checked inbox and had unread messages | Busy processing tasks — be patient |
-| **active** | Agent just sent a message | Online and communicating — responsive |
-| **idle** | No activity for a while, or checked inbox with nothing new | Caught up, waiting for work |
-| **offline** | Inactive for an extended period | Session likely ended — don't depend on quick reply |
-| **blocked** | Agent set manually via `comms_status` | Stuck — may need help |
-| **completed** | Agent set manually via `comms_status` | Done with current task |
+| **working** | An active dispatched run is in progress for this agent | Busy executing a tracked run — be patient |
+| **idle** | Registered, recently active, no dispatched run in flight | Caught up, waiting for work |
+| **offline** | No heartbeat for `offline_minutes` (default 30 min) | Session likely ended — don't depend on quick reply |
+| **stale** | No heartbeat for `stale_agent_hours` (default 24h) | Long gone — almost certainly dead |
+| **blocked** | Set manually via `comms_status("blocked", ...)` | Stuck — may need help |
+| **completed** | Set manually via `comms_status("completed", ...)` | Done with current task |
 
-Thresholds (idle/offline minutes) are configurable in dashboard settings.
+Thresholds are configurable in dashboard settings. Heartbeats are driven by the unread-notification hook (`PostToolUse` for Bash) when installed; without the hook, only explicit `comms_*` tool calls refresh `last_seen`.
 
 Use `comms_agents` to check the full team before deciding who to message.
 

@@ -400,18 +400,25 @@ function parseTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizePathForCompare(value) {
+  return String(value || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 function pickNewestCodexThreadId(listResult, cwd) {
   const threads = Array.isArray(listResult?.threads) ? listResult.threads : [];
   if (!threads.length) return "";
 
-  const normalizedCwd = String(cwd || "").trim();
+  // Normalize both sides: Codex stores Windows thread cwds with backslashes,
+  // but our bridge passes forward-slash paths now, so a literal === comparison
+  // would silently fall through and pick the wrong thread.
+  const normalizedCwd = normalizePathForCompare(cwd);
   const preferred = [];
   const fallback = [];
 
   for (const thread of threads) {
     const id = String(thread?.id || "").trim();
     if (!id) continue;
-    const threadCwd = String(thread?.cwd || thread?.directory || thread?.worktree || "").trim();
+    const threadCwd = normalizePathForCompare(thread?.cwd || thread?.directory || thread?.worktree || "");
     if (normalizedCwd && threadCwd && threadCwd === normalizedCwd) preferred.push(thread);
     else fallback.push(thread);
   }

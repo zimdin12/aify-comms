@@ -210,7 +210,7 @@ No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-comp
 claude mcp add --scope user aify-comms --transport sse http://SERVER_IP:8800/mcp/sse
 ```
 Use the equivalent SSE-registration flow for other clients.
-Note: no skill, no triggers, no notifications — just the 19 tools.
+Note: no skill, no triggers, no notifications — just the 24 tools.
 SSE clients can still request `comms_dispatch`, `comms_run_status`, and run controls. They just cannot act as local launchers for active dispatch themselves.
 
 </details>
