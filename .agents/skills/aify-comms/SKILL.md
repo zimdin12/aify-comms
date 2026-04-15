@@ -139,7 +139,7 @@ When you receive a notification or check your inbox:
 - `comms_send(...)` is the real primitive for sending messages back. `type="response"` is optional metadata, and `inReplyTo` is the normal way to thread a reply to an earlier message.
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths when the recipient or whole channel should start working now.
 - Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` only when you intentionally want background delivery without waking the target.
-- If the target is already working, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of stacking as many separate queued runs. The inbox messages still land immediately.
+- If the target is already working, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of stacking as many separate queued runs. When the buffer is full, the next dispatch returns a `buffer_full` rejection in `notStarted` with the recipient's status — wait, interrupt the active run, or call `comms_agent_info` before retrying. Inbox messages still land immediately.
 - Use `comms_channel_send(...)` for group wakeups and coordinated team starts when the whole channel should see and act on the same update.
 - Re-registering the same agent ID intentionally supersedes the older bridge instance for that agent on that machine.
 - Use `comms_dispatch` when you want explicit run IDs and active-run tracking from the start.
@@ -161,7 +161,7 @@ When you receive a notification or check your inbox:
 - Use `comms_share` for logs, screenshots, patches, and reports so other agents can inspect the same artifact.
 - Use `comms_listen` only when you intentionally want a waiting loop; otherwise rely on triggering plus unread notifications.
 - If you dispatch work, track it with `comms_run_status` when timing matters.
-- If a trigger does not appear to "arrive", check `comms_agent_info` for an active run first. Later work from the same sender is buffered into one pending queued run that starts after the current run finishes, and the inbox message still arrives immediately.
+- If a trigger does not appear to "arrive", check `comms_agent_info` for an active run first. Later work from the same sender is buffered into one pending queued run (cap: 10 items) that starts after the current run finishes; past the cap, the dispatch is rejected with `reason: "buffer_full"` in `notStarted`. The inbox message still arrives immediately either way.
 - If an agent was restarted or re-registered on the same machine, the newer bridge now supersedes older bridge-owned active runs for that same agent immediately.
 
 ## Communication Protocol

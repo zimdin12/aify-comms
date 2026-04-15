@@ -84,7 +84,7 @@ Important:
 - Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
 - Plain `codex` (not `codex-aify`) falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `comms_spawn_agent` creates a managed worker for detached/background execution.
-- If the target is already busy, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of piling up as many separate queued runs. Inbox delivery still happens immediately.
+- If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects. If the bridge crashes, see "Orphaned runs" above.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers.

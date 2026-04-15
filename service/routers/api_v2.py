@@ -556,6 +556,7 @@ async def _append_dispatch_control(
 _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 _MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
+_DISPATCH_BUFFER_CAP = 10
 
 
 def _stronger_priority(left: str, right: str) -> str:
@@ -581,6 +582,7 @@ def _render_pending_dispatch_item(
     priority: str,
     message_id: str = "",
     in_reply_to: str = "",
+    requested_at: str = "",
 ) -> str:
     lines = [
         f"=== ITEM {index} ===",
@@ -589,6 +591,8 @@ def _render_pending_dispatch_item(
         f"Subject: {subject or '(no subject)'}",
         f"Priority: {priority or 'normal'}",
     ]
+    if requested_at:
+        lines.append(f"At: {requested_at}")
     if message_id:
         lines.append(f"MessageId: {message_id}")
         lines.append("Full details are in the inbox. Read them there if you need the complete context.")
@@ -624,12 +628,20 @@ def _append_pending_dispatch_body(
     subject: str,
     body: str,
     priority: str,
+    requested_at: str,
     message_id: str = "",
     in_reply_to: str = "",
-) -> tuple[str, int]:
+) -> Optional[tuple[str, int]]:
+    """
+    Returns (merged_body, item_count) on success, or None if the buffer cap
+    is already at _DISPATCH_BUFFER_CAP and the new item cannot be appended.
+    """
     existing_body = str(existing_run["body"] or "")
     if existing_body.startswith(_MERGED_DISPATCH_HEADER):
-        count = _pending_dispatch_count(existing_body) + 1
+        current_count = _pending_dispatch_count(existing_body)
+        if current_count >= _DISPATCH_BUFFER_CAP:
+            return None
+        count = current_count + 1
         new_item = _render_pending_dispatch_item(
             count,
             from_agent=from_agent,
@@ -639,6 +651,7 @@ def _append_pending_dispatch_body(
             priority=priority,
             message_id=message_id,
             in_reply_to=in_reply_to,
+            requested_at=requested_at,
         )
         merged_body = existing_body.replace(_MERGED_DISPATCH_FOOTER, f"\n\n{new_item}\n{_MERGED_DISPATCH_FOOTER}")
         return merged_body, count
@@ -652,6 +665,7 @@ def _append_pending_dispatch_body(
         priority=str(existing_run["priority"] or "normal"),
         message_id=str(existing_run["message_id"] or ""),
         in_reply_to=str(existing_run["in_reply_to"] or ""),
+        requested_at=str(existing_run["requested_at"] or ""),
     )
     second_item = _render_pending_dispatch_item(
         2,
@@ -662,10 +676,11 @@ def _append_pending_dispatch_body(
         priority=priority,
         message_id=message_id,
         in_reply_to=in_reply_to,
+        requested_at=requested_at,
     )
     merged_body = "\n".join([
         _MERGED_DISPATCH_HEADER,
-        "Additional dispatches arrived while another run was active.",
+        f"Additional dispatches arrived while another run was active (cap: {_DISPATCH_BUFFER_CAP} items).",
         "Process the buffered items in order. For message-backed items, use comms_inbox(...) if you need the full original text.",
         "",
         first_item,
@@ -674,6 +689,36 @@ def _append_pending_dispatch_body(
         _MERGED_DISPATCH_FOOTER,
     ]).strip()
     return merged_body, 2
+
+
+def _dispatch_buffer_full_hint(
+    recipient_id: str,
+    row,
+    *,
+    from_agent: str,
+    current_count: int,
+    recipient_status: str,
+    has_active_run: bool,
+) -> dict[str, Any]:
+    runtime = _normalize_runtime((row["runtime"] if row else "") or "generic")
+    session_mode = _normalize_session_mode((row["session_mode"] if row else "") or "resident")
+    return {
+        "targetAgentId": recipient_id,
+        "reason": "buffer_full",
+        "runtime": runtime,
+        "sessionMode": session_mode,
+        "bufferCap": _DISPATCH_BUFFER_CAP,
+        "bufferedCount": current_count,
+        "recipientStatus": recipient_status,
+        "hasActiveRun": has_active_run,
+        "fromAgent": from_agent,
+        "fix": (
+            f"Target agent already has {current_count} buffered dispatches from {from_agent} "
+            f"(cap: {_DISPATCH_BUFFER_CAP}). Wait for the current run to drain, "
+            f"interrupt the active run with comms_run_interrupt, or call "
+            f"comms_agent_info to inspect the queue before retrying."
+        ),
+    }
 
 
 async def _find_mergeable_queued_run(
@@ -724,20 +769,66 @@ async def _create_dispatch_runs(
             from_agent=from_agent,
         )
         if mergeable_run:
-            merged_body, merged_count = _append_pending_dispatch_body(
+            merge_result = _append_pending_dispatch_body(
                 mergeable_run,
                 from_agent=from_agent,
                 message_type=message_type,
                 subject=subject,
                 body=body,
                 priority=priority,
+                requested_at=requested_at,
                 message_id=str(message_id or ""),
                 in_reply_to=str(in_reply_to or ""),
             )
+            if merge_result is None:
+                # Buffer cap hit. Surface a rejection without dropping the existing
+                # buffered run. Caller propagates this into notStarted.
+                current_count = _pending_dispatch_count(str(mergeable_run["body"] or ""))
+                row_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
+                recipient_row = await row_cursor.fetchone()
+                recipient_status = "unknown"
+                has_active = False
+                if recipient_row:
+                    settings = await _load_settings(db)
+                    recipient_status = await _compute_agent_status(
+                        recipient_row,
+                        settings.get("idle_minutes", 5),
+                        settings.get("offline_minutes", 30),
+                    )
+                    dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
+                    has_active = bool(dispatch_state.get("hasActiveRun"))
+                    recipient_status = _status_with_dispatch(recipient_status, dispatch_state)
+                rejection_hint = _dispatch_buffer_full_hint(
+                    recipient_id,
+                    recipient_row,
+                    from_agent=from_agent,
+                    current_count=current_count,
+                    recipient_status=recipient_status,
+                    has_active_run=has_active,
+                )
+                await _append_dispatch_event(
+                    db,
+                    mergeable_run["id"],
+                    "buffer_full",
+                    f"Rejected dispatch from {from_agent}: buffer cap {_DISPATCH_BUFFER_CAP} reached",
+                )
+                runs.append({
+                    "runId": None,
+                    "targetAgentId": recipient_id,
+                    "status": "rejected",
+                    "rejected": True,
+                    "rejectionHint": rejection_hint,
+                })
+                continue
+
+            merged_body, merged_count = merge_result
+            # Keep message_id and in_reply_to pointing at the FIRST item that
+            # opened this buffered run. Per-item ids are preserved in the body
+            # text so the receiver can still pull each original from inbox.
             await db.execute(
                 """
                 UPDATE dispatch_runs
-                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, message_id = NULL, in_reply_to = NULL
+                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?
                 WHERE id = ?
                 """,
                 (
@@ -1212,6 +1303,9 @@ async def send_message(req: MessageSend, request: Request):
                 message_id=msg_id if len(recipients) == 1 else None,
             )
             for run, (_, execution_mode) in zip(dispatch_runs, launchable_recipients):
+                if run.get("rejected"):
+                    not_started.append(run["rejectionHint"])
+                    continue
                 await db.execute(
                     "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
                     (execution_mode, run["runId"])
@@ -1225,6 +1319,7 @@ async def send_message(req: MessageSend, request: Request):
                         "subject": active["subject"],
                     }
                 run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
+            dispatch_runs = [r for r in dispatch_runs if not r.get("rejected")]
 
         # Gather recipient status info for sender context
         recipient_info = {}
@@ -1592,6 +1687,9 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 message_id=message_id if len(recipients) == 1 else None,
             )
             for run, (_, execution_mode) in zip(runs, launchable_recipients):
+                if run.get("rejected"):
+                    not_started.append(run["rejectionHint"])
+                    continue
                 await db.execute(
                     "UPDATE dispatch_runs SET execution_mode = ? WHERE id = ?",
                     (execution_mode, run["runId"])
@@ -1605,6 +1703,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                         "subject": active["subject"],
                     }
                 run["queuedRunsForTarget"] = dispatch_state.get("queuedRuns", 0)
+            runs = [r for r in runs if not r.get("rejected")]
 
         recipient_info = {}
         for recipient_id in recipients:

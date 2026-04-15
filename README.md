@@ -28,8 +28,9 @@ Important mental model:
 - if the target should answer you, it must explicitly use `comms_send(...)`
 - `comms_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
 - `comms_channel_send(...)` also wakes channel members by default; use `silent=true` for background-only channel updates
-- if the target is already working, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of stacking as many separate queued runs
-- inbox delivery is still immediate even when a dispatch is buffered
+- if the target is already working, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of stacking as many separate queued runs
+- if that buffered run already holds 10 items, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted`, including the recipient's current status — wait, interrupt the active run, or call `comms_agent_info` first
+- inbox delivery is still immediate even when a dispatch is buffered or rejected
 
 Communication defaults:
 - keep messages concise by default: one ask, one result, or one status update
@@ -346,7 +347,7 @@ This works across machines as long as the target machine has a live stdio MCP br
 
 Important:
 - Dispatched runs do not auto-send their final response back to the requesting agent. If you want the requester to receive a message, the target runtime must explicitly call `comms_send(...)` or another inter-agent tool.
-- If an agent is already busy, later dispatches from the same sender are merged into one buffered pending run that starts after the current run finishes instead of piling up as many separate queued runs. The underlying inbox messages still arrive immediately.
+- If an agent is already busy, later dispatches from the same sender are merged into one buffered pending run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. When the buffer is full, further dispatches return a `buffer_full` rejection in `notStarted` carrying the recipient's status. Underlying inbox messages still arrive immediately even when a dispatch is buffered or rejected.
 - Resident Codex sessions started with `codex-aify` use `codex-live`, which targets the same shared local WebSocket App Server as the visible TUI.
 - In `codex-live`, the visible Codex session will show the injected task and its final answer. That is expected. Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
 - Resident Codex sessions started with plain `codex` still use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
