@@ -827,8 +827,17 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
             `Resident Codex session "${agentId}" has no bound thread ID. Re-register from the live Codex session or provide sessionHandle explicitly.`,
           );
         }
-        activeThreadId = await startThread();
+        callbacks.onEvent?.("thread", `No thread bound yet; calling thread/start with cwd="${cwd}"`);
+        try {
+          activeThreadId = await startThread();
+        } catch (error) {
+          throw new Error(
+            `Codex thread/start failed for fresh thread (cwd="${cwd}"): ${error?.message || error}`,
+            { cause: error },
+          );
+        }
       } else {
+        callbacks.onEvent?.("thread", `Attempting thread/resume for ${activeThreadId}`);
         try {
           const resumed = await rpc.request("thread/resume", {
             threadId: activeThreadId,
@@ -839,8 +848,14 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           // Classification lives in detectCodexResumeFailure so it can be
           // unit-tested without a live Codex.
           const failure = detectCodexResumeFailure(error);
+          const resumeMessage = String(error?.message || "").trim();
           if (!failure.shouldHeal) {
-            throw error;
+            // Unknown error — surface it with the step name so the dashboard
+            // run log tells us exactly which RPC call failed.
+            throw new Error(
+              `Codex thread/resume failed for thread ${activeThreadId} with unhandled error: ${resumeMessage}`,
+              { cause: error },
+            );
           }
           // Auto-heal for both managed and resident modes. Resident mode
           // previously threw here because silently creating a new thread
@@ -852,15 +867,24 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           // the caller via onSessionHandleChange so the backend's stored
           // sessionHandle is updated, and continue.
           const previousThreadId = activeThreadId;
-          const message = String(error?.message || "").trim();
           const reasonLabel = failure.corruptRollout
-            ? `Rollout for thread ${previousThreadId} is corrupt (${message})`
+            ? `Rollout for thread ${previousThreadId} is corrupt (${resumeMessage})`
             : `Thread ${previousThreadId} has no rollout`;
           const modeLabel = executionMode === "resident"
             ? "; healing resident session with a fresh thread (visibility in the live TUI is lost until the user relaunches codex-aify from a clean environment)"
             : "; starting a fresh thread";
           callbacks.onEvent?.("thread", reasonLabel + modeLabel);
-          activeThreadId = await startThread();
+          try {
+            activeThreadId = await startThread();
+          } catch (healError) {
+            throw new Error(
+              `Codex thread/resume for ${previousThreadId} failed with ${failure.healReason} (${resumeMessage}), ` +
+              `and the auto-heal fallback thread/start also failed: ${healError?.message || healError}. ` +
+              `This usually means Codex's app-server itself is in a bad state — kill the codex app-server process ` +
+              `and relaunch codex-aify from the target project directory. See the aify-comms-debug skill.`,
+              { cause: healError },
+            );
+          }
           // Push the new thread id back to the caller so the backend's
           // stored sessionHandle gets updated. Without this, the very next
           // dispatch would try to resume the same poisoned thread and hit
@@ -871,6 +895,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
                 previous: previousThreadId,
                 reason: failure.healReason,
               });
+              callbacks.onEvent?.("thread", `Healed: ${previousThreadId} → ${activeThreadId} (${failure.healReason})`);
             } catch (cbError) {
               console.error(
                 `[aify] onSessionHandleChange callback failed after healing thread: ${cbError?.message || cbError}`,
@@ -884,21 +909,33 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       callbacks.onRefs?.({ threadId: activeThreadId });
       callbacks.onEvent?.("thread", `Using ${executionMode} thread ${activeThreadId}`);
 
-      const turn = await rpc.request("turn/start", {
-        threadId: activeThreadId,
-        input: [{ type: "text", text: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}` }],
-        cwd,
-        approvalPolicy,
-        sandboxPolicy: {
-          type: "workspaceWrite",
-          writableRoots: [cwd],
-          networkAccess,
-        },
-        model,
-        effort,
-        summary: summaryMode,
-        personality: "friendly",
-      }, 60000);
+      callbacks.onEvent?.("turn", `Calling turn/start on thread ${activeThreadId} with cwd="${cwd}", writableRoots=["${cwd}"]`);
+      let turn;
+      try {
+        turn = await rpc.request("turn/start", {
+          threadId: activeThreadId,
+          input: [{ type: "text", text: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}` }],
+          cwd,
+          approvalPolicy,
+          sandboxPolicy: {
+            type: "workspaceWrite",
+            writableRoots: [cwd],
+            networkAccess,
+          },
+          model,
+          effort,
+          summary: summaryMode,
+          personality: "friendly",
+        }, 60000);
+      } catch (error) {
+        // turn/start sends cwd + writableRoots — if AbsolutePathBuf fires
+        // here, it's one of those two fields. Label the error so the run
+        // log shows us unambiguously which RPC tripped.
+        throw new Error(
+          `Codex turn/start failed for thread ${activeThreadId} (cwd="${cwd}"): ${error?.message || error}`,
+          { cause: error },
+        );
+      }
 
       activeTurnId = turn.turn?.id || activeTurnId;
       callbacks.onRefs?.({ threadId: activeThreadId, turnId: activeTurnId });
