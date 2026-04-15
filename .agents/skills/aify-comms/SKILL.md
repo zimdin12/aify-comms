@@ -149,55 +149,23 @@ When you receive a notification or check your inbox:
 3. Act based on `type`: `request` usually means do something and message back, `info` = FYI, `review` = give feedback, `error` = investigate. `response` is just optional labeling, not a separate mechanism.
 4. Reply with `comms_send`; add `inReplyTo` when you want the reply threaded to the earlier message.
 
-## Agent Workflow
+## Working With Other Agents
 
-- Use `comms_send` for normal conversation, coordination, quick asks, and status updates.
-- `comms_send(...)` is the real primitive for sending messages back. `type="response"` is optional metadata, and `inReplyTo` is the normal way to thread a reply to an earlier message.
-- Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths when the recipient or whole channel should start working now.
-- Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` only when you intentionally want background delivery without waking the target.
-- If the target is already working, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of stacking as many separate queued runs. When the buffer is full, the next dispatch returns a `buffer_full` rejection in `notStarted` with the recipient's status — wait, interrupt the active run, or call `comms_agent_info` before retrying. Inbox messages still land immediately.
-- Use `comms_channel_send(...)` for group wakeups and coordinated team starts when the whole channel should see and act on the same update.
-- Re-registering the same agent ID intentionally supersedes the older bridge instance for that agent on that machine.
-- Use `comms_dispatch` when you want explicit run IDs and active-run tracking from the start.
-- Use `comms_spawn_agent` only when you need a detached triggerable worker with its own durable runtime state.
-- For dispatched work, plain-text output stays in the live session and dispatch record. If the requester should receive a message, instruct the target to use `comms_send(...)` explicitly.
-- Before suggesting trigger-fix instructions for another agent, use `comms_agent_info` to inspect the target runtime and resident/managed mode first.
-- Read the reported wake mode carefully: `claude-live` means a live resident wake, `codex-live` means the resident Codex session was started through `codex-aify` and the bridge is using the same shared local WebSocket App Server as the visible TUI, `codex-thread-resume` means App Server is resuming the stored Codex thread in a separate background worker, `opencode-session-resume` means the stored OpenCode session is being resumed, and `managed-worker` means detached execution.
-- Do not treat all Codex resident sessions the same: `codex-live` is the visible-live path; `codex-thread-resume` is the older background-resume fallback.
-- In `codex-live`, the visible Codex session itself will show the injected task and its final answer. That is expected. Plain-text output stays local unless the agent explicitly sends a message.
-- If a Codex session was started with `codex-aify`, prefer the exact live registration from that same session: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")`.
-- If those live env vars are unavailable, try `comms_register(..., runtime="codex")`.
-- If bare registration still reports `message-only`, re-register with `sessionHandle="$CODEX_THREAD_ID"` from that same session, then confirm `codex-live` with `comms_agent_info(...)`. This is especially important when multiple `codex-aify` sessions are open at once or the wrapper was launched from a different directory than the registered `cwd`. If aify reports the live binding as ambiguous, include `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` too so the exact wrapper is bound.
-- Resident Codex sessions are triggerable only when the live session has a bound `thread.id` and the bridge talks to that same Codex thread store.
-- Resident OpenCode sessions are triggerable only when the live session has a real bound `sessionHandle`.
-- Resident Claude sessions are directly wakeable only when the live session was started with `claude-aify`.
-- Use `comms_run_interrupt` when a run is going in the wrong direction or should stop early.
-- Use `comms_run_steer` to refine an active Codex run without starting over.
-- Use channels for shared workstreams like `frontend-team`, `release-war-room`, or `bug-bash`.
-- Use `comms_share` for logs, screenshots, patches, and reports so other agents can inspect the same artifact.
-- Use `comms_listen` only when you intentionally want a waiting loop; otherwise rely on triggering plus unread notifications.
-- If you dispatch work, track it with `comms_run_status` when timing matters.
-- If a trigger does not appear to "arrive", check `comms_agent_info` for an active run first. Later work from the same sender is buffered into one pending queued run (cap: 10 items) that starts after the current run finishes; past the cap, the dispatch is rejected with `reason: "buffer_full"` in `notStarted`. The inbox message still arrives immediately either way.
-- If an agent was restarted or re-registered on the same machine, the newer bridge now supersedes older bridge-owned active runs for that same agent immediately.
+- `comms_send` and `comms_channel_send` wake the recipient by default. Pass `silent=true` only for genuinely background delivery.
+- Replies are just normal `comms_send` calls; thread them with `inReplyTo`. A dispatched run's plain-text output stays in the target session — if you want a reply message, explicitly ask the target to `comms_send` back.
+- Use `comms_dispatch` when you want tracked run IDs from the start; use `comms_spawn_agent` only when you need a detached worker with its own runtime state.
+- Use `comms_channel_send` for group wakeups, `comms_share` for long output (logs, screenshots, patches, reports), `comms_listen` only when you intentionally want an inbox-driven loop.
+- Use `comms_run_interrupt` to stop an active run, `comms_run_steer` (Codex only) to nudge one without restarting.
+- Before proposing trigger-fix instructions for another agent, call `comms_agent_info` first and read the actual `wakeMode` and `sessionMode` — do not guess.
+- Brief acks are fine — "on it" beats a paragraph. Save detail for results.
+- Channel messages land in each member's inbox; you don't need a separate channel check.
 
-## Communication Protocol
+## Communication Style
 
-- Keep messages short by default: one clear ask, one clear result, or one clear status update.
-- Use the subject line to summarize the purpose in a few words.
-- If you receive an unread notice, call `comms_inbox(...)` promptly instead of waiting for a later reminder.
-- When you finish a long task, send a short summary first, then only the most important findings. If the full detail is large, prefer `comms_share(...)` plus a short message pointing to it.
-- Use `silent=true` only when the message is genuinely background information. If the recipient should notice and act, let the default wake behavior happen.
-- Use `priority="high"` or `priority="urgent"` sparingly for time-sensitive coordination, blockers, or production-impacting issues.
-
-## Transport Notes
-
-- `stdio` install: full experience, including active dispatch and local runtime launch.
-- `SSE` install: messaging, channels, shared files, and run inspection, but not local process launch. SSE clients can request dispatch, but they cannot be the local executor and cannot host triggerable resident sessions or managed workers.
-- Resident Codex sessions started through `codex-aify` are best when you want visible live wakeups; plain resident Codex sessions are still useful when background `thread.id` resume is acceptable.
-- Resident OpenCode sessions are best when you already have a stable `sessionHandle`; otherwise prefer a managed worker.
-- Resident Claude sessions become wakeable when the session was started with `claude-aify`, which loads the local aify channel bridge.
-- Managed workers are best for active execution, unattended work, and cross-machine triggering.
-- If the owning stdio bridge is closed, queued resident/managed runs stay queued until that bridge reconnects and claims them.
+- One ask, one result, or one status update per message. The subject line is the summary.
+- If the detail is long, send a short message plus a `comms_share(...)` artifact.
+- `priority="high"` or `"urgent"` only for blockers or time-sensitive coordination.
+- Identifier rules: agent IDs, channel names, and artifact names are 1-128 chars, alphanumeric plus `.` `-` `_`.
 
 ## Recommended Roles
 
@@ -208,15 +176,4 @@ When you receive a notification or check your inbox:
 - `reviewer`: code review and risk spotting
 - `researcher`: docs, web facts, alternatives
 - `architect`: design boundaries and coordination rules
-
-## Key Behaviors
-
-- **Brief acknowledgments**: When you get a task, a short "on it" or "starting now" reply is fine — no need for a full paragraph. Save detailed messages for results and questions.
-- **Check on others**: Use `comms_agent_info` to see if someone has read your message before sending a follow-up.
-- **Invite to channels**: Use `comms_channel_join` with `agentId` to add another agent to a channel.
-- **Status is automatic**: "working" when active (heartbeat), "idle" after a few min, "offline" after extended inactivity. Use `comms_status` for "blocked" or "completed".
-- **Priority**: Use `priority: "urgent"` or `"high"` for time-sensitive messages.
-- **Share files**: Use `comms_share` when handing off work — attach logs, screenshots, test results, code snippets.
-- **Channel messages appear in inbox**: No need to separately check channels — everything comes to your inbox.
-- **Name restrictions**: Agent IDs, channel names, artifact names: alphanumeric + `.` `-` `_`, 1-128 chars.
 

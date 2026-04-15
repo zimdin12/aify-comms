@@ -48,21 +48,11 @@ Important:
 - `comms_spawn_agent` creates a managed worker, which remains the detached background-worker path for Claude.
 - If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects. If the bridge crashes mid-run, see "Orphaned runs" below.
+- If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects. If the bridge crashes mid-run, see the **aify-comms-debug** skill for the recovery procedure.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers, and they cannot launch local work themselves.
 - Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`).
 - If another agent says you are not wakeable, the usual fix is: restart with `claude-aify`, then re-register from that exact live session with `runtime="claude-code"`.
 - On Windows, always register with forward-slash `cwd` (`C:/path/to/project`). The stdio bridge normalizes automatically, but you must restart `claude-aify` after updating aify-comms for the fix to load.
-
-### Orphaned runs
-
-If a dispatched run is stuck in `running` and the owning bridge has died, `comms_run_interrupt` cannot reach it because the bridge is no longer polling for controls. Clear it manually:
-
-```bash
-curl -X PATCH http://localhost:8800/api/v1/dispatch/runs/<run_id> \
-  -H "Content-Type: application/json" \
-  -d '{"status":"cancelled","error":"Bridge died, orphaned run"}'
-```
 
 ## What This Installs
 
