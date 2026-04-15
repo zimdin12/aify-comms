@@ -59,6 +59,14 @@ Every agent registration resolves to one of these wake modes. `comms_agent_info`
 
 **Practical consequence.** In multi-tab Claude setups on the same machine, everything Just Works. In multi-tab Codex setups, you need to register each tab with explicit `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` from inside that tab.
 
+## Runtime markers are written by the bridge, not the wrapper
+
+**Decision.** The `claude-code` and `codex` runtime markers under `~/.local/state/aify-comms/runtime-markers/` are written by the long-lived MCP bridge processes (`claude-channel.js` for Claude, `server.js` for Codex when `AIFY_CODEX_APP_SERVER_URL` is set), not by the `claude-aify` / `codex-aify` bash wrappers. The bash wrappers no longer touch markers at all.
+
+**Why.** The wrappers used to write markers via a short-lived `node runtime-markers.js write` CLI call, passing bash `$$` as the `pid` field. On Linux that worked — `$$` is a real long-lived kernel PID. On Git Bash for Windows, `$$` is an MSYS shell PID that does not exist in Windows's process table. The bridge's `isProcessAlive` check uses `process.kill(pid, 0)`, which on Windows only understands real Windows PIDs, so it returned false and `listRuntimeMarkers` auto-deleted the marker on the next read. Every claude-aify/codex-aify session on Windows silently lost its marker within a second, and the resulting fallbacks produced a long tail of "can't find live wake mode" symptoms: `claude-needs-channel` wake mode, Codex auto-discovery binding to stale threads, and every `AbsolutePathBuf` dispatch failure that kept returning even after the cwd normalization fixes landed.
+
+**Consequence.** Marker writing now happens inside a process whose `process.pid` is a real long-lived Windows PID. When the bridge exits, it deletes its own marker; if it crashes, the dead PID is detected on the next read and auto-cleaned. The wrappers are simpler (no marker write, no marker cleanup trap) and can't poison the marker store with unreadable PIDs.
+
 ## Bridges self-heal on persistent failures
 
 **Decision.** The stdio bridge retries transient HTTP errors up to 3 times with exponential backoff (250ms → 500ms → 1s), and auto-re-registers an agent from its cached state when either (a) the server returns `404` on `/agents/{id}` or `/dispatch/claim` for that agent, or (b) 4 consecutive claim attempts fail for any reason.

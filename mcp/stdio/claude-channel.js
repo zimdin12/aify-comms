@@ -7,6 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./runtimes.js";
+import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 
 loadSettingsEnv();
 
@@ -15,6 +16,31 @@ const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || ""
 const MACHINE_ID = defaultMachineId();
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
+
+// Write our claude-code runtime marker from this long-lived bridge process.
+// This must happen here, not in the wrapper's bash CLI call, because on
+// Git Bash for Windows `$$` is an MSYS shell PID and isProcessAlive() from
+// node cannot see it — listRuntimeMarkers would auto-delete the wrapper's
+// marker on first read. node's process.pid is a real Windows PID.
+const MARKER_CWD = process.cwd();
+try {
+  writeRuntimeMarker("claude-code", MARKER_CWD, {
+    channelEnabled: true,
+  });
+} catch (error) {
+  console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+}
+
+function removeOwnMarker() {
+  try {
+    removeRuntimeMarker("claude-code", MARKER_CWD);
+  } catch {
+    // best effort — a dead PID will get auto-cleaned on next listRuntimeMarkers anyway
+  }
+}
+process.on("exit", removeOwnMarker);
+process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
+process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
 
 let activeRunId = "";
 

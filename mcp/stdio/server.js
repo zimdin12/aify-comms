@@ -22,7 +22,7 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import { loadSettingsEnv } from "./load-env.js";
-import { listRuntimeMarkers, readRuntimeMarker } from "./runtime-markers.js";
+import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
   defaultCapabilitiesForRuntime,
@@ -47,6 +47,40 @@ const IS_REMOTE = !!SERVER_URL;
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
+
+// Write the Codex runtime marker from this long-lived bridge process when
+// we detect we are running inside a codex-aify wrapper (which sets the
+// AIFY_CODEX_APP_SERVER_URL environment variable before launching Codex).
+// This must happen here, not in the wrapper's bash CLI call, because on
+// Git Bash for Windows `$$` is an MSYS shell PID that is not visible to
+// process.kill and isProcessAlive() would auto-delete the marker on first
+// read. node's process.pid is always a real Windows PID.
+const AIFY_CODEX_APP_SERVER_URL = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim();
+const AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV = String(process.env.AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV || "").trim();
+let codexMarkerCwd = "";
+if (AIFY_CODEX_APP_SERVER_URL) {
+  codexMarkerCwd = DEFAULT_CWD;
+  try {
+    const markerData = { appServerUrl: AIFY_CODEX_APP_SERVER_URL };
+    if (AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV) markerData.remoteAuthTokenEnv = AIFY_CODEX_REMOTE_AUTH_TOKEN_ENV;
+    writeRuntimeMarker("codex", codexMarkerCwd, markerData);
+  } catch (error) {
+    console.error("[aify] failed to write codex runtime marker:", error?.message || String(error));
+    codexMarkerCwd = "";
+  }
+}
+
+function removeOwnCodexMarker() {
+  if (!codexMarkerCwd) return;
+  try {
+    removeRuntimeMarker("codex", codexMarkerCwd);
+  } catch {
+    // best effort
+  }
+}
+process.on("exit", removeOwnCodexMarker);
+process.on("SIGINT", () => { removeOwnCodexMarker(); process.exit(130); });
+process.on("SIGTERM", () => { removeOwnCodexMarker(); process.exit(143); });
 const REMOTE_AGENT_STATE = new Map();
 const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();

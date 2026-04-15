@@ -79,16 +79,15 @@ install_claude_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/claude-aify"
   mkdir -p "$wrapper_dir"
+  # The runtime marker is written by the long-lived aify-comms-channel MCP
+  # bridge itself (mcp/stdio/claude-channel.js), not by this wrapper.
+  # Previously the wrapper wrote the marker with bash \$\$ as the pid, which
+  # on Git Bash for Windows is an MSYS shell PID that process.kill() cannot
+  # see — isProcessAlive would auto-delete the marker on first read and
+  # every claude-aify session on Windows fell back to claude-needs-channel.
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
 set -euo pipefail
-MARKER_CWD="\$(pwd)"
-node "$SCRIPT_DIR/mcp/stdio/runtime-markers.js" write claude-code "\$MARKER_CWD" "{\"channelEnabled\":true,\"pid\":\$\$}" >/dev/null
-cleanup() {
-  node "$SCRIPT_DIR/mcp/stdio/runtime-markers.js" remove claude-code "\$MARKER_CWD" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT INT TERM
-
 claude --dangerously-load-development-channels server:aify-comms-channel "\$@"
 STATUS=\$?
 exit "\$STATUS"
@@ -155,7 +154,6 @@ fi
 
 APP_SERVER_URL="ws://127.0.0.1:$PORT"
 export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
-MARKER_CWD="$(pwd)"
 
 LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
 mkdir -p "$LOG_ROOT"
@@ -163,10 +161,15 @@ LOG_FILE="$LOG_ROOT/codex-aify-app-server.log"
 
 codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
 APP_SERVER_PID=$!
-node "__SCRIPT_DIR__/mcp/stdio/runtime-markers.js" write codex "$MARKER_CWD" "{\"appServerUrl\":\"$APP_SERVER_URL\",\"pid\":$$}" >/dev/null
+
+# The runtime marker is written by the long-lived aify-comms MCP bridge
+# itself (mcp/stdio/server.js) on startup when it sees
+# AIFY_CODEX_APP_SERVER_URL in its environment. Previously the wrapper
+# wrote the marker with bash $$ as the pid, which on Git Bash for Windows
+# is an MSYS shell PID invisible to process.kill() — isProcessAlive would
+# auto-delete the marker on first read and break all Codex auto-discovery.
 
 cleanup() {
-  node "__SCRIPT_DIR__/mcp/stdio/runtime-markers.js" remove codex "$MARKER_CWD" >/dev/null 2>&1 || true
   if kill -0 "$APP_SERVER_PID" >/dev/null 2>&1; then
     kill "$APP_SERVER_PID" >/dev/null 2>&1 || true
     wait "$APP_SERVER_PID" 2>/dev/null || true
@@ -184,8 +187,6 @@ codex --remote "$APP_SERVER_URL" "$@"
 STATUS=$?
 exit "$STATUS"
 EOF
-  sed -i.bak "s|__SCRIPT_DIR__|$SCRIPT_DIR|g" "$wrapper_path"
-  rm -f "$wrapper_path.bak"
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }

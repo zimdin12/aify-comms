@@ -79,11 +79,13 @@ Repeat for every Codex agent on the machine.
 
 ## Claude: wake mode stuck at `claude-needs-channel`
 
-**Symptom.** `comms_agent_info` reports `wakeMode: claude-needs-channel` even though you launched with `claude-aify`.
+**Symptom.** `comms_agent_info` reports `wakeMode: claude-needs-channel` even though you launched with `claude-aify`. A previous agent may have worked around it by manually writing a runtime marker with a live `claude.exe` Windows PID — that's the fingerprint of this bug.
 
-**Cause.** In the current build, the bridge falls back to *any* alive `claude-aify` wrapper on the machine when no per-cwd marker exists. If you still see `claude-needs-channel`, no alive `claude-aify` process is running — either the wrapper exited, or Claude was started with plain `claude` instead of `claude-aify`.
+**Cause.** For a long time the `claude-aify` bash wrapper wrote the runtime marker itself with `pid=$$`. On Git Bash for Windows, `$$` is the MSYS shell PID, not a Windows process ID. The bridge's `isProcessAlive` check uses `process.kill(pid, 0)`, which on Windows only understands real Windows PIDs, so it returned false and `listRuntimeMarkers` **auto-deleted the marker on the next read**. Every claude-aify session on Windows silently lost its marker within a second and fell through to `claude-needs-channel`. Same root cause made `codex-aify` markers disappear, which is why the Codex auto-discovery path kept falling through to poisoned threads.
 
-**Fix.** Make sure one `claude-aify` session is alive, then re-register:
+**Fix (shipped).** The marker is now written by the long-lived bridge process (`claude-channel.js` for Claude, `server.js` for Codex when `AIFY_CODEX_APP_SERVER_URL` is set) using node's real `process.pid`. The wrappers no longer touch markers. Requires: pull, restart `claude-aify` / `codex-aify`. Check `C:\Users\<you>\.local\state\aify-comms\runtime-markers\` after a fresh launch — the file should persist and its `pid` field should match a live node child of claude/codex.
+
+**Fix (recovery when you hit this).** Make sure one `claude-aify` session is alive, then re-register:
 
 ```
 comms_register(agentId="my-agent", role="coder", runtime="claude-code", cwd="C:/path/you/are/in")
