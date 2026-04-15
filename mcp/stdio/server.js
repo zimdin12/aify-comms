@@ -219,6 +219,9 @@ function formatDispatchState(info = {}) {
 
 function formatQueuedRun(run = {}) {
   let text = `${run.targetAgentId} (${run.runId})`;
+  if (run.merged && Number(run.mergedCount || 0) > 1) {
+    text += ` buffered ${run.mergedCount} updates`;
+  }
   if (run.queuedBehindActiveRun?.runId) {
     text += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
     if (run.queuedBehindActiveRun.subject) {
@@ -938,6 +941,7 @@ server.tool(
   "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
     "By default this also requests active work on the target agent. Pass silent=true for a message-only send. " +
+    "If the target is already working, later dispatches from the same sender are buffered into one pending run that starts after the current run finishes instead of piling up as many separate queued runs. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; managed workers remain the detached fallback.",
   {
     from: z.string().describe("Your agent ID"),
@@ -1102,6 +1106,9 @@ server.tool(
 
     const lines = (r.runs || []).map((run) => {
       let line = `- ${run.targetAgentId}: ${run.runId} [${run.status}]`;
+      if (run.merged && Number(run.mergedCount || 0) > 1) {
+        line += ` buffered ${run.mergedCount} updates`;
+      }
       if (run.queuedBehindActiveRun?.runId) {
         line += ` queued behind active run ${run.queuedBehindActiveRun.runId}`;
         if (run.queuedBehindActiveRun.subject) {
@@ -1890,7 +1897,7 @@ server.tool(
 
 server.tool(
   "comms_channel_send",
-  "Send a message to a channel. By default this also requests active work for channel members other than the sender. Pass silent=true for a background-only channel update.",
+  "Send a message to a channel. By default this also requests active work for channel members other than the sender. Pass silent=true for a background-only channel update. If a member is already working, later dispatches from the same sender are buffered into one pending run that starts after the current run finishes instead of piling up as many separate queued runs.",
   {
     channel: z.string().describe("Channel name"),
     from: z.string().describe("Your agent ID"),

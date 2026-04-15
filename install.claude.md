@@ -46,6 +46,8 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence. When Claude is started with `claude-aify`, that resident session becomes wakeable through the local aify channel bridge.
 - `comms_spawn_agent` creates a managed worker, which remains the detached background-worker path for Claude.
+- If the target is already busy, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of piling up as many separate queued runs. Inbox delivery still happens immediately.
+- Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects. If the bridge crashes mid-run, see "Orphaned runs" below.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers, and they cannot launch local work themselves.
 - Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`).

@@ -29,10 +29,12 @@ Example CLAUDE.md files for a 5-agent development team using aify-comms for coor
 - **File sharing**: `comms_share` for handoffs (logs, screenshots, test results)
 - **Long outputs**: send a short result message first, then attach deeper detail via `comms_share` when needed
 - **Active starts**: register the live resident session first, then use `comms_send(...)`, `comms_channel_send(...)`, or `comms_dispatch` to wake the right agents immediately. Use `silent=true` when a DM or channel post should be background-only
+- **Busy-agent behavior**: when an agent is already working, later dispatches from the same sender collapse into one buffered pending run that starts after the current run finishes instead of piling up as many separate queued runs; the inbox messages still arrive immediately
 - **Live wake startup**: use `claude-aify` for Claude live wakeups and `codex-aify` for Codex live wakeups when you want the visible session itself to wake
 - **Detached workers**: use `comms_spawn_agent` only when you want a separate background worker with its own runtime state
 - **Run correction**: use `comms_run_steer` or `comms_run_interrupt` when active work needs intervention
 - **Brief acks**: "on it" instead of paragraphs — reduce noise
+- **Subagents**: short-lived subagents should normally report to their parent/coordinator, not register themselves into comms or message the wider team directly
 
 ## Customization
 

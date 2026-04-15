@@ -36,6 +36,11 @@ Only create a managed worker when you explicitly need detached/background execut
 comms_spawn_agent(from="my-agent", agentId="my-worker", role="coder", runtime="claude-code")
 ```
 
+Subagent rule:
+- Short-lived subagents spawned inside your current task are not top-level team members by default.
+- Do **not** make nested subagents call `comms_register(...)`, join channels, or message the wider team unless the user explicitly wants that subagent to become its own comms-visible agent.
+- Normal pattern: subagents report back to their direct parent/coordinator, and the parent sends any team-facing `comms_*` updates.
+
 **`comms_listen` is optional, not the default trigger path:**
 ```
 comms_listen(agentId="my-agent")
@@ -134,6 +139,7 @@ When you receive a notification or check your inbox:
 - `comms_send(...)` is the real primitive for sending messages back. `type="response"` is optional metadata, and `inReplyTo` is the normal way to thread a reply to an earlier message.
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths when the recipient or whole channel should start working now.
 - Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` only when you intentionally want background delivery without waking the target.
+- If the target is already working, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of stacking as many separate queued runs. The inbox messages still land immediately.
 - Use `comms_channel_send(...)` for group wakeups and coordinated team starts when the whole channel should see and act on the same update.
 - Re-registering the same agent ID intentionally supersedes the older bridge instance for that agent on that machine.
 - Use `comms_dispatch` when you want explicit run IDs and active-run tracking from the start.
@@ -155,7 +161,7 @@ When you receive a notification or check your inbox:
 - Use `comms_share` for logs, screenshots, patches, and reports so other agents can inspect the same artifact.
 - Use `comms_listen` only when you intentionally want a waiting loop; otherwise rely on triggering plus unread notifications.
 - If you dispatch work, track it with `comms_run_status` when timing matters.
-- If a trigger does not appear to "arrive", check `comms_agent_info` for an active run first. Later work queues behind the currently running run for that agent.
+- If a trigger does not appear to "arrive", check `comms_agent_info` for an active run first. Later work from the same sender is buffered into one pending queued run that starts after the current run finishes, and the inbox message still arrives immediately.
 - If an agent was restarted or re-registered on the same machine, the newer bridge now supersedes older bridge-owned active runs for that same agent immediately.
 
 ## Communication Protocol

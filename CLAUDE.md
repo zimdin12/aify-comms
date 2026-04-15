@@ -164,7 +164,7 @@ After every install/update/restart:
 
 ## Active Dispatch
 
-`comms_send(...)`, `comms_channel_send(...)`, and `comms_dispatch(...)` queue work on the server. `comms_send(silent=true)` and `comms_channel_send(silent=true)` are the background-only exceptions. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions started with `codex-aify` use `codex-live` and target the same shared local WebSocket App Server as the visible TUI; plain resident Codex sessions still resume their bound stored `thread.id` in a separate background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; Claude managed workers keep using `claude -p` with a persistent session id per worker.
+`comms_send(...)`, `comms_channel_send(...)`, and `comms_dispatch(...)` queue work on the server. `comms_send(silent=true)` and `comms_channel_send(silent=true)` are the background-only exceptions. The target agent's owning local bridge claims that run and starts it locally on the correct runtime. Resident Codex sessions started with `codex-aify` use `codex-live` and target the same shared local WebSocket App Server as the visible TUI; plain resident Codex sessions still resume their bound stored `thread.id` in a separate background App Server worker; resident Claude CLI sessions are woken through the local aify channel bridge; resident OpenCode sessions resume their bound stored session in a background worker; Claude managed workers keep using `claude -p` with a persistent session id per worker. If the target is already busy, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of piling up as many separate queued runs. The inbox messages still land immediately.
 
 Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths. Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` when you only want background delivery. Use `comms_spawn_agent(...)` only when you explicitly want a detached/background worker.
 
@@ -174,7 +174,7 @@ If Claude Code auto-detection is wrong, pass `runtime="claude-code"` to `comms_r
 
 Current limits:
 - One active dispatched run per registered agent/worker.
-- `comms_agent_info` and dispatch responses now show when new work is queued behind an already-running run.
+- `comms_agent_info` and dispatch responses now show when new work is queued behind an already-running run, and repeated sends from the same sender now collapse into one pending buffered run instead of piling up as many separate queued runs.
 - If a bridge instance is replaced by a newer registration for the same agent on the same machine, older bridge-owned active runs are now superseded immediately so they stop blocking the queue.
 - Claude supports interruption but not in-flight steering.
 - Codex supports both interruption and steering.
@@ -195,6 +195,7 @@ Recommended roles:
 
 - `comms_send` = DM plus wake by default. `comms_channel_send` = channel post plus wake by default. Add `silent=true` when either should be background-only. `comms_share` = file. `comms_channel_*` = group chat.
 - `comms_send(...)` is also the normal way to send a message back. `type="response"` is optional metadata, not a separate reply system. Use `inReplyTo` when you want the message threaded to an earlier one.
+- Nested subagents should normally report to their parent/coordinator, not register themselves into comms. Only register or channel-connect a subagent when you explicitly want it to become a top-level team-visible agent.
 - Keep messages concise by default: one ask, one result, or one status update. Use the subject line as the short summary.
 - If the details are long, prefer `comms_share(...)` plus a short message pointing to the shared artifact.
 - If you see an unread notice, call `comms_inbox(...)` promptly instead of waiting for another reminder.

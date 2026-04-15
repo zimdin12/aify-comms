@@ -553,6 +553,153 @@ async def _append_dispatch_control(
     return control_id
 
 
+_PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
+_MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
+_MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
+
+
+def _stronger_priority(left: str, right: str) -> str:
+    left_key = str(left or "normal").strip().lower() or "normal"
+    right_key = str(right or "normal").strip().lower() or "normal"
+    return left_key if _PRIORITY_ORDER.get(left_key, 0) >= _PRIORITY_ORDER.get(right_key, 0) else right_key
+
+
+def _clip_text(text: str, limit: int = 240) -> str:
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _render_pending_dispatch_item(
+    index: int,
+    *,
+    from_agent: str,
+    message_type: str,
+    subject: str,
+    body: str,
+    priority: str,
+    message_id: str = "",
+    in_reply_to: str = "",
+) -> str:
+    lines = [
+        f"=== ITEM {index} ===",
+        f"From: {from_agent or 'unknown'}",
+        f"Type: {message_type or 'request'}",
+        f"Subject: {subject or '(no subject)'}",
+        f"Priority: {priority or 'normal'}",
+    ]
+    if message_id:
+        lines.append(f"MessageId: {message_id}")
+        lines.append("Full details are in the inbox. Read them there if you need the complete context.")
+        preview = _clip_text(body or "", 240)
+        if preview:
+            lines.extend(["Body preview:", preview])
+    else:
+        if in_reply_to:
+            lines.append(f"InReplyTo: {in_reply_to}")
+        lines.extend(["Body:", str(body or "").strip()])
+    return "\n".join(lines).strip()
+
+
+def _pending_dispatch_count(body: str) -> int:
+    text = str(body or "")
+    if text.startswith(_MERGED_DISPATCH_HEADER):
+        return len(re.findall(r"^=== ITEM \d+ ===$", text, flags=re.MULTILINE))
+    return 1 if text.strip() else 0
+
+
+def _build_pending_dispatch_subject(count: int, latest_subject: str) -> str:
+    latest = _clip_text(latest_subject or "(no subject)", 80)
+    if count <= 1:
+        return latest
+    return f"Pending updates ({count}); latest: {latest}"
+
+
+def _append_pending_dispatch_body(
+    existing_run,
+    *,
+    from_agent: str,
+    message_type: str,
+    subject: str,
+    body: str,
+    priority: str,
+    message_id: str = "",
+    in_reply_to: str = "",
+) -> tuple[str, int]:
+    existing_body = str(existing_run["body"] or "")
+    if existing_body.startswith(_MERGED_DISPATCH_HEADER):
+        count = _pending_dispatch_count(existing_body) + 1
+        new_item = _render_pending_dispatch_item(
+            count,
+            from_agent=from_agent,
+            message_type=message_type,
+            subject=subject,
+            body=body,
+            priority=priority,
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+        )
+        merged_body = existing_body.replace(_MERGED_DISPATCH_FOOTER, f"\n\n{new_item}\n{_MERGED_DISPATCH_FOOTER}")
+        return merged_body, count
+
+    first_item = _render_pending_dispatch_item(
+        1,
+        from_agent=str(existing_run["from_agent"] or ""),
+        message_type=str(existing_run["message_type"] or ""),
+        subject=str(existing_run["subject"] or ""),
+        body=str(existing_run["body"] or ""),
+        priority=str(existing_run["priority"] or "normal"),
+        message_id=str(existing_run["message_id"] or ""),
+        in_reply_to=str(existing_run["in_reply_to"] or ""),
+    )
+    second_item = _render_pending_dispatch_item(
+        2,
+        from_agent=from_agent,
+        message_type=message_type,
+        subject=subject,
+        body=body,
+        priority=priority,
+        message_id=message_id,
+        in_reply_to=in_reply_to,
+    )
+    merged_body = "\n".join([
+        _MERGED_DISPATCH_HEADER,
+        "Additional dispatches arrived while another run was active.",
+        "Process the buffered items in order. For message-backed items, use comms_inbox(...) if you need the full original text.",
+        "",
+        first_item,
+        "",
+        second_item,
+        _MERGED_DISPATCH_FOOTER,
+    ]).strip()
+    return merged_body, 2
+
+
+async def _find_mergeable_queued_run(
+    db,
+    *,
+    recipient_id: str,
+    from_agent: str,
+):
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM dispatch_runs
+        WHERE target_agent = ?
+          AND status = 'queued'
+          AND from_agent = ?
+        ORDER BY requested_at ASC
+        LIMIT 1
+        """,
+        (
+            recipient_id,
+            from_agent,
+        ),
+    )
+    return await cursor.fetchone()
+
+
 async def _create_dispatch_runs(
     db,
     recipients: list[str],
@@ -571,6 +718,52 @@ async def _create_dispatch_runs(
     runs = []
     requested_at = _now()
     for recipient_id in recipients:
+        mergeable_run = await _find_mergeable_queued_run(
+            db,
+            recipient_id=recipient_id,
+            from_agent=from_agent,
+        )
+        if mergeable_run:
+            merged_body, merged_count = _append_pending_dispatch_body(
+                mergeable_run,
+                from_agent=from_agent,
+                message_type=message_type,
+                subject=subject,
+                body=body,
+                priority=priority,
+                message_id=str(message_id or ""),
+                in_reply_to=str(in_reply_to or ""),
+            )
+            await db.execute(
+                """
+                UPDATE dispatch_runs
+                SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, message_id = NULL, in_reply_to = NULL
+                WHERE id = ?
+                """,
+                (
+                    _build_pending_dispatch_subject(merged_count, subject),
+                    merged_body,
+                    _stronger_priority(mergeable_run["priority"], priority),
+                    "require_start" if mergeable_run["dispatch_mode"] == "require_start" or dispatch_mode == "require_start" else mergeable_run["dispatch_mode"],
+                    message_type,
+                    mergeable_run["id"],
+                ),
+            )
+            await _append_dispatch_event(
+                db,
+                mergeable_run["id"],
+                "merged",
+                f"Buffered update from {from_agent}: {subject}",
+            )
+            runs.append({
+                "runId": mergeable_run["id"],
+                "targetAgentId": recipient_id,
+                "status": "queued",
+                "merged": True,
+                "mergedCount": merged_count,
+            })
+            continue
+
         run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         await db.execute(
             """

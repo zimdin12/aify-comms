@@ -9,12 +9,14 @@ General coordination pattern:
 - Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` when you want background delivery without waking the target
 - Use `comms_dispatch` when you want explicit run tracking from the start
 - Use `comms_spawn_agent` only when you need a detached managed worker
+- If an agent is already working, later dispatches from the same sender are buffered into one pending run that starts after the current run finishes instead of piling up as many separate queued runs
 - Use `comms_run_status` to watch active work
 - Use `comms_run_steer` or `comms_run_interrupt` when an active run needs correction
 - Keep messages short by default: one ask, one result, or one status update
 - Use the subject line as the short summary
 - If the detail is long, send the summary first and attach the rest with `comms_share`
 - If you see an unread notice, call `comms_inbox(...)` promptly
+- Short-lived subagents should normally report through their parent/coordinator instead of registering themselves into comms
 - If you are using Claude CLI, prefer starting the live session with `claude-aify`
 - If you are using Codex CLI and want visible live wakeups, prefer starting the live session with `codex-aify`
 

@@ -28,6 +28,8 @@ Important mental model:
 - if the target should answer you, it must explicitly use `comms_send(...)`
 - `comms_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
 - `comms_channel_send(...)` also wakes channel members by default; use `silent=true` for background-only channel updates
+- if the target is already working, later dispatches from the same sender are merged into one pending buffered run that starts after the current run finishes instead of stacking as many separate queued runs
+- inbox delivery is still immediate even when a dispatch is buffered
 
 Communication defaults:
 - keep messages concise by default: one ask, one result, or one status update
@@ -344,6 +346,7 @@ This works across machines as long as the target machine has a live stdio MCP br
 
 Important:
 - Dispatched runs do not auto-send their final response back to the requesting agent. If you want the requester to receive a message, the target runtime must explicitly call `comms_send(...)` or another inter-agent tool.
+- If an agent is already busy, later dispatches from the same sender are merged into one buffered pending run that starts after the current run finishes instead of piling up as many separate queued runs. The underlying inbox messages still arrive immediately.
 - Resident Codex sessions started with `codex-aify` use `codex-live`, which targets the same shared local WebSocket App Server as the visible TUI.
 - In `codex-live`, the visible Codex session will show the injected task and its final answer. That is expected. Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
 - Resident Codex sessions started with plain `codex` still use `codex-thread-resume`, not a guaranteed visible foreground-session wake.
@@ -361,6 +364,10 @@ Practical rule:
 - use `comms_send(silent=true)` or `comms_channel_send(silent=true)` for background information without waking the target
 - use `comms_dispatch(...)` when you want an explicit tracked run
 - use `comms_send(...)` again if you want an actual reply message back
+
+Subagent rule:
+- short-lived subagents should normally report to their parent/coordinator, not register themselves into comms
+- do not make nested subagents call `comms_register(...)`, join channels, or message the whole team unless you explicitly want them to become top-level team agents
 
 ### Trigger Tradeoffs
 
