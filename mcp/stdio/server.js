@@ -89,6 +89,28 @@ if (!IS_REMOTE) {
 const HTTP_RETRY_ATTEMPTS = 3;
 const HTTP_RETRY_BASE_MS = 250;
 
+// POST is not idempotent in general, so we only retry POSTs that are safe to
+// replay. Everything else (GET, PATCH, DELETE) is always retriable.
+// This list is intentionally narrow. If you add a new POST endpoint that can
+// be retried without creating duplicate side effects, add it here explicitly.
+const RETRIABLE_POST_PATHS = new Set([
+  "/agents",              // INSERT OR REPLACE — idempotent
+  "/channels/join",       // channel join is idempotent (SKIP suffix match below)
+]);
+
+function isRetriableRequest(method, endpoint) {
+  const m = String(method || "").toUpperCase();
+  if (m === "GET" || m === "PATCH" || m === "DELETE") return true;
+  if (m !== "POST") return false;
+  const path = String(endpoint || "");
+  if (RETRIABLE_POST_PATHS.has(path)) return true;
+  // Per-agent heartbeat and per-channel join are idempotent but have
+  // dynamic path segments, so match by suffix.
+  if (/^\/agents\/[^/]+\/heartbeat$/.test(path)) return true;
+  if (/^\/channels\/[^/]+\/join$/.test(path)) return true;
+  return false;
+}
+
 function isTransientHttpError(error) {
   if (!error) return false;
   const name = String(error.name || "");
@@ -109,16 +131,19 @@ async function httpCall(method, endpoint, body = null) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
+  const retriable = isRetriableRequest(method, endpoint);
+  const maxAttempts = retriable ? HTTP_RETRY_ATTEMPTS : 1;
   let lastError;
-  for (let attempt = 1; attempt <= HTTP_RETRY_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(url, options);
       if (!res.ok) {
         const text = await res.text();
         const err = new Error(`HTTP ${res.status}: ${text}`);
         err.status = res.status;
-        // 5xx is retriable as a transient server blip; 4xx is a real error.
-        if (res.status >= 500 && res.status < 600 && attempt < HTTP_RETRY_ATTEMPTS) {
+        // 5xx is retriable as a transient server blip, but only on safe
+        // methods. 4xx is a real error — never retry.
+        if (retriable && res.status >= 500 && res.status < 600 && attempt < maxAttempts) {
           lastError = err;
           await new Promise((r) => setTimeout(r, HTTP_RETRY_BASE_MS * 2 ** (attempt - 1)));
           continue;
@@ -128,7 +153,7 @@ async function httpCall(method, endpoint, body = null) {
       return res.json();
     } catch (error) {
       lastError = error;
-      if (attempt >= HTTP_RETRY_ATTEMPTS || !isTransientHttpError(error)) {
+      if (attempt >= maxAttempts || !isTransientHttpError(error) || !retriable) {
         throw error;
       }
       await new Promise((r) => setTimeout(r, HTTP_RETRY_BASE_MS * 2 ** (attempt - 1)));
