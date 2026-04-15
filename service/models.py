@@ -9,6 +9,7 @@ class AgentRegister(BaseModel):
     name: Optional[str] = None
     cwd: Optional[str] = None
     model: Optional[str] = None
+    description: Optional[str] = None
     instructions: Optional[str] = None
     status: Optional[str] = None
     runtime: Optional[str] = None
@@ -20,6 +21,10 @@ class AgentRegister(BaseModel):
     managedBy: Optional[str] = None
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
+
+
+class AgentDescribeRequest(BaseModel):
+    description: str
 
 
 class AgentStatusUpdate(BaseModel):

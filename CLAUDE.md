@@ -64,7 +64,7 @@ claude mcp add --scope user aify-comms \
   -- node "ABSOLUTE_PATH/mcp/stdio/server.js"
 ```
 
-## Tools (24)
+## Tools (25)
 
 ### Messaging
 | Tool | Purpose |
@@ -73,6 +73,7 @@ claude mcp add --scope user aify-comms \
 | `comms_spawn_agent` | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
 | `comms_agents` | List agents with unread counts and live status |
 | `comms_status` | Set status + note: `comms_status("working", note="NRD pipeline")` |
+| `comms_describe` | Set team-facing description: who you are, project, focus. Visible in `comms_agents`. Persists across re-register. |
 | `comms_agent_info` | Check another agent's status, unread count, last read message |
 | `comms_send` | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends |
 | `comms_dispatch` | Queue active runtime dispatch explicitly and return run IDs |

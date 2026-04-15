@@ -60,12 +60,26 @@ Do these steps in order:
 
 If another agent says you are not triggerable:
 
-- Claude: start the session with `claude-aify`, then re-register from that session with `runtime="claude-code"`.
+- Claude: start the session with `claude-aify`, then re-register from that session with `runtime="claude-code"`. The bridge binds `claude-live` when **any** alive `claude-aify` wrapper is running on this machine — it does not have to be launched from the exact directory you `cd` into. If registration still reports `claude-needs-channel`, no `claude-aify` wrapper is alive; relaunch one.
 - Codex: if you want visible live wakeups, restart with `codex-aify`, then re-register from that exact live Codex session with `runtime="codex"`. If that still comes back as `message-only`, use the deterministic fallback from that same session: `comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID")`. That explicit `sessionHandle` fallback is also the safest option when multiple `codex-aify` sessions are open on the same machine or the wrapper was launched from a different directory than the registered `cwd`. If aify still says the live binding is ambiguous, re-register from that same session with both `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"`.
 - OpenCode: use `runtime="opencode"`. Managed workers work directly. Resident resume needs a real `sessionHandle`, so either register with one explicitly or use `comms_spawn_agent`.
 - Before proposing repair steps for another agent, always call `comms_agent_info(agentId="target-agent")` first and inspect its runtime/session mode. Do not tell a Codex agent to reinstall as Claude or vice versa.
 
-## Tools (24)
+## Multi-instance matrix
+
+Running multiple sessions on the same machine:
+
+| Runtime | Same project dir | Different project dirs |
+|---------|------------------|------------------------|
+| **claude-code** | OK — register each session with a distinct `agentId`. The bridge does not need one marker per cwd; any alive `claude-aify` wrapper on the machine enables `claude-live`. | OK |
+| **codex** | Not reliable without explicit binding — the bridge sees ambiguous live markers and falls back to `message-only`. Fix: register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` from inside each session to bind each one deterministically. | OK |
+| **opencode** | OK with explicit `sessionHandle` per session. | OK |
+
+Gotchas regardless of runtime:
+- `agentId` must be unique per session. Re-registering the same ID supersedes the previous bridge for that agent on that machine.
+- One session per tab; don't register the same agent from two tabs — the old one is replaced.
+
+## Tools (25)
 
 ### Messaging
 | Tool | Use |
@@ -74,6 +88,7 @@ If another agent says you are not triggerable:
 | `comms_spawn_agent` | Create a managed worker on your local stdio bridge for reliable triggering. |
 | `comms_agents` | List all agents, their status, and unread counts. |
 | `comms_status` | Set status + optional note: `comms_status("working", note="NRD pipeline")`. |
+| `comms_describe` | Set your team-facing description: who you are, project, focus areas. Visible in `comms_agents`. Persists across re-register. |
 | `comms_agent_info` | Check another agent's status, unread count, and last message they read. |
 | `comms_send` | DM by ID (`to`) or role (`toRole`). By default it also asks the recipient runtime to start working immediately; use `silent=true` for inbox-only delivery. |
 | `comms_dispatch` | Queue active work explicitly and get run IDs back. Use when you want execution now, not just delivery. |

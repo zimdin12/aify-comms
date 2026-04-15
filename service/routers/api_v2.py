@@ -18,7 +18,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from service.db import get_db
 from service.models import (
-    AgentRegister, AgentStatusUpdate, MessageSend, ClearRequest,
+    AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
     SpawnAgentRequest,
     AgentRuntimeStateUpdate, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
@@ -463,6 +463,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "name": row["name"],
         "cwd": row["cwd"],
         "model": row["model"],
+        "description": (row["description"] if "description" in row.keys() else "") or "",
         "instructions": row["instructions"],
         "status": effective_status,
         "registeredAt": row["registered_at"],
@@ -947,7 +948,7 @@ async def register_agent(req: AgentRegister, request: Request):
         normalized_runtime = _normalize_runtime(req.runtime or "generic")
         normalized_session_mode = _normalize_session_mode(req.sessionMode or "resident")
         now = _now()
-        existing = await db.execute("SELECT runtime_state, session_handle, capabilities, registered_at FROM agents WHERE id = ?", (req.agentId,))
+        existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
         # Re-register is a full state refresh: sessionHandle and runtime_state come
         # from the new request only. Preserving them across re-register let stale
@@ -955,6 +956,12 @@ async def register_agent(req: AgentRegister, request: Request):
         # thread/resume fail with AbsolutePathBuf or "no rollout found".
         session_handle = req.sessionHandle or ""
         existing_state = "{}"
+        # Description is team-facing metadata that survives re-register when the
+        # caller does not pass a new value. Passing "" explicitly clears it.
+        if req.description is None:
+            description_value = (row["description"] if row and "description" in row.keys() else "") or ""
+        else:
+            description_value = req.description
         capabilities = req.capabilities
         if capabilities is None:
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
@@ -962,14 +969,14 @@ async def register_agent(req: AgentRegister, request: Request):
         await db.execute(
             """
             INSERT OR REPLACE INTO agents (
-                id, role, name, cwd, model, instructions, status, runtime, machine_id,
+                id, role, name, cwd, model, description, instructions, status, runtime, machine_id,
                 launch_mode, session_mode, session_handle, managed_by, capabilities,
                 runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 req.agentId, req.role, req.name or req.agentId, req.cwd or "", req.model or "",
-                req.instructions or "", req.status or "idle", normalized_runtime,
+                description_value, req.instructions or "", req.status or "idle", normalized_runtime,
                 req.machineId or "", req.launchMode or "detached",
                 normalized_session_mode, session_handle, req.managedBy or "",
                 json.dumps(capabilities or []), json.dumps(req.runtimeConfig or {}),
@@ -1080,14 +1087,18 @@ async def spawn_agent(req: SpawnAgentRequest, request: Request):
         capabilities = _default_capabilities_for(normalized_runtime, "managed", "")
         runtime_config = req.runtimeConfig or (existing and _json_loads_or(existing["runtime_config"], {})) or {}
         runtime_state = existing["runtime_state"] if existing and existing["runtime_state"] else "{}"
+        if req.description is None:
+            description_value = (existing["description"] if existing and "description" in existing.keys() else "") or ""
+        else:
+            description_value = req.description
 
         await db.execute(
             """
             INSERT OR REPLACE INTO agents (
-                id, role, name, cwd, model, instructions, status, runtime, machine_id,
+                id, role, name, cwd, model, description, instructions, status, runtime, machine_id,
                 launch_mode, session_mode, session_handle, managed_by, capabilities,
                 runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 req.agentId,
@@ -1095,6 +1106,7 @@ async def spawn_agent(req: SpawnAgentRequest, request: Request):
                 req.name or req.agentId,
                 req.cwd or owner["cwd"] or "",
                 req.model or "",
+                description_value,
                 req.instructions or "",
                 "idle",
                 normalized_runtime,
@@ -1522,6 +1534,32 @@ async def agent_heartbeat(agent_id: str, request: Request):
         )
         await db.commit()
         return {"ok": True}
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/description")
+async def update_agent_description(agent_id: str, req: AgentDescribeRequest, request: Request):
+    """Update an agent's team-facing description without re-registering."""
+    validate_name(agent_id, "agent ID")
+    description = str(req.description or "")
+    if len(description) > 2000:
+        raise HTTPException(400, "description must be 2000 chars or fewer")
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        await db.execute(
+            "UPDATE agents SET description = ?, last_seen = ? WHERE id = ?",
+            (description, _now(), agent_id),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_description_updated", {"agentId": agent_id, "description": description})
+        return {"ok": True, "agentId": agent_id, "description": description}
     finally:
         await db.close()
 

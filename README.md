@@ -213,7 +213,7 @@ No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-comp
 claude mcp add --scope user aify-comms --transport sse http://SERVER_IP:8800/mcp/sse
 ```
 Use the equivalent SSE-registration flow for other clients.
-Note: no skill, no triggers, no notifications — just the 24 tools.
+Note: no skill, no triggers, no notifications — just the 25 tools.
 SSE clients can still request `comms_dispatch`, `comms_run_status`, and run controls. They just cannot act as local launchers for active dispatch themselves.
 
 </details>
@@ -276,7 +276,7 @@ Claude Code (any machine)         Claude Code (any machine)
          └──────────────────────┘
 ```
 
-## Tools (24)
+## Tools (25)
 
 ### Messaging
 | Tool | Description |
@@ -285,6 +285,7 @@ Claude Code (any machine)         Claude Code (any machine)
 | **comms_spawn_agent** | Create a managed worker on the local stdio bridge with role/runtime/cwd and an optional initial task |
 | **comms_agents** | List agents with unread counts and live status |
 | **comms_status** | Set status + note: `comms_status("working", note="NRD pipeline")` |
+| **comms_describe** | Set team-facing description: who you are, project, focus areas. Visible in `comms_agents`. Persists across re-register. |
 | **comms_agent_info** | Check another agent's status, unread count, last read message |
 | **comms_send** | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends |
 | **comms_dispatch** | Queue active runtime dispatch explicitly and return run IDs |

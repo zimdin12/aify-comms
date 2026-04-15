@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS agents (
     name TEXT NOT NULL,
     cwd TEXT DEFAULT '',
     model TEXT DEFAULT '',
+    description TEXT DEFAULT '',
     instructions TEXT DEFAULT '',
     status TEXT DEFAULT 'idle',
     runtime TEXT DEFAULT 'generic',
@@ -175,6 +176,7 @@ AGENT_MIGRATIONS = {
     "capabilities": "ALTER TABLE agents ADD COLUMN capabilities TEXT DEFAULT '[]'",
     "runtime_config": "ALTER TABLE agents ADD COLUMN runtime_config TEXT DEFAULT '{}'",
     "runtime_state": "ALTER TABLE agents ADD COLUMN runtime_state TEXT DEFAULT '{}'",
+    "description": "ALTER TABLE agents ADD COLUMN description TEXT DEFAULT ''",
 }
 
 DISPATCH_RUN_MIGRATIONS = {

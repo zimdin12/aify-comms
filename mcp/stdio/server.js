@@ -2,8 +2,8 @@
 //
 // aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
-// 24 tools (all prefixed "comms_"):
-//   comms_register, comms_spawn_agent, comms_agents, comms_status, comms_send, comms_dispatch, comms_inbox, comms_search,
+// 25 tools (all prefixed "comms_"):
+//   comms_register, comms_spawn_agent, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_inbox, comms_search,
 //   comms_share, comms_read, comms_files,
 //   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,
 //   comms_agent_info, comms_listen, comms_unsend, comms_run_status, comms_run_interrupt, comms_run_steer,
@@ -164,8 +164,30 @@ function resolvedRuntimeMarker(runtime, cwd) {
   if (normalizedRuntime === "codex") {
     const liveMarkers = listRuntimeMarkers(normalizedRuntime, resolvedCwd);
     if (liveMarkers.length > 1) return null;
+    return readRuntimeMarker(normalizedRuntime, resolvedCwd);
   }
-  return readRuntimeMarker(normalizedRuntime, resolvedCwd);
+  const exact = readRuntimeMarker(normalizedRuntime, resolvedCwd);
+  if (exact) return exact;
+  // Fallback for claude-code: if there is no marker for the exact cwd but a
+  // live claude-aify wrapper is running on this machine, use that marker.
+  // This handles the common case where the user launches claude-aify from
+  // one project directory and then cds into a different project before
+  // calling comms_register — the wrapper still fires its channel bridge,
+  // but the per-cwd marker was never written for the new directory.
+  // Codex does NOT get this fallback because its wake path depends on the
+  // specific app-server URL bound to the wrapper that launched it.
+  if (normalizedRuntime === "claude-code") {
+    const anyAlive = listRuntimeMarkers(normalizedRuntime, "");
+    if (anyAlive.length) {
+      anyAlive.sort((a, b) => {
+        const aTime = Date.parse(String(a.createdAt || "")) || 0;
+        const bTime = Date.parse(String(b.createdAt || "")) || 0;
+        return bTime - aTime;
+      });
+      return anyAlive[0];
+    }
+  }
+  return null;
 }
 
 function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd = DEFAULT_CWD) {
@@ -530,6 +552,7 @@ server.tool(
     name: z.string().optional().describe("Friendly name"),
     cwd: z.string().optional().describe("Working directory (used when triggered)"),
     model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
+    description: z.string().optional().describe("Team-facing short description: who you are, what project you're on, what you focus on. Visible to other agents in comms_agents. Preserved across re-register; pass \"\" to clear."),
     instructions: z.string().optional().describe("Standing instructions for when triggered"),
     runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex')"),
     machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
@@ -539,7 +562,7 @@ server.tool(
     appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
     managedBy: z.string().optional().describe("Owning agent ID when registering a managed worker"),
   },
-  async ({ agentId, role, name, cwd, model, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
+  async ({ agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     const resolvedRuntime = detectRuntime(runtime);
     const resolvedMachineId = machineId || MACHINE_ID;
@@ -584,6 +607,7 @@ server.tool(
       name,
       cwd: resolvedCwd,
       model: model || "",
+      description: description === undefined ? null : description,
       instructions: instructions || "",
       runtime: resolvedRuntime,
       machineId: resolvedMachineId,
@@ -877,13 +901,19 @@ server.tool(
   "List all registered agents, their roles, and unread message counts.",
   {},
   async () => {
+    const describeLine = (info) => {
+      const desc = String(info.description || "").trim();
+      if (!desc) return "";
+      const preview = desc.length > 160 ? `${desc.slice(0, 159)}…` : desc;
+      return `\n    ${preview}`;
+    };
     if (IS_REMOTE) {
       const r = await httpCall("GET", "/agents");
       const entries = Object.entries(r.agents || {});
       if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
       const lines = entries.map(([id, info]) => {
         const status = info.status ? ` [${info.status}]` : "";
-        return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}`;
+        return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
       });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
@@ -894,7 +924,7 @@ server.tool(
     const lines = entries.map(([id, info]) => {
       const unread = readInbox(id, "unread").length;
       const status = info.status ? ` [${info.status}]` : "";
-      return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}`;
+      return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}${describeLine(info)}`;
     });
     return { content: [{ type: "text", text: lines.join("\n") }] };
   }
@@ -930,6 +960,35 @@ server.tool(
     registry.agents[agentId].lastSeen = new Date().toISOString();
     writeAgents(registry);
     return { content: [{ type: "text", text: `Status updated: ${agentId} → ${registry.agents[agentId].status}` }] };
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2c. comms_describe -- Update your team-facing description
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "comms_describe",
+  "Update your team-facing description: who you are, what project you're on, what you focus on. " +
+    "Visible to other agents in comms_agents. Persists across re-register. Pass \"\" to clear.",
+  {
+    agentId: z.string().describe("Your agent ID"),
+    description: z.string().max(2000).describe("Short description (max 2000 chars). Example: 'Senior backend engineer on NRD ingest pipeline. Focus: Postgres migrations, dbt models, GCP dataflow jobs.'"),
+  },
+  async ({ agentId, description }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "comms_describe currently requires remote server mode." }], isError: true };
+    }
+
+    try {
+      const r = await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/description`, { description });
+      const preview = r.description ? `: ${r.description.slice(0, 120)}${r.description.length > 120 ? "…" : ""}` : " (cleared)";
+      return { content: [{ type: "text", text: `Description updated for ${r.agentId}${preview}` }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Describe error: ${e.message}` }], isError: true };
+    }
   }
 );
 
