@@ -57,3 +57,7 @@ logs/
 # Data (persisted in volumes, not git)
 data/
 v1-export.json
+
+# Debug dumps
+dispatch_runs.json
+*.dispatch.json
