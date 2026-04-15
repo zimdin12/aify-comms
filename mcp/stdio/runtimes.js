@@ -5,7 +5,7 @@ import readline from "readline";
 import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
-import { detectCodexResumeFailure } from "./codex-errors.js";
+import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
@@ -132,6 +132,14 @@ function codexWorkingPath(launcher, cwd) {
     return String(cwd || "").replace(/\\/g, "/");
   }
   return toWslPath(cwd);
+}
+
+function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
+  return resolveCodexRequestCwdFor({
+    hostCwd,
+    appServerUrl,
+    legacyTransform: (raw) => codexWorkingPath(launcher, raw),
+  });
 }
 
 function codexSpawnCwd(launcher, cwd) {
@@ -692,8 +700,6 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const launcher = defaultCodexCommand();
   const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
   const hostCwd = agentInfo.cwd || process.cwd();
-  const cwd = codexWorkingPath(launcher, hostCwd);
-  const spawnCwd = codexSpawnCwd(launcher, hostCwd);
   const model = agentInfo.model || config.model || "gpt-5.4";
   const effort = config.effort || "medium";
   const summaryMode = config.summary || "concise";
@@ -705,6 +711,8 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     executionMode === "resident" && hasCodexLiveAppServer(config)
       ? String(config.appServerUrl || "").trim()
       : "";
+  const cwd = resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl });
+  const spawnCwd = codexSpawnCwd(launcher, hostCwd);
   const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
   const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
 

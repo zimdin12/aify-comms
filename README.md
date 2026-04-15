@@ -150,6 +150,7 @@ comms_inbox(agentId="coder")
 - Keep messages short. Subject = summary. If the detail is long, `comms_share` an artifact and point at it.
 - Re-register with the same `agentId` after any update or restart — the server supersedes the old bridge automatically.
 - If things go sideways, the **aify-comms-debug** skill lists every known failure mode and its fix.
+- For the *why* behind non-obvious choices (wake modes, dispatch buffering, re-register semantics, path formats, auto-heal), see [DECISIONS.md](DECISIONS.md).
 
 ### Client — manual install
 
