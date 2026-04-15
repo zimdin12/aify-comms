@@ -35,6 +35,7 @@ Important:
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
 - If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers, and they cannot launch local work themselves.
+- Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`).
 - If another agent says you are a resident OpenCode session without a bound session handle, either re-register with `sessionHandle="<session-id>"` or use `comms_spawn_agent` for a managed worker.
 
 ## What This Installs
