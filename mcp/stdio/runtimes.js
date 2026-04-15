@@ -842,42 +842,47 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           // field it cannot load — typically a backslash Windows cwd that
           // was captured before the wrapper's cwd normalization landed.
           // The failure happens inside Codex's app-server when it loads the
-          // on-disk rollout, so nothing we send can fix it. Treat it the
-          // same as a missing rollout: managed workers auto-recover by
-          // starting a fresh thread; resident sessions get an actionable
-          // error telling the user exactly what to nuke.
+          // on-disk rollout, so nothing we send can fix it.
           const corruptRollout =
             message.includes("AbsolutePathBuf deserialized") ||
             message.includes("AbsolutePathBufGuard");
           if (!noRollout && !corruptRollout) {
             throw error;
           }
-          if (executionMode === "resident") {
-            if (corruptRollout) {
-              throw new Error(
-                `Resident Codex thread "${activeThreadId}" has a corrupt on-disk rollout. ` +
-                `Codex app-server reported: ${message.trim()}. ` +
-                `This usually means the thread was created by a codex-aify wrapper ` +
-                `launched from a directory whose path was later captured in a form ` +
-                `Codex's deserializer rejects (common on Windows with backslash cwds ` +
-                `created before the cwd-normalization fix landed). To recover: ` +
-                `(1) kill every codex-aify and codex app-server process, ` +
-                `(2) move or delete the rollout file matching "${activeThreadId}" under ~/.codex/sessions/, ` +
-                `(3) relaunch codex-aify from the target project directory, ` +
-                `(4) re-register this agent with the NEW $CODEX_THREAD_ID from the fresh session. ` +
-                `See the aify-comms-debug skill for the full hard-reset sequence.`,
+          // Auto-heal for both managed and resident modes. Resident mode
+          // previously threw here because silently creating a new thread
+          // would break the visible-TUI wake guarantee. But if the stored
+          // rollout is unloadable, the visible TUI is ALREADY broken:
+          // the user can't interact with a thread Codex can't load. Having
+          // the dispatch fail forever is strictly worse than having it run
+          // in a fresh background thread. We create a new thread, notify
+          // the caller via onSessionHandleChange so the backend's stored
+          // sessionHandle is updated, and continue.
+          const previousThreadId = activeThreadId;
+          const reasonLabel = corruptRollout
+            ? `Rollout for thread ${previousThreadId} is corrupt (${message.trim()})`
+            : `Thread ${previousThreadId} has no rollout`;
+          const modeLabel = executionMode === "resident"
+            ? "; healing resident session with a fresh thread (visibility in the live TUI is lost until the user relaunches codex-aify from a clean environment)"
+            : "; starting a fresh thread";
+          callbacks.onEvent?.("thread", reasonLabel + modeLabel);
+          activeThreadId = await startThread();
+          // Push the new thread id back to the caller so the backend's
+          // stored sessionHandle gets updated. Without this, the very next
+          // dispatch would try to resume the same poisoned thread and hit
+          // the exact same error.
+          if (activeThreadId && activeThreadId !== previousThreadId) {
+            try {
+              await callbacks.onSessionHandleChange?.(activeThreadId, {
+                previous: previousThreadId,
+                reason: corruptRollout ? "corrupt_rollout" : "no_rollout",
+              });
+            } catch (cbError) {
+              console.error(
+                `[aify] onSessionHandleChange callback failed after healing thread: ${cbError?.message || cbError}`,
               );
             }
-            throw new Error(
-              `Resident Codex thread "${activeThreadId}" could not be resumed. ` +
-              "Re-register the live session so aify captures the current thread ID.",
-            );
           }
-          const reason = corruptRollout
-            ? `Rollout for thread ${activeThreadId} is corrupt (${message.trim()}); starting a fresh thread`
-            : `Discarding stale thread ${activeThreadId}`;
-          callbacks.onEvent?.("thread", reason);
-          activeThreadId = await startThread();
         }
       }
 

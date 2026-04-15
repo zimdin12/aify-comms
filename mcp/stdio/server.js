@@ -621,6 +621,22 @@ async function runDispatchLoop() {
               // best effort
             }
           },
+          // Fired when the runtime controller had to discard an unloadable
+          // thread (corrupt rollout / no rollout) and start a fresh one.
+          // Update the cached state and push the new sessionHandle back to
+          // the server so future dispatches bind to the healed thread
+          // instead of repeatedly hitting the same poisoned one.
+          onSessionHandleChange: async (newHandle, meta = {}) => {
+            if (!newHandle) return;
+            try {
+              state.info.sessionHandle = newHandle;
+              await reregisterAgentFromState(agentId, state);
+              const metaLabel = meta?.reason ? ` (reason: ${meta.reason}, previous: ${meta.previous || ""})` : "";
+              console.error(`[aify] healed sessionHandle for "${agentId}" → ${newHandle}${metaLabel}`);
+            } catch (error) {
+              console.error(`[aify] failed to persist healed sessionHandle for "${agentId}": ${error?.message || error}`);
+            }
+          },
         },
       });
 
