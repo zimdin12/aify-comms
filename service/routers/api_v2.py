@@ -2206,12 +2206,17 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
             await db.rollback()
             return {"ok": True, "controls": []}
 
+        # Claim pending controls for this agent. No filter on run status —
+        # Claude resident runs complete immediately on delivery, so their
+        # controls would never be claimable under the old ('claimed','running')
+        # filter. The channel bridge polls for controls independently and
+        # delivers them as notifications regardless of run state.
         controls_cursor = await db.execute(
             """
             SELECT dc.*, dr.target_agent, dr.status as run_status
             FROM dispatch_controls dc
             JOIN dispatch_runs dr ON dr.id = dc.run_id
-            WHERE dr.target_agent = ? AND dc.status = 'pending' AND dr.status IN ('claimed', 'running')
+            WHERE dr.target_agent = ? AND dc.status = 'pending'
               AND (? = '' OR dc.run_id = ?)
             ORDER BY dc.requested_at ASC, dc.id ASC
             LIMIT 20

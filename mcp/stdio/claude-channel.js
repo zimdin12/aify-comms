@@ -114,9 +114,22 @@ function dispatchContent(agentId, run) {
   ].filter(Boolean).join("\n");
 }
 
-// controlContent removed — the channel bridge no longer tracks active runs,
-// so there's nothing to send controls to. Interrupt/steer for Claude
-// resident sessions should be done via comms_send instead.
+function controlContent(agentId, control) {
+  const body = String(control.body || "").replace(/```/g, "'''");
+  const lines = [
+    `Aify ${control.action} for agent "${agentId}".`,
+    control.from ? `Requested by: ${control.from}` : "",
+  ];
+  if (body) {
+    lines.push("", "```", body, "```");
+  }
+  if (control.action === "interrupt") {
+    lines.push("", "Stop your current task as soon as practical. Send a brief status reply.");
+  } else if (control.action === "steer") {
+    lines.push("", "Apply this guidance to your current work.");
+  }
+  return lines.filter(Boolean).join("\n");
+}
 
 const mcp = new Server(
   { name: "aify-comms-channel", version: "3.6.6" },
@@ -180,6 +193,28 @@ async function pollLoop() {
           agentStatus: "active",
           appendEvent: "Delivered and completed by channel bridge",
           eventType: "delivered",
+        });
+      }
+
+      // Poll for controls (interrupt/steer) independently of run tracking.
+      // This makes comms_run_interrupt and comms_run_steer work for Claude
+      // the same way they work for Codex — the sender uses the same tool
+      // regardless of target runtime.
+      const controlClaim = await httpCall("POST", "/dispatch/controls/claim", {
+        agentId,
+        machineId: MACHINE_ID,
+      });
+      for (const control of controlClaim?.controls || []) {
+        await emitChannel(controlContent(agentId, control), {
+          event_type: "control",
+          agent_id: agentId,
+          run_id: control.runId || "",
+          action: control.action || "",
+          from_agent: control.from || "",
+        });
+        await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
+          status: "completed",
+          response: "Delivered to Claude resident session",
         });
       }
     } catch (error) {
