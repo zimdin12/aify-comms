@@ -49,10 +49,13 @@ function sleep(ms) {
 }
 
 function readBoundAgentId() {
+  // Read the agent binding from the PID-keyed temp file written by
+  // server.js on comms_register. We no longer fall back to {cwd}/.aify-agent
+  // because that file is shared across all sessions in the same directory
+  // and causes cross-talk when multiple agents run in the same folder.
   const candidates = [
     path.join(TMP_DIR, `aify-agent-${process.ppid || process.pid}`),
     path.join(TMP_DIR, `aify-agent-${process.pid}`),
-    path.join(process.cwd(), ".aify-agent"),
   ];
   for (const candidate of candidates) {
     try {

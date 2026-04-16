@@ -817,12 +817,16 @@ server.tool(
       runtimeConfig,
     };
 
-    // Write agent ID to temp so the notification hook can find it (session-specific).
-    // Only resident sessions represent the current UI/CLI session.
-    const agentCwd = resolvedCwd;
+    // Write agent ID to a session-specific temp file keyed by PID so the
+    // channel bridge and notification hook can find it. Only resident
+    // sessions represent the current UI/CLI session.
+    //
+    // Previously we also wrote to {cwd}/.aify-agent, but that file is
+    // shared across all sessions in the same directory — when two agents
+    // (e.g. manager + tester) run in the same folder, the last to
+    // register wins and the other agent's channel bridge picks up the
+    // wrong agentId, causing cross-talk.
     if (resolvedSessionMode === "resident") {
-      try { fs.writeFileSync(path.join(agentCwd, ".aify-agent"), agentId); } catch { /* best effort */ }
-      // Also write to a session-specific temp file keyed by PID
       try {
         const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
         fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), agentId);

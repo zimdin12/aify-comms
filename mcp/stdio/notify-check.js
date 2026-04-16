@@ -57,17 +57,16 @@ try {
 
 const hookPayload = await readHookPayload();
 
-// Find agent ID: prefer the session-specific temp file.
+// Find agent ID from the PID-keyed temp file written by server.js.
+// We no longer fall back to {cwd}/.aify-agent — that file is shared
+// across sessions in the same directory and causes cross-talk.
 let agentId = "";
 const SESSION_FILE = path.join(tmpDir, `aify-agent-${process.ppid || ""}`);
-const CWD_FILE = path.join(process.cwd(), ".aify-agent");
 let heartbeatAllowed = false;
 
 if (fs.existsSync(SESSION_FILE)) {
   agentId = fs.readFileSync(SESSION_FILE, "utf-8").trim();
   heartbeatAllowed = true;
-} else if (fs.existsSync(CWD_FILE) && fileAgeMs(CWD_FILE) < 8 * 60 * 60 * 1000) {
-  agentId = fs.readFileSync(CWD_FILE, "utf-8").trim();
 }
 if (!agentId) process.exit(0);
 
