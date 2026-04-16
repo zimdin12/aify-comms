@@ -184,9 +184,10 @@ try_existing_app_server() {
 }
 
 APP_SERVER_URL="$(try_existing_app_server || true)"
+STARTED_APP_SERVER=""
 
 if [ -n "$APP_SERVER_URL" ]; then
-  echo "Reusing codex app-server at $APP_SERVER_URL" >&2
+  echo "Found existing codex app-server at $APP_SERVER_URL" >&2
 else
   PORT="$(pick_port)"
   if [ -z "$PORT" ]; then
@@ -205,15 +206,22 @@ else
     rm -f "$DISCOVERY_FILE"
     exit 1
   fi
+  STARTED_APP_SERVER="yes"
   echo "Started codex app-server at $APP_SERVER_URL (pid $APP_SERVER_PID)" >&2
 fi
 
 export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
 
-# No cleanup trap — the app-server is shared and persists across sessions.
-# It dies on reboot, or when the user runs: kill $(jq -r .pid $DISCOVERY_FILE)
-
-codex --remote "$APP_SERVER_URL" "$@"
+# The Codex app-server accepts only one --remote client at a time.
+# First codex-aify uses --remote (gets codex-live TUI wake path).
+# Subsequent instances use plain codex (gets codex-thread-resume wake
+# path — dispatches still work via the bridge, just not visible in TUI).
+if [ -z "$STARTED_APP_SERVER" ]; then
+  echo "Another codex-aify session owns the app-server. Running plain codex (thread-resume mode)." >&2
+  codex "$@"
+else
+  codex --remote "$APP_SERVER_URL" "$@"
+fi
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
