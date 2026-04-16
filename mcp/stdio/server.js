@@ -487,12 +487,15 @@ async function runDispatchLoop() {
     for (const [agentId, state] of REMOTE_AGENT_STATE.entries()) {
       if (!state?.info) continue;
 
+      // Heartbeat on every poll — keeps agent status "active" as long
+      // as the bridge is alive, whether or not there's work in flight.
+      httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        machineId: state.info.machineId || MACHINE_ID,
+      }).catch(() => {});
+
       const active = ACTIVE_RUNS.get(agentId);
       if (active) {
-        httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-          bridgeId: BRIDGE_INSTANCE_ID,
-          machineId: state.info.machineId || MACHINE_ID,
-        }).catch(() => {});
         await processRunControls(agentId, active).catch((error) => {
           console.error("[aify] control processing error:", error);
         });
