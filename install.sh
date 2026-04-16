@@ -157,7 +157,7 @@ export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
 
 LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
 mkdir -p "$LOG_ROOT"
-LOG_FILE="$LOG_ROOT/codex-aify-app-server.log"
+LOG_FILE="$LOG_ROOT/codex-aify-app-server-$PORT.log"
 
 codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
 APP_SERVER_PID=$!
