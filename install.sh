@@ -146,82 +146,41 @@ wait_for_port() {
   ' "$port"
 }
 
-# One shared codex app-server per machine. The first codex-aify starts it;
-# subsequent instances reuse it. The app-server is NOT killed on exit —
-# it persists so other sessions keep working. An idle app-server uses
-# ~50 MB; it dies on reboot or when explicitly killed.
-#
-# Discovery file stores the URL and PID. On startup:
-#   1. Read discovery file → PID alive + port reachable → reuse
-#   2. Otherwise → clean up, start fresh, write discovery file
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
-mkdir -p "$STATE_DIR"
-DISCOVERY_FILE="$STATE_DIR/codex-app-server.json"
-
-try_existing_app_server() {
-  [ -f "$DISCOVERY_FILE" ] || return 1
-  local info
-  info="$(node -e "
-    try {
-      const m = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf-8'));
-      if (m.url && m.pid) console.log(m.pid + ' ' + m.url);
-    } catch {}
-  " "$DISCOVERY_FILE" 2>/dev/null)"
-  [ -n "$info" ] || return 1
-  local pid="${info%% *}"
-  local url="${info#* }"
-  if ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$DISCOVERY_FILE"
-    return 1
-  fi
-  local port="${url##*:}"
-  if wait_for_port "$port" 2>/dev/null; then
-    echo "$url"
-    return 0
-  fi
-  rm -f "$DISCOVERY_FILE"
-  return 1
-}
-
-APP_SERVER_URL="$(try_existing_app_server || true)"
-STARTED_APP_SERVER=""
-
-if [ -n "$APP_SERVER_URL" ]; then
-  echo "Found existing codex app-server at $APP_SERVER_URL" >&2
-else
-  PORT="$(pick_port)"
-  if [ -z "$PORT" ]; then
-    echo "Failed to allocate a local port for codex app-server." >&2
-    exit 1
-  fi
-  APP_SERVER_URL="ws://127.0.0.1:$PORT"
-  LOG_FILE="$STATE_DIR/codex-aify-app-server-$PORT.log"
-  codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
-  APP_SERVER_PID=$!
-  # Write discovery file immediately so the next codex-aify finds it
-  node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify({url:'$APP_SERVER_URL',pid:$APP_SERVER_PID}))" "$DISCOVERY_FILE"
-  if ! wait_for_port "$PORT"; then
-    echo "codex-aify could not reach the local app-server at $APP_SERVER_URL." >&2
-    echo "Check $LOG_FILE for details." >&2
-    rm -f "$DISCOVERY_FILE"
-    exit 1
-  fi
-  STARTED_APP_SERVER="yes"
-  echo "Started codex app-server at $APP_SERVER_URL (pid $APP_SERVER_PID)" >&2
+PORT="$(pick_port)"
+if [ -z "$PORT" ]; then
+  echo "Failed to allocate a local port for codex app-server." >&2
+  exit 1
 fi
 
+APP_SERVER_URL="ws://127.0.0.1:$PORT"
 export AIFY_CODEX_APP_SERVER_URL="$APP_SERVER_URL"
 
-# The Codex app-server accepts only one --remote client at a time.
-# First codex-aify uses --remote (gets codex-live TUI wake path).
-# Subsequent instances use plain codex (gets codex-thread-resume wake
-# path — dispatches still work via the bridge, just not visible in TUI).
-if [ -z "$STARTED_APP_SERVER" ]; then
-  echo "Another codex-aify session owns the app-server. Running plain codex (thread-resume mode)." >&2
-  codex "$@"
-else
-  codex --remote "$APP_SERVER_URL" "$@"
+LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
+mkdir -p "$LOG_ROOT"
+LOG_FILE="$LOG_ROOT/codex-aify-app-server-$PORT.log"
+
+codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
+APP_SERVER_PID=$!
+
+# The runtime marker is written by the long-lived aify-comms MCP bridge
+# itself (mcp/stdio/server.js) on startup when it sees
+# AIFY_CODEX_APP_SERVER_URL in its environment.
+
+cleanup() {
+  if kill -0 "$APP_SERVER_PID" >/dev/null 2>&1; then
+    kill "$APP_SERVER_PID" >/dev/null 2>&1 || true
+    wait "$APP_SERVER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if ! wait_for_port "$PORT"; then
+  echo "codex-aify could not reach the local app-server at $APP_SERVER_URL." >&2
+  echo "Check $LOG_FILE for details." >&2
+  exit 1
 fi
+
+codex --remote "$APP_SERVER_URL" "$@"
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
