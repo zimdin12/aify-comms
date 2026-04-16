@@ -57,19 +57,16 @@ try {
 
 const hookPayload = await readHookPayload();
 
-// Find agent ID from PID-keyed temp files written by server.js.
+// Find agent ID from the PID-keyed temp file written by server.js.
+// Both this hook and server.js are children of the same Claude/Codex
+// process, so process.ppid is the shared key.
 let agentId = "";
 let heartbeatAllowed = false;
-const pidCandidates = [
-  path.join(tmpDir, `aify-agent-${process.ppid || ""}`),
-  path.join(tmpDir, `aify-agent-${process.pid}`),
-];
-for (const candidate of pidCandidates) {
-  try {
-    const value = fs.readFileSync(candidate, "utf-8").trim();
-    if (value) { agentId = value; heartbeatAllowed = true; break; }
-  } catch { /* keep looking */ }
-}
+const SESSION_FILE = path.join(tmpDir, `aify-agent-${process.ppid || ""}`);
+try {
+  const value = fs.readFileSync(SESSION_FILE, "utf-8").trim();
+  if (value) { agentId = value; heartbeatAllowed = true; }
+} catch { /* file not written yet — agent hasn't registered */ }
 if (!agentId) process.exit(0);
 
 // Rate limit: only check every 10 seconds
