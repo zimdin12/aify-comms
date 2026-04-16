@@ -180,7 +180,7 @@ if ! wait_for_port "$PORT"; then
   exit 1
 fi
 
-codex --remote "$APP_SERVER_URL" "$@"
+codex --remote "$APP_SERVER_URL" --full-auto "$@"
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
