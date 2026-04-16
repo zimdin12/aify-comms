@@ -92,22 +92,23 @@ async function httpCall(method, endpoint, body = null) {
 
 function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
+  const priority = (run.priority || "normal").toLowerCase();
+  const urgencyPrefix =
+    priority === "urgent" ? "STOP — URGENT message. Drop current work and handle this immediately.\n\n" :
+    priority === "high" ? "IMPORTANT — High-priority message. Read before continuing current work.\n\n" :
+    "";
   return [
-    `Aify resident trigger for agent "${agentId}".`,
-    `Run ID: ${run.id}`,
+    urgencyPrefix + `Aify message for agent "${agentId}".`,
     `From: ${run.from}`,
-    `Type: ${run.type}`,
     `Subject: ${run.subject}`,
-    `Priority: ${run.priority || "normal"}`,
+    priority !== "normal" ? `Priority: ${priority.toUpperCase()}` : "",
     run.messageId ? `Message ID: ${run.messageId}` : "",
     "",
-    "Treat this as a real wake-up event for the current session.",
-    "Do the requested work directly.",
+    "Handle this directly in the current session.",
     run.messageId
       ? `When you reply, include inReplyTo="${run.messageId}" so the sender sees your response linked to their original message.`
       : "Reply through aify when the task is done.",
     "",
-    "Task body:",
     "```",
     body,
     "```",
