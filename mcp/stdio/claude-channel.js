@@ -169,8 +169,9 @@ async function pollLoop() {
         continue;
       }
 
-      // Drain all queued dispatches in one tick — don't make the agent
-      // wait 3 seconds between each message.
+      // Drain all queued dispatches, bundle into one notification.
+      // One combined message is less disruptive than 20 separate interruptions.
+      const batch = [];
       for (let i = 0; i < 20; i++) {
         const claim = await httpCall("POST", "/dispatch/claim", {
           agentId,
@@ -179,22 +180,33 @@ async function pollLoop() {
           executionModes: ["resident"],
         });
         if (!claim?.run || claim.run.executionMode !== "resident") break;
-        const runId = claim.run.id;
-        await emitChannel(dispatchContent(agentId, claim.run), {
-          event_type: "dispatch",
-          agent_id: agentId,
-          run_id: runId,
-          from_agent: claim.run.from || "",
-          message_id: claim.run.messageId || "",
-          priority: claim.run.priority || "normal",
-        });
-        await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
+        batch.push(claim.run);
+        await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(claim.run.id)}`, {
           status: "completed",
           summary: "Delivered to Claude resident session",
           runtime: "claude-code",
           agentStatus: "active",
           appendEvent: "Delivered and completed by channel bridge",
           eventType: "delivered",
+        });
+      }
+      if (batch.length === 1) {
+        await emitChannel(dispatchContent(agentId, batch[0]), {
+          event_type: "dispatch",
+          agent_id: agentId,
+          run_id: batch[0].id,
+          from_agent: batch[0].from || "",
+          message_id: batch[0].messageId || "",
+          priority: batch[0].priority || "normal",
+        });
+      } else if (batch.length > 1) {
+        const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
+        const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";
+        await emitChannel(combined, {
+          event_type: "dispatch_batch",
+          agent_id: agentId,
+          count: batch.length,
+          priority: highestPriority,
         });
       }
 
