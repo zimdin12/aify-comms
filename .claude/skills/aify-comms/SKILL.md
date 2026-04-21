@@ -123,22 +123,36 @@ Gotchas regardless of runtime:
 | `comms_clear` | Clear inbox, shared files, or agents. Optional age filter. |
 | `comms_dashboard` | Get the dashboard URL. |
 
+## Sending Messages vs Dispatching Work
+
+| You want... | Use |
+|---|---|
+| Ask a question, get a reply | `comms_send` (default wake) |
+| Share info, recipient reads + acks | `comms_send` or `comms_send(silent=true)` |
+| **Recipient to execute the body as work** | **`comms_dispatch`** |
+| Just queue for inbox, don't wake | `comms_send(silent=true)` |
+| Inject guidance mid-turn without interrupting | `comms_send(steer=true)` |
+
+`comms_send` is for **communication** — the recipient reads your message and decides what to do. `comms_dispatch` is for **work** — the recipient's turn IS the task execution.
+
+**Wake and priority are independent.** Waking an agent does NOT imply urgency. `priority="high"` does. Sending a wake message with "not urgent" in the body means the recipient will read it and defer — correctly. If you want work done now, say so: use `priority="high"` and explicit blocking language.
+
+**Silent acks:** Use `silent=true` for confirmations, thread closures, and ack-of-ack messages that don't need to wake the recipient. Keeps audit trail without creating noise.
+
 ## Understanding Agent Status
 
-`comms_send` returns the recipient's current status and unread count. Status is automatic:
+`comms_send` returns the recipient's current status and unread count. **`active` is liveness, not `working`.** Check `comms_agent_info` for the real status:
 
-| Status | How it's set | Meaning |
-|--------|-------------|---------|
-| **working** | An active dispatched run is in progress for this agent | Busy executing a tracked run — be patient |
-| **idle** | Registered, recently active, no dispatched run in flight | Caught up, waiting for work |
-| **offline** | No heartbeat for `offline_minutes` (default 30 min) | Session likely ended — don't depend on quick reply |
-| **stale** | No heartbeat for `stale_agent_hours` (default 24h) | Long gone — almost certainly dead |
-| **blocked** | Set manually via `comms_status("blocked", ...)` | Stuck — may need help |
-| **completed** | Set manually via `comms_status("completed", ...)` | Done with current task |
+| Status | Meaning |
+|--------|---------|
+| **active** | Bridge alive, heartbeating — agent is connected but may or may not be busy |
+| **working** | Active dispatched run in progress — agent is executing tracked work |
+| **idle** | No heartbeat recently — session may be paused |
+| **offline** | No heartbeat for 30+ min — session likely ended |
+| **blocked** | Set manually — agent is stuck |
+| **completed** | Set manually — agent finished current task |
 
-Thresholds are configurable in dashboard settings. Heartbeats are driven by the unread-notification hook (`PostToolUse` for Bash) when installed; without the hook, only explicit `comms_*` tool calls refresh `last_seen`.
-
-Use `comms_agents` to check the full team before deciding who to message.
+Do not infer "working" from `[active]`. Use `comms_agent_info(agentId="target")` to see the actual status and dispatch state.
 
 ## Responding to Messages
 
@@ -153,14 +167,11 @@ When you receive a wake notification or finish a task, check inbox before starti
 
 ## Working With Other Agents
 
-- `comms_send` and `comms_channel_send` wake the recipient by default. Pass `silent=true` for inbox-only delivery. Pass `steer=true` to deliver between tool calls if the target is busy (instead of queuing for after current work).
-- Replies are just normal `comms_send` calls; thread them with `inReplyTo`. A dispatched run's plain-text output stays in the target session — if you want a reply message, explicitly ask the target to `comms_send` back.
-- Use `comms_dispatch` when you want tracked run IDs from the start; use `comms_spawn_agent` only when you need a detached worker with its own runtime state.
-- Use `comms_channel_send` for group wakeups, `comms_share` for long output (logs, screenshots, patches, reports), `comms_listen` only when you intentionally want an inbox-driven loop.
-- Use `comms_run_interrupt` to stop an active run. Use `comms_send(steer=true)` to inject guidance mid-turn without interrupting.
-- Before proposing trigger-fix instructions for another agent, call `comms_agent_info` first and read the actual `wakeMode` and `sessionMode` — do not guess.
-- Brief acks are fine — "on it" beats a paragraph. Save detail for results.
-- Channel messages land in each member's inbox; you don't need a separate channel check.
+- Thread replies with `inReplyTo`. A dispatched run's output stays local — if you want a reply message, explicitly `comms_send` back.
+- `comms_channel_send` for group wakeups, `comms_share` for long output (logs, screenshots, patches, reports).
+- `comms_run_interrupt` to stop an active run. `comms_send(steer=true)` to inject guidance mid-turn.
+- Before diagnosing another agent's issues, call `comms_agent_info` first — don't guess.
+- Brief acks are fine — "on it" beats a paragraph. Use `silent=true` for ack-of-ack and thread closures.
 
 ## Communication Style
 

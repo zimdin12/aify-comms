@@ -1893,14 +1893,14 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             finished_at = _now()
             owner_label = owner or "unowned"
             await db.execute(
-                "UPDATE dispatch_runs SET status = 'failed', error_text = ?, finished_at = ? WHERE id = ?",
+                "UPDATE dispatch_runs SET status = 'failed', summary = ?, finished_at = ? WHERE id = ?",
                 (
-                    f'Stale run from bridge "{owner_label}" cleaned by live bridge "{req.bridgeId}" during claim poll',
+                    f'Auto-healed: bridge "{owner_label}" replaced by "{req.bridgeId}"',
                     finished_at,
                     active_run["runId"],
                 ),
             )
-            await _append_dispatch_event(db, active_run["runId"], "failed", f"Stale run cleanup: {owner_label} -> {req.bridgeId}")
+            await _append_dispatch_event(db, active_run["runId"], "auto_heal", f"Stale run cleanup: {owner_label} -> {req.bridgeId}")
             await _fail_pending_controls_for_run(db, active_run["runId"], handled_at=finished_at, response_text=f'Stale run cleaned by live bridge "{req.bridgeId}".')
         run_cursor = await db.execute(
             """
