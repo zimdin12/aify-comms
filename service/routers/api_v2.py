@@ -1448,6 +1448,20 @@ async def get_inbox(
                         "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
                         (msg["id"], agent_id, now)
                     )
+            # Complete any dispatch runs linked to messages we just read.
+            # The message was delivered and read — the dispatch's job is done.
+            if unread_found > 0:
+                read_msg_ids = [msg["id"] for msg in messages if not msg["read"]]
+                for msg_id in read_msg_ids:
+                    await db.execute(
+                        """
+                        UPDATE dispatch_runs
+                        SET status = 'completed', summary = 'Message read via inbox', finished_at = ?
+                        WHERE message_id = ? AND target_agent = ? AND status IN ('queued', 'claimed', 'running')
+                        """,
+                        (now, msg_id, agent_id),
+                    )
+
             # Smart status: got messages = working, no messages = idle
             new_status = "working" if unread_found > 0 else "idle"
             await db.execute(
