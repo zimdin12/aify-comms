@@ -103,6 +103,7 @@ Current Codex CLI note:
 - The installer uses the current `codex mcp add ... --env ...` syntax.
 - For hooks, Codex now reads `hooks.json` and requires `features.codex_hooks = true` in `config.toml`.
 - The unread hook is installed for `PostToolUse` on `Bash`, which matches the current Codex hooks runtime.
+- Re-running the installer removes stale duplicate aify unread-hook entries, even if an older install used a different repo path.
 - Resident triggering only works when the bridge talks to the same Codex installation/thread store that created the live session. A Windows desktop session and a WSL CLI session are different stores.
 - `codex-aify` avoids the extra hidden-resume hop by pointing both the visible TUI and aify at the same local WebSocket app-server.
 

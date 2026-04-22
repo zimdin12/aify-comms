@@ -336,6 +336,12 @@ install_codex_hook() {
     const fs = require('fs');
     const hooksPath = process.argv[1];
     const command = process.argv[2];
+    const notifyPattern = /(^|[\\\/])notify-check\.js([\"']|\s|$)/i;
+    function isAifyNotifyHook(hook) {
+      if (!hook || hook.type !== 'command') return false;
+      const value = String(hook.command || '');
+      return notifyPattern.test(value);
+    }
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
@@ -346,7 +352,10 @@ install_codex_hook() {
     const matcher = 'Bash';
     data.hooks.PostToolUse = data.hooks.PostToolUse.filter(group => {
       if (!group || group.matcher !== matcher || !Array.isArray(group.hooks)) return true;
-      return !group.hooks.some(h => h && h.command === command);
+      const keptHooks = group.hooks.filter(h => !isAifyNotifyHook(h));
+      if (keptHooks.length === 0) return false;
+      group.hooks = keptHooks;
+      return true;
     });
     data.hooks.PostToolUse.push({
       matcher,
