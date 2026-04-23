@@ -21,6 +21,7 @@ Any agent can DM any other agent directly. Use the channel for team-wide updates
 - Use `comms_agent_info` to check if someone has seen your message before following up.
 - Keep acknowledgments brief — "on it" is fine, no need for paragraphs.
 - Keep result messages concise too: short summary first, then deeper detail only if it helps the receiver act.
+- After a bounded dispatched result, send an explicit reply to the requester or acting manager even if the run summary already contains the detail.
 - If the details are large, send a short message and attach the rest with `comms_share`.
 - Share files, logs, and screenshots via `comms_share` when handing off work.
 

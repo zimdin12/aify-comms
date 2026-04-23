@@ -134,7 +134,7 @@ Gotchas regardless of runtime:
 | Just queue for inbox, don't wake | `comms_send(silent=true)` |
 | Inject guidance mid-turn without interrupting | `comms_send(steer=true)` |
 
-`comms_send` is for **communication** — the recipient reads your message and decides what to do. `comms_dispatch` is for **work** — the recipient's turn IS the task execution.
+`comms_send` is for **communication** — the recipient reads your message and decides what to do. `comms_dispatch` is still a sender message too, but it also opens a tracked run and defaults to requiring a reply handoff. Use it when the body should be acted on now, not just read later.
 
 **Wake and priority are independent.** Waking an agent does NOT imply urgency. `priority="high"` does. Sending a wake message with "not urgent" in the body means the recipient will read it and defer — correctly. If you want work done now, say so: use `priority="high"` and explicit blocking language.
 
@@ -167,6 +167,7 @@ When you receive a wake notification or finish a task, check inbox before starti
 4. Reply with `comms_send`; add `inReplyTo` when you want the reply threaded to the earlier message.
 5. If a notification says STOP or URGENT, drop everything and read inbox first.
 6. Keep replies concise — brief acks like "on it" beat paragraphs. Save detail for results.
+7. After a bounded dispatched result, send an explicit reply to the requester or current manager even if the run summary already contains the detail.
 
 ## Working With Other Agents
 

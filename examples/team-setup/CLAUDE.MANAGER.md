@@ -48,7 +48,8 @@ You own scheduling and priority. Architecture decisions go to architect.
 - Use `comms_dispatch` when you want explicit run tracking or active-run controls from the start
 - Use `comms_spawn_agent` only when the team needs a separate managed worker for implementation or testing
 - Use `comms_run_status` to watch long-running work
-- Use `comms_run_steer` or `comms_run_interrupt` when a run needs intervention
+- Ask for explicit reply handoffs after bounded work; do not rely only on run summaries for team coordination
+- Use `comms_send(..., steer=true)` or `comms_run_interrupt` when a run needs intervention
 - Broadcast scope changes to the channel immediately, not just DM the affected agent
 - When you see a policy violation in chat, remind the team to read their role instructions
 - Create focused channels for specific features or reviews when needed, invite relevant agents with `comms_channel_join`

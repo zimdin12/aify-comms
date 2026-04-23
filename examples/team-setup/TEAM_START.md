@@ -12,10 +12,11 @@ General coordination pattern:
 - If an agent is already working, later dispatches from the same sender are buffered into one pending run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap you get `reason: "buffer_full"` in `notStarted`; wait, `comms_run_interrupt`, or `comms_agent_info` before retrying
 - Use `comms_describe(...)` to set a short team-facing description of what you're working on — visible to teammates in `comms_agents`
 - Use `comms_run_status` to watch active work
-- Use `comms_run_steer` or `comms_run_interrupt` when an active run needs correction
+- Use `comms_send(..., steer=true)` or `comms_run_interrupt` when an active run needs correction
 - Keep messages short by default: one ask, one result, or one status update
 - Use the subject line as the short summary
 - If the detail is long, send the summary first and attach the rest with `comms_share`
+- After any bounded dispatched result, send an explicit reply to the requester or acting manager even if the run summary already contains the detail
 - If you see an unread notice, call `comms_inbox(...)` promptly
 - Short-lived subagents should normally report through their parent/coordinator instead of registering themselves into comms
 - If you are using Claude CLI, prefer starting the live session with `claude-aify`
@@ -32,7 +33,7 @@ Register as an aify-comms agent:
 - description: "Project manager for <this project>. Owns routing, prioritization, unblocking. Ping me for work assignment or status questions."
 - instructions: "I coordinate the development team. I assign tasks, track progress, and ensure the project stays on schedule."
 
-Join the "dev" channel. If it doesn't exist, create it with description "Team coordination".
+Join the "dev" channel. If it doesn't exist, create it with `comms_channel_create(...)` and description "Team coordination".
 
 After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
 

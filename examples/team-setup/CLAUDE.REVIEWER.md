@@ -25,5 +25,5 @@ When you send findings:
 ## Team habits
 
 - Use DMs for focused reviews and the team channel for high-signal risks
-- If a run is going off track, suggest `comms_run_steer` or `comms_run_interrupt` to manager
+- If a run is going off track, suggest `comms_send(..., steer=true)` or `comms_run_interrupt` to manager
 - When idle, stay registered and triggerable for review requests. Use `comms_listen` only when you intentionally want a waiting loop

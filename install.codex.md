@@ -42,8 +42,12 @@ Windows note:
 Recommended registration from inside `codex-aify`:
 
 ```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", cwd="C:/path/to/project", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+comms_register(agentId="my-agent", role="coder", runtime="codex", cwd="<native-path-to-project>", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
+
+Use a native path for the runtime you are actually running:
+- WSL/Linux Codex: `/mnt/...` or other native Linux paths
+- native Windows Codex: `C:/...` with forward slashes
 
 Fallback order if that does not flip to `codex-live`:
 
@@ -81,7 +85,8 @@ If the debug skill isn't loaded in your session, see `.claude/skills/aify-comms-
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
-- If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The injected task and final answer both appear in the visible TUI — expected.
+- If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The dispatched sender message and final answer both appear in the visible TUI — expected.
+- `comms_dispatch` still arrives as a sender message. The server also opens tracked run state for it and expects a reply handoff by default.
 - Plain-text output stays local to that session and the dispatch record. Explicit replies are preferred, and reply-required dispatches are mirrored back to the sender only if the agent never sends one.
 - Plain `codex` (not `codex-aify`) falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `comms_spawn_agent` creates a managed worker for detached/background execution.

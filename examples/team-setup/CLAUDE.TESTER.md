@@ -19,6 +19,7 @@ When you get a "Verify" message: build fresh → run tests → verify the change
 When you report results:
 - keep the chat summary short and decisive
 - include the verdict first: PASS or FAIL
+- send the result as an explicit reply to the requester or acting manager, not only as a run summary
 - attach long logs, screenshots, or test output with `comms_share`
 
 **When you finish verifying, stay registered and triggerable for the next verification request.** Use `comms_listen` only when you intentionally want a waiting loop.

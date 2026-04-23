@@ -23,7 +23,7 @@ Built on [aify-container](https://github.com/zimdin12/aify-container).
 5. Use `comms_send(...)`, `comms_channel_send(...)`, or `comms_dispatch(...)` to wake the right agent or channel.
 
 Important mental model:
-- dispatch wakes the target and records run status on the server
+- `comms_dispatch(...)` is still a message from the sender; the difference is that the server also opens a tracked run for it
 - `comms_dispatch(...)` expects an explicit reply message back by default
 - triggered `comms_send(...)` only defaults to reply-required when it is a `type="request"` send; override with `requireReply=true/false` when needed
 - if a required reply is still missing when the run ends, the bridge mirrors the run result back into the requester's inbox as a fallback handoff
@@ -113,7 +113,7 @@ Windows wrapper note:
 **At session start** — register your live session and describe yourself:
 
 ```text
-comms_register(agentId="coder", role="coder", cwd="C:/path/to/project")
+comms_register(agentId="coder", role="coder", cwd="<native-path-to-project>")
 comms_describe(agentId="coder", description="Coder on project X. Focus: service layer, Postgres migrations.")
 comms_agents()
 ```
@@ -174,7 +174,7 @@ No local files needed. Works with Claude Code, OpenCode, Cursor, or any MCP-comp
 claude mcp add --scope user aify-comms --transport sse http://SERVER_IP:8800/mcp/sse
 ```
 Use the equivalent SSE-registration flow for other clients.
-Note: no skill, no triggers, no notifications — just the 25 tools.
+Note: no skill, no triggers, no notifications — just the 24 tools.
 SSE clients can still request `comms_dispatch`, `comms_run_status`, and run controls. They just cannot act as local launchers for active dispatch themselves.
 
 </details>
@@ -237,7 +237,7 @@ Claude Code (any machine)         Claude Code (any machine)
          └──────────────────────┘
 ```
 
-## Tools (25)
+## Tools (24)
 
 ### Messaging
 | Tool | Description |

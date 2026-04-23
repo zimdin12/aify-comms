@@ -45,6 +45,8 @@ Windows note:
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence. When Claude is started with `claude-aify`, that resident session becomes wakeable through the local aify channel bridge.
+- `comms_dispatch` still arrives as a sender message. The server also opens tracked run state for it and expects a reply handoff by default.
+- Explicit `comms_send(..., inReplyTo=...)` replies are preferred. If a required reply never arrives, the bridge mirrors the run result back to the sender as a fallback handoff.
 - `comms_spawn_agent` creates a managed worker, which remains the detached background-worker path for Claude.
 - If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.

@@ -30,10 +30,11 @@ Example CLAUDE.md files for a 5-agent development team using aify-comms for coor
 - **Long outputs**: send a short result message first, then attach deeper detail via `comms_share` when needed
 - **Active starts**: register the live resident session first, then use `comms_send(...)`, `comms_channel_send(...)`, or `comms_dispatch` to wake the right agents immediately. Use `silent=true` when a DM or channel post should be background-only
 - **Busy-agent behavior**: when an agent is already working, later dispatches from the same sender collapse into one buffered pending run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, dispatches return `reason: "buffer_full"` in `notStarted` with the recipient's status. Inbox messages still arrive immediately
+- **Explicit handoffs**: after any bounded dispatched result, send a short reply to the requester or acting manager even if the run summary already contains the detail
 - **Team-facing descriptions**: use `comms_describe(...)` to set a short description of what you're working on. Visible to teammates in `comms_agents`. Persists across re-register
 - **Live wake startup**: use `claude-aify` for Claude live wakeups and `codex-aify` for Codex live wakeups when you want the visible session itself to wake
 - **Detached workers**: use `comms_spawn_agent` only when you want a separate background worker with its own runtime state
-- **Run correction**: use `comms_run_steer` or `comms_run_interrupt` when active work needs intervention
+- **Run correction**: use `comms_send(..., steer=true)` or `comms_run_interrupt` when active work needs intervention
 - **Brief acks**: "on it" instead of paragraphs — reduce noise
 - **Subagents**: short-lived subagents should normally report to their parent/coordinator, not register themselves into comms or message the wider team directly
 
