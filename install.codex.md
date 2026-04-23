@@ -82,7 +82,7 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The injected task and final answer both appear in the visible TUI — expected.
-- Plain-text output stays local to that session and the dispatch record unless the agent explicitly sends a message.
+- Plain-text output stays local to that session and the dispatch record. Explicit replies are preferred, and reply-required dispatches are mirrored back to the sender only if the agent never sends one.
 - Plain `codex` (not `codex-aify`) falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `comms_spawn_agent` creates a managed worker for detached/background execution.
 - If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.

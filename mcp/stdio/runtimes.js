@@ -31,34 +31,35 @@ function quoteForDisplay(text) {
 
 function buildSystemPrompt(agentId, agentInfo, run) {
   const replyRule = run?.requireReply
-    ? "Before you finish this dispatched task, send an explicit reply message back to the requester. Do not rely on the dispatch summary as the only handoff."
-    : "If the requester should receive a reply or follow-up, use explicit inter-agent messaging tools yourself.";
+    ? "Before you finish handling this message, send an explicit reply message back to the sender. Do not rely on the dispatch summary as the only handoff."
+    : "If the sender should receive a reply or follow-up, use explicit inter-agent messaging tools yourself.";
   return [
-    "[AIFY DISPATCH]",
-    `This is an externally injected aify task for agent "${agentId}" (${agentInfo.role || "agent"}).`,
-    `Requester: ${run.from}.`,
+    "[AIFY MESSAGE]",
+    `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
+    `From: ${run.from}.`,
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
-    "Treat the task below as the current work item.",
-    "Plain-text output in this session is local to this live runtime and the dispatch record; it is not auto-sent as a message.",
+    "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
+    "Plain-text output in this session stays local to this runtime and the dispatch record unless you intentionally send a message back.",
     replyRule,
-    "Do not explain the bridge or restate this wrapper unless a later normal user turn explicitly asks about it.",
-    "[/AIFY DISPATCH]",
+    "Do not explain the transport wrapper or restate it unless a later normal user turn explicitly asks about it.",
+    "[/AIFY MESSAGE]",
   ].filter(Boolean).join("\n");
 }
 
 function buildUserPrompt(run) {
   const replyRule = run?.requireReply
-    ? "Required handoff: send an explicit reply message to the requester before you finish. If comms tools are unavailable in this turn, say that clearly in the task result."
-    : "If the requester should receive a message, send it explicitly with the appropriate tool.";
+    ? "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result."
+    : "If the sender should receive a message, send it explicitly with the appropriate tool.";
   return [
-    "[TASK]",
+    "[MESSAGE]",
+    `Type: ${run.type || "request"}`,
     `Subject: ${run.subject}`,
     "",
     run.body || "",
     "",
     replyRule,
-    "Otherwise keep any plain-text output limited to the task result.",
-    "[/TASK]",
+    "Otherwise keep any plain-text output limited to your local result in this session.",
+    "[/MESSAGE]",
   ].join("\n");
 }
 
