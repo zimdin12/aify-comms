@@ -1440,7 +1440,7 @@ server.tool(
     body: z.string().describe("Task details"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
-    mode: z.enum(["message_only", "start_if_possible", "require_start"]).optional().describe("Dispatch behavior"),
+    mode: z.enum(["message_only", "start_if_possible", "require_start"]).optional().describe("Dispatch behavior. message_only delivers the message but does not create a run."),
     requireReply: z.boolean().optional().describe("Override whether this run should produce a reply message; active dispatch defaults to true"),
   },
   async ({ from, to, toRole, type, subject, body, priority, inReplyTo, mode, requireReply }) => {
@@ -1473,17 +1473,22 @@ server.tool(
       return { content: [{ type: "text", text: r.error || "Dispatch failed." }], isError: true };
     }
 
+    const requestedMode = mode || "start_if_possible";
     const lines = (r.runs || []).map((run) => {
       return `- ${formatQueuedRun(run)} [${run.status}]`;
     });
     const skipped = (r.notStarted || []).map((item) => `- ${item.targetAgentId}: ${item.reason}`);
+    const footer =
+      requestedMode === "message_only"
+        ? "\n\nMessage delivered only. No dispatch run was created because mode=message_only."
+        : "\n\nUse comms_run_status(...) to inspect progress. Explicit replies are expected by default for direct dispatch; if none is sent, the bridge mirrors the run result back.";
     return {
       content: [{
         type: "text",
         text:
           `Dispatch handling:\n${lines.join("\n") || "- none"}` +
           (skipped.length ? `\n\nNot started:\n${skipped.join("\n")}` : "") +
-          `\n\nUse comms_run_status(...) to inspect progress. Explicit replies are expected by default for direct dispatch; if none is sent, the bridge mirrors the run result back.`,
+          footer,
       }],
     };
   }

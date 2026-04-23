@@ -291,7 +291,7 @@ async def comms_dispatch(
     mode: str = "start_if_possible",
     requireReply: bool | None = None,
 ) -> str:
-    """Queue active work for another agent. SSE clients can request dispatch, but cannot execute dispatch runs themselves. Direct dispatch expects a reply by default unless requireReply=false."""
+    """Queue active work for another agent. SSE clients can request dispatch, but cannot execute dispatch runs themselves. mode='message_only' delivers the message without creating a run. Direct dispatch expects a reply by default unless requireReply=false."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
     data = {
@@ -319,8 +319,13 @@ async def comms_dispatch(
         lines.append("Not started:")
         lines.extend([f"- {item['targetAgentId']}: {item['reason']}" for item in not_started])
     if not lines:
+        if mode == "message_only":
+            return "Message delivered only. No dispatch run was created because mode=message_only."
         return "No dispatch runs were created."
-    lines.extend(["", "Use comms_run_status(...) to inspect progress. Direct dispatch expects an explicit reply by default, and the bridge mirrors the result if none is sent."])
+    if mode == "message_only":
+        lines.extend(["", "Message delivered only. No dispatch run was created because mode=message_only."])
+    else:
+        lines.extend(["", "Use comms_run_status(...) to inspect progress. Direct dispatch expects an explicit reply by default, and the bridge mirrors the result if none is sent."])
     return "\n".join(lines)
 
 
