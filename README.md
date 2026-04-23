@@ -27,6 +27,7 @@ Important mental model:
 - `comms_dispatch(...)` expects an explicit reply message back by default
 - triggered `comms_send(...)` only defaults to reply-required when it is a `type="request"` send; override with `requireReply=true/false` when needed
 - if a required reply is still missing when the run ends, the bridge mirrors the run result back into the requester's inbox as a fallback handoff
+- a real threaded reply or reply-dispatch back to the requester satisfies that handoff and suppresses or auto-clears the fallback mirror
 - `comms_send(...)` wakes by default; use `silent=true` when you want a message without waking the target
 - `comms_channel_send(...)` also wakes channel members by default; use `silent=true` for background-only channel updates
 - `comms_send(..., steer=true)` only injects guidance mid-turn when the target already has a live steer-capable run; otherwise it falls back to normal queued dispatch
@@ -40,6 +41,7 @@ Communication defaults:
 - use the subject line as the short summary
 - if the full detail is long, prefer `comms_share(...)` plus a short message pointing to it
 - if you see an unread notice, read it promptly with `comms_inbox(...)`
+- for low-context triage, start with `comms_inbox(..., mode="headers")` and then fetch the one you need with `comms_inbox(..., messageId="...")`
 
 ## Setup
 
@@ -147,14 +149,17 @@ comms_send(from="coder", to="lead", subject="Regression log attached",
 **When idle** — check your inbox and respond:
 
 ```text
-comms_inbox(agentId="coder")
-# read messages, act on them, reply with comms_send(..., inReplyTo="<original message id>")
+comms_inbox(agentId="coder", mode="headers")
+# pick one message ID, then:
+comms_inbox(agentId="coder", messageId="<message id>")
+# act on it, reply with comms_send(..., inReplyTo="<original message id>")
 ```
 
 **Rules of thumb:**
 - `comms_send` wakes by default. Use `silent=true` only for pure FYI messages.
 - `comms_dispatch` expects a reply by default. Plain `comms_send` only does when it is a triggered `type="request"` send unless you override `requireReply`.
-- Explicit `comms_send(..., inReplyTo=...)` is still the preferred handoff. The bridge only mirrors the run summary back when a required reply never happened.
+- Explicit `comms_send(..., inReplyTo=...)` is still the preferred handoff. Reply-dispatches back to the requester also count. The bridge only mirrors the run summary back when a required reply never happened.
+- `comms_inbox(..., mode="headers")` is the low-context way to scan unread titles/previews. `comms_inbox(..., messageId="...")` fetches one full message by ID.
 - Keep messages short. Subject = summary. If the detail is long, `comms_share` an artifact and point at it.
 - Re-register with the same `agentId` after any update or restart — the server supersedes the old bridge automatically.
 - If things go sideways, the **aify-comms-debug** skill lists every known failure mode and its fix.
@@ -211,7 +216,7 @@ Restart Claude Code. Try:
 comms_register(agentId="my-agent", role="coder")
 comms_agents()
 comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there!", silent=true)
-comms_inbox(agentId="my-agent")
+comms_inbox(agentId="my-agent", mode="headers")
 ```
 
 For resident-session triggering, re-register after every restart/update from the exact live session you want other agents to wake. For Claude CLI, that session must be started with `claude-aify`. For Codex resident sessions, the bridge must talk to the same Codex thread store that created the session. OpenCode managed workers work out of the box; resident OpenCode resume requires a real `sessionHandle`.
@@ -251,7 +256,7 @@ Claude Code (any machine)         Claude Code (any machine)
 | **comms_send** | Send message with optional `priority`. By default this also queues active dispatch; use `silent=true` for message-only sends, `steer=true` to inject guidance into a live steer-capable run, and `requireReply=` to override reply-required handoff behavior |
 | **comms_dispatch** | Queue active runtime dispatch explicitly and return run IDs. Reply handoff is required by default unless `requireReply=false` |
 | **comms_listen** | Wait for incoming messages when you intentionally want an inbox-driven loop |
-| **comms_inbox** | Check inbox (newest first, replies include parent context) |
+| **comms_inbox** | Check inbox (newest first, replies include parent context). Use `mode="headers"` for title/preview triage or `messageId="..."` to fetch one specific message. |
 | **comms_unsend** | Delete a message by ID |
 | **comms_search** | Search messages and shared artifacts |
 | **comms_run_status** | Inspect a dispatched run and its recent events |
@@ -308,7 +313,7 @@ Wake modes by runtime:
 
 Key rules:
 - **Dispatch tracks handoff, not just execution.** `comms_dispatch` requires a reply by default, and triggered `comms_send(type="request")` does too unless overridden. Plain-text output still stays in the target's live session and dispatch record, but the run now also tracks whether a reply message was actually sent.
-- **Explicit replies are preferred.** Agents should still call `comms_send(..., inReplyTo=...)` themselves. If a required reply is missing when the run ends, the bridge mirrors the run result back to the requester as a fallback so the lane does not silently stall.
+- **Explicit replies are preferred.** Agents should still call `comms_send(..., inReplyTo=...)` themselves. Reply-dispatches back to the requester also satisfy handoff tracking. If a required reply is missing when the run ends, the bridge mirrors the run result back to the requester as a fallback so the lane does not silently stall.
 - **One active run per agent.** Later dispatches from the same sender merge into one buffered run (cap: 10 items) that starts after the current one finishes. Past the cap, dispatches return `reason: "buffer_full"` in `notStarted` with the recipient's status — wait, `comms_run_interrupt`, or `comms_agent_info` before retrying. Inbox messages still arrive immediately.
 - **Steer is message-backed, not magical.** `comms_send(..., steer=true)` still writes the inbox message first. On Codex it injects mid-turn only if a live steer-capable run exists; otherwise it falls back to normal queueing. If the only active run is stale or superseded, the server fails that run first and then queues the new work normally.
 - **Active dispatch requires `stdio`.** SSE clients can message, inspect, and request dispatch, but cannot be the local launcher or host triggerable sessions.
@@ -371,7 +376,7 @@ Live at `http://localhost:8800` (redirects to `/api/v1/dashboard`):
 | `/mcp/sse` | GET | MCP SSE endpoint (any MCP client) |
 | `/api/v1/agents` | GET/POST/DELETE | Agents |
 | `/api/v1/messages/send` | POST | Send message (optionally queue active dispatch) |
-| `/api/v1/messages/inbox/{id}` | GET | Check inbox |
+| `/api/v1/messages/inbox/{id}` | GET | Check inbox. Supports `mode=full|headers` and `messageId=<id>` |
 | `/api/v1/messages/search` | GET | Search |
 | `/api/v1/dispatch` | POST | Create dispatch runs |
 | `/api/v1/dispatch/claim` | POST | Claim queued work for a local runtime |

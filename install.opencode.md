@@ -31,7 +31,7 @@ Important:
 - The installer writes the MCP config into `~/.config/opencode/opencode.json` under the `mcp` section.
 - `comms_register` creates a resident session for messaging/presence. OpenCode managed workers are fully supported. Resident OpenCode resume also works when you register with a real `sessionHandle`.
 - `comms_dispatch` still arrives as a sender message. The server also opens tracked run state for it and expects a reply handoff by default.
-- Explicit `comms_send(..., inReplyTo=...)` replies are preferred. If a required reply never arrives, the bridge mirrors the run result back to the sender as a fallback handoff.
+- Explicit `comms_send(..., inReplyTo=...)` replies are preferred, but a reply-dispatch back to the sender also satisfies the handoff. If a required reply never arrives, the bridge mirrors the run result back to the sender as a fallback handoff.
 - `comms_spawn_agent` creates a managed worker for detached/background execution and durable session state.
 - If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
@@ -58,5 +58,6 @@ comms_register(agentId="my-agent", role="coder", runtime="opencode")
 comms_agents()
 comms_agent_info(agentId="my-agent")
 comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
-comms_inbox(agentId="my-agent")
+comms_inbox(agentId="my-agent", mode="headers")
+comms_inbox(agentId="my-agent", messageId="<message id>")
 ```

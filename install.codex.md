@@ -87,7 +87,7 @@ Important:
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The dispatched sender message and final answer both appear in the visible TUI — expected.
 - `comms_dispatch` still arrives as a sender message. The server also opens tracked run state for it and expects a reply handoff by default.
-- Plain-text output stays local to that session and the dispatch record. Explicit replies are preferred, and reply-required dispatches are mirrored back to the sender only if the agent never sends one.
+- Plain-text output stays local to that session and the dispatch record. Explicit threaded replies are preferred, but a reply-dispatch back to the sender also satisfies the handoff. Reply-required dispatches are mirrored back only if no real reply handoff was recorded.
 - Plain `codex` (not `codex-aify`) falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
 - `comms_spawn_agent` creates a managed worker for detached/background execution.
 - If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
@@ -119,5 +119,6 @@ comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle=
 comms_agents()
 comms_agent_info(agentId="my-agent")
 comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
-comms_inbox(agentId="my-agent")
+comms_inbox(agentId="my-agent", mode="headers")
+comms_inbox(agentId="my-agent", messageId="<message id>")
 ```

@@ -63,6 +63,17 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         return asyncio.run(_run())
 
+    def _execute(self, query: str, params=()):
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute(query, params)
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
     def test_channel_history_excludes_inbox_fanout_rows(self):
         self._register("alice")
         self._register("bob")
@@ -334,3 +345,100 @@ class ApiV2RegressionTests(unittest.TestCase):
             trigger=True,
         )
         self.assertFalse(response_send["dispatchRuns"][0]["requireReply"])
+
+    def test_reply_dispatch_links_result_message_id_and_suppresses_mirror_unread(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="slice",
+            body="implement it",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        source_message_id = created["messageId"]
+
+        completed = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "completed", "summary": "done"},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        mirror_id = "mirror-msg"
+        self._execute(
+            """
+            INSERT INTO messages (
+                id, from_agent, to_agent, source, type, subject, body, priority,
+                dispatch_requested, in_reply_to, timestamp
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                mirror_id,
+                "coder",
+                "lead",
+                "direct",
+                "response",
+                "Re: slice",
+                "Auto-mirrored dispatch result because no explicit reply message was sent during the run.\n\nRun completed.",
+                "normal",
+                0,
+                source_message_id,
+                1776900000000,
+            ),
+        )
+
+        reply_dispatch = self._dispatch(
+            from_agent="coder",
+            to="lead",
+            type="response",
+            subject="done",
+            body="ship it",
+            inReplyTo=source_message_id,
+            mode="start_if_possible",
+            createMessage=True,
+            requireReply=False,
+        )
+
+        final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
+        self.assertEqual(final.status_code, 200, final.text)
+        self.assertEqual(final.json()["run"]["resultMessageId"], reply_dispatch["messageId"])
+        self.assertEqual(final.json()["run"]["replyState"], "sent")
+
+        mirror_receipt = self._fetchone(
+            "SELECT read_at FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+            (mirror_id, "lead"),
+        )
+        self.assertIsNotNone(mirror_receipt)
+        self.assertTrue(mirror_receipt["read_at"])
+
+    def test_inbox_headers_mode_and_message_id_lookup(self):
+        self._register("alice")
+        self._register("bob")
+
+        sent = self._send_message(
+            from_agent="alice",
+            to="bob",
+            subject="hello",
+            body="body line 1\nbody line 2\nbody line 3",
+            type="info",
+        )
+        message_id = sent["messageId"]
+
+        headers = self.client.get("/api/v1/messages/inbox/bob?mode=headers&limit=1")
+        self.assertEqual(headers.status_code, 200, headers.text)
+        headers_payload = headers.json()
+        self.assertEqual(headers_payload["total"], 1)
+        self.assertEqual(headers_payload["messages"][0]["id"], message_id)
+        self.assertIn("preview", headers_payload["messages"][0])
+        self.assertNotIn("body", headers_payload["messages"][0])
+
+        body_lookup = self.client.get(f"/api/v1/messages/inbox/bob?messageId={message_id}")
+        self.assertEqual(body_lookup.status_code, 200, body_lookup.text)
+        body_payload = body_lookup.json()
+        self.assertEqual(body_payload["total"], 1)
+        self.assertEqual(body_payload["messages"][0]["id"], message_id)
+        self.assertEqual(body_payload["messages"][0]["body"], "body line 1\nbody line 2\nbody line 3")

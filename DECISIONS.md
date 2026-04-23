@@ -169,9 +169,11 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 ## Dispatch tracks handoff, with explicit replies preferred
 
-**Decision.** `comms_dispatch` requires a reply handoff by default, and triggered `comms_send(type="request")` does too unless `requireReply=false` is passed. Agents are still expected to send their own explicit `comms_send(..., inReplyTo=...)` reply. If a required reply is still missing when the run ends, the bridge mirrors the run result back to the requester as a fallback inbox handoff.
+**Decision.** `comms_dispatch` requires a reply handoff by default, and triggered `comms_send(type="request")` does too unless `requireReply=false` is passed. Agents are still expected to send their own explicit `comms_send(..., inReplyTo=...)` reply. A reply-dispatch back to the requester also satisfies the handoff. If a required reply is still missing when the run ends, the bridge mirrors the run result back to the requester as a fallback inbox handoff.
 
-**Why.** Pure run summaries were too easy to miss in real manager/worker loops: work finished, but the requester saw an empty inbox and the lane looked dead until someone manually polled `comms_run_status`. Fully automatic replies were also too blunt because the bridge cannot reliably decide what the agent meant to report. The compromise is: require a real reply for work handoff, prefer an intentional agent-authored message, but refuse to let the lane silently stall if that handoff never happens.
+**Why.** Pure run summaries were too easy to miss in real manager/worker loops: work finished, but the requester saw an empty inbox and the lane looked dead until someone manually polled `comms_run_status`. Fully automatic replies were also too blunt because the bridge cannot reliably decide what the agent meant to report. The compromise is: require a real reply for work handoff, prefer an intentional agent-authored message, accept reply-dispatches as real handoffs too, but refuse to let the lane silently stall if that handoff never happens.
+
+**Consequence.** Once a real reply is linked to the run, fallback mirror messages are not generated. If an older fallback mirror already exists and a late real reply is linked later, that mirror is auto-marked read so it stops polluting unread counts.
 
 ## Channel messages land in inbox
 

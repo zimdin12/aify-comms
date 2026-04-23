@@ -1164,6 +1164,29 @@ def _primary_result_message_id(message_id: str, recipients: list[str]) -> str:
     return f"{message_id}-{recipients[0]}"
 
 
+def _serialize_inbox_message(row, *, include_body: bool) -> dict[str, Any]:
+    msg = {
+        "id": row["id"],
+        "from": row["from_agent"],
+        "type": row["type"],
+        "source": row["source"],
+        "channel": row["channel"],
+        "subject": row["subject"],
+        "preview": _clip_text(row["body"] or "", 240),
+        "priority": row["priority"],
+        "timestamp": row["timestamp"],
+        "inReplyTo": row["in_reply_to"],
+        "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
+        "read": row["read_at"] is not None,
+        "readAt": row["read_at"],
+    }
+    if include_body:
+        msg["body"] = row["body"]
+    if row["in_reply_to"]:
+        msg["parentContext"] = None
+    return msg
+
+
 async def _link_reply_message_to_dispatch_run(
     db,
     *,
@@ -1190,6 +1213,19 @@ async def _link_reply_message_to_dispatch_run(
     await db.execute(
         "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
         (reply_message_id, replied_run["id"]),
+    )
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at)
+        SELECT id, to_agent, ?
+        FROM messages
+        WHERE from_agent = ?
+          AND to_agent = ?
+          AND in_reply_to = ?
+          AND dispatch_requested = 0
+          AND body LIKE 'Auto-mirrored dispatch %'
+        """,
+        (_now(), from_agent, replied_run["from_agent"], replied_run["message_id"]),
     )
     handoff_note = (
         f"Result reply linked after run completion from {from_agent}"
@@ -1662,27 +1698,36 @@ async def get_inbox(
     filter: str = Query("unread", pattern="^(unread|read|all)$"),
     fromAgent: Optional[str] = None, fromRole: Optional[str] = None,
     type: Optional[str] = None, limit: int = Query(200, ge=1, le=1000),
+    mode: str = Query("full", pattern="^(full|headers)$"),
+    messageId: Optional[str] = None,
     peek: Optional[str] = None,
 ):
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:
-        # Build query
-        if filter == "unread":
-            base = """SELECT m.*, NULL as read_at FROM messages m
-                      LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
-                      WHERE m.to_agent = ? AND r.message_id IS NULL"""
-            params = [agent_id, agent_id]
-        elif filter == "read":
+        include_body = mode != "headers"
+        if messageId:
             base = """SELECT m.*, r.read_at FROM messages m
-                      JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
-                      WHERE m.to_agent = ?"""
-            params = [agent_id, agent_id]
+                      LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
+                      WHERE m.to_agent = ? AND m.id = ?"""
+            params = [agent_id, agent_id, messageId]
         else:
-            base = """SELECT m.*, r.read_at FROM messages m
-                      LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
-                      WHERE m.to_agent = ?"""
-            params = [agent_id, agent_id]
+            # Build query
+            if filter == "unread":
+                base = """SELECT m.*, NULL as read_at FROM messages m
+                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
+                          WHERE m.to_agent = ? AND r.message_id IS NULL"""
+                params = [agent_id, agent_id]
+            elif filter == "read":
+                base = """SELECT m.*, r.read_at FROM messages m
+                          JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
+                          WHERE m.to_agent = ?"""
+                params = [agent_id, agent_id]
+            else:
+                base = """SELECT m.*, r.read_at FROM messages m
+                          LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ?
+                          WHERE m.to_agent = ?"""
+                params = [agent_id, agent_id]
 
         if fromAgent:
             base += " AND m.from_agent = ?"
@@ -1695,7 +1740,7 @@ async def get_inbox(
             params.append(type)
 
         base += " ORDER BY m.timestamp DESC LIMIT ?"
-        params.append(limit)
+        params.append(1 if messageId else limit)
 
         cursor = await db.execute(base, params)
         rows = await cursor.fetchall()
@@ -1708,16 +1753,7 @@ async def get_inbox(
 
         messages = []
         for row in rows:
-            msg = {
-                "id": row["id"], "from": row["from_agent"], "type": row["type"],
-                "source": row["source"], "channel": row["channel"],
-                "subject": row["subject"], "body": row["body"],
-                "priority": row["priority"], "timestamp": row["timestamp"],
-                "inReplyTo": row["in_reply_to"],
-                "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
-                "read": row["read_at"] is not None,
-                "readAt": row["read_at"],
-            }
+            msg = _serialize_inbox_message(row, include_body=include_body)
             # Include parent message context for replies
             if row["in_reply_to"]:
                 pc = await db.execute("SELECT from_agent, subject, body FROM messages WHERE id = ?", (row["in_reply_to"],))
@@ -2026,6 +2062,15 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                         req.from_agent, recipient_id, "direct", req.type, req.subject, req.body,
                         req.priority, 1 if req.mode != "message_only" else 0, resolved_in_reply_to, ts
                     )
+                )
+            if resolved_in_reply_to:
+                await _link_reply_message_to_dispatch_run(
+                    db,
+                    from_agent=req.from_agent,
+                    resolved_in_reply_to=resolved_in_reply_to,
+                    reply_message_id=_primary_result_message_id(message_id, recipients),
+                    reply_type=req.type,
+                    reply_body=req.body,
                 )
 
         runs = []

@@ -515,6 +515,21 @@ function formatInboxMessage(m, registry) {
   );
 }
 
+function formatInboxHeaders(m, registry) {
+  const senderInfo = registry?.agents?.[m.from];
+  const rolePart = senderInfo ? ` (${senderInfo.role})` : "";
+  const readTag = m._read || m.read ? " [read]" : " [NEW]";
+  const preview = String(m.preview || m.body || "").trim();
+  return (
+    `--- ${m.id}${readTag} ---\n` +
+    `From: ${m.from}${rolePart}\n` +
+    `Type: ${m.type} | Subject: ${m.subject}\n` +
+    `Time: ${m.timestamp ? new Date(m.timestamp).toISOString() : "?"}` +
+    (m.inReplyTo ? `\nReply to: ${m.inReplyTo}` : "") +
+    (preview ? `\nPreview: ${preview}` : "")
+  );
+}
+
 async function reregisterAgentFromState(agentId, state) {
   if (!state?.info) return false;
   const info = state.info;
@@ -1629,29 +1644,36 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
 server.tool(
   "comms_inbox",
   "Check your inbox. Returns only UNREAD messages by default (limit 20). " +
-    "Messages are automatically marked as read after viewing.",
+    "Messages are automatically marked as read after viewing. Use mode=headers for preview-only triage or messageId to fetch one message by ID.",
   {
     agentId: z.string().describe("Your agent ID"),
     filter: z.enum(["unread", "read", "all"]).optional().describe("Which messages (default: unread)"),
     fromAgent: z.string().optional().describe("Filter by sender agent ID"),
     fromRole: z.string().optional().describe("Filter by sender role"),
     type: z.string().optional().describe("Filter by message type"),
+    mode: z.enum(["full", "headers"]).optional().describe("Return full bodies or header/preview only (default: full)"),
+    messageId: z.string().optional().describe("Fetch one specific inbox message by ID. Overrides the unread/read filter."),
     limit: z.number().optional().describe("Max messages (default: 20)"),
   },
-  async ({ agentId, filter, fromAgent, fromRole, type, limit }) => {
+  async ({ agentId, filter, fromAgent, fromRole, type, mode, messageId, limit }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
     const maxN = limit || 20;
     const msgFilter = filter || "unread";
+    const inboxMode = mode || "full";
 
     if (IS_REMOTE) {
-      const params = new URLSearchParams({ filter: msgFilter, limit: String(maxN) });
+      const params = new URLSearchParams({ filter: msgFilter, limit: String(maxN), mode: inboxMode });
       if (fromAgent) params.set("fromAgent", fromAgent);
       if (fromRole) params.set("fromRole", fromRole);
       if (type) params.set("type", type);
+      if (messageId) params.set("messageId", messageId);
       const r = await httpCall("GET", `/messages/inbox/${agentId}?${params}`);
-      if (!r.messages.length) return { content: [{ type: "text", text: "Inbox empty." }] };
-      const lines = r.messages.map((m) => formatInboxMessage(m, null));
+      if (!r.messages.length) {
+        return { content: [{ type: "text", text: messageId ? `Message ${messageId} not found in inbox.` : "Inbox empty." }] };
+      }
+      const formatter = inboxMode === "headers" ? formatInboxHeaders : formatInboxMessage;
+      const lines = r.messages.map((m) => formatter(m, null));
       const trunc = r.total > r.showing ? `\n\n(Showing ${r.showing} of ${r.total})` : "";
       return {
         content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s):\n\n${lines.join("\n\n")}${trunc}` }],
@@ -1664,7 +1686,7 @@ server.tool(
       writeAgents(registry);
     }
 
-    let messages = readInbox(agentId, msgFilter);
+    let messages = readInbox(agentId, messageId ? "all" : msgFilter);
     if (fromAgent) messages = messages.filter((m) => m.from === fromAgent);
     if (fromRole) {
       messages = messages.filter((m) => {
@@ -1673,15 +1695,18 @@ server.tool(
       });
     }
     if (type) messages = messages.filter((m) => m.type === type);
+    if (messageId) messages = messages.filter((m) => m.id === messageId);
 
     const total = messages.length;
-    if (total === 0) return { content: [{ type: "text", text: "Inbox empty." }] };
+    if (total === 0) {
+      return { content: [{ type: "text", text: messageId ? `Message ${messageId} not found in inbox.` : "Inbox empty." }] };
+    }
 
-    const shown = messages.slice(0, maxN);
+    const shown = messages.slice(0, messageId ? 1 : maxN);
     markAsRead(agentId, shown);
 
-    const formatted = shown.map((m) => formatInboxMessage(m, registry));
-    const truncNote = total > maxN ? `\n\n(Showing ${maxN} of ${total}. Use limit param for more.)` : "";
+    const formatted = shown.map((m) => (inboxMode === "headers" ? formatInboxHeaders(m, registry) : formatInboxMessage(m, registry)));
+    const truncNote = !messageId && total > maxN ? `\n\n(Showing ${maxN} of ${total}. Use limit param for more.)` : "";
     return {
       content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${total} message(s):\n\n${formatted.join("\n\n")}${truncNote}` }],
     };

@@ -400,30 +400,46 @@ async def comms_inbox(
     fromAgent: str = "",
     fromRole: str = "",
     type: str = "",
+    mode: str = "full",
+    messageId: str = "",
     limit: int = 20,
 ) -> str:
-    """Check your inbox. Returns only UNREAD messages by default. Messages are marked as read after viewing."""
-    params = {"filter": filter, "limit": str(limit)}
+    """Check your inbox. Returns only UNREAD messages by default. Use mode='headers' for preview-only triage or messageId to fetch one message by ID. Messages are marked as read after viewing."""
+    params = {"filter": filter, "limit": str(limit), "mode": mode}
     if fromAgent:
         params["fromAgent"] = fromAgent
     if fromRole:
         params["fromRole"] = fromRole
     if type:
         params["type"] = type
+    if messageId:
+        params["messageId"] = messageId
     r = await _api("GET", f"/messages/inbox/{agentId}", params=params)
     if "detail" in r:
         return f"Error: {r['detail']}"
     msgs = r.get("messages", [])
     if not msgs:
-        return "Inbox empty."
+        return f"Message {messageId} not found in inbox." if messageId else "Inbox empty."
     lines = []
     for m in msgs:
-        safe_body = _fence(m.get("body", ""))
-        lines.append(
-            f"--- {m['id']} ---\n"
-            f"From: {m['from']} | Type: {m['type']} | Subject: {m.get('subject', '')}\n"
-            f"{safe_body}"
-        )
+        if mode == "headers":
+            preview = str(m.get("preview", "")).strip()
+            parts = [
+                f"--- {m['id']} ---",
+                f"From: {m['from']} | Type: {m['type']} | Subject: {m.get('subject', '')}",
+            ]
+            if m.get("inReplyTo"):
+                parts.append(f"Reply to: {m['inReplyTo']}")
+            if preview:
+                parts.append(f"Preview: {preview}")
+            lines.append("\n".join(parts))
+        else:
+            safe_body = _fence(m.get("body", ""))
+            lines.append(
+                f"--- {m['id']} ---\n"
+                f"From: {m['from']} | Type: {m['type']} | Subject: {m.get('subject', '')}\n"
+                f"{safe_body}"
+            )
     trunc = f"\n\n(Showing {r['showing']} of {r['total']})" if r.get("total", 0) > r.get("showing", 0) else ""
     return f"{SAFETY_HEADER}\n\n{r['total']} message(s):\n\n" + "\n\n".join(lines) + trunc
 
