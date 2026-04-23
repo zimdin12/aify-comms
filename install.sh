@@ -550,4 +550,5 @@ else
 fi
 echo "  comms_agents()"
 echo "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\", silent=true)"
-echo "  comms_inbox(agentId=\"my-agent\")"
+echo "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")"
+echo "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")"
