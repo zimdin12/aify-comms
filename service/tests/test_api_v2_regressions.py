@@ -868,6 +868,72 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual([row["id"] for row in pending_spawns], [pending_spawn_id])
 
+    def test_list_sessions_repairs_superseded_recovering_rows(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "repair-recover-coder",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/repo",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        claim = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234"},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        old_session_id = running.json()["spawnRequest"]["sessionId"]
+        spec_id = running.json()["spawnRequest"]["spawnSpecId"]
+        self._execute(
+            "UPDATE agent_sessions SET status = 'recovering', ended_at = ?, last_seen = ? WHERE id = ?",
+            ("2026-04-28T10:00:00Z", "2026-04-28T10:00:00Z", old_session_id),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode, process_id,
+                session_handle, app_server_url, spawn_spec_id, spawn_request_id,
+                capabilities, telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_newer_running",
+                "repair-recover-coder",
+                "linux:test-host:default",
+                "codex",
+                "/workspace/repo",
+                "managed-warm",
+                "5678",
+                "",
+                "",
+                spec_id,
+                spawn_id,
+                "{}",
+                "{}",
+                "running",
+                "2026-04-28T10:00:01Z",
+                "2026-04-28T10:00:01Z",
+                None,
+            ),
+        )
+
+        listed = self.client.get("/api/v1/sessions?agentId=repair-recover-coder")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        by_id = {session["id"]: session for session in listed.json()["sessions"]}
+        self.assertEqual(by_id[old_session_id]["status"], "ended")
+        self.assertEqual(by_id["sess_newer_running"]["status"], "running")
+
     def test_session_stop_cancels_pending_recovery_and_late_bridge_running_is_rejected(self):
         self._heartbeat_environment()
         created = self.client.post(

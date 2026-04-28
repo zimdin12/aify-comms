@@ -116,6 +116,7 @@ let environmentControlTimer = null;
 let environmentControlBusy = false;
 let spawnLoopTimer = null;
 let spawnLoopBusy = false;
+let managedEnvironmentSyncBusy = false;
 let spawnClaimFailureCount = 0;
 let spawnClaimLastLogAt = 0;
 const CONSECUTIVE_FAILURES = new Map();
@@ -709,6 +710,7 @@ async function heartbeatEnvironment() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
   try {
     await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
+    await syncManagedEnvironmentAgents();
   } catch (error) {
     // Environment heartbeat is presence-only in this slice. Keep existing
     // messaging/dispatch paths working even if an older server lacks the endpoint.
@@ -809,6 +811,89 @@ function noteSpawnClaimSuccess() {
     console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
     spawnClaimFailureCount = 0;
     spawnClaimLastLogAt = 0;
+  }
+}
+
+function isActiveManagedSessionStatus(status) {
+  return ["starting", "running", "recovering", "restarting"].includes(String(status || "").toLowerCase());
+}
+
+async function syncManagedEnvironmentAgents() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || managedEnvironmentSyncBusy) return;
+  managedEnvironmentSyncBusy = true;
+  try {
+    const environment = environmentHeartbeatPayload();
+    const [agentsRes, sessionsRes] = await Promise.all([
+      httpCall("GET", "/agents"),
+      httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
+    ]);
+    const availableRuntimes = new Set((environment.runtimes || []).filter((item) => item?.available !== false).map((item) => normalizeRuntime(item.runtime)));
+    const activeSessionsByAgent = new Map();
+    for (const session of sessionsRes.sessions || []) {
+      if (!session?.agentId || !isActiveManagedSessionStatus(session.status)) continue;
+      if (!activeSessionsByAgent.has(session.agentId)) activeSessionsByAgent.set(session.agentId, session);
+    }
+
+    for (const [agentId, managedInfo] of Object.entries(agentsRes.agents || {})) {
+      if (normalizeSessionMode(managedInfo.sessionMode) !== "managed") continue;
+      if ((managedInfo.launchMode || "managed") === "none") continue;
+      const capabilities = managedInfo.capabilities || [];
+      if (capabilities.length && !capabilities.includes("managed-run")) continue;
+
+      const session = activeSessionsByAgent.get(agentId);
+      const runtimeState = managedInfo.runtimeState || {};
+      const belongsToEnvironment =
+        session ||
+        String(runtimeState.environmentId || "") === environment.id;
+      if (!belongsToEnvironment) continue;
+
+      const runtime = normalizeRuntime((session?.runtime || managedInfo.runtime || "generic"));
+      if (!availableRuntimes.has(runtime)) continue;
+      const workspace = session?.workspace || managedInfo.cwd || DEFAULT_CWD;
+      if (!workspaceWithinRoots(workspace, environment.cwdRoots)) continue;
+
+      const nextRuntimeState = {
+        ...runtimeState,
+        bridgeInstanceId: BRIDGE_INSTANCE_ID,
+        environmentId: environment.id,
+        mode: session?.mode || runtimeState.mode || "managed-warm",
+      };
+      if (session?.spawnRequestId) nextRuntimeState.spawnRequestId = session.spawnRequestId;
+      try {
+        await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
+          runtimeState: nextRuntimeState,
+        });
+      } catch {
+        // Best effort; the claim guard also checks the current environment bridge.
+      }
+
+      REMOTE_AGENT_STATE.set(agentId, {
+        info: {
+          agentId,
+          role: managedInfo.role || "coder",
+          name: managedInfo.name || agentId,
+          cwd: workspace,
+          model: managedInfo.model || "",
+          instructions: managedInfo.instructions || "",
+          runtime,
+          machineId: managedInfo.machineId || environment.machineId || MACHINE_ID,
+          launchMode: "managed",
+          sessionMode: "managed",
+          sessionHandle: session?.sessionHandle || managedInfo.sessionHandle || "",
+          managedBy: managedInfo.managedBy || "dashboard",
+          capabilities,
+          runtimeConfig: managedInfo.runtimeConfig || {},
+          runtimeState: nextRuntimeState,
+        },
+      });
+    }
+    if (REMOTE_AGENT_STATE.size) ensureDispatchLoop();
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("[aify] managed environment sync failed:", error?.message || error);
+    }
+  } finally {
+    managedEnvironmentSyncBusy = false;
   }
 }
 

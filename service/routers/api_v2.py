@@ -907,6 +907,43 @@ async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
     return repaired
 
 
+async def _repair_superseded_recovering_sessions(db) -> int:
+    now = _now()
+    cursor = await db.execute(
+        """
+        SELECT old.id
+        FROM agent_sessions old
+        WHERE old.status IN ('starting', 'recovering', 'restarting')
+          AND EXISTS (
+            SELECT 1
+            FROM agent_sessions current
+            WHERE current.agent_id = old.agent_id
+              AND current.id != old.id
+              AND current.status = 'running'
+              AND COALESCE(NULLIF(current.last_seen, ''), NULLIF(current.started_at, ''), '') >=
+                  COALESCE(NULLIF(old.last_seen, ''), NULLIF(old.started_at, ''), '')
+          )
+        """
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return 0
+    for row in rows:
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = 'ended',
+                ended_at = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?),
+                last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
+            WHERE id = ?
+              AND status IN ('starting', 'recovering', 'restarting')
+            """,
+            (now, now, row["id"]),
+        )
+    await db.commit()
+    return len(rows)
+
+
 def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
     normalized = _normalize_runtime(runtime)
     for item in environment.get("runtimes") or []:
@@ -2653,6 +2690,7 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
 async def list_sessions(request: Request, agentId: Optional[str] = None, environmentId: Optional[str] = None, limit: int = Query(100, ge=1, le=500)):
     db = await get_db()
     try:
+        await _repair_superseded_recovering_sessions(db)
         where = []
         params: list[Any] = []
         if agentId:
