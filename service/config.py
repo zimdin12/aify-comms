@@ -20,9 +20,9 @@ class ServiceConfig:
     """Central configuration for the service."""
 
     # Identity
-    name: str = "my-service"
+    name: str = "aify-comms"
     version: str = "0.1.0"
-    description: str = "AI agent-accessible service"
+    description: str = "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments"
 
     # Network
     port: int = 8800

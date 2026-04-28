@@ -92,12 +92,17 @@ async function httpCall(method, endpoint, body = null) {
 function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
   const priority = (run.priority || "normal").toLowerCase();
-  const urgencyPrefix =
-    priority === "urgent" ? "STOP — URGENT message. Drop current work and handle this immediately.\n\n" :
-    priority === "high" ? "IMPORTANT — High-priority message. Read before continuing current work.\n\n" :
-    "";
+  const priorityLabel =
+    priority === "urgent" ? "URGENT" :
+    priority === "high" ? "HIGH" :
+    "NORMAL";
+  const actionLine =
+    priority === "urgent" ? "Drop current work and handle this immediately." :
+    priority === "high" ? "Read before continuing current work." :
+    "Handle when you reach a natural break.";
   return [
-    urgencyPrefix + `Aify message for agent "${agentId}".`,
+    `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
+    actionLine,
     `From: ${run.from}`,
     `Subject: ${run.subject}`,
     priority !== "normal" ? `Priority: ${priority.toUpperCase()}` : "",

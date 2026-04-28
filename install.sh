@@ -68,10 +68,13 @@ require_cmd() {
 
 copy_claude_assets() {
   local skill_dst="$HOME/.claude/skills/aify-comms"
+  local debug_skill_dst="$HOME/.claude/skills/aify-comms-debug"
   local commands_dst="$HOME/.claude/commands/aify-comms"
   mkdir -p "$(dirname "$skill_dst")" "$commands_dst"
   rm -rf "$skill_dst"
+  rm -rf "$debug_skill_dst"
   cp -R "$SCRIPT_DIR/.claude/skills/aify-comms" "$skill_dst"
+  cp -R "$SCRIPT_DIR/.claude/skills/aify-comms-debug" "$debug_skill_dst"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
 }
 
@@ -186,11 +189,92 @@ EOF
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }
 
+install_bridge_launcher() {
+  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_path="$wrapper_dir/aify-comms"
+  local default_server="${SERVER_URL:-http://localhost:8800}"
+  mkdir -p "$wrapper_dir"
+cat > "$wrapper_path" <<EOF
+#!/bin/bash
+set -euo pipefail
+
+SAFE_CWD="\$(pwd -P 2>/dev/null || true)"
+if [ -z "\$SAFE_CWD" ] || [ ! -d "\$SAFE_CWD" ]; then
+  echo "aify-comms: current directory no longer exists; using \$HOME as the bridge root." >&2
+  cd "\$HOME"
+  SAFE_CWD="\$(pwd -P)"
+fi
+
+SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
+if [ "\${1:-}" != "" ] && [[ "\${1:-}" == http* ]]; then
+  SERVER_URL="\$1"
+  shift
+fi
+
+ROOTS="\$(node - "\$SAFE_CWD" "\${AIFY_CWD_ROOTS:-}" "\$@" <<'NODE'
+const path = require("path");
+const [cwd, envRoots, ...extraRoots] = process.argv.slice(2);
+const roots = [cwd];
+if (envRoots) roots.push(...String(envRoots).split(path.delimiter));
+roots.push(...extraRoots);
+const seen = new Set();
+const result = [];
+for (const raw of roots) {
+  const value = String(raw || "").trim();
+  if (!value || seen.has(value)) continue;
+  seen.add(value);
+  result.push(value);
+}
+console.log(result.join(path.delimiter));
+NODE
+)"
+
+export AIFY_SERVER_URL="\$SERVER_URL"
+export AIFY_CWD_ROOTS="\$ROOTS"
+export AIFY_ENVIRONMENT_BRIDGE=1
+
+echo "aify-comms bridge"
+echo "  server: \$AIFY_SERVER_URL"
+echo "  roots:  \$AIFY_CWD_ROOTS"
+echo "  stop:   Ctrl+C"
+cd "\$SAFE_CWD"
+exec node "$SCRIPT_DIR/mcp/stdio/server.js"
+EOF
+  chmod +x "$wrapper_path"
+  install_windows_cmd_shim "aify-comms" "$wrapper_dir"
+}
+
 is_git_bash_windows() {
   case "$(uname -s 2>/dev/null || echo '')" in
     MINGW*|MSYS*|CYGWIN*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+path_for_node() {
+  local value="$1"
+  if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$value"
+    return
+  fi
+  printf '%s\n' "$value"
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+hook_command_for_node_script() {
+  local node_script="$1"
+  if is_git_bash_windows; then
+    printf 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath $env:USERPROFILE; & node %s"' "$(shell_quote "$node_script")"
+    return
+  fi
+  if command -v env >/dev/null 2>&1 && env --help 2>/dev/null | grep -q -- ' -C'; then
+    printf 'env -C "$HOME" node %s' "$(shell_quote "$node_script")"
+    return
+  fi
+  printf 'sh -lc %s _ %s' "$(shell_quote 'cd "$HOME" 2>/dev/null || cd /; exec node "$1"')" "$(shell_quote "$node_script")"
 }
 
 install_windows_cmd_shim() {
@@ -238,14 +322,19 @@ EOF
 copy_codex_assets() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local skill_dst="$codex_home/skills/aify-comms"
+  local debug_skill_dst="$codex_home/skills/aify-comms-debug"
   mkdir -p "$(dirname "$skill_dst")"
   rm -rf "$skill_dst"
+  rm -rf "$debug_skill_dst"
   cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$skill_dst"
+  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms-debug" "$debug_skill_dst"
 }
 
 install_opencode_config() {
   local config_root="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
   local config_file="$config_root/opencode.json"
+  local node_config_file=""
+  local node_server_path=""
   local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
   mkdir -p "$config_root"
   if [ ! -f "$config_file" ]; then
@@ -256,7 +345,10 @@ install_opencode_config() {
 EOF
   fi
 
-  node -e "
+  node_config_file="$(path_for_node "$config_file")"
+  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+
+  MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const file = process.argv[1];
     const serverUrl = process.argv[2];
@@ -268,8 +360,14 @@ EOF
     if (!data['\$schema']) data['\$schema'] = 'https://opencode.ai/config.json';
     if (!data.mcp || typeof data.mcp !== 'object' || Array.isArray(data.mcp)) data.mcp = {};
     const environment = {};
-    if (serverUrl) environment.CLAUDE_MCP_SERVER_URL = serverUrl;
-    if (apiKey) environment.CLAUDE_MCP_API_KEY = apiKey;
+    if (serverUrl) {
+      environment.AIFY_SERVER_URL = serverUrl;
+      environment.CLAUDE_MCP_SERVER_URL = serverUrl;
+    }
+    if (apiKey) {
+      environment.AIFY_API_KEY = apiKey;
+      environment.CLAUDE_MCP_API_KEY = apiKey;
+    }
     data.mcp['aify-comms'] = {
       type: 'local',
       enabled: true,
@@ -277,7 +375,7 @@ EOF
       ...(Object.keys(environment).length ? { environment } : {}),
     };
     fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
-  " "$config_file" "$SERVER_URL" "$api_key" "$SCRIPT_DIR/mcp/stdio/server.js"
+  " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
 }
 
 enable_codex_hooks_feature() {
@@ -325,6 +423,9 @@ EOF
 install_codex_hook() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local hooks_file="$codex_home/hooks.json"
+  local node_hooks_file=""
+  local node_notify_script=""
+  local hook_command=""
   mkdir -p "$codex_home"
   if [ ! -f "$hooks_file" ]; then
     echo '{"hooks":{}}' > "$hooks_file"
@@ -332,7 +433,11 @@ install_codex_hook() {
 
   enable_codex_hooks_feature
 
-  node -e "
+  node_hooks_file="$(path_for_node "$hooks_file")"
+  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+  hook_command="$(hook_command_for_node_script "$node_notify_script")"
+
+  MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const hooksPath = process.argv[1];
     const command = process.argv[2];
@@ -367,19 +472,32 @@ install_codex_hook() {
       }]
     });
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
-  " "$hooks_file" "node \"$SCRIPT_DIR/mcp/stdio/notify-check.js\""
+  " "$node_hooks_file" "$hook_command"
 }
 
 install_claude_hook() {
   local settings_file="$HOME/.claude/settings.json"
+  local node_settings_file=""
+  local node_notify_script=""
+  local hook_command=""
   mkdir -p "$(dirname "$settings_file")"
   if [ ! -f "$settings_file" ]; then
     echo '{}' > "$settings_file"
   fi
 
-  node -e "
+  node_settings_file="$(path_for_node "$settings_file")"
+  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+  hook_command="$(hook_command_for_node_script "$node_notify_script")"
+
+  MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const settings = JSON.parse(fs.readFileSync('$settings_file', 'utf-8'));
+    const settingsPath = process.argv[1];
+    const command = process.argv[2];
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch (_) {}
+    if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
     if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = [];
     settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
@@ -389,12 +507,12 @@ install_claude_hook() {
       matcher: 'Bash',
       hooks: [{
         type: 'command',
-        command: 'node \"$SCRIPT_DIR/mcp/stdio/notify-check.js\"',
+        command,
         timeout: 3
       }]
     });
-    fs.writeFileSync('$settings_file', JSON.stringify(settings, null, 2));
-  "
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  " "$node_settings_file" "$hook_command"
 }
 
 register_stdio_server() {
@@ -418,12 +536,15 @@ register_stdio_server() {
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
+      --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
+      --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
+      --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   else
@@ -444,11 +565,14 @@ register_claude_channel_server() {
 
   if [ -n "$SERVER_URL" ] && [ -n "$api_key" ]; then
     "$cli" mcp add --scope user "$server_name" \
+      --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
+      --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
       -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add --scope user "$server_name" \
+      --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
   else
@@ -488,6 +612,7 @@ register_stdio_server "$CLIENT"
 if [ "$CLIENT" = "claude" ]; then
   register_claude_channel_server "$CLIENT"
 fi
+install_bridge_launcher
 echo "  Done."
 
 if [ "$WITH_HOOK" = true ]; then
@@ -516,6 +641,14 @@ fi
 
 echo ""
 echo "=== Installation complete ==="
+echo "Environment bridge launcher installed: aify-comms"
+echo "  Run it on each host/WSL environment you want visible in the dashboard."
+echo "  Default:  aify-comms"
+echo "  Extra root: aify-comms /path/to/extra/root"
+echo "  Remote service: aify-comms http://host:8800 /path/to/extra/root"
+if is_git_bash_windows; then
+  echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\aify-comms.cmd"
+fi
 if [ "$CLIENT" = "claude" ]; then
   echo "Restart Claude Code for changes to take effect."
   if [ -n "$SERVER_URL" ]; then
@@ -549,6 +682,6 @@ else
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
 fi
 echo "  comms_agents()"
-echo "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\", silent=true)"
+echo "  comms_send(from=\"my-agent\", to=\"other-agent\", type=\"info\", subject=\"Hello\", body=\"Hi there\")"
 echo "  comms_inbox(agentId=\"my-agent\", mode=\"headers\")"
 echo "  comms_inbox(agentId=\"my-agent\", messageId=\"<message id>\")"

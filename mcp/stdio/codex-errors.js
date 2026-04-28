@@ -17,11 +17,21 @@ export function detectCodexResumeFailure(error) {
   const corruptRollout =
     message.includes("AbsolutePathBuf deserialized") ||
     message.includes("AbsolutePathBufGuard");
+  // Codex app-server can also fail thread/resume before returning a usable
+  // thread when the stored rollout/context has grown past its websocket
+  // transport frame limit. The live error looks like:
+  //   remote app server ... transport failed: Space limit exceeded:
+  //   Message too long: 23456629 > 16777216
+  // Treat it like an unloadable rollout and heal to a fresh thread.
+  const oversizedRollout =
+    message.includes("Space limit exceeded") ||
+    message.includes("Message too long");
   return {
     noRollout,
     corruptRollout,
-    shouldHeal: noRollout || corruptRollout,
-    healReason: corruptRollout ? "corrupt_rollout" : (noRollout ? "no_rollout" : null),
+    oversizedRollout,
+    shouldHeal: noRollout || corruptRollout || oversizedRollout,
+    healReason: corruptRollout ? "corrupt_rollout" : (oversizedRollout ? "oversized_rollout" : (noRollout ? "no_rollout" : null)),
   };
 }
 

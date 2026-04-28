@@ -168,6 +168,133 @@ CREATE TABLE IF NOT EXISTS bridge_instances (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bridge_instances_agent_machine ON bridge_instances(agent_id, machine_id, last_seen DESC);
+
+CREATE TABLE IF NOT EXISTS agent_tombstones (
+    agent_id TEXT PRIMARY KEY,
+    removed_at TEXT NOT NULL,
+    removed_by TEXT DEFAULT '',
+    bridge_id TEXT DEFAULT '',
+    reason TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS environments (
+    id TEXT PRIMARY KEY,
+    label TEXT DEFAULT '',
+    machine_id TEXT DEFAULT '',
+    os TEXT DEFAULT '',
+    kind TEXT DEFAULT '',
+    bridge_id TEXT DEFAULT '',
+    bridge_version TEXT DEFAULT '',
+    cwd_roots TEXT DEFAULT '[]',
+    runtimes TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'online',
+    metadata TEXT DEFAULT '{}',
+    registered_at TEXT NOT NULL,
+    last_seen TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_environments_status_seen ON environments(status, last_seen DESC);
+
+CREATE TABLE IF NOT EXISTS environment_controls (
+    id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    bridge_id TEXT DEFAULT '',
+    machine_id TEXT DEFAULT '',
+    action TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    requested_by TEXT DEFAULT '',
+    requested_at TEXT NOT NULL,
+    claimed_at TEXT,
+    handled_at TEXT,
+    error TEXT DEFAULT '',
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_environment_controls_env_status ON environment_controls(environment_id, status, requested_at);
+
+CREATE TABLE IF NOT EXISTS spawn_specs (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    runtime TEXT NOT NULL,
+    workspace TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    profile TEXT DEFAULT '',
+    mode TEXT DEFAULT 'managed-warm',
+    system_prompt TEXT DEFAULT '',
+    standing_instructions TEXT DEFAULT '',
+    env_vars TEXT DEFAULT '{}',
+    channel_ids TEXT DEFAULT '[]',
+    budget_policy TEXT DEFAULT '{}',
+    context_policy TEXT DEFAULT '{}',
+    restart_policy TEXT DEFAULT '{}',
+    metadata TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS spawn_requests (
+    id TEXT PRIMARY KEY,
+    spawn_spec_id TEXT NOT NULL,
+    created_by TEXT DEFAULT '',
+    environment_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    role TEXT DEFAULT 'coder',
+    name TEXT DEFAULT '',
+    runtime TEXT NOT NULL,
+    workspace TEXT DEFAULT '',
+    workspace_root TEXT DEFAULT '',
+    initial_message TEXT DEFAULT '',
+    priority TEXT DEFAULT 'normal',
+    subject TEXT DEFAULT '',
+    mode TEXT DEFAULT 'managed-warm',
+    resume_policy TEXT DEFAULT 'native_first',
+    status TEXT DEFAULT 'queued',
+    claimed_by_bridge_id TEXT DEFAULT '',
+    claim_machine_id TEXT DEFAULT '',
+    process_id TEXT DEFAULT '',
+    session_handle TEXT DEFAULT '',
+    session_id TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    claimed_at TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    FOREIGN KEY (spawn_spec_id) REFERENCES spawn_specs(id) ON DELETE CASCADE,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_spawn_requests_env_status ON spawn_requests(environment_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_spawn_requests_agent_created ON spawn_requests(agent_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    runtime TEXT NOT NULL,
+    workspace TEXT DEFAULT '',
+    mode TEXT DEFAULT 'managed-warm',
+    process_id TEXT DEFAULT '',
+    session_handle TEXT DEFAULT '',
+    app_server_url TEXT DEFAULT '',
+    spawn_spec_id TEXT DEFAULT '',
+    spawn_request_id TEXT DEFAULT '',
+    capabilities TEXT DEFAULT '{}',
+    telemetry TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'starting',
+    started_at TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    ended_at TEXT,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE,
+    FOREIGN KEY (spawn_spec_id) REFERENCES spawn_specs(id) ON DELETE SET NULL,
+    FOREIGN KEY (spawn_request_id) REFERENCES spawn_requests(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_seen ON agent_sessions(agent_id, last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_env_status ON agent_sessions(environment_id, status, last_seen DESC);
 """
 
 AGENT_MIGRATIONS = {
@@ -196,6 +323,10 @@ MESSAGE_MIGRATIONS = {
 
 DISPATCH_CONTROL_MIGRATIONS = {
     "source_message_id": "ALTER TABLE dispatch_controls ADD COLUMN source_message_id TEXT DEFAULT ''",
+}
+
+ENVIRONMENT_MIGRATIONS = {
+    "bridge_version": "ALTER TABLE environments ADD COLUMN bridge_version TEXT DEFAULT ''",
 }
 
 
@@ -231,6 +362,14 @@ async def _migrate_dispatch_controls_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+async def _migrate_environments_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(environments)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in ENVIRONMENT_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def init_db(db_path: Path = None):
     global _db_path
     if db_path:
@@ -244,6 +383,7 @@ async def init_db(db_path: Path = None):
         await _migrate_dispatch_runs_table(db)
         await _migrate_messages_table(db)
         await _migrate_dispatch_controls_table(db)
+        await _migrate_environments_table(db)
         await db.commit()
 
 async def get_db() -> aiosqlite.Connection:

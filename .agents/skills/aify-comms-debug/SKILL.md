@@ -17,9 +17,9 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 
 **Backend guard (current build).** The server now rejects impossible resident Codex registrations up front: `linux:` / `darwin:` machine IDs cannot register `C:/...` cwds when `appServerUrl` is present, and `win32:` machine IDs cannot register `/mnt/...` cwds. If `comms_register` now fails immediately with `Invalid cwd`, that is the intended fast-fail path; fix the cwd and re-register instead of trying to dispatch through it.
 
-**Root cause #2 (stored rollout).** Codex's `thread/resume` loads the thread's stored rollout from `~/.codex/sessions/...`. If a path field in that file cannot be deserialized the call crashes before the bridge can send anything else. The tell is that the failed run has an **empty `externalThreadId`**: the bridge never got past `thread/resume`. This is the case the auto-heal path (below) is designed for.
+**Root cause #2 (stored rollout).** Codex's `thread/resume` loads the thread's stored rollout from `~/.codex/sessions/...`. If a path field in that file cannot be deserialized, or if the rollout/context has grown past Codex's websocket frame limit (`Space limit exceeded: Message too long: ... > 16777216`), the call crashes before the bridge can send anything else. The tell is that the failed run has an **empty `externalThreadId`**: the bridge never got past `thread/resume`. This is the case the auto-heal path (below) is designed for.
 
-**Auto-recovery (shipped).** On current bridge code, **both managed and resident** sessions auto-heal this case. When `thread/resume` fails with `AbsolutePathBuf deserialized`, `AbsolutePathBufGuard`, or `no rollout found for thread id`, the bridge:
+**Auto-recovery (shipped).** On current bridge code, **both managed and resident** sessions auto-heal this case. When `thread/resume` fails with `AbsolutePathBuf deserialized`, `AbsolutePathBufGuard`, `no rollout found for thread id`, or Codex's websocket `Space limit exceeded` / `Message too long` error, the bridge:
 
 1. Calls `thread/start` to create a brand-new Codex thread.
 2. Fires `onSessionHandleChange(newHandle)`, which updates the cached agent state and POSTs `/agents` so the backend's stored `sessionHandle` points at the healed thread.
@@ -30,6 +30,8 @@ You'll see a line in the Codex session's stderr like:
 ```
 [aify] healed sessionHandle for "graph-senior-dev" → <new-uuid> (reason: corrupt_rollout, previous: <old-uuid>)
 ```
+
+For the websocket frame-limit case the reason is `oversized_rollout`.
 
 **Trade-off for resident sessions.** The healed thread is *not* the one attached to the visible Codex TUI — it's a fresh background thread the Codex app-server knows about but your interactive session cannot see. Dispatched work runs successfully but you lose TUI visibility for that dispatch. The old behavior was "dispatch fails forever with a cryptic error", which is strictly worse. To restore full TUI visibility for future work, do the hard-reset sequence below.
 
@@ -115,29 +117,30 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Fix.** Restart the bridge (restart your `claude-aify` / `codex-aify` session) and re-register. Cosmetic only — it does not block routing, because dispatches are routed by `agentId` rather than `machineId`.
 
-## Dispatch rejected with `reason: "buffer_full"`
+## Send rejected because target has queued work
 
-**Symptom.** `comms_send` / `comms_dispatch` returns a `notStarted` entry with `reason: "buffer_full"` and `bufferedCount: 10`.
+**Symptom.** `comms_send` returns `ok: false` with `reason: "agent already has queued work"` or `reason: "agent is working"`.
 
-**Cause.** You (the same `fromAgent`) already have 10 buffered dispatches queued behind an active run for that recipient. The buffer is capped to prevent unbounded pile-up.
+**Cause.** Normal send is live-delivery gated. It no longer appends chat messages to future runs. This prevents fragile "message sent but nobody actually woke up" behavior.
 
 **Fix.** Pick one of:
-- Wait for the in-flight run to drain. The 10 buffered items all run in order after it.
+- Wait for the in-flight/queued run to finish.
 - `comms_run_interrupt(runId=<current active run>)` if the current work should stop.
-- `comms_agent_info(agentId=<target>)` to inspect why it's stuck; address that instead of retrying.
-- If you legitimately need a new independent run, use a different `fromAgent` — the cap is per-sender.
+- Use the dashboard run controls to cancel stale queued work.
+- `comms_agent_info(agentId=<target>)` to inspect why the agent is not currently startable.
+- If the agent is actively running and steer-capable, use `comms_send(steer=true)` for guidance that belongs in the current run.
 
 ## Run stuck `running`, `comms_run_interrupt` has no effect
 
 **Symptom.** A dispatch is marked `running` but nothing is happening. `comms_run_interrupt` returns ok but the run never moves.
 
-**Cause (Codex / managed workers).** The bridge that owned the run has died (crash, machine sleep, network drop). `comms_run_interrupt` works by enqueueing a control the owning bridge polls for — if the bridge is gone, no one claims the control.
+**Cause (Codex / managed sessions).** The bridge that owned the run has died (crash, machine sleep, network drop). `comms_run_interrupt` works by enqueueing a control the owning bridge polls for — if the bridge is gone, no one claims the control.
 
 **Cause (Claude resident).** On older bridge code, the channel bridge claimed dispatch runs and left them `running` indefinitely — it had no way to track Claude's progress. On current code, the channel bridge completes runs immediately on delivery, so this failure mode no longer occurs for Claude agents. If you still see it, the bridge is running pre-fix code — `git pull` and restart `claude-aify`.
 
-**Auto-recovery (current build).** When a replacement bridge polls `/dispatch/claim` for the same agent, the server detects the stale run (owned by a different bridge) and marks it failed automatically. The next queued run is then claimed normally. No manual intervention is needed as long as a live bridge exists for the agent.
+**Auto-recovery (current build).** When a replacement bridge polls `/dispatch/claim` for the same agent, the server detects the stale run (owned by a different bridge) and marks it failed automatically. Existing queued run-control work may then be claimed normally. Normal `comms_send` will not create additional queued work while the target is blocked.
 
-The original message that created the dispatch is still in the agent's inbox — message delivery is independent of dispatch tracking, so no content is lost when a run is failed by the stale-run cleanup.
+For older dispatch-backed messages, the original inbox message may still exist. For current normal `comms_send`, failed live delivery writes no message row, so retry after the agent is startable.
 
 **Manual fix (if no bridge is polling).** Cancel the run directly through the HTTP API:
 
@@ -149,9 +152,9 @@ curl -X PATCH http://localhost:8800/api/v1/dispatch/runs/<run_id> \
 
 Afterwards, restart `claude-aify` / `codex-aify` to bring a live bridge back online.
 
-## `message-only` wake mode when you expected `codex-live`
+## Not live-bound when you expected `codex-live`
 
-**Symptom.** Right after `comms_register` you see `wakeMode: message-only` even though you're inside `codex-aify`.
+**Symptom.** Right after `comms_register` the agent is not live-bound, or an older API/debug view shows `wakeMode: message-only`, even though you're inside `codex-aify`.
 
 **Causes.**
 - Multiple `codex-aify` sessions are open on the same machine — the bridge sees ambiguous live markers and refuses to pick one.
@@ -172,15 +175,29 @@ comms_register(
 comms_agent_info(agentId="my-agent")
 ```
 
-If only the thread ID is available, pass `sessionHandle` without `appServerUrl`. If neither is available, the session predates the current resident-triggering flow — restart Codex through `codex-aify` and try again.
+If only the thread ID is available, pass `sessionHandle` without `appServerUrl`. If neither is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
 
-## Superseded bridge: claim blocked
+## Superseded or stale bridge: claim blocked
 
-**Symptom.** A bridge's dispatch loop logs `blockedBy: {reason: "bridge_superseded"}`.
+**Symptom.** A bridge's dispatch loop logs `blockedBy: {reason: "bridge_superseded"}` or `blockedBy: {reason: "bridge_not_current"}`.
 
-**Cause.** A newer `comms_register` for the same `agentId` on the same machine has replaced this bridge. The server rejects claims from superseded bridges so they can't steal work from the fresh one.
+**Cause.** A newer `comms_register` for the same `agentId` on the same machine has replaced this bridge. For Codex/OpenCode, the server also compares the polling bridge ID against the agent's current `runtimeState.bridgeInstanceId`; this catches old processes whose bridge row is gone but whose dispatch loop is still alive.
 
 **Fix.** Shut the superseded bridge down. This is not an error — it's the server protecting the queue. The fresh bridge is the one that should be claiming runs.
+
+## Environment still shows online after bridge stopped
+
+**Symptom.** The Environments page still shows a Windows/WSL/Linux bridge as `online` after you closed the visible terminal, or the same environment cards keep changing order.
+
+**Cause.** Environment presence is heartbeat-based. A graceful `Ctrl+C` on current bridge code sends one final offline heartbeat. A hard kill, crashed terminal, machine sleep, or older bridge build can only be inferred after missed heartbeats. If `lastSeen` is still updating, some process is still posting as that bridge; the dashboard card shows the bridge process PID from heartbeat metadata when available.
+
+**Fix.**
+- Pull latest, reinstall, and restart `aify-comms` so the bridge has graceful offline reporting.
+- Check for leftover processes with `ps -ef | rg 'aify-comms|mcp/stdio/server.js'` on WSL/Linux, or `Get-Process node | Select-Object Id,Path,CommandLine` on Windows.
+- Starting a newer `aify-comms` for the same environment supersedes older bridge heartbeats when both advertise `bridgeStartedAt`; the server also queues a stop control for the older bridge. Old OS processes still need manual cleanup if they are hung and no longer polling, but they should not own spawn claims.
+- Use the dashboard **Kill bridge** action while the bridge is online. Managed teammates from that environment become offline/detached; chats and identities remain. Assign them to another online environment from **Team** or restart the bridge, then recover/restart from **Sessions**.
+- Use **Forget** only to hide an obsolete execution target. Forgetting keeps agent identities, chats, saved spawn specs, and session records; it no longer deletes managed teammates.
+- If a spawn request is marked `running` but the first brief dispatch failed, current server code repairs it to `failed` on the next spawn-request list refresh.
 
 ## `comms_send(steer=true)` stayed unread or looked queued behind itself
 
@@ -190,8 +207,8 @@ If only the thread ID is available, pass `sessionHandle` without `appServerUrl`.
 
 **Fix (current build).** Pull latest and restart the target bridge (`codex-aify` / `claude-aify`) so it is running the steer-tracking fix. Current behavior is:
 - if there is a live steer-capable active run, the message becomes a steer control and the inbox copy auto-marks read when the control completes
-- if the only active run is stale or superseded, the server fails that run first and queues a fresh dispatch instead of steering into dead state
-- if the runtime does not support steering, the send falls back to normal queueing
+- if the target cannot accept live delivery, `comms_send` returns a not-sent notice instead of queueing future work
+- if the runtime does not support steering, the send follows the normal live-start gate
 
 If you still see the old behavior after update, capture the run ID plus `/api/v1/dispatch/runs/<id>` and `/api/v1/agents/<agent>` output.
 
@@ -201,17 +218,18 @@ If you still see the old behavior after update, capture the run ID plus `/api/v1
 
 **Cause.** The server saw a new live bridge polling for the agent while the DB still had an active run claimed by an older bridge. That older run was stale, so the server failed it to unblock the queue.
 
-**Fix.** Usually no repair is needed beyond shutting down the stale bridge and re-registering from the live session. This is a recovery path, not silent data loss: the inbox message still exists, and newer builds will queue fresh work instead of steering into that stale run.
+**Fix.** Usually no repair is needed beyond shutting down the stale bridge and re-registering from the live session. This is a recovery path, not silent data loss for older dispatch-backed messages. Current normal sends will fail fast instead of queueing fresh work behind stale state. If this repeats on every dispatch, an old bridge is probably still polling; current builds should block it with `bridge_not_current` before it can claim fresh work.
 
 ## Bridge "lost" the agent / has to be re-registered manually
 
 **Symptom.** An agent that used to work stops claiming dispatches. Messages still arrive in its inbox but nothing launches. Manually re-registering the agent makes it work again.
 
-**Cause.** The server forgot about the agent (cleared via `comms_clear`, deleted by an operator, or the DB was rotated) but the bridge's local cache still thinks it's registered and keeps polling with a dead `agentId`. Alternatively, several consecutive dispatch-claim HTTP calls failed — server restart, network blip, sleep/wake — and the bridge hasn't recovered its state.
+**Cause.** On older builds, the server could not distinguish "agent was intentionally removed" from "agent disappeared because the DB was rotated or cleared accidentally." The bridge's local cache kept polling with the old `agentId`, saw `404`, and auto-re-registered it. Current builds use intentional-remove tombstones: dashboard DELETE / `comms_remove_agent` / `comms_clear(target="agents", agentId=...)` return `410 Gone` to that bridge cache, so the bridge forgets the ID instead of recreating it. Plain `404` still means "server forgot this agent" and may auto-re-register.
 
 **Auto-recovery (current build).** The bridge now:
 - Retries transient HTTP errors up to 3 times with exponential backoff (250ms / 500ms / 1000ms) before giving up on any single call.
 - Watches for `404` responses on `/agents/{id}` and `/dispatch/claim`. A 404 means the agent is unknown to the server, so the bridge automatically re-registers from its cached agent data.
+- Watches for `410` responses on `/agents/{id}` and `/dispatch/claim`. A 410 means the ID was intentionally removed, so the bridge stops tracking it.
 - Counts consecutive claim failures per agent. After 4 in a row, the bridge tries an auto-re-register from cache as a last-resort self-heal.
 
 Look for these lines on stderr:
@@ -219,12 +237,27 @@ Look for these lines on stderr:
 ```
 [aify] agent "foo" missing from server; auto-re-registering
 [aify] auto-re-registered "foo" from cached state
+[aify] stopped tracking "foo": server marked it intentionally removed
 [aify] 4 consecutive dispatch/claim failures for "foo"; attempting auto-re-register
 ```
 
 **Fix when auto-recovery fails.** If you see the auto-re-register log followed by `auto-re-register failed for "foo"`, the server itself is unreachable or rejecting the payload. Check:
 1. `curl http://localhost:8800/health` — is the server even up?
 2. The bridge's cached state may be missing a required field (role, runtime) if the agent was never fully registered in the first place. Manual `comms_register(...)` with complete fields is the definitive recovery.
+
+**Removing one bad ID.** Use:
+
+```
+comms_remove_agent(agentId="wrong-id")
+```
+
+or:
+
+```
+comms_clear(target="agents", agentId="wrong-id")
+```
+
+Do not use `comms_clear(target="agents")` unless you intend to remove every agent.
 
 ## Re-register seemingly "not taking effect"
 

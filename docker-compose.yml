@@ -1,9 +1,9 @@
 # =============================================================================
-# Aify Container - Docker Compose
+# aify-comms - Docker Compose
 # =============================================================================
 # Override ports, resources, etc. in docker-compose.override.yml
-# Include sub-services by adding them to the SUB_SERVICES env var
-# and creating their configs under ./services/<name>/docker-compose.yml
+# The service is the stateful dashboard/API container. Host-side bridges run
+# outside Docker on the machines that should execute Codex/Claude/OpenCode.
 
 services:
   service:
@@ -17,10 +17,8 @@ services:
     ports:
       - "${SERVICE_PORT:-8800}:8800"
     volumes:
-      - ${DATA_VOLUME_NAME:-service-data}:/data
+      - service-data:/data
       - ./config:/app/config:ro
-      # Docker socket: allows the container manager to start/stop sub-containers
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       # Mount Claude Code auth from host — enables trigger/dispatch inside container
       # Uses your Max subscription, no API key needed
       - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/service/.claude:ro
@@ -45,7 +43,8 @@ services:
 
 volumes:
   service-data:
-    name: ${DATA_VOLUME_NAME:-service-data}
+    name: ${DATA_VOLUME_NAME:-aify-comms-data}
+    external: ${DATA_VOLUME_EXTERNAL:-false}
 
 networks:
   service-network:

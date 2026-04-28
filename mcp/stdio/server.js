@@ -3,14 +3,14 @@
 // aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
 // 25 tools (all prefixed "comms_"):
-//   comms_register, comms_spawn_agent, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_inbox, comms_search,
+//   comms_register, comms_envs, comms_spawn, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_inbox, comms_search,
 //   comms_share, comms_read, comms_files,
 //   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,
 //   comms_agent_info, comms_listen, comms_unsend, comms_run_status, comms_run_interrupt,
-//   comms_clear, comms_dashboard
+//   comms_remove_agent, comms_clear, comms_dashboard
 //
 // Modes:
-//   - Remote: set CLAUDE_MCP_SERVER_URL (e.g. http://localhost:8800) to use HTTP server
+//   - Remote: set AIFY_SERVER_URL (or legacy CLAUDE_MCP_SERVER_URL) to use HTTP server
 //   - Local: filesystem-based message bus in .messages/ directory
 //
 
@@ -20,6 +20,7 @@ import { z } from "zod";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { loadSettingsEnv } from "./load-env.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
@@ -34,6 +35,7 @@ import {
   hasCodexLiveAppServer,
   launchRuntimeRun,
   normalizeRuntime,
+  runtimeLaunchAvailability,
 } from "./runtimes.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
@@ -45,8 +47,11 @@ const DEFAULT_CWD = process.cwd();
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
 const IS_REMOTE = !!SERVER_URL;
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+const IS_ENVIRONMENT_BRIDGE = ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
 const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
+const BRIDGE_VERSION = "3.7.0";
+const BRIDGE_STARTED_AT = new Date().toISOString();
 
 // Write the Codex runtime marker from this long-lived bridge process when
 // we detect we are running inside a codex-aify wrapper (which sets the
@@ -70,7 +75,18 @@ if (AIFY_CODEX_APP_SERVER_URL) {
   }
 }
 
+let shutdownStarted = false;
+let reportEnvironmentOffline = async () => {};
+
 function cleanupOnExit() {
+  if (environmentHeartbeatTimer) {
+    clearInterval(environmentHeartbeatTimer);
+    environmentHeartbeatTimer = null;
+  }
+  if (spawnLoopTimer) {
+    clearInterval(spawnLoopTimer);
+    spawnLoopTimer = null;
+  }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
@@ -79,15 +95,29 @@ function cleanupOnExit() {
   const bindingFile = path.join(process.env.TEMP || process.env.TMP || "/tmp", `aify-agent-${process.ppid || process.pid}`);
   try { fs.unlinkSync(bindingFile); } catch { /* best effort */ }
 }
+async function shutdownWithStatus(code) {
+  if (shutdownStarted) process.exit(code);
+  shutdownStarted = true;
+  try { await reportEnvironmentOffline(); } catch { /* best effort */ }
+  cleanupOnExit();
+  process.exit(code);
+}
 process.on("exit", cleanupOnExit);
-process.on("SIGINT", () => { cleanupOnExit(); process.exit(130); });
-process.on("SIGTERM", () => { cleanupOnExit(); process.exit(143); });
+process.on("SIGINT", () => { shutdownWithStatus(130); });
+process.on("SIGTERM", () => { shutdownWithStatus(143); });
 const REMOTE_AGENT_STATE = new Map();
 const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();
 const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
+let environmentHeartbeatTimer = null;
+let environmentControlTimer = null;
+let environmentControlBusy = false;
+let spawnLoopTimer = null;
+let spawnLoopBusy = false;
+let spawnClaimFailureCount = 0;
+let spawnClaimLastLogAt = 0;
 const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 
@@ -142,6 +172,7 @@ function isRetriableRequest(method, endpoint) {
   // Per-agent heartbeat and per-channel join are idempotent but have
   // dynamic path segments, so match by suffix.
   if (/^\/agents\/[^/]+\/heartbeat$/.test(path)) return true;
+  if (path === "/environments/heartbeat") return true;
   if (/^\/channels\/[^/]+\/join$/.test(path)) return true;
   return false;
 }
@@ -550,14 +581,326 @@ async function reregisterAgentFromState(agentId, state) {
     managedBy: info.managedBy || "",
     capabilities: info.capabilities || [],
     runtimeConfig: info.runtimeConfig || {},
+    autoRegister: true,
   };
   try {
     await httpCall("POST", "/agents", payload);
     console.error(`[aify] auto-re-registered "${agentId}" from cached state`);
     return true;
   } catch (error) {
+    if (error?.status === 410) {
+      forgetRemoteAgent(agentId, "server marked it intentionally removed");
+      return false;
+    }
     console.error(`[aify] auto-re-register failed for "${agentId}": ${error?.message || error}`);
     return false;
+  }
+}
+
+function forgetRemoteAgent(agentId, reason = "") {
+  REMOTE_AGENT_STATE.delete(agentId);
+  ACTIVE_RUNS.delete(agentId);
+  CONSECUTIVE_FAILURES.delete(agentId);
+  if (reason) {
+    console.error(`[aify] stopped tracking "${agentId}": ${reason}`);
+  }
+}
+
+function environmentKind() {
+  const explicit = String(process.env.AIFY_ENVIRONMENT_KIND || "").trim();
+  if (explicit) return explicit;
+  if (process.env.WSL_DISTRO_NAME) return "wsl";
+  if (process.env.container || fs.existsSync("/.dockerenv")) return "docker";
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "macos";
+  return "linux";
+}
+
+function environmentOs() {
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "macos";
+  return "linux";
+}
+
+function environmentLabel(kind, hostname) {
+  const explicit = String(process.env.AIFY_ENVIRONMENT_LABEL || "").trim();
+  if (explicit) return explicit;
+  if (kind === "wsl") return `WSL ${process.env.WSL_DISTRO_NAME || ""} on ${hostname}`.replace(/\s+/g, " ").trim();
+  if (kind === "docker") return `Docker on ${hostname}`;
+  if (kind === "windows") return `Windows on ${hostname}`;
+  if (kind === "macos") return `macOS on ${hostname}`;
+  return `Linux on ${hostname}`;
+}
+
+function cwdRootsForEnvironment() {
+  const explicit = String(process.env.AIFY_CWD_ROOTS || "").trim();
+  if (explicit) {
+    return dedupePreserveOrder(explicit.split(path.delimiter).map((item) => item.trim()).filter(Boolean));
+  }
+  return dedupePreserveOrder([DEFAULT_CWD]);
+}
+
+function runtimeCapability(runtime) {
+  const normalized = normalizeRuntime(runtime);
+  const availability = runtimeLaunchAvailability(normalized);
+  return {
+    runtime: normalized,
+    modes: ["managed-warm"],
+    available: availability.available,
+    unavailableReason: availability.available ? "" : availability.message,
+    capabilities: {
+      persistent: true,
+      nativeResume: normalized === "codex" || normalized === "opencode",
+      bridgeResume: true,
+      cliAttach: false,
+      interrupt: true,
+      streaming: true,
+      tokenTelemetry: false,
+      costTelemetry: false,
+      contextReset: true,
+    },
+  };
+}
+
+function advertisedEnvironmentRuntimes() {
+  return ["codex", "claude-code", "opencode"]
+    .map(runtimeCapability)
+    .filter((runtime) => runtime.available);
+}
+
+function environmentHeartbeatPayload() {
+  const hostname = (() => {
+    try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
+  })();
+  const kind = environmentKind();
+  const id = String(process.env.AIFY_ENVIRONMENT_ID || `${kind}:${hostname}:default`).trim();
+  return {
+    id,
+    label: environmentLabel(kind, hostname),
+    machineId: MACHINE_ID,
+    os: environmentOs(),
+    kind,
+    bridgeId: BRIDGE_INSTANCE_ID,
+    bridgeVersion: BRIDGE_VERSION,
+    cwdRoots: cwdRootsForEnvironment(),
+    runtimes: advertisedEnvironmentRuntimes(),
+    metadata: {
+      pid: process.pid,
+      platform: process.platform,
+      arch: process.arch,
+      node: process.version,
+      cwd: DEFAULT_CWD,
+      wslDistro: process.env.WSL_DISTRO_NAME || "",
+      bridgeStartedAt: BRIDGE_STARTED_AT,
+    },
+  };
+}
+
+function workspaceWithinRoots(workspace, roots = []) {
+  const value = String(workspace || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalizedRoots = (roots || [])
+    .map((root) => String(root || "").trim().replace(/\\/g, "/").replace(/\/+$/, ""))
+    .filter(Boolean);
+  if (!value || !normalizedRoots.length) return true;
+  return normalizedRoots.some((root) => value === root || value.startsWith(`${root}/`));
+}
+
+async function heartbeatEnvironment() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+  try {
+    await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
+  } catch (error) {
+    // Environment heartbeat is presence-only in this slice. Keep existing
+    // messaging/dispatch paths working even if an older server lacks the endpoint.
+  }
+}
+
+reportEnvironmentOffline = async () => {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+  const payload = environmentHeartbeatPayload();
+  await httpCall("POST", "/environments/heartbeat", {
+    ...payload,
+    status: "offline",
+    metadata: {
+      ...(payload.metadata || {}),
+      exitPid: process.pid,
+      exitAt: new Date().toISOString(),
+    },
+  });
+};
+
+function ensureEnvironmentHeartbeat() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentHeartbeatTimer) return;
+  heartbeatEnvironment();
+  const intervalMs = Math.max(5000, Number(process.env.AIFY_ENVIRONMENT_HEARTBEAT_MS || 30000));
+  environmentHeartbeatTimer = setInterval(() => {
+    heartbeatEnvironment();
+  }, intervalMs);
+}
+
+function ensureEnvironmentControlLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlTimer) return;
+  runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
+  environmentControlTimer = setInterval(() => {
+    runEnvironmentControlLoop().catch((error) => console.error("[aify] environment control loop error:", error));
+  }, DISPATCH_POLL_MS);
+}
+
+async function runEnvironmentControlLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlBusy) return;
+  environmentControlBusy = true;
+  try {
+    const environment = environmentHeartbeatPayload();
+    const claim = await httpCall("POST", "/environments/controls/claim", {
+      environmentId: environment.id,
+      bridgeId: BRIDGE_INSTANCE_ID,
+      machineId: MACHINE_ID,
+    });
+    const control = claim?.control;
+    if (!control) return;
+    if (control.action === "stop") {
+      console.error(`[aify] environment stop requested for ${environment.id}; bridge exiting`);
+      try {
+        await httpCall("PATCH", `/environments/controls/${encodeURIComponent(control.id)}`, {
+          status: "completed",
+        });
+      } catch {
+        // The process is going down anyway; best effort.
+      }
+      setTimeout(() => process.exit(0), 50);
+      return;
+    }
+    await httpCall("PATCH", `/environments/controls/${encodeURIComponent(control.id)}`, {
+      status: "failed",
+      error: `Unsupported environment control action: ${control.action}`,
+    });
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("[aify] environment control claim failed:", error?.message || error);
+    }
+  } finally {
+    environmentControlBusy = false;
+  }
+}
+
+function ensureSpawnLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || spawnLoopTimer) return;
+  runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
+  spawnLoopTimer = setInterval(() => {
+    runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
+  }, DISPATCH_POLL_MS);
+}
+
+function noteSpawnClaimFailure(error) {
+  spawnClaimFailureCount += 1;
+  const now = Date.now();
+  if (spawnClaimFailureCount === 1 || now - spawnClaimLastLogAt > 30000) {
+    spawnClaimLastLogAt = now;
+    const detail = error?.message || String(error || "unknown error");
+    console.error(
+      `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${SERVER_URL}: ${detail}. ` +
+      "The bridge will keep retrying; check that the service is running and reachable from this shell.",
+    );
+  }
+}
+
+function noteSpawnClaimSuccess() {
+  if (spawnClaimFailureCount > 0) {
+    console.error(`[aify] spawn claim recovered after ${spawnClaimFailureCount} failure(s)`);
+    spawnClaimFailureCount = 0;
+    spawnClaimLastLogAt = 0;
+  }
+}
+
+async function runSpawnLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || spawnLoopBusy) return;
+  spawnLoopBusy = true;
+  try {
+    const environment = environmentHeartbeatPayload();
+    let claim;
+    try {
+      claim = await httpCall("POST", "/spawn-requests/claim", {
+        environmentId: environment.id,
+        bridgeId: BRIDGE_INSTANCE_ID,
+        machineId: MACHINE_ID,
+      });
+    } catch (error) {
+      if (error?.status !== 404) {
+        noteSpawnClaimFailure(error);
+      }
+      return;
+    }
+    noteSpawnClaimSuccess();
+    const spawnRequest = claim?.spawnRequest;
+    if (!spawnRequest) return;
+
+    const workspace = spawnRequest.workspace || spawnRequest.workspaceRoot || DEFAULT_CWD;
+    if (!workspaceWithinRoots(workspace, environment.cwdRoots)) {
+      await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
+        status: "failed",
+        bridgeId: BRIDGE_INSTANCE_ID,
+        error: `Workspace "${workspace}" is outside this bridge's advertised roots`,
+      });
+      return;
+    }
+
+    await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
+      status: "starting",
+      bridgeId: BRIDGE_INSTANCE_ID,
+    });
+
+    const runtime = normalizeRuntime(spawnRequest.runtime || "generic");
+    const runtimeConfig = {};
+    const capabilities = defaultCapabilitiesForRuntime(runtime, "managed", "", runtimeConfig);
+    const runtimeState = {
+      bridgeInstanceId: BRIDGE_INSTANCE_ID,
+      environmentId: environment.id,
+      spawnRequestId: spawnRequest.id,
+      mode: spawnRequest.mode || "managed-warm",
+    };
+    await httpCall("PATCH", `/spawn-requests/${encodeURIComponent(spawnRequest.id)}`, {
+      status: "running",
+      bridgeId: BRIDGE_INSTANCE_ID,
+      processId: String(process.pid),
+      sessionHandle: "",
+      runtimeState,
+      capabilities: {
+        persistent: true,
+        nativeResume: runtime === "codex" || runtime === "opencode",
+        bridgeResume: true,
+        cliAttach: false,
+        interrupt: true,
+        streaming: true,
+        tokenTelemetry: false,
+        costTelemetry: false,
+        contextReset: true,
+      },
+      telemetry: {},
+    });
+
+    REMOTE_AGENT_STATE.set(spawnRequest.agentId, {
+      info: {
+        agentId: spawnRequest.agentId,
+        role: spawnRequest.role || "coder",
+        name: spawnRequest.name || spawnRequest.agentId,
+        cwd: workspace,
+        model: spawnRequest.spawnSpec?.model || "",
+        instructions: spawnRequest.spawnSpec?.instructions || "",
+        runtime,
+        machineId: MACHINE_ID,
+        launchMode: "managed",
+        sessionMode: "managed",
+        sessionHandle: "",
+        managedBy: spawnRequest.createdBy || "dashboard",
+        capabilities,
+        runtimeConfig,
+        runtimeState,
+      },
+    });
+    ensureDispatchLoop();
+    console.error(`[aify] spawned managed agent "${spawnRequest.agentId}" from request ${spawnRequest.id}`);
+  } finally {
+    spawnLoopBusy = false;
   }
 }
 
@@ -567,6 +910,10 @@ function ensureDispatchLoop() {
     runDispatchLoop().catch((error) => console.error("[aify] dispatch loop error:", error));
   }, DISPATCH_POLL_MS);
 }
+
+ensureEnvironmentHeartbeat();
+ensureEnvironmentControlLoop();
+ensureSpawnLoop();
 
 async function runDispatchLoop() {
   if (!IS_REMOTE || dispatchLoopBusy) return;
@@ -610,6 +957,10 @@ async function runDispatchLoop() {
           CONSECUTIVE_FAILURES.set(agentId, 0);
           continue;
         }
+        if (error?.status === 410) {
+          forgetRemoteAgent(agentId, "server marked it intentionally removed");
+          continue;
+        }
         // Other errors: log only, keep going.
       }
 
@@ -636,6 +987,9 @@ async function runDispatchLoop() {
             console.error(`[aify] dispatch/claim 404 for "${agentId}"; auto-re-registering`);
             await reregisterAgentFromState(agentId, state);
             CONSECUTIVE_FAILURES.set(agentId, 0);
+          } else if (error?.status === 410) {
+            forgetRemoteAgent(agentId, "server marked it intentionally removed");
+            break;
           } else {
             const count = (CONSECUTIVE_FAILURES.get(agentId) || 0) + 1;
             CONSECUTIVE_FAILURES.set(agentId, count);
@@ -846,7 +1200,7 @@ server.tool(
   "comms_register",
   "Register this agent instance. " +
     "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
-    "Managed workers should be created with comms_spawn_agent when you want a dedicated detached executor.",
+    "New persistent agents should be created with comms_spawn or the dashboard Environments page.",
   {
     agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
     role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
@@ -861,7 +1215,7 @@ server.tool(
     sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
     sessionHandle: z.string().optional().describe("Runtime-specific live session handle if known"),
     appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
-    managedBy: z.string().optional().describe("Owning agent ID when registering a managed worker"),
+    managedBy: z.string().optional().describe("Owning agent ID for environment-managed sessions"),
   },
   async ({ agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
@@ -919,6 +1273,7 @@ server.tool(
       bridgeId: BRIDGE_INSTANCE_ID,
       capabilities,
       runtimeConfig,
+      restoreDeleted: true,
     };
 
     // Write agent ID to a session-specific temp file keyed by PID so the
@@ -1064,134 +1419,92 @@ server.tool(
   }
 );
 
+function summarizeEnvironment(env) {
+  const runtimes = (env.runtimes || []).map((item) => item.runtime).filter(Boolean).join(", ") || "no runtimes";
+  const roots = (env.cwdRoots || []).join(", ") || "no roots";
+  return `- ${env.id} [${env.status || "unknown"}] ${env.label || ""}\n  ${env.os || "unknown"}/${env.kind || "unknown"}; runtimes: ${runtimes}; roots: ${roots}`;
+}
+
 server.tool(
-  "comms_spawn_agent",
-  "Create a managed worker agent on this machine. Managed workers are the triggerable path for Codex/Claude runtimes and keep their own runtime state between dispatched runs.",
+  "comms_envs",
+  "List connected environment bridges. Use this before spawning persistent managed agents so you can choose the right host, runtime, and workspace root.",
+  {},
+  async () => {
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
+    }
+    const r = await httpCall("GET", "/environments");
+    const envs = r.environments || [];
+    if (!envs.length) return { content: [{ type: "text", text: "No environment bridges are connected. Start `aify-comms` in WSL/Linux and/or `aify-comms.cmd` in Windows." }] };
+    return { content: [{ type: "text", text: `${envs.length} environment(s):\n${envs.map(summarizeEnvironment).join("\n")}` }] };
+  }
+);
+
+server.tool(
+  "comms_spawn",
+  "Create a persistent dashboard-managed agent session through an environment bridge. This is the only normal agent-spawn path; choose an environment from comms_envs or omit environmentId to use the first online environment supporting the runtime.",
   {
-    from: z.string().describe("Owning agent ID"),
-    agentId: z.string().describe("Stable managed worker ID to create"),
-    role: z.string().describe("Worker role: coder, reviewer, tester, researcher, etc."),
-    runtime: z.string().describe("Runtime for the worker (e.g. codex, claude-code)"),
+    from: z.string().describe("Owning/manager agent ID"),
+    environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, first online environment supporting runtime is used."),
+    agentId: z.string().describe("Stable agent ID to create"),
+    role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
+    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, or opencode"),
+    workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
     name: z.string().optional().describe("Friendly name"),
-    cwd: z.string().optional().describe("Working directory for dispatched runs"),
-    model: z.string().optional().describe("Preferred model"),
-    instructions: z.string().optional().describe("Standing instructions for the worker"),
+    model: z.string().optional().describe("Preferred model/profile value"),
+    instructions: z.string().optional().describe("Standing instructions for the agent"),
+    initialMessage: z.string().optional().describe("Initial task/brief to deliver after spawn"),
     subject: z.string().optional().describe("Initial task subject"),
-    body: z.string().optional().describe("Initial task or bootstrap prompt"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
   },
-  async ({ from, agentId, role, runtime, name, cwd, model, instructions, subject, body, priority }) => {
+  async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority }) => {
+    if (!IS_REMOTE) {
+      return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
+    }
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
-
     const resolvedRuntime = normalizeRuntime(runtime || "generic");
-    const resolvedCwd = normalizeRegistrationCwd(resolvedRuntime, cwd || DEFAULT_CWD);
-    const machineId = MACHINE_ID;
-    const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, "managed");
-    const agentData = {
+    const envs = (await httpCall("GET", "/environments")).environments || [];
+    let env = environmentId
+      ? envs.find((item) => item.id === environmentId)
+      : envs.find((item) =>
+          String(item.status || "").toLowerCase() === "online" &&
+          (item.runtimes || []).some((runtimeInfo) => normalizeRuntime(runtimeInfo.runtime || "") === resolvedRuntime)
+        );
+    if (!env) {
+      const hint = envs.length ? `Available environments:\n${envs.map(summarizeEnvironment).join("\n")}` : "No environment bridges are connected.";
+      return { content: [{ type: "text", text: `No matching environment found for runtime "${resolvedRuntime}".\n${hint}` }], isError: true };
+    }
+    if (String(env.status || "").toLowerCase() !== "online") {
+      return { content: [{ type: "text", text: `Environment "${env.id}" is ${env.status || "unknown"}, not online. Start its bridge first.` }], isError: true };
+    }
+    const supportsRuntime = (env.runtimes || []).some((runtimeInfo) => normalizeRuntime(runtimeInfo.runtime || "") === resolvedRuntime);
+    if (!supportsRuntime) {
+      return { content: [{ type: "text", text: `Environment "${env.id}" does not advertise runtime "${resolvedRuntime}".` }], isError: true };
+    }
+    const selectedWorkspace = workspace || (env.cwdRoots || [])[0] || "";
+    const r = await httpCall("POST", "/spawn-requests", {
+      createdBy: from,
+      environmentId: env.id,
       agentId,
       role,
       name,
-      cwd: resolvedCwd,
+      runtime: resolvedRuntime,
+      workspace: selectedWorkspace,
       model: model || "",
       instructions: instructions || "",
-      runtime: resolvedRuntime,
-      machineId,
-      launchMode: "managed",
-      sessionMode: "managed",
-      sessionHandle: "",
-      managedBy: from,
-      capabilities,
-    };
-
-    if (IS_REMOTE) {
-      const r = await httpCall("POST", "/agents/spawn", {
-        from_agent: from,
-        agentId,
-        role,
-        runtime: resolvedRuntime,
-        name,
-        cwd: resolvedCwd,
-        model: model || "",
-        instructions: instructions || "",
-        machineId,
-        priority: priority || "normal",
-        subject,
-        body: body || "",
-      });
-
-      let runtimeState = {};
-      try {
-        const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-        runtimeState = agentInfo.agent?.runtimeState || {};
-      } catch {
-        // best effort
-      }
-      runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
-      try {
-        await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
-          runtimeState,
-        });
-      } catch {
-        // best effort
-      }
-      REMOTE_AGENT_STATE.set(agentId, { info: { ...agentData, runtimeState } });
-      ensureDispatchLoop();
-
-      const runLine = (r.runs || []).map((run) => `${run.runId} [${run.status}]`).join(", ");
-      return {
-        content: [{
-          type: "text",
-          text:
-            `Spawned managed worker "${agentId}" (${resolvedRuntime} @ ${machineId}).` +
-            (runLine ? ` Initial run: ${runLine}.` : ""),
-        }],
-      };
-    }
-
-    const registry = readAgents();
-    registry.agents[agentId] = {
-      role,
-      name: name || agentId,
-      cwd: resolvedCwd,
-      model: model || "",
-      instructions: instructions || "",
-      runtime: resolvedRuntime,
-      machineId,
-      launchMode: "managed",
-      sessionMode: "managed",
-      sessionHandle: "",
-      managedBy: from,
-      capabilities,
-      runtimeState: registry.agents[agentId]?.runtimeState || {},
-      registeredAt: registry.agents[agentId]?.registeredAt || new Date().toISOString(),
-      lastSeen: new Date().toISOString(),
-      status: "idle",
-    };
-    for (const [managedId, info] of Object.entries(registry.agents)) {
-      if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
-      if ((info.managedBy || "") !== agentId) continue;
-        if ((info.machineId || "") !== machineId) continue;
-      registry.agents[managedId].lastSeen = registry.agents[managedId].lastSeen || new Date().toISOString();
-    }
-    writeAgents(registry);
-
-    if (body && String(body).trim()) {
-      spawnTriggeredAgent({
-        targetId: agentId,
-        targetInfo: registry.agents[agentId],
-        from,
-        type: "request",
-        subject: subject || `Spawn ${agentId}`,
-        body,
-      });
-    }
-
+      initialMessage: initialMessage || "",
+      subject: subject || (initialMessage ? `Brief ${agentId}` : ""),
+      priority: priority || "normal",
+      mode: "managed-warm",
+      resumePolicy: "native_first",
+    });
+    const req = r.spawnRequest || {};
     return {
       content: [{
         type: "text",
         text:
-          `Spawned managed worker "${agentId}" (${resolvedRuntime} @ ${machineId}).` +
-          (body ? " Initial task started locally." : ""),
+          `Queued persistent agent "${agentId}" in ${env.id} (${resolvedRuntime}, ${selectedWorkspace || "default workspace"}). ` +
+          `Spawn request: ${req.id || "unknown"} [${req.status || "queued"}].`,
       }],
     };
   }
@@ -1241,12 +1554,12 @@ server.tool(
 
 server.tool(
   "comms_status",
-  "Update your status. Use note to say what you're working on (e.g. status='working', note='NRD pipeline').",
+  "Update your short availability/focus note. Completion should be reported with a reply message, not by setting identity status to completed.",
   {
     agentId: z.string().describe("Your agent ID"),
     status: z
-      .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "completed", "focused"])
-      .describe("Current status"),
+      .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"])
+      .describe("Current focus/availability label"),
     note: z.string().optional().describe("What you're working on (e.g. 'NRD createPipelines')"),
   },
   async ({ agentId, status, note }) => {
@@ -1304,10 +1617,9 @@ server.tool(
 server.tool(
   "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
-    "By default this also requests active work on the target agent. Pass silent=true for a message-only send. " +
-    "If the target is already working, later dispatches from the same sender are buffered into one pending run that starts after the current run finishes instead of piling up as many separate queued runs. " +
-    "Resident sessions trigger only when that exact runtime/session handle supports resident execution; managed workers remain the detached fallback. " +
-    "Request-type sends expect an explicit reply message by default; pass requireReply=true or false to override.",
+    "This is live-delivery gated: if the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, the message is not written. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
+    "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
+    "Agents should normally answer messages, and should always reply to requests, reviews, and errors with comms_send(type=\"response\", inReplyTo=...) unless told otherwise. The requireReply override is only for edge cases.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -1319,22 +1631,30 @@ server.tool(
     body: z.string().describe("Message content"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
-    silent: z.boolean().optional().describe("When true, send only a message and do not request active dispatch"),
-    steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls instead of queuing for after current work"),
-    requireReply: z.boolean().optional().describe("Override whether this send should produce a reply message; request-type sends default to true"),
+    steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls instead of creating future queued work"),
+    requireReply: z.boolean().optional().describe("Advanced override for reply tracking; requests/reviews/errors should normally be answered without setting this"),
   },
-  async ({ from, to, toRole, type, subject, body, priority, inReplyTo, silent, steer, requireReply }) => {
+  async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, requireReply }) => {
     if (!to && !toRole) {
       return { content: [{ type: "text", text: "Error: need 'to' or 'toRole'" }], isError: true };
     }
-    const shouldTrigger = silent !== true;
+    const shouldTrigger = true;
 
     // -- Remote mode --
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/messages/send", {
         from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: steer || false, requireReply,
       });
-      if (!r.ok) return { content: [{ type: "text", text: r.error || "No recipients found." }] };
+      if (!r.ok) {
+        const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
+        return {
+          content: [{
+            type: "text",
+            text: `${r.error || "Message was not sent."}${skipped.length ? `\nUnavailable: ${skipped.join("; ")}` : ""}`,
+          }],
+          isError: true,
+        };
+      }
 
       if (shouldTrigger && r.recipients?.length > 0) {
         const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
@@ -1343,7 +1663,7 @@ server.tool(
           content: [{
             type: "text",
             text:
-              `Sent. Dispatch handling: ${queued.join(", ") || "no launchable recipients"}. Use comms_run_status(...) to inspect progress. Request-type sends expect an explicit reply by default; the bridge mirrors the result back if none is sent.` +
+              `Sent. Live handling: ${queued.join(", ") || "started"}. Use comms_run_status(...) only when you need operational progress details. Requests, reviews, and errors should receive an explicit reply.` +
               (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
           }],
         };
@@ -1398,7 +1718,7 @@ server.tool(
           skipped.push(
             sessionMode === "resident"
               ? `${targetId} (resident session has no triggerable session handle; re-register this live session)`
-              : `${targetId} (managed worker is missing launch capabilities)`,
+              : `${targetId} (managed session is missing launch capabilities)`,
           );
           continue;
         }
@@ -1427,7 +1747,7 @@ server.tool(
 
 server.tool(
   "comms_dispatch",
-  "Send a task and queue a tracked runtime dispatch for a triggerable resident session or managed worker. Use requireStart=true when inbox-only fallback is unacceptable. Direct dispatch expects a reply message by default; pass requireReply=false for fire-and-forget work.",
+  "Lower-level strict-start/run-control API for a triggerable resident or environment-managed session. Normal agent teamwork should use comms_send. Use comms_dispatch mainly when requireStart=true is important or you are debugging run handling.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
@@ -1440,7 +1760,7 @@ server.tool(
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
     requireStart: z.boolean().optional().describe("When true, fail instead of falling back to inbox-only delivery if the target cannot start work now."),
-    requireReply: z.boolean().optional().describe("Override whether this run should produce a reply message; active dispatch defaults to true"),
+    requireReply: z.boolean().optional().describe("Advanced override for reply tracking; normal requests/reviews/errors should be answered explicitly"),
   },
   async ({ from, to, toRole, type, subject, body, priority, inReplyTo, requireStart, requireReply }) => {
     if (!to && !toRole) {
@@ -1449,7 +1769,7 @@ server.tool(
 
     if (!IS_REMOTE) {
       return {
-        content: [{ type: "text", text: "comms_dispatch currently requires remote server mode. Use comms_send(...) in local mode, or comms_send(silent=true) for message-only delivery." }],
+        content: [{ type: "text", text: "comms_dispatch currently requires remote server mode. Use comms_send(...) in local mode." }],
         isError: true,
       };
     }
@@ -1578,7 +1898,7 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     const reason =
       sessionMode === "resident"
         ? `Agent "${targetId}" is a resident session without a triggerable session handle. Re-register that live session first.`
-        : `Agent "${targetId}" is not configured as a launchable managed worker.`;
+        : `Agent "${targetId}" is not configured as a launchable managed session.`;
     deliverMessage(from, {
       id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
       from: targetId,
@@ -2245,7 +2565,7 @@ server.tool(
 
 server.tool(
   "comms_channel_send",
-  "Send a message to a channel. By default this also requests active work for channel members other than the sender. Pass silent=true for a background-only channel update. If a member is already working, later dispatches from the same sender are buffered into one pending run that starts after the current run finishes instead of piling up as many separate queued runs.",
+  "Send a message to a channel. This is live-delivery gated for channel members: if any recipient is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, the channel message is not written. Agent-reported blocked/completed states are status notes, not delivery blockers.",
   {
     channel: z.string().describe("Channel name"),
     from: z.string().describe("Your agent ID"),
@@ -2255,18 +2575,27 @@ server.tool(
       .optional()
       .describe("Message type (default: info)"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
-    silent: z.boolean().optional().describe("When true, send only the channel post and do not request active dispatch"),
-    steer: z.boolean().optional().describe("When true and members are busy, deliver between tool calls instead of queuing"),
+    steer: z.boolean().optional().describe("When true and members are busy, deliver between tool calls instead of creating future queued work"),
   },
-  async ({ channel, from, body, type, priority, silent, steer }) => {
+  async ({ channel, from, body, type, priority, steer }) => {
     try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
-    const shouldTrigger = silent !== true;
+    const shouldTrigger = true;
     const subject = `#${channel}: ${body.slice(0, 80)}`;
 
     if (IS_REMOTE) {
       const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
-        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, silent: silent === true, steer: steer || false,
+        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, steer: steer || false,
       });
+      if (!r.ok) {
+        const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
+        return {
+          content: [{
+            type: "text",
+            text: `${r.error || `Channel message to #${channel} was not sent.`}${skipped.length ? `\nUnavailable: ${skipped.join("; ")}` : ""}`,
+          }],
+          isError: true,
+        };
+      }
       if (shouldTrigger && (r.dispatchRuns?.length || r.notStarted?.length)) {
         const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
@@ -2274,7 +2603,7 @@ server.tool(
           content: [{
             type: "text",
             text:
-              `Sent to #${channel} and queued dispatch for ${queued.join(", ") || "no launchable recipients"}. Use comms_run_status(...) to inspect progress.` +
+              `Sent to #${channel}. Live handling: ${queued.join(", ") || "started"}. Use comms_run_status(...) to inspect progress.` +
               (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
           }],
         };
@@ -2320,7 +2649,7 @@ server.tool(
           skipped.push(
             sessionMode === "resident"
               ? `${targetId} (resident session has no triggerable session handle; re-register that live session)`
-              : `${targetId} (managed worker is missing launch capabilities)`,
+              : `${targetId} (managed session is missing launch capabilities)`,
           );
           continue;
         }
@@ -2421,7 +2750,39 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 14. comms_clear -- Clear inbox/shared/agents/all with optional age filter
+// 14. comms_remove_agent -- Remove one agent identity
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "comms_remove_agent",
+  "Remove one agent identity. This intentionally unregisters the ID and stops this bridge from auto-re-registering it.",
+  {
+    agentId: z.string().describe("Agent ID to remove"),
+  },
+  async ({ agentId }) => {
+    try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
+    if (IS_REMOTE) {
+      const r = await httpCall("DELETE", `/agents/${encodeURIComponent(agentId)}`);
+      forgetRemoteAgent(agentId);
+      return {
+        content: [{
+          type: "text",
+          text: r.ok ? `Removed agent "${agentId}".` : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
+        }],
+      };
+    }
+
+    const registry = readAgents();
+    const existed = Boolean(registry.agents?.[agentId]);
+    if (registry.agents) delete registry.agents[agentId];
+    writeAgents(registry);
+    return { content: [{ type: "text", text: existed ? `Removed agent "${agentId}".` : `Agent "${agentId}" was not registered.` }] };
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15. comms_clear -- Clear inbox/shared/agents/all with optional age filter
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(
@@ -2429,12 +2790,19 @@ server.tool(
   "Clear messages, shared files, agents, or everything. Optional age filter.",
   {
     target: z.enum(["inbox", "shared", "agents", "all"]).describe("What to clear"),
-    agentId: z.string().optional().describe("Clear only this agent's inbox (for target=inbox)"),
+    agentId: z.string().optional().describe("Limit to one agent for target=inbox or target=agents"),
     olderThanHours: z.number().optional().describe("Only clear items older than N hours"),
   },
   async ({ target, agentId, olderThanHours }) => {
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/clear", { target, agentId, olderThanHours });
+      if (target === "agents" && agentId) {
+        forgetRemoteAgent(agentId);
+      } else if (target === "agents" || target === "all") {
+        REMOTE_AGENT_STATE.clear();
+        ACTIVE_RUNS.clear();
+        CONSECUTIVE_FAILURES.clear();
+      }
       const c = r.cleared || {};
       const parts = [];
       if (c.messages) parts.push(`${c.messages} messages`);
@@ -2489,8 +2857,16 @@ server.tool(
     // Clear agent registry
     if (target === "agents" || target === "all") {
       const registry = readAgents();
-      cleared.agents = Object.keys(registry.agents).length;
-      writeAgents({ agents: {} });
+      if (agentId && target === "agents") {
+        if (registry.agents?.[agentId]) {
+          delete registry.agents[agentId];
+          cleared.agents = 1;
+        }
+        writeAgents(registry);
+      } else {
+        cleared.agents = Object.keys(registry.agents).length;
+        writeAgents({ agents: {} });
+      }
     }
 
     const parts = [];
@@ -2504,7 +2880,7 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 15. comms_dashboard -- Open dashboard in browser
+// 16. comms_dashboard -- Open dashboard in browser
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(

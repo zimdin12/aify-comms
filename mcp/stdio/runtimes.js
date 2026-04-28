@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import os from "os";
+import fs from "fs";
 import readline from "readline";
 import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
@@ -17,12 +18,17 @@ const RUNTIME_ALIASES = new Map([
 ]);
 
 function spawnProcess(command, args, options = {}) {
-  return spawn(command, args, {
+  const proc = spawn(command, args, {
     cwd: options.cwd,
     env: { ...process.env, ...(options.env || {}) },
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
   });
+  // ChildProcess emits "error" when the executable is missing or cannot be
+  // started. Keep a listener attached at creation time so a runtime adapter
+  // bug cannot crash the bridge process before the adapter wires rejection.
+  proc.on("error", () => {});
+  return proc;
 }
 
 function quoteForDisplay(text) {
@@ -157,11 +163,66 @@ function codexSpawnCwd(launcher, cwd) {
 }
 
 function defaultClaudeCommand() {
+  const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
   if (process.platform === "win32") {
     const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
-    return { command: comspec, args: ["/d", "/s", "/c", "claude.cmd"] };
+    return { command: comspec, args: ["/d", "/s", "/c", configured || "claude"] };
   }
-  return { command: "claude", args: [] };
+  return { command: configured || "claude", args: [] };
+}
+
+function hasExecutable(command) {
+  const value = String(command || "").trim();
+  if (!value) return false;
+  if (/[\\/]/.test(value)) return fs.existsSync(value);
+  try {
+    if (process.platform === "win32") {
+      const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
+      const result = spawnSync(comspec, ["/d", "/s", "/c", `where ${value}`], {
+        stdio: "ignore",
+        windowsHide: true,
+        timeout: 3000,
+      });
+      return result.status === 0;
+    }
+    const quoted = value.replace(/'/g, "'\\''");
+    const result = spawnSync("sh", ["-lc", `command -v '${quoted}' >/dev/null 2>&1`], {
+      stdio: "ignore",
+      timeout: 3000,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function runtimeLaunchAvailability(runtime) {
+  const normalized = normalizeRuntime(runtime);
+  if (normalized === "claude-code") {
+    const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
+    const expected = configured || "claude";
+    const available = hasExecutable(expected);
+    return {
+      available,
+      message: available
+        ? "Claude Code launcher available"
+        : `Runtime "claude-code" is not launchable from this bridge because "${expected}" is not on PATH. Install Claude Code for this OS/user or restart the bridge from a shell where "${expected}" works.`,
+    };
+  }
+  if (normalized === "codex") {
+    const launcher = defaultCodexCommand();
+    const available = hasExecutable(launcher.command);
+    return {
+      available,
+      message: available
+        ? "Codex launcher available"
+        : `Runtime "codex" is not launchable from this bridge because "${launcher.command}" is not available.`,
+    };
+  }
+  if (normalized === "opencode") {
+    return { available: true, message: "OpenCode SDK available" };
+  }
+  return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
 }
 
 function canUseDefaultResidentCodexBridge() {
@@ -226,6 +287,20 @@ export function defaultSessionHandleForRuntime(runtime) {
 function createRpcClient(proc, { onNotification, onStderr }) {
   const pending = new Map();
   let nextId = 1;
+  let processError = null;
+
+  function failPending(error) {
+    for (const [id, pendingRequest] of pending.entries()) {
+      pending.delete(id);
+      pendingRequest.reject(error);
+    }
+  }
+
+  proc.on("error", (error) => {
+    processError = error instanceof Error ? error : new Error(String(error));
+    failPending(processError);
+    if (onStderr) onStderr(processError.message || String(processError));
+  });
 
   const stdout = readline.createInterface({ input: proc.stdout });
   stdout.on("line", (line) => {
@@ -263,6 +338,10 @@ function createRpcClient(proc, { onNotification, onStderr }) {
 
   function request(method, params, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
+      if (processError) {
+        reject(processError);
+        return;
+      }
       const id = nextId++;
       const timer = setTimeout(() => {
         pending.delete(id);
@@ -611,6 +690,8 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
 
 function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
+  const availability = runtimeLaunchAvailability("claude-code");
+  if (!availability.available) throw new Error(availability.message);
   const launcher = defaultClaudeCommand();
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
   const residentSessionId = String(agentInfo.sessionHandle || "").trim();
@@ -1078,7 +1159,7 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   if (executionMode === "resident" && !sessionId) {
     throw new Error(
       `Resident OpenCode session "${agentId}" has no bound session ID. ` +
-      "Re-register with sessionHandle explicitly or use a managed worker.",
+      "Re-register with sessionHandle explicitly or create a persistent environment-managed agent with comms_spawn.",
     );
   }
 

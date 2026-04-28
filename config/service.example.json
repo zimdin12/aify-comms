@@ -1,31 +1,13 @@
 {
   "name": "aify-comms",
-  "version": "3.6.6",
-  "description": "Inter-agent communication hub for Claude Code, Codex, OpenCode, and other MCP-connected coding agents",
+  "version": "0.1.0",
+  "description": "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments",
 
   "mcp_enabled": true,
   "mcp_path_prefix": "/mcp",
 
   "containers": {
-    "_comment": "Define sub-containers here. They are started on-demand and auto-stopped after idle.",
-
-    "defaults": {
-      "image": "ghcr.io/ggerganov/llama.cpp:server-cuda",
-      "internal_port": 8080,
-      "idle_timeout_seconds": 300,
-      "startup_timeout_seconds": 120,
-      "health_check": {
-        "endpoint": "/health",
-        "interval_seconds": 10,
-        "timeout_seconds": 5,
-        "retries": 3
-      },
-      "resources": {
-        "cpu_limit": "4",
-        "memory_limit": "8g"
-      }
-    },
-
+    "_comment": "Legacy optional container-router definitions. Leave empty for normal aify-comms dashboard/control-plane use.",
     "definitions": {}
   },
 

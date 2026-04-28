@@ -1,29 +1,25 @@
 # Service Identity
 
-## Template
-aify-container - AI agent-friendly Docker service orchestrator
+## Product
+
+`aify-comms`
 
 ## What This Service Does
-Runs as a FastAPI application inside Docker. Manages sub-containers (LLMs, databases, other services) on demand via the Docker SDK. Provides a unified API and MCP interface for AI agents to discover, start, stop, and use sub-containers.
+
+Runs a FastAPI service and dashboard for coding-agent communication and control. It stores messages, channels, artifacts, environments, spawn requests, sessions, runs, analytics, and dashboard state.
 
 ## Core Capabilities
-- REST API with OpenAPI documentation at /docs
-- MCP server (SSE + stdio) for AI agent tool access
-- On-demand Docker sub-container orchestration
-- GPU-aware scheduling with memory fraction tracking
-- Streaming reverse proxy for LLM inference (SSE/chunked)
-- Automatic idle shutdown and health monitoring
-- Container sharing to avoid duplicate resource usage
 
-## How AI Agents Use This
-1. Call /info or list_containers to discover available containers
-2. Start containers via API or MCP tools (or just call /route/{name}/... which auto-starts)
-3. Access container APIs through the proxy at /route/{name}/{path}
-4. Containers auto-stop after idle, freeing GPU memory for others
+- Direct messages, channels, unread/read state, search, and unsend/delete actions
+- Live wake and tracked dispatch for triggerable resident sessions and managed workers
+- Environment registry for Windows, WSL, Linux, Docker, and remote bridges
+- Dashboard-managed agent spawn into a selected environment/workspace/runtime
+- Agent/session lifecycle controls: stop, restart/continue, interrupt, and recovery metadata
+- Shared artifacts
+- Runtime adapters for Codex, Claude Code, and OpenCode
 
-## Customization
-Built as a template. AI agents building on this should:
-- Define containers in config/service.json
-- Add domain endpoints in service/routers/api.py
-- Register MCP tools in mcp/sse_server.py
-- Update platform integrations in integrations/
+## Execution Model
+
+The service container is the control plane. Host-side `aify-comms` launchers are environment bridges. Bridges heartbeat, advertise allowed workspace roots and runtime capabilities, claim spawn requests, and execute runtime CLIs on their own host.
+
+The service should not guess host paths or directly launch native Windows/WSL/Linux runtime processes without a bridge for that environment.

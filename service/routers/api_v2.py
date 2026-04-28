@@ -20,9 +20,10 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    SpawnAgentRequest,
-    AgentRuntimeStateUpdate, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
+    EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate,
+    AgentEnvironmentAssignRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -38,6 +39,9 @@ router = APIRouter(tags=["api"])
 def _now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
+def _iso_from_ms(timestamp_ms: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max(0, int(timestamp_ms or 0)) / 1000))
+
 def _shared_dir(request: Request) -> Path:
     try:
         d = Path(request.app.state.config.data_dir) / "shared_files"
@@ -46,7 +50,7 @@ def _shared_dir(request: Request) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-_MANUAL_STATUSES = {"blocked", "completed"}
+_MANUAL_STATUSES = {"stopped"}
 
 DEFAULT_SETTINGS = {
     "retention_days": 90,
@@ -57,6 +61,7 @@ DEFAULT_SETTINGS = {
     "rotation_enabled": True,
     "idle_minutes": 5,
     "offline_minutes": 30,
+    "environment_offline_seconds": 90,
 }
 
 _RUNTIME_ALIASES = {
@@ -71,6 +76,8 @@ _LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "opencode"}
 _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
+_SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
+_SPAWN_MODES = {"managed-warm"}
 
 async def _get_ws(request: Request):
     try:
@@ -80,7 +87,7 @@ async def _get_ws(request: Request):
 
 async def _touch_agent(db, agent_id: str):
     await db.execute(
-        "UPDATE agents SET last_seen = ?, status = CASE WHEN status IN ('blocked','completed') THEN status ELSE 'active' END WHERE id = ?",
+        "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
         (_now(), agent_id)
     )
 
@@ -92,6 +99,23 @@ def _json_loads_or(value: Any, default):
         return json.loads(value)
     except Exception:
         return default
+
+
+def _timestamp_sort_key(value: Any) -> str:
+    try:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        from datetime import datetime, timezone
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+    except Exception:
+        return str(value or "")
+
+
+def _bridge_started_at(metadata: Any) -> str:
+    if isinstance(metadata, dict):
+        return _timestamp_sort_key(metadata.get("bridgeStartedAt"))
+    return ""
 
 
 def _normalize_session_mode(mode: Any) -> str:
@@ -125,8 +149,22 @@ def _dispatch_requires_reply(explicit: Optional[bool], *, default: bool) -> bool
     return bool(explicit)
 
 
+def _message_type_expects_reply(message_type: str) -> bool:
+    return (message_type or "").strip().lower() in {"request", "review", "error"}
+
+
 def _row_require_reply(row) -> bool:
     return bool(int((row["require_reply"] if row and "require_reply" in row.keys() else 0) or 0))
+
+
+def _is_delivery_only_claude_run(row) -> bool:
+    if not row:
+        return False
+    return (
+        str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() == "claude-code"
+        and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() == "completed"
+        and str((row["summary"] if "summary" in row.keys() else "") or "").strip() == "Delivered to Claude resident session"
+    )
 
 
 def _dispatch_reply_state(row) -> str:
@@ -134,6 +172,8 @@ def _dispatch_reply_state(row) -> str:
         return "not_required"
     if str((row["result_message_id"] if row else "") or "").strip():
         return "sent"
+    if _is_delivery_only_claude_run(row):
+        return "awaiting"
     status = str((row["status"] if row else "") or "").strip().lower()
     if status in _DISPATCH_TERMINAL_STATUSES:
         return "pending"
@@ -195,6 +235,10 @@ def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) 
 
 def _normalize_channel_history_where(channel_name: str) -> tuple[str, tuple[Any, ...]]:
     return "channel = ? AND to_agent IS NULL", (channel_name,)
+
+
+def _channel_fanout_message_id(canonical_message_id: str, agent_id: str) -> str:
+    return f"{canonical_message_id}-{agent_id}"
 
 
 def _validate_registration_cwd(
@@ -262,6 +306,53 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
     return await _delete_messages_by_ids(db, message_ids)
 
 
+async def _agent_tombstone(db, agent_id: str):
+    cursor = await db.execute("SELECT * FROM agent_tombstones WHERE agent_id = ?", (agent_id,))
+    return await cursor.fetchone()
+
+
+async def _tombstone_agent(
+    db,
+    agent_id: str,
+    *,
+    removed_by: str = "",
+    bridge_id: str = "",
+    reason: str = "",
+    removed_at: Optional[str] = None,
+):
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO agent_tombstones (
+            agent_id, removed_at, removed_by, bridge_id, reason
+        ) VALUES (?,?,?,?,?)
+        """,
+        (agent_id, removed_at or _now(), removed_by, bridge_id, reason),
+    )
+
+
+async def _remove_agent_record(
+    db,
+    agent_id: str,
+    *,
+    removed_by: str = "",
+    reason: str = "",
+) -> int:
+    cursor = await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
+    row = await cursor.fetchone()
+    runtime_state = _json_loads_or(row["runtime_state"], {}) if row else {}
+    bridge_id = str(runtime_state.get("bridgeInstanceId") or "").strip()
+    await _cancel_nonterminal_runs_for_agents(
+        db,
+        [agent_id],
+        summary=f'Agent "{agent_id}" was removed before the run could finish.',
+        event_type="agent_removed",
+    )
+    await _tombstone_agent(db, agent_id, removed_by=removed_by, bridge_id=bridge_id, reason=reason)
+    await db.execute("DELETE FROM bridge_instances WHERE agent_id = ?", (agent_id,))
+    cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+    return cursor.rowcount or 0
+
+
 def _default_capabilities_for(
     runtime: str,
     session_mode: str,
@@ -319,6 +410,8 @@ def _agent_wake_mode(row) -> str:
     capabilities = _row_capabilities(row) if row else []
     runtime_config = _json_loads_or(row["runtime_config"], {}) if row else {}
 
+    if (row["launch_mode"] or "detached") == "none":
+        return "disabled"
     if session_mode == "managed" and "managed-run" in capabilities:
         return "managed-worker"
     if session_mode == "resident" and runtime == "claude-code" and "resident-run" in capabilities:
@@ -363,7 +456,7 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
     if runtime == "opencode" and not session_handle:
         return None, (
             f'agent "{row["id"]}" is a resident OpenCode session without a bound session handle. '
-            "Re-register that live session with sessionHandle explicitly or use a managed worker."
+            "Re-register that live session with sessionHandle explicitly or create an environment-managed session."
         )
     if (row["launch_mode"] or "detached") == "none":
         return None, "launch mode is disabled"
@@ -409,11 +502,12 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
     if runtime == "opencode" and session_mode == "resident" and not session_handle:
         hint["fix"] = (
             "Re-register the live OpenCode session with runtime=\"opencode\" and a real sessionHandle, "
-            "or use comms_spawn_agent to create a managed worker."
+            "or spawn a persistent agent from a connected dashboard environment."
         )
         hint["suggestedCommands"] = [
             f'comms_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
-            f'comms_spawn_agent(from="<your-agent>", agentId="{recipient_id}-worker", role="{role}", runtime="opencode")',
+            f'comms_envs()',
+            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="opencode")',
             f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
@@ -424,7 +518,7 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         return hint
 
     if session_mode == "managed" and (row["launch_mode"] or "detached") == "none":
-        hint["fix"] = "Enable launch mode or recreate this agent as a managed worker."
+        hint["fix"] = "Enable launch mode or recreate this agent as an environment-managed session."
         hint["suggestedCommands"] = [f'comms_agent_info(agentId="{recipient_id}")']
         return hint
 
@@ -496,6 +590,42 @@ async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
     if not row:
         return False
     return bool((row["superseded_by"] or "").strip())
+
+
+async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent_row) -> Optional[dict[str, Any]]:
+    """Return a blockedBy payload when an old stdio bridge should not claim work."""
+    if not bridge_id:
+        return None
+
+    cursor = await db.execute(
+        "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (bridge_id, agent_id)
+    )
+    row = await cursor.fetchone()
+    if row and (row["superseded_by"] or "").strip():
+        return {
+            "reason": "bridge_superseded",
+            "bridgeId": bridge_id,
+            "agentId": agent_id,
+            "hint": "This bridge has been replaced by a newer registration. Shut it down.",
+        }
+
+    runtime = _normalize_runtime((agent_row["runtime"] if agent_row else "") or "generic")
+    if runtime not in {"codex", "opencode"}:
+        return None
+
+    runtime_state = _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {}
+    current_bridge_id = str(runtime_state.get("bridgeInstanceId") or "").strip()
+    if current_bridge_id and current_bridge_id != bridge_id:
+        return {
+            "reason": "bridge_not_current",
+            "bridgeId": bridge_id,
+            "currentBridgeId": current_bridge_id,
+            "agentId": agent_id,
+            "hint": "This bridge is not the current stdio bridge for the agent. Restart or shut down stale codex-aify/opencode-aify processes.",
+        }
+
+    return None
 
 
 async def _bridge_registered_at(db, bridge_id: str, agent_id: str) -> str:
@@ -640,6 +770,219 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     }
 
 
+def _environment_effective_status(row, *, offline_seconds: int = 90) -> str:
+    status = str(row["status"] or "online")
+    if status == "online":
+        try:
+            from datetime import datetime, timezone, timedelta
+            last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) - last > timedelta(seconds=max(15, int(offline_seconds or 90))):
+                status = "offline"
+        except Exception:
+            pass
+    return status
+
+
+def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, Any]:
+    status = _environment_effective_status(row, offline_seconds=offline_seconds)
+    runtimes = _json_loads_or(row["runtimes"], [])
+    normalized_runtimes = []
+    for runtime in runtimes:
+        if not isinstance(runtime, dict):
+            continue
+        normalized_runtimes.append({**runtime, "modes": ["managed-warm"]})
+    return {
+        "id": row["id"],
+        "label": row["label"] or row["id"],
+        "machineId": row["machine_id"] or "",
+        "os": row["os"] or "",
+        "kind": row["kind"] or "",
+        "bridgeId": row["bridge_id"] or "",
+        "bridgeVersion": (row["bridge_version"] if "bridge_version" in row.keys() else "") or "",
+        "cwdRoots": _json_loads_or(row["cwd_roots"], []),
+        "runtimes": normalized_runtimes,
+        "status": status,
+        "metadata": _json_loads_or(row["metadata"], {}),
+        "registeredAt": row["registered_at"] or "",
+        "lastSeen": row["last_seen"] or "",
+    }
+
+
+async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM spawn_requests
+        WHERE status = 'running'
+          AND COALESCE(initial_message, '') != ''
+          AND COALESCE(error, '') = ''
+        """
+    )
+    repaired = 0
+    for spawn in await cursor.fetchall():
+        started_at = spawn["started_at"] or spawn["updated_at"] or spawn["created_at"]
+        run_cursor = await db.execute(
+            """
+            SELECT *
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND requested_at >= ?
+            ORDER BY requested_at ASC
+            LIMIT 1
+            """,
+            (spawn["agent_id"], started_at),
+        )
+        run = await run_cursor.fetchone()
+        if not run or str(run["status"] or "").lower() not in {"failed", "cancelled"}:
+            continue
+        error = (run["error_text"] or run["summary"] or f"Initial dispatch {run['status']}").strip()
+        now = _now()
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = 'failed',
+                error = ?,
+                finished_at = COALESCE(finished_at, ?),
+                updated_at = ?
+            WHERE id = ? AND status = 'running'
+            """,
+            (f"Initial brief failed: {error}", run["finished_at"] or now, now, spawn["id"]),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = 'failed',
+                ended_at = COALESCE(ended_at, ?),
+                last_seen = ?
+            WHERE spawn_request_id = ?
+              AND status IN ('starting', 'running')
+            """,
+            (run["finished_at"] or now, now, spawn["id"]),
+        )
+        repaired += 1
+    if repaired:
+        await db.commit()
+    return repaired
+
+
+def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
+    normalized = _normalize_runtime(runtime)
+    for item in environment.get("runtimes") or []:
+        if _normalize_runtime(item.get("runtime") or "") == normalized:
+            return item
+    return None
+
+
+def _workspace_root_for(environment: dict[str, Any], workspace: str) -> str:
+    workspace_value = str(workspace or "").strip()
+    roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
+    if not workspace_value or not roots:
+        return roots[0] if roots else ""
+    normalized_workspace = workspace_value.replace("\\", "/").rstrip("/")
+    for root in roots:
+        normalized_root = root.replace("\\", "/").rstrip("/")
+        if normalized_workspace == normalized_root or normalized_workspace.startswith(normalized_root + "/"):
+            return root
+    raise HTTPException(400, f'Workspace "{workspace_value}" is outside the roots advertised by environment "{environment.get("id")}"')
+
+
+def _workspace_for_environment(environment: dict[str, Any], requested_workspace: Optional[str], fallback_workspace: Optional[str] = "") -> tuple[str, str]:
+    roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
+    workspace = str(requested_workspace or fallback_workspace or "").strip()
+    if not workspace:
+        workspace = roots[0] if roots else ""
+    try:
+        workspace_root = _workspace_root_for(environment, workspace)
+    except HTTPException:
+        if requested_workspace:
+            raise
+        workspace = roots[0] if roots else ""
+        workspace_root = _workspace_root_for(environment, workspace)
+    if not workspace and workspace_root:
+        workspace = workspace_root
+    return workspace, workspace_root
+
+
+def _spawn_spec_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "agentId": row["agent_id"],
+        "environmentId": row["environment_id"],
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "model": row["model"] or "",
+        "profile": row["profile"] or "",
+        "mode": row["mode"] or "managed-warm",
+        "systemPrompt": row["system_prompt"] or "",
+        "instructions": row["standing_instructions"] or "",
+        "envVars": _json_loads_or(row["env_vars"], {}),
+        "channelIds": _json_loads_or(row["channel_ids"], []),
+        "budgetPolicy": _json_loads_or(row["budget_policy"], {}),
+        "contextPolicy": _json_loads_or(row["context_policy"], {}),
+        "restartPolicy": _json_loads_or(row["restart_policy"], {}),
+        "metadata": _json_loads_or(row["metadata"], {}),
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
+    }
+
+
+def _spawn_request_to_dict(row, spec: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = {
+        "id": row["id"],
+        "spawnSpecId": row["spawn_spec_id"],
+        "createdBy": row["created_by"] or "",
+        "environmentId": row["environment_id"],
+        "agentId": row["agent_id"],
+        "role": row["role"] or "coder",
+        "name": row["name"] or "",
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "workspaceRoot": row["workspace_root"] or "",
+        "initialMessage": row["initial_message"] or "",
+        "priority": row["priority"] or "normal",
+        "subject": row["subject"] or "",
+        "mode": row["mode"] or "managed-warm",
+        "resumePolicy": row["resume_policy"] or "native_first",
+        "status": row["status"] or "queued",
+        "claimedByBridgeId": row["claimed_by_bridge_id"] or "",
+        "claimMachineId": row["claim_machine_id"] or "",
+        "processId": row["process_id"] or "",
+        "sessionHandle": row["session_handle"] or "",
+        "sessionId": row["session_id"] or "",
+        "error": row["error"] or "",
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
+        "claimedAt": row["claimed_at"] or "",
+        "startedAt": row["started_at"] or "",
+        "finishedAt": row["finished_at"] or "",
+    }
+    if spec is not None:
+        payload["spawnSpec"] = spec
+    return payload
+
+
+def _agent_session_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "agentId": row["agent_id"],
+        "environmentId": row["environment_id"],
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "mode": row["mode"] or "managed-warm",
+        "processId": row["process_id"] or "",
+        "sessionHandle": row["session_handle"] or "",
+        "appServerUrl": row["app_server_url"] or "",
+        "spawnSpecId": row["spawn_spec_id"] or "",
+        "spawnRequestId": row["spawn_request_id"] or "",
+        "capabilities": _json_loads_or(row["capabilities"], {}),
+        "telemetry": _json_loads_or(row["telemetry"], {}),
+        "status": row["status"] or "",
+        "startedAt": row["started_at"] or "",
+        "lastSeen": row["last_seen"] or "",
+        "endedAt": row["ended_at"] or "",
+    }
+
+
 async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int):
     status = row["status"]
     if status not in _MANUAL_STATUSES and status != "stale":
@@ -683,6 +1026,84 @@ async def _get_recipient_info(db, recipient_id: str):
     return _agent_record_to_dict(row, status, unread, dispatch_state)
 
 
+async def _preflight_live_send_recipients(
+    db,
+    recipients: list[str],
+    *,
+    allow_steer: bool = False,
+) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
+    """Return launchable recipients or per-recipient reasons without writing messages.
+
+    Normal chat is live-wake-only: do not leave future inbox work behind when a
+    recipient cannot start handling the message now.
+    """
+    settings = await _load_settings(db)
+    launchable: list[tuple[str, str]] = []
+    not_started: list[dict[str, Any]] = []
+    unavailable_statuses = {"offline", "stale", "stopped"}
+
+    for recipient_id in recipients:
+        agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
+        row = await agent_cursor.fetchone()
+        if not row:
+            not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
+            continue
+
+        dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
+        base_status = await _compute_agent_status(
+            row,
+            settings.get("idle_minutes", 5),
+            settings.get("offline_minutes", 30),
+        )
+        effective_status = _status_with_dispatch(base_status, dispatch_state)
+
+        if effective_status in unavailable_statuses:
+            hint = _dispatch_fix_hint(recipient_id, row, f'agent status is "{effective_status}"')
+            hint["recipientStatus"] = effective_status
+            not_started.append(hint)
+            continue
+
+        execution_mode, reason = _agent_execution_mode(row)
+        if reason or not execution_mode:
+            hint = _dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable")
+            hint["recipientStatus"] = effective_status
+            not_started.append(hint)
+            continue
+
+        if dispatch_state.get("hasActiveRun"):
+            active = dispatch_state.get("activeRun") or {}
+            capabilities = _row_capabilities(row)
+            if allow_steer and "steer" in capabilities:
+                launchable.append((recipient_id, execution_mode))
+                continue
+            hint = _dispatch_fix_hint(recipient_id, row, "agent is working")
+            hint["recipientStatus"] = "working"
+            hint["activeRun"] = active
+            active_suffix = f" on {active.get('runId')}" if active.get("runId") else ""
+            hint["fix"] = (
+                f'Agent "{recipient_id}" is already working{active_suffix}. '
+                "Wait, interrupt the active run, or use comms_send(steer=true) if you only need to steer current work."
+            )
+            not_started.append(hint)
+            continue
+
+        queued_runs = int(dispatch_state.get("queuedRuns") or 0)
+        if queued_runs > 0:
+            hint = _dispatch_fix_hint(recipient_id, row, "agent already has queued work")
+            hint["recipientStatus"] = effective_status
+            hint["queuedRuns"] = queued_runs
+            hint["fix"] = (
+                f'Agent "{recipient_id}" already has {queued_runs} queued run(s). '
+                "aify-comms no longer appends normal messages to future work queues; wait for the queue to drain or cancel stale runs."
+            )
+            not_started.append(hint)
+            continue
+
+        launchable.append((recipient_id, execution_mode))
+
+    return launchable, not_started
+
+
 async def _append_dispatch_event(db, run_id: str, event_type: str, body: str = ""):
     await db.execute(
         "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
@@ -716,6 +1137,7 @@ _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 _MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
 _DISPATCH_BUFFER_CAP = 10
+_CHANNEL_FANOUT_DEDUP_WINDOW_MS = 30_000
 
 
 def _stronger_priority(left: str, right: str) -> str:
@@ -1178,6 +1600,28 @@ def _dispatch_message_id_for_recipient(
     return str((source_message_ids or {}).get(recipient_id, message_id or "") or "").strip()
 
 
+def _dispatch_source_message_ids(row) -> list[str]:
+    ids = []
+    primary = str((row["message_id"] if row and "message_id" in row.keys() else "") or "").strip()
+    if primary:
+        ids.append(primary)
+    body = str((row["body"] if row and "body" in row.keys() else "") or "")
+    ids.extend(match.group(1).strip() for match in re.finditer(r"\bMessage\s*Id:\s*([^\s]+)", body, re.IGNORECASE))
+    return _dedupe_preserve([message_id for message_id in ids if message_id])
+
+
+async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: str) -> int:
+    message_ids = _dispatch_source_message_ids(row)
+    if not message_ids:
+        return 0
+    for message_id in message_ids:
+        await db.execute(
+            "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+            (message_id, agent_id, read_at),
+        )
+    return len(message_ids)
+
+
 def _serialize_inbox_message(row, *, include_body: bool) -> dict[str, Any]:
     msg = {
         "id": row["id"],
@@ -1250,6 +1694,129 @@ async def _link_reply_message_to_dispatch_run(
     return True
 
 
+_UNTHREADED_HANDOFF_TYPES = {"response", "review", "error", "approval"}
+_UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
+
+
+async def _link_unthreaded_reply_to_recent_dispatch_run(
+    db,
+    *,
+    from_agent: str,
+    to_agent: str,
+    reply_message_id: str,
+    reply_type: str,
+    reply_timestamp_ms: int,
+) -> bool:
+    if str(reply_type or "").strip().lower() not in _UNTHREADED_HANDOFF_TYPES:
+        return False
+    if not from_agent or not to_agent or not reply_message_id:
+        return False
+
+    latest_requested_at = _iso_from_ms(reply_timestamp_ms)
+    earliest_requested_at = _iso_from_ms(max(0, reply_timestamp_ms - _UNTHREADED_HANDOFF_WINDOW_MS))
+    run_cursor = await db.execute(
+        """
+        SELECT * FROM dispatch_runs
+        WHERE target_agent = ?
+          AND from_agent = ?
+          AND require_reply = 1
+          AND result_message_id = ''
+          AND status IN ('claimed', 'running', 'completed', 'failed', 'cancelled')
+          AND requested_at >= ?
+          AND requested_at <= ?
+        ORDER BY requested_at DESC
+        LIMIT 1
+        """,
+        (from_agent, to_agent, earliest_requested_at, latest_requested_at),
+    )
+    replied_run = await run_cursor.fetchone()
+    if not replied_run:
+        return False
+
+    await db.execute(
+        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
+        (reply_message_id, replied_run["id"]),
+    )
+    await _append_dispatch_event(
+        db,
+        replied_run["id"],
+        "handoff",
+        f"Unthreaded result reply linked from {from_agent}",
+    )
+    return True
+
+
+def _auto_handoff_subject_for_run(row) -> str:
+    subject = str((row["subject"] if row else "") or (row["id"] if row else "") or "dispatch result").strip()
+    status = str((row["status"] if row else "") or "").strip().lower()
+    if status == "failed":
+        return f"[FAILED] {subject}"
+    if status == "cancelled":
+        return f"[CANCELLED] {subject}"
+    return f"Re: {subject}"
+
+
+def _auto_handoff_body_for_run(row) -> str:
+    status = str((row["status"] if row else "") or "").strip().lower()
+    if status == "failed":
+        intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
+        detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
+    elif status == "cancelled":
+        intro = "Auto-mirrored dispatch cancellation because no explicit reply message was recorded for the run."
+        detail = str((row["summary"] if row else "") or "Run cancelled.").strip()
+    else:
+        intro = "Auto-mirrored dispatch result because no explicit reply message was recorded for the run."
+        detail = str((row["summary"] if row else "") or "Run completed.").strip()
+    return f"{intro}\n\n{detail}"
+
+
+async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
+    if not row or not _row_require_reply(row) or str(row["result_message_id"] or "").strip():
+        return None
+    if _is_delivery_only_claude_run(row):
+        return None
+
+    status = str(row["status"] or "").strip().lower()
+    if status not in _DISPATCH_TERMINAL_STATUSES:
+        return None
+
+    ts = int(time.time() * 1000)
+    message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+    message_type = "error" if status == "failed" else "response"
+    await db.execute(
+        """
+        INSERT INTO messages (
+            id, from_agent, to_agent, source, type, subject, body, priority,
+            dispatch_requested, in_reply_to, timestamp
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            message_id,
+            row["target_agent"],
+            row["from_agent"],
+            "direct",
+            message_type,
+            _auto_handoff_subject_for_run(row),
+            _auto_handoff_body_for_run(row),
+            row["priority"] or "normal",
+            0,
+            row["message_id"],
+            ts,
+        ),
+    )
+    await db.execute(
+        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
+        (message_id, row["id"]),
+    )
+    await _append_dispatch_event(
+        db,
+        row["id"],
+        "handoff",
+        f"Auto-mirrored missing handoff to {row['from_agent']}",
+    )
+    return message_id
+
+
 async def _cancel_nonterminal_runs_for_agents(
     db,
     agent_ids: list[str],
@@ -1294,6 +1861,35 @@ async def _cancel_nonterminal_runs_for_agents(
             cancelled += 1
     return cancelled
 
+
+async def _has_recent_direct_delivery_for_channel_fanout(
+    db,
+    *,
+    from_agent: str,
+    recipient_id: str,
+    message_type: str,
+    body: str,
+    timestamp_ms: int,
+) -> bool:
+    lower_bound = int(timestamp_ms) - _CHANNEL_FANOUT_DEDUP_WINDOW_MS
+    upper_bound = int(timestamp_ms) + _CHANNEL_FANOUT_DEDUP_WINDOW_MS
+    cursor = await db.execute(
+        """
+        SELECT 1
+        FROM messages
+        WHERE from_agent = ?
+          AND to_agent = ?
+          AND source = 'direct'
+          AND type = ?
+          AND body = ?
+          AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """,
+        (from_agent, recipient_id, message_type, body, lower_bound, upper_bound),
+    )
+    return await cursor.fetchone() is not None
+
 # ─── Root ────────────────────────────────────────────────────────────────────
 
 @router.get("/")
@@ -1304,6 +1900,9 @@ async def root():
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
+            "environments": "/api/v1/environments",
+            "spawnRequests": "/api/v1/spawn-requests",
+            "sessions": "/api/v1/sessions",
             "messages": "/api/v1/messages",
             "dispatch": "/api/v1/dispatch",
             "shared": "/api/v1/shared",
@@ -1313,6 +1912,830 @@ async def root():
             "stats": "/api/v1/stats",
         },
     }
+
+
+# ─── Environments ────────────────────────────────────────────────────────────
+
+@router.get("/environments")
+async def list_environments(request: Request):
+    db = await get_db()
+    try:
+        settings = await _load_settings(db)
+        cursor = await db.execute("SELECT * FROM environments WHERE status != 'forgotten'")
+        environments = [
+            _environment_record_to_dict(row, offline_seconds=settings.get("environment_offline_seconds", 90))
+            for row in await cursor.fetchall()
+        ]
+        status_rank = {"online": 0, "degraded": 1, "unknown": 2, "offline": 3, "disabled": 4}
+        environments.sort(key=lambda env: (status_rank.get(env.get("status") or "", 5), str(env.get("label") or "").lower(), str(env.get("id") or "").lower()))
+        return {"ok": True, "environments": environments}
+    finally:
+        await db.close()
+
+
+@router.post("/environments/heartbeat")
+async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
+    env_id = str(req.id or "").strip()
+    if not env_id:
+        raise HTTPException(400, "Environment id is required")
+
+    now = _now()
+    cwd_roots = [str(root) for root in (req.cwdRoots or []) if str(root or "").strip()]
+    runtimes = req.runtimes or []
+    metadata = req.metadata or {}
+    requested_status = str(req.status or "online").strip().lower()
+    if requested_status not in {"online", "degraded", "offline"}:
+        requested_status = "online"
+    db = await get_db()
+    try:
+        existing_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
+        existing = await existing_cursor.fetchone()
+        registered_at = existing["registered_at"] if existing else now
+        superseded_bridge_id = ""
+        if existing and str(existing["bridge_id"] or "").strip() and str(req.bridgeId or "").strip():
+            existing_bridge_id = str(existing["bridge_id"] or "").strip()
+            incoming_bridge_id = str(req.bridgeId or "").strip()
+            if existing_bridge_id != incoming_bridge_id:
+                existing_metadata = _json_loads_or(existing["metadata"], {})
+                existing_started = _bridge_started_at(existing_metadata)
+                incoming_started = _bridge_started_at(metadata)
+                if existing_started and (not incoming_started or incoming_started < existing_started):
+                    return {"ok": True, "environment": _environment_record_to_dict(existing)}
+                if incoming_started and (not existing_started or incoming_started > existing_started):
+                    superseded_bridge_id = existing_bridge_id
+        if (
+            existing
+            and requested_status != "online"
+            and str(existing["bridge_id"] or "").strip()
+            and str(req.bridgeId or "").strip()
+            and str(existing["bridge_id"] or "").strip() != str(req.bridgeId or "").strip()
+        ):
+            return {"ok": True, "environment": _environment_record_to_dict(existing)}
+        if existing:
+            await db.execute(
+                """
+                UPDATE environments
+                SET label = ?, machine_id = ?, os = ?, kind = ?, bridge_id = ?,
+                    bridge_version = ?, cwd_roots = ?, runtimes = ?, status = ?,
+                    metadata = ?, last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    req.label or env_id,
+                    req.machineId or "",
+                    req.os or "",
+                    req.kind or "",
+                    req.bridgeId or "",
+                    req.bridgeVersion or "",
+                    json.dumps(cwd_roots),
+                    json.dumps(runtimes),
+                    requested_status,
+                    json.dumps(metadata),
+                    now,
+                    env_id,
+                ),
+            )
+        else:
+            await db.execute(
+                """
+                INSERT INTO environments (
+                    id, label, machine_id, os, kind, bridge_id, bridge_version,
+                    cwd_roots, runtimes, status, metadata, registered_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    env_id,
+                    req.label or env_id,
+                    req.machineId or "",
+                    req.os or "",
+                    req.kind or "",
+                    req.bridgeId or "",
+                    req.bridgeVersion or "",
+                    json.dumps(cwd_roots),
+                    json.dumps(runtimes),
+                    requested_status,
+                    json.dumps(metadata),
+                    registered_at,
+                    now,
+                ),
+            )
+        if superseded_bridge_id:
+            pending_cursor = await db.execute(
+                """
+                SELECT id
+                FROM environment_controls
+                WHERE environment_id = ?
+                  AND bridge_id = ?
+                  AND action = 'stop'
+                  AND status IN ('pending', 'claimed')
+                LIMIT 1
+                """,
+                (env_id, superseded_bridge_id),
+            )
+            pending = await pending_cursor.fetchone()
+            if not pending:
+                await db.execute(
+                    """
+                    INSERT INTO environment_controls (
+                        id, environment_id, bridge_id, machine_id, action, status, requested_by, requested_at
+                    ) VALUES (?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        f"envctl-{uuid.uuid4().hex}",
+                        env_id,
+                        superseded_bridge_id,
+                        req.machineId or "",
+                        "stop",
+                        "pending",
+                        "server:superseded-bridge",
+                        now,
+                    ),
+                )
+        await db.commit()
+        row_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
+        row = await row_cursor.fetchone()
+        environment = _environment_record_to_dict(row)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("environment_heartbeat", {"environmentId": env_id, "bridgeId": req.bridgeId or ""})
+        return {"ok": True, "environment": environment}
+    finally:
+        await db.close()
+
+
+# ─── Spawn Requests And Sessions ─────────────────────────────────────────────
+
+@router.get("/spawn-requests")
+async def list_spawn_requests(
+    request: Request,
+    status: Optional[str] = None,
+    environmentId: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=500),
+):
+    db = await get_db()
+    try:
+        await _repair_spawn_requests_from_initial_dispatch_failures(db)
+        where = []
+        params: list[Any] = []
+        if status:
+            where.append("sr.status = ?")
+            params.append(status)
+        if environmentId:
+            where.append("sr.environment_id = ?")
+            params.append(environmentId)
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+        cursor = await db.execute(
+            f"""
+            SELECT sr.*, ss.id AS spec_row_id
+            FROM spawn_requests sr
+            LEFT JOIN spawn_specs ss ON ss.id = sr.spawn_spec_id
+            {where_sql}
+            ORDER BY sr.created_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (row["spawn_spec_id"],))
+            spec_row = await spec_cursor.fetchone()
+            result.append(_spawn_request_to_dict(row, _spawn_spec_to_dict(spec_row) if spec_row else None))
+        return {"ok": True, "spawnRequests": result}
+    finally:
+        await db.close()
+
+
+@router.post("/environments/{environment_id:path}/control")
+async def control_environment(environment_id: str, req: EnvironmentControlRequest, request: Request):
+    action = str(req.action or "").strip().lower()
+    if action not in {"stop", "forget"}:
+        raise HTTPException(400, "Environment control action must be stop or forget")
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
+        env = await cursor.fetchone()
+        if not env:
+            raise HTTPException(404, "Environment not found")
+        now = _now()
+        if action == "forget":
+            await db.execute("DELETE FROM environment_controls WHERE environment_id = ?", (environment_id,))
+            await db.execute(
+                """
+                UPDATE environments
+                SET status = 'forgotten',
+                    bridge_id = '',
+                    bridge_version = '',
+                    runtimes = '[]',
+                    metadata = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (json.dumps({**_json_loads_or(env["metadata"], {}), "forgottenAt": now, "forgottenBy": req.requestedBy or "dashboard"}), now, environment_id),
+            )
+            await db.commit()
+            ws = await _get_ws(request)
+            if ws: await ws.broadcast("environment_forgotten", {"environmentId": environment_id})
+            return {"ok": True, "action": action, "environmentId": environment_id}
+
+        control_id = f"envctl-{uuid.uuid4().hex}"
+        await db.execute(
+            """
+            INSERT INTO environment_controls (
+                id, environment_id, bridge_id, machine_id, action, status, requested_by, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                control_id,
+                environment_id,
+                env["bridge_id"] or "",
+                env["machine_id"] or "",
+                action,
+                "pending",
+                req.requestedBy or "dashboard",
+                now,
+            ),
+        )
+        await db.execute("UPDATE environments SET status = ? WHERE id = ?", ("disabled", environment_id))
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = 'lost',
+                ended_at = COALESCE(ended_at, ?),
+                last_seen = ?
+            WHERE environment_id = ?
+              AND status IN ('starting', 'running', 'recovering', 'restarting')
+            """,
+            (now, now, environment_id),
+        )
+        await db.execute(
+            """
+            UPDATE agents
+            SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END,
+                launch_mode = 'none',
+                runtime_state = '{}',
+                last_seen = ?
+            WHERE id IN (SELECT DISTINCT agent_id FROM agent_sessions WHERE environment_id = ?)
+            """,
+            (now, environment_id),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws: await ws.broadcast("environment_control_requested", {"environmentId": environment_id, "action": action})
+        return {"ok": True, "controlId": control_id, "action": action, "environmentId": environment_id}
+    finally:
+        await db.close()
+
+
+@router.post("/environments/controls/claim")
+async def claim_environment_control(req: EnvironmentControlClaim):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT *
+            FROM environment_controls
+            WHERE environment_id = ?
+              AND status = 'pending'
+              AND (bridge_id = '' OR bridge_id = ?)
+            ORDER BY requested_at ASC
+            LIMIT 1
+            """,
+            (req.environmentId, req.bridgeId),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return {"ok": True, "control": None}
+        now = _now()
+        await db.execute(
+            "UPDATE environment_controls SET status = 'claimed', machine_id = ?, claimed_at = ? WHERE id = ? AND status = 'pending'",
+            (req.machineId or "", now, row["id"]),
+        )
+        await db.commit()
+        return {
+            "ok": True,
+            "control": {
+                "id": row["id"],
+                "environmentId": row["environment_id"],
+                "bridgeId": row["bridge_id"] or "",
+                "action": row["action"],
+                "requestedBy": row["requested_by"] or "",
+                "requestedAt": row["requested_at"] or "",
+            },
+        }
+    finally:
+        await db.close()
+
+
+@router.patch("/environments/controls/{control_id}")
+async def update_environment_control(control_id: str, req: EnvironmentControlUpdate, request: Request):
+    status = str(req.status or "").strip().lower()
+    if status not in {"completed", "failed"}:
+        raise HTTPException(400, "Environment control status must be completed or failed")
+    db = await get_db()
+    try:
+        now = _now()
+        await db.execute(
+            "UPDATE environment_controls SET status = ?, handled_at = ?, error = ? WHERE id = ?",
+            (status, now, req.error or "", control_id),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws: await ws.broadcast("environment_control_updated", {"controlId": control_id, "status": status})
+        return {"ok": True, "controlId": control_id, "status": status}
+    finally:
+        await db.close()
+
+
+@router.post("/spawn-requests")
+async def create_spawn_request(req: SpawnRequestCreate, request: Request):
+    validate_name(req.agentId, "agent ID")
+    normalized_runtime = _normalize_runtime(req.runtime)
+    mode = str(req.mode or "managed-warm").strip()
+    if mode not in _SPAWN_MODES:
+        raise HTTPException(400, f'Unsupported spawn mode "{mode}"')
+
+    db = await get_db()
+    try:
+        env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
+        env_row = await env_cursor.fetchone()
+        if not env_row:
+            raise HTTPException(404, f'Environment "{req.environmentId}" not found')
+        environment = _environment_record_to_dict(env_row)
+        if str(environment.get("status") or "").lower() != "online":
+            raise HTTPException(409, f'Environment "{req.environmentId}" is {environment.get("status") or "unknown"}; restart its bridge before spawning.')
+        runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
+        if not runtime_capability:
+            raise HTTPException(400, f'Environment "{req.environmentId}" does not advertise runtime "{normalized_runtime}"')
+        workspace = str(req.workspace or "").strip()
+        workspace_root = _workspace_root_for(environment, workspace)
+        if not workspace and workspace_root:
+            workspace = workspace_root
+
+        now = _now()
+        spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        await db.execute(
+            """
+            INSERT INTO spawn_specs (
+                id, agent_id, environment_id, runtime, workspace, model, profile, mode,
+                system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
+                context_policy, restart_policy, metadata, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                spec_id,
+                req.agentId,
+                req.environmentId,
+                normalized_runtime,
+                workspace,
+                req.model or "",
+                req.profile or "",
+                mode,
+                req.systemPrompt or "",
+                req.instructions or "",
+                json.dumps(req.envVars or {}),
+                json.dumps(req.channelIds or []),
+                json.dumps(req.budgetPolicy or {}),
+                json.dumps(req.contextPolicy or {}),
+                json.dumps(req.restartPolicy or {}),
+                json.dumps(req.metadata or {}),
+                now,
+                now,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO spawn_requests (
+                id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
+                workspace, workspace_root, initial_message, priority, subject, mode,
+                resume_policy, status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                request_id,
+                spec_id,
+                req.createdBy or "dashboard",
+                req.environmentId,
+                req.agentId,
+                req.role or "coder",
+                req.name or req.agentId,
+                normalized_runtime,
+                workspace,
+                workspace_root,
+                req.initialMessage or "",
+                req.priority or "normal",
+                req.subject or "",
+                mode,
+                req.resumePolicy or "native_first",
+                "queued",
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
+        spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("spawn_request_created", {"spawnRequestId": request_id, "environmentId": req.environmentId})
+        return {"ok": True, "spawnRequest": _spawn_request_to_dict(row, _spawn_spec_to_dict(spec))}
+    finally:
+        await db.close()
+
+
+@router.post("/spawn-requests/claim")
+async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
+        env_row = await env_cursor.fetchone()
+        if not env_row:
+            await db.rollback()
+            raise HTTPException(404, f'Environment "{req.environmentId}" not found')
+        env_bridge_id = str(env_row["bridge_id"] or "").strip()
+        if env_bridge_id and env_bridge_id != str(req.bridgeId or "").strip():
+            await db.commit()
+            return {
+                "ok": True,
+                "spawnRequest": None,
+                "blockedBy": {
+                    "reason": "bridge_not_current",
+                    "environmentId": req.environmentId,
+                    "bridgeId": req.bridgeId,
+                    "currentBridgeId": env_bridge_id,
+                },
+            }
+
+        row_cursor = await db.execute(
+            """
+            SELECT *
+            FROM spawn_requests
+            WHERE environment_id = ? AND status = 'queued'
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (req.environmentId,),
+        )
+        row = await row_cursor.fetchone()
+        if not row:
+            await db.commit()
+            return {"ok": True, "spawnRequest": None}
+
+        claimed_at = _now()
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = 'claimed', claimed_by_bridge_id = ?, claim_machine_id = ?,
+                claimed_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'queued'
+            """,
+            (req.bridgeId, req.machineId or "", claimed_at, claimed_at, row["id"]),
+        )
+        await db.execute(
+            "UPDATE environments SET last_seen = ? WHERE id = ?",
+            (claimed_at, req.environmentId),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (row["id"],))).fetchone()
+        spec_row = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (updated["spawn_spec_id"],))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("spawn_request_claimed", {"spawnRequestId": row["id"], "environmentId": req.environmentId})
+        return {"ok": True, "spawnRequest": _spawn_request_to_dict(updated, _spawn_spec_to_dict(spec_row) if spec_row else None)}
+    finally:
+        await db.close()
+
+
+@router.patch("/spawn-requests/{spawn_request_id}")
+async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, request: Request):
+    status_value = str(req.status or "").strip().lower()
+    if status_value not in {"claimed", "starting", "running", "failed", "cancelled"}:
+        raise HTTPException(400, f'Unsupported spawn request status "{req.status}"')
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (spawn_request_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, f'Spawn request "{spawn_request_id}" not found')
+        if req.bridgeId and row["claimed_by_bridge_id"] and row["claimed_by_bridge_id"] != req.bridgeId:
+            raise HTTPException(409, f'Spawn request "{spawn_request_id}" is claimed by another bridge')
+
+        now = _now()
+        session_id = row["session_id"] or ""
+        finished_at = row["finished_at"]
+        started_at = row["started_at"]
+        if status_value == "starting" and not started_at:
+            started_at = now
+        if status_value in _SPAWN_TERMINAL_STATUSES:
+            finished_at = now if status_value in {"failed", "cancelled"} else finished_at
+
+        spec_row = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (row["spawn_spec_id"],))).fetchone()
+        if not spec_row:
+            raise HTTPException(500, f'Spawn spec "{row["spawn_spec_id"]}" missing')
+
+        runtime_state = req.runtimeState or {}
+        if req.bridgeId:
+            runtime_state = {**runtime_state, "bridgeInstanceId": req.bridgeId}
+
+        if status_value == "running":
+            session_id = session_id or f"sess_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            agent_capabilities = _default_capabilities_for(row["runtime"], "managed", req.sessionHandle or "")
+            await db.execute(
+                """
+                INSERT INTO agents (
+                    id, role, name, cwd, model, description, instructions, status, status_note,
+                    runtime, machine_id, launch_mode, session_mode, session_handle, managed_by,
+                    capabilities, runtime_config, runtime_state, registered_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    role = excluded.role,
+                    name = excluded.name,
+                    cwd = excluded.cwd,
+                    model = excluded.model,
+                    instructions = excluded.instructions,
+                    status = excluded.status,
+                    runtime = excluded.runtime,
+                    machine_id = excluded.machine_id,
+                    launch_mode = excluded.launch_mode,
+                    session_mode = excluded.session_mode,
+                    session_handle = excluded.session_handle,
+                    managed_by = excluded.managed_by,
+                    capabilities = excluded.capabilities,
+                    runtime_config = excluded.runtime_config,
+                    runtime_state = excluded.runtime_state,
+                    last_seen = excluded.last_seen
+                """,
+                (
+                    row["agent_id"],
+                    row["role"] or "coder",
+                    row["name"] or row["agent_id"],
+                    row["workspace"] or "",
+                    spec_row["model"] or "",
+                    "",
+                    spec_row["standing_instructions"] or "",
+                    "idle",
+                    "",
+                    row["runtime"],
+                    row["claim_machine_id"] or "",
+                    "managed",
+                    "managed",
+                    req.sessionHandle or "",
+                    row["created_by"] or "dashboard",
+                    json.dumps(agent_capabilities),
+                    "{}",
+                    json.dumps(runtime_state),
+                    now,
+                    now,
+                ),
+            )
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    req.bridgeId or row["claimed_by_bridge_id"] or "",
+                    row["agent_id"],
+                    row["claim_machine_id"] or "",
+                    row["runtime"],
+                    "managed",
+                    now,
+                    now,
+                    "",
+                    None,
+                ),
+            )
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode, process_id, session_handle,
+                    app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
+                    started_at, last_seen, ended_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id,
+                    row["agent_id"],
+                    row["environment_id"],
+                    row["runtime"],
+                    row["workspace"] or "",
+                    row["mode"] or "managed-warm",
+                    req.processId or "",
+                    req.sessionHandle or "",
+                    "",
+                    row["spawn_spec_id"],
+                    row["id"],
+                    json.dumps(req.capabilities or {"persistent": True, "bridgeResume": True}),
+                    json.dumps(req.telemetry or {}),
+                    "running",
+                    started_at or now,
+                    now,
+                    None,
+                ),
+            )
+            if row["status"] != "running" and str(row["initial_message"] or "").strip():
+                runs = await _create_dispatch_runs(
+                    db,
+                    [row["agent_id"]],
+                    from_agent=row["created_by"] or "dashboard",
+                    message_type="request",
+                    subject=row["subject"] or f"Spawn {row['agent_id']}",
+                    body=row["initial_message"],
+                    priority=row["priority"] or "normal",
+                    in_reply_to=None,
+                    dispatch_mode="start_if_possible",
+                    execution_mode="managed",
+                    requested_runtime=row["runtime"],
+                    message_id=None,
+                    require_reply=True,
+                )
+                for run in runs:
+                    _wake_agent(run["targetAgentId"])
+
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = ?, process_id = ?, session_handle = ?, session_id = ?, error = ?,
+                updated_at = ?, started_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (
+                status_value,
+                req.processId or row["process_id"] or "",
+                req.sessionHandle or row["session_handle"] or "",
+                session_id,
+                req.error or "",
+                now,
+                started_at,
+                finished_at,
+                spawn_request_id,
+            ),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (spawn_request_id,))).fetchone()
+        updated_spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (updated["spawn_spec_id"],))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("spawn_request_updated", {"spawnRequestId": spawn_request_id, "status": status_value})
+            if status_value == "running":
+                await ws.broadcast("agent_registered", {"agentId": row["agent_id"], "runtime": row["runtime"], "sessionMode": "managed"})
+                if row["status"] != "running" and str(row["initial_message"] or "").strip():
+                    await ws.broadcast("dispatch_queued", {"targetAgentId": row["agent_id"]})
+        return {"ok": True, "spawnRequest": _spawn_request_to_dict(updated, _spawn_spec_to_dict(updated_spec) if updated_spec else None)}
+    finally:
+        await db.close()
+
+
+@router.get("/sessions")
+async def list_sessions(request: Request, agentId: Optional[str] = None, environmentId: Optional[str] = None, limit: int = Query(100, ge=1, le=500)):
+    db = await get_db()
+    try:
+        where = []
+        params: list[Any] = []
+        if agentId:
+            where.append("agent_id = ?")
+            params.append(agentId)
+        if environmentId:
+            where.append("environment_id = ?")
+            params.append(environmentId)
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+        cursor = await db.execute(
+            f"SELECT * FROM agent_sessions {where_sql} ORDER BY last_seen DESC LIMIT ?",
+            (*params, limit),
+        )
+        return {"ok": True, "sessions": [_agent_session_to_dict(row) for row in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+@router.post("/sessions/{session_id}/control")
+async def control_session(session_id: str, req: SessionControlRequest, request: Request):
+    action = str(req.action or "").strip().lower()
+    if action not in {"stop", "restart", "recover", "resume"}:
+        raise HTTPException(400, f'Unsupported session control action "{req.action}"')
+
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
+        session = await cursor.fetchone()
+        if not session:
+            raise HTTPException(404, f'Session "{session_id}" not found')
+
+        now = _now()
+        agent_id = session["agent_id"]
+        active_run = await _get_blocking_active_run(db, agent_id)
+        control_id = ""
+        if active_run:
+            control_id = await _append_dispatch_control(
+                db,
+                active_run["runId"],
+                from_agent=req.from_agent or "dashboard",
+                action="interrupt",
+                body=req.body or f"Session {action} requested from dashboard.",
+            )
+
+        spawn_request_row = None
+        spawn_spec_row = None
+        if action in {"restart", "recover", "resume"}:
+            spec_id = str(session["spawn_spec_id"] or "").strip()
+            if not spec_id:
+                raise HTTPException(409, f'Session "{session_id}" has no stored spawn spec to resume')
+            spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))
+            spawn_spec_row = await spec_cursor.fetchone()
+            if not spawn_spec_row:
+                raise HTTPException(409, f'Session "{session_id}" references missing spawn spec "{spec_id}"')
+            env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (spawn_spec_row["environment_id"],))
+            env_row = await env_cursor.fetchone()
+            if not env_row:
+                raise HTTPException(409, f'Environment "{spawn_spec_row["environment_id"]}" is not available')
+
+            agent_cursor = await db.execute("SELECT role, name FROM agents WHERE id = ?", (agent_id,))
+            agent_row = await agent_cursor.fetchone()
+            environment = _environment_record_to_dict(env_row)
+            if str(environment.get("status") or "").lower() != "online":
+                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}; assign a live environment before {action}.')
+            workspace = spawn_spec_row["workspace"] or session["workspace"] or ""
+            workspace_root = _workspace_root_for(environment, workspace)
+            request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            await db.execute(
+                """
+                INSERT INTO spawn_requests (
+                    id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
+                    workspace, workspace_root, initial_message, priority, subject, mode,
+                    resume_policy, status, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    request_id,
+                    spec_id,
+                    req.from_agent or "dashboard",
+                    spawn_spec_row["environment_id"],
+                    agent_id,
+                    (agent_row["role"] if agent_row else "") or "coder",
+                    (agent_row["name"] if agent_row else "") or agent_id,
+                    spawn_spec_row["runtime"],
+                    workspace,
+                    workspace_root,
+                    req.body or "",
+                    req.priority or "normal",
+                    req.subject or f"{action.title()} {agent_id}",
+                    spawn_spec_row["mode"] or session["mode"] or "managed-warm",
+                    "native_first" if action in {"recover", "resume"} else "fresh",
+                    "queued",
+                    now,
+                    now,
+                ),
+            )
+            spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
+
+        next_status = {
+            "stop": "stopped",
+            "restart": "restarting",
+            "recover": "recovering",
+            "resume": "recovering",
+        }[action]
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = ?, last_seen = ?, ended_at = CASE WHEN ? IN ('stopped','restarting','recovering') THEN ? ELSE ended_at END
+            WHERE id = ?
+            """,
+            (next_status, now, next_status, now, session_id),
+        )
+        if action == "stop":
+            await db.execute(
+                "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
+                (now, agent_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END, last_seen = ? WHERE id = ?",
+                (now, agent_id),
+            )
+
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("session_control_requested", {"sessionId": session_id, "agentId": agent_id, "action": action})
+            if spawn_request_row:
+                await ws.broadcast(
+                    "spawn_request_created",
+                    {"spawnRequestId": spawn_request_row["id"], "environmentId": spawn_request_row["environment_id"]},
+                )
+        return {
+            "ok": True,
+            "action": action,
+            "session": _agent_session_to_dict(updated),
+            "interruptControlId": control_id,
+            "spawnRequest": _spawn_request_to_dict(spawn_request_row, _spawn_spec_to_dict(spawn_spec_row) if spawn_spec_row else None) if spawn_request_row else None,
+        }
+    finally:
+        await db.close()
+
 
 # ─── Agents ──────────────────────────────────────────────────────────────────
 
@@ -1360,6 +2783,25 @@ async def register_agent(req: AgentRegister, request: Request):
             runtime_config=runtime_config,
         )
         now = _now()
+        tombstone = await _agent_tombstone(db, req.agentId)
+        if tombstone and not req.restoreDeleted:
+            if req.autoRegister:
+                raise HTTPException(
+                    410,
+                    (
+                        f"Agent '{req.agentId}' was intentionally removed at "
+                        f"{tombstone['removed_at']}; auto re-registration is blocked."
+                    ),
+                )
+            raise HTTPException(
+                410,
+                (
+                    f"Agent '{req.agentId}' was intentionally removed. "
+                    "Pass restoreDeleted=true to register this ID again."
+                ),
+            )
+        if tombstone and req.restoreDeleted:
+            await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
         # Re-register is a full state refresh: sessionHandle and runtime_state come
@@ -1463,6 +2905,9 @@ async def get_agent(agent_id: str, request: Request):
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
         row = await cursor.fetchone()
         if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         uc = await db.execute(
             "SELECT COUNT(*) FROM messages m LEFT JOIN read_receipts rr ON m.id = rr.message_id AND rr.agent_id = ? WHERE m.to_agent = ? AND rr.message_id IS NULL",
@@ -1476,107 +2921,137 @@ async def get_agent(agent_id: str, request: Request):
         await db.close()
 
 
-@router.post("/agents/spawn")
-async def spawn_agent(req: SpawnAgentRequest, request: Request):
-    validate_name(req.agentId, "agent ID")
+@router.post("/agents/{agent_id}/environment")
+async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignRequest, request: Request):
+    validate_name(agent_id, "agent ID")
+    environment_id = str(req.environmentId or "").strip()
+    if not environment_id:
+        raise HTTPException(400, "environmentId is required")
+
     db = await get_db()
     try:
-        await _touch_agent(db, req.from_agent)
-        normalized_runtime = _normalize_runtime(req.runtime)
-        if normalized_runtime not in _LAUNCHABLE_RUNTIMES:
-            raise HTTPException(400, f'Runtime "{normalized_runtime}" does not support managed workers yet')
+        agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        agent = await agent_cursor.fetchone()
+        if not agent:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
+        env_row = await env_cursor.fetchone()
+        if not env_row:
+            raise HTTPException(404, f'Environment "{environment_id}" not found')
+        environment = _environment_record_to_dict(env_row)
+        if str(environment.get("status") or "").lower() != "online":
+            raise HTTPException(409, f'Environment "{environment_id}" is {environment.get("status") or "unknown"}, not online')
 
-        owner_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.from_agent,))
-        owner = await owner_cursor.fetchone()
-        if not owner:
-            raise HTTPException(404, f"Agent '{req.from_agent}' not found")
-
-        existing_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
-        existing = await existing_cursor.fetchone()
-        if existing and _normalize_session_mode(existing["session_mode"] or "resident") != "managed":
-            raise HTTPException(409, f'Agent "{req.agentId}" already exists as a resident session')
-
-        machine_id = req.machineId or owner["machine_id"] or ""
+        runtime = _normalize_runtime(req.runtime or agent["runtime"] or "generic")
+        if not _runtime_capability_for_environment(environment, runtime):
+            raise HTTPException(400, f'Environment "{environment_id}" does not advertise runtime "{runtime}"')
+        workspace, workspace_root = _workspace_for_environment(environment, req.workspace, agent["cwd"] or "")
         now = _now()
-        capabilities = _default_capabilities_for(normalized_runtime, "managed", "")
-        runtime_config = req.runtimeConfig or (existing and _json_loads_or(existing["runtime_config"], {})) or {}
-        runtime_state = existing["runtime_state"] if existing and existing["runtime_state"] else "{}"
-        if req.description is None:
-            description_value = (existing["description"] if existing and "description" in existing.keys() else "") or ""
+
+        spec_cursor = await db.execute(
+            "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
+            (agent_id,),
+        )
+        spec = await spec_cursor.fetchone()
+        if spec:
+            spec_id = spec["id"]
+            await db.execute(
+                """
+                UPDATE spawn_specs
+                SET environment_id = ?, runtime = ?, workspace = ?, updated_at = ?
+                WHERE agent_id = ?
+                """,
+                (environment_id, runtime, workspace, now, agent_id),
+            )
         else:
-            description_value = req.description
+            spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            await db.execute(
+                """
+                INSERT INTO spawn_specs (
+                    id, agent_id, environment_id, runtime, workspace, model, profile, mode,
+                    system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
+                    context_policy, restart_policy, metadata, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    spec_id,
+                    agent_id,
+                    environment_id,
+                    runtime,
+                    workspace,
+                    agent["model"] or "",
+                    "",
+                    "managed-warm",
+                    "",
+                    agent["instructions"] or "",
+                    "{}",
+                    "[]",
+                    "{}",
+                    "{}",
+                    "{}",
+                    json.dumps({"createdBy": req.requestedBy or "dashboard", "assignedFromDashboard": True}),
+                    now,
+                    now,
+                ),
+            )
 
         await db.execute(
             """
-            INSERT OR REPLACE INTO agents (
-                id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
-                launch_mode, session_mode, session_handle, managed_by, capabilities,
-                runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            UPDATE agent_sessions
+            SET environment_id = ?,
+                runtime = ?,
+                workspace = ?,
+                spawn_spec_id = COALESCE(NULLIF(spawn_spec_id, ''), ?),
+                status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'lost' ELSE status END,
+                ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
+                last_seen = ?
+            WHERE agent_id = ?
             """,
-            (
-                req.agentId,
-                req.role,
-                req.name or req.agentId,
-                req.cwd or owner["cwd"] or "",
-                req.model or "",
-                description_value,
-                req.instructions or "",
-                "idle",
-                (existing["status_note"] if existing and "status_note" in existing.keys() else "") or "",
-                normalized_runtime,
-                machine_id,
-                "managed",
-                "managed",
-                "",
-                req.from_agent,
-                json.dumps(capabilities),
-                json.dumps(runtime_config),
-                runtime_state,
-                existing["registered_at"] if existing else now,
-                now,
-            ),
+            (environment_id, runtime, workspace, spec_id, now, now, agent_id),
         )
-
-        runs = []
-        if req.body and str(req.body).strip():
-            runs = await _create_dispatch_runs(
-                db,
-                [req.agentId],
-                from_agent=req.from_agent,
-                message_type="request",
-                subject=req.subject or f"Spawn {req.agentId}",
-                body=req.body,
-                priority=req.priority,
-                in_reply_to=None,
-                dispatch_mode="require_start",
-                execution_mode="managed",
-                requested_runtime=normalized_runtime,
-                message_id=None,
-            )
-
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET environment_id = ?,
+                runtime = ?,
+                workspace = ?,
+                workspace_root = ?,
+                updated_at = ?
+            WHERE agent_id = ?
+              AND status IN ('queued','claimed','starting')
+            """,
+            (environment_id, runtime, workspace, workspace_root, now, agent_id),
+        )
+        capabilities = _default_capabilities_for(runtime, "managed", "")
+        await db.execute(
+            """
+            UPDATE agents
+            SET cwd = ?,
+                runtime = ?,
+                machine_id = ?,
+                launch_mode = 'none',
+                session_mode = 'managed',
+                session_handle = '',
+                capabilities = ?,
+                runtime_config = '{}',
+                runtime_state = '{}',
+                status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (workspace, runtime, environment.get("machineId") or "", json.dumps(capabilities), now, agent_id),
+        )
         await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("agent_registered", {
-                "agentId": req.agentId,
-                "role": req.role,
-                "runtime": normalized_runtime,
-                "machineId": machine_id,
-                "sessionMode": "managed",
-            })
-            for run in runs:
-                await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
-        if runs:
-            _wake_agent(req.agentId)
-
+            await ws.broadcast("agent_environment_assigned", {"agentId": agent_id, "environmentId": environment_id})
         return {
             "ok": True,
-            "agentId": req.agentId,
-            "sessionMode": "managed",
-            "runtime": normalized_runtime,
-            "machineId": machine_id,
-            "runs": runs,
+            "agentId": agent_id,
+            "environmentId": environment_id,
+            "runtime": runtime,
+            "workspace": workspace,
+            "spawnSpecId": spec_id,
         }
     finally:
         await db.close()
@@ -1586,17 +3061,100 @@ async def spawn_agent(req: SpawnAgentRequest, request: Request):
 async def unregister_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
-        await _cancel_nonterminal_runs_for_agents(
+        deleted = await _remove_agent_record(
             db,
-            [agent_id],
-            summary=f'Agent "{agent_id}" was removed before the run could finish.',
-            event_type="agent_removed",
+            agent_id,
+            removed_by="api",
+            reason="delete_agent",
         )
-        cursor = await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
         await db.commit()
         ws = await _get_ws(request)
         if ws: await ws.broadcast("agent_removed", {"agentId": agent_id})
-        return {"ok": cursor.rowcount > 0}
+        return {"ok": deleted > 0, "agentId": agent_id}
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/control")
+async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
+    action = str(req.action or "").strip().lower()
+    if action not in {"interrupt", "stop", "resume"}:
+        raise HTTPException(400, f'Unsupported agent control action "{req.action}"')
+
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        agent = await cursor.fetchone()
+        if not agent:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+        now = _now()
+        active_run = await _get_blocking_active_run(db, agent_id)
+        control_id = ""
+        if action in {"interrupt", "stop"}:
+            if active_run:
+                control_id = await _append_dispatch_control(
+                    db,
+                    active_run["runId"],
+                    from_agent=req.from_agent or "dashboard",
+                    action="interrupt",
+                    body=req.body or f"Agent {action} requested from dashboard.",
+                )
+            elif action == "interrupt":
+                raise HTTPException(409, f'Agent "{agent_id}" has no active run to interrupt')
+
+        cancelled_queued = 0
+        if action == "stop":
+            queued_cursor = await db.execute(
+                "SELECT id FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
+                (agent_id,),
+            )
+            queued_rows = await queued_cursor.fetchall()
+            for row in queued_rows:
+                await db.execute(
+                    "UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id = ?",
+                    (f'Agent "{agent_id}" was stopped from the dashboard before the run could start.', now, row["id"]),
+                )
+                await _append_dispatch_event(db, row["id"], "agent_stopped", "Agent stopped from dashboard")
+                cancelled_queued += 1
+            await db.execute(
+                """
+                UPDATE agents
+                SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ?
+                WHERE id = ?
+                """,
+                ("Stopped from dashboard. Resume to allow wake/dispatch again.", now, agent_id),
+            )
+        elif action == "resume":
+            await db.execute(
+                """
+                UPDATE agents
+                SET status = 'idle', status_note = '', launch_mode = CASE WHEN launch_mode = 'none' THEN 'detached' ELSE launch_mode END,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (now, agent_id),
+            )
+
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30))
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "agent_control_requested",
+                {"agentId": agent_id, "action": action, "controlId": control_id, "cancelledQueued": cancelled_queued},
+            )
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "action": action,
+            "controlId": control_id,
+            "cancelledQueued": cancelled_queued,
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
     finally:
         await db.close()
 
@@ -1660,6 +3218,36 @@ async def send_message(req: MessageSend, request: Request):
         if not recipients:
             return {"ok": False, "error": "No recipients found", "recipients": []}
 
+        launchable_recipients = []
+        not_started = []
+        if req.trigger:
+            launchable_recipients, not_started = await _preflight_live_send_recipients(
+                db,
+                recipients,
+                allow_steer=req.steer,
+            )
+            if not_started:
+                recipient_info = {}
+                for r in recipients:
+                    info = await _get_recipient_info(db, r)
+                    if info:
+                        recipient_info[r] = {
+                            "status": info["status"],
+                            "unread": info["unread"],
+                            "runtime": info["runtime"],
+                            "machineId": info["machineId"],
+                        }
+                await db.commit()
+                return {
+                    "ok": False,
+                    "error": "Message was not sent because one or more recipients cannot start live work now.",
+                    "recipients": recipients,
+                    "recipientStatus": recipient_info,
+                    "dispatchRuns": [],
+                    "notStarted": not_started,
+                    "warnings": warnings,
+                }
+
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
         for r in recipients:
@@ -1679,27 +3267,25 @@ async def send_message(req: MessageSend, request: Request):
                 reply_type=req.type,
                 reply_body=req.body,
             )
+        else:
+            for r in recipients:
+                recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
+                await _link_unthreaded_reply_to_recent_dispatch_run(
+                    db,
+                    from_agent=req.from_agent,
+                    to_agent=r,
+                    reply_message_id=recipient_message_id,
+                    reply_type=req.type,
+                    reply_timestamp_ms=ts,
+                )
 
         dispatch_runs = []
-        not_started = []
         if req.trigger:
-            require_reply = _dispatch_requires_reply(req.requireReply, default=req.type == "request")
+            require_reply = _dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))
             source_message_ids = {
                 recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
                 for recipient_id in recipients
             }
-            launchable_recipients = []
-            for recipient_id in recipients:
-                agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-                row = await agent_cursor.fetchone()
-                if not row:
-                    not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
-                    continue
-                execution_mode, reason = _agent_execution_mode(row)
-                if reason or not execution_mode:
-                    not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
-                    continue
-                launchable_recipients.append((recipient_id, execution_mode))
             dispatch_runs = await _create_dispatch_runs(
                 db,
                 [recipient_id for recipient_id, _ in launchable_recipients],
@@ -1857,12 +3443,53 @@ async def get_inbox(
             # Smart status: got messages = working, no messages = idle
             new_status = "working" if unread_found > 0 else "idle"
             await db.execute(
-                "UPDATE agents SET last_seen = ?, status = CASE WHEN status IN ('blocked','completed') THEN status ELSE ? END WHERE id = ?",
+                "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE ? END WHERE id = ?",
                 (now, new_status, agent_id)
             )
             await db.commit()
 
         return {"total": total, "showing": len(messages), "messages": messages}
+    finally:
+        await db.close()
+
+
+@router.get("/messages/recent")
+async def recent_messages(
+    request: Request,
+    limit: int = Query(80, ge=1, le=250),
+):
+    """Recent human-scale message activity without channel fanout duplicates."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT *
+            FROM messages
+            WHERE
+              (source = 'direct' AND to_agent IS NOT NULL)
+              OR (source = 'channel' AND to_agent IS NULL)
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        messages = []
+        for row in await cursor.fetchall():
+            messages.append({
+                "id": row["id"],
+                "from": row["from_agent"],
+                "to": row["to_agent"],
+                "channel": row["channel"],
+                "source": row["source"],
+                "type": row["type"],
+                "subject": row["subject"],
+                "preview": _clip_text(row["body"] or "", 240),
+                "priority": row["priority"],
+                "timestamp": row["timestamp"],
+                "inReplyTo": row["in_reply_to"],
+                "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
+            })
+        return {"ok": True, "messages": messages, "total": len(messages)}
     finally:
         await db.close()
 
@@ -1940,8 +3567,11 @@ async def agent_heartbeat(agent_id: str, request: Request):
     now = _now()
     db = await get_db()
     try:
+        tombstone = await _agent_tombstone(db, agent_id)
+        if tombstone:
+            raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
         await db.execute(
-            "UPDATE agents SET last_seen = ?, status = CASE WHEN status IN ('blocked','completed','working') THEN status ELSE 'active' END WHERE id = ?",
+            "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
             (now, agent_id),
         )
         if bridge_id:
@@ -2069,7 +3699,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
     if req.mode == "message_only":
-        raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send(silent=true) for inbox-only delivery.")
+        raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging or comms_dispatch without message_only for tracked work.")
 
     db = await get_db()
     try:
@@ -2202,6 +3832,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         agent = await cursor.fetchone()
         if not agent:
+            tombstone = await _agent_tombstone(db, req.agentId)
+            if tombstone:
+                await db.rollback()
+                raise HTTPException(410, f"Agent '{req.agentId}' was intentionally removed")
             await db.rollback()
             raise HTTPException(404, f"Agent '{req.agentId}' not found")
 
@@ -2209,27 +3843,25 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             await db.rollback()
             return {"ok": True, "run": None}
 
-        # Reject claims from bridges that have been superseded by a newer
-        # register from the same agent. Without this check, a stale codex-aify
-        # (or any old bridge) process keeps polling, grabs queued runs, and
-        # tries to resume pre-update thread bindings — which is how
-        # "AbsolutePathBuf deserialized without a base path" errors keep
-        # surfacing even after the code on disk has been patched. The fresh
-        # bridge should be the only one claiming work once it has registered.
-        if req.bridgeId and await _bridge_is_superseded(db, req.bridgeId, req.agentId):
+        agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
+
+        # Reject claims from stale stdio bridges. The bridge_instances row
+        # catches normal supersession, while runtimeState.bridgeInstanceId
+        # catches the more dangerous case where an old process keeps polling
+        # after its bridge row has disappeared or been compacted away.
+        blocked_by = await _bridge_claim_block_reason(
+            db,
+            bridge_id=req.bridgeId or "",
+            agent_id=req.agentId,
+            agent_row=agent,
+        )
+        if blocked_by:
             await db.commit()
             return {
                 "ok": True,
                 "run": None,
-                "blockedBy": {
-                    "reason": "bridge_superseded",
-                    "bridgeId": req.bridgeId,
-                    "agentId": req.agentId,
-                    "hint": "This bridge has been replaced by a newer registration. Shut it down.",
-                },
+                "blockedBy": blocked_by,
             }
-
-        agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
 
         # Update bridge liveness — the claim poll itself is the heartbeat.
         if req.bridgeId:
@@ -2329,12 +3961,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, claim_bridge_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", req.bridgeId or "", agent_runtime, selected_run["id"])
         )
-        if selected_run["message_id"]:
-            await db.execute(
-                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-                (selected_run["message_id"], req.agentId, claimed_at)
-            )
+        marked_read = await _mark_dispatch_source_messages_read(db, selected_run, req.agentId, claimed_at)
         await _append_dispatch_event(db, selected_run["id"], "claimed", f"machine={req.machineId or ''}")
+        if marked_read > 1:
+            await _append_dispatch_event(db, selected_run["id"], "read_receipts", f"Marked {marked_read} dispatched source messages read")
         await db.commit()
 
         ws = await _get_ws(request)
@@ -2449,6 +4079,51 @@ async def get_dispatch_run(run_id: str, request: Request):
                 include_events=events,
                 include_controls=controls,
             )
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/dispatch/handoffs/repair")
+async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=1, le=500)):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT *
+            FROM dispatch_runs
+            WHERE require_reply = 1
+              AND status IN ('completed', 'failed', 'cancelled')
+              AND COALESCE(result_message_id, '') = ''
+            ORDER BY requested_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        mirrored = []
+        skipped_delivery_only = 0
+        skipped = 0
+        for row in rows:
+            if _is_delivery_only_claude_run(row):
+                skipped_delivery_only += 1
+                continue
+            message_id = await _mirror_missing_dispatch_handoff(db, row)
+            if message_id:
+                mirrored.append({"runId": row["id"], "messageId": message_id})
+            else:
+                skipped += 1
+
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws and mirrored:
+            await ws.broadcast("dispatch_handoffs_repaired", {"mirrored": len(mirrored)})
+        return {
+            "ok": True,
+            "mirrored": len(mirrored),
+            "skippedDeliveryOnly": skipped_delivery_only,
+            "skipped": skipped,
+            "runs": mirrored,
         }
     finally:
         await db.close()
@@ -2671,13 +4346,92 @@ async def unsend_message(message_id: str, request: Request):
     """Delete a message by ID. Also removes associated read receipts."""
     db = await get_db()
     try:
-        deleted = await _delete_messages_by_ids(db, [message_id])
-        await db.commit()
-        if deleted == 0:
+        cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        row = await cursor.fetchone()
+        if not row:
             raise HTTPException(404, f"Message '{message_id}' not found")
+        message_ids = [message_id]
+        if (row["source"] or "") == "channel" and not (row["to_agent"] or ""):
+            fanout_cursor = await db.execute(
+                "SELECT id FROM messages WHERE id LIKE ? AND channel = ? AND source = 'channel'",
+                (f"{message_id}-%", row["channel"] or ""),
+            )
+            message_ids.extend([fanout["id"] for fanout in await fanout_cursor.fetchall()])
+        deleted = await _delete_messages_by_ids(db, message_ids)
+        await db.commit()
         ws = await _get_ws(request)
-        if ws: await ws.broadcast("message_deleted", {"id": message_id})
-        return {"ok": True, "id": message_id}
+        if ws:
+            await ws.broadcast("message_deleted", {"id": message_id, "deleted": deleted})
+        return {"ok": True, "id": message_id, "deleted": deleted}
+    finally:
+        await db.close()
+
+
+@router.post("/messages/{message_id}/read")
+async def set_message_read_state(message_id: str, request: Request):
+    body = await request.json()
+    agent_id = str(body.get("agentId") or "").strip()
+    read = bool(body.get("read", True))
+    if not agent_id:
+        raise HTTPException(400, "Need agentId")
+    validate_name(agent_id, "agent ID")
+
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id, to_agent FROM messages WHERE id = ?", (message_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, f"Message '{message_id}' not found")
+        if row["to_agent"] != agent_id:
+            raise HTTPException(403, f'Message "{message_id}" is not addressed to "{agent_id}"')
+
+        if read:
+            await db.execute(
+                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                (message_id, agent_id, _now()),
+            )
+        else:
+            await db.execute(
+                "DELETE FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+                (message_id, agent_id),
+            )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("message_read_state", {"id": message_id, "agentId": agent_id, "read": read})
+        return {"ok": True, "id": message_id, "agentId": agent_id, "read": read}
+    finally:
+        await db.close()
+
+
+@router.post("/messages/conversation/clear")
+async def clear_direct_conversation(req: ConversationClearRequest, request: Request):
+    agent_id = str(req.agentId or "").strip()
+    peer_id = str(req.peerId or "").strip()
+    if not agent_id or not peer_id:
+        raise HTTPException(400, "Need agentId and peerId")
+    validate_name(agent_id, "agent ID")
+    validate_name(peer_id, "peer agent ID")
+
+    db = await get_db()
+    try:
+        deleted = await _delete_messages_where(
+            db,
+            """
+            source = 'direct'
+            AND channel IS NULL
+            AND (
+                (from_agent = ? AND to_agent = ?)
+                OR (from_agent = ? AND to_agent = ?)
+            )
+            """,
+            (agent_id, peer_id, peer_id, agent_id),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("conversation_cleared", {"agentId": agent_id, "peerId": peer_id, "deleted": deleted})
+        return {"ok": True, "agentId": agent_id, "peerId": peer_id, "deleted": deleted}
     finally:
         await db.close()
 
@@ -2800,7 +4554,10 @@ async def delete_shared(name: str, request: Request):
 # ─── Channels ────────────────────────────────────────────────────────────────
 
 @router.get("/channels")
-async def list_channels(request: Request):
+async def list_channels(request: Request, agentId: Optional[str] = None):
+    viewer_id = str(agentId or "").strip()
+    if viewer_id:
+        validate_name(viewer_id, "agent ID")
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM channels")
@@ -2811,10 +4568,23 @@ async def list_channels(request: Request):
             history_where, history_params = _normalize_channel_history_where(ch["name"])
             msg_c = await db.execute(f"SELECT COUNT(*) FROM messages WHERE {history_where}", history_params)
             msg_count = (await msg_c.fetchone())[0]
+            unread_count = 0
+            if viewer_id:
+                unread_c = await db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM messages m
+                    LEFT JOIN read_receipts r ON r.message_id = m.id AND r.agent_id = ?
+                    WHERE m.channel = ? AND m.to_agent = ? AND m.source = 'channel' AND r.message_id IS NULL
+                    """,
+                    (viewer_id, ch["name"], viewer_id),
+                )
+                unread_count = (await unread_c.fetchone())[0]
             channels.append({
                 "name": ch["name"], "description": ch["description"],
                 "createdBy": ch["created_by"], "createdAt": ch["created_at"],
                 "members": [], "memberCount": member_count, "messageCount": msg_count,
+                "unreadCount": unread_count,
             })
             # Fetch member list
             mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (ch["name"],))
@@ -2850,8 +4620,17 @@ async def create_channel(req: ChannelCreate, request: Request):
 
 
 @router.get("/channels/{name}")
-async def get_channel(name: str, request: Request, limit: int = Query(50, ge=1, le=500), offset: int = 0):
+async def get_channel(
+    name: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = 0,
+    agentId: Optional[str] = None,
+):
     validate_name(name, "channel name")
+    viewer_id = str(agentId or "").strip()
+    if viewer_id:
+        validate_name(viewer_id, "agent ID")
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM channels WHERE name = ?", (name,))
@@ -2873,10 +4652,21 @@ async def get_channel(name: str, request: Request, limit: int = Query(50, ge=1, 
         )
         messages = []
         for row in await msg_c.fetchall():
+            read = True
+            fanout_id = ""
+            if viewer_id and row["from_agent"] != viewer_id and row["from_agent"] != "_system":
+                fanout_id = _channel_fanout_message_id(row["id"], viewer_id)
+                read_cursor = await db.execute(
+                    "SELECT 1 FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+                    (fanout_id, viewer_id),
+                )
+                read = bool(await read_cursor.fetchone())
             messages.append({
                 "id": row["id"], "from": row["from_agent"], "type": row["type"],
-                "body": row["body"], "timestamp": row["timestamp"],
+                "body": row["body"], "priority": row["priority"], "timestamp": row["timestamp"],
                 "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
+                "read": read,
+                "fanoutMessageId": fanout_id,
             })
         # Reverse so oldest is first in the returned slice (chat order)
         messages.reverse()
@@ -2948,6 +4738,46 @@ async def leave_channel(name: str, req: ChannelJoin, request: Request):
         await db.close()
 
 
+@router.post("/channels/{name}/read")
+async def mark_channel_read(name: str, request: Request):
+    validate_name(name, "channel name")
+    body = await request.json()
+    agent_id = str(body.get("agentId") or "").strip()
+    if not agent_id:
+        raise HTTPException(400, "Need agentId")
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        member_cursor = await db.execute(
+            "SELECT 1 FROM channel_members WHERE channel_name = ? AND agent_id = ?",
+            (name, agent_id),
+        )
+        if not await member_cursor.fetchone():
+            raise HTTPException(403, f'Agent "{agent_id}" is not a member of #{name}')
+        now = _now()
+        cursor = await db.execute(
+            """
+            SELECT id
+            FROM messages
+            WHERE channel = ? AND to_agent = ? AND source = 'channel'
+            """,
+            (name, agent_id),
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            await db.execute(
+                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                (row["id"], agent_id, now),
+            )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("channel_read", {"channel": name, "agentId": agent_id, "count": len(rows)})
+        return {"ok": True, "channel": name, "agentId": agent_id, "read": len(rows)}
+    finally:
+        await db.close()
+
+
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
     validate_name(name, "channel name")
@@ -2963,47 +4793,83 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
         msg_id = f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
         subject = f"#{name}: {req.body[:80]}"
+        should_trigger = False if req.silent else req.trigger is not False
 
-        # Channel message (canonical)
-        await db.execute(
-            "INSERT INTO messages (id, from_agent, channel, source, type, subject, body, dispatch_requested, timestamp) VALUES (?,?,?,?,?,?,?,?,?)",
-            (msg_id, req.from_agent, name, "channel", req.type, subject, req.body, 1 if (False if req.silent else req.trigger is not False) else 0, ts)
-        )
-
-        # Deliver to each member's inbox (except sender)
         mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (name,))
         members = [r["agent_id"] for r in await mem_c.fetchall()]
         recipients = []
         inbox_message_ids = {}
+        suppressed_duplicates = []
+        for member in members:
+            if member == req.from_agent:
+                continue
+            if await _has_recent_direct_delivery_for_channel_fanout(
+                db,
+                from_agent=req.from_agent,
+                recipient_id=member,
+                message_type=req.type,
+                body=req.body,
+                timestamp_ms=ts,
+            ):
+                suppressed_duplicates.append(member)
+                continue
+            recipient_msg_id = f"{msg_id}-{member}"
+            recipients.append(member)
+            inbox_message_ids[member] = recipient_msg_id
+
+        launchable_recipients = []
+        not_started = []
+        if should_trigger and recipients:
+            launchable_recipients, not_started = await _preflight_live_send_recipients(
+                db,
+                recipients,
+                allow_steer=req.steer,
+            )
+            if not_started:
+                recipient_info = {}
+                for recipient_id in recipients:
+                    info = await _get_recipient_info(db, recipient_id)
+                    if info:
+                        recipient_info[recipient_id] = {
+                            "status": info["status"],
+                            "unread": info["unread"],
+                            "runtime": info["runtime"],
+                            "machineId": info["machineId"],
+                        }
+                await db.commit()
+                return {
+                    "ok": False,
+                    "error": "Channel message was not sent because one or more recipients cannot start live work now.",
+                    "members": members,
+                    "recipients": recipients,
+                    "suppressedDuplicates": suppressed_duplicates,
+                    "recipientStatus": recipient_info,
+                    "dispatchRuns": [],
+                    "notStarted": not_started,
+                }
+
+        # Channel message (canonical)
+        await db.execute(
+            "INSERT INTO messages (id, from_agent, channel, source, type, subject, body, priority, dispatch_requested, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (msg_id, req.from_agent, name, "channel", req.type, subject, req.body, req.priority or "normal", 1 if should_trigger else 0, ts)
+        )
+
+        # Deliver to each member's inbox (except sender)
         for member in members:
             if member != req.from_agent:
-                recipient_msg_id = f"{msg_id}-{member}"
-                recipients.append(member)
-                inbox_message_ids[member] = recipient_msg_id
+                recipient_msg_id = inbox_message_ids.get(member)
+                if not recipient_msg_id:
+                    continue
                 await db.execute(
                     "INSERT INTO messages (id, from_agent, to_agent, channel, source, type, subject, body, priority, dispatch_requested, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         recipient_msg_id, req.from_agent, member, name, "channel", req.type, subject,
-                        req.body, req.priority or "normal", 1 if (False if req.silent else req.trigger is not False) else 0, ts
+                        req.body, req.priority or "normal", 1 if should_trigger else 0, ts
                     )
                 )
 
-        should_trigger = False if req.silent else req.trigger is not False
         dispatch_runs = []
-        not_started = []
         if should_trigger and recipients:
-            launchable_recipients = []
-            for recipient_id in recipients:
-                agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
-                row = await agent_cursor.fetchone()
-                if not row:
-                    not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
-                    continue
-                execution_mode, reason = _agent_execution_mode(row)
-                if reason or not execution_mode:
-                    not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
-                    continue
-                launchable_recipients.append((recipient_id, execution_mode))
             dispatch_runs = await _create_dispatch_runs(
                 db,
                 [recipient_id for recipient_id, _ in launchable_recipients],
@@ -3053,6 +4919,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
             "messageId": msg_id,
             "members": members,
             "recipients": recipients,
+            "suppressedDuplicates": suppressed_duplicates,
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
             "notStarted": not_started,
@@ -3107,6 +4974,15 @@ async def get_stats(request: Request):
         agents_c = await db.execute("SELECT COUNT(*) FROM agents")
         agents = (await agents_c.fetchone())[0]
 
+        environments_c = await db.execute("SELECT COUNT(*) FROM environments WHERE status != 'forgotten'")
+        environments = (await environments_c.fetchone())[0]
+
+        spawn_c = await db.execute("SELECT status, COUNT(*) as cnt FROM spawn_requests GROUP BY status")
+        spawn_by_status = {row["status"]: row["cnt"] for row in await spawn_c.fetchall()}
+
+        sessions_c = await db.execute("SELECT COUNT(*) FROM agent_sessions WHERE status IN ('starting','running')")
+        active_sessions = (await sessions_c.fetchone())[0]
+
         total_c = await db.execute("SELECT COUNT(*) FROM messages WHERE source = 'direct'")
         total = (await total_c.fetchone())[0]
 
@@ -3148,6 +5024,49 @@ async def get_stats(request: Request):
         today_start = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d")) * 1000)
         today_c = await db.execute("SELECT COUNT(*) FROM messages WHERE timestamp >= ?", (today_start,))
         today = (await today_c.fetchone())[0]
+        since_24h_ms = int((time.time() - 24 * 60 * 60) * 1000)
+        since_24h_iso = _iso_from_ms(since_24h_ms)
+        direct_24h_c = await db.execute(
+            "SELECT COUNT(*) FROM messages WHERE source = 'direct' AND timestamp >= ?",
+            (since_24h_ms,),
+        )
+        direct_24h = (await direct_24h_c.fetchone())[0]
+        channel_24h_c = await db.execute(
+            "SELECT COUNT(*) FROM messages WHERE source = 'channel' AND to_agent IS NULL AND timestamp >= ?",
+            (since_24h_ms,),
+        )
+        channel_24h = (await channel_24h_c.fetchone())[0]
+        active_pairs_c = await db.execute(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT
+                    CASE WHEN from_agent < to_agent THEN from_agent ELSE to_agent END AS a,
+                    CASE WHEN from_agent < to_agent THEN to_agent ELSE from_agent END AS b
+                FROM messages
+                WHERE source = 'direct'
+                  AND to_agent IS NOT NULL
+                  AND timestamp >= ?
+                GROUP BY a, b
+            )
+            """,
+            (since_24h_ms,),
+        )
+        active_pairs_24h = (await active_pairs_c.fetchone())[0]
+        run_failures_24h_c = await db.execute(
+            "SELECT COUNT(*) FROM dispatch_runs WHERE status IN ('failed','cancelled') AND COALESCE(finished_at, requested_at) >= ?",
+            (since_24h_iso,),
+        )
+        run_failures_24h = (await run_failures_24h_c.fetchone())[0]
+        failed_spawns_24h_c = await db.execute(
+            "SELECT COUNT(*) FROM spawn_requests WHERE status = 'failed' AND updated_at >= ?",
+            (since_24h_iso,),
+        )
+        failed_spawns_24h = (await failed_spawns_24h_c.fetchone())[0]
+        completed_runs_24h_c = await db.execute(
+            "SELECT COUNT(*) FROM dispatch_runs WHERE status = 'completed' AND COALESCE(finished_at, requested_at) >= ?",
+            (since_24h_iso,),
+        )
+        completed_runs_24h = (await completed_runs_24h_c.fetchone())[0]
 
         # By type
         type_c = await db.execute("SELECT type, COUNT(*) as cnt FROM messages WHERE source = 'direct' GROUP BY type")
@@ -3176,17 +5095,32 @@ async def get_stats(request: Request):
             WHERE require_reply = 1
               AND status IN ('completed', 'failed', 'cancelled')
               AND COALESCE(result_message_id, '') = ''
+              AND NOT (
+                  runtime = 'claude-code'
+                  AND status = 'completed'
+                  AND COALESCE(summary, '') = 'Delivered to Claude resident session'
+              )
             """
         )
         reply_pending = (await reply_pending_c.fetchone())[0]
 
         return {
             "agents": agents,
+            "environments": environments,
+            "spawn_requests_total": sum(spawn_by_status.values()),
+            "spawn_requests_by_status": spawn_by_status,
+            "active_sessions": active_sessions,
             "total_messages": total,
             "unread_messages": unread,
             "channel_unread_messages": channel_unread,
             "orphan_unread_messages": orphan_unread,
             "messages_today": today,
+            "direct_messages_24h": direct_24h,
+            "channel_posts_24h": channel_24h,
+            "active_dm_pairs_24h": active_pairs_24h,
+            "run_failures_24h": run_failures_24h,
+            "failed_spawns_24h": failed_spawns_24h,
+            "completed_runs_24h": completed_runs_24h,
             "messages_by_type": by_type,
             "messages_by_agent": by_agent,
             "shared_files": shared_row["cnt"],
@@ -3195,6 +5129,104 @@ async def get_stats(request: Request):
             "dispatch_runs_total": sum(dispatch_by_status.values()),
             "dispatch_runs_by_status": dispatch_by_status,
             "dispatch_reply_pending": reply_pending,
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/analytics")
+async def get_analytics(request: Request):
+    db = await get_db()
+    try:
+        now_s = int(time.time())
+        message_where = """
+          (
+            (source = 'direct' AND to_agent IS NOT NULL)
+            OR (source = 'channel' AND to_agent IS NULL)
+          )
+        """
+
+        async def count_messages_between(start_ms: int, end_ms: int) -> int:
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM messages WHERE {message_where} AND timestamp >= ? AND timestamp < ?",
+                (start_ms, end_ms),
+            )
+            return int((await cursor.fetchone())[0])
+
+        hourly = []
+        hour_start = (now_s // 3600) * 3600
+        for i in range(23, -1, -1):
+            start_s = hour_start - i * 3600
+            hourly.append({
+                "label": time.strftime("%H:00", time.localtime(start_s)),
+                "start": _iso_from_ms(start_s * 1000),
+                "count": await count_messages_between(start_s * 1000, (start_s + 3600) * 1000),
+            })
+
+        daily = []
+        today_struct = time.localtime(now_s)
+        today_start_s = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d", today_struct), "%Y-%m-%d")))
+        for i in range(29, -1, -1):
+            start_s = today_start_s - i * 86400
+            daily.append({
+                "label": time.strftime("%m-%d", time.localtime(start_s)),
+                "start": _iso_from_ms(start_s * 1000),
+                "count": await count_messages_between(start_s * 1000, (start_s + 86400) * 1000),
+            })
+
+        monthly = []
+        year = today_struct.tm_year
+        month = today_struct.tm_mon
+        for i in range(11, -1, -1):
+            m = month - i
+            y = year
+            while m <= 0:
+                m += 12
+                y -= 1
+            next_m = m + 1
+            next_y = y
+            if next_m > 12:
+                next_m = 1
+                next_y += 1
+            start_s = int(time.mktime((y, m, 1, 0, 0, 0, 0, 0, -1)))
+            end_s = int(time.mktime((next_y, next_m, 1, 0, 0, 0, 0, 0, -1)))
+            monthly.append({
+                "label": f"{y}-{m:02d}",
+                "start": _iso_from_ms(start_s * 1000),
+                "count": await count_messages_between(start_s * 1000, end_s * 1000),
+            })
+
+        status_c = await db.execute("SELECT status, COUNT(*) as cnt FROM dispatch_runs GROUP BY status")
+        runs_by_status = {row["status"]: row["cnt"] for row in await status_c.fetchall()}
+
+        agents_c = await db.execute("SELECT * FROM agents")
+        agent_rows = await agents_c.fetchall()
+        live_agents = 0
+        online_agents = 0
+        working_agents = 0
+        for row in agent_rows:
+            mode = _agent_wake_mode(row)
+            if mode != "message-only" and mode != "disabled":
+                live_agents += 1
+            status = await _compute_agent_status(row, DEFAULT_SETTINGS["idle_minutes"], DEFAULT_SETTINGS["offline_minutes"])
+            if not status.startswith("offline") and not status.startswith("stale"):
+                online_agents += 1
+            if status.startswith("working"):
+                working_agents += 1
+
+        env_c = await db.execute("SELECT COUNT(*) FROM environments WHERE status = 'online'")
+        online_environments = int((await env_c.fetchone())[0])
+
+        return {
+            "ok": True,
+            "messagesPerHour": hourly,
+            "messagesPerDay": daily,
+            "messagesPerMonth": monthly,
+            "runsByStatus": runs_by_status,
+            "liveAgents": live_agents,
+            "onlineAgents": online_agents,
+            "workingAgents": working_agents,
+            "onlineEnvironments": online_environments,
         }
     finally:
         await db.close()
@@ -3246,17 +5278,18 @@ async def clear_data(req: ClearRequest, request: Request):
             await db.execute("DELETE FROM shared_artifacts")
 
         if req.target in ("agents", "all"):
-            agent_rows = await (await db.execute("SELECT id FROM agents")).fetchall()
+            if req.agentId and req.target == "agents":
+                agent_rows = await (await db.execute("SELECT id FROM agents WHERE id = ?", (req.agentId,))).fetchall()
+            else:
+                agent_rows = await (await db.execute("SELECT id FROM agents")).fetchall()
             agent_ids = [row["id"] for row in agent_rows]
-            await _cancel_nonterminal_runs_for_agents(
-                db,
-                agent_ids,
-                summary=f'Agents were cleared via clear(target="{req.target}").',
-                event_type="agents_cleared",
-            )
-            count_cursor = await db.execute("SELECT COUNT(*) FROM agents")
-            deleted_agents = (await count_cursor.fetchone())[0]
-            await db.execute("DELETE FROM agents")
+            for agent_id in agent_ids:
+                deleted_agents += await _remove_agent_record(
+                    db,
+                    agent_id,
+                    removed_by="clear",
+                    reason=f'clear(target="{req.target}")',
+                )
 
         if req.target in ("channels", "all"):
             await db.execute("DELETE FROM channel_members")
@@ -3265,6 +5298,10 @@ async def clear_data(req: ClearRequest, request: Request):
 
         if req.target == "all":
             await db.execute("DELETE FROM read_receipts")
+            await db.execute("DELETE FROM agent_sessions")
+            await db.execute("DELETE FROM spawn_requests")
+            await db.execute("DELETE FROM spawn_specs")
+            await db.execute("DELETE FROM environments")
 
         await db.commit()
         ws = await _get_ws(request)

@@ -1,6 +1,6 @@
 # Install For Codex
 
-Use aify-comms when you want Slack-like coordination for coding agents: direct messages, channels, shared artifacts, and optional active dispatch.
+Use aify-comms when you want dashboard-driven coordination for coding agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
 
 ## Copy-Paste Install
 
@@ -20,6 +20,15 @@ bash install.sh --client codex --with-hook
 
 Restart Codex after install.
 
+For dashboard-managed spawns, also connect an environment bridge on the machine that should run Codex. The installer adds the `aify-comms` launcher for this:
+
+```bash
+cd /path/to/workspace-or-workspace-parent
+aify-comms
+```
+
+On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Codex's MCP client; the environment bridge is the long-running host process that exports `AIFY_ENVIRONMENT_BRIDGE=1`, heartbeats into the dashboard, and claims spawn requests.
+
 After every update:
 
 1. Restart Codex.
@@ -36,7 +45,8 @@ codex-aify
 That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, launches the visible TUI with `codex --remote ...`, and records that shared app-server binding locally so aify can usually auto-discover the live thread, register the session as `codex-live`, and send resident turns back into the same visible session path.
 
 Windows note:
-- If you run the installer from Git Bash on Windows, it now installs both the Bash wrapper and a `codex-aify.cmd` shim, and it adds `%USERPROFILE%\\.local\\bin` to your user `PATH` so `codex-aify` can be launched from PowerShell or `cmd.exe`.
+- If you run the installer from Git Bash on Windows, it installs Bash wrappers plus `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd` and `codex-aify.cmd`, and adds that directory to your user `PATH`.
+- Open a new PowerShell after install. If `aify-comms.cmd` is still not recognized, run `$env:Path += ";$env:USERPROFILE\.local\bin"` for the current window or launch it directly with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd"`.
 - If you install from WSL instead, the wrapper stays WSL-local. That is still the right setup for WSL Codex, but it does not create a native Windows launcher.
 
 Recommended registration from inside `codex-aify`:
@@ -72,8 +82,8 @@ Troubleshooting lives in the **aify-comms-debug** skill (loaded automatically al
 
 - `AbsolutePathBuf deserialized without a base path` and the full hard-reset sequence
 - Stuck `running` dispatches (orphaned runs) and how to cancel them via the API
-- `message-only` wake mode when you expected `codex-live`
-- `buffer_full` rejections, stale bridge claims, and more
+- not live-bound when you expected `codex-live`
+- live-send rejections, stale bridge claims, and more
 
 If the debug skill isn't loaded in your session, see `.claude/skills/aify-comms-debug/SKILL.md` in this repo.
 
@@ -86,22 +96,24 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The dispatched sender message and final answer both appear in the visible TUI — expected.
-- `comms_dispatch` is the explicit tracked-run path. For normal teamwork messages, use `comms_send`; for inbox-only delivery, use `comms_send(silent=true)`. When you do dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
+- `comms_send` is the normal teamwork path and is live-delivery gated. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, no message is written. Agent-reported blocked/completed states are status notes, not delivery blockers.
+- `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
 - Plain-text output stays local to that session and the dispatch record. Explicit threaded replies are preferred, but a reply-dispatch back to the sender also satisfies the handoff. Reply-required dispatches are mirrored back only if no real reply handoff was recorded.
 - Plain `codex` (not `codex-aify`) falls back to `codex-thread-resume`, which resumes the stored thread through a separate hidden app-server.
-- `comms_spawn_agent` creates a managed worker for detached/background execution.
-- If the target is already busy, later dispatches from the same sender are merged into one pending buffered run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap, the next dispatch is rejected with `reason: "buffer_full"` in `notStarted` carrying the recipient's status. Inbox delivery still happens immediately.
+- `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
+- Normal `comms_send` does not append to future queues. Advanced dispatch/run-control APIs may still expose queued runs for already-created work; clear stale queued runs before using chat.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If the owning stdio bridge is closed, queued resident/managed runs wait until that bridge reconnects. If the bridge crashes, see the **aify-comms-debug** skill for the recovery procedure.
-- SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or managed workers.
+- If an environment bridge is killed, managed teammates backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the teammate to another online environment from **Team**, then recover/restart from **Sessions**. If a resident `codex-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
+- SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents.
 - Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`).
 - If another agent says you are a resident Codex session without a bound session handle, restart Codex and re-register from the live session.
 
 ## What This Installs
 
-- The `aify-comms` stdio MCP server for Codex
+- The `aify-comms` stdio MCP server for Codex (tool namespace retained for compatibility)
 - The aify skill in `$CODEX_HOME/skills/aify-comms`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
+- An `aify-comms` environment bridge launcher in `~/.local/bin`
 - A `codex-aify` wrapper in `~/.local/bin`
 
 Current Codex CLI note:
@@ -118,7 +130,7 @@ Current Codex CLI note:
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 comms_agents()
 comms_agent_info(agentId="my-agent")
-comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there", silent=true)
+comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there")
 comms_inbox(agentId="my-agent", mode="headers")
 comms_inbox(agentId="my-agent", messageId="<message id>")
 ```

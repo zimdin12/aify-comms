@@ -5,7 +5,7 @@
 set -e
 
 echo "aify-comms Setup"
-echo "========================"
+echo "================"
 
 # Copy config files if they don't exist
 if [ ! -f .env ]; then

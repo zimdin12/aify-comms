@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "aify-comms": {
+    "aify-agents-bridge": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/stdio/server.js"],
       "env": {

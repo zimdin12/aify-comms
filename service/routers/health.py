@@ -52,9 +52,9 @@ async def info(request: Request):
         "integrations": {
             "mcp_sse": f"{base}{config.mcp_path_prefix}/sse" if config.mcp_enabled else None,
             "mcp_stdio": "See mcp/stdio/ directory for host-side MCP server",
-            "claude_code_skill": "See integrations/claude-code/SKILL.md",
-            "openclaw_plugin": "See integrations/openclaw/",
-            "open_webui_tool": "See integrations/open-webui/",
+            "codex_skill": "See .agents/skills/aify-comms/SKILL.md",
+            "claude_code_skill": "See .claude/skills/aify-comms/SKILL.md",
+            "environment_bridge": "Run the installed aify-comms launcher on each host/WSL environment",
         },
     }
 

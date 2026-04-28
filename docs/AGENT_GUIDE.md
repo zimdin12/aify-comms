@@ -1,250 +1,94 @@
-# Agent Guide: Building Services on aify-container
+# Agent Guide
 
-This guide is for AI agents tasked with building a service on this template.
+This guide is for coding agents working on `aify-comms`.
 
-## Overview
+`aify-comms` is a dashboard-driven communication and control plane for coding agents. Keep the existing message, channel, dispatch, artifact, and MCP APIs stable while improving the lifecycle layer around environments, sessions, managed spawns, and live wake.
 
-This template provides a FastAPI orchestrator that manages Docker sub-containers on demand. Your job is to:
-1. Define what containers to run (models, databases, etc.)
-2. Add API endpoints that use those containers
-3. Register MCP tools so other AI agents can use the service
-4. Update integrations (Claude Code, OpenClaw, Open WebUI)
+## Core Rules
 
-## Platform Patterns
+- Messaging is the source of truth. A run is an execution attempt attached to a message, not a separate communication concept.
+- Live wake is the normal product path. Inbox-only and SSE-compatible behavior can remain for compatibility/debugging, but it should not be the primary dashboard workflow.
+- The service container stores state and exposes APIs. Host-side bridges execute runtime CLIs and claim environment spawn requests.
+- A dashboard-spawned agent must be auditable: environment, workspace, runtime, spawn spec, session handle/process handle when available, lifecycle status, and owner.
+- Manual `comms_register` remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path.
+- Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, and OpenCode flags can change.
 
-When building on `aify-container`, prefer these patterns so services stay consistent across runtimes and transports:
+## Main Surfaces
 
-- Put orchestration state in the service, not in a specific client.
-- Keep stdio and SSE tool surfaces as aligned as practical.
-- Model runtime differences with capabilities, not with hidden special cases.
-- If a feature is unsupported for a runtime, return a clear capability error instead of silently falling back.
-- Separate message delivery from active execution. A message bus and a dispatch system are different layers.
-- Prefer one small installer or handoff doc per client runtime so another agent can install the service without reverse-engineering the repo.
-- If you support "resident sessions" and "managed workers", document them explicitly and make the default wake-up path obvious.
-- Do not teach agents to depend on polling loops when a resident wake-up or trigger path exists; reserve waiting loops for intentional inbox-driven workers.
+| Surface | Path | Purpose |
+|---|---|---|
+| Backend API | `service/routers/api_v2.py` | Dashboard, environments, spawn requests, sessions, analytics, message actions |
+| Data model | `service/models.py`, `service/db.py` | Persistent SQLite schema and migrations |
+| Dashboard | `service/dashboard.html` | Single-page app for control, chat, team, analytics, environments, sessions, runs, artifacts, help, settings |
+| Stdio bridge | `mcp/stdio/server.js` | MCP tools, resident wake, environment-backed managed sessions, environment heartbeat/control loops |
+| Runtime adapters | `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt behavior |
+| Skills | `.agents/skills`, `.claude/skills` | Agent-facing instructions for Codex and Claude Code |
+| Install docs | `install.codex.md`, `install.claude.md`, `install.opencode.md` | Runtime-specific setup |
 
-## File Map: What to Modify
-
-| File | What Goes Here | Priority |
-|------|---------------|----------|
-| `config/service.example.json` | Container definitions (images, commands, GPU, volumes) | First |
-| `service/routers/api.py` | Domain-specific REST endpoints | Core |
-| `mcp/sse_server.py` | MCP tools (SSE transport, runs in container) | Core |
-| `mcp/stdio/server.js` | MCP tools (stdio transport, mirrors SSE) | Core |
-| `service/requirements.txt` | Python dependencies | As needed |
-| `Dockerfile` | System packages (apt-get) | As needed |
-| `.env.example` | Service-specific env vars | As needed |
-| `integrations/claude-code/SKILL.md` | Skill definition with all tools | Important |
-| `integrations/openclaw/index.ts` | Plugin tools + hooks | Important |
-| `integrations/open-webui/tool.py` | Tool methods for chat UI | Important |
-| `integrations/open-webui/prompt.md` | System prompt for chat models | Nice to have |
-
-## Step-by-Step
-
-### Step 1: Define Containers
-
-Edit `config/service.example.json`. Each container needs at minimum:
-- `image` - Docker image
-- `internal_port` - Port the process listens on
-- `command` - How to start it (if not using image default)
-
-Optional but recommended:
-- `gpu` - Device IDs and memory fraction
-- `volumes` - Named volumes for persistence
-- `idle_timeout_seconds` - When to auto-stop (0 = never)
-- `auto_start` - Start on orchestrator startup
-- `group` - Logical grouping name
-- `health_check.endpoint` - Path to poll for readiness
-
-Example for a llama.cpp container:
-```json
-"qwen": {
-  "image": "ghcr.io/ggerganov/llama.cpp:server-cuda",
-  "command": ["--model", "/models/qwen3.5.gguf", "--port", "8080", "--gpu-layers", "99"],
-  "volumes": { "llm-models": "/models" },
-  "gpu": { "device_ids": ["0"], "memory_fraction": 0.6 },
-  "idle_timeout_seconds": 300,
-  "group": "inference"
-}
-```
-
-To share a container (avoid duplicates):
-```json
-"openmemory-llm": {
-  "image": "ghcr.io/ggerganov/llama.cpp:server-cuda",
-  "shared_with": "qwen"
-}
-```
-
-### Step 2: Add API Endpoints
-
-Edit `service/routers/api.py`. Access containers via the manager:
-
-```python
-from fastapi import APIRouter, Request, HTTPException
-import httpx
-
-router = APIRouter(tags=["api"])
-
-@router.post("/chat/completions")
-async def chat_completions(request: Request):
-    """OpenAI-compatible chat completions using the qwen container."""
-    manager = request.app.state.container_manager
-    state = manager.states.get("qwen")
-
-    if not state or state.status.value != "running":
-        # Start it
-        await manager.start_container("qwen")
-        state = manager.states["qwen"]
-
-    url = f"{state.internal_url}/v1/chat/completions"
-    body = await request.json()
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(url, json=body)
-        return resp.json()
-```
-
-Or use the built-in proxy: clients can directly call `/route/qwen/v1/chat/completions`.
-
-### Step 3: Register MCP Tools
-
-Edit `mcp/sse_server.py`. Container management tools are already built-in. Add domain-specific tools:
-
-```python
-@mcp_server.tool()
-async def chat(message: str, model: str = "qwen") -> str:
-    """Send a chat message to a specific LLM container."""
-    manager = _get_manager()
-    if not manager:
-        return "Container manager not available"
-
-    # Ensure container is running
-    await manager.start_container(model)
-    url = manager.resolve_url(model)
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(f"{url}/v1/chat/completions", json={
-            "messages": [{"role": "user", "content": message}]
-        })
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-```
-
-Mirror in `mcp/stdio/server.js`:
-```javascript
-server.tool(
-  "chat",
-  "Send a chat message to an LLM container",
-  {
-    message: z.string().describe("The message to send"),
-    model: z.string().optional().default("qwen").describe("Container name"),
-  },
-  async ({ message, model }) => {
-    try {
-      const result = await apiCall("POST", "/api/v1/chat/completions", {
-        model, messages: [{ role: "user", content: message }]
-      });
-      return ok(result);
-    } catch (e) { return err(e); }
-  }
-);
-```
-
-### Step 4: Update Integrations
-
-**Claude Code** (`integrations/claude-code/SKILL.md`):
-- Add your new tools to the `tools:` list in the frontmatter
-- Document each tool with usage examples
-- Update triggers for when the skill should activate
-
-**OpenClaw** (`integrations/openclaw/index.ts`):
-- Add tool handlers that call your REST endpoints
-- Implement `before_agent_start` hook for auto-context injection
-- Implement `agent_end` hook for auto-processing
-
-**Open WebUI** (`integrations/open-webui/tool.py`):
-- Add async methods - each becomes a tool in the chat UI
-- Use `httpx` (not `aiohttp`) - it's available in Open WebUI's environment
-
-### Step 5: Add Dependencies
-
-- Python packages: `service/requirements.txt`
-- System packages: add to `Dockerfile` in the `apt-get install` line
-- Node packages: `mcp/stdio/package.json`
-
-### Step 6: Persistence
-
-- Use `/data` directory for the orchestrator's own persistent data
-- Sub-containers use named volumes (defined in their config)
-- Access path via `from service.config import get_config; get_config().data_dir`
-
-### Step 7: Test
+## Development Loop
 
 ```bash
+git status --short
 docker compose up -d --build
-bash scripts/test-endpoints.sh
-
-# Test a specific container:
-curl -X POST http://localhost:8800/api/v1/containers/qwen/start
-curl http://localhost:8800/route/qwen/health
-curl http://localhost:8800/api/v1/gpu
+curl http://localhost:8800/health
 ```
 
-## Architecture
+Backend changes under `service/`, `mcp/`, and `config/` require a container rebuild or hot-copy/restart during local iteration. Host-side bridge changes under `mcp/stdio/` require restarting the relevant wrapper/bridge process.
 
+Useful checks:
+
+```bash
+node --check mcp/stdio/server.js
+npm --prefix mcp/stdio test
+python3 -m py_compile service/models.py service/db.py service/routers/api_v2.py
+docker compose exec -T service python -m unittest service.tests.test_api_v2_regressions service.tests.test_main_websocket_auth -q
 ```
-Clients (Claude Code, OpenClaw, Open WebUI, curl)
-         |
-         v
-+------------------------------+
-|  FastAPI Orchestrator (:8800) |
-|  /health /info /docs         |
-|  /api/v1/* (your endpoints)  |
-|  /route/{name}/* (proxy)     |
-|  /mcp/sse (MCP server)       |
-|                              |
-|  ContainerManager            |
-|   - DockerClient (SDK)       |
-|   - GPUAllocator             |
-|   - IdleReaper (background)  |
-|   - HealthMonitor (bg)       |
-+------|----------|------------+
-       |          |
-  docker.sock     |
-       |          |
-  +----v---+ +----v----+ +-------+
-  | embed  | | qwen    | | glm4  |
-  | GPU:0  | | GPU:0   | | GPU:1 |
-  | 0.2    | | 0.6     | | 0.5   |
-  +--------+ +---------+ +-------+
-   (always)   (on-demand)  (on-demand)
- ```
 
-## Agent-Team Pattern
+For dashboard edits, extract and syntax-check the inline script:
 
-For services meant to be used by multiple coding agents, the strongest reusable shape is:
+```bash
+awk '/<script>/{flag=1;next}/<\/script>/{flag=0}flag' service/dashboard.html > /tmp/aify-dashboard-script.js
+node --check /tmp/aify-dashboard-script.js
+```
 
-- `message` tools for conversation and handoffs
-- `channel` tools for shared team threads
-- `artifact` tools for shared outputs
-- `dispatch` tools for active execution requests
-- `run` tools for status and control of active work
+## Bridge Setup Model
 
-That pattern scales better than overloading one tool to do everything, and it keeps marketplace installs easier to explain.
+Run the service once. Then run one environment bridge per host/OS boundary you want the dashboard to control:
 
-## Checklist
+```bash
+cd /path/to/workspace-or-workspace-parent
+aify-comms
+```
 
-- [ ] Container definitions in service.example.json
-- [ ] API endpoints in service/routers/api.py
-- [ ] MCP tools in mcp/sse_server.py (SSE)
-- [ ] MCP tools in mcp/stdio/server.js (stdio)
-- [ ] Claude Code SKILL.md updated
-- [ ] OpenClaw plugin updated
-- [ ] Open WebUI tool updated
-- [ ] Python deps in requirements.txt
-- [ ] System deps in Dockerfile (if any)
-- [ ] .env.example updated (if new vars)
-- [ ] `docker compose up --build` works
-- [ ] All endpoints respond correctly
-- [ ] Sub-containers start and respond via /route/
+On native Windows:
+
+```powershell
+cd C:\path\to\workspace-or-workspace-parent
+aify-comms.cmd
+```
+
+The current directory is always an allowed workspace root. Extra root arguments are optional safety boundaries. The exact project directory is selected per spawned agent in the dashboard.
+
+Only the `aify-comms` launcher should set `AIFY_ENVIRONMENT_BRIDGE=1`. Ordinary MCP client sessions should not advertise themselves as dashboard spawn targets.
+
+## Dashboard Standard
+
+The dashboard should feel like a real work console, not a raw admin table:
+
+- Home/Control should show current activity, recent messages, live issues, and running work.
+- Chat should support reading/sending as the selected identity, unread state, delete/clear actions, channels, and useful conversation inspection.
+- Team should focus on active managed agents and keep manual/resident identities sorted and clearly separated.
+- Environments should show only real connected spawn targets, with stop/forget controls.
+- Sessions and Runs should expose lifecycle details without duplicating Chat as a second messaging UI.
+- Analytics should show useful time-based views, not dense tables of counters.
+
+Keep advanced IDs, JSON, logs, and rarely used compatibility details in inspectors/drawers or Help, not in the primary flow.
+
+## Skill Hygiene
+
+Keep only two skills unless the workflow clearly demands another:
+
+- `aify-comms`: normal operating guide
+- `aify-comms-debug`: failure recovery and known issues
+
+Do not teach agents to use silent/inbox-only paths as the default. New persistent teammates should be created through `comms_spawn` or dashboard Environment spawn, not ad hoc one-off launch paths.

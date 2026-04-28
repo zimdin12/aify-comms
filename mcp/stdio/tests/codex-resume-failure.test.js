@@ -38,6 +38,7 @@ for (const sample of corruptSamples) {
   assert.equal(r.shouldHeal, true, `shouldHeal must be true for corrupt sample: ${JSON.stringify(sample)}`);
   assert.equal(r.corruptRollout, true, `corruptRollout must be true for corrupt sample`);
   assert.equal(r.noRollout, false, `noRollout must be false for corrupt sample`);
+  assert.equal(r.oversizedRollout, false, `oversizedRollout must be false for corrupt sample`);
   assert.equal(r.healReason, "corrupt_rollout", `healReason must be "corrupt_rollout"`);
 }
 
@@ -54,7 +55,25 @@ for (const sample of noRolloutSamples) {
   assert.equal(r.shouldHeal, true, `shouldHeal must be true for no-rollout sample`);
   assert.equal(r.noRollout, true, `noRollout must be true`);
   assert.equal(r.corruptRollout, false, `corruptRollout must be false`);
+  assert.equal(r.oversizedRollout, false, `oversizedRollout must be false`);
   assert.equal(r.healReason, "no_rollout", `healReason must be "no_rollout"`);
+}
+
+// --- Oversized rollout/context (Codex websocket frame limit) ---
+
+const oversizedSamples = [
+  { message: "ERROR: remote app server at `ws://127.0.0.1:34577/` transport failed: Space limit exceeded: Message too long: 23456629 > 16777216" },
+  new Error("transport failed: Space limit exceeded: Message too long: 23456629 > 16777216"),
+  "Message too long: 23456629 > 16777216",
+];
+
+for (const sample of oversizedSamples) {
+  const r = cls(sample);
+  assert.equal(r.shouldHeal, true, `shouldHeal must be true for oversized rollout sample`);
+  assert.equal(r.noRollout, false, `noRollout must be false`);
+  assert.equal(r.corruptRollout, false, `corruptRollout must be false`);
+  assert.equal(r.oversizedRollout, true, `oversizedRollout must be true`);
+  assert.equal(r.healReason, "oversized_rollout", `healReason must be "oversized_rollout"`);
 }
 
 // --- Unrelated errors must NOT trigger heal ---
@@ -76,6 +95,7 @@ for (const sample of nonHealSamples) {
   assert.equal(r.shouldHeal, false, `shouldHeal must be false for: ${JSON.stringify(sample)}`);
   assert.equal(r.corruptRollout, false);
   assert.equal(r.noRollout, false);
+  assert.equal(r.oversizedRollout, false);
   assert.equal(r.healReason, null);
 }
 

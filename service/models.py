@@ -21,6 +21,8 @@ class AgentRegister(BaseModel):
     managedBy: Optional[str] = None
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
+    autoRegister: Optional[bool] = False
+    restoreDeleted: Optional[bool] = False
 
 
 class AgentDescribeRequest(BaseModel):
@@ -50,21 +52,9 @@ class AgentRuntimeStateUpdate(BaseModel):
     runtimeState: dict[str, Any]
 
 
-class SpawnAgentRequest(BaseModel):
-    from_agent: str
+class ConversationClearRequest(BaseModel):
     agentId: str
-    role: str
-    runtime: str
-    name: Optional[str] = None
-    cwd: Optional[str] = None
-    model: Optional[str] = None
-    description: Optional[str] = None
-    instructions: Optional[str] = None
-    machineId: Optional[str] = None
-    priority: str = "normal"
-    subject: Optional[str] = None
-    body: Optional[str] = None
-    runtimeConfig: Optional[dict[str, Any]] = None
+    peerId: str
 
 
 class DispatchRequest(BaseModel):
@@ -118,6 +108,99 @@ class DispatchControlClaimRequest(BaseModel):
 class DispatchControlUpdate(BaseModel):
     status: str
     response: Optional[str] = None
+
+
+class EnvironmentHeartbeat(BaseModel):
+    id: str
+    label: Optional[str] = None
+    machineId: Optional[str] = None
+    os: Optional[str] = None
+    kind: Optional[str] = None
+    bridgeId: Optional[str] = None
+    bridgeVersion: Optional[str] = None
+    cwdRoots: Optional[list[str]] = None
+    runtimes: Optional[list[dict[str, Any]]] = None
+    status: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class EnvironmentControlRequest(BaseModel):
+    action: str
+    requestedBy: Optional[str] = None
+
+
+class EnvironmentControlClaim(BaseModel):
+    environmentId: str
+    bridgeId: str
+    machineId: Optional[str] = None
+
+
+class EnvironmentControlUpdate(BaseModel):
+    status: str
+    error: Optional[str] = None
+
+
+class AgentEnvironmentAssignRequest(BaseModel):
+    environmentId: str
+    workspace: Optional[str] = None
+    runtime: Optional[str] = None
+    requestedBy: Optional[str] = None
+
+
+class SpawnRequestCreate(BaseModel):
+    createdBy: Optional[str] = None
+    environmentId: str
+    agentId: str
+    role: str = "coder"
+    name: Optional[str] = None
+    runtime: str
+    workspace: Optional[str] = None
+    model: Optional[str] = None
+    profile: Optional[str] = None
+    systemPrompt: Optional[str] = None
+    instructions: Optional[str] = None
+    initialMessage: Optional[str] = None
+    priority: str = "normal"
+    subject: Optional[str] = None
+    mode: str = "managed-warm"
+    resumePolicy: str = "native_first"
+    channelIds: Optional[list[str]] = None
+    envVars: Optional[dict[str, Any]] = None
+    budgetPolicy: Optional[dict[str, Any]] = None
+    contextPolicy: Optional[dict[str, Any]] = None
+    restartPolicy: Optional[dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class SpawnRequestClaim(BaseModel):
+    environmentId: str
+    bridgeId: str
+    machineId: Optional[str] = None
+
+
+class SpawnRequestUpdate(BaseModel):
+    status: str
+    bridgeId: Optional[str] = None
+    processId: Optional[str] = None
+    sessionHandle: Optional[str] = None
+    error: Optional[str] = None
+    runtimeState: Optional[dict[str, Any]] = None
+    capabilities: Optional[dict[str, Any]] = None
+    telemetry: Optional[dict[str, Any]] = None
+
+
+class SessionControlRequest(BaseModel):
+    action: str
+    from_agent: Optional[str] = None
+    body: Optional[str] = None
+    subject: Optional[str] = None
+    priority: str = "normal"
+
+
+class AgentControlRequest(BaseModel):
+    action: str
+    from_agent: Optional[str] = None
+    body: Optional[str] = None
 
 
 class ClearRequest(BaseModel):
