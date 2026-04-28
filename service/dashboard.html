@@ -311,6 +311,9 @@ tr:hover{background:#19212a}
 .chat-from{font-weight:700;color:var(--blue)}.chat-time{color:var(--subtle);font-size:.74em}
 .chat-text{white-space:pre-wrap;word-break:break-word;line-height:1.45;font-size:.92em}
 .chat-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.chat-run-note{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:7px}
+.chat-run-note summary{cursor:pointer;color:var(--muted);font-size:.78em;font-weight:700}
+.chat-run-note pre{margin:7px 0 0;white-space:pre-wrap;word-break:break-word;color:var(--text);font-size:.82em}
 .chat-composer{border-top:1px solid var(--line-soft);padding:12px;background:#0f151c}
 .chat-composer.attention{animation:composerPulse 900ms ease}
 @keyframes composerPulse{0%{box-shadow:inset 0 0 0 2px #74b7ff00}30%{box-shadow:inset 0 0 0 2px #74b7ffcc}100%{box-shadow:inset 0 0 0 2px #74b7ff00}}
@@ -988,9 +991,9 @@ function connectDashboardSocket() {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
-function jsArg(s) { return esc(JSON.stringify(String(s || ''))); }
+function jsArg(s) { return JSON.stringify(String(s || '')); }
 function actionButton(label, title, onclick, classes = '') {
-  return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} onclick="${onclick}">${esc(label)}</button>`;
+  return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} onclick="${esc(onclick)}">${esc(label)}</button>`;
 }
 function disabledActionButton(label, title, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} disabled>${esc(label)}</button>`;
@@ -2080,6 +2083,10 @@ function renderChatMessage(m, currentFrom) {
     ? (m.read ? '<span class="mb mb-background">read</span>' : '<span class="mb mb-dispatch">unread</span>')
     : '<span class="mb mb-background">sent</span>';
   const followTarget = system ? '' : (m.source === 'channel' ? (mine ? '' : m.from) : (mine ? m._to : m.from));
+  const relatedRun = (window._allRuns || []).find(run => run.messageId === m.id);
+  const runDetail = relatedRun && (relatedRun.summary || relatedRun.error || relatedRun.status)
+    ? `<details class="chat-run-note"><summary>Run ${esc(relatedRun.status || 'status')}${relatedRun.resultMessageId ? ' · reply linked' : ''}</summary><pre>${esc(relatedRun.error || relatedRun.summary || relatedRun.status || '')}</pre></details>`
+    : '';
   const actions = [
     (!mine && m.source !== 'channel') ? actionButton('Reply', 'Prefill the composer as a threaded reply to this message', `replyToChat(${jsArg(m.from)}, ${jsArg(m.id)}, ${jsArg(m.subject)}, ${jsArg(m.body || m.preview || '')})`) : '',
     followTarget ? actionButton('Follow up', 'Open a request to this message target and link it to this message', `followUpChatMessage(${jsArg(followTarget)}, ${jsArg(m.id)}, ${jsArg(m.subject)}, ${jsArg(m.body || m.preview || '')})`) : '',
@@ -2091,6 +2098,7 @@ function renderChatMessage(m, currentFrom) {
     parent +
     `${m.subject ? `<div class="t clip-1"${titleAttr(m.subject)}>${esc(m.subject)}</div>` : ''}` +
     `<div class="chat-text">${esc(m.body || m.preview || '')}</div>` +
+    runDetail +
     `<div class="chat-badges">${delivery}${readBadge}</div>` +
     `<div class="btn-row">${actions.join('')}</div>` +
     `</article>`;
@@ -3055,7 +3063,7 @@ async function sendChatMessage() {
   const priority = document.getElementById('chat-priority').value;
   const subjectInput = document.getElementById('chat-subject-input').value.trim();
   const body = document.getElementById('chat-body').value.trim();
-  const expectReply = ['request', 'review', 'error'].includes(type);
+  const expectReply = true;
   if (!meta.kind) { toast('Select a conversation', '#f85149'); return; }
   if (!body) { toast('Write a message first', '#f85149'); return; }
   const subject = subjectInput || body.split(/\s+/).slice(0, 10).join(' ');

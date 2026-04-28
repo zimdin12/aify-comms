@@ -3423,7 +3423,7 @@ async def send_message(req: MessageSend, request: Request):
 
         dispatch_runs = []
         if req.trigger:
-            require_reply = _dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))
+            require_reply = _dispatch_requires_reply(req.requireReply, default=req.type != "response")
             source_message_ids = {
                 recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
                 for recipient_id in recipients

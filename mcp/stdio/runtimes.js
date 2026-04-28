@@ -35,10 +35,19 @@ function quoteForDisplay(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
+export function isFatalCodexRuntimeLog(line) {
+  const text = String(line || "");
+  return (
+    /worker quit with fatal/i.test(text) ||
+    /Transport channel closed/i.test(text) ||
+    /Codex WebSocket app-server connection closed/i.test(text)
+  );
+}
+
 function buildSystemPrompt(agentId, agentInfo, run) {
-  const replyRule = run?.requireReply
-    ? "Before you finish handling this message, send an explicit reply message back to the sender. Do not rely on the dispatch summary as the only handoff."
-    : "If the sender should receive a reply or follow-up, use explicit inter-agent messaging tools yourself.";
+  const replyRule = run?.requireReply === false
+    ? "If the sender explicitly does not need a reply, you may just handle the message locally."
+    : "Before you finish handling this message, send an explicit reply message back to the sender. Do not rely on the dispatch summary as the only handoff.";
   return [
     "[AIFY MESSAGE]",
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
@@ -53,9 +62,9 @@ function buildSystemPrompt(agentId, agentInfo, run) {
 }
 
 function buildUserPrompt(run) {
-  const replyRule = run?.requireReply
-    ? "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result."
-    : "If the sender should receive a message, send it explicitly with the appropriate tool.";
+  const replyRule = run?.requireReply === false
+    ? "Reply only if useful for the sender."
+    : "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result.";
   return [
     "[MESSAGE]",
     `Type: ${run.type || "request"}`,
@@ -845,6 +854,22 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const handleRuntimeLog = (line) => {
     const text = quoteForDisplay(line);
     if (text) callbacks.onEvent?.("stderr", text);
+    if (text && isFatalCodexRuntimeLog(text) && !settled) {
+      finalStatus = "failed";
+      finalError = `Codex runtime fatal error: ${text}`;
+      settled = true;
+      try {
+        proc?.kill("SIGTERM");
+      } catch {
+        // ignore shutdown errors
+      }
+      try {
+        rpc?.close?.();
+      } catch {
+        // ignore close errors
+      }
+      if (rejectPromise) rejectPromise(new Error(finalError));
+    }
   };
 
   const promise = new Promise(async (resolve, reject) => {

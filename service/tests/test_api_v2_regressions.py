@@ -1551,6 +1551,20 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertFalse(response_send["dispatchRuns"][0]["requireReply"])
 
+    def test_triggered_info_send_requires_reply_by_default(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        sent = self._send_message(
+            from_agent="lead",
+            to="coder",
+            type="info",
+            subject="heads up",
+            body="ack this",
+            trigger=True,
+        )
+        self.assertTrue(sent["dispatchRuns"][0]["requireReply"])
+
     def test_triggered_review_and_error_sends_expect_reply_by_default(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("reviewer", runtime="codex", sessionMode="managed")
