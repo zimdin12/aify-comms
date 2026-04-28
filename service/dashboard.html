@@ -113,6 +113,9 @@ tr:hover{background:#19212a}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fb input,.fb select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:.85em}
 .fb input:focus,.fb select:focus{border-color:#58a6ff;outline:none}
+.switch-row{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:.86em;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 11px;cursor:pointer}
+.switch-row input{accent-color:var(--teal)}
+.switch-row:hover{color:var(--text);border-color:#475057;background:#202326}
 .p-urgent{background:#da363366;color:#f85149;padding:2px 6px;border-radius:4px;font-size:.75em;font-weight:600}
 .p-high{background:#d2992233;color:#d29922;padding:2px 6px;border-radius:4px;font-size:.75em;font-weight:600}
 
@@ -168,13 +171,13 @@ tr:hover{background:#19212a}
 .ops-panel-head h3{margin:0;font-size:.98em}
 .ops-panel-sub{color:var(--muted);font-size:.78em;white-space:nowrap}
 .activity-feed{display:flex;flex-direction:column;gap:7px}
-.activity-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px;border:1px solid var(--line-soft);border-radius:7px;background:var(--panel-2);min-width:0}
+.activity-row{display:grid;grid-template-columns:112px minmax(0,1fr) 64px;gap:10px;align-items:start;padding:9px;border:1px solid var(--line-soft);border-radius:7px;background:var(--panel-2);min-width:0}
 .activity-row:hover{background:#151d26}
 .activity-route{color:var(--blue);font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-main{min-width:0}
 .activity-title{font-weight:650;color:var(--text);line-height:1.25}
 .activity-preview{color:var(--muted);font-size:.8em;line-height:1.35;margin-top:3px}
-.activity-time{color:var(--subtle);font-size:.75em;white-space:nowrap;text-align:right}
+.activity-time{color:var(--subtle);font-size:.75em;white-space:nowrap;text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .work-list{display:flex;flex-direction:column;gap:8px}
 .work-card{border:1px solid var(--line-soft);border-radius:7px;background:var(--panel-2);padding:10px;min-width:0}
 .work-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
@@ -384,7 +387,7 @@ tr:hover{background:#1b1f21}
 .ops-panel-head{padding-bottom:9px;border-bottom:1px solid #272c2f}
 .ops-panel-head h3{font-size:1.04em}
 .activity-feed{gap:8px}
-.activity-row{grid-template-columns:128px minmax(0,1fr) 78px;border-radius:11px;border-color:#282d30;background:#101214;padding:11px;cursor:pointer}
+.activity-row{grid-template-columns:128px minmax(0,1fr) 64px;border-radius:11px;border-color:#282d30;background:#101214;padding:11px;cursor:pointer}
 .activity-row:hover{background:#1a1e20;border-color:#3a4645}
 .activity-route{color:#77d6c7;font-weight:750}
 .activity-title{font-size:.92em}
@@ -635,6 +638,12 @@ tr:hover{background:#1b1f21}
   <div class="page" id="page-sessions">
     <h2>Sessions</h2>
     <p class="worker-note">Sessions are concrete runtime/process backing records for agent identities.</p>
+    <div class="fb">
+      <label class="switch-row" title="Show ended, completed, and cancelled session history. Keep this off for normal work; turn it on while debugging lifecycle issues.">
+        <input type="checkbox" id="show-ended-sessions" onchange="setShowEndedSessions(this.checked)">
+        <span>Show ended/debug sessions</span>
+      </label>
+    </div>
     <div class="stats" id="session-stats"></div>
     <div id="sessions-table"></div>
   </div>
@@ -995,6 +1004,25 @@ function jsArg(s) { return JSON.stringify(String(s || '')); }
 function actionButton(label, title, onclick, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} onclick="${esc(onclick)}">${esc(label)}</button>`;
 }
+window._dashboardActions = window._dashboardActions || new Map();
+window._dashboardActionSeq = window._dashboardActionSeq || 0;
+function actionButtonFn(label, title, handler, classes = '') {
+  const id = `act_${++window._dashboardActionSeq}`;
+  window._dashboardActions.set(id, handler);
+  return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} onclick="runDashboardAction(${jsArg(id)})">${esc(label)}</button>`;
+}
+async function runDashboardAction(id) {
+  const handler = window._dashboardActions?.get(id);
+  if (!handler) {
+    toast('Action expired; refresh the dashboard view and try again.', '#f85149');
+    return;
+  }
+  try {
+    await handler();
+  } catch (error) {
+    toast(error?.message || 'Action failed', '#f85149');
+  }
+}
 function disabledActionButton(label, title, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} disabled>${esc(label)}</button>`;
 }
@@ -1011,6 +1039,14 @@ function fmtTime(ts) {
   if (!ts) return '?';
   const d = new Date(ts);
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+function fmtShortTime(ts) {
+  if (!ts) return '?';
+  const d = new Date(ts);
+  const now = new Date();
+  const time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  if (d.toDateString() === now.toDateString()) return time;
+  return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
 function fmtSize(b) {
@@ -1153,6 +1189,38 @@ function recentCompletionLabel(agentId) {
   if (run.status === 'failed') return `last failed: ${run.subject || run.id}${handoff ? ` (${handoff})` : ''}`;
   if (run.status === 'cancelled') return `last cancelled: ${run.subject || run.id}${handoff ? ` (${handoff})` : ''}`;
   return '';
+}
+
+function dismissedIssueKeys() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('aifyDismissedIssues') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function isIssueDismissed(key) {
+  return dismissedIssueKeys().has(key);
+}
+
+function dismissIssue(key) {
+  const keys = dismissedIssueKeys();
+  keys.add(key);
+  localStorage.setItem('aifyDismissedIssues', JSON.stringify([...keys].slice(-500)));
+  refreshDashboard();
+}
+
+function dismissResolvedHomeIssues() {
+  const keys = dismissedIssueKeys();
+  for (const run of window._allRuns || []) {
+    if (['failed', 'cancelled'].includes(String(run.status || '').toLowerCase())) keys.add(`run:${run.id}`);
+  }
+  for (const req of window._spawnRequests || []) {
+    if (String(req.status || '').toLowerCase() === 'failed') keys.add(`spawn:${req.id}`);
+  }
+  localStorage.setItem('aifyDismissedIssues', JSON.stringify([...keys].slice(-500)));
+  toast('Resolved historical failures hidden from Needs Attention');
+  refreshDashboard();
 }
 
 function syncSelectOptions(selectId, defaultLabel, values) {
@@ -1392,13 +1460,33 @@ function renderHomeInsights(stats, agents, environments, sessions, spawnRequests
     `</div>`;
 
   const attention = [];
-  if (!onlineEnvs) attention.push(['No environments online', 'Run aify-comms in WSL, Windows, or Linux so the dashboard can spawn agents.']);
-  if (failedOrLostSessions) attention.push(['Sessions need attention', `${failedOrLostSessions} session(s) are failed or lost. Open Sessions to recover or restart them.`]);
-  if (handoffPending) attention.push(['Pending handoffs', `${handoffPending} completed/failed run(s) did not send a reply. Use Runs or repair handoffs.`]);
-  if (pendingSpawns) attention.push(['Spawns pending', `${pendingSpawns} spawn request(s) are waiting, claimed, or starting.`]);
-  if (!attention.length) attention.push(['No critical issues', 'Bridges, sessions, runs, and handoffs have no obvious blocking state.']);
+  if (!onlineEnvs) attention.push({
+    title: 'No environments online',
+    body: 'Run aify-comms in WSL, Windows, or Linux so the dashboard can spawn agents.',
+    action: actionButton('Environments', 'Open environment start commands', "showPage('environments')")
+  });
+  if (failedOrLostSessions) attention.push({
+    title: 'Sessions need attention',
+    body: `${failedOrLostSessions} session(s) are failed or lost. Recover or restart them when you still need that teammate.`,
+    action: actionButton('Open Sessions', 'Recover, restart, or stop session records', "showPage('sessions')")
+  });
+  if (handoffPending) attention.push({
+    title: 'Pending handoffs',
+    body: `${handoffPending} old terminal run(s) did not record a chat reply. Repair creates fallback replies and clears this counter.`,
+    action: actionButton('Repair handoffs', 'Create fallback chat replies for terminal runs with no recorded handoff', 'repairPendingHandoffs(false)')
+  });
+  if (pendingSpawns) attention.push({
+    title: 'Spawns pending',
+    body: `${pendingSpawns} spawn request(s) are waiting, claimed, or starting.`,
+    action: actionButton('Open queue', 'Open the environment spawn queue', "showPage('environments')")
+  });
+  if (!attention.length) attention.push({
+    title: 'No critical issues',
+    body: 'Bridges, sessions, runs, and handoffs have no obvious blocking state.',
+    action: ''
+  });
   attentionEl.innerHTML = `<h3>Needs Attention</h3><div class="attention-list">` +
-    attention.map(([title, body]) => `<section class="attention-item"><b>${esc(title)}</b><span>${esc(body)}</span></section>`).join('') +
+    attention.map(item => `<section class="attention-item"><b>${esc(item.title)}</b><span>${esc(item.body)}</span>${item.action ? `<div class="btn-row">${item.action}</div>` : ''}</section>`).join('') +
     `</div>`;
 }
 
@@ -1487,7 +1575,9 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     .map(([id, info]) => ({id, issue: liveIssueForAgent(id, info), info}))
     .filter(item => item.issue && (item.info.unread || item.info.dispatchState?.activeRun || item.info.dispatchState?.queuedRuns || ['active', 'working'].includes(String(item.info.statusRaw || item.info.status || '').toLowerCase())))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  const failedItems = runs.filter(run => ['failed', 'cancelled'].includes(run.status)).length + spawnRequests.filter(req => req.status === 'failed').length + sessions.filter(session => ['failed', 'lost'].includes(session.status)).length + liveIssues.length;
+  const failedRuns = runs.filter(run => ['failed', 'cancelled'].includes(run.status) && !isIssueDismissed(`run:${run.id}`));
+  const failedSpawns = spawnRequests.filter(req => req.status === 'failed' && !isIssueDismissed(`spawn:${req.id}`));
+  const failedItems = failedRuns.length + failedSpawns.length + sessions.filter(session => ['failed', 'lost'].includes(session.status)).length + liveIssues.length;
 
   const metric = (label, value, klass = '') => `<div class="ops-metric ${klass}"><b>${esc(String(value))}</b><span>${esc(label)}</span></div>`;
   const statsEl = document.getElementById('stats-cards');
@@ -1507,13 +1597,13 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     const route = isChannel ? `#${message.channel || 'channel'}` : `${message.from || ''} -> ${message.to || ''}`;
     const title = message.subject || (isChannel ? `#${message.channel || 'channel'}` : 'Direct message');
     const preview = message.preview || '';
-    const targetAction = isChannel
-      ? `selectChatConversation('channel:${esc(message.channel || '')}')`
-      : `openAgentChat('${esc(message.from === chatIdentity() ? (message.to || '') : (message.from || ''))}')`;
-    return `<div class="activity-row" onclick="${targetAction}" title="Open this conversation">` +
+    const peer = message.from === chatIdentity() ? (message.to || '') : (message.from || '');
+    const actionId = `flow_${++window._dashboardActionSeq}`;
+    window._dashboardActions.set(actionId, () => isChannel ? selectChatConversation(`channel:${message.channel || ''}`) : openAgentChat(peer));
+    return `<div class="activity-row" onclick="runDashboardAction(${jsArg(actionId)})" title="Open this conversation">` +
       `<div class="activity-route">${esc(route)}</div>` +
       `<div class="activity-main"><div class="activity-title clip-1"${titleAttr(title)}>${esc(title)}</div><div class="activity-preview clip-2"${titleAttr(preview)}>${esc(preview)}</div></div>` +
-      `<div class="activity-time">${fmtTime(message.timestamp)}${message.dispatchRequested ? '<br><span class="home-tag">wake</span>' : ''}</div>` +
+      `<div class="activity-time"${titleAttr(fmtTime(message.timestamp))}>${esc(fmtShortTime(message.timestamp))}${message.dispatchRequested ? '<br><span class="home-tag">wake</span>' : ''}</div>` +
       `</div>`;
   }).join('') || '<div class="home-empty">No messages exchanged yet.</div>';
 
@@ -1522,11 +1612,11 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     const route = `${run.from || 'unknown'} -> ${run.targetAgentId || 'agent'}`;
     return `<div class="work-card"><div class="work-card-head"><b class="clip-1"${titleAttr(title)}>${esc(title)}</b><span class="home-tag ${run.status === 'running' ? '' : 'warn'}">${esc(run.status)}</span></div>` +
       `<p>${esc(route)} · ${esc(run.runtime || run.requestedRuntime || run.executionMode || 'runtime')}</p>` +
-      `<div class="btn-row">${actionButton('View run', 'Open run details and controls', `viewRun('${esc(run.id)}')`)}${actionButton('Chat', 'Open target chat', `openAgentChat('${esc(run.targetAgentId || '')}')`)}</div></div>`;
+      `<div class="btn-row">${actionButtonFn('View run', 'Open run details and controls', () => viewRun(run.id))}${actionButtonFn('Chat', 'Open target chat', () => openAgentChat(run.targetAgentId || ''))}</div></div>`;
   }).join('') || '<div class="home-empty">No agents are currently executing tracked work.</div>';
 
   const queuedRows = queuedRuns.slice(0, 5).map(run =>
-    homeRow(run.subject || run.id, `${run.from || ''} -> ${run.targetAgentId || ''}`, run.status || 'queued', 'warn', actionButton('View', 'Open queued run', `viewRun('${esc(run.id)}')`))
+    homeRow(run.subject || run.id, `${run.from || ''} -> ${run.targetAgentId || ''}`, run.status || 'queued', 'warn', actionButtonFn('View', 'Open queued run', () => viewRun(run.id)))
   ).join('');
 
   const teamRows = visibleAgents
@@ -1540,20 +1630,23 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     .map(([id, info]) => {
       const state = info.dispatchState?.hasActiveRun ? 'working' : String(info.statusRaw || info.status || 'active').toLowerCase();
       const meta = `${info.role || 'agent'} · ${agentRuntimeLabel(info) || info.wakeMode || 'not live-bound'}`;
-      return `<div class="team-tile" onclick="openAgentChat('${esc(id)}')" title="Open chat with ${esc(id)}"><b class="clip-1">${esc(id)}</b><span class="clip-2">${esc(meta)}</span><em class="team-state ${esc(state)}">${esc(state)}</em></div>`;
+      const actionId = `team_${++window._dashboardActionSeq}`;
+      window._dashboardActions.set(actionId, () => openAgentChat(id));
+      return `<div class="team-tile" onclick="runDashboardAction(${jsArg(actionId)})" title="Open chat with ${esc(id)}"><b class="clip-1">${esc(id)}</b><span class="clip-2">${esc(meta)}</span><em class="team-state ${esc(state)}">${esc(state)}</em></div>`;
     }).join('') || '<div class="home-empty">No online/active agents. Offline identities are hidden here.</div>';
 
   const envRows = onlineEnvs.slice(0, 6).map(env => {
     const runtimes = (env.runtimes || []).map(runtime => runtime.runtime).filter(Boolean).join(', ') || 'no runtimes';
     const roots = (env.cwdRoots || []).slice(0, 2).join(', ') || 'no roots';
-    return homeRow(env.label || env.id, `${env.kind || 'environment'} · ${runtimes} · ${roots}`, env.status || 'online', '', actionButton('Spawn', 'Spawn an agent here', `prefillEnvironmentSpawn('${esc(env.id)}')`));
+    return homeRow(env.label || env.id, `${env.kind || 'environment'} · ${runtimes} · ${roots}`, env.status || 'online', '', actionButtonFn('Spawn', 'Spawn an agent here', () => prefillEnvironmentSpawn(env.id)));
   }).join('') || '<div class="home-empty">No online environments. Start aify-comms in WSL or Windows.</div>';
 
   const issueRows = [
-    ...(stats.dispatch_reply_pending ? [homeRow('Pending handoff replies', `${stats.dispatch_reply_pending} terminal run(s) have no recorded reply`, String(stats.dispatch_reply_pending), 'bad', actionButton('Repair', 'Create fallback handoff replies', 'repairPendingHandoffs()'))] : []),
-    ...liveIssues.slice(0, 5).map(item => homeRow(item.id, item.issue, 'live issue', 'bad', actionButton('Open', 'Open this chat and inspect live binding', `openAgentChat('${esc(item.id)}')`))),
-    ...spawnRequests.filter(req => req.status === 'failed').slice(0, 4).map(req => homeRow(req.agentId || req.id, req.error || req.workspace || '', 'spawn failed', 'bad', actionButton('Open', 'Open spawn queue', "showPage('environments')"))),
-    ...runs.filter(run => ['failed', 'cancelled'].includes(run.status)).slice(0, 4).map(run => homeRow(run.subject || run.id, run.error || run.summary || run.targetAgentId || '', run.status, 'bad', actionButton('View', 'Open run failure', `viewRun('${esc(run.id)}')`))),
+    ...(stats.dispatch_reply_pending ? [homeRow('Pending handoff replies', `${stats.dispatch_reply_pending} old terminal run(s) have no recorded reply. Repairing them is safe after the agents are working again.`, String(stats.dispatch_reply_pending), 'bad', actionButton('Repair', 'Create fallback handoff replies', 'repairPendingHandoffs(false)'))] : []),
+    ...liveIssues.slice(0, 5).map(item => homeRow(item.id, item.issue, 'live issue', 'bad', actionButtonFn('Open', 'Open this chat and inspect live binding', () => openAgentChat(item.id)))),
+    ...failedSpawns.slice(0, 4).map(req => homeRow(req.agentId || req.id, req.error || req.workspace || '', 'spawn failed', 'bad', actionButton('Open', 'Open spawn queue', "showPage('environments')") + actionButtonFn('Dismiss', 'Hide this resolved historical spawn failure from Needs Attention', () => dismissIssue(`spawn:${req.id}`)))),
+    ...failedRuns.slice(0, 4).map(run => homeRow(run.subject || run.id, run.error || run.summary || run.targetAgentId || '', run.status, 'bad', actionButtonFn('View', 'Open run failure', () => viewRun(run.id)) + actionButtonFn('Dismiss', 'Hide this resolved historical run failure from Needs Attention', () => dismissIssue(`run:${run.id}`)))),
+    ...(failedRuns.length || failedSpawns.length ? [homeRow('Resolved old failures?', 'Hide all currently listed failed/cancelled runs and failed spawns from this homepage issue queue. Audit history stays in Runs and Environments.', 'reviewed', '', actionButtonFn('Dismiss listed', 'Hide currently listed historical failures from Needs Attention', () => dismissResolvedHomeIssues()))] : []),
   ].join('') || '<div class="home-empty">No failed runs, failed spawns, lost sessions, or pending handoff repairs in the current window.</div>';
 
   el.innerHTML = `<div class="ops-layout">` +
@@ -2088,11 +2181,11 @@ function renderChatMessage(m, currentFrom) {
     ? `<details class="chat-run-note"><summary>Run ${esc(relatedRun.status || 'status')}${relatedRun.resultMessageId ? ' · reply linked' : ''}</summary><pre>${esc(relatedRun.error || relatedRun.summary || relatedRun.status || '')}</pre></details>`
     : '';
   const actions = [
-    (!mine && m.source !== 'channel') ? actionButton('Reply', 'Prefill the composer as a threaded reply to this message', `replyToChat(${jsArg(m.from)}, ${jsArg(m.id)}, ${jsArg(m.subject)}, ${jsArg(m.body || m.preview || '')})`) : '',
-    followTarget ? actionButton('Follow up', 'Open a request to this message target and link it to this message', `followUpChatMessage(${jsArg(followTarget)}, ${jsArg(m.id)}, ${jsArg(m.subject)}, ${jsArg(m.body || m.preview || '')})`) : '',
+    (!mine && m.source !== 'channel') ? actionButtonFn('Reply', 'Prefill the composer as a threaded reply to this message', () => replyToChat(m.from, m.id, m.subject, m.body || m.preview || '')) : '',
+    followTarget ? actionButtonFn('Follow up', 'Open a request to this message target and link it to this message', () => followUpChatMessage(followTarget, m.id, m.subject, m.body || m.preview || '')) : '',
   ].filter(Boolean);
-  if (incoming && !m.read) actions.push(actionButton('Mark read', 'Mark this direct message read for the selected identity only', `markMessageRead(${jsArg(m.id)}, ${jsArg(currentFrom)})`));
-  if (mine && m.id) actions.push(actionButton('Unsend', 'Delete this sent message and matching channel fan-out copies where applicable', `unsendChatMessage(${jsArg(m.id)})`, 'btn-danger'));
+  if (incoming && !m.read) actions.push(actionButtonFn('Mark read', 'Mark this direct message read for the selected identity only', () => markMessageRead(m.id, currentFrom)));
+  if (mine && m.id) actions.push(actionButtonFn('Unsend', 'Delete this sent message and matching channel fan-out copies where applicable', () => unsendChatMessage(m.id), 'btn-danger'));
   return `<article class="chat-bubble${klass}">` +
     `<div class="chat-bubble-head"><span class="chat-from">${esc(m.from || '')}</span><span class="chat-time">${fmtTime(m.timestamp)}</span>${type}${priority}</div>` +
     parent +
@@ -2160,8 +2253,8 @@ function renderChatInspector(meta, messages) {
         '</dl>' +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
-        actionButton('Continue as', 'Create a new managed session from this agent context', `continueSessionAs(${jsArg(session.id)})`) +
-        actionButton('Restart', 'Queue a restart from this session specification', `controlSession(${jsArg(session.id)}, 'restart')`) +
+        actionButtonFn('Continue as', 'Create a new managed session from this agent context', () => continueSessionAs(session.id)) +
+        actionButtonFn('Restart', 'Queue a restart from this session specification', () => controlSession(session.id, 'restart')) +
         `</div>`;
     } else {
       html += '<h3>Runtime Backing</h3><p class="em">No managed session is recorded for this identity. It may be a manual/resident CLI binding or a historical chat identity.</p>' +
@@ -2353,13 +2446,29 @@ function renderSpawnRequests(spawnRequests) {
   el.innerHTML = html;
 }
 
-function renderSessionStats(sessions) {
+const QUIET_SESSION_STATUSES = new Set(['ended', 'completed', 'cancelled']);
+
+function showEndedSessions() {
+  return localStorage.getItem('aifyShowEndedSessions') === '1';
+}
+
+function setShowEndedSessions(show) {
+  localStorage.setItem('aifyShowEndedSessions', show ? '1' : '0');
+  renderSessions(window._sessions || []);
+}
+
+function isQuietSession(session) {
+  return QUIET_SESSION_STATUSES.has(String(session.status || '').toLowerCase());
+}
+
+function renderSessionStats(sessions, visibleSessions = sessions) {
   const running = sessions.filter(session => session.status === 'running').length;
   const starting = sessions.filter(session => session.status === 'starting').length;
   const failed = sessions.filter(session => session.status === 'failed' || session.status === 'lost').length;
+  const hidden = Math.max(0, sessions.length - visibleSessions.length);
   const runtimes = new Set(sessions.map(session => session.runtime).filter(Boolean));
   document.getElementById('session-stats').innerHTML =
-    `<div class="sc"><div class="n">${sessions.length}</div><div class="l">Sessions</div></div>` +
+    `<div class="sc"><div class="n">${visibleSessions.length}</div><div class="l">Visible</div>${hidden ? `<div class="s">${hidden} hidden</div>` : ''}</div>` +
     `<div class="sc"><div class="n">${running}</div><div class="l">Running</div></div>` +
     `<div class="sc"><div class="n">${starting}</div><div class="l">Starting</div></div>` +
     `<div class="sc${failed ? ' warn' : ''}"><div class="n">${failed}</div><div class="l">Needs Attention</div></div>` +
@@ -2369,13 +2478,21 @@ function renderSessionStats(sessions) {
 function renderSessions(sessions) {
   const container = document.getElementById('sessions-table');
   if (!container) return;
-  renderSessionStats(sessions);
+  const showEnded = showEndedSessions();
+  const toggle = document.getElementById('show-ended-sessions');
+  if (toggle) toggle.checked = showEnded;
+  const visibleSessions = showEnded ? sessions : sessions.filter(session => !isQuietSession(session));
+  renderSessionStats(sessions, visibleSessions);
   if (!sessions.length) {
     container.innerHTML = '<p class="em">No runtime sessions yet. Spawn an agent from Environments.</p>';
     return;
   }
+  if (!visibleSessions.length) {
+    container.innerHTML = '<p class="em">Only ended/debug sessions are recorded. Turn on "Show ended/debug sessions" to inspect them.</p>';
+    return;
+  }
   let html = '<table><thead><tr><th>Agent</th><th>Runtime</th><th>Environment</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>';
-  for (const session of sessions) {
+  for (const session of visibleSessions) {
     const caps = session.capabilities || {};
     const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase())).join(', ');
     const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
@@ -2384,8 +2501,8 @@ function renderSessions(sessions) {
     const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
     const spawnControl = pendingSpawn
       ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
-      : actionButton('Restart', 'Queue a new spawn from this session specification', `controlSession('${esc(session.id)}','restart')`) +
-        actionButton('Recover', 'Queue recovery using saved session/spec metadata', `controlSession('${esc(session.id)}','recover')`);
+      : actionButtonFn('Restart', 'Queue a new spawn from this session specification', () => controlSession(session.id, 'restart')) +
+        actionButtonFn('Recover', 'Queue recovery using saved session/spec metadata', () => controlSession(session.id, 'recover'));
     html += `<tr>` +
       `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span></td>` +
       `<td>${esc(session.runtime || '')}<br><span class="t">${esc(session.mode || '')}</span></td>` +
@@ -2395,11 +2512,11 @@ function renderSessions(sessions) {
       `<td class="t"${titleAttr(capLabels)}><span class="clip-2">${esc(capLabels || 'none')}</span></td>` +
       `<td class="t">${esc(session.lastSeen || '')}</td>` +
       `<td><div class="run-controls">` +
-      actionButton('Chat', 'Open chat with the agent backed by this session', `openAgentChat('${esc(session.agentId)}')`) +
-      (activeRun ? actionButton('Interrupt', 'Ask the active run for this session to stop', `interruptRun('${esc(activeRun.id)}')`, 'btn-danger') : '') +
+      actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
+      (activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '') +
       spawnControl +
-      actionButton('Continue as', 'Create a new managed agent/session from an editable handoff packet', `continueSessionAs('${esc(session.id)}')`) +
-      (canStopSession ? actionButton('Stop', 'Stop this managed session and interrupt/cancel work where supported', `controlSession('${esc(session.id)}','stop')`, 'btn-danger') : '') +
+      actionButtonFn('Continue as', 'Create a new managed agent/session from an editable handoff packet', () => continueSessionAs(session.id)) +
+      (canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '') +
       `</div></td>` +
       `</tr>`;
   }
@@ -2422,8 +2539,7 @@ async function continueSessionAs(sessionId) {
         <div class="form-group"><label>New agent ID</label><input id="cont-agent-id" value="${esc(`${session.agentId}-next`)}"></div>
         <div class="form-group"><label>Role</label><select id="cont-role">
           ${['coder','reviewer','tester','researcher','architect','manager','operator'].map(role => `<option value="${role}"${role === (agentInfo.role || 'coder') ? ' selected' : ''}>${role}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Recent messages</label><input id="cont-count" type="number" min="0" max="80" value="24" onchange="regenerateContinuePacket('${esc(sessionId)}')"></div>
+        <div class="form-group"><label>Recent messages</label><input id="cont-count" type="number" min="0" max="80" value="24" onchange="regenerateContinuePacket(${jsArg(sessionId)})"></div>
       </div>
       <div class="send-row">
         <div class="form-group"><label>Environment</label><input id="cont-env" value="${esc(session.environmentId || '')}"></div>
@@ -2436,8 +2552,8 @@ async function continueSessionAs(sessionId) {
         <div class="hint">This includes session identity plus the latest direct messages involving the source agent and channel posts authored by it.</div>
       </div>
       <div class="btn-row">
-        <button class="btn" title="Regenerate the packet from the selected message count" onclick="regenerateContinuePacket('${esc(sessionId)}')">Regenerate</button>
-        <button class="btn btn-primary" title="Queue a managed-warm continuation spawn" onclick="submitContinueSessionAs('${esc(sessionId)}')">Queue continuation</button>
+        <button class="btn" title="Regenerate the packet from the selected message count" onclick="regenerateContinuePacket(${jsArg(sessionId)})">Regenerate</button>
+        <button class="btn btn-primary" title="Queue a managed-warm continuation spawn" onclick="submitContinueSessionAs(${jsArg(sessionId)})">Queue continuation</button>
       </div>
     </div>
   `);
@@ -3227,12 +3343,13 @@ async function createSpawnRequest() {
   }
 }
 
-async function repairPendingHandoffs() {
-  if (!confirm('Create inbox handoff messages for terminal runs that have no recorded reply?')) return;
+async function repairPendingHandoffs(confirmFirst = true) {
+  if (confirmFirst && !confirm('Create inbox handoff messages for terminal runs that have no recorded reply?')) return;
   try {
     const res = await apiFetch(API + '/dispatch/handoffs/repair', {method:'POST'}).then(r => r.json());
     if (res.ok) {
-      toast(`Repaired ${res.mirrored || 0} handoff(s)`);
+      const repaired = res.mirrored || 0;
+      toast(repaired ? `Repaired ${repaired} handoff(s)` : 'No pending handoffs needed repair');
       refreshDashboard();
     } else {
       toast(res.error || 'Repair failed', '#f85149');
