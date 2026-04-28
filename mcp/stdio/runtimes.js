@@ -103,7 +103,11 @@ export function isFatalCodexRuntimeLog(line) {
 }
 
 function buildSystemPrompt(agentId, agentInfo, run) {
-  const replyRule = run?.requireReply === false
+  const fromAgent = String(run?.from || "").trim();
+  const isDashboardSender = fromAgent === "dashboard";
+  const replyRule = isDashboardSender
+    ? "Answer the dashboard user in your final plain-text response. Do not call comms_send back to dashboard; the bridge will deliver your final response into the chat."
+    : run?.requireReply === false
     ? "If the sender explicitly does not need a reply, you may just handle the message locally."
     : "Before you finish handling this message, send an explicit reply message back to the sender. Do not rely on the dispatch summary as the only handoff.";
   return [
@@ -120,7 +124,11 @@ function buildSystemPrompt(agentId, agentInfo, run) {
 }
 
 function buildUserPrompt(run) {
-  const replyRule = run?.requireReply === false
+  const fromAgent = String(run?.from || "").trim();
+  const isDashboardSender = fromAgent === "dashboard";
+  const replyRule = isDashboardSender
+    ? "Reply to the dashboard user in your final plain-text response. Do not use comms_send to dashboard."
+    : run?.requireReply === false
     ? "Reply only if useful for the sender."
     : "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result.";
   return [

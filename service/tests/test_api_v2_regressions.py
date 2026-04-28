@@ -1380,7 +1380,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(windows_bad.status_code, 400, windows_bad.text)
         self.assertIn("Invalid cwd", windows_bad.text)
 
-    def test_dispatch_requires_reply_and_marks_completed_run_pending_without_handoff(self):
+    def test_dispatch_requires_reply_and_auto_mirrors_completed_run_handoff(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
 
@@ -1410,8 +1410,39 @@ class ApiV2RegressionTests(unittest.TestCase):
         final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
         self.assertEqual(final.status_code, 200, final.text)
         self.assertTrue(final.json()["run"]["requireReply"])
-        self.assertEqual(final.json()["run"]["replyState"], "pending")
-        self.assertTrue(final.json()["run"]["replyPending"])
+        self.assertEqual(final.json()["run"]["replyState"], "sent")
+        self.assertFalse(final.json()["run"]["replyPending"])
+        self.assertTrue(final.json()["run"]["resultMessageId"])
+
+    def test_dashboard_dispatch_auto_handoff_uses_clean_chat_body(self):
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        created = self._dispatch(
+            from_agent="dashboard",
+            to="coder",
+            type="request",
+            subject="hello",
+            body="say hi",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+
+        completed = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "completed", "summary": "hi back"},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
+        self.assertEqual(final.status_code, 200, final.text)
+        result_message_id = final.json()["run"]["resultMessageId"]
+        self.assertTrue(result_message_id)
+
+        inbox = self.client.get(f"/api/v1/messages/inbox/dashboard?messageId={result_message_id}")
+        self.assertEqual(inbox.status_code, 200, inbox.text)
+        message = inbox.json()["messages"][0]
+        self.assertEqual(message["body"], "hi back")
 
     def test_completed_run_late_reply_links_result_message_id(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -2010,7 +2041,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         repair = self.client.post("/api/v1/dispatch/handoffs/repair")
         self.assertEqual(repair.status_code, 200, repair.text)
-        self.assertEqual(repair.json()["mirrored"], 1)
+        self.assertEqual(repair.json()["mirrored"], 0)
 
         final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
         self.assertEqual(final.status_code, 200, final.text)

@@ -1736,7 +1736,7 @@ async def _link_reply_message_to_dispatch_run(
     run_cursor = await db.execute(
         """
         SELECT * FROM dispatch_runs
-        WHERE target_agent = ? AND message_id = ? AND result_message_id = ''
+        WHERE target_agent = ? AND message_id = ?
         ORDER BY requested_at DESC
         LIMIT 1
         """,
@@ -1745,6 +1745,13 @@ async def _link_reply_message_to_dispatch_run(
     replied_run = await run_cursor.fetchone()
     if not replied_run:
         return False
+    existing_result_id = str(replied_run["result_message_id"] or "").strip()
+    if existing_result_id:
+        existing_cursor = await db.execute("SELECT body FROM messages WHERE id = ?", (existing_result_id,))
+        existing_message = await existing_cursor.fetchone()
+        existing_body = str((existing_message["body"] if existing_message else "") or "")
+        if not existing_body.startswith("Auto-mirrored dispatch "):
+            return False
 
     current_status = str(replied_run["status"] or "").strip().lower()
     await db.execute(
@@ -1799,7 +1806,6 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         WHERE target_agent = ?
           AND from_agent = ?
           AND require_reply = 1
-          AND result_message_id = ''
           AND status IN ('claimed', 'running', 'completed', 'failed', 'cancelled')
           AND requested_at >= ?
           AND requested_at <= ?
@@ -1811,6 +1817,13 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
     replied_run = await run_cursor.fetchone()
     if not replied_run:
         return False
+    existing_result_id = str(replied_run["result_message_id"] or "").strip()
+    if existing_result_id:
+        existing_cursor = await db.execute("SELECT body FROM messages WHERE id = ?", (existing_result_id,))
+        existing_message = await existing_cursor.fetchone()
+        existing_body = str((existing_message["body"] if existing_message else "") or "")
+        if not existing_body.startswith("Auto-mirrored dispatch "):
+            return False
 
     await db.execute(
         "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
@@ -1837,15 +1850,22 @@ def _auto_handoff_subject_for_run(row) -> str:
 
 def _auto_handoff_body_for_run(row) -> str:
     status = str((row["status"] if row else "") or "").strip().lower()
+    from_agent = str((row["from_agent"] if row else "") or "").strip()
     if status == "failed":
-        intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
         detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
+        if from_agent == "dashboard":
+            return f"The run failed before the agent sent a chat reply.\n\n{detail}"
+        intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
     elif status == "cancelled":
-        intro = "Auto-mirrored dispatch cancellation because no explicit reply message was recorded for the run."
         detail = str((row["summary"] if row else "") or "Run cancelled.").strip()
+        if from_agent == "dashboard":
+            return f"The run was cancelled before the agent sent a chat reply.\n\n{detail}"
+        intro = "Auto-mirrored dispatch cancellation because no explicit reply message was recorded for the run."
     else:
-        intro = "Auto-mirrored dispatch result because no explicit reply message was recorded for the run."
         detail = str((row["summary"] if row else "") or "Run completed.").strip()
+        if from_agent == "dashboard":
+            return detail
+        intro = "Auto-mirrored dispatch result because no explicit reply message was recorded for the run."
     return f"{intro}\n\n{detail}"
 
 
@@ -4324,6 +4344,9 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                     handled_at=now,
                     response_text=f'Run ended with status "{req.status}" before the control could be handled.',
                 )
+                refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
+                refreshed_row = await refreshed_cursor.fetchone()
+                await _mirror_missing_dispatch_handoff(db, refreshed_row)
 
         if req.agentStatus:
             await db.execute(
