@@ -2578,6 +2578,18 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     None,
                 ),
             )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET status = 'ended',
+                    ended_at = COALESCE(NULLIF(ended_at, ''), ?),
+                    last_seen = COALESCE(NULLIF(ended_at, ''), NULLIF(last_seen, ''), ?)
+                WHERE agent_id = ?
+                  AND id != ?
+                  AND status IN ('starting', 'running', 'recovering', 'restarting')
+                """,
+                (now, now, row["agent_id"], session_id),
+            )
             if row["status"] != "running" and str(row["initial_message"] or "").strip():
                 runs = await _create_dispatch_runs(
                     db,
