@@ -2,7 +2,9 @@ import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import os from "os";
 import fs from "fs";
+import path from "path";
 import readline from "readline";
+import { fileURLToPath } from "url";
 import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
@@ -29,6 +31,62 @@ function spawnProcess(command, args, options = {}) {
   // bug cannot crash the bridge process before the adapter wires rejection.
   proc.on("error", () => {});
   return proc;
+}
+
+const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_SCRIPT = path.join(RUNTIME_DIR, "server.js");
+
+function tomlString(value) {
+  return JSON.stringify(String(value || ""));
+}
+
+function copyIfExists(source, target) {
+  try {
+    if (fs.existsSync(source)) fs.copyFileSync(source, target);
+  } catch {
+    // best effort; Codex will surface auth/config issues clearly if copy fails.
+  }
+}
+
+export function managedCodexConfigText({ workspace = "", serverUrl = "", model = "", effort = "" } = {}) {
+  const lines = [
+    `model = ${tomlString(model || "gpt-5.4")}`,
+    `model_reasoning_effort = ${tomlString(effort || "medium")}`,
+    "",
+    "[features]",
+    "multi_agent = true",
+    "codex_hooks = false",
+    "",
+    "[notice]",
+    "hide_full_access_warning = true",
+    "hide_rate_limit_model_nudge = true",
+    "",
+    "[mcp_servers.aify-comms]",
+    `command = ${tomlString(process.execPath)}`,
+    `args = [${tomlString(SERVER_SCRIPT)}]`,
+    "",
+    "[mcp_servers.aify-comms.env]",
+    `AIFY_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
+    `CLAUDE_MCP_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
+  ];
+  if (workspace) {
+    lines.push("", `[projects.${tomlString(workspace)}]`, 'trust_level = "trusted"');
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function prepareManagedCodexHome({ workspace = "", model = "", effort = "" } = {}) {
+  const sourceHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", "managed-codex-home");
+  fs.mkdirSync(targetHome, { recursive: true });
+  for (const name of ["auth.json", "installation_id", "version.json"]) {
+    copyIfExists(path.join(sourceHome, name), path.join(targetHome, name));
+  }
+  fs.writeFileSync(
+    path.join(targetHome, "config.toml"),
+    managedCodexConfigText({ workspace, serverUrl: process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "", model, effort }),
+  );
+  return targetHome;
 }
 
 function quoteForDisplay(text) {
@@ -810,6 +868,10 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       : "";
   const cwd = resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl });
   const spawnCwd = codexSpawnCwd(launcher, hostCwd);
+  const managedCodexHome =
+    executionMode === "managed"
+      ? prepareManagedCodexHome({ workspace: cwd, model, effort })
+      : "";
   const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
   const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
 
@@ -899,7 +961,10 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           onStderr: handleRuntimeLog,
         });
       } else {
-        proc = spawnProcess(launcher.command, launcher.args, { cwd: spawnCwd });
+        proc = spawnProcess(launcher.command, launcher.args, {
+          cwd: spawnCwd,
+          env: managedCodexHome ? { CODEX_HOME: managedCodexHome } : {},
+        });
         rpc = createRpcClient(proc, {
           onNotification: handleNotification,
           onStderr: handleRuntimeLog,
