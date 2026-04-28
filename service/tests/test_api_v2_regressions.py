@@ -170,7 +170,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(first_env["machineId"], "wsl-Ubuntu:test-host")
         self.assertEqual(first_env["cwdRoots"], ["/mnt/c/Docker"])
         self.assertEqual(first_env["runtimes"][0]["runtime"], "codex")
-        self.assertEqual(first_env["metadata"], {"pid": 123})
+        self.assertEqual(first_env["metadata"]["pid"], 123)
+        self.assertEqual(first_env["metadata"]["advertisedCwdRoots"], ["/mnt/c/Docker"])
         self.assertEqual(first_env["status"], "online")
 
         second_payload = {
@@ -192,6 +193,31 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["label"], "Updated bridge")
         self.assertEqual(rows[0]["cwd_roots"], '["/mnt/c/Docker", "/home/test"]')
+
+    def test_environment_roots_override_survives_heartbeat_until_reset(self):
+        first = self._heartbeat_environment(cwdRoots=["/workspace"])
+        self.assertEqual(first["cwdRoots"], ["/workspace"])
+
+        updated = self.client.patch(
+            "/api/v1/environments/linux%3Atest-host%3Adefault/roots",
+            json={"roots": ["/workspace", "/extra"], "requestedBy": "dashboard"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["environment"]["cwdRoots"], ["/workspace", "/extra"])
+        self.assertTrue(updated.json()["environment"]["metadata"]["manualRoots"])
+
+        heartbeat = self._heartbeat_environment(cwdRoots=["/workspace"])
+        self.assertEqual(heartbeat["cwdRoots"], ["/workspace", "/extra"])
+        self.assertEqual(heartbeat["metadata"]["advertisedCwdRoots"], ["/workspace"])
+        self.assertTrue(heartbeat["metadata"]["manualRoots"])
+
+        reset = self.client.patch(
+            "/api/v1/environments/linux%3Atest-host%3Adefault/roots",
+            json={"resetToBridgeAdvertised": True, "requestedBy": "dashboard"},
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        self.assertEqual(reset.json()["environment"]["cwdRoots"], ["/workspace"])
+        self.assertFalse(reset.json()["environment"]["metadata"]["manualRoots"])
 
     def test_environment_stop_control_is_claimed_by_matching_bridge(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-stop")
@@ -482,6 +508,56 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(session["spawn_spec_id"])
         self.assertEqual(spec["environment_id"], "linux:new-host:default")
         self.assertEqual(spec["workspace"], "/newroot/project")
+
+    def test_rename_agent_identity_cascades_history_and_blocks_stale_old_id(self):
+        self._heartbeat_environment(cwdRoots=["/workspace"])
+        self._register("manager", role="manager")
+        self._register("peer", role="coder")
+        spawn = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "old-agent",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(spawn.status_code, 200, spawn.text)
+        spawn_id = spawn.json()["spawnRequest"]["id"]
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "sessionHandle": "thread-old"},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        self._send_message(from_agent="old-agent", to="peer", type="info", subject="from old", body="hello", trigger=False)
+        self._send_message(from_agent="peer", to="old-agent", type="info", subject="to old", body="hello", trigger=False)
+        created = self.client.post("/api/v1/channels", json={"name": "rename-room", "description": "", "createdBy": "old-agent"})
+        self.assertEqual(created.status_code, 200, created.text)
+        joined = self.client.post("/api/v1/channels/rename-room/join", json={"agentId": "old-agent"})
+        self.assertEqual(joined.status_code, 200, joined.text)
+        dispatched = self._dispatch(from_agent="manager", to="old-agent", type="request", subject="work", body="do work")
+        self.assertTrue(dispatched["runs"])
+
+        renamed = self.client.post(
+            "/api/v1/agents/old-agent/rename",
+            json={"newAgentId": "new-agent", "requestedBy": "dashboard"},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertTrue(renamed.json()["changed"])
+
+        self.assertEqual(self.client.get("/api/v1/agents/new-agent").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/agents/old-agent").status_code, 410)
+        self.assertIsNotNone(self._fetchone("SELECT * FROM agent_tombstones WHERE agent_id = ?", ("old-agent",)))
+        for table in ("agent_sessions", "spawn_specs", "spawn_requests", "bridge_instances", "channel_members"):
+            self.assertEqual(self._fetchall(f"SELECT * FROM {table} WHERE agent_id = ?", ("old-agent",)), [])
+            self.assertTrue(self._fetchall(f"SELECT * FROM {table} WHERE agent_id = ?", ("new-agent",)))
+        self.assertEqual(self._fetchall("SELECT * FROM messages WHERE from_agent = ? OR to_agent = ?", ("old-agent", "old-agent")), [])
+        self.assertTrue(self._fetchall("SELECT * FROM messages WHERE from_agent = ? OR to_agent = ?", ("new-agent", "new-agent")))
+        self.assertEqual(self._fetchall("SELECT * FROM dispatch_runs WHERE target_agent = ?", ("old-agent",)), [])
+        self.assertTrue(self._fetchall("SELECT * FROM dispatch_runs WHERE target_agent = ?", ("new-agent",)))
+        self.assertEqual(self._fetchone("SELECT created_by FROM channels WHERE name = ?", ("rename-room",))["created_by"], "new-agent")
 
     def test_managed_dispatch_claim_rejects_stale_environment_bridge(self):
         self._heartbeat_environment(id="linux:test-host:default", bridgeId="bridge-current")
@@ -1291,6 +1367,24 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(removed_rows, [])
         kept_row = self._fetchone("SELECT id FROM messages WHERE id = ?", (kept["messageId"],))
         self.assertIsNotNone(kept_row)
+
+    def test_binary_artifact_upload_is_readable_from_shared_store(self):
+        payload = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+        uploaded = self.client.post(
+            "/api/v1/shared",
+            data={"from_agent": "dashboard", "name": "dash.png", "description": "test image"},
+            files={"file": ("dash.png", payload, "image/png")},
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertTrue(uploaded.json()["isBinary"])
+
+        listed = self.client.get("/api/v1/shared")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["files"][0]["name"], "dash.png")
+
+        read = self.client.get("/api/v1/shared/dash.png")
+        self.assertEqual(read.status_code, 200, read.text)
+        self.assertEqual(read.content, payload)
 
     def test_recent_messages_returns_direct_and_canonical_channels_without_fanout(self):
         self._register("manager")

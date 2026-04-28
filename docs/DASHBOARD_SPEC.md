@@ -53,6 +53,7 @@ Chat should feel like a real team messenger:
 - quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
 - thread drawer for run details, artifacts, and handoff state
 - channel details: show current members and allow adding known agents from the right-side Members panel
+- artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
 - reply expectations are inferred from message type: requests/reviews should get explicit replies; routine info does not need a special toggle
 - normal dashboard chat has one send path; strict dispatch remains an advanced API/debug path, not a primary composer option
 
@@ -120,7 +121,7 @@ Spawn form UX:
 - advanced options are collapsed by default
 - preview shows the exact environment, workspace, runtime, and mode that will be used
 
-The bridge launcher advertises allowed workspace roots. Those roots are safety boundaries, not the default project choice for every agent. The exact workspace remains part of each spawn request.
+The bridge launcher advertises allowed workspace roots. Those roots are safety boundaries, not the default project choice for every agent. The exact workspace remains part of each spawn request. Operators may override roots from the dashboard; the service preserves that override across heartbeats and sends the effective root list back to the bridge for managed spawn checks. Reset returns to the roots the bridge command actually advertises.
 
 Live-wake-only product constraint: normal dashboard spawn should create managed-warm agents. Older non-live compatibility paths may remain below the UI/API for migration and debugging, but they are not primary user choices.
 
@@ -143,7 +144,8 @@ Actions:
 
 - spawn here
 - stop bridge
-- set default workspace roots
+- edit workspace roots
+- reset to bridge-advertised roots
 - disable spawning
 - view bridge logs
 - unregister environment
@@ -279,6 +281,7 @@ Columns:
 Actions:
 
 - open chat
+- change identity ID, with a visible warning that live/resident agents need to be told the new ID
 - spawn/recover
 - continue from latest session
 - stop active session

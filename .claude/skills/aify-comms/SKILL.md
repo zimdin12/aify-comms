@@ -194,6 +194,7 @@ When you receive a wake notification or finish a task, check inbox before starti
 
 - Thread replies with `inReplyTo`. Agents should normally answer messages. Treat every `request`, `review`, or `error` as needing an explicit reply unless the sender clearly says otherwise; a short ack is fine for routine info. Use `response` when the work is done or blocked. The optional `requireReply` parameter exists for edge cases, but normal agents should not need to think about it.
 - `comms_channel_send` for group wakeups, `comms_share` for long output (logs, screenshots, patches, reports).
+- Dashboard-uploaded files are stored in the aify-comms shared artifact store, not necessarily in the workspace. If a message says `Artifact: name`, call `comms_read(name="name")` before trying filesystem search.
 - If you already sent the same handoff directly to someone, posting it to a channel right after will keep the channel history entry but will not create a second personal inbox copy for that member.
 - `comms_run_interrupt` to stop an active run. `comms_send(steer=true)` to inject guidance mid-turn.
 - Before diagnosing another agent's issues, call `comms_agent_info` first — don't guess.

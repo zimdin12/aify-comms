@@ -1342,6 +1342,7 @@ function renderWorkers(workers) {
       `<td><div class="run-controls">` +
       actionButtonFn('Chat', 'Open a direct chat with this managed agent', () => openAgentChat(id)) +
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed agent', () => prefillWorkerMessage(id, 'request')) +
+      actionButtonFn('Change ID', 'Rename this teammate identity everywhere in aify-comms history and session records', () => renameAgentIdentity(id)) +
       actionButtonFn('Assign env', 'Retarget this teammate identity and saved spawn spec to another online environment', () => assignAgentEnvironment(id)) +
       (activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '') +
       actionButtonFn('Clear Resume State', 'Forget saved runtime thread/session handles. Messages and identity remain.', () => resetWorkerState(id)) +
@@ -1399,6 +1400,41 @@ async function assignAgentEnvironment(agentId) {
     await refreshDashboard();
   } catch (e) {
     toast(e.message || 'Assign environment failed', '#f85149');
+  }
+}
+
+async function renameAgentIdentity(agentId) {
+  const next = prompt(
+    `Rename agent identity "${agentId}" to:\n\nThis updates chats, channel memberships, sessions, runs, spawn specs, and artifacts. A live/resident agent must be told to use the new ID.`,
+    agentId,
+  );
+  if (next === null) return;
+  const newAgentId = next.trim();
+  if (!newAgentId || newAgentId === agentId) return;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(newAgentId)) {
+    toast('Invalid agent ID. Use letters, numbers, dots, hyphens, and underscores.', '#f85149');
+    return;
+  }
+  if ((window._allAgents || []).some(([id]) => id === newAgentId)) {
+    toast(`Agent ${newAgentId} already exists`, '#f85149');
+    return;
+  }
+  const activeRun = (window._allRuns || []).find(run => run.targetAgentId === agentId && ['queued', 'claimed', 'running'].includes(String(run.status || '').toLowerCase()));
+  const extra = activeRun ? `\n\nWarning: ${agentId} has active or queued work (${activeRun.id}). Rename only if you are intentionally changing the identity now.` : '';
+  if (!confirm(`Rename ${agentId} to ${newAgentId}?${extra}\n\nThe old ID will be tombstoned so stale bridges do not silently recreate it.`)) return;
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/rename`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({newAgentId, requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Rename failed');
+    if (window._chatSelected === `dm:${agentId}`) window._chatSelected = `dm:${newAgentId}`;
+    toast(`Renamed ${agentId} to ${newAgentId}`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Rename failed', '#f85149');
   }
 }
 
@@ -1810,6 +1846,7 @@ function renderEnvironments(environments) {
     const startCommand = environmentStartCommand(env);
     const statusClass = `env-${env.status || 'unknown'}`;
     const pid = env.metadata && env.metadata.pid ? String(env.metadata.pid) : '';
+    const manualRoots = !!(env.metadata && env.metadata.manualRoots);
     const roots = (env.cwdRoots || []).length
       ? `<div class="env-roots">${env.cwdRoots.map(root => `<span class="clip-1"${titleAttr(root)}>${esc(root)}</span>`).join('')}</div>`
       : '<span class="t">No roots advertised</span>';
@@ -1828,12 +1865,14 @@ function renderEnvironments(environments) {
       (pid ? `<dt>PID</dt><dd>${esc(pid)}</dd>` : '') +
       `<dt>Version</dt><dd>${esc(env.bridgeVersion || '')}</dd>` +
       `<dt>Runtimes</dt><dd>${runtimes}</dd>` +
-      `<dt>Roots</dt><dd>${roots}</dd>` +
+      `<dt>Roots</dt><dd>${roots}${manualRoots ? '<span class="mb mb-dispatch">dashboard override</span>' : ''}</dd>` +
       `<dt>Last seen</dt><dd class="t">${esc(env.lastSeen || '')}</dd>` +
       `</dl>` +
       `<pre class="env-command">${esc(startCommand)}</pre>` +
       `<div class="btn-row">` +
       (isOnline ? actionButtonFn('Spawn here', 'Prefill the spawn form with this environment and its first workspace root', () => prefillEnvironmentSpawn(env.id)) : '') +
+      actionButtonFn('Edit roots', 'Change the workspace roots this dashboard and bridge use for managed spawns', () => editEnvironmentRoots(env.id)) +
+      (manualRoots ? actionButtonFn('Use bridge roots', 'Reset roots back to what the bridge process advertises', () => resetEnvironmentRoots(env.id)) : '') +
       actionButtonFn('Copy start', 'Copy the command to start this bridge again', () => copyText(startCommand, 'Start command copied')) +
       (isOnline
         ? actionButtonFn('Kill bridge', 'Ask this host bridge process to exit. After it stops, the row can be forgotten.', () => controlEnvironment(env.id, 'stop'), 'btn-danger')
@@ -1859,6 +1898,56 @@ function environmentStartCommand(env) {
   const cd = firstRoot ? `cd ${quote(firstRoot)}` : 'cd /mnt/c/Docker';
   const args = extras.map(quote).join(' ');
   return `${cd}\naify-comms${args ? ' ' + args : ''}`;
+}
+
+async function editEnvironmentRoots(environmentId) {
+  const env = (window._environments || []).find(item => item.id === environmentId);
+  if (!env) {
+    toast('Environment not found', '#f85149');
+    return;
+  }
+  const current = (env.cwdRoots || []).join('\n');
+  const text = prompt(
+    `Workspace roots for ${environmentId}\n\nOne root per line. These roots are used for dashboard spawn validation and sent back to the live bridge on heartbeat.`,
+    current,
+  );
+  if (text === null) return;
+  const roots = text.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean);
+  if (!roots.length) {
+    toast('At least one root is required. Use "Use bridge roots" to reset.', '#f85149');
+    return;
+  }
+  if (!confirm(`Update roots for ${environmentId}?\n\n${roots.join('\n')}\n\nAlready-running agents are not moved. New/recovered spawns will use this root list.`)) return;
+  try {
+    const response = await apiFetch(API + `/environments/${encodeURIComponent(environmentId)}/roots`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({roots, requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Root update failed');
+    toast('Environment roots updated');
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Root update failed', '#f85149');
+  }
+}
+
+async function resetEnvironmentRoots(environmentId) {
+  if (!confirm(`Reset ${environmentId} to the roots advertised by its bridge process?`)) return;
+  try {
+    const response = await apiFetch(API + `/environments/${encodeURIComponent(environmentId)}/roots`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({resetToBridgeAdvertised: true, requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Root reset failed');
+    toast('Environment roots reset');
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Root reset failed', '#f85149');
+  }
 }
 
 async function controlEnvironment(environmentId, action) {
@@ -2465,7 +2554,8 @@ async function uploadChatArtifactFile(event) {
     const res = await response.json();
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Upload artifact failed');
     const body = document.getElementById('chat-body');
-    body.value = `${body.value ? body.value + '\n\n' : ''}Artifact: ${name}`;
+    const artifactNote = `Artifact: ${name}\nUse comms_read(name="${name}") to retrieve this uploaded artifact from aify-comms. Do not look for it in the workspace path; it is stored by the shared service.`;
+    body.value = `${body.value ? body.value + '\n\n' : ''}${artifactNote}`;
     body.focus();
     toast(`Uploaded ${name}`);
     await loadFiles();
@@ -2608,6 +2698,7 @@ function renderSessions(sessions) {
       `<td class="t">${esc(session.lastSeen || '')}</td>` +
       `<td><div class="run-controls">` +
       actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
+      actionButtonFn('Change ID', 'Rename this agent identity across sessions, chats, channels, runs, and spawn records', () => renameAgentIdentity(session.agentId)) +
       (activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '') +
       spawnControl +
       actionButtonFn('Continue as', 'Create a new managed agent/session from an editable handoff packet', () => continueSessionAs(session.id)) +

@@ -119,6 +119,7 @@ let spawnLoopBusy = false;
 let managedEnvironmentSyncBusy = false;
 let spawnClaimFailureCount = 0;
 let spawnClaimLastLogAt = 0;
+let remoteEffectiveCwdRoots = null;
 const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 
@@ -697,6 +698,14 @@ function environmentHeartbeatPayload() {
   };
 }
 
+function effectiveEnvironmentPayload() {
+  const payload = environmentHeartbeatPayload();
+  if (remoteEffectiveCwdRoots && remoteEffectiveCwdRoots.length) {
+    return { ...payload, cwdRoots: remoteEffectiveCwdRoots };
+  }
+  return payload;
+}
+
 function workspaceWithinRoots(workspace, roots = []) {
   const value = String(workspace || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
   const normalizedRoots = (roots || [])
@@ -709,7 +718,11 @@ function workspaceWithinRoots(workspace, roots = []) {
 async function heartbeatEnvironment() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
   try {
-    await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
+    const response = await httpCall("POST", "/environments/heartbeat", environmentHeartbeatPayload());
+    const roots = response?.environment?.cwdRoots;
+    if (Array.isArray(roots)) {
+      remoteEffectiveCwdRoots = roots.map((root) => String(root || "").trim()).filter(Boolean);
+    }
     await syncManagedEnvironmentAgents();
   } catch (error) {
     // Environment heartbeat is presence-only in this slice. Keep existing
@@ -752,7 +765,7 @@ async function runEnvironmentControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || environmentControlBusy) return;
   environmentControlBusy = true;
   try {
-    const environment = environmentHeartbeatPayload();
+    const environment = effectiveEnvironmentPayload();
     const claim = await httpCall("POST", "/environments/controls/claim", {
       environmentId: environment.id,
       bridgeId: BRIDGE_INSTANCE_ID,
@@ -822,7 +835,7 @@ async function syncManagedEnvironmentAgents() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || managedEnvironmentSyncBusy) return;
   managedEnvironmentSyncBusy = true;
   try {
-    const environment = environmentHeartbeatPayload();
+    const environment = effectiveEnvironmentPayload();
     const [agentsRes, sessionsRes] = await Promise.all([
       httpCall("GET", "/agents"),
       httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
@@ -901,7 +914,7 @@ async function runSpawnLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || spawnLoopBusy) return;
   spawnLoopBusy = true;
   try {
-    const environment = environmentHeartbeatPayload();
+    const environment = effectiveEnvironmentPayload();
     let claim;
     try {
       claim = await httpCall("POST", "/spawn-requests/claim", {

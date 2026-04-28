@@ -129,6 +129,12 @@ class EnvironmentControlRequest(BaseModel):
     requestedBy: Optional[str] = None
 
 
+class EnvironmentRootsUpdate(BaseModel):
+    roots: Optional[list[str]] = None
+    requestedBy: Optional[str] = None
+    resetToBridgeAdvertised: Optional[bool] = False
+
+
 class EnvironmentControlClaim(BaseModel):
     environmentId: str
     bridgeId: str
@@ -144,6 +150,11 @@ class AgentEnvironmentAssignRequest(BaseModel):
     environmentId: str
     workspace: Optional[str] = None
     runtime: Optional[str] = None
+    requestedBy: Optional[str] = None
+
+
+class AgentRenameRequest(BaseModel):
+    newAgentId: str
     requestedBy: Optional[str] = None
 
 

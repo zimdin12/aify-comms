@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 # Per-agent wake-up events for comms_listen
 _listen_events: dict[str, asyncio.Event] = {}
@@ -22,8 +22,8 @@ from service.models import (
     ChannelCreate, ChannelMessage, ChannelJoin,
     AgentRuntimeStateUpdate, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
-    EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate,
-    AgentEnvironmentAssignRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
+    EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
+    AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -980,6 +980,21 @@ def _workspace_for_environment(environment: dict[str, Any], requested_workspace:
     if not workspace and workspace_root:
         workspace = workspace_root
     return workspace, workspace_root
+
+
+def _normalize_roots(roots: Optional[list[str]]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for root in roots or []:
+        value = str(root or "").strip()
+        if not value:
+            continue
+        key = value.replace("\\", "/").rstrip("/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
 
 
 def _spawn_spec_to_dict(row) -> dict[str, Any]:
@@ -2039,7 +2054,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         raise HTTPException(400, "Environment id is required")
 
     now = _now()
-    cwd_roots = [str(root) for root in (req.cwdRoots or []) if str(root or "").strip()]
+    cwd_roots = _normalize_roots(req.cwdRoots or [])
     runtimes = req.runtimes or []
     metadata = req.metadata or {}
     requested_status = str(req.status or "online").strip().lower()
@@ -2050,6 +2065,16 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         existing_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         existing = await existing_cursor.fetchone()
         registered_at = existing["registered_at"] if existing else now
+        existing_metadata = _json_loads_or(existing["metadata"], {}) if existing else {}
+        manual_roots = bool(existing_metadata.get("manualRoots"))
+        effective_roots = _json_loads_or(existing["cwd_roots"], []) if existing and manual_roots else cwd_roots
+        next_metadata = {**metadata, "advertisedCwdRoots": cwd_roots}
+        if manual_roots:
+            next_metadata.update({
+                "manualRoots": True,
+                "manualRootsUpdatedAt": existing_metadata.get("manualRootsUpdatedAt", ""),
+                "manualRootsUpdatedBy": existing_metadata.get("manualRootsUpdatedBy", ""),
+            })
         superseded_bridge_id = ""
         if existing and str(existing["bridge_id"] or "").strip() and str(req.bridgeId or "").strip():
             existing_bridge_id = str(existing["bridge_id"] or "").strip()
@@ -2086,10 +2111,10 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                     req.kind or "",
                     req.bridgeId or "",
                     req.bridgeVersion or "",
-                    json.dumps(cwd_roots),
+                    json.dumps(effective_roots),
                     json.dumps(runtimes),
                     requested_status,
-                    json.dumps(metadata),
+                    json.dumps(next_metadata),
                     now,
                     env_id,
                 ),
@@ -2110,10 +2135,10 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                     req.kind or "",
                     req.bridgeId or "",
                     req.bridgeVersion or "",
-                    json.dumps(cwd_roots),
+                    json.dumps(effective_roots),
                     json.dumps(runtimes),
                     requested_status,
-                    json.dumps(metadata),
+                    json.dumps(next_metadata),
                     registered_at,
                     now,
                 ),
@@ -2157,6 +2182,54 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("environment_heartbeat", {"environmentId": env_id, "bridgeId": req.bridgeId or ""})
+        return {"ok": True, "environment": environment}
+    finally:
+        await db.close()
+
+
+@router.patch("/environments/{environment_id:path}/roots")
+async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpdate, request: Request):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
+        env = await cursor.fetchone()
+        if not env:
+            raise HTTPException(404, "Environment not found")
+        now = _now()
+        metadata = _json_loads_or(env["metadata"], {})
+        if req.resetToBridgeAdvertised:
+            roots = _normalize_roots(metadata.get("advertisedCwdRoots") or _json_loads_or(env["cwd_roots"], []))
+            next_metadata = {k: v for k, v in metadata.items() if k not in {"manualRoots", "manualRootsUpdatedAt", "manualRootsUpdatedBy"}}
+            next_metadata["manualRoots"] = False
+            next_metadata["manualRootsResetAt"] = now
+            next_metadata["manualRootsResetBy"] = req.requestedBy or "dashboard"
+        else:
+            roots = _normalize_roots(req.roots or [])
+            if not roots:
+                raise HTTPException(400, "At least one root is required. Use resetToBridgeAdvertised to return to bridge-advertised roots.")
+            next_metadata = {
+                **metadata,
+                "manualRoots": True,
+                "manualRootsUpdatedAt": now,
+                "manualRootsUpdatedBy": req.requestedBy or "dashboard",
+                "previousCwdRoots": _json_loads_or(env["cwd_roots"], []),
+            }
+        await db.execute(
+            """
+            UPDATE environments
+            SET cwd_roots = ?,
+                metadata = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (json.dumps(roots), json.dumps(next_metadata), now, environment_id),
+        )
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+        environment = _environment_record_to_dict(row)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("environment_roots_updated", {"environmentId": environment_id})
         return {"ok": True, "environment": environment}
     finally:
         await db.close()
@@ -3079,6 +3152,88 @@ async def get_agent(agent_id: str, request: Request):
         status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30))
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, status, unread, dispatch_state)}
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/rename")
+async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request):
+    validate_name(agent_id, "agent ID")
+    new_agent_id = str(req.newAgentId or "").strip()
+    validate_name(new_agent_id, "new agent ID")
+    if new_agent_id == agent_id:
+        return {"ok": True, "agentId": agent_id, "newAgentId": new_agent_id, "changed": False}
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        agent = await cursor.fetchone()
+        if not agent:
+            await db.rollback()
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        existing = await (await db.execute("SELECT id FROM agents WHERE id = ?", (new_agent_id,))).fetchone()
+        if existing:
+            await db.rollback()
+            raise HTTPException(409, f'Agent "{new_agent_id}" already exists')
+        tombstone = await _agent_tombstone(db, new_agent_id)
+        if tombstone:
+            await db.rollback()
+            raise HTTPException(409, f'Agent "{new_agent_id}" was intentionally removed before; clear that ID before reusing it')
+
+        now = _now()
+        await db.execute(
+            """
+            INSERT INTO agents (
+                id, role, name, cwd, model, description, instructions, status, status_note,
+                runtime, machine_id, launch_mode, session_mode, session_handle, managed_by,
+                capabilities, runtime_config, runtime_state, registered_at, last_seen
+            )
+            SELECT ?, role, CASE WHEN name = id THEN ? ELSE name END, cwd, model, description,
+                   instructions, status, status_note, runtime, machine_id, launch_mode,
+                   session_mode, session_handle, managed_by, capabilities, runtime_config,
+                   runtime_state, registered_at, ?
+            FROM agents
+            WHERE id = ?
+            """,
+            (new_agent_id, new_agent_id, now, agent_id),
+        )
+        for table, column in (
+            ("agent_sessions", "agent_id"),
+            ("spawn_specs", "agent_id"),
+            ("spawn_requests", "agent_id"),
+            ("bridge_instances", "agent_id"),
+            ("read_receipts", "agent_id"),
+            ("channel_members", "agent_id"),
+        ):
+            await db.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE messages SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE messages SET to_agent = ? WHERE to_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE shared_artifacts SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE dispatch_runs SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE dispatch_runs SET target_agent = ? WHERE target_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE dispatch_controls SET from_agent = ? WHERE from_agent = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE channels SET created_by = ? WHERE created_by = ?", (new_agent_id, agent_id))
+        await db.execute("UPDATE agents SET managed_by = ? WHERE managed_by = ?", (new_agent_id, agent_id))
+        await db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO agent_tombstones (agent_id, removed_at, removed_by, bridge_id, reason)
+            VALUES (?,?,?,?,?)
+            """,
+            (agent_id, now, req.requestedBy or "dashboard", "", f"renamed_to:{new_agent_id}"),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_renamed", {"oldAgentId": agent_id, "newAgentId": new_agent_id})
+        return {"ok": True, "agentId": agent_id, "newAgentId": new_agent_id, "changed": True}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         await db.close()
 
@@ -4692,25 +4847,30 @@ async def share_artifact(
     db = await get_db()
     try:
         now = _now()
+        size = 0
+        is_binary = False
         if file:
             shared_dir = _shared_dir(request)
             file_path = shared_dir / name
             data = await file.read()
+            size = len(data)
+            is_binary = True
             file_path.write_bytes(data)
             await db.execute(
                 "INSERT OR REPLACE INTO shared_artifacts (name, from_agent, description, file_path, size, is_binary, shared_at) VALUES (?,?,?,?,?,?,?)",
-                (name, from_agent, description, str(file_path), len(data), 1, now)
+                (name, from_agent, description, str(file_path), size, 1, now)
             )
         else:
             text = content or ""
+            size = len(text)
             await db.execute(
                 "INSERT OR REPLACE INTO shared_artifacts (name, from_agent, description, content, size, is_binary, shared_at) VALUES (?,?,?,?,?,?,?)",
-                (name, from_agent, description, text, len(text), 0, now)
+                (name, from_agent, description, text, size, 0, now)
             )
         await db.commit()
         ws = await _get_ws(request)
         if ws: await ws.broadcast("file_shared", {"name": name, "from": from_agent})
-        return {"ok": True, "name": name}
+        return {"ok": True, "name": name, "size": size, "isBinary": is_binary}
     finally:
         await db.close()
 
