@@ -52,14 +52,14 @@ Daily workflow target:
 
 - As a user, I can connect WSL and Windows bridges and see both as spawn targets.
 - As a user, I can spawn a Codex agent in WSL or a Claude agent in Windows from the dashboard.
-- As a user, I can select workspace, model/profile, role, initial instructions, and default channel memberships before spawn.
+- As a user, I can select workspace, runtime, role, optional model/profile, and initial instructions before spawn.
 - As a user, I can DM a spawned agent immediately without asking it to manually register.
 - As a user, I can create a channel, add agents, and send a message to that channel.
 - As a user, I can see which agents are alive, idle, working, blocked, or dead.
 - As a user, I can stop a managed agent process and later respawn/resume the same identity when supported by the runtime.
 - As a user, I can stop a managed agent process and recover it from stored backing even when the runtime does not support native resume.
 - As a user, I can inspect token/cost telemetry when the runtime exposes it.
-- As a user, I can open a transcript/log for any managed agent, even when the official CLI cannot attach to that session.
+- As a user, I can inspect enough run/session evidence to understand what happened, with richer transcript/log views added per adapter as they mature.
 - As a user, I can start a clean new session from an old session using a reviewed compaction packet, including switching model, runtime, bridge, or workspace.
 - As a user, I can repair old missing-handoff rows and dismiss reviewed historical failures from the Home queue without deleting audit records.
 

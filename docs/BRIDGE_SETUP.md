@@ -166,7 +166,7 @@ The headless environment bridge is enough for dashboard-managed spawns. Resident
 
 Stopping a resident from the dashboard disables wake/dispatch in the control plane and interrupts active work when a runtime control path exists. It does not forcibly close a human's terminal window. Managed sessions spawned through the bridge can be stopped/restarted/recovered through their stored spawn spec.
 
-To move an existing resident identity under dashboard-managed control, use **Team -> Manual / Resident CLI Identities -> Adopt env**. This does not attach the already-open CLI process to an environment. It converts the identity into a managed teammate by creating a spawn spec and a recoverable session record for the selected online environment/workspace/runtime. After adoption, close or stop the old resident CLI tab for that same `agentId`, then use **Sessions -> Recover/Restart** to run future work through the environment bridge.
+To move an existing resident identity under dashboard-managed control, open **Team -> Manual / Resident CLI Identities**, choose **Edit** or **Actions -> Adopt env**, and assign an online environment, runtime, and workspace. This does not attach the already-open CLI process to an environment. It converts the identity into a managed teammate by creating a spawn spec and a recoverable session record for the selected environment/workspace/runtime. After adoption, close or stop the old resident CLI tab for that same `agentId`, then use **Sessions -> Recover/Restart** to run future work through the environment bridge.
 
 ## Verify
 

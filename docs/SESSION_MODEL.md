@@ -15,7 +15,7 @@ Agent identity is stable:
 - name
 - standing instructions
 - owner/manager
-- default channel memberships
+- default channel memberships (future policy field; current channel membership is explicit channel state)
 - permissions/budgets
 
 Agent sessions are replaceable runtime instances:

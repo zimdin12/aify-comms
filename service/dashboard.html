@@ -1055,11 +1055,15 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('change', event => {
   const target = event.target.closest('[data-channel-member-select]');
-  if (!target) return;
-  const channelName = target.getAttribute('data-channel-member-select') || '';
-  if (!channelName) return;
-  window._channelMemberDrafts = window._channelMemberDrafts || {};
-  window._channelMemberDrafts[channelName] = target.value || '';
+  if (target) {
+    const channelName = target.getAttribute('data-channel-member-select') || '';
+    if (!channelName) return;
+    window._channelMemberDrafts = window._channelMemberDrafts || {};
+    window._channelMemberDrafts[channelName] = target.value || '';
+    return;
+  }
+  const agentEnvSelect = event.target.closest('[data-agent-edit-env]');
+  if (agentEnvSelect) syncAgentEditorEnvironment(agentEnvSelect.value);
 });
 function disabledActionButton(label, title, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} disabled>${esc(label)}</button>`;
@@ -1308,7 +1312,7 @@ function renderAgents(agents, containerId = 'manual-agents-table') {
     } else {
       controls.push(actionButtonFn('Stop wake', 'Disable wake/dispatch for this resident identity and interrupt/cancel active work where possible. This does not close a human-open CLI window.', () => controlResidentAgent(id, 'stop'), 'btn-danger'));
     }
-    controls.push(actionButtonFn('Adopt env', 'Convert this resident identity into a dashboard-managed teammate backed by an online environment. Close or stop the old CLI after adoption.', () => assignAgentEnvironment(id)));
+    controls.push(actionButtonFn('Adopt env', 'Open identity editor to convert this resident identity into a dashboard-managed teammate backed by an online environment. Close or stop the old CLI after adoption.', () => openAgentEditor(id)));
     controls.push(actionButtonFn('Remove from dashboard', 'Remove this identity from the dashboard and prevent stale bridges from recreating it until explicitly registered again', () => deleteAgent(id), 'btn-danger'));
     html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
       renderPresenceCell(info) +
@@ -1358,7 +1362,7 @@ function renderWorkers(workers) {
     const activeRunId = info.dispatchState?.activeRun?.runId || '';
     const actionItems = [
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed agent', () => prefillWorkerMessage(id, 'request')),
-      actionButtonFn('Assign env', 'Retarget this teammate identity and saved spawn spec to another online environment', () => assignAgentEnvironment(id)),
+      actionButtonFn('Assign env', 'Open identity editor to retarget this teammate and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
       actionButtonFn('Clear Resume State', 'Forget saved runtime thread/session handles. Messages and identity remain.', () => resetWorkerState(id)),
       actionButtonFn('Remove', 'Unregister this managed agent and cancel queued work', () => deleteAgent(id), 'btn-danger'),
@@ -1393,44 +1397,6 @@ function openTeamSpawn() {
   }, 50);
 }
 
-async function assignAgentEnvironment(agentId) {
-  const environments = (window._environments || []).filter(env => env.status === 'online');
-  if (!environments.length) {
-    toast('No online environments available', '#f85149');
-    return;
-  }
-  const agent = (window._allAgents || []).find(([id]) => id === agentId)?.[1] || {};
-  const currentSession = (window._sessions || []).find(session => session.agentId === agentId) || null;
-  const choices = environments.map(env => `${env.id} (${(env.runtimes || []).map(r => r.runtime).join(', ') || 'no runtimes'})`).join('\n');
-  const environmentId = prompt(`Assign ${agentId} to which online environment?\n\n${choices}`, currentSession?.environmentId || environments[0].id);
-  if (!environmentId) return;
-  const environment = environments.find(env => env.id === environmentId.trim());
-  if (!environment) {
-    toast('Choose one of the online environment IDs shown', '#f85149');
-    return;
-  }
-  const runtimeOptions = (environment.runtimes || []).map(r => r.runtime).filter(Boolean);
-  const runtimeDefault = runtimeOptions.includes(agent.runtime) ? agent.runtime : (runtimeOptions[0] || agent.runtime || '');
-  const runtime = prompt(`Runtime for ${agentId} on ${environment.id}`, runtimeDefault);
-  if (!runtime) return;
-  const workspaceDefault = currentSession?.workspace || agent.cwd || environment.cwdRoots?.[0] || '';
-  const workspace = prompt(`Workspace for ${agentId}\nMust be under an advertised root for ${environment.id}.`, workspaceDefault);
-  if (!workspace) return;
-  try {
-    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/environment`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({environmentId: environment.id, runtime, workspace, requestedBy: chatIdentity()}),
-    });
-    const res = await response.json();
-    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Assign environment failed');
-    toast(`${agentId} assigned to ${environment.id}. Use Sessions -> Recover/Restart to run it there. Close old resident CLI tabs for that same ID.`);
-    await refreshDashboard();
-  } catch (e) {
-    toast(e.message || 'Assign environment failed', '#f85149');
-  }
-}
-
 function openAgentEditor(agentId) {
   const agent = (window._allAgents || []).find(([id]) => id === agentId)?.[1] || {};
   const session = primarySessionForAgent(agentId) || (window._sessions || []).find(item => item.agentId === agentId) || {};
@@ -1440,14 +1406,16 @@ function openAgentEditor(agentId) {
   const runtimeOptions = (selectedEnv.runtimes || []).map(item => item.runtime).filter(Boolean);
   const runtimeValue = session.runtime || agent.runtime || runtimeOptions[0] || '';
   const envOptions = environments.map(env => `<option value="${esc(env.id)}"${env.id === currentEnvId ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(env.id)})</option>`).join('');
-  const runtimeSelect = runtimeOptions.length
-    ? `<select id="agent-edit-runtime">${runtimeOptions.map(runtime => `<option value="${esc(runtime)}"${runtime === runtimeValue ? ' selected' : ''}>${esc(runtime)}</option>`).join('')}</select>`
-    : `<input id="agent-edit-runtime" value="${esc(runtimeValue)}">`;
+  const runtimeSelect = `<select id="agent-edit-runtime">${
+    runtimeOptions.length
+      ? runtimeOptions.map(runtime => `<option value="${esc(runtime)}"${runtime === runtimeValue ? ' selected' : ''}>${esc(runtime)}</option>`).join('')
+      : `<option value="${esc(runtimeValue)}">${esc(runtimeValue || 'No runtimes advertised')}</option>`
+  }</select>`;
   const workspace = session.workspace || agent.cwd || selectedEnv.cwdRoots?.[0] || '';
   openModal(`Edit ${agentId}`, `
     <div class="modal-form">
       <label>Agent ID<input id="agent-edit-id" value="${esc(agentId)}"></label>
-      <label>Environment<select id="agent-edit-env">${envOptions || '<option value="">No online environments</option>'}</select></label>
+      <label>Environment<select id="agent-edit-env" data-agent-edit-env>${envOptions || '<option value="">No online environments</option>'}</select></label>
       <label>Runtime${runtimeSelect}</label>
       <label>Workspace<input id="agent-edit-workspace" value="${esc(workspace)}"></label>
       <p class="worker-note">Changing the ID rewrites aify-comms chats, channels, sessions, runs, spawn specs, and artifacts. A live/resident agent still needs to be told to use the new ID.</p>
@@ -1458,6 +1426,26 @@ function openAgentEditor(agentId) {
         ${actionButtonFn('Remove', 'Unregister this identity and cancel queued work', () => { closeModal(); deleteAgent(agentId); }, 'btn-danger')}
       </div>
     </div>`);
+}
+
+function syncAgentEditorEnvironment(environmentId) {
+  const env = (window._environments || []).find(item => item.id === environmentId);
+  const runtimeControl = document.getElementById('agent-edit-runtime');
+  const workspaceInput = document.getElementById('agent-edit-workspace');
+  if (!env || !runtimeControl) return;
+  const runtimeOptions = (env.runtimes || []).map(item => item.runtime).filter(Boolean);
+  const currentRuntime = runtimeControl.value;
+  if (runtimeControl.tagName === 'SELECT') {
+    runtimeControl.innerHTML = runtimeOptions.length
+      ? runtimeOptions.map(runtime => `<option value="${esc(runtime)}">${esc(runtime)}</option>`).join('')
+      : '<option value="">No runtimes advertised</option>';
+    runtimeControl.value = runtimeOptions.includes(currentRuntime) ? currentRuntime : (runtimeOptions[0] || '');
+  }
+  if (workspaceInput && env.cwdRoots?.[0]) {
+    const current = workspaceInput.value || '';
+    const underSelectedRoot = (env.cwdRoots || []).some(root => current === root || current.startsWith(root.replace(/[\\\/]+$/, '') + '/') || current.startsWith(root.replace(/[\\\/]+$/, '') + '\\'));
+    if (!current || !underSelectedRoot) workspaceInput.value = env.cwdRoots[0];
+  }
 }
 
 async function saveAgentEditor(originalAgentId) {

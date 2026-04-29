@@ -1,6 +1,6 @@
 # aify-comms — Codex project notes
 
-This repo is `aify-comms`. The current product goal is a dashboard-driven headless agent control plane: spawn agents into connected environments, chat with them, group them, monitor them, and stop/resume them without requiring manual `comms_register` from every agent.
+This repo is `aify-comms`. The product is a dashboard-driven headless agent control plane: connect Windows/WSL/Linux environment bridges, spawn persistent managed agents into selected workspaces, chat with agents and channels, monitor tracked work, and stop/restart/recover sessions without requiring manual `comms_register` from dashboard-spawned agents.
 
 ## Primary Documents
 
@@ -12,10 +12,10 @@ This repo is `aify-comms`. The current product goal is a dashboard-driven headle
 - [docs/WEB_APP_DESIGN.md](docs/WEB_APP_DESIGN.md) — web app UX/architecture quality bar.
 - [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — concise engineering guide for coding agents.
 - [docs/PLAN_REVIEW.md](docs/PLAN_REVIEW.md) — pressure-test and risks to keep in mind.
-- [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — staged engineering plan.
-- [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — exact first task to start implementation.
+- [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — historical staged plan plus current status notes.
+- [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — historical Slice 1 task; useful for context only.
 
-Legacy aify-comms docs are still present where useful, but they should be treated as inherited reference material, not final product docs.
+Compatibility docs and APIs are still present where useful. Treat the dashboard/live-wake docs as authoritative for normal product behavior.
 
 ## Current Product Thesis
 
@@ -27,7 +27,7 @@ The user should be able to:
 - have spawned agents auto-register with stable identity/session metadata
 - have managed-warm agents backed by stored spawn spec, workspace, transcript/memory, runtime handles when available, and recovery policy
 - message agents in direct chats, group chats, and channels
-- watch runtime output, tokens, cost estimates, run state, and handoff state
+- watch run state, handoff state, bridge/session health, and available runtime output; token/cost telemetry should appear only when an adapter exposes it honestly
 - stop, restart, or resume agents from the dashboard
 
 Manual registration remains available for debugging and compatibility, but it is not the normal workflow.
@@ -51,17 +51,9 @@ Backend changes under `service/`, `mcp/`, and `config/` require a container rebu
 - Managed warm is the default teammate mode. Run-once is advanced/internal; resident-visible is for human-open CLI sessions like `codex-aify` / `claude-aify`.
 - Persistent/backed does not imply CLI-attachable. Use capability flags.
 - Prefer adapters over hardcoded CLI assumptions. `claude -p`, `codex exec`, and `opencode run` flags can change; encapsulate them behind runtime adapter modules and tests.
-- Dashboard should be usable without reading docs: visible env selector, spawn form, agent list, chat, channels, worker/session controls, logs.
+- Dashboard should be usable without reading docs: visible env selector, spawn form, agent list, chat, channels, worker/session controls, and clear run/session evidence.
 - Dashboard should be a real web application, not a raw operational table. Use compact primary views plus inspectors/drawers for IDs, logs, JSON, and long text.
 
-## First Implementation Bias
+## Current Implementation Bias
 
-Start with the smallest useful slice:
-
-1. Add environment registry tables/API.
-2. Make stdio bridges heartbeat as environments with capabilities.
-3. Add spawn request API that targets an environment.
-4. Have the local stdio bridge claim spawn requests and create managed agent records automatically.
-5. Add a dashboard page for environments and spawn requests.
-
-Do not start by rewriting all messaging or the whole dashboard. Preserve what works and add the missing lifecycle layer.
+Preserve the existing message/channel/artifact APIs and keep the dashboard as the normal control surface. New work should reduce duplicate concepts, keep environment-backed managed agents as the default teammate path, and add tests around lifecycle edge cases before changing runtime behavior.

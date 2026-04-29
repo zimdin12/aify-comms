@@ -97,7 +97,7 @@ Optional fields:
 
 - model/profile
 - system prompt file or inline prompt
-- default group/channel memberships
+- default group/channel memberships (future spawn-form enhancement; current channel membership is managed from Chat details)
 - budget limits
 - context reset policy
 - idle timeout
@@ -205,7 +205,7 @@ Do not show stop/kill-style actions for rows that only represent offline identit
 
 Ended/completed/cancelled sessions are debug history. The normal Sessions page should hide them by default and expose a **Show ended/debug sessions** toggle for lifecycle investigation.
 
-Manual/resident identities may expose **Adopt env** when at least one environment is online. Adoption should be explicit: it creates managed backing for future dashboard work, but it does not magically attach the currently open CLI process. The UI should tell the operator to close/stop the old resident CLI for that `agentId` and recover/restart the new managed session from Sessions.
+Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption should be explicit: it creates managed backing for future dashboard work, but it does not magically attach the currently open CLI process. The UI should tell the operator to close/stop the old resident CLI for that `agentId` and recover/restart the new managed session from Sessions.
 
 ## Continue From Session Flow
 

@@ -22,7 +22,7 @@ It now adds a first-class agent lifecycle layer:
 - runtime adapters for Claude Code, Codex, and OpenCode managed/resident execution
 - automatic identity/registration for spawned agents
 - managed-warm sessions for long-lived agents
-- runtime/session visibility, with richer token/cost telemetry added as runtimes expose it
+- runtime/session visibility, with token/cost telemetry shown only when runtimes expose it
 - real chat UI with DMs, channels, mentions, artifacts, and run/handoff state near the conversation
 
 ## Target Mental Model
@@ -31,8 +31,8 @@ It now adds a first-class agent lifecycle layer:
 2. Connect one or more environment bridges.
 3. Open the dashboard.
 4. Click **Spawn Agent**.
-5. Pick runtime, environment, workspace, model, role, prompt, and channel memberships.
-6. Agent appears online automatically.
+5. Pick runtime, environment, workspace, role, optional model/profile, and initial instructions.
+6. The agent identity, spawn spec, and session backing appear automatically.
 7. Talk to it in direct chat or channels, assign work through messages, inspect output, stop/restart/recover it.
 
 Manual `comms_register(...)` should become an advanced/debug path, not the normal user workflow.
@@ -57,8 +57,8 @@ Important starting docs:
 - [docs/UNINSTALL.md](docs/UNINSTALL.md) — clean uninstall for Docker service, data, wrappers, MCP config, hooks, and skills.
 - [docs/SKILLS.md](docs/SKILLS.md) — installed Codex/Claude skill inventory and relevance.
 - [docs/PLAN_REVIEW.md](docs/PLAN_REVIEW.md) — pressure-test, risks, and product decisions that should not drift.
-- [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — staged engineering plan.
-- [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — exact first task for the implementation agent.
+- [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — historical staged plan plus current status notes.
+- [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — historical Slice 1 task, retained for context.
 
 ## Setup
 

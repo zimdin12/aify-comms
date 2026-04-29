@@ -6,10 +6,9 @@ General coordination pattern:
 - Use `comms_send` for direct conversation and handoffs
 - Use `comms_channel_send` for team-wide updates or group wakeups
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
-- Use `comms_send(silent=true)` or `comms_channel_send(silent=true)` when you want background delivery without waking the target
-- Use `comms_dispatch` when you want explicit run tracking from the start
-- Use `comms_spawn_agent` only when you need a detached managed worker
-- If an agent is already working, later dispatches from the same sender are buffered into one pending run (cap: 10 items) that starts after the current run finishes instead of piling up as many separate queued runs. Past the cap you get `reason: "buffer_full"` in `notStarted`; wait, `comms_run_interrupt`, or `comms_agent_info` before retrying
+- Use `comms_dispatch` only when you need explicit run-control/debug state
+- Use `comms_spawn(...)` or dashboard **Environments -> Spawn Agent** when you need a separate persistent managed teammate
+- If an agent is offline, busy, queued, stopped, or not live-wakeable, normal `comms_send(...)` is not written. Wait, use `comms_run_interrupt`, recover/restart the session, or inspect with `comms_agent_info` before retrying
 - Use `comms_describe(...)` to set a short team-facing description of what you're working on — visible to teammates in `comms_agents`
 - Use `comms_run_status` to watch active work
 - Use `comms_send(..., steer=true)` or `comms_run_interrupt` when an active run needs correction

@@ -1,5 +1,7 @@
 # Implementation Roadmap
 
+Status note: this document is a historical slice plan, not a precise list of unimplemented work. Environment registry, environment-backed spawn, managed agent records, dashboard chat, channel member management, artifacts, session restart/recover/continue, and stale-bridge guards now exist. Use [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](BRIDGE_SETUP.md), and the regression tests for current behavior before treating any old slice text as pending work.
+
 ## Slice 0: Product Identity And Safe Cleanup
 
 Goal: keep the product identity as `aify-comms` while folding the dashboard/control-plane work into the existing service without breaking inherited code.
@@ -9,7 +11,7 @@ Tasks:
 - update visible names in README, `.env.example`, service example config, installer docs, and dashboard title
 - keep old API names for compatibility
 - ensure `docker compose up -d --build` works
-- leave installer docs as inherited until lifecycle APIs exist
+- keep installer docs aligned with the current dashboard/live-bridge workflow
 
 ## Slice 1: Environment Registry
 
@@ -54,7 +56,7 @@ Backend:
 Bridge:
 
 - poll/claim spawn requests for its environment
-- no runtime launch yet; first implementation can create a fake running session for tests
+- claim spawn requests for its environment and create managed backing/session records through the runtime adapter path
 - validate that requested workspace is under an advertised root
 
 Dashboard:
@@ -215,6 +217,8 @@ Tests:
 ## Slice 8: Real Chat UI
 
 Goal: dashboard becomes the primary user-facing messenger.
+
+Status: the dashboard now has DMs, channels, read state scoped to "Viewing as", artifact upload, channel member add/remove, and live-gated sends. Remaining work is polish and richer multi-agent group policy, not the first usable chat surface.
 
 Dashboard:
 

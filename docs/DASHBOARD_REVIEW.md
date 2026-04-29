@@ -32,7 +32,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 ## Design Rules Going Forward
 
 - Prefer dashboard-spawned managed agents over manual `comms_register` for normal teamwork.
-- To migrate a manual/resident identity, use **Adopt env**. This creates managed backing for the identity; it does not attach the existing CLI process.
+- To migrate a manual/resident identity, use **Edit** / **Adopt env** and assign an online environment, runtime, and workspace. This creates managed backing for the identity; it does not attach the existing CLI process.
 - Do not expose a destructive button without hover text and a confirm when state will be deleted or wake/dispatch disabled.
 - Do not show a "kill/stop" action for a row that represents an offline identity only.
 - Do not let legacy `aify-comms` terminology leak into primary navigation unless it describes the actual user model.
@@ -59,9 +59,9 @@ What was corrected in this pass:
 Remaining high-value fixes:
 
 1. **Real managed runtime spawning**: current managed spawn/session records are still mostly control-plane backing. The bridge needs adapter-backed child process ownership, logs, and stop/restart semantics per runtime.
-2. **Replace browser prompts**: artifact creation, steering, restart/recover instructions, and some destructive flows still use `prompt()`/`confirm()`. Move these to proper modals/drawers.
+2. **Replace remaining browser prompts**: steering, restart/recover instructions, pagination, and some destructive confirmations still use `prompt()`/`confirm()`. Move these to proper modals/drawers.
 3. **Logs/transcripts**: Sessions should expose live output/transcript views. At the moment the UI can show session metadata but not enough runtime evidence.
 4. **Group chat policy**: channels exist, but loop budgets, auto-reply controls, and private multi-agent groups are still not fully modeled.
 5. **Unread semantics**: read marking is scoped to "Viewing as", which is correct, but unread counts need a clearer per-identity/global distinction in Home and Chat.
-6. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting teammate identity/session/spec records. Remaining polish: show clearer banners for detached teammates and provide a richer Assign Environment modal instead of prompts.
+6. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting teammate identity/session/spec records. Remaining polish: show clearer banners for detached teammates.
 7. **Frontend structure**: `service/dashboard.html` is now very large. Extracting API/client/state/render modules or moving to a small SPA would reduce regression risk.

@@ -1,5 +1,7 @@
 # First Coding Agent Task
 
+Historical note: this task has been completed and is retained only to explain how the environment registry work started. Do not use it as the current implementation target. Current work should follow [AGENTS.md](../AGENTS.md), [DASHBOARD_REVIEW.md](DASHBOARD_REVIEW.md), [BRIDGE_SETUP.md](BRIDGE_SETUP.md), and the regression suite.
+
 ## Role
 
 You are the first implementation agent for the dashboard/control-plane lifecycle layer in `aify-comms`.

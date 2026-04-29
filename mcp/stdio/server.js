@@ -2,7 +2,7 @@
 //
 // aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
-// 25 tools (all prefixed "comms_"):
+// 26 tools (all prefixed "comms_"):
 //   comms_register, comms_envs, comms_spawn, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_inbox, comms_search,
 //   comms_share, comms_read, comms_files,
 //   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,

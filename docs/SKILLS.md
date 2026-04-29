@@ -20,7 +20,7 @@ Current dashboard behavior reflected by the skills:
 - normal teamwork uses `comms_send`; `comms_dispatch` is a lower-level debug/run-control tool
 - normal sends are live-delivery gated and are not queued for future runs when an agent is offline/busy/unstartable
 - persistent teammates are created through dashboard Environment spawn or `comms_spawn`, not ordinary one-off subagents
-- existing resident/manual identities can be adopted from the dashboard Team page into managed environment backing; agents should still close or stop the old CLI session for that same ID after adoption
+- existing resident/manual identities can be adopted from the dashboard Team page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
 - pending handoffs can be repaired by the dashboard; reviewed historical failures can be dismissed from Home without deleting audit history
 - successful spawn requests may still have status `running` in old/current data; the dashboard labels them as session-started history and hides them from the normal spawn queue
 - ended/completed/cancelled session rows are debug history and are hidden by default in Sessions

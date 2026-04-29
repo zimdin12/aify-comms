@@ -302,8 +302,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("chat-channel-add-member", dashboard.text)
         self.assertIn("Add member", dashboard.text)
         self.assertIn("data-channel-member-select", dashboard.text)
+        self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
+        self.assertNotIn("assignAgentEnvironment", dashboard.text)
 
     def test_environment_list_marks_missing_heartbeat_offline_and_orders_stably(self):
         self._heartbeat_environment(
