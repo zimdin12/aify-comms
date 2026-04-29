@@ -1995,6 +1995,20 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
     ts = int(time.time() * 1000)
     message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
     message_type = "error" if status == "failed" else "response"
+    from_agent = str(row["target_agent"] or "").strip()
+    to_agent = str(row["from_agent"] or "").strip()
+    subject = _auto_handoff_subject_for_run(row)
+    body = _auto_handoff_body_for_run(row)
+    priority = row["priority"] or "normal"
+    launchable_recipients: list[tuple[str, str]] = []
+    not_started: list[dict[str, Any]] = []
+    if to_agent and to_agent != "dashboard":
+        launchable_recipients, not_started = await _preflight_live_send_recipients(
+            db,
+            [to_agent],
+            allow_steer=True,
+        )
+
     await db.execute(
         """
         INSERT INTO messages (
@@ -2004,14 +2018,14 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
         """,
         (
             message_id,
-            row["target_agent"],
-            row["from_agent"],
+            from_agent,
+            to_agent,
             "direct",
             message_type,
-            _auto_handoff_subject_for_run(row),
-            _auto_handoff_body_for_run(row),
-            row["priority"] or "normal",
-            0,
+            subject,
+            body,
+            priority,
+            1 if launchable_recipients else 0,
             row["message_id"],
             ts,
         ),
@@ -2024,8 +2038,47 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
         db,
         row["id"],
         "handoff",
-        f"Auto-mirrored missing handoff to {row['from_agent']}",
+        f"Auto-mirrored missing handoff to {to_agent}",
     )
+    if launchable_recipients:
+        delivery_runs = await _create_dispatch_runs(
+            db,
+            [recipient_id for recipient_id, _ in launchable_recipients],
+            from_agent=from_agent,
+            message_type=message_type,
+            subject=subject,
+            body=body,
+            priority=priority,
+            in_reply_to=row["message_id"],
+            dispatch_mode="start_if_possible",
+            execution_mode="managed",
+            requested_runtime=None,
+            message_id=message_id,
+            steer=True,
+            require_reply=False,
+        )
+        delivery_runs = await _finalize_dispatch_runs(
+            db,
+            delivery_runs,
+            launchable_recipients,
+            not_started,
+        )
+        run_ids = [str(run.get("runId") or "") for run in delivery_runs if run.get("runId")]
+        if run_ids:
+            await _append_dispatch_event(
+                db,
+                row["id"],
+                "handoff",
+                f"Queued mirrored handoff delivery to {to_agent}: {', '.join(run_ids)}",
+            )
+    elif not_started:
+        reasons = "; ".join(str(item.get("reason") or "not startable") for item in not_started)
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "handoff",
+            f"Mirrored handoff stored for {to_agent}; live delivery not queued: {reasons}",
+        )
     return message_id
 
 

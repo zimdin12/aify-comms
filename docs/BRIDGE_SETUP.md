@@ -178,7 +178,7 @@ On Windows, current bridge builds terminate the whole managed runtime process tr
 
 Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog. The hard timeout caps total runtime. The quiet watchdog only fires when Codex stops emitting runtime notifications or stderr after the last observed activity, which usually means the app-server/turn path wedged. Override per agent with `runtimeConfig.timeoutMs` for the hard limit and `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs` for the quiet window. Set the quiet timeout to `0` only for agents expected to run very long silent commands.
 
-Managed agent-to-agent prompts prefer explicit `comms_send(..., inReplyTo=...)` replies. If the comms tool path is blocked or appears stalled, the prompt tells the runtime to finish with plain text instead; the bridge can mirror that final text as the handoff only when no explicit reply was recorded.
+Managed agent-to-agent prompts prefer explicit `comms_send(..., inReplyTo=...)` replies. If the comms tool path is blocked or appears stalled, the prompt tells the runtime to finish with plain text instead; the bridge can mirror that final text as the handoff only when no explicit reply was recorded. Mirrored fallback handoffs are stored in the original sender's inbox and best-effort queued for live delivery to that sender when the sender is startable.
 
 ## Verify
 

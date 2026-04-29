@@ -71,7 +71,7 @@ Message states:
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 
-Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still prefer explicit replies to other agents with `comms_send(type="response", inReplyTo=...)`, but the bridge may mirror final plain text as the handoff when the tool path is blocked or stalls. Dashboard chat must not require a fake `comms_send(to="dashboard")` call.
+Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still prefer explicit replies to other agents with `comms_send(type="response", inReplyTo=...)`, but the bridge may mirror final plain text as the handoff when the tool path is blocked or stalls. Mirrored agent-to-agent handoffs should best-effort wake the original sender when startable; otherwise they remain unread. Dashboard chat must not require a fake `comms_send(to="dashboard")` call.
 
 Group chat must prevent accidental loops:
 

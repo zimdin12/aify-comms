@@ -1825,7 +1825,28 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(final.json()["run"]["requireReply"])
         self.assertEqual(final.json()["run"]["replyState"], "sent")
         self.assertFalse(final.json()["run"]["replyPending"])
-        self.assertTrue(final.json()["run"]["resultMessageId"])
+        result_message_id = final.json()["run"]["resultMessageId"]
+        self.assertTrue(result_message_id)
+
+        mirror = self._fetchone(
+            "SELECT dispatch_requested FROM messages WHERE id = ?",
+            (result_message_id,),
+        )
+        self.assertIsNotNone(mirror)
+        self.assertEqual(mirror["dispatch_requested"], 1)
+        delivery = self._fetchone(
+            """
+            SELECT from_agent, target_agent, status, require_reply
+            FROM dispatch_runs
+            WHERE message_id = ? AND id != ?
+            """,
+            (result_message_id, run_id),
+        )
+        self.assertIsNotNone(delivery)
+        self.assertEqual(delivery["from_agent"], "coder")
+        self.assertEqual(delivery["target_agent"], "lead")
+        self.assertEqual(delivery["status"], "queued")
+        self.assertEqual(delivery["require_reply"], 0)
 
     def test_dashboard_dispatch_auto_handoff_uses_clean_chat_body(self):
         self._register("coder", runtime="codex", sessionMode="managed")
