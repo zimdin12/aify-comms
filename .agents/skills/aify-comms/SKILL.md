@@ -47,6 +47,7 @@ Managed runtime policy:
 - Dashboard-managed Claude Code is headless (`claude -p --session-id ...` for the first turn, then `--resume ...`). It may not appear in the `claude-aify` picker, but it can be opened by ID with the dashboard's copyable CLI resume command once a resume ID is recorded.
 - Claude Code's skip-permissions CLI flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not a valid Claude Code option.
 - Dashboard-managed Codex uses a managed `CODEX_HOME`; use the dashboard's generated resume command so `codex resume --include-non-interactive <thread-id>` reads the correct thread store.
+- Managed agent-to-agent runs prefer explicit `comms_send(..., inReplyTo=...)` replies. If that tool path is blocked or stalls, the managed prompt allows final plain text as the fallback handoff so the bridge can mirror it instead of leaving the sender with a stuck run.
 - Use dashboard **Pause for CLI** before opening a managed session directly. It pauses dashboard delivery so normal chat sends fail fast instead of racing the open CLI and hitting `Session ID ... is already in use`. Re-register from the opened CLI with the same `agentId` so the dashboard stores the current Claude session ID, Codex thread ID, or OpenCode session ID. `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process; Codex should still register with `$CODEX_THREAD_ID` and `$AIFY_CODEX_APP_SERVER_URL` when available. Use **Recover** or **Restart** from Sessions when you want dashboard control back.
 - Fresh native handles should come from a new spawn or explicit **Clear resume state**. Ordinary adopt/recover/restart should preserve the stored handle when the runtime is unchanged; if it cannot, treat that as a recoverable problem instead of accepting context loss silently.
 - Resident sessions keep the permission mode of the CLI the user started. If a resident Claude session says comms tools need approval, restart it with the desired Claude permission flags or use a dashboard-managed session for unattended work.
@@ -168,7 +169,7 @@ Gotchas regardless of runtime:
 | Strict API/debug run control | `comms_dispatch(...)` |
 | Inject guidance mid-turn without interrupting | `comms_send(steer=true)` |
 
-Default to `comms_send` for normal teamwork. It is the message API and requires a currently reachable target. If the recipient is `offline`, `stale`, `stopped`, already `working`, already has queued work, or lacks a live wake path, the send fails with a notice and no message is stored. Use `comms_dispatch` only for low-level run-control/debug cases. Dashboard-origin managed runs may mirror the runtime's final text back into dashboard chat when no explicit reply message was sent; agent-to-agent work should still send an explicit threaded `response`.
+Default to `comms_send` for normal teamwork. It is the message API and requires a currently reachable target. If the recipient is `offline`, `stale`, `stopped`, already `working`, already has queued work, or lacks a live wake path, the send fails with a notice and no message is stored. Use `comms_dispatch` only for low-level run-control/debug cases. Dashboard-origin managed runs may mirror the runtime's final text back into dashboard chat when no explicit reply message was sent; agent-to-agent work should still prefer an explicit threaded `response`, with final plain text as the managed fallback if the tool path is unavailable or stalls.
 
 **Wake and priority are independent.** Waking an agent does NOT imply urgency. `priority="high"` does. Sending a wake message with "not urgent" in the body means the recipient will read it and defer — correctly. If you want work done now, say so: use `priority="high"` and explicit blocking language. Do not use high priority for routine ACKs, status chatter, or thread bookkeeping; those should be normal priority unless they are blocking someone right now.
 
@@ -213,7 +214,7 @@ When you receive a wake notification or finish a task, check inbox before starti
 - Before diagnosing another agent's issues, call `comms_agent_info` first — don't guess.
 - Brief acks are fine — "on it" beats a paragraph.
 
-Dashboard note: Home is a live operations queue, not a full audit log. Pending handoffs can be repaired from the dashboard, and reviewed historical failures can be dismissed from Home while remaining available in Runs/Environments. Sessions hides ended/completed/cancelled rows by default; use "Show ended/debug sessions" when investigating lifecycle history.
+Dashboard note: Home is a live operations queue, not a full audit log. Pending handoffs can be repaired from the dashboard, and reviewed historical failures can be dismissed from Home while remaining available in Runs/Environments. Sessions hides ended/completed/cancelled rows by default; use "Show ended/debug sessions" when investigating lifecycle history. Chat Peek mode lets an operator watch conversations without marking incoming messages read; explicit Mark read still acknowledges individual messages.
 
 ## Communication Style
 

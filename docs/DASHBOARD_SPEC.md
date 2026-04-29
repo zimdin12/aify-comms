@@ -52,6 +52,7 @@ Chat should feel like a real team messenger:
 - mention support: `@agent`, `@group`, `@channel`
 - quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
 - thread drawer for run details, artifacts, and handoff state
+- peek mode: watch a selected conversation without automatically marking incoming messages read; explicit Mark read remains available per message
 - channel details: show current members and allow adding/removing known agents from the right-side Members panel; add selection must be stable across realtime refreshes
 - artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
 - reply expectations are inferred from message type: requests/reviews should get explicit replies; routine info does not need a special toggle
@@ -70,7 +71,7 @@ Message states:
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 
-Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still explicitly reply to other agents with `comms_send(type="response", inReplyTo=...)`, but dashboard chat must not require a fake `comms_send(to="dashboard")` call.
+Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still prefer explicit replies to other agents with `comms_send(type="response", inReplyTo=...)`, but the bridge may mirror final plain text as the handoff when the tool path is blocked or stalls. Dashboard chat must not require a fake `comms_send(to="dashboard")` call.
 
 Group chat must prevent accidental loops:
 

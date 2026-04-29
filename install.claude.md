@@ -58,7 +58,7 @@ Important:
 - `comms_register` creates a resident session for messaging/presence. When Claude is started with `claude-aify`, that resident session becomes wakeable through the local aify channel bridge.
 - `comms_send` is the normal teamwork path and is live-delivery gated. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, no message is written. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
-- Explicit `comms_send(..., inReplyTo=...)` replies are preferred, but a reply-dispatch back to the sender also satisfies the handoff. If a required reply never arrives, the bridge mirrors the run result back to the sender as a fallback handoff.
+- Explicit `comms_send(..., inReplyTo=...)` replies are preferred, but a reply-dispatch back to the sender also satisfies the handoff. If the comms tool path is blocked or stalls, managed prompts allow final plain text as the fallback handoff; the bridge mirrors it only when no real reply handoff was recorded.
 - `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
 - Normal `comms_send` does not append to future queues. Advanced dispatch/run-control APIs may still expose queued runs for already-created work; clear stale queued runs before using chat.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.

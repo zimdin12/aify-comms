@@ -304,6 +304,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("data-channel-member-select", dashboard.text)
         self.assertIn("chat-online-only", dashboard.text)
         self.assertIn("Online only", dashboard.text)
+        self.assertIn("chat-peek-mode", dashboard.text)
+        self.assertIn("Peek mode", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)

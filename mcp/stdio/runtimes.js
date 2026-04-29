@@ -257,7 +257,7 @@ function buildSystemPrompt(agentId, agentInfo, run) {
     ? "Answer the dashboard user in your final plain-text response. Do not call comms_send back to dashboard; the bridge will deliver your final response into the chat."
     : run?.requireReply === false
     ? "If the sender explicitly does not need a reply, you may just handle the message locally."
-    : "Before you finish handling this message, send an explicit reply message back to the sender. Do not rely on the dispatch summary as the only handoff.";
+    : "Before you finish handling this message, reply to the sender. Prefer comms_send with inReplyTo when the comms tools are available. If the comms tool path is blocked, unavailable, or appears stalled, write the reply in your final plain-text response and stop; the bridge will mirror that final text back to the sender.";
   return [
     "[AIFY MESSAGE]",
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
@@ -266,7 +266,9 @@ function buildSystemPrompt(agentId, agentInfo, run) {
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
     "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
     `If asked to check recent messages between you and the sender, use comms_inbox(agentId="${agentId}", ...) or the relevant direct-chat context, not the global dashboard feed.`,
-    "Plain-text output in this session stays local to this runtime and the dispatch record unless you intentionally send a message back.",
+    isDashboardSender
+      ? "Plain-text output in this session is delivered back into the dashboard chat."
+      : "Plain-text output in this session normally stays local, but the bridge may mirror it as the handoff if no explicit reply message was recorded.",
     replyRule,
     "Do not explain the transport wrapper or restate it unless a later normal user turn explicitly asks about it.",
     "[/AIFY MESSAGE]",
@@ -280,7 +282,7 @@ function buildUserPrompt(run) {
     ? "Reply to the dashboard user in your final plain-text response. Do not use comms_send to dashboard."
     : run?.requireReply === false
     ? "Reply only if useful for the sender."
-    : "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result.";
+    : "Required handoff: reply to the sender before you finish. Prefer comms_send with inReplyTo. If comms tools are unavailable, blocked, or appear stalled, put the reply in your final plain-text response and stop so the bridge can mirror it.";
   const context = formatConversationContext(run?.conversationContext || []);
   return [
     context,
@@ -291,7 +293,9 @@ function buildUserPrompt(run) {
     run.body || "",
     "",
     replyRule,
-    "Otherwise keep any plain-text output limited to your local result in this session.",
+    isDashboardSender
+      ? "Keep the final response concise and useful for dashboard chat."
+      : "If you already sent a comms reply, keep any final plain-text output limited to your local result in this session.",
     "[/MESSAGE]",
   ].filter(Boolean).join("\n");
 }

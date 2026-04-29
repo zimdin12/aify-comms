@@ -604,6 +604,10 @@ tr:hover{background:#1b1f21}
               <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
               <span>Online only</span>
             </label>
+            <label class="chat-toggle" title="View chats without marking incoming messages read automatically">
+              <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
+              <span>Peek mode</span>
+            </label>
           </div>
           <div class="chat-create-channel">
             <input id="chat-new-channel" placeholder="New channel">
@@ -825,6 +829,7 @@ aify-comms</pre>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
         <p><b>Live send:</b> normal messages are not queued for future runs. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, Send reports the issue and writes no message. Agent-reported blocked state and legacy completed state are status notes, not delivery blockers.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
+      <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. Explicit per-message <b>Mark read</b> still acknowledges the message for the selected <b>Viewing as</b> identity.</p>
 
       <h3>Core Concepts</h3>
       <ul>
@@ -2284,6 +2289,15 @@ function setChatOnlineOnly(value) {
   renderChat();
 }
 
+function chatPeekMode() {
+  return localStorage.getItem('aifyChatPeekMode') === '1';
+}
+
+function setChatPeekMode(value) {
+  localStorage.setItem('aifyChatPeekMode', value ? '1' : '0');
+  renderChat();
+}
+
 function isOnlineChatAgent(info) {
   return isLiveWakeAgent(info) && !liveIssueForAgent('', info);
 }
@@ -2334,8 +2348,10 @@ function renderChatRail() {
   if (!el) return;
   const openToggle = document.getElementById('chat-open-only');
   const onlineToggle = document.getElementById('chat-online-only');
+  const peekToggle = document.getElementById('chat-peek-mode');
   if (openToggle) openToggle.checked = chatOpenOnly();
   if (onlineToggle) onlineToggle.checked = chatOnlineOnly();
+  if (peekToggle) peekToggle.checked = chatPeekMode();
   const {dmItems, channelItems} = chatConversations();
   let html = '<div class="chat-section-label">Direct Messages</div>';
   html += dmItems.length ? dmItems.map(renderChatRailItem).join('') : `<p class="em">${chatEmptyDmText()}</p>`;
@@ -2480,15 +2496,21 @@ function renderChat() {
   const messages = messagesForSelectedChat(meta);
   const timeline = document.getElementById('chat-timeline');
   if (!timeline) return;
+  const prelude = chatPeekBanner() + chatLiveWarning(meta);
   if (!messages.length) {
-    timeline.innerHTML = chatLiveWarning(meta) + '<p class="em">No messages in this conversation yet.</p>';
+    timeline.innerHTML = prelude + '<p class="em">No messages in this conversation yet.</p>';
   } else {
     const from = chatIdentity();
-    timeline.innerHTML = chatLiveWarning(meta) + messages.map(m => renderChatMessage(m, from)).join('');
+    timeline.innerHTML = prelude + messages.map(m => renderChatMessage(m, from)).join('');
     timeline.scrollTop = timeline.scrollHeight;
   }
   renderChatInspector(meta, messages);
-  markSelectedChatRead();
+  if (!chatPeekMode()) markSelectedChatRead();
+}
+
+function chatPeekBanner() {
+  if (!chatPeekMode()) return '';
+  return '<div class="banner"><div class="banner-row"><span><b>Peek mode:</b> incoming messages stay unread until you mark them read.</span></div></div>';
 }
 
 function chatLiveWarning(meta) {

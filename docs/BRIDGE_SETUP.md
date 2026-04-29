@@ -178,6 +178,8 @@ On Windows, current bridge builds terminate the whole managed runtime process tr
 
 Managed Codex has a hard dispatch timeout of 2 hours plus a quiet-stall watchdog. If Codex accepts `turn/start` and then stops emitting runtime notifications or stderr for 5 minutes, the bridge treats the turn as stalled, terminates that runtime process tree, and fails the run with a visible error. Override per agent with `runtimeConfig.timeoutMs` for the hard limit and `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs` for the quiet window.
 
+Managed agent-to-agent prompts prefer explicit `comms_send(..., inReplyTo=...)` replies. If the comms tool path is blocked or appears stalled, the prompt tells the runtime to finish with plain text instead; the bridge can mirror that final text as the handoff only when no explicit reply was recorded.
+
 ## Verify
 
 1. Open `http://localhost:8800/api/v1/dashboard`.
