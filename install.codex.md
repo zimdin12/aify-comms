@@ -105,7 +105,7 @@ Important:
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
 - If an environment bridge is killed, managed teammates backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the teammate to another online environment from **Team**, then recover/restart from **Sessions**. If a resident `codex-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents.
-- Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`).
+- Managed Codex has two timeout layers: a hard dispatch timeout of **2 hours** (`runtimeConfig.timeoutMs`) and a quiet-stall watchdog of **15 minutes** without runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`). The quiet watchdog fails stalled turns cleanly instead of leaving dashboard runs stuck in `running`.
 - If another agent says you are a resident Codex session without a bound session handle, restart Codex and re-register from the live session.
 
 ## What This Installs

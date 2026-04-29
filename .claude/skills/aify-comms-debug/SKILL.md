@@ -179,7 +179,9 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Symptom.** A dispatch is marked `running` but nothing is happening. `comms_run_interrupt` returns ok but the run never moves.
 
-**Cause (Codex / managed sessions).** The bridge that owned the run has died (crash, machine sleep, network drop). `comms_run_interrupt` works by enqueueing a control the owning bridge polls for — if the bridge is gone, no one claims the control.
+**Cause (Codex / managed sessions).** Either the bridge that owned the run has died (crash, machine sleep, network drop), or Codex accepted `turn/start` and then stopped emitting runtime notifications. `comms_run_interrupt` works by enqueueing a control the owning bridge polls for — if the bridge is gone, no one claims the control.
+
+**Codex quiet watchdog (current build).** Managed Codex runs still have a hard two-hour timeout for genuinely long work, but the bridge also treats a turn as stalled if no Codex runtime notification or stderr line is seen for the quiet timeout window after the last activity. Default quiet timeout is 15 minutes and can be changed per agent with `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`. The run is failed cleanly, the process tree is terminated, and a required handoff is mirrored back to the sender.
 
 **Cause (Claude resident).** On older bridge code, the channel bridge claimed dispatch runs and left them `running` indefinitely — it had no way to track Claude's progress. On current code, the channel bridge completes runs immediately on delivery, so this failure mode no longer occurs for Claude agents. If you still see it, the bridge is running pre-fix code — `git pull` and restart `claude-aify`.
 
@@ -187,7 +189,7 @@ After opening the native CLI, re-register from that same session with the same `
 
 For older dispatch-backed messages, the original inbox message may still exist. For current normal `comms_send`, failed live delivery writes no message row, so retry after the agent is startable.
 
-**Manual fix (if no bridge is polling).** Cancel the run directly through the HTTP API:
+**Manual fix (if no bridge is polling or the current run predates the watchdog).** Cancel the run directly through the HTTP API:
 
 ```bash
 curl -X PATCH http://localhost:8800/api/v1/dispatch/runs/<run_id> \

@@ -1095,6 +1095,10 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultCodexCommand();
   const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
+  const quietTimeoutMs = Math.max(
+    60 * 1000,
+    Number(config.quietTimeoutMs || config.silenceTimeoutMs || 15 * 60 * 1000),
+  );
   const hostCwd = agentInfo.cwd || process.cwd();
   const model = agentInfo.model || config.model || "gpt-5.4";
   const effort = config.effort || "medium";
@@ -1129,8 +1133,16 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   let interrupted = false;
   let rpc = null;
   let proc = null;
+  let lastActivityAt = Date.now();
+  let activityLabel = "runtime launch";
+
+  const markActivity = (label = "runtime event") => {
+    lastActivityAt = Date.now();
+    activityLabel = label;
+  };
 
   const handleNotification = (message) => {
+    markActivity(message.method || "runtime notification");
     const params = message.params || {};
     if (message.method === "turn/started" && params.turn?.id) {
       activeTurnId = params.turn.id;
@@ -1156,7 +1168,10 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
   const handleRuntimeLog = (line) => {
     const text = quoteForDisplay(line);
-    if (text) callbacks.onEvent?.("stderr", text);
+    if (text) {
+      markActivity("stderr");
+      callbacks.onEvent?.("stderr", text);
+    }
     if (text && isFatalCodexRuntimeLog(text) && !settled) {
       finalStatus = "failed";
       finalError = `Codex runtime fatal error: ${text}`;
@@ -1179,6 +1194,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     rejectPromise = reject;
     const timer = setTimeout(() => {
       if (!settled) {
+        clearInterval(quietTimer);
         try {
           terminateProcessTree(proc);
         } catch {
@@ -1192,6 +1208,35 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
         reject(new Error(`Codex run timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
+    const quietTimer = setInterval(() => {
+      if (settled) return;
+      const idleFor = Date.now() - lastActivityAt;
+      if (idleFor < quietTimeoutMs) return;
+      const message =
+        `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${activityLabel}. ` +
+        `The turn was treated as stalled and terminated. Retry the message, or restart/recover the session if this repeats.`;
+      finalStatus = "failed";
+      finalError = message;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(quietTimer);
+      try {
+        callbacks.onEvent?.("stalled", message);
+      } catch {
+        // best effort
+      }
+      try {
+        terminateProcessTree(proc);
+      } catch {
+        // ignore shutdown errors
+      }
+      try {
+        rpc?.close?.();
+      } catch {
+        // ignore close errors
+      }
+      reject(new Error(message));
+    }, Math.min(30 * 1000, Math.max(5 * 1000, Math.floor(quietTimeoutMs / 6))));
 
     try {
       if (appServerUrl) {
@@ -1219,6 +1264,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
         version: "3.7.0",
         },
       });
+      markActivity("initialize");
       rpc.notify("initialized", {});
 
       const startThread = async () => {
@@ -1335,6 +1381,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       callbacks.onRuntimeState?.({ threadId: activeThreadId });
       callbacks.onRefs?.({ threadId: activeThreadId });
       callbacks.onEvent?.("thread", `Using ${executionMode} thread ${activeThreadId}`);
+      markActivity("thread ready");
 
       callbacks.onEvent?.("turn", `Calling turn/start on thread ${activeThreadId} with cwd="${cwd}", writableRoots=["${cwd}"]`);
       let turn;
@@ -1366,11 +1413,13 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
       activeTurnId = turn.turn?.id || activeTurnId;
       callbacks.onRefs?.({ threadId: activeThreadId, turnId: activeTurnId });
+      markActivity("turn/start");
 
       const poll = setInterval(() => {
         if (!settled) return;
         clearInterval(poll);
         clearTimeout(timer);
+        clearInterval(quietTimer);
         if (finalStatus === "completed") {
           resolve({
             status: "completed",
@@ -1424,6 +1473,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       }, 250);
     } catch (error) {
       clearTimeout(timer);
+      clearInterval(quietTimer);
       reject(error);
       try {
         terminateProcessTree(proc);
