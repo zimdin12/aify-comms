@@ -55,6 +55,49 @@ export function terminateProcessTree(proc, signal = "SIGTERM") {
   }
 }
 
+function quotePowerShellString(value) {
+  return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+function extractClaudeSessionInUseId(text) {
+  const match = String(text || "").match(/session id\s+([0-9a-f-]{16,})\s+is already in use/i);
+  return match ? match[1] : "";
+}
+
+export function buildManagedClaudeUnlockPowerShell(sessionId) {
+  const sid = quotePowerShellString(sessionId);
+  return [
+    "$ErrorActionPreference = 'SilentlyContinue';",
+    "$sid = " + sid + ";",
+    "Get-CimInstance Win32_Process |",
+    "  Where-Object {",
+    "    $_.CommandLine -match 'claude' -and",
+    "    $_.CommandLine -match [regex]::Escape($sid) -and",
+    "    ($_.CommandLine -match '(^|\\s)(-p|--print)(\\s|$)' -or $_.CommandLine -match '(^|\\s)--session-id(\\s|=)')",
+    "  } |",
+    "  ForEach-Object {",
+    "    taskkill /pid $_.ProcessId /t /f | Out-Null;",
+    "    Write-Output $_.ProcessId",
+    "  }",
+  ].join("\n");
+}
+
+function releaseManagedClaudeSessionLock(sessionId) {
+  const normalized = String(sessionId || "").trim();
+  if (!normalized || process.platform !== "win32") return [];
+  const script = buildManagedClaudeUnlockPowerShell(normalized);
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 10000,
+  });
+  if (result.status !== 0) return [];
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 const ENVIRONMENT_BRIDGE_ENV_KEYS = [
   "AIFY_ENVIRONMENT_BRIDGE",
   "AIFY_ENVIRONMENT_ID",
@@ -854,7 +897,7 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
   let interrupted = false;
   let activeProcess = null;
 
-  const startAttempt = (sessionId) => {
+  const startAttempt = (sessionId, attempt = 1) => {
     const args = [
       ...launcher.args,
       ...managedClaudePermissionArgs(config, executionMode),
@@ -918,8 +961,21 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
         }
         const errorText = stderr || stdout || `Claude exited with code ${code}`;
         if (executionMode !== "resident" && isClaudeSessionInUseError(errorText)) {
+          const lockedSessionId = extractClaudeSessionInUseId(errorText) || sessionId;
+          if (attempt === 1) {
+            const releasedPids = releaseManagedClaudeSessionLock(lockedSessionId);
+            if (releasedPids.length > 0) {
+              callbacks.onEvent?.(
+                "runtime",
+                `Released stale headless Claude process(es) for session ${lockedSessionId}: ${releasedPids.join(", ")}; retrying once.`,
+              );
+              startAttempt(sessionId, attempt + 1).then(resolve, reject);
+              return;
+            }
+          }
           reject(new Error(
             `${errorText}\n\nThe stored Claude session is locked by another Claude process. ` +
+            `The bridge did not find a matching stale headless Claude process it could release automatically. ` +
             `Close the duplicate Claude process or explicitly clear this agent's resume state from Dashboard -> Sessions/Team, then restart/recover. ` +
             `The bridge did not create a fresh session automatically because that would discard native chat memory.`,
           ));

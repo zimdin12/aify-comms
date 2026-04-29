@@ -117,9 +117,9 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions/Team -> Clear resume state** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
 
-**Hidden-process caveat.** The duplicate owner may be a headless managed `claude -p` child, not a visible CLI tab. Older bridge builds on Windows launched Claude through `cmd.exe /c`; killing or superseding the bridge could kill `cmd.exe` without killing the Claude child, leaving the native session locked. Current bridge code terminates the whole process tree on timeout, stop, interrupt, and bridge shutdown. Pull latest, rerun the installer, and restart the Windows `aify-comms` bridge so it loads that fix.
+**Hidden-process caveat.** The duplicate owner may be a headless managed `claude -p` child, not a visible CLI tab. Older bridge builds on Windows launched Claude through `cmd.exe /c`; killing or superseding the bridge could kill `cmd.exe` without killing the Claude child, leaving the native session locked. Current bridge code terminates the whole process tree on timeout, stop, interrupt, and bridge shutdown. When a managed Claude run still hits a session lock, the Windows bridge looks for a matching headless `claude -p/--print --session-id <id>` process, kills that process tree, and retries once. It does not kill an interactive `claude-aify --resume` session. Pull latest, rerun the installer, and restart the Windows `aify-comms` bridge so it loads that fix.
 
-If the lock already exists, remove the stale Windows Claude process first. From an elevated PowerShell:
+If the automatic cleanup cannot find a matching headless process, remove the stale Windows Claude process manually. From an elevated PowerShell:
 
 ```powershell
 Get-CimInstance Win32_Process |
