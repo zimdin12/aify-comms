@@ -2431,6 +2431,7 @@ async def claim_environment_control(req: EnvironmentControlClaim):
                 "action": row["action"],
                 "requestedBy": row["requested_by"] or "",
                 "requestedAt": row["requested_at"] or "",
+                "currentEnvironment": _environment_record_to_dict(env) if env else None,
             },
         }
     finally:

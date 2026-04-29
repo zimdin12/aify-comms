@@ -412,6 +412,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(controls[0]["status"], "pending")
         self.assertEqual(controls[0]["requested_by"], "server:superseded-bridge")
 
+        claim_old = self.client.post(
+            "/api/v1/environments/controls/claim",
+            json={"environmentId": "wsl:test-host:default", "bridgeId": "bridge-old", "machineId": "wsl-Ubuntu:test-host"},
+        )
+        self.assertEqual(claim_old.status_code, 200, claim_old.text)
+        control = claim_old.json()["control"]
+        self.assertEqual(control["action"], "stop")
+        self.assertEqual(control["requestedBy"], "server:superseded-bridge")
+        self.assertEqual(control["currentEnvironment"]["bridgeId"], "bridge-new")
+        self.assertEqual(control["currentEnvironment"]["metadata"]["pid"], 222)
+
     def test_forget_environment_hides_target_but_preserves_agent_session_and_spec(self):
         self._heartbeat_environment(id="linux:test-host:default")
         created = self.client.post(

@@ -774,7 +774,18 @@ async function runEnvironmentControlLoop() {
     const control = claim?.control;
     if (!control) return;
     if (control.action === "stop") {
-      console.error(`[aify] environment stop requested for ${environment.id}; bridge exiting`);
+      const current = control.currentEnvironment || {};
+      const currentMeta = current.metadata || {};
+      if (control.requestedBy === "server:superseded-bridge" && current.bridgeId && current.bridgeId !== BRIDGE_INSTANCE_ID) {
+        const replacementBits = [
+          `replacement bridge ${current.bridgeId}`,
+          currentMeta.pid ? `pid ${currentMeta.pid}` : "",
+          currentMeta.cwd ? `cwd ${currentMeta.cwd}` : "",
+        ].filter(Boolean).join(", ");
+        console.error(`[aify] environment ${environment.id} was superseded by ${replacementBits}; this older bridge (${BRIDGE_INSTANCE_ID}) is exiting`);
+      } else {
+        console.error(`[aify] environment stop requested for ${environment.id}; bridge exiting`);
+      }
       try {
         await httpCall("PATCH", `/environments/controls/${encodeURIComponent(control.id)}`, {
           status: "completed",
