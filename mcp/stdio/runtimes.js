@@ -149,7 +149,9 @@ function buildUserPrompt(run) {
     : run?.requireReply === false
     ? "Reply only if useful for the sender."
     : "Required handoff: send an explicit reply message to the sender before you finish. If comms tools are unavailable in this turn, say that clearly in the local result.";
+  const context = formatConversationContext(run?.conversationContext || []);
   return [
+    context,
     "[MESSAGE]",
     `Type: ${run.type || "request"}`,
     `Subject: ${run.subject}`,
@@ -159,7 +161,23 @@ function buildUserPrompt(run) {
     replyRule,
     "Otherwise keep any plain-text output limited to your local result in this session.",
     "[/MESSAGE]",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
+}
+
+function formatConversationContext(messages = []) {
+  if (!Array.isArray(messages) || !messages.length) return "";
+  const lines = ["[RECENT DIRECT CONVERSATION]", "These are recent direct messages between you and the sender, oldest first. Use them as chat memory; the new message follows after this block."];
+  for (const message of messages.slice(-12)) {
+    const from = String(message?.from || "").trim() || "unknown";
+    const type = String(message?.type || "info").trim() || "info";
+    const subject = String(message?.subject || "").trim();
+    const body = String(message?.body || message?.preview || "").trim();
+    const timestamp = String(message?.timestamp || "").trim();
+    lines.push(`- ${timestamp ? `${timestamp} ` : ""}${from} (${type})${subject ? `: ${subject}` : ""}`);
+    if (body) lines.push(body.length > 1200 ? `${body.slice(0, 1200)}...` : body);
+  }
+  lines.push("[/RECENT DIRECT CONVERSATION]", "");
+  return lines.join("\n");
 }
 
 function splitProviderModel(value) {
@@ -813,7 +831,6 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
   let settled = false;
   let interrupted = false;
   let activeProcess = null;
-  let retriedSessionInUse = false;
 
   const startAttempt = (sessionId) => {
     const args = [
@@ -878,14 +895,12 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
           return;
         }
         const errorText = stderr || stdout || `Claude exited with code ${code}`;
-        if (executionMode !== "resident" && !retriedSessionInUse && isClaudeSessionInUseError(errorText)) {
-          retriedSessionInUse = true;
-          const replacementSessionId = randomUUID();
-          callbacks.onEvent?.(
-            "runtime",
-            `Claude session "${sessionId}" is already in use; retrying this managed run with fresh session "${replacementSessionId}"`,
-          );
-          startAttempt(replacementSessionId).then(resolve, reject);
+        if (executionMode !== "resident" && isClaudeSessionInUseError(errorText)) {
+          reject(new Error(
+            `${errorText}\n\nThe stored Claude session is locked by another Claude process. ` +
+            `Close the duplicate Claude process or explicitly clear this agent's resume state from Dashboard -> Sessions/Team, then restart/recover. ` +
+            `The bridge did not create a fresh session automatically because that would discard native chat memory.`,
+          ));
           return;
         }
         reject(new Error(errorText));

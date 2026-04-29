@@ -696,6 +696,56 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(run["status"], "claimed")
         self.assertEqual(run["summary"], "")
 
+    def test_dispatch_claim_includes_scoped_direct_conversation_context(self):
+        self._register("dashboard", role="manager")
+        self._register("worker", runtime="claude-code", sessionMode="managed", launchMode="managed")
+        self._register("other", role="coder")
+
+        self._send_message(
+            from_agent="dashboard",
+            to="worker",
+            type="info",
+            subject="previous question",
+            body="Can you check the last thing?",
+            trigger=False,
+        )
+        self._send_message(
+            from_agent="worker",
+            to="dashboard",
+            type="response",
+            subject="previous answer",
+            body="I said I could not check messages yet.",
+            trigger=False,
+        )
+        self._send_message(
+            from_agent="other",
+            to="worker",
+            type="info",
+            subject="unrelated",
+            body="This should not be included.",
+            trigger=False,
+        )
+        dispatched = self._send_message(
+            from_agent="dashboard",
+            to="worker",
+            type="info",
+            subject="current",
+            body="Can you now?",
+            trigger=True,
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "worker", "bridgeId": "bridge-1", "machineId": "win32:test-host", "executionModes": ["managed"]},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        run = claim.json()["run"]
+        self.assertEqual(run["messageId"], dispatched["messageId"])
+        context = run["conversationContext"]
+        self.assertEqual([item["subject"] for item in context], ["previous question", "previous answer"])
+        self.assertNotIn("current", [item["subject"] for item in context])
+        self.assertNotIn("unrelated", [item["subject"] for item in context])
+
     def test_spawn_request_targets_environment_and_matching_bridge_claims(self):
         self._heartbeat_environment()
         created = self.client.post(

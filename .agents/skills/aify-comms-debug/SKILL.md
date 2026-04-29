@@ -115,7 +115,7 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Cause.** The managed session record held a Claude session ID that another Claude process still owns. This can happen after a crash, stale bridge, duplicate restart, or a recovered session that reused a locked Claude session ID.
 
-**Fix (current build).** Managed Claude runs detect this exact failure and retry once with a fresh session ID, then update runtime state to that new ID. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
+**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions/Team -> Clear resume state** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 

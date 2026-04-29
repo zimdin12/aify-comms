@@ -78,6 +78,8 @@ A warm managed session is backed by four layers:
 
 The bridge should prefer native runtime state when it is reliable, but it must still keep conversation state so the system can recover when native resume is unavailable or unsafe.
 
+Native runtime handles must not be silently discarded. If a Claude session ID is locked or a user wants a fresh backing thread/session, that should be an explicit operator action such as **Clear resume state**. Recover should preserve the stored handle when possible; restart should use the saved spawn spec, but it still should not erase native memory unless the operator asks for a reset.
+
 ## Capability Flags
 
 Each session should expose capability flags. The dashboard must use these flags instead of assuming every runtime behaves like Codex or Claude.
@@ -213,7 +215,7 @@ When a warm managed session dies:
 4. Spawn request targets the previous environment unless changed.
 5. Bridge validates workspace and runtime capability.
 6. Bridge tries native resume if `nativeResume=true`.
-7. If native resume fails or is unavailable, bridge uses bridge-resume from transcript/memory.
+7. If native resume fails or is unavailable, bridge reports the failure or uses bridge-resume only when the runtime adapter can do so without silently discarding native memory. Fresh backing handles require an explicit reset/clear-resume action.
 8. New session row is created and linked to the same agent identity.
 
 ## Continue From Previous Session
