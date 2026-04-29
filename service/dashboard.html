@@ -266,8 +266,9 @@ tr:hover{background:#19212a}
 .actions-menu-panel{display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:190px;flex-direction:column;gap:6px;background:#0f151c;border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 12px 36px #0008}
 .actions-menu-panel .btn{justify-content:flex-start;width:100%}
 .actions-table{overflow:visible}
-.actions-table td:last-child{overflow:visible}
-.actions-table tbody tr:last-child .actions-menu-panel{top:auto;bottom:calc(100% + 4px)}
+.actions-table th:last-child,.actions-table td:last-child{overflow:visible}
+.actions-table .actions-menu{z-index:40}
+.actions-table tbody tr:nth-last-child(-n+3) .actions-menu-panel{top:auto;bottom:calc(100% + 4px)}
 .modal-form{display:grid;gap:10px}
 .modal-form label{display:grid;gap:5px;color:var(--muted);font-size:.82em}
 .modal-form input,.modal-form select,.modal-form textarea{background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font:inherit;font-size:.9em}
@@ -1305,7 +1306,7 @@ function renderAgents(agents, containerId = 'manual-agents-table') {
     return;
   }
   const sortedAgents = [...agents].sort(([a], [b]) => String(a).localeCompare(String(b)));
-  let html = '<table class="agents-grid"><thead><tr><th>ID</th><th>Role</th><th>Presence</th><th>Session</th><th>Wake</th><th>Work</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+  let html = '<table class="agents-grid actions-table"><thead><tr><th>ID</th><th>Role</th><th>Presence</th><th>Session</th><th>Wake</th><th>Work</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
   for (const [id, info] of sortedAgents) {
     const runtime = agentRuntimeLabel(info);
     const session = agentSessionLabel(info);
@@ -1364,7 +1365,7 @@ function renderWorkers(workers) {
     document.getElementById('workers-table').innerHTML = '<p class="em">No managed agents registered. Spawn one from Environments.</p>';
     return;
   }
-  let html = '<table class="agents-grid"><thead><tr><th>ID</th><th>Owner</th><th>Presence</th><th>Wake</th><th>Work</th><th>State</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+  let html = '<table class="agents-grid actions-table"><thead><tr><th>ID</th><th>Owner</th><th>Presence</th><th>Wake</th><th>Work</th><th>State</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
   for (const [id, info] of workers) {
     const work = agentWorkText(info) || recentCompletionLabel(id);
     const state = workerStateLabel(info);
@@ -2347,8 +2348,14 @@ function updateChatReplyContext(meta) {
 }
 
 function clearChatReplyContext() {
+  const body = document.getElementById('chat-body');
+  if (body) body.value = stripLegacyFollowupPrefix(body.value);
   window._chatReplyTo = null;
   updateChatReplyContext(selectedChatMeta());
+}
+
+function stripLegacyFollowupPrefix(value) {
+  return String(value || '').replace(/^Following up on(?: the selected message)?:[^\n]*(?:\n\n|\n)?/i, '');
 }
 
 function focusChatComposer() {
@@ -2565,11 +2572,7 @@ function followUpChatMessage(from, messageId, subject, preview) {
   document.getElementById('chat-subject-input').value = subject ? `Follow-up: ${subject.replace(/^Follow-up:\s*/i, '')}` : '';
   const body = document.getElementById('chat-body');
   if (body) {
-    const snippet = (preview || subject || messageId || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-    const prefix = snippet ? `Following up on: ${snippet}\n\n` : 'Following up on the selected message.\n\n';
-    body.value = body.value.trim()
-      ? `${prefix}${body.value.trim()}`
-      : prefix;
+    body.value = stripLegacyFollowupPrefix(body.value);
     body.setSelectionRange(body.value.length, body.value.length);
   }
   focusChatComposer();
