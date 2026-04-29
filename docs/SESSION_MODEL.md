@@ -185,7 +185,8 @@ A session can be persistent and recoverable without being attachable in the offi
 Examples:
 
 - Codex session with a stored thread ID may become attachable if the same Codex installation and thread store can resume it safely.
-- Claude bridge-emulated warm session is likely not attachable; dashboard can show transcript/logs, but there is no official interactive Claude conversation to open.
+- Claude managed-warm currently runs headless through `claude -p --session-id ...`. The backing can be recovered from the dashboard, but it will not show up as an open conversation inside `claude-aify` unless a future adapter reports `cliAttach=true`.
+- Claude bridge-emulated warm session is therefore not attachable by default; dashboard can show transcript/logs, but there is no official interactive Claude conversation to open.
 
 Dashboard rule:
 

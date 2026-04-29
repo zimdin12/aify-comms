@@ -43,6 +43,7 @@ Dashboard **Environments -> Spawn Agent** and `comms_spawn` are the same product
 
 Managed runtime policy:
 - Dashboard-managed agents are unattended automation. Managed Codex uses the non-interactive approval policy and writable workspace sandbox configured by the bridge. Managed Claude Code adds `--dangerously-skip-permissions` by default so it can call installed MCP tools such as `comms_inbox` without a human approval prompt.
+- Dashboard-managed Claude Code is headless (`claude -p --session-id ...`). It is recoverable from the dashboard, but it is not expected to appear as an open conversation inside `claude-aify` unless the session reports `cliAttach=true`.
 - Resident sessions keep the permission mode of the CLI the user started. If a resident Claude session says comms tools need approval, restart it with the desired Claude permission flags or use a dashboard-managed session for unattended work.
 - Every delivered managed message includes the recipient's own `agentId`; use that exact ID for `comms_inbox(agentId="...")` when asked to check recent messages between you and the sender.
 

@@ -788,7 +788,7 @@ aify-comms</pre>
       <p>Manual <code>comms_register</code> remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Codex CLI note: if you want visible live wakeups instead of background thread resume, start Codex through <code>codex-aify</code> before registering. From that live session, prefer the strongest exact registration first: <code>comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")</code>. Plain <code>codex</code> still works, but it advertises the older <code>codex-thread-resume</code> fallback.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Human-open resident sessions keep the permission mode of the CLI you started.</p>
+      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so its backing record is recoverable from this dashboard but does not appear as an open conversation inside <code>claude-aify</code>. Human-open resident sessions keep the permission mode of the CLI you started.</p>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
         <p><b>Live send:</b> normal messages are not queued for future runs. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, Send reports the issue and writes no message. Agent-reported blocked state and legacy completed state are status notes, not delivery blockers.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
@@ -1225,8 +1225,54 @@ function sessionsForAgent(agentId) {
 }
 
 function primarySessionForAgent(agentId) {
+  const agentInfo = (window._allAgents || []).find(([id]) => id === agentId)?.[1] || {};
   const sessions = sessionsForAgent(agentId);
-  return sessions.find(session => ['running', 'starting', 'claimed'].includes(String(session.status || '').toLowerCase())) || sessions[0] || null;
+  return sessions
+    .slice()
+    .sort((a, b) => sessionPriorityScore(b, agentInfo) - sessionPriorityScore(a, agentInfo))
+    [0] || null;
+}
+
+function sessionPriorityScore(session, agentInfo = {}) {
+  const state = agentInfo.runtimeState || {};
+  const status = String(session.status || '').toLowerCase();
+  const terminal = ['failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled'].includes(status);
+  let score = terminal ? 0 : 1000;
+  if (session.spawnRequestId && session.spawnRequestId === state.spawnRequestId) score += 5000;
+  if (session.environmentId && session.environmentId === state.environmentId) score += 800;
+  if (session.sessionHandle && [state.sessionId, state.threadId, agentInfo.sessionHandle].includes(session.sessionHandle)) score += 700;
+  if (status === 'running') score += 300;
+  if (status === 'starting' || status === 'recovering' || status === 'restarting') score += 200;
+  const env = (window._environments || []).find(item => item.id === session.environmentId);
+  if (env?.status === 'online') score += 150;
+  const seen = Date.parse(session.lastSeen || session.startedAt || '') || 0;
+  return score + Math.floor(seen / 100000000);
+}
+
+function runtimeAttachNote(session) {
+  const caps = session?.capabilities || {};
+  if (caps.cliAttach) return 'CLI attach supported for this backing.';
+  const runtime = String(session?.runtime || '').toLowerCase();
+  if (runtime === 'claude-code') {
+    return 'Headless managed Claude Code uses claude -p and is not visible inside claude-aify. Continue it from Chat or Sessions.';
+  }
+  if (runtime === 'codex') {
+    return 'Headless managed Codex runs through the bridge/app-server and may not appear in a visible codex-aify TUI unless CLI attach is reported.';
+  }
+  return 'This managed backing is recoverable from the dashboard, but it is not advertised as attachable in the official CLI.';
+}
+
+function backingFreshnessNote(session, agentInfo = {}) {
+  if (!session) return '';
+  const sessionSeen = Date.parse(session.lastSeen || '') || 0;
+  const agentSeen = Date.parse(agentInfo.lastSeen || '') || 0;
+  if (agentSeen && sessionSeen && agentSeen - sessionSeen > 5 * 60 * 1000) {
+    return 'The agent identity refreshed after this backing record. It may be startable, but this backing timestamp is stale.';
+  }
+  if (sessionSeen && Date.now() - sessionSeen > 30 * 60 * 1000) {
+    return 'This backing has not refreshed recently. Send a message or recover/restart if it does not respond.';
+  }
+  return '';
 }
 
 function runHandoffLabel(run) {
@@ -2503,14 +2549,20 @@ function renderChatInspector(meta, messages) {
       const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming']
         .filter(key => caps[key])
         .map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()));
-      html += '<h3>Runtime Backing</h3>' +
+      const attachNote = runtimeAttachNote(session);
+      const freshnessNote = backingFreshnessNote(session, agentInfo);
+      html += '<h3>Managed Backing</h3>' +
+        ((!caps.cliAttach || freshnessNote)
+          ? `<div class="banner"><div class="banner-row"><span>${esc([attachNote, freshnessNote].filter(Boolean).join(' '))}</span></div></div>`
+          : '') +
         '<dl class="chat-kv">' +
-        `<dt>Session</dt><dd class="clip-1"${titleAttr(session.id || '')}>${esc(session.id || '')}</dd>` +
-        `<dt>Status</dt><dd><span class="status-dot ${esc(sessionStatus)}"></span>${esc(session.status || 'unknown')}</dd>` +
+        `<dt>Backing</dt><dd class="clip-1"${titleAttr(session.id || '')}>${esc(session.id || '')}</dd>` +
+        `<dt>State</dt><dd><span class="status-dot ${esc(sessionStatus)}"></span>${esc(session.status || 'unknown')}</dd>` +
         `<dt>Env</dt><dd class="clip-1"${titleAttr(session.environmentId || '')}><span class="status-dot ${esc(envStatus)}"></span>${esc(environment?.label || session.environmentId || '')}</dd>` +
         `<dt>Workspace</dt><dd class="clip-2"${titleAttr(session.workspace || '')}>${esc(session.workspace || '')}</dd>` +
-        `<dt>Mode</dt><dd>${esc(session.mode || 'managed-warm')}</dd>` +
-        `<dt>Backings</dt><dd>${sessionCount}</dd>` +
+        `<dt>Mode</dt><dd>${esc(session.mode || 'managed-warm')}${caps.cliAttach ? '' : ' · headless'}</dd>` +
+        `<dt>Attach</dt><dd>${esc(caps.cliAttach ? 'CLI attach supported' : 'Dashboard only')}</dd>` +
+        `<dt>Records</dt><dd>${sessionCount}${sessionCount > 1 ? ' backing records' : ' backing record'}</dd>` +
         `<dt>Caps</dt><dd class="clip-2"${titleAttr(capLabels.join(', '))}>${esc(capLabels.join(', ') || 'none reported')}</dd>` +
         '</dl>' +
         '<div class="btn-row">' +
@@ -2842,6 +2894,7 @@ function renderSessions(sessions) {
   for (const session of visibleSessions) {
     const caps = session.capabilities || {};
     const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase())).join(', ');
+    const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
     const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
     const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
     const sessionStatus = String(session.status || '').toLowerCase();
@@ -2860,7 +2913,7 @@ function renderSessions(sessions) {
     ];
     html += `<tr>` +
       `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span></td>` +
-      `<td>${esc(session.runtime || '')}<br><span class="t">${esc(session.mode || '')}</span></td>` +
+      `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
       `<td class="t"${titleAttr(session.environmentId || '')}><span class="clip-1">${esc(session.environmentId || '')}</span></td>` +
       `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
       `<td><span class="st-${esc(session.status || '')}">${esc(session.status || '')}</span></td>` +

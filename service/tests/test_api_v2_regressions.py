@@ -1109,6 +1109,74 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual([row["id"] for row in pending_spawns], [pending_spawn_id])
 
+    def test_runtime_state_update_refreshes_current_managed_session(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "fresh-backed-coder",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/repo",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        claim = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "processId": "1234",
+                "runtimeState": {
+                    "bridgeInstanceId": "bridge-current",
+                    "environmentId": "linux:test-host:default",
+                    "spawnRequestId": spawn_id,
+                },
+            },
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        session_id = running.json()["spawnRequest"]["sessionId"]
+        self._execute(
+            "UPDATE agent_sessions SET last_seen = ?, status = 'recovering' WHERE id = ?",
+            ("2026-04-28T10:00:00Z", session_id),
+        )
+
+        updated = self.client.patch(
+            "/api/v1/agents/fresh-backed-coder/runtime-state",
+            json={
+                "runtimeState": {
+                    "bridgeInstanceId": "bridge-current",
+                    "environmentId": "linux:test-host:default",
+                    "spawnRequestId": spawn_id,
+                    "threadId": "thread-current",
+                }
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        row = self._fetchone("SELECT status, last_seen FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(row["status"], "running")
+        self.assertNotEqual(row["last_seen"], "2026-04-28T10:00:00Z")
+
+        self._execute(
+            "UPDATE agent_sessions SET last_seen = ? WHERE id = ?",
+            ("2026-04-28T10:00:00Z", session_id),
+        )
+        self._execute(
+            "UPDATE agents SET last_seen = ? WHERE id = ?",
+            ("2026-04-29T00:00:00Z", "fresh-backed-coder"),
+        )
+        listed = self.client.get("/api/v1/sessions?agentId=fresh-backed-coder")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["sessions"][0]["lastSeen"], "2026-04-29T00:00:00Z")
+
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
         created = self.client.post(

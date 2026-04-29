@@ -955,6 +955,31 @@ async def _repair_superseded_recovering_sessions(db) -> int:
     return len(rows)
 
 
+async def _repair_current_session_freshness(db) -> int:
+    cursor = await db.execute(
+        """
+        SELECT id, last_seen, runtime_state
+        FROM agents
+        WHERE session_mode = 'managed'
+          AND runtime_state IS NOT NULL
+          AND runtime_state != ''
+          AND runtime_state != '{}'
+        """
+    )
+    repaired = 0
+    for row in await cursor.fetchall():
+        runtime_state = _json_loads_or(row["runtime_state"], {})
+        if not (runtime_state.get("spawnRequestId") or runtime_state.get("environmentId")):
+            continue
+        before = db.total_changes
+        await _touch_current_agent_session(db, row["id"], runtime_state, row["last_seen"] or _now())
+        if db.total_changes > before:
+            repaired += 1
+    if repaired:
+        await db.commit()
+    return repaired
+
+
 def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
     normalized = _normalize_runtime(runtime)
     for item in environment.get("runtimes") or []:
@@ -2864,6 +2889,7 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
     db = await get_db()
     try:
         await _repair_superseded_recovering_sessions(db)
+        await _repair_current_session_freshness(db)
         where = []
         params: list[Any] = []
         if agentId:
@@ -3615,16 +3641,62 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
 async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate, request: Request):
     db = await get_db()
     try:
+        now = _now()
         cursor = await db.execute(
             "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-            (json.dumps(req.runtimeState or {}), _now(), agent_id)
+            (json.dumps(req.runtimeState or {}), now, agent_id)
         )
+        await _touch_current_agent_session(db, agent_id, req.runtimeState or {}, now)
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         return {"ok": True, "agentId": agent_id, "runtimeState": req.runtimeState or {}}
     finally:
         await db.close()
+
+
+async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[str, Any] | None, now: str) -> None:
+    """Keep the dashboard backing record fresh when a managed runtime is used."""
+    state = runtime_state or {}
+    spawn_request_id = str(state.get("spawnRequestId") or "").strip()
+    environment_id = str(state.get("environmentId") or "").strip()
+    if spawn_request_id:
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET last_seen = ?,
+                status = CASE
+                    WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
+                    ELSE status
+                END
+            WHERE agent_id = ?
+              AND spawn_request_id = ?
+              AND status NOT IN ('failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled')
+            """,
+            (now, agent_id, spawn_request_id),
+        )
+        return
+    if environment_id:
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET last_seen = ?,
+                status = CASE
+                    WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
+                    ELSE status
+                END
+            WHERE id = (
+                SELECT id
+                FROM agent_sessions
+                WHERE agent_id = ?
+                  AND environment_id = ?
+                  AND status NOT IN ('failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled')
+                ORDER BY last_seen DESC
+                LIMIT 1
+            )
+            """,
+            (now, agent_id, environment_id),
+        )
 
 
 # ─── Messages ────────────────────────────────────────────────────────────────
@@ -4409,6 +4481,12 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, claim_bridge_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", req.bridgeId or "", agent_runtime, selected_run["id"])
         )
+        await _touch_current_agent_session(
+            db,
+            req.agentId,
+            _json_loads_or(agent["runtime_state"], {}),
+            claimed_at,
+        )
         marked_read = await _mark_dispatch_source_messages_read(db, selected_run, req.agentId, claimed_at)
         await _append_dispatch_event(db, selected_run["id"], "claimed", f"machine={req.machineId or ''}")
         if marked_read > 1:
@@ -4639,6 +4717,13 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
             await db.execute(
                 "UPDATE agents SET status = ?, last_seen = ? WHERE id = ?",
                 (req.agentStatus, now, row["target_agent"])
+            )
+            agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
+            await _touch_current_agent_session(
+                db,
+                row["target_agent"],
+                _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {},
+                now,
             )
 
         if req.appendEvent:
