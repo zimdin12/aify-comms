@@ -117,7 +117,7 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions/Team -> Clear resume state** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
 
-**Visibility caveat.** Dashboard-managed Claude Code uses headless `claude -p --session-id ...`. A healthy managed backing is not expected to appear as an open conversation inside `claude-aify`; use the dashboard Chat/Sessions views unless the session explicitly reports `cliAttach=true`.
+**Visibility caveat.** Dashboard-managed Claude Code uses headless `claude -p --session-id ...`. A healthy managed backing may not appear in the `claude-aify` picker. Use dashboard **Copy CLI resume** to open it by ID (`claude-aify --resume <session-id>`) after the backing has recorded a resume ID.
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 

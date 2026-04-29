@@ -788,7 +788,7 @@ aify-comms</pre>
       <p>Manual <code>comms_register</code> remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Codex CLI note: if you want visible live wakeups instead of background thread resume, start Codex through <code>codex-aify</code> before registering. From that live session, prefer the strongest exact registration first: <code>comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")</code>. Plain <code>codex</code> still works, but it advertises the older <code>codex-thread-resume</code> fallback.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so its backing record is recoverable from this dashboard but does not appear as an open conversation inside <code>claude-aify</code>. Human-open resident sessions keep the permission mode of the CLI you started.</p>
+      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so it may not appear in the <code>claude-aify</code> picker, but Sessions/Chat can copy a native resume command once the runtime has recorded a resume ID. Human-open resident sessions keep the permission mode of the CLI you started.</p>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
         <p><b>Live send:</b> normal messages are not queued for future runs. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, Send reports the issue and writes no message. Agent-reported blocked state and legacy completed state are status notes, not delivery blockers.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
@@ -1254,10 +1254,10 @@ function runtimeAttachNote(session) {
   if (caps.cliAttach) return 'CLI attach supported for this backing.';
   const runtime = String(session?.runtime || '').toLowerCase();
   if (runtime === 'claude-code') {
-    return 'Headless managed Claude Code uses claude -p and is not visible inside claude-aify. Continue it from Chat or Sessions.';
+    return 'Headless managed Claude Code uses claude -p. It may not appear in the claude-aify picker, but it can be resumed by ID when a resume ID is recorded.';
   }
   if (runtime === 'codex') {
-    return 'Headless managed Codex runs through the bridge/app-server and may not appear in a visible codex-aify TUI unless CLI attach is reported.';
+    return 'Headless managed Codex uses the bridge app-server and managed CODEX_HOME. Resume by ID with the generated command when a resume ID is recorded.';
   }
   return 'This managed backing is recoverable from the dashboard, but it is not advertised as attachable in the official CLI.';
 }
@@ -2020,6 +2020,68 @@ function environmentStartCommand(env) {
   return `${cd}\naify-comms${args ? ' ' + args : ''}`;
 }
 
+function quoteShell(value) {
+  const text = String(value || '');
+  if (!text) return "''";
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+function quoteCmd(value) {
+  const text = String(value || '');
+  return /[\s"&|<>^]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function sessionRuntimeHandle(session, agentInfo = {}) {
+  const state = agentInfo.runtimeState || {};
+  const runtime = String(session?.runtime || agentInfo.runtime || '').toLowerCase();
+  if (session?.sessionHandle) return String(session.sessionHandle);
+  if (runtime === 'claude-code') return String(state.sessionId || agentInfo.sessionHandle || '');
+  if (runtime === 'codex') return String(state.threadId || agentInfo.sessionHandle || '');
+  if (runtime === 'opencode') return String(state.sessionId || agentInfo.sessionHandle || '');
+  return String(agentInfo.sessionHandle || '');
+}
+
+function sessionResumeCommand(session, agentInfo = {}) {
+  const handle = sessionRuntimeHandle(session, agentInfo).trim();
+  if (!handle) return '';
+  const runtime = String(session?.runtime || agentInfo.runtime || '').toLowerCase();
+  const environment = (window._environments || []).find(env => env.id === session.environmentId) || {};
+  const osText = String(environment.os || environment.kind || session.environmentId || '').toLowerCase();
+  const workspace = session.workspace || agentInfo.cwd || '';
+  const windows = osText.includes('win') || /^[A-Za-z]:[\\/]/.test(workspace);
+  if (runtime === 'claude-code') {
+    return windows
+      ? `cd /d ${quoteCmd(workspace)}\nclaude-aify.cmd --resume ${quoteCmd(handle)}`
+      : `cd ${quoteShell(workspace)}\nclaude-aify --resume ${quoteShell(handle)}`;
+  }
+  if (runtime === 'codex') {
+    return windows
+      ? `cd /d ${quoteCmd(workspace)}\nset "CODEX_HOME=%USERPROFILE%\\.local\\state\\aify-comms\\managed-codex-home" && codex resume --include-non-interactive ${quoteCmd(handle)}`
+      : `cd ${quoteShell(workspace)}\nCODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" codex resume --include-non-interactive ${quoteShell(handle)}`;
+  }
+  if (runtime === 'opencode') {
+    return windows
+      ? `cd /d ${quoteCmd(workspace)}\nopencode`
+      : `cd ${quoteShell(workspace)}\nopencode`;
+  }
+  return '';
+}
+
+function copySessionResumeCommand(sessionId) {
+  const session = (window._sessions || []).find(item => item.id === sessionId);
+  if (!session) {
+    toast('Session not found', '#f85149');
+    return;
+  }
+  const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+  const command = sessionResumeCommand(session, agentInfo);
+  if (!command) {
+    toast('No CLI resume handle recorded yet. Send one message or recover the session first.', '#f85149');
+    return;
+  }
+  copyText(command, 'CLI resume command copied');
+}
+
 function openEnvironmentEditor(environmentId) {
   const env = (window._environments || []).find(item => item.id === environmentId);
   if (!env) {
@@ -2546,6 +2608,8 @@ function renderChatInspector(meta, messages) {
       const sessionStatus = String(session.status || 'unknown').toLowerCase();
       const envStatus = String(environment?.status || 'unknown').toLowerCase();
       const caps = session.capabilities || {};
+      const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
+      const resumeCommand = sessionResumeCommand(session, agentInfo);
       const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming']
         .filter(key => caps[key])
         .map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()));
@@ -2562,11 +2626,14 @@ function renderChatInspector(meta, messages) {
         `<dt>Workspace</dt><dd class="clip-2"${titleAttr(session.workspace || '')}>${esc(session.workspace || '')}</dd>` +
         `<dt>Mode</dt><dd>${esc(session.mode || 'managed-warm')}${caps.cliAttach ? '' : ' · headless'}</dd>` +
         `<dt>Attach</dt><dd>${esc(caps.cliAttach ? 'CLI attach supported' : 'Dashboard only')}</dd>` +
+        (runtimeHandle ? `<dt>Resume ID</dt><dd class="clip-1"${titleAttr(runtimeHandle)}>${esc(runtimeHandle)}</dd>` : '') +
         `<dt>Records</dt><dd>${sessionCount}${sessionCount > 1 ? ' backing records' : ' backing record'}</dd>` +
         `<dt>Caps</dt><dd class="clip-2"${titleAttr(capLabels.join(', '))}>${esc(capLabels.join(', ') || 'none reported')}</dd>` +
         '</dl>' +
+        (resumeCommand ? `<details class="chat-run-note"><summary>CLI resume command</summary><pre>${esc(resumeCommand)}</pre></details>` : '') +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
+        (resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy a command that opens this backing in the native CLI. Stop/pause managed work first if you want to take over without lock conflicts.', () => copySessionResumeCommand(session.id)) : '') +
         actionButtonFn('Continue as', 'Create a new managed session from this agent context', () => continueSessionAs(session.id)) +
         actionButtonFn('Restart', 'Queue a restart from this session specification', () => controlSession(session.id, 'restart')) +
         `</div>`;
@@ -2895,6 +2962,8 @@ function renderSessions(sessions) {
     const caps = session.capabilities || {};
     const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase())).join(', ');
     const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
+    const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+    const resumeCommand = sessionResumeCommand(session, agentInfo);
     const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
     const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
     const sessionStatus = String(session.status || '').toLowerCase();
@@ -2907,6 +2976,7 @@ function renderSessions(sessions) {
       actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
       activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
       spawnControl,
+      resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy a native CLI command to resume this backing by ID. Stop/pause managed work first to avoid session locks.', () => copySessionResumeCommand(session.id)) : '',
       actionButtonFn('Clear resume state', 'Forget saved runtime thread/session handles so the next run starts fresh. Messages and identity remain.', () => resetWorkerState(session.agentId)),
       actionButtonFn('Continue as', 'Create a new managed agent/session from an editable handoff packet', () => continueSessionAs(session.id)),
       canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',

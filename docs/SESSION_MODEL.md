@@ -185,12 +185,13 @@ A session can be persistent and recoverable without being attachable in the offi
 Examples:
 
 - Codex session with a stored thread ID may become attachable if the same Codex installation and thread store can resume it safely.
-- Claude managed-warm currently runs headless through `claude -p --session-id ...`. The backing can be recovered from the dashboard, but it will not show up as an open conversation inside `claude-aify` unless a future adapter reports `cliAttach=true`.
-- Claude bridge-emulated warm session is therefore not attachable by default; dashboard can show transcript/logs, but there is no official interactive Claude conversation to open.
+- Claude managed-warm currently runs headless through `claude -p --session-id ...`. It may not show up in the `claude-aify` resume picker, but the same session can be opened by ID with `claude-aify --resume <session-id>` when the backing has recorded a resume ID.
+- Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
 
 Dashboard rule:
 
 - Show **Open in CLI** only when `cliAttach=true`.
+- Show **Copy CLI resume** when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
 - Show **View transcript/logs** for all persistent sessions.
 - If the bridge owns an active managed session, attaching a human CLI must either pause bridge ownership or use explicit shared-session locking to avoid races.
 

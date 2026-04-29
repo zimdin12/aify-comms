@@ -3660,11 +3660,13 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
     state = runtime_state or {}
     spawn_request_id = str(state.get("spawnRequestId") or "").strip()
     environment_id = str(state.get("environmentId") or "").strip()
+    runtime_handle = str(state.get("sessionId") or state.get("threadId") or "").strip()
     if spawn_request_id:
         await db.execute(
             """
             UPDATE agent_sessions
             SET last_seen = ?,
+                session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
                 status = CASE
                     WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
                     ELSE status
@@ -3673,7 +3675,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
               AND spawn_request_id = ?
               AND status NOT IN ('failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled')
             """,
-            (now, agent_id, spawn_request_id),
+            (now, runtime_handle, runtime_handle, agent_id, spawn_request_id),
         )
         return
     if environment_id:
@@ -3681,6 +3683,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
             """
             UPDATE agent_sessions
             SET last_seen = ?,
+                session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
                 status = CASE
                     WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
                     ELSE status
@@ -3695,7 +3698,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
                 LIMIT 1
             )
             """,
-            (now, agent_id, environment_id),
+            (now, runtime_handle, runtime_handle, agent_id, environment_id),
         )
 
 

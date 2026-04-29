@@ -304,6 +304,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("data-channel-member-select", dashboard.text)
         self.assertIn("chat-online-only", dashboard.text)
         self.assertIn("Online only", dashboard.text)
+        self.assertIn("Copy CLI resume", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
@@ -1161,9 +1162,10 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
-        row = self._fetchone("SELECT status, last_seen FROM agent_sessions WHERE id = ?", (session_id,))
+        row = self._fetchone("SELECT status, last_seen, session_handle FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(row["status"], "running")
         self.assertNotEqual(row["last_seen"], "2026-04-28T10:00:00Z")
+        self.assertEqual(row["session_handle"], "thread-current")
 
         self._execute(
             "UPDATE agent_sessions SET last_seen = ? WHERE id = ?",
@@ -1176,6 +1178,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         listed = self.client.get("/api/v1/sessions?agentId=fresh-backed-coder")
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["sessions"][0]["lastSeen"], "2026-04-29T00:00:00Z")
+        self.assertEqual(listed.json()["sessions"][0]["sessionHandle"], "thread-current")
 
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
