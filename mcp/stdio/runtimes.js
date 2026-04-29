@@ -958,7 +958,7 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
       ? residentSessionId
       : (runtimeState?.sessionId || residentSessionId || randomUUID());
   const maxTurns = String(config.maxTurns || 15);
-  const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
+  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
   if (executionMode === "resident" && !initialSessionId) {
     throw new Error(
       `Resident Claude session "${agentId}" has no bound session ID. Re-register from the live Claude session or provide sessionHandle explicitly.`,
@@ -1098,11 +1098,11 @@ export function isClaudeSessionInUseError(text) {
 function createCodexController({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultCodexCommand();
-  const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
-  const quietTimeoutMs = Math.max(
-    60 * 1000,
-    Number(config.quietTimeoutMs || config.silenceTimeoutMs || 5 * 60 * 1000),
-  );
+  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
+  const configuredQuietTimeout = Number(config.quietTimeoutMs ?? config.silenceTimeoutMs ?? 30 * 60 * 1000);
+  const quietTimeoutMs = configuredQuietTimeout <= 0
+    ? 0
+    : Math.max(10 * 60 * 1000, configuredQuietTimeout);
   const hostCwd = agentInfo.cwd || process.cwd();
   const model = agentInfo.model || config.model || "gpt-5.4";
   const effort = config.effort || "medium";
@@ -1139,6 +1139,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   let proc = null;
   let lastActivityAt = Date.now();
   let activityLabel = "runtime launch";
+  const activeItems = new Map();
 
   const markActivity = (label = "runtime event") => {
     lastActivityAt = Date.now();
@@ -1165,6 +1166,15 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       if (delta) finalText += delta;
     } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
       finalText = params.item.text || finalText;
+      if (params.item?.id) activeItems.delete(params.item.id);
+    } else if (message.method === "item/started" && params.item?.id) {
+      const itemType = params.item?.type || params.item?.kind || "item";
+      activeItems.set(params.item.id, itemType);
+      callbacks.onEvent?.("codex", `Started ${itemType}`);
+    } else if (message.method === "item/completed" && params.item?.id) {
+      const itemType = params.item?.type || params.item?.kind || activeItems.get(params.item.id) || "item";
+      activeItems.delete(params.item.id);
+      callbacks.onEvent?.("codex", `Completed ${itemType}`);
     } else if (message.method === "error" && params.error?.message) {
       finalError = params.error.message;
     }
@@ -1196,6 +1206,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
   const promise = new Promise(async (resolve, reject) => {
     rejectPromise = reject;
+    let quietTimer = null;
     const timer = setTimeout(() => {
       if (!settled) {
         clearInterval(quietTimer);
@@ -1212,35 +1223,41 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
         reject(new Error(`Codex run timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
-    const quietTimer = setInterval(() => {
-      if (settled) return;
-      const idleFor = Date.now() - lastActivityAt;
-      if (idleFor < quietTimeoutMs) return;
-      const message =
-        `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${activityLabel}. ` +
-        `The turn was treated as stalled and terminated. Retry the message, or restart/recover the session if this repeats.`;
-      finalStatus = "failed";
-      finalError = message;
-      settled = true;
-      clearTimeout(timer);
-      clearInterval(quietTimer);
-      try {
-        callbacks.onEvent?.("stalled", message);
-      } catch {
-        // best effort
-      }
-      try {
-        terminateProcessTree(proc);
-      } catch {
-        // ignore shutdown errors
-      }
-      try {
-        rpc?.close?.();
-      } catch {
-        // ignore close errors
-      }
-      reject(new Error(message));
-    }, Math.min(30 * 1000, Math.max(5 * 1000, Math.floor(quietTimeoutMs / 6))));
+    if (quietTimeoutMs > 0) {
+      quietTimer = setInterval(() => {
+        if (settled) return;
+        const idleFor = Date.now() - lastActivityAt;
+        if (idleFor < quietTimeoutMs) return;
+        const activeLabel = activeItems.size
+          ? ` Active Codex item(s): ${[...new Set(activeItems.values())].join(", ")}.`
+          : "";
+        const message =
+          `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${activityLabel}.` +
+          activeLabel +
+          ` The turn was treated as stalled and terminated. Retry the message, or restart/recover the session if this repeats.`;
+        finalStatus = "failed";
+        finalError = message;
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(quietTimer);
+        try {
+          callbacks.onEvent?.("stalled", message);
+        } catch {
+          // best effort
+        }
+        try {
+          terminateProcessTree(proc);
+        } catch {
+          // ignore shutdown errors
+        }
+        try {
+          rpc?.close?.();
+        } catch {
+          // ignore close errors
+        }
+        reject(new Error(message));
+      }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
+    }
 
     try {
       if (appServerUrl) {
@@ -1532,7 +1549,7 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
   const residentSessionId = String(agentInfo.sessionHandle || "").trim();
   const cwd = agentInfo.cwd || process.cwd();
-  const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
+  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
   const model = splitProviderModel(agentInfo.model || config.model || "");
   const permission = opencodePermissionConfig(config);
   const selectedAgent = String(config.agent || "").trim() || undefined;

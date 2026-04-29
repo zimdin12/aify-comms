@@ -47,7 +47,7 @@ Important:
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
 - If an environment bridge is killed, managed teammates backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the teammate to another online environment from **Team**, then recover/restart from **Sessions**.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents, and they cannot launch local work themselves.
-- Default dispatch timeout is **2 hours** (per-agent override via `runtimeConfig.timeoutMs`). Managed Codex also has a 5-minute quiet-stall watchdog (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) so silent Codex turns fail cleanly instead of sitting in `running` until the hard timeout.
+- Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Managed Codex also has a 30-minute quiet-stall watchdog (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) so wedged Codex turns fail cleanly instead of sitting in `running` until the hard timeout. Set the quiet timeout to `0` only for agents expected to run very long silent commands.
 - If another agent says you are a resident OpenCode session without a bound session handle, either re-register with `sessionHandle="<session-id>"` or create a persistent agent with `comms_spawn`.
 
 ## What This Installs
