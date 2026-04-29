@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/codex-resume-failure.test.js && node tests/cwd-normalization.test.js && node tests/msys-pid-bug.test.js && node tests/codex-cwd-transform.test.js && node tests/codex-runtime-fatal-log.test.js && node tests/managed-codex-config.test.js && node tests/claude-session-in-use.test.js"
+    "test": "node tests/codex-resume-failure.test.js && node tests/cwd-normalization.test.js && node tests/msys-pid-bug.test.js && node tests/codex-cwd-transform.test.js && node tests/codex-runtime-fatal-log.test.js && node tests/managed-codex-config.test.js && node tests/managed-claude-permissions.test.js && node tests/claude-session-in-use.test.js"
   },
   "keywords": [
     "mcp",

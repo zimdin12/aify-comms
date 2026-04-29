@@ -41,6 +41,11 @@ comms_spawn(from="my-agent", agentId="feature-coder", role="coder", runtime="cod
 
 Dashboard **Environments -> Spawn Agent** and `comms_spawn` are the same product path: persistent managed agent sessions backed by an environment, workspace, runtime, spawn spec, and session record. Short-lived local subagents inside one Codex task should stay private unless the user explicitly wants them promoted to a comms-visible teammate.
 
+Managed runtime policy:
+- Dashboard-managed agents are unattended automation. Managed Codex uses the non-interactive approval policy and writable workspace sandbox configured by the bridge. Managed Claude Code adds `--dangerously-skip-permissions` by default so it can call installed MCP tools such as `comms_inbox` without a human approval prompt.
+- Resident sessions keep the permission mode of the CLI the user started. If a resident Claude session says comms tools need approval, restart it with the desired Claude permission flags or use a dashboard-managed session for unattended work.
+- Every delivered managed message includes the recipient's own `agentId`; use that exact ID for `comms_inbox(agentId="...")` when asked to check recent messages between you and the sender.
+
 Environment bridge model:
 - Starting a newer `aify-comms` bridge for the same environment makes the newer bridge current and queues a stop for the older bridge. If the old process is hung and no longer polling, it may need manual OS cleanup, but it should not own spawn claims.
 - Killing a bridge stops the execution target, not the teammate identity. Managed teammates from that environment become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain.

@@ -113,9 +113,11 @@ function buildSystemPrompt(agentId, agentInfo, run) {
   return [
     "[AIFY MESSAGE]",
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
+    `Your aify-comms agentId is "${agentId}". Use that exact ID when checking your own inbox or conversation state.`,
     `From: ${run.from}.`,
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
     "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
+    `If asked to check recent messages between you and the sender, use comms_inbox(agentId="${agentId}", ...) or the relevant direct-chat context, not the global dashboard feed.`,
     "Plain-text output in this session stays local to this runtime and the dispatch record unless you intentionally send a message back.",
     replyRule,
     "Do not explain the transport wrapper or restate it unless a later normal user turn explicitly asks about it.",
@@ -165,6 +167,17 @@ function opencodePermissionConfig(config = {}) {
     return { bash: "ask", edit: "ask", webfetch: "ask" };
   }
   return undefined;
+}
+
+export function managedClaudePermissionArgs(config = {}, executionMode = "managed") {
+  const policy = String(config.approvalPolicy || config.permissionMode || "").trim().toLowerCase();
+  if (config.skipPermissions === false || policy === "ask" || policy === "default") {
+    return [];
+  }
+  if (executionMode !== "resident" || config.skipPermissions === true || policy === "never" || policy === "full-auto") {
+    return ["--dangerously-skip-permissions"];
+  }
+  return [];
 }
 
 function summarizeOpenCodeParts(parts = []) {
@@ -789,6 +802,7 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
   const startAttempt = (sessionId) => {
     const args = [
       ...launcher.args,
+      ...managedClaudePermissionArgs(config, executionMode),
       "-p",
       "--output-format", "text",
       "--session-id", sessionId,
