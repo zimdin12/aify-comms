@@ -1097,7 +1097,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const timeoutMs = Number(config.timeoutMs || 2 * 60 * 60 * 1000);
   const quietTimeoutMs = Math.max(
     60 * 1000,
-    Number(config.quietTimeoutMs || config.silenceTimeoutMs || 15 * 60 * 1000),
+    Number(config.quietTimeoutMs || config.silenceTimeoutMs || 5 * 60 * 1000),
   );
   const hostCwd = agentInfo.cwd || process.cwd();
   const model = agentInfo.model || config.model || "gpt-5.4";
