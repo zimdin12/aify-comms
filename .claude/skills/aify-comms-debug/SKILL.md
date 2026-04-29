@@ -121,6 +121,8 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 If you want the resumed CLI to match managed-agent permissions, use `--dangerously-skip-permissions`. Do not use `--permanently-skip-permissions`; Claude Code rejects it as an unknown option.
 
+Use dashboard **Take over in CLI** before opening a managed Claude session directly. It sets the agent to a paused/disabled dashboard state so new dashboard chat sends fail fast instead of trying to write into a Claude session already owned by your terminal. Use **Recover** or **Restart** from Sessions after closing the CLI if you want dashboard control back.
+
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 
 ## Machine ID shows `win32:unknown-host`

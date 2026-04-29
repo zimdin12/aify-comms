@@ -1180,6 +1180,60 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(listed.json()["sessions"][0]["lastSeen"], "2026-04-29T00:00:00Z")
         self.assertEqual(listed.json()["sessions"][0]["sessionHandle"], "thread-current")
 
+    def test_session_cli_takeover_pauses_dashboard_delivery(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "takeover-coder",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/repo",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        claim = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234"},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        session_id = running.json()["spawnRequest"]["sessionId"]
+
+        takeover = self.client.post(
+            f"/api/v1/sessions/{session_id}/control",
+            json={"action": "cli_takeover", "from_agent": "dashboard", "subject": "take over"},
+        )
+        self.assertEqual(takeover.status_code, 200, takeover.text)
+        self.assertEqual(takeover.json()["session"]["status"], "cli-takeover")
+        agent = self.client.get("/api/v1/agents").json()["agents"]["takeover-coder"]
+        self.assertEqual(agent["statusRaw"], "stopped")
+        self.assertEqual(agent["launchMode"], "none")
+        self.assertIn("Paused for direct CLI takeover", agent["statusNote"])
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "takeover-coder",
+                "type": "request",
+                "subject": "should not queue",
+                "body": "hello",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        sent_payload = sent.json()
+        self.assertFalse(sent_payload["ok"])
+        self.assertIn("agent status is", sent_payload["notStarted"][0]["reason"])
+
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
         created = self.client.post(

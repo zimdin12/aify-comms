@@ -108,7 +108,7 @@ tr:hover{background:#19212a}
 .t-channel{background:#e2b04424;color:var(--amber)}
 .st-active{color:var(--green)}.st-idle{color:var(--muted)}.st-working{color:var(--amber)}.st-stopped{color:var(--red)}
 .st-blocked{color:var(--red)}.st-completed{color:var(--green)}.st-stale{color:var(--red)}.st-offline{color:var(--subtle)}
-.st-queued{color:var(--muted)}.st-claimed{color:var(--amber)}.st-running{color:var(--blue)}.st-failed{color:var(--red)}.st-cancelled{color:var(--amber)}
+.st-queued{color:var(--muted)}.st-claimed{color:var(--amber)}.st-running{color:var(--blue)}.st-failed{color:var(--red)}.st-cancelled{color:var(--amber)}.st-cli-takeover{color:var(--amber)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fb input,.fb select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:.85em}
@@ -446,6 +446,7 @@ tr:hover{background:#1b1f21}
 .status-dot.active,.status-dot.working{background:var(--green);box-shadow:0 0 0 4px #55c47520}
 .status-dot.idle{background:var(--amber);box-shadow:0 0 0 4px #dfb15620}
 .status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--red);box-shadow:0 0 0 4px #f2706b20}
+.status-dot.cli-takeover{background:var(--amber);box-shadow:0 0 0 4px #dfb15622}
 .mini-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}
 .mini-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border:1px solid #282d30;border-radius:10px;background:#101214}
 .mini-row:hover{background:#1a1e20}
@@ -794,7 +795,7 @@ aify-comms</pre>
       <p>Manual <code>comms_register</code> remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path. Active triggering works through the local <code>stdio</code> MCP bridge on the target machine. SSE clients can use the shared service but cannot launch local Claude/Codex/OpenCode work themselves.</p>
       <p>Codex CLI note: if you want visible live wakeups instead of background thread resume, start Codex through <code>codex-aify</code> before registering. From that live session, prefer the strongest exact registration first: <code>comms_register(..., runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")</code>. Plain <code>codex</code> still works, but it advertises the older <code>codex-thread-resume</code> fallback.</p>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
-      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so it may not appear in the <code>claude-aify</code> picker, but Sessions/Chat can copy a native resume command once the runtime has recorded a resume ID. The Claude flag is <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code CLI option. Human-open resident sessions keep the permission mode of the CLI you started.</p>
+      <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so it may not appear in the <code>claude-aify</code> picker, but Sessions/Chat can copy a native resume command once the runtime has recorded a resume ID. Use <b>Take over in CLI</b> before opening that command if you want dashboard sends to pause instead of colliding with the open CLI. The Claude flag is <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code CLI option. Human-open resident sessions keep the permission mode of the CLI you started.</p>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
         <p><b>Live send:</b> normal messages are not queued for future runs. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, Send reports the issue and writes no message. Agent-reported blocked state and legacy completed state are status notes, not delivery blockers.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
@@ -811,7 +812,7 @@ aify-comms</pre>
 
       <h3>Continue / Compact</h3>
       <p>Open <b>Sessions</b> and use <b>Continue as</b>. The dashboard opens an editable continuation form with new agent ID, role, environment, runtime, workspace, and a generated packet. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it, then queues a fresh managed-warm spawn. This is useful for compaction, but keep the included message count bounded so the new session starts cleanly.</p>
-      <p><b>Recover</b> tries to keep the saved runtime handle. <b>Restart</b> uses the saved spawn spec. <b>Clear resume state</b> is the explicit reset: it forgets saved Claude session IDs or Codex thread IDs so the next run starts fresh. The bridge should not silently clear native memory on lock errors.</p>
+      <p><b>Recover</b> tries to keep the saved runtime handle. <b>Restart</b> uses the saved spawn spec. <b>Take over in CLI</b> pauses dashboard delivery and copies the native resume command for direct project work. <b>Clear resume state</b> is the explicit reset: it forgets saved Claude session IDs or Codex thread IDs so the next run starts fresh. The bridge should not silently clear native memory on lock errors.</p>
 
       <h3>Tools</h3>
       <ul>
@@ -2088,6 +2089,38 @@ function copySessionResumeCommand(sessionId) {
   copyText(command, 'CLI resume command copied');
 }
 
+async function takeOverSessionInCli(sessionId) {
+  const session = (window._sessions || []).find(item => item.id === sessionId);
+  if (!session) {
+    toast('Session not found', '#f85149');
+    return;
+  }
+  const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+  const command = sessionResumeCommand(session, agentInfo);
+  if (!command) {
+    toast('No CLI resume handle recorded yet. Send one message or recover the session first.', '#f85149');
+    return;
+  }
+  if (!confirm(`Pause dashboard delivery for "${session.agentId}" and copy the CLI resume command?\n\nWhile this is paused, dashboard chat sends to this agent will fail fast instead of colliding with the open CLI session. Use Sessions -> Recover or Restart when you want dashboard control back.`)) return;
+  try {
+    const res = await apiFetch(API + `/sessions/${encodeURIComponent(sessionId)}/control`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        action: 'cli_takeover',
+        from_agent: 'dashboard',
+        subject: `CLI takeover ${session.agentId || sessionId}`,
+        body: 'Pause dashboard delivery while this managed session is opened directly in the native CLI.',
+      }),
+    }).then(r => r.json());
+    if (!res.ok) throw new Error(res.detail || res.error || 'CLI takeover failed');
+    await copyText(command, 'CLI resume command copied; dashboard delivery paused');
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'CLI takeover failed', '#f85149');
+  }
+}
+
 function openEnvironmentEditor(environmentId) {
   const env = (window._environments || []).find(item => item.id === environmentId);
   if (!env) {
@@ -2639,7 +2672,8 @@ function renderChatInspector(meta, messages) {
         (resumeCommand ? `<details class="chat-run-note"><summary>CLI resume command</summary><pre>${esc(resumeCommand)}</pre></details>` : '') +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
-        (resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy a command that opens this backing in the native CLI. Stop/pause managed work first if you want to take over without lock conflicts.', () => copySessionResumeCommand(session.id)) : '') +
+        (resumeCommand ? actionButtonFn('Take over in CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '') +
+        (resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy the native CLI resume command without changing dashboard ownership', () => copySessionResumeCommand(session.id)) : '') +
         actionButtonFn('Continue as', 'Create a new managed session from this agent context', () => continueSessionAs(session.id)) +
         actionButtonFn('Restart', 'Queue a restart from this session specification', () => controlSession(session.id, 'restart')) +
         `</div>`;
@@ -2982,13 +3016,14 @@ function renderSessions(sessions) {
       actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
       activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
       spawnControl,
-      resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy a native CLI command to resume this backing by ID. Stop/pause managed work first to avoid session locks.', () => copySessionResumeCommand(session.id)) : '',
+      resumeCommand ? actionButtonFn('Take over in CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
+      resumeCommand ? actionButtonFn('Copy CLI resume', 'Copy the native CLI resume command without changing dashboard ownership', () => copySessionResumeCommand(session.id)) : '',
       actionButtonFn('Clear resume state', 'Forget saved runtime thread/session handles so the next run starts fresh. Messages and identity remain.', () => resetWorkerState(session.agentId)),
       actionButtonFn('Continue as', 'Create a new managed agent/session from an editable handoff packet', () => continueSessionAs(session.id)),
       canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
     ];
     html += `<tr>` +
-      `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper"><summary>CLI resume</summary><pre>${esc(resumeCommand)}</pre>${actionButtonFn('Copy command', 'Copy the native CLI resume command for this backing', () => copySessionResumeCommand(session.id))}</details>` : ''}</td>` +
+      `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper"><summary>CLI resume</summary><pre>${esc(resumeCommand)}</pre>${actionButtonFn('Take over', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}${actionButtonFn('Copy command', 'Copy the native CLI resume command without pausing dashboard ownership', () => copySessionResumeCommand(session.id))}</details>` : ''}</td>` +
       `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
       `<td class="t"${titleAttr(session.environmentId || '')}><span class="clip-1">${esc(session.environmentId || '')}</span></td>` +
       `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +

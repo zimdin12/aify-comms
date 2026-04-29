@@ -2911,7 +2911,7 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
     action = str(req.action or "").strip().lower()
-    if action not in {"stop", "restart", "recover", "resume"}:
+    if action not in {"stop", "restart", "recover", "resume", "cli_takeover"}:
         raise HTTPException(400, f'Unsupported session control action "{req.action}"')
 
     db = await get_db()
@@ -3013,6 +3013,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             "restart": "restarting",
             "recover": "recovering",
             "resume": "recovering",
+            "cli_takeover": "cli-takeover",
         }[action]
         await db.execute(
             """
@@ -3022,7 +3023,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             """,
             (next_status, now, next_status, now, session_id),
         )
-        if action == "stop":
+        if action in {"stop", "cli_takeover"}:
             pending_spawn_cursor = await db.execute(
                 """
                 SELECT id
@@ -3043,13 +3044,35 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     WHERE id = ?
                       AND status IN ('queued', 'claimed', 'starting')
                     """,
-                    (f'Session "{session_id}" was stopped from the dashboard before spawn completed.', now, now, pending_spawn["id"]),
+                    (
+                        f'Session "{session_id}" was {"paused for CLI takeover" if action == "cli_takeover" else "stopped from the dashboard"} before spawn completed.',
+                        now,
+                        now,
+                        pending_spawn["id"],
+                    ),
                 )
                 cancelled_spawns += 1
-            await db.execute(
-                "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
-                (now, agent_id),
-            )
+            if action == "cli_takeover":
+                await db.execute(
+                    """
+                    UPDATE agents
+                    SET status = 'stopped',
+                        status_note = ?,
+                        launch_mode = 'none',
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Recover/Restart to return control to the dashboard.",
+                        now,
+                        agent_id,
+                    ),
+                )
+            else:
+                await db.execute(
+                    "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
+                    (now, agent_id),
+                )
         else:
             await db.execute(
                 "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END, last_seen = ? WHERE id = ?",

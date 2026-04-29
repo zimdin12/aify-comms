@@ -46,6 +46,7 @@ Managed runtime policy:
 - Dashboard-managed Claude Code is headless (`claude -p --session-id ...`). It may not appear in the `claude-aify` picker, but it can be opened by ID with the dashboard's **Copy CLI resume** command once a resume ID is recorded.
 - Claude Code's skip-permissions CLI flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not a valid Claude Code option.
 - Dashboard-managed Codex uses a managed `CODEX_HOME`; use the dashboard's generated resume command so `codex resume --include-non-interactive <thread-id>` reads the correct thread store.
+- Use dashboard **Take over in CLI** before opening a managed session directly. It pauses dashboard delivery so normal chat sends fail fast instead of racing the open CLI and hitting `Session ID ... is already in use`. Use **Recover** or **Restart** from Sessions when you want dashboard control back.
 - Resident sessions keep the permission mode of the CLI the user started. If a resident Claude session says comms tools need approval, restart it with the desired Claude permission flags or use a dashboard-managed session for unattended work.
 - Every delivered managed message includes the recipient's own `agentId`; use that exact ID for `comms_inbox(agentId="...")` when asked to check recent messages between you and the sender.
 

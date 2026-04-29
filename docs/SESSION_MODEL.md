@@ -193,6 +193,7 @@ Dashboard rule:
 
 - Show **Open in CLI** only when `cliAttach=true`.
 - Show **Copy CLI resume** when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
+- Prefer **Take over in CLI** before opening the native CLI. It pauses dashboard delivery for that agent so normal chat sends fail fast instead of racing the open CLI and producing runtime lock errors. Use **Recover** or **Restart** when returning control to the dashboard.
 - Show **View transcript/logs** for all persistent sessions.
 - If the bridge owns an active managed session, attaching a human CLI must either pause bridge ownership or use explicit shared-session locking to avoid races.
 
