@@ -45,6 +45,7 @@ class MessageSend(BaseModel):
     inReplyTo: Optional[str] = None
     trigger: bool = False
     steer: bool = False
+    queueIfBusy: bool = False
     requireReply: Optional[bool] = None
 
 

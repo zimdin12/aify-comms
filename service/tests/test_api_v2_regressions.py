@@ -306,6 +306,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Online only", dashboard.text)
         self.assertIn("chat-peek-mode", dashboard.text)
         self.assertIn("Peek mode", dashboard.text)
+        self.assertIn("chat-queue-if-busy", dashboard.text)
+        self.assertIn("Queue if busy", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
@@ -2068,6 +2070,76 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("messageId", sent)
         stored = self._fetchone("SELECT id FROM messages WHERE to_agent = ? AND subject = ?", ("coder", "offline work"))
         self.assertIsNone(stored)
+
+    def test_triggered_send_can_explicitly_queue_when_target_busy(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        active = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="active work",
+            body="keep working",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        active_run_id = active["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", active_run_id))
+
+        rejected = self._send_message(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="queued work",
+            body="next thing",
+            trigger=True,
+        )
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["notStarted"][0]["reason"], "agent is working")
+
+        queued = self._send_message(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="queued work",
+            body="next thing",
+            trigger=True,
+            queueIfBusy=True,
+        )
+        self.assertTrue(queued["ok"])
+        self.assertTrue(queued["messageId"])
+        self.assertEqual(queued["dispatchRuns"][0]["status"], "queued")
+        self.assertEqual(queued["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
+
+    def test_response_messages_queue_when_sender_is_busy(self):
+        self._register("manager", runtime="claude-code", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        active = self._dispatch(
+            from_agent="dashboard",
+            to="manager",
+            type="request",
+            subject="coordinate",
+            body="coordinate team",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        active_run_id = active["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", active_run_id))
+
+        reply = self._send_message(
+            from_agent="coder",
+            to="manager",
+            type="response",
+            subject="Re: coordinate",
+            body="I am done.",
+            trigger=True,
+        )
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["dispatchRuns"][0]["status"], "queued")
+        self.assertEqual(reply["dispatchRuns"][0]["requireReply"], False)
+        self.assertEqual(reply["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
 
     def test_blocked_and_completed_agent_statuses_do_not_block_live_send(self):
         self._register("lead", runtime="codex", sessionMode="managed")

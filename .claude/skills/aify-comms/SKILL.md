@@ -134,7 +134,7 @@ Gotchas regardless of runtime:
 | Tool | Use |
 |------|-----|
 | `comms_agent_info` | Check another agent's status, unread count, and last message they read. |
-| `comms_send` | Primary teamwork message API. DM by ID (`to`) or role (`toRole`). It is live-delivery gated: if the recipient is not currently startable, the message is not written. Use this for almost all agent-to-agent communication. |
+| `comms_send` | Primary teamwork message API. DM by ID (`to`) or role (`toRole`). It is live-delivery gated for offline/stale/no-wake targets. Replies queue behind active work by default; other messages can opt in with `queueIfBusy=true`. Use this for almost all agent-to-agent communication. |
 | `comms_listen` | **Wait for messages.** Blocks until a message arrives. Call when idle instead of polling. |
 | `comms_inbox` | Check inbox. Returns unread, newest first. Replies include parent context. Use `mode="headers"` for title/preview triage or `messageId="..."` to fetch one message. |
 | `comms_unsend` | Delete a sent message by ID. |
@@ -181,7 +181,7 @@ Gotchas regardless of runtime:
 | Strict API/debug run control | `comms_dispatch(...)` |
 | Inject guidance mid-turn without interrupting | `comms_send(steer=true)` |
 
-Default to `comms_send` for normal teamwork. It is the message API and requires a currently reachable target. If the recipient is `offline`, `stale`, `stopped`, already `working`, already has queued work, or lacks a live wake path, the send fails with a notice and no message is stored. Use `comms_dispatch` only for low-level run-control/debug cases. Dashboard-origin managed runs may mirror the runtime's final text back into dashboard chat when no explicit reply message was sent; agent-to-agent work should still prefer an explicit threaded `response`, with final plain text as the managed fallback if the tool path is unavailable or stalls. Fallback handoffs are best-effort delivered to the original sender, not just written as passive audit rows.
+Default to `comms_send` for normal teamwork. It is the message API and requires a reachable live target. If the recipient is `offline`, `stale`, `stopped`, or lacks a live wake path, the send fails with a notice and no message is stored. If the recipient is `working` or already has queued work, `type="response"` queues by default so several agents can answer a manager close together; for new requests or follow-ups, set `queueIfBusy=true` only when you intentionally want CLI-like queued delivery. Use `steer=true` instead when the message belongs inside the current active run. Use `comms_dispatch` only for low-level run-control/debug cases. Dashboard-origin managed runs may mirror the runtime's final text back into dashboard chat when no explicit reply message was sent; agent-to-agent work should still prefer an explicit threaded `response`, with final plain text as the managed fallback if the tool path is unavailable or stalls. Fallback handoffs are best-effort delivered to the original sender, not just written as passive audit rows.
 
 **Wake and priority are independent.** Waking an agent does NOT imply urgency. `priority="high"` does. Sending a wake message with "not urgent" in the body means the recipient will read it and defer — correctly. If you want work done now, say so: use `priority="high"` and explicit blocking language. Do not use high priority for routine ACKs, status chatter, or thread bookkeeping; those should be normal priority unless they are blocking someone right now.
 

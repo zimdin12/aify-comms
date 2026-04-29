@@ -1182,6 +1182,7 @@ async def _preflight_live_send_recipients(
     recipients: list[str],
     *,
     allow_steer: bool = False,
+    allow_queue_busy: bool = False,
 ) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
     """Return launchable recipients or per-recipient reasons without writing messages.
 
@@ -1227,25 +1228,31 @@ async def _preflight_live_send_recipients(
             if allow_steer and "steer" in capabilities:
                 launchable.append((recipient_id, execution_mode))
                 continue
+            if allow_queue_busy:
+                launchable.append((recipient_id, execution_mode))
+                continue
             hint = _dispatch_fix_hint(recipient_id, row, "agent is working")
             hint["recipientStatus"] = "working"
             hint["activeRun"] = active
             active_suffix = f" on {active.get('runId')}" if active.get("runId") else ""
             hint["fix"] = (
                 f'Agent "{recipient_id}" is already working{active_suffix}. '
-                "Wait, interrupt the active run, or use comms_send(steer=true) if you only need to steer current work."
+                "Wait, interrupt the active run, use comms_send(steer=true) for current-run guidance, or explicitly enable queueIfBusy."
             )
             not_started.append(hint)
             continue
 
         queued_runs = int(dispatch_state.get("queuedRuns") or 0)
         if queued_runs > 0:
+            if allow_queue_busy:
+                launchable.append((recipient_id, execution_mode))
+                continue
             hint = _dispatch_fix_hint(recipient_id, row, "agent already has queued work")
             hint["recipientStatus"] = effective_status
             hint["queuedRuns"] = queued_runs
             hint["fix"] = (
                 f'Agent "{recipient_id}" already has {queued_runs} queued run(s). '
-                "aify-comms no longer appends normal messages to future work queues; wait for the queue to drain or cancel stale runs."
+                "Wait for the queue to drain, cancel stale runs, or explicitly enable queueIfBusy."
             )
             not_started.append(hint)
             continue
@@ -2007,6 +2014,7 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             db,
             [to_agent],
             allow_steer=True,
+            allow_queue_busy=True,
         )
 
     await db.execute(
@@ -3917,10 +3925,12 @@ async def send_message(req: MessageSend, request: Request):
         launchable_recipients = []
         not_started = []
         if req.trigger:
+            allow_queue_busy = bool(req.queueIfBusy) or str(req.type or "").strip().lower() == "response"
             launchable_recipients, not_started = await _preflight_live_send_recipients(
                 db,
                 recipients,
                 allow_steer=req.steer,
+                allow_queue_busy=allow_queue_busy,
             )
             if not_started:
                 recipient_info = {}

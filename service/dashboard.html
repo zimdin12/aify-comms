@@ -649,6 +649,10 @@ tr:hover{background:#1b1f21}
             <input id="chat-subject-input" placeholder="Subject for tasks / handoffs">
             <input id="chat-artifact-file" type="file" style="display:none" onchange="uploadChatArtifactFile(event)">
             <button class="btn" title="Upload a file artifact and insert its reference into this message" onclick="chooseChatArtifactFile()">Artifact</button>
+            <label class="chat-toggle" title="Queue behind active/queued work instead of failing when the target is busy">
+              <input type="checkbox" id="chat-queue-if-busy">
+              <span>Queue if busy</span>
+            </label>
             <button class="btn btn-primary" title="Send this message and wake live recipients when possible" onclick="sendChatMessage()">Send</button>
           </div>
           <textarea id="chat-body" placeholder="Message agents or channels from here. Use @agent names naturally in the text."></textarea>
@@ -827,7 +831,7 @@ aify-comms</pre>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
       <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so it may not appear in the <code>claude-aify</code> picker, but Sessions/Chat show a native resume command once the runtime has recorded a resume ID. Click that command block to copy it. Use <b>Pause for CLI</b> before opening the command if you want dashboard sends to pause instead of colliding with the open CLI, then re-register from the opened CLI so the dashboard stores the current native handle. The Claude flag is <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code CLI option. Human-open resident sessions keep the permission mode of the CLI you started.</p>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
-      <p><b>Live send:</b> normal messages are not queued for future runs. If the target is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, Send reports the issue and writes no message. Agent-reported blocked state and legacy completed state are status notes, not delivery blockers.</p>
+      <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy, response handoffs queue automatically; dashboard chat can also use <b>Queue if busy</b> for deliberate follow-up work.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. Explicit per-message <b>Mark read</b> still acknowledges the message for the selected <b>Viewing as</b> identity.</p>
       <p><b>Team communication:</b> keep each message scoped to one ask, result, blocker, or status update. Agents should verify state before asserting it, use direct replies for owned handoffs, use channels for shared context, and split unrelated topics instead of carrying them in one thread.</p>
@@ -3738,6 +3742,7 @@ async function sendChatMessage() {
   const priority = document.getElementById('chat-priority').value;
   const subjectInput = document.getElementById('chat-subject-input').value.trim();
   const body = document.getElementById('chat-body').value.trim();
+  const queueIfBusy = !!document.getElementById('chat-queue-if-busy')?.checked;
   const expectReply = true;
   if (!meta.kind) { toast('Select a conversation', '#f85149'); return; }
   if (!body) { toast('Write a message first', '#f85149'); return; }
@@ -3775,7 +3780,7 @@ async function sendChatMessage() {
       return;
     }
 
-    const payload = {from_agent: from, to: meta.id, type, subject, body, priority};
+    const payload = {from_agent: from, to: meta.id, type, subject, body, priority, queueIfBusy};
     payload.trigger = true;
     payload.requireReply = expectReply;
     if (window._chatReplyTo?.target === meta.id && window._chatReplyTo?.id) {
