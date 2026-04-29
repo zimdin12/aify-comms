@@ -302,6 +302,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("chat-channel-add-member", dashboard.text)
         self.assertIn("Add member", dashboard.text)
         self.assertIn("data-channel-member-select", dashboard.text)
+        self.assertIn("chat-online-only", dashboard.text)
+        self.assertIn("Online only", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
