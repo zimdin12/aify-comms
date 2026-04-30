@@ -217,10 +217,19 @@ def _dispatch_reply_pending(row) -> bool:
 
 
 def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = False, include_events=None, include_controls=None) -> dict[str, Any]:
+    body_text = str((row["body"] if row and "body" in row.keys() else "") or "")
+    merged_from_agents = []
+    if body_text.startswith(_MERGED_DISPATCH_HEADER):
+        merged_from_agents = _dedupe_preserve(
+            match.group(1).strip()
+            for match in re.finditer(r"^From:\s*(.+)$", body_text, flags=re.MULTILINE)
+            if match.group(1).strip()
+        )
     payload = {
         "id": row["id"],
         "messageId": row["message_id"],
         "from": row["from_agent"],
+        "originalFrom": row["from_agent"],
         "targetAgentId": row["target_agent"],
         "status": row["status"],
         "mode": row["dispatch_mode"],
@@ -241,6 +250,10 @@ def _serialize_dispatch_run_row(row, *, blocked_by=None, include_body: bool = Fa
         "finishedAt": row["finished_at"],
         "blockedByActiveRun": blocked_by,
     }
+    if len(merged_from_agents) > 1:
+        payload["from"] = "multiple"
+        payload["mergedFromAgents"] = merged_from_agents
+        payload["mergedDispatchCount"] = _pending_dispatch_count(body_text)
     if include_body:
         payload.update(
             {
@@ -3925,11 +3938,12 @@ async def send_message(req: MessageSend, request: Request):
         launchable_recipients = []
         not_started = []
         if req.trigger:
+            prefer_steer = (req.steer is not False) and not bool(req.queueIfBusy)
             allow_queue_busy = bool(req.queueIfBusy) or str(req.type or "").strip().lower() == "response"
             launchable_recipients, not_started = await _preflight_live_send_recipients(
                 db,
                 recipients,
-                allow_steer=req.steer,
+                allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
             if not_started:
@@ -4006,7 +4020,7 @@ async def send_message(req: MessageSend, request: Request):
                 requested_runtime=None,
                 message_id=msg_id if len(recipients) == 1 else None,
                 source_message_ids=source_message_ids,
-                steer=req.steer,
+                steer=prefer_steer,
                 require_reply=require_reply,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
@@ -4754,7 +4768,30 @@ async def list_dispatch_runs(
             blocked_by = None
             if row["status"] == "queued":
                 blocked_by = await _get_blocking_active_run(db, row["target_agent"], row["id"])
-            runs.append(_serialize_dispatch_run_row(row, blocked_by=blocked_by))
+            payload = _serialize_dispatch_run_row(row, blocked_by=blocked_by)
+            controls_cursor = await db.execute(
+                """
+                SELECT id, action, status, source_message_id, response_text
+                FROM dispatch_controls
+                WHERE run_id = ? AND source_message_id != ''
+                ORDER BY requested_at ASC
+                LIMIT 50
+                """,
+                (row["id"],),
+            )
+            source_controls = [
+                {
+                    "id": control["id"],
+                    "action": control["action"],
+                    "status": control["status"],
+                    "sourceMessageId": control["source_message_id"],
+                    "response": control["response_text"] or "",
+                }
+                for control in await controls_cursor.fetchall()
+            ]
+            if source_controls:
+                payload["sourceControls"] = source_controls
+            runs.append(payload)
         return {"runs": runs}
     finally:
         await db.close()
@@ -4778,7 +4815,7 @@ async def get_dispatch_run(run_id: str, request: Request):
         ]
         cc = await db.execute(
             """
-            SELECT id, from_agent, action, body, status, response_text, requested_at, claimed_at, handled_at
+            SELECT id, from_agent, action, body, status, response_text, source_message_id, requested_at, claimed_at, handled_at
             FROM dispatch_controls WHERE run_id = ? ORDER BY requested_at ASC LIMIT 200
             """,
             (run_id,)
@@ -4791,6 +4828,7 @@ async def get_dispatch_run(run_id: str, request: Request):
                 "body": control["body"],
                 "status": control["status"],
                 "response": control["response_text"],
+                "sourceMessageId": control["source_message_id"],
                 "requestedAt": control["requested_at"],
                 "claimedAt": control["claimed_at"],
                 "handledAt": control["handled_at"],
@@ -5564,10 +5602,13 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
         launchable_recipients = []
         not_started = []
         if should_trigger and recipients:
+            prefer_steer = (req.steer is not False) and not bool(req.queueIfBusy)
+            allow_queue_busy = bool(req.queueIfBusy)
             launchable_recipients, not_started = await _preflight_live_send_recipients(
                 db,
                 recipients,
-                allow_steer=req.steer,
+                allow_steer=prefer_steer,
+                allow_queue_busy=allow_queue_busy,
             )
             if not_started:
                 recipient_info = {}
@@ -5628,7 +5669,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 requested_runtime=None,
                 message_id=inbox_message_ids.get(recipients[0]) if len(recipients) == 1 else None,
                 source_message_ids=inbox_message_ids,
-                steer=req.steer,
+                steer=prefer_steer,
                 require_reply=False,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)

@@ -649,11 +649,8 @@ tr:hover{background:#1b1f21}
             <input id="chat-subject-input" placeholder="Subject for tasks / handoffs">
             <input id="chat-artifact-file" type="file" style="display:none" onchange="uploadChatArtifactFile(event)">
             <button class="btn" title="Upload a file artifact and insert its reference into this message" onclick="chooseChatArtifactFile()">Artifact</button>
-            <label class="chat-toggle" title="Queue behind active/queued work instead of failing when the target is busy">
-              <input type="checkbox" id="chat-queue-if-busy">
-              <span>Queue if busy</span>
-            </label>
-            <button class="btn btn-primary" title="Send this message and wake live recipients when possible" onclick="sendChatMessage()">Send</button>
+            <button class="btn" title="Queue this message for the next turn instead of steering an active run. Direct messages and channels only." onclick="sendChatMessage({queueIfBusy:true})">Queue</button>
+            <button class="btn btn-primary" title="Send now. If the recipient is busy and steer-capable, inject it into the active run between tool calls." onclick="sendChatMessage()">Send</button>
           </div>
           <textarea id="chat-body" placeholder="Message agents or channels from here. Use @agent names naturally in the text."></textarea>
         </div>
@@ -831,8 +828,8 @@ aify-comms</pre>
       <p>Claude CLI note: resident wakeups require starting Claude through the installed <code>claude-aify</code> wrapper so the local aify channel bridge is allowed to load during the current research-preview channels phase. It is only installed when the Claude client was set up with a real shared aify server URL.</p>
       <p>Managed runtime note: dashboard-spawned agents are unattended automation. Managed Codex runs use non-interactive approval policy with a writable workspace sandbox. Managed Claude Code runs add <code>--dangerously-skip-permissions</code> by default so they can call installed MCP tools such as <code>comms_inbox</code> without a human approval prompt. Managed Claude Code currently runs through headless <code>claude -p</code>, so it may not appear in the <code>claude-aify</code> picker, but Sessions/Chat show a native resume command once the runtime has recorded a resume ID. Click that command block to copy it. Use <b>Pause for CLI</b> before opening the command if you want dashboard sends to pause instead of colliding with the open CLI, then re-register from the opened CLI so the dashboard stores the current native handle. The Claude flag is <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code CLI option. Human-open resident sessions keep the permission mode of the CLI you started.</p>
       <p><b>Manual vs managed:</b> <code>comms_register</code> binds a live resident CLI session you opened yourself. Those rows are shown as manual CLI bindings, and offline entries are historical identities, not killable processes. Dashboard-spawned managed agents are the normal control-plane path: they have environment, workspace, runtime, spawn spec, session state, and recovery metadata. Normal chat should use <code>comms_send(...)</code> or the Chat page.</p>
-      <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy, response handoffs queue automatically; dashboard chat can also use <b>Queue if busy</b> for deliberate follow-up work.</p>
-      <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It delivers only to currently startable agents and surfaces live delivery failures immediately.</p>
+      <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. Use <b>Queue</b> only for work that should run after the active turn.</p>
+      <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents and steers busy steer-capable agents. <b>Queue</b> is the explicit next-turn path.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. Explicit per-message <b>Mark read</b> still acknowledges the message for the selected <b>Viewing as</b> identity.</p>
       <p><b>Team communication:</b> keep each message scoped to one ask, result, blocker, or status update. Agents should verify state before asserting it, use direct replies for owned handoffs, use channels for shared context, and split unrelated topics instead of carrying them in one thread.</p>
 
@@ -2599,6 +2596,47 @@ function focusChatComposer() {
   if (body) body.focus();
 }
 
+function messageDeliveryRun(messageId) {
+  if (!messageId) return null;
+  for (const run of window._allRuns || []) {
+    if (run.messageId === messageId) return {run, control: null};
+    const control = (run.sourceControls || []).find(item => item.sourceMessageId === messageId);
+    if (control) return {run, control};
+  }
+  return null;
+}
+
+function messageDeliveryLabel(deliveryRun) {
+  if (!deliveryRun?.run) return '';
+  const run = deliveryRun.run;
+  const control = deliveryRun.control;
+  if (control?.action === 'steer') {
+    if (control.status === 'completed') return 'steered';
+    if (control.status === 'failed') return 'steer failed';
+    return 'steering';
+  }
+  if (run.blockedByActiveRun || run.queuedBehindActiveRun || run.status === 'queued') return 'queued';
+  if (run.status === 'running' || run.status === 'claimed') return 'running';
+  if (run.status === 'completed') return run.resultMessageId ? 'completed + reply' : 'completed';
+  if (run.status === 'failed') return 'failed';
+  if (run.status === 'cancelled') return 'cancelled';
+  return run.status || '';
+}
+
+function messageDeliveryDetail(deliveryRun) {
+  if (!deliveryRun?.run) return '';
+  const run = deliveryRun.run;
+  const control = deliveryRun.control;
+  if (control?.action === 'steer') {
+    return control.response || `Steered into active run ${run.id}`;
+  }
+  if (run.blockedByActiveRun || run.queuedBehindActiveRun) {
+    const active = run.blockedByActiveRun || run.queuedBehindActiveRun;
+    return `Queued behind active run ${active.runId || ''}${active.subject ? ` (${active.subject})` : ''}`;
+  }
+  return run.error || run.summary || run.status || '';
+}
+
 function renderChatMessage(m, currentFrom) {
   const system = m.from === '_system';
   const mine = !system && m.from === currentFrom;
@@ -2612,9 +2650,12 @@ function renderChatMessage(m, currentFrom) {
     ? (m.read ? '<span class="mb mb-background">read</span>' : '<span class="mb mb-dispatch">unread</span>')
     : '<span class="mb mb-background">sent</span>';
   const followTarget = system ? '' : (m.source === 'channel' ? (mine ? '' : m.from) : (mine ? m._to : m.from));
-  const relatedRun = (window._allRuns || []).find(run => run.messageId === m.id);
-  const runDetail = relatedRun && (relatedRun.summary || relatedRun.error || relatedRun.status)
-    ? `<details class="chat-run-note"><summary>Run ${esc(relatedRun.status || 'status')}${relatedRun.resultMessageId ? ' · reply linked' : ''}</summary><pre>${esc(relatedRun.error || relatedRun.summary || relatedRun.status || '')}</pre></details>`
+  const deliveryRun = messageDeliveryRun(m.id);
+  const relatedRun = deliveryRun?.run;
+  const deliveryLabel = messageDeliveryLabel(deliveryRun);
+  const deliveryDetail = messageDeliveryDetail(deliveryRun);
+  const runDetail = relatedRun && (deliveryDetail || relatedRun.status)
+    ? `<details class="chat-run-note"><summary>${esc(deliveryLabel || 'run')} · ${esc(relatedRun.id || '')}${relatedRun.resultMessageId ? ' · reply linked' : ''}</summary><pre>${esc(deliveryDetail || relatedRun.status || '')}</pre></details>`
     : '';
   const actions = [
     (!mine && m.source !== 'channel') ? actionButtonFn('Reply', 'Prefill the composer as a threaded reply to this message', () => replyToChat(m.from, m.id, m.subject, m.body || m.preview || '')) : '',
@@ -2628,7 +2669,7 @@ function renderChatMessage(m, currentFrom) {
     `${m.subject ? `<div class="t clip-1"${titleAttr(m.subject)}>${esc(m.subject)}</div>` : ''}` +
     `<div class="chat-text">${esc(m.body || m.preview || '')}</div>` +
     runDetail +
-    `<div class="chat-badges">${delivery}${readBadge}</div>` +
+    `<div class="chat-badges">${delivery}${deliveryLabel ? `<span class="mb mb-dispatch"${titleAttr(deliveryDetail)}>${esc(deliveryLabel)}</span>` : ''}${readBadge}</div>` +
     `<div class="btn-row">${actions.join('')}</div>` +
     `</article>`;
 }
@@ -3383,6 +3424,8 @@ function renderRuns(runs, containerId = 'dispatch-runs-table') {
     const blocked = run.blockedByActiveRun;
     const summary = run.error || run.summary || (blocked ? `Queued behind active run ${blocked.runId}${blocked.subject ? ` (${blocked.subject})` : ''}` : '');
     const active = status === 'running' || status === 'claimed';
+    const fromLabel = run.mergedFromAgents?.length ? run.mergedFromAgents.join(', ') : run.from;
+    const routeLabel = `${fromLabel} → ${run.targetAgentId}`;
     const modeLabel =
       run.mode === 'require_start'
         ? 'dispatch (require start)'
@@ -3392,7 +3435,7 @@ function renderRuns(runs, containerId = 'dispatch-runs-table') {
     const mode = `${run.executionMode || 'managed'} / ${modeLabel}`;
     html += `<tr>` +
       `<td class="t">${esc(run.requestedAt || '')}</td>` +
-      `<td class="t"${titleAttr(`${run.from} → ${run.targetAgentId}`)}><span class="run-route">${esc(run.from)} &nbsp;&rarr;&nbsp; ${esc(run.targetAgentId)}</span></td>` +
+      `<td class="t"${titleAttr(routeLabel)}><span class="run-route">${esc(fromLabel)} &nbsp;&rarr;&nbsp; ${esc(run.targetAgentId)}</span></td>` +
       `<td><div class="run-status-stack"><span class="st-${esc(status)}">${esc(status)}</span>${renderHandoffBadge(run)}</div></td>` +
       `<td${titleAttr(mode)}><span class="run-mode">${esc(mode)}</span></td>` +
       `<td${titleAttr(run.runtime || run.requestedRuntime || '')}><span class="run-runtime">${esc(run.runtime || run.requestedRuntime || '')}</span></td>` +
@@ -3735,14 +3778,14 @@ async function runRotation() {
   else toast(r.reason || 'Rotation failed', '#f85149');
 }
 
-async function sendChatMessage() {
+async function sendChatMessage(options = {}) {
   const meta = selectedChatMeta();
   const from = document.getElementById('chat-from').value || 'dashboard';
   const type = document.getElementById('chat-type').value;
   const priority = document.getElementById('chat-priority').value;
   const subjectInput = document.getElementById('chat-subject-input').value.trim();
   const body = document.getElementById('chat-body').value.trim();
-  const queueIfBusy = !!document.getElementById('chat-queue-if-busy')?.checked;
+  const queueIfBusy = !!options.queueIfBusy;
   const expectReply = true;
   if (!meta.kind) { toast('Select a conversation', '#f85149'); return; }
   if (!body) { toast('Write a message first', '#f85149'); return; }
@@ -3759,6 +3802,8 @@ async function sendChatMessage() {
           type,
           priority,
           trigger: true,
+          steer: !queueIfBusy,
+          queueIfBusy,
         }),
       });
       let response = await sendChannel();
@@ -3774,13 +3819,13 @@ async function sendChatMessage() {
       if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Channel send failed');
       document.getElementById('chat-body').value = '';
       document.getElementById('chat-subject-input').value = '';
-      toast(`Posted to #${meta.id}`);
+      toast(queueIfBusy ? `Queued to #${meta.id}` : `Posted to #${meta.id}`);
       await refreshDashboard();
       await selectChatConversation(`channel:${meta.id}`);
       return;
     }
 
-    const payload = {from_agent: from, to: meta.id, type, subject, body, priority, queueIfBusy};
+    const payload = {from_agent: from, to: meta.id, type, subject, body, priority, steer: !queueIfBusy, queueIfBusy};
     payload.trigger = true;
     payload.requireReply = expectReply;
     if (window._chatReplyTo?.target === meta.id && window._chatReplyTo?.id) {
@@ -3796,7 +3841,7 @@ async function sendChatMessage() {
     document.getElementById('chat-body').value = '';
     document.getElementById('chat-subject-input').value = '';
     clearChatReplyContext();
-    toast(`Sent to ${meta.id}`);
+    toast(queueIfBusy ? `Queued for ${meta.id}` : `Sent to ${meta.id}`);
     await refreshDashboard();
   } catch (e) {
     toast(e.message || 'Send failed', '#f85149');

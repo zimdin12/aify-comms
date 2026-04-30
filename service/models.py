@@ -44,7 +44,7 @@ class MessageSend(BaseModel):
     priority: str = "normal"
     inReplyTo: Optional[str] = None
     trigger: bool = False
-    steer: bool = False
+    steer: Optional[bool] = None
     queueIfBusy: bool = False
     requireReply: Optional[bool] = None
 
@@ -235,7 +235,8 @@ class ChannelMessage(BaseModel):
     priority: str = "normal"
     trigger: bool = True
     silent: bool = False
-    steer: bool = False
+    steer: Optional[bool] = None
+    queueIfBusy: bool = False
 
 
 class ChannelJoin(BaseModel):

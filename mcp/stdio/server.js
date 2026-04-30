@@ -1303,7 +1303,10 @@ async function processRunControls(agentId, activeRun) {
     runId: activeRun.runId,
     machineId: MACHINE_ID,
   });
-  for (const control of claim.controls || []) {
+  const controls = claim.controls || [];
+  const steerControls = controls.filter((control) => control.action === "steer");
+  const otherControls = controls.filter((control) => control.action !== "steer");
+  for (const control of otherControls) {
     try {
       if (control.action === "interrupt") {
         if (!activeRun.controller.capabilities?.interrupt || !activeRun.controller.interrupt) {
@@ -1328,6 +1331,39 @@ async function processRunControls(agentId, activeRun) {
         status: "failed",
         response: error?.message || String(error),
       });
+    }
+  }
+  if (steerControls.length) {
+    try {
+      if (!activeRun.controller.capabilities?.steer || !activeRun.controller.steer) {
+        throw new Error("Steer is not supported by this runtime");
+      }
+      const body = steerControls.length === 1
+        ? steerControls[0].body || ""
+        : [
+            "[AIFY STEER BATCH]",
+            `${steerControls.length} messages arrived while this run was active. Apply them to the current turn in order.`,
+            "",
+            ...steerControls.map((control, index) => [
+              `--- Steer ${index + 1} of ${steerControls.length} ---`,
+              control.body || "",
+            ].join("\n")),
+            "[/AIFY STEER BATCH]",
+          ].join("\n\n");
+      await activeRun.controller.steer(body);
+      for (const control of steerControls) {
+        await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
+          status: "completed",
+          response: steerControls.length === 1 ? "steer accepted" : `batched steer accepted (${steerControls.length})`,
+        });
+      }
+    } catch (error) {
+      for (const control of steerControls) {
+        await httpCall("PATCH", `/dispatch/controls/${encodeURIComponent(control.id)}`, {
+          status: "failed",
+          response: error?.message || String(error),
+        });
+      }
     }
   }
 }
@@ -1927,7 +1963,7 @@ server.tool(
 server.tool(
   "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
-    "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. If the target is busy or already has queued work, response messages queue by default; other message types queue only with queueIfBusy=true. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
+    "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. Use queueIfBusy=true only when the message should run after the active turn. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
     "Agents should normally answer messages, and should always reply to requests, reviews, and errors with comms_send(type=\"response\", inReplyTo=...) unless told otherwise. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context. The requireReply override is only for edge cases.",
   {
@@ -1941,8 +1977,8 @@ server.tool(
     body: z.string().describe("Message content"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
     inReplyTo: z.string().optional().describe("Message ID this replies to"),
-    steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls instead of creating future queued work"),
-    queueIfBusy: z.boolean().optional().describe("When true, queue this message behind the target's active/queued work. Response messages do this by default."),
+    steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls instead of creating future queued work. Defaults to true unless queueIfBusy=true."),
+    queueIfBusy: z.boolean().optional().describe("When true, queue this message behind the target's active/queued work instead of steering the active turn."),
     requireReply: z.boolean().optional().describe("Advanced override for reply tracking; requests/reviews/errors should normally be answered without setting this"),
   },
   async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, queueIfBusy, requireReply }) => {
@@ -1954,7 +1990,7 @@ server.tool(
     // -- Remote mode --
     if (IS_REMOTE) {
       const r = await httpCall("POST", "/messages/send", {
-        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: steer || false, queueIfBusy: queueIfBusy ?? type === "response", requireReply,
+        from_agent: from, to, toRole, type, subject, body, priority: priority || "normal", inReplyTo, trigger: shouldTrigger, steer: steer ?? !queueIfBusy, queueIfBusy: queueIfBusy || false, requireReply,
       });
       if (!r.ok) {
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);
@@ -2876,7 +2912,7 @@ server.tool(
 
 server.tool(
   "comms_channel_send",
-  "Send a message to a channel. This is live-delivery gated for channel members: if any recipient is offline, stale, stopped, already working, already has queued work, or lacks a live wake path, the channel message is not written. Agent-reported blocked/completed states are status notes, not delivery blockers.",
+  "Send a message to a channel. This is live-delivery gated for channel members: if any recipient is offline, stale, stopped, or lacks a live wake path, the channel message is not written. Busy steer-capable members receive the channel update as steer into their active run; use queueIfBusy=true only for next-turn delivery. Agent-reported blocked/completed states are status notes, not delivery blockers.",
   {
     channel: z.string().describe("Channel name"),
     from: z.string().describe("Your agent ID"),
@@ -2886,16 +2922,17 @@ server.tool(
       .optional()
       .describe("Message type (default: info)"),
     priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
-    steer: z.boolean().optional().describe("When true and members are busy, deliver between tool calls instead of creating future queued work"),
+    steer: z.boolean().optional().describe("When true and members are busy, deliver between tool calls instead of creating future queued work. Defaults to true unless queueIfBusy=true."),
+    queueIfBusy: z.boolean().optional().describe("When true, queue this channel update behind active/queued work instead of steering active turns."),
   },
-  async ({ channel, from, body, type, priority, steer }) => {
+  async ({ channel, from, body, type, priority, steer, queueIfBusy }) => {
     try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     const shouldTrigger = true;
     const subject = `#${channel}: ${body.slice(0, 80)}`;
 
     if (IS_REMOTE) {
       const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/send`, {
-        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, steer: steer || false,
+        from_agent: from, channel, body, type: type || "info", priority: priority || "normal", trigger: shouldTrigger, steer: steer ?? !queueIfBusy, queueIfBusy: queueIfBusy || false,
       });
       if (!r.ok) {
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}${x.recipientStatus ? ` (${x.recipientStatus})` : ""}`);

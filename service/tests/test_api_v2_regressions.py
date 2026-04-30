@@ -306,8 +306,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Online only", dashboard.text)
         self.assertIn("chat-peek-mode", dashboard.text)
         self.assertIn("Peek mode", dashboard.text)
-        self.assertIn("chat-queue-if-busy", dashboard.text)
-        self.assertIn("Queue if busy", dashboard.text)
+        self.assertIn("sendChatMessage({queueIfBusy:true})", dashboard.text)
+        self.assertIn(">Queue</button>", dashboard.text)
+        self.assertNotIn("chat-queue-if-busy", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
@@ -2071,7 +2072,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         stored = self._fetchone("SELECT id FROM messages WHERE to_agent = ? AND subject = ?", ("coder", "offline work"))
         self.assertIsNone(stored)
 
-    def test_triggered_send_can_explicitly_queue_when_target_busy(self):
+    def test_triggered_send_steers_busy_target_by_default_and_can_explicitly_queue(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
 
@@ -2087,16 +2088,24 @@ class ApiV2RegressionTests(unittest.TestCase):
         active_run_id = active["runs"][0]["runId"]
         self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", active_run_id))
 
-        rejected = self._send_message(
+        steered = self._send_message(
             from_agent="lead",
             to="coder",
             type="request",
-            subject="queued work",
-            body="next thing",
+            subject="current guidance",
+            body="take this into account now",
             trigger=True,
         )
-        self.assertFalse(rejected["ok"])
-        self.assertEqual(rejected["notStarted"][0]["reason"], "agent is working")
+        self.assertTrue(steered["ok"])
+        self.assertEqual(steered["dispatchRuns"][0]["status"], "steered")
+        self.assertEqual(steered["dispatchRuns"][0]["runId"], active_run_id)
+        control = self._fetchone(
+            "SELECT action, status, source_message_id FROM dispatch_controls WHERE run_id = ?",
+            (active_run_id,),
+        )
+        self.assertIsNotNone(control)
+        self.assertEqual(control["action"], "steer")
+        self.assertTrue(control["source_message_id"])
 
         queued = self._send_message(
             from_agent="lead",
@@ -2112,8 +2121,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(queued["dispatchRuns"][0]["status"], "queued")
         self.assertEqual(queued["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
 
-    def test_response_messages_queue_when_sender_is_busy(self):
-        self._register("manager", runtime="claude-code", sessionMode="managed")
+    def test_response_messages_steer_when_sender_is_busy_and_steer_capable(self):
+        self._register("manager", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
 
         active = self._dispatch(
@@ -2137,9 +2146,9 @@ class ApiV2RegressionTests(unittest.TestCase):
             trigger=True,
         )
         self.assertTrue(reply["ok"])
-        self.assertEqual(reply["dispatchRuns"][0]["status"], "queued")
+        self.assertEqual(reply["dispatchRuns"][0]["status"], "steered")
         self.assertEqual(reply["dispatchRuns"][0]["requireReply"], False)
-        self.assertEqual(reply["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
+        self.assertEqual(reply["dispatchRuns"][0]["runId"], active_run_id)
 
     def test_blocked_and_completed_agent_statuses_do_not_block_live_send(self):
         self._register("lead", runtime="codex", sessionMode="managed")

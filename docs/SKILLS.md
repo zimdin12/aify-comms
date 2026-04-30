@@ -18,7 +18,7 @@ Agents create persistent comms-visible teammates through `comms_envs(...)` and `
 Current dashboard behavior reflected by the skills:
 
 - normal teamwork uses `comms_send`; `comms_dispatch` is a lower-level debug/run-control tool
-- normal sends are live-delivery gated for offline/stale/no-wake targets; busy response handoffs queue automatically, and deliberate follow-ups can opt in with `queueIfBusy=true`
+- normal sends are live-delivery gated for offline/stale/no-wake targets; busy steer-capable targets receive normal sends as current-run steer, and `queueIfBusy=true` is explicit next-turn delivery
 - persistent teammates are created through dashboard Environment spawn, `comms_spawn`, or `comms_compact`, not ordinary one-off subagents
 - existing resident/manual identities can be adopted from the dashboard Team page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
 - pending handoffs can be repaired by the dashboard; reviewed historical failures can be dismissed from Home without deleting audit history
