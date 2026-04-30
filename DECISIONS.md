@@ -10,8 +10,8 @@ Short rationale log for non-obvious choices, plus the current runtime limits. If
 | Resident visible-wake | `claude-live` (via `claude-aify`) | `codex-live` (via `codex-aify`) | not yet |
 | Resident background resume | — | `codex-thread-resume` | `opencode-session-resume` |
 | Interrupt | yes | yes | yes |
-| In-flight steering | no | yes | no |
-| Active dispatch default timeout | 2 h | 2 h | 2 h |
+| In-flight steering | resident channel only; managed headless no | yes | no |
+| Active dispatch hard timeout | 12 h | 12 h | 12 h |
 
 **One active dispatched run per agent.** Later dispatches from the same sender merge into a buffered pending run (see below).
 

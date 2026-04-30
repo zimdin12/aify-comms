@@ -7,7 +7,7 @@
 Agents should:
 
 - answer messages that ask for work, review, debugging, approval, or status
-- treat dashboard direct messages as coming from the human/operator and answer them in the run's final chat response
+- treat dashboard direct messages as coming from the human/operator and answer them with `comms_send(to="dashboard", type="response", ...)`
 - keep each message focused on one ask, one result, or one blocker
 - verify before asserting when the sender asks about state, history, files, tests, or another agent
 - use direct messages for owned handoffs and channels for shared team context

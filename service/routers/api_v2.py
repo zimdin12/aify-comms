@@ -1281,7 +1281,7 @@ async def _preflight_live_send_recipients(
             hint["queuedRuns"] = queued_runs
             hint["fix"] = (
                 f'Agent "{recipient_id}" already has {queued_runs} queued run(s). '
-                "Wait for the queue to drain, cancel stale runs, or send with steer=true/queueIfBusy=true so aify can merge this into queued work when possible."
+                "Wait for the queue to drain, cancel stale runs, or send normally so aify can steer or merge when possible. Use queueIfBusy=true only when you intentionally want next-turn delivery."
             )
             not_started.append(hint)
             continue

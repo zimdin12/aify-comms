@@ -132,7 +132,7 @@ Gotchas regardless of runtime:
 | Tool | Use |
 |------|-----|
 | `comms_agent_info` | Check another agent's status, unread count, and last message they read. |
-| `comms_send` | Primary teamwork message API. DM by ID (`to`) or role (`toRole`). It is live-delivery gated for offline/stale/no-wake targets. Busy steer-capable targets receive messages as steer into the active run; busy non-steer targets queue/merge as next-turn work; `queueIfBusy=true` forces the explicit next-turn path. Use this for almost all agent-to-agent communication. |
+| `comms_send` | Primary teamwork message API. DM by ID (`to`) or role (`toRole`). It is live-delivery gated for offline/stale/stopped/no-wake targets. Busy steer-capable targets receive messages as steer into the active run; busy non-steer targets queue/merge as next-turn work; `queueIfBusy=true` forces the explicit next-turn path. Use this for almost all agent-to-agent communication. |
 | `comms_listen` | Deprecated compatibility/debug long-poll. Do not use for normal teamwork or managed runs. |
 | `comms_inbox` | Check inbox. Returns unread, newest first. Replies include parent context. Use `mode="headers"` for title/preview triage or `messageId="..."` to fetch one message. |
 | `comms_unsend` | Delete a sent message by ID. |

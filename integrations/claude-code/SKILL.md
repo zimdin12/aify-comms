@@ -1,6 +1,6 @@
 ---
-name: aify-service
-description: Manage containerized AI services with on-demand sub-containers
+name: legacy-aify-service
+description: Legacy container-service integration notes retained for reference; not the current aify-comms dashboard/control-plane skill
 triggers:
   - when the user asks about the service or its containers
   - when container management is needed (start, stop, status)
@@ -16,7 +16,9 @@ tools:
   - container_logs
 ---
 
-# Aify Service Skill
+# Legacy Aify Service Skill
+
+This file is legacy reference material for an older container-service integration. It is not the current `aify-comms` communication/control-plane skill, and it is not installed by the current setup flow. Current Claude and Codex instructions live in `.claude/skills/aify-comms/SKILL.md`, `.agents/skills/aify-comms/SKILL.md`, and the root install guides.
 
 You have access to a containerized service that orchestrates on-demand sub-containers (e.g., llama.cpp instances for different models).
 
@@ -56,15 +58,17 @@ POST http://localhost:8800/route/embed/embedding
 GET  http://localhost:8800/route/qdrant/collections
 ```
 
-## Installation
+## Historical Installation Example
 
-### MCP SSE (recommended):
+Do not use this for current `aify-comms` installs. Use `install.claude.md`, `install.codex.md`, or `install.opencode.md` instead.
+
+### MCP SSE:
 ```
-claude mcp add aify-service --transport sse http://localhost:8800/mcp/sse
+claude mcp add legacy-aify-service --transport sse http://localhost:8800/mcp/sse
 ```
 
 ### MCP stdio:
 ```
 cd mcp/stdio && npm install
-claude mcp add aify-service -- node /absolute/path/to/mcp/stdio/server.js
+claude mcp add legacy-aify-service -- node /absolute/path/to/mcp/stdio/server.js
 ```

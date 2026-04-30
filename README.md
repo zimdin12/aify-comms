@@ -40,7 +40,7 @@ It now adds a first-class agent lifecycle layer:
 
 Manual `comms_register(...)` should become an advanced/debug path, not the normal user workflow.
 
-Normal dashboard chat is live-delivery gated: if a target cannot currently start work, the message is not silently queued for a future run. Fix the agent/session/environment state, then resend. Required handoffs are repaired automatically when a terminal run finishes without an explicit reply, and the Home page exposes repair/dismiss actions for old issue states.
+Normal dashboard chat is live-delivery gated for unreachable targets: offline, stale, stopped, or no-wake agents fail visibly and the message is not stored for a future run. Busy live targets receive ordinary sends as steer when supported, or as queued/merged next-turn work when steering is not available; the explicit **Queue** action forces next-turn delivery. Required handoffs are repaired automatically when a terminal run finishes without an explicit reply, and the Home page exposes repair/dismiss actions for old issue states.
 
 Compaction in `aify-comms` means creating a fresh managed successor with an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, and OpenCode, and the original agent is left intact until a manager stops it after the successor is verified.
 

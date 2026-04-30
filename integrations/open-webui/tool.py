@@ -1,7 +1,10 @@
 """
-Open WebUI Tool - Aify Service Integration
+Open WebUI Tool - Legacy Aify Service Integration
 
-Install as a Tool/Function in Open WebUI:
+Legacy reference for an older container-service API. It is not the current
+aify-comms dashboard/control-plane integration.
+
+Historical install path for the old service API:
 1. Go to Workspace -> Functions -> Add Function
 2. Paste this file
 3. Configure SERVICE_URL in the valves

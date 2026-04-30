@@ -58,10 +58,9 @@ What was corrected in this pass:
 
 Remaining high-value fixes:
 
-1. **Real managed runtime spawning**: current managed spawn/session records are still mostly control-plane backing. The bridge needs adapter-backed child process ownership, logs, and stop/restart semantics per runtime.
+1. **Logs/transcripts**: Sessions and Runs show runtime output, summaries, and events, but a richer transcript/log drawer would make long investigations easier.
 2. **Replace remaining browser prompts**: steering, restart/recover instructions, pagination, and some destructive confirmations still use `prompt()`/`confirm()`. Move these to proper modals/drawers.
-3. **Logs/transcripts**: Sessions should expose live output/transcript views. At the moment the UI can show session metadata but not enough runtime evidence.
-4. **Group chat policy**: channels exist, but loop budgets, auto-reply controls, and private multi-agent groups are still not fully modeled.
-5. **Unread semantics**: read marking is scoped to "Viewing as", which is correct, but unread counts need a clearer per-identity/global distinction in Home and Chat.
-6. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting teammate identity/session/spec records. Remaining polish: show clearer banners for detached teammates.
-7. **Frontend structure**: `service/dashboard.html` is now very large. Extracting API/client/state/render modules or moving to a small SPA would reduce regression risk.
+3. **Group chat policy**: channels exist, but loop budgets, auto-reply controls, and private multi-agent groups are still not fully modeled.
+4. **Unread semantics**: read marking is scoped to "Viewing as", which is correct, but unread counts need a clearer per-identity/global distinction in Home and Chat.
+5. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting teammate identity/session/spec records. Remaining polish: show clearer banners for detached teammates.
+6. **Frontend structure**: `service/dashboard.html` is now very large. Extracting API/client/state/render modules or moving to a small SPA would reduce regression risk.

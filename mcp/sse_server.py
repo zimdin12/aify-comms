@@ -247,10 +247,11 @@ async def comms_send(
     queueIfBusy: bool = False,
     requireReply: bool | None = None,
 ) -> str:
-    """Send a live-gated message to an agent by ID or role. Busy steer-capable targets receive ordinary sends as current-run guidance; set queueIfBusy=true only for explicit next-turn delivery. Use silent=true only for legacy inbox-only delivery."""
+    """Send a live-gated message to an agent by ID or role. Offline/stale/stopped/no-wake targets fail without storing. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Use silent=true only for legacy inbox-only delivery."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
     should_trigger = not silent
+    force_queue = bool(queueIfBusy)
     data = {
         "from_agent": from_agent,
         "type": type,
@@ -258,8 +259,8 @@ async def comms_send(
         "body": body,
         "priority": priority,
         "trigger": should_trigger,
-        "steer": steer if steer is not None else not queueIfBusy,
-        "queueIfBusy": queueIfBusy,
+        "steer": False if force_queue else (steer if steer is not None else True),
+        "queueIfBusy": force_queue,
         "requireReply": requireReply,
     }
     if to:
@@ -512,12 +513,13 @@ async def comms_channel_send(
     steer: bool | None = None,
     queueIfBusy: bool = False,
 ) -> str:
-    """Send a live-gated message to a channel. Busy steer-capable members receive ordinary sends as current-run guidance; set queueIfBusy=true only for explicit next-turn delivery."""
+    """Send a live-gated message to a channel. Offline/stale/stopped/no-wake members fail the send without storing. Busy steer-capable members receive ordinary sends as current-run steer; busy live non-steer members queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available."""
     should_trigger = not silent
+    force_queue = bool(queueIfBusy)
     r = await _api("POST", f"/channels/{channel}/send", {
         "from_agent": from_agent, "channel": channel, "body": body, "type": type, "priority": priority,
-        "trigger": should_trigger, "silent": silent, "steer": steer if steer is not None else not queueIfBusy,
-        "queueIfBusy": queueIfBusy,
+        "trigger": should_trigger, "silent": silent, "steer": False if force_queue else (steer if steer is not None else True),
+        "queueIfBusy": force_queue,
     })
     if "detail" in r:
         return f"Error: {r['detail']}"

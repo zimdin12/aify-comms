@@ -290,25 +290,18 @@ Rules:
 
 This is mandatory because prior path ambiguity caused real dispatch failures.
 
-## Dashboard Backend APIs To Add
+## Core Dashboard Backend APIs
 
-- `GET /api/v1/environments`
-- `POST /api/v1/environments/heartbeat`
-- `POST /api/v1/spawn-requests`
-- `GET /api/v1/spawn-requests`
-- `POST /api/v1/spawn-requests/claim`
-- `PATCH /api/v1/spawn-requests/{id}`
-- `GET /api/v1/agent-sessions`
-- `POST /api/v1/agent-sessions/{id}/stop`
-- `POST /api/v1/agent-sessions/{id}/restart`
-- `GET /api/v1/spawn-specs`
-- `PATCH /api/v1/spawn-specs/{id}`
-- `GET /api/v1/conversation-backing/{agent_id}`
-- `POST /api/v1/agent-sessions/{id}/recover`
-- `POST /api/v1/agent-sessions/{id}/compact`
-- `POST /api/v1/agent-sessions/{id}/continue`
-- `GET /api/v1/compaction-packets/{id}`
-- `PATCH /api/v1/compaction-packets/{id}`
+The implementation exposes the environment, spawn, session, run, chat, artifact, and continuation APIs under `/api/v1`. Treat the exact routes in `service/routers/api_v2.py` and the dashboard client as authoritative; this architecture document describes the model those APIs should preserve.
+
+Important API families:
+
+- environments and bridge heartbeat/control
+- spawn requests, spawn specs, and managed agent adoption
+- agent sessions stop/restart/recover/pause/continue
+- dispatch runs, events, handoffs, interrupt, and steer controls
+- direct messages, channel messages, read state, and shared artifacts
+- compaction packets and managed successors
 
 ## Compatibility Rule
 

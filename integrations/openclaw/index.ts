@@ -1,8 +1,8 @@
 /**
- * OpenClaw Plugin - Aify Service Integration
+ * OpenClaw Plugin - Legacy Aify Service Integration
  *
- * Provides tools and lifecycle hooks for OpenClaw agents to interact
- * with the containerized service.
+ * Legacy reference for an older containerized service integration.
+ * It is not the current aify-comms dashboard/control-plane integration.
  *
  * Tools are registered as agent capabilities.
  * Hooks enable automatic context injection and processing.
@@ -74,7 +74,7 @@ export default {
    * Called when the plugin is unloaded.
    */
   async stop(ctx: PluginContext) {
-    ctx.logger.info("Aify service plugin stopped");
+    ctx.logger.info("Legacy aify service plugin stopped");
   },
 
   /**

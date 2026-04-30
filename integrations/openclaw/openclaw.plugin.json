@@ -1,7 +1,7 @@
 {
-  "id": "aify-service",
-  "name": "Agentify Service",
-  "description": "Integration with the aify container service",
+  "id": "legacy-aify-service",
+  "name": "Legacy Agentify Service",
+  "description": "Legacy integration for the older aify container service; not the current aify-comms dashboard/control-plane integration",
   "version": "0.1.0",
   "config": {
     "apiUrl": {

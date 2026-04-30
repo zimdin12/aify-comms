@@ -1,10 +1,12 @@
-# aify-container - System Prompt Addition
+# Legacy aify-container - System Prompt Addition
+
+This file is legacy reference material for an older container-service integration. It is not the current `aify-comms` dashboard/control-plane prompt. Current agent communication guidance lives in `.agents/skills/aify-comms/SKILL.md`, `.claude/skills/aify-comms/SKILL.md`, and `docs/COMMUNICATION_GUIDE.md`.
 
 Add this block to your Open WebUI model's system prompt.
 
 ---
 
-## Available Service: aify-container
+## Legacy Available Service: aify-container
 
 You have access to a containerized service that manages on-demand sub-containers (LLMs, databases, etc.).
 
