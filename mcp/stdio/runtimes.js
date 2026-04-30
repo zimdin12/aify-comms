@@ -212,10 +212,15 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "[mcp_servers.aify-comms]",
     `command = ${tomlString(process.execPath)}`,
     `args = [${tomlString(SERVER_SCRIPT)}]`,
+    "enabled = true",
+    "startup_timeout_sec = 10",
+    "tool_timeout_sec = 25",
+    'disabled_tools = ["comms_listen"]',
     "",
     "[mcp_servers.aify-comms.env]",
     `AIFY_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
     `CLAUDE_MCP_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
+    'AIFY_MANAGED_DISPATCH = "1"',
   ];
   if (workspace) {
     lines.push("", `[projects.${tomlString(workspace)}]`, 'trust_level = "trusted"');
@@ -279,6 +284,9 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
   return [
     "[AIFY MESSAGE]",
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
+    isDashboardSender
+      ? "This run was started by the dashboard human/operator; your final plain-text response is shown in dashboard chat."
+      : "This is a managed background run. The dashboard human will not normally see your final plain-text output; use comms_send(to=\"dashboard\", ...) for human-facing async status, or rely on required handoff mirroring only as a fallback.",
     `Your aify-comms agentId is "${agentId}". Use that exact ID when checking your own inbox or conversation state.`,
     `From: ${run.from}.`,
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
@@ -287,6 +295,9 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
     "Team communication contract: stay on the current message, do not mix unrelated topics, and do not assume facts you have not checked. If the sender asks for status/history/truth, inspect the available messages/files/tools first and say what you checked. If a request bundles multiple independent topics, answer the current blocker first and propose splitting the rest.",
     "Use compact working-team replies: answer, evidence checked, blocker or uncertainty, next action. Ask one clear question when blocked instead of guessing.",
     channelRule,
+    !isDashboardSender
+      ? "If this message updates work you previously promised to report back to the dashboard/human, send a concise proactive status message with comms_send(to=\"dashboard\", type=\"info\" or \"response\"). Dashboard is a store-only human recipient for asynchronous updates."
+      : "",
     isDashboardSender
       ? "Plain-text output in this session is delivered back into the dashboard chat."
       : "Plain-text output in this session normally stays local, but the bridge may mirror it as the handoff if no explicit reply message was recorded.",
@@ -315,7 +326,13 @@ export function buildUserPrompt(run) {
     "",
     run.body || "",
     "",
+    isDashboardSender
+      ? "Human-visible output: your final plain-text response appears in dashboard chat."
+      : "Human visibility: your final plain-text response is local to this managed run unless the bridge mirrors it as a required handoff. Send human-facing async reports with comms_send(to=\"dashboard\", ...).",
     replyRule,
+    !isDashboardSender
+      ? "If this is a teammate update that completes a dashboard-requested coordination flow, also send the dashboard/human a concise status message with comms_send(to=\"dashboard\", type=\"info\" or \"response\")."
+      : "",
     isChannelMessage
       ? "Channel discipline: respond only when your reply is useful to the group or sender. Do not create broad acknowledgement loops."
       : "",

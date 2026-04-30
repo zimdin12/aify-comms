@@ -59,6 +59,7 @@ Chat should feel like a real team messenger:
 - normal dashboard chat has one send path; strict dispatch remains an advanced API/debug path, not a primary composer option
 - conversation context should stay focused: managed prompts should include only compact recent direct context, tell agents not to revive unrelated topics, and require evidence checks before status/history claims
 - dashboard-origin direct messages are human/operator chat: managed agents should answer in final plain text and the bridge records the response in chat, not by requiring a fake `comms_send(to="dashboard")`
+- asynchronous manager updates can target `dashboard` with `comms_send(to="dashboard", ...)`; those messages are stored for the human without trying to start a runtime
 - agent-to-agent direct requests/reviews/errors should get explicit threaded `comms_send(type="response", inReplyTo=...)` replies; final plain-text mirroring is a fallback, not the preferred path
 
 The existing inbox/message tables can remain as an admin/debug view, but the default user experience should be conversational.
@@ -74,7 +75,7 @@ Message states:
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 
-Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still prefer explicit replies to other agents with `comms_send(type="response", inReplyTo=...)`, but the bridge may mirror final plain text as the handoff when the tool path is blocked or stalls. Mirrored agent-to-agent handoffs should best-effort wake the original sender when startable; otherwise they remain unread. Dashboard chat must not require a fake `comms_send(to="dashboard")` call.
+Dashboard-origin managed messages can use the runtime's final plain-text result as the chat reply. Agents should still prefer explicit replies to other agents with `comms_send(type="response", inReplyTo=...)`, but the bridge may mirror final plain text as the handoff when the tool path is blocked or stalls. Mirrored agent-to-agent handoffs should best-effort wake the original sender when startable; otherwise they remain unread. Dashboard-origin turns must not require a fake `comms_send(to="dashboard")` call, but later proactive human reports from managers may use `dashboard` as a store-only recipient.
 
 Group chat must prevent accidental loops:
 

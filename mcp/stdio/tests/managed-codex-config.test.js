@@ -11,7 +11,12 @@ const text = managedCodexConfigText({
 });
 
 assert.match(text, /\[mcp_servers\.aify-comms\]/);
+assert.match(text, /enabled = true/);
+assert.match(text, /startup_timeout_sec = 10/);
+assert.match(text, /tool_timeout_sec = 25/);
+assert.match(text, /disabled_tools = \["comms_listen"\]/);
 assert.match(text, /AIFY_SERVER_URL = "http:\/\/localhost:8800"/);
+assert.match(text, /AIFY_MANAGED_DISPATCH = "1"/);
 assert.match(text, /\[projects\."\/mnt\/c\/Users\/Administrator\/sand_castle"\]/);
 assert.doesNotMatch(text, /openmemory/);
 assert.doesNotMatch(text, /host\.docker\.internal/);

@@ -2077,6 +2077,33 @@ class ApiV2RegressionTests(unittest.TestCase):
         stored = self._fetchone("SELECT id FROM messages WHERE to_agent = ? AND subject = ?", ("coder", "offline work"))
         self.assertIsNone(stored)
 
+    def test_triggered_send_to_dashboard_is_store_only(self):
+        self._register("manager", runtime="codex", sessionMode="managed")
+
+        sent = self._send_message(
+            from_agent="manager",
+            to="dashboard",
+            type="info",
+            subject="async report",
+            body="teammate acked",
+            trigger=True,
+        )
+
+        self.assertTrue(sent["ok"])
+        self.assertEqual(sent["recipients"], ["dashboard"])
+        self.assertEqual(sent["dispatchRuns"], [])
+        self.assertEqual(sent["recipientStatus"]["dashboard"]["runtime"], "dashboard")
+        stored = self._fetchone(
+            "SELECT from_agent, to_agent, dispatch_requested, body FROM messages WHERE id = ?",
+            (sent["messageId"],),
+        )
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored["from_agent"], "manager")
+        self.assertEqual(stored["to_agent"], "dashboard")
+        self.assertEqual(stored["dispatch_requested"], 0)
+        self.assertEqual(stored["body"], "teammate acked")
+        self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE message_id = ?", (sent["messageId"],)))
+
     def test_triggered_send_steers_busy_target_by_default_and_can_explicitly_queue(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")

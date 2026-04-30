@@ -43,6 +43,10 @@ For `request`, `review`, and `error` messages, reply explicitly with `comms_send
 
 For dashboard-origin direct messages, do not try to send `comms_send(to="dashboard")`. The managed runtime should answer the human/operator in its final plain-text response; the bridge records that response in dashboard chat.
 
+For later asynchronous updates that were triggered by another agent, `dashboard` is a valid store-only recipient. If a manager promised the human "I will report back when the teammate replies", the manager should send `comms_send(to="dashboard", type="info" or "response", ...)` when that teammate reply arrives.
+
+In other managed background runs, final plain text is not a human-visible dashboard chat message unless the bridge mirrors it as a required handoff. Do not assume the user sees local final text from agent-to-agent follow-up runs.
+
 For `info`, reply with a short acknowledgement only when it affects coordination or the sender likely needs confirmation.
 
 For channel messages, avoid automatic loops. Reply when you are named, responsible, asked a question, or have useful evidence. Use direct messages for owner-specific follow-up. Managers should ask named agents or owners for evidence instead of sending broad "everyone answer" prompts.
@@ -56,6 +60,7 @@ A manager agent should:
 - keep team work split by owner and topic
 - ask agents for specific evidence, not broad opinions
 - summarize decisions back to the channel or user
+- proactively report delayed teammate results back to `dashboard` when the user asked for them
 - route blockers to exactly the agent that can resolve them
 - avoid pinging the whole team when one owner is enough
 - collect direct replies from owners before telling the user "everyone agreed" or "both teammates acked"
@@ -69,3 +74,4 @@ When comms, runtime, or state looks wrong:
 - distinguish unread messages from undelivered messages
 - state whether a reply was explicit or auto-mirrored fallback
 - if a fallback handoff arrived as plain text, treat it as a real reply but note that the agent could not use the explicit comms tool path
+- do not call `comms_listen` while handling a delivered managed run; the message is already in the prompt, and listening can block the active turn

@@ -47,6 +47,8 @@ const DEFAULT_CWD = process.cwd();
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
 const IS_REMOTE = !!SERVER_URL;
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
+const IS_MANAGED_DISPATCH =
+  ["1", "true", "yes"].includes(String(process.env.AIFY_MANAGED_DISPATCH || "").toLowerCase());
 const IS_ENVIRONMENT_BRIDGE =
   process.argv.includes("--environment-bridge") ||
   ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
@@ -1960,6 +1962,7 @@ server.tool(
   "comms_send",
   "Send a message to an agent by ID, or to all agents with a given role. " +
     "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. Use queueIfBusy=true only when the message should run after the active turn. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
+    "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
     "Agents should normally answer messages, and should always reply to requests, reviews, and errors with comms_send(type=\"response\", inReplyTo=...) unless told otherwise. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context. The requireReply override is only for edge cases.",
   {
@@ -1999,7 +2002,8 @@ server.tool(
         };
       }
 
-      if (shouldTrigger && r.recipients?.length > 0) {
+      const dashboardOnly = (r.recipients || []).length > 0 && (r.recipients || []).every((rid) => rid === "dashboard");
+      if (shouldTrigger && r.recipients?.length > 0 && !dashboardOnly) {
         const queued = (r.dispatchRuns || []).map((x) => formatQueuedRun(x));
         const skipped = (r.notStarted || []).map((x) => `${x.targetAgentId}: ${x.reason}`);
         return {
@@ -2538,7 +2542,7 @@ server.tool(
 server.tool(
   "comms_listen",
   "Wait for incoming messages. Blocks until a message arrives or timeout. " +
-    "Call this when you're idle — it replaces polling loops. " +
+    "Call this only when you're idle — it replaces polling loops and is not for active managed dispatch turns. " +
     "Returns immediately if you already have unread messages.",
   {
     agentId: z.string().describe("Your agent ID"),
@@ -2546,6 +2550,17 @@ server.tool(
   },
   async ({ agentId, timeout }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+    if (IS_MANAGED_DISPATCH) {
+      return {
+        content: [{
+          type: "text",
+          text:
+            "comms_listen is disabled during managed dispatch turns because it can block the active run. " +
+            "Use the message already delivered in the prompt, comms_inbox for a quick explicit check, or comms_send to reply.",
+        }],
+        isError: true,
+      };
+    }
     const maxWait = Math.min(timeout || 300, 600);
 
     if (IS_REMOTE) {

@@ -3952,12 +3952,13 @@ async def send_message(req: MessageSend, request: Request):
 
         launchable_recipients = []
         not_started = []
+        dispatch_recipients = [r for r in recipients if r != "dashboard"]
         if req.trigger:
             prefer_steer = (req.steer is not False) and not bool(req.queueIfBusy)
             allow_queue_busy = bool(req.queueIfBusy) or str(req.type or "").strip().lower() == "response"
             launchable_recipients, not_started = await _preflight_live_send_recipients(
                 db,
-                recipients,
+                dispatch_recipients,
                 allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
@@ -3971,6 +3972,13 @@ async def send_message(req: MessageSend, request: Request):
                             "unread": info["unread"],
                             "runtime": info["runtime"],
                             "machineId": info["machineId"],
+                        }
+                    elif r == "dashboard":
+                        recipient_info[r] = {
+                            "status": "active",
+                            "unread": 0,
+                            "runtime": "dashboard",
+                            "machineId": "dashboard",
                         }
                 await db.commit()
                 return {
@@ -3987,10 +3995,11 @@ async def send_message(req: MessageSend, request: Request):
 
         for r in recipients:
             recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
+            dispatch_requested = 1 if req.trigger and r != "dashboard" else 0
             await db.execute(
                 "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, 1 if req.trigger else 0, resolved_in_reply_to, ts)
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, ts)
             )
 
         if resolved_in_reply_to:
@@ -4050,6 +4059,13 @@ async def send_message(req: MessageSend, request: Request):
                     "unread": info["unread"],
                     "runtime": info["runtime"],
                     "machineId": info["machineId"],
+                }
+            elif r == "dashboard":
+                recipient_info[r] = {
+                    "status": "active",
+                    "unread": 0,
+                    "runtime": "dashboard",
+                    "machineId": "dashboard",
                 }
 
         await db.commit()

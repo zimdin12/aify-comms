@@ -49,7 +49,9 @@ Use aify-comms like a focused team chat:
 - Verify before asserting. If the sender asks about history, state, files, tests, dashboard data, or another agent, check the relevant inbox/tool/file first or say what is unverified.
 - Answer naturally but compactly: result, evidence checked, blocker or uncertainty, next action.
 - Ask one clear question when blocked instead of guessing.
-- Treat dashboard-origin direct messages as human/operator chat. Dashboard-managed agents should answer those in final plain text; do not try to call `comms_send(to="dashboard")`.
+- Treat dashboard-origin direct messages as human/operator chat. Dashboard-managed agents should answer those in final plain text; do not try to call `comms_send(to="dashboard")` for that same turn.
+- For later asynchronous updates triggered by another agent, `dashboard` is a valid store-only human recipient. If you promised the human you would report back after teammate replies arrive, send `comms_send(to="dashboard", type="info" or "response", ...)` when you have the update.
+- In managed background runs from another agent, final plain text is local unless the bridge mirrors it as a required handoff. Do not assume the dashboard human sees it.
 - Use DMs for owned handoffs and channels for shared context. Do not ping the whole team when one owner is enough.
 - In channels, reply when you are named, responsible, asked a question, or have useful evidence. Avoid broad automatic acknowledgement loops.
 - Do not revive unrelated older context just because it appears in recent conversation history.
@@ -85,6 +87,8 @@ Subagent rule:
 comms_listen(agentId="my-agent")
 ```
 Call `comms_listen` only when you want an explicit inbox-driven dispatch loop. In the normal bridge workflow, `comms_send(...)`, `comms_channel_send(...)`, and `comms_dispatch(...)` wake live recipients directly without needing listen.
+
+Never call `comms_listen` while handling a delivered dashboard-managed run. That run already contains the message in the prompt; use `comms_inbox` only for a quick explicit history check, or reply with `comms_send` / final dashboard text as appropriate. Managed Codex disables blocking listen calls to prevent a mistaken wait from freezing the active run.
 
 If `comms_listen` is not available, you are likely connected through an older inbox-only transport. That is useful for compatibility/debugging, but it is not the normal dashboard product mode. Use the local stdio bridge for live wake, spawn, and dispatch.
 
@@ -218,7 +222,7 @@ When you receive a wake notification or finish a task, check inbox before starti
 6. If a notification says STOP or URGENT, drop everything and read inbox first.
 7. Keep replies concise — brief acks like "on it" beat paragraphs. Save detail for artifacts or final results.
 8. After a bounded dispatched result, send an explicit reply to the requester or current manager even if the run summary already contains the detail.
-9. If the sender is `dashboard`, answer in final plain text for the dashboard chat instead of sending a comms message to `dashboard`.
+9. If the sender is `dashboard`, answer in final plain text for the dashboard chat instead of sending a comms message to `dashboard`. If the sender is another agent and the update completes a promise you made to the human, send a separate `comms_send(to="dashboard", ...)` status update.
 
 ## Working With Other Agents
 
@@ -232,6 +236,16 @@ When you receive a wake notification or finish a task, check inbox before starti
 - Brief acks are fine — "on it" beats a paragraph.
 
 Dashboard note: Home is a live operations queue, not a full audit log. Pending handoffs can be repaired from the dashboard, and reviewed historical failures can be dismissed from Home while remaining available in Runs/Environments. Sessions hides ended/completed/cancelled rows by default; use "Show ended/debug sessions" when investigating lifecycle history. Chat Peek mode lets an operator watch conversations without marking incoming messages read; explicit Mark read acknowledges direct messages or the selected channel for the current viewing identity.
+
+## Reference Docs
+
+Normal agents should follow this skill first; do not load long docs for routine chat. Use the repo docs when changing or debugging the system itself:
+
+- `docs/COMMUNICATION_GUIDE.md` — team conversation rules and manager patterns.
+- `docs/BRIDGE_SETUP.md` — Windows/WSL/Linux bridge setup, managed runtime behavior, and stale bridge/session repair.
+- `docs/DASHBOARD_SPEC.md` — dashboard UX rules and chat semantics.
+- `docs/SKILLS.md` — what the installed skills are expected to teach.
+- `aify-comms-debug` skill — failure catalog for stuck runs, stale bridges, wake modes, Claude session locks, and Codex path/tool-call problems.
 
 ## Communication Style
 

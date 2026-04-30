@@ -34,8 +34,13 @@ const channelUser = buildUserPrompt({
 });
 assert.match(channelSystem, /channel\/group message/);
 assert.match(channelSystem, /Reply in the channel only when you are named/);
+assert.match(channelSystem, /managed background run/);
+assert.match(channelSystem, /dashboard human will not normally see your final plain-text output/);
+assert.match(channelSystem, /proactive status message with comms_send\(to="dashboard"/);
 assert.match(channelUser, /Reply if this message asks you a question/);
+assert.match(channelUser, /Human visibility: your final plain-text response is local/);
 assert.match(channelUser, /Do not create broad acknowledgement loops/);
+assert.match(channelUser, /send the dashboard\/human a concise status message/);
 
 const directSystem = buildSystemPrompt("sc-coder", agentInfo, {
   from: "sc-manager",
