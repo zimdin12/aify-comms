@@ -381,8 +381,9 @@ tr:hover{background:#19212a}
 .chat-as-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.78em}
 .chat-as-label select{min-width:150px}
 .chat-message-search{min-width:180px;max-width:240px;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:7px;font-size:.84em}
-.chat-timeline{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
-.chat-scroll-bottom{position:absolute;right:18px;bottom:148px;z-index:18;border-radius:999px;padding:8px 12px;background:#1f6f62;border:1px solid #3ca08f;color:#fff;font-weight:750;box-shadow:0 14px 36px #0009;transition:opacity .15s ease,transform .15s ease,visibility .15s ease}
+.chat-timeline-wrap{position:relative;min-height:0;overflow:hidden}
+.chat-timeline{height:100%;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.chat-scroll-bottom{position:absolute;right:18px;bottom:18px;z-index:18;border-radius:999px;padding:8px 12px;background:#1f6f62;border:1px solid #3ca08f;color:#fff;font-weight:750;box-shadow:0 14px 36px #0009;transition:opacity .15s ease,transform .15s ease,visibility .15s ease}
 .chat-scroll-bottom.hidden{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px)}
 .chat-scroll-bottom:hover{transform:translateY(-1px);background:#288777}
 .chat-bubble{max-width:min(780px,85%);border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#0a0f15}
@@ -762,7 +763,7 @@ tr:hover{background:#1b1f21}
   .chat-as-label span{display:none}
   .chat-as-label select{max-width:none;width:100%;min-width:0}
   .chat-timeline{padding:12px 10px;gap:8px;min-height:0;overflow:auto;overscroll-behavior:contain}
-  .chat-scroll-bottom{right:12px;bottom:calc(132px + env(safe-area-inset-bottom));padding:7px 10px}
+  .chat-scroll-bottom{right:12px;bottom:12px;padding:7px 10px}
   .chat-bubble,.chat-bubble.mine,.chat-bubble.system{max-width:100%;width:100%;border-radius:14px;padding:11px 12px}
   .chat-bubble .btn-row{display:flex;gap:6px}
   .chat-bubble .btn-row .btn{width:auto}
@@ -985,8 +986,10 @@ tr:hover{background:#1b1f21}
             <button class="btn btn-sm btn-danger" id="chat-manage-btn" title="Clear this direct-message history or delete this channel" onclick="manageSelectedChat()">Manage</button>
           </div>
         </div>
-        <div class="chat-timeline" id="chat-timeline"></div>
-        <button class="chat-scroll-bottom hidden" id="chat-scroll-bottom" title="Jump to the newest message" onclick="scrollChatToBottom()">Bottom</button>
+        <div class="chat-timeline-wrap">
+          <div class="chat-timeline" id="chat-timeline"></div>
+          <button class="chat-scroll-bottom hidden" id="chat-scroll-bottom" title="Jump to the newest message" onclick="scrollChatToBottom()">Bottom</button>
+        </div>
         <div class="chat-composer">
           <div id="chat-reply-context" class="chat-reply-context" style="display:none"></div>
           <div class="chat-compose-row">
@@ -1563,6 +1566,7 @@ function scheduleRealtimeRefresh() {
 }
 
 const CHAT_BOTTOM_EPSILON = 18;
+window._chatFollowBottom = window._chatFollowBottom ?? true;
 
 function chatIsAtBottom(el) {
   if (!el) return true;
@@ -1570,11 +1574,17 @@ function chatIsAtBottom(el) {
 }
 
 function markChatTimelineInteraction() {
-  window._chatTimelineInteractingUntil = Date.now() + 2500;
+  const timeline = document.getElementById('chat-timeline');
+  window._chatFollowBottom = chatIsAtBottom(timeline);
+}
+
+function detachChatBottomFollow() {
+  const timeline = document.getElementById('chat-timeline');
+  if (timeline && !chatIsAtBottom(timeline)) window._chatFollowBottom = false;
 }
 
 function chatTimelineInteractionActive() {
-  return Date.now() < (window._chatTimelineInteractingUntil || 0);
+  return false;
 }
 
 function chatScrollAnchor(el) {
@@ -1650,7 +1660,7 @@ function restoreDashboardViewState(state) {
       if (item.nearBottom && id !== 'chat-timeline') continue;
       const el = document.getElementById(id);
       if (!el) continue;
-      if (id === 'chat-timeline' && item.nearBottom && !chatTimelineInteractionActive()) continue;
+      if (id === 'chat-timeline' && (item.nearBottom || window._chatFollowBottom)) continue;
       if (item.anchor?.id) {
         const anchor = el.querySelector(`[data-message-id="${cssSel(item.anchor.id)}"]`);
         if (anchor) {
@@ -1850,15 +1860,15 @@ document.addEventListener('scroll', event => {
 }, true);
 
 document.addEventListener('wheel', event => {
-  if (event.target?.closest?.('#chat-timeline')) markChatTimelineInteraction();
+  if (event.target?.closest?.('#chat-timeline')) detachChatBottomFollow();
 }, {passive: true});
 
 document.addEventListener('touchstart', event => {
-  if (event.target?.closest?.('#chat-timeline')) markChatTimelineInteraction();
+  if (event.target?.closest?.('#chat-timeline')) detachChatBottomFollow();
 }, {passive: true});
 
 document.addEventListener('touchmove', event => {
-  if (event.target?.closest?.('#chat-timeline')) markChatTimelineInteraction();
+  if (event.target?.closest?.('#chat-timeline')) detachChatBottomFollow();
 }, {passive: true});
 function disabledActionButton(label, title, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} disabled>${esc(label)}</button>`;
@@ -3365,6 +3375,7 @@ function renderChatRailItem(item) {
 
 async function selectChatConversation(key) {
   window._chatSelected = key;
+  window._chatFollowBottom = true;
   if (isMobileDashboard()) window._mobileChatRailOpen = false;
   if (key?.startsWith('channel:')) await refreshSelectedChannelMessages();
   renderChat();
@@ -3487,7 +3498,7 @@ function renderChat() {
   const previousKey = timeline.dataset.chatKey || '';
   const latestMessage = messages[messages.length - 1] || {};
   const latestKey = latestMessage.id || String(latestMessage.timestamp || '');
-  const shouldStickToBottom = chatIsAtBottom(timeline) && !chatTimelineInteractionActive();
+  const shouldStickToBottom = window._chatFollowBottom || chatIsAtBottom(timeline);
   const prelude = chatPeekBanner() + chatLiveWarning(meta) + chatSearchBanner(messageFilter, messages.length, allMessages.length);
   const from = chatIdentity();
   const messageSignature = messages.map(m => {
@@ -3519,6 +3530,7 @@ function renderChat() {
   timeline.dataset.lastMessage = latestKey;
   if (previousKey !== (window._chatSelected || '') || shouldStickToBottom) {
     timeline.scrollTop = timeline.scrollHeight;
+    window._chatFollowBottom = true;
   }
   updateChatScrollButton();
   renderChatInspector(meta, allMessages);
@@ -3541,8 +3553,8 @@ function clearChatMessageSearch() {
 function scrollChatToBottom() {
   const timeline = document.getElementById('chat-timeline');
   if (!timeline) return;
+  window._chatFollowBottom = true;
   timeline.scrollTo({top: timeline.scrollHeight, behavior: 'smooth'});
-  window._chatTimelineInteractingUntil = 0;
   setTimeout(updateChatScrollButton, 180);
 }
 
@@ -3550,7 +3562,9 @@ function updateChatScrollButton() {
   const button = document.getElementById('chat-scroll-bottom');
   const timeline = document.getElementById('chat-timeline');
   if (!button || !timeline) return;
-  button.classList.toggle('hidden', chatIsAtBottom(timeline));
+  const atBottom = chatIsAtBottom(timeline);
+  if (atBottom) window._chatFollowBottom = true;
+  button.classList.toggle('hidden', atBottom);
 }
 
 function chatPeekBanner() {
