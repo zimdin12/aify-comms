@@ -1759,6 +1759,21 @@ async function runDashboardAction(id) {
   }
 }
 document.addEventListener('click', event => {
+  const chatTarget = event.target.closest('[data-chat-key]');
+  if (chatTarget) {
+    event.preventDefault();
+    selectChatConversation(chatTarget.getAttribute('data-chat-key') || '');
+    return;
+  }
+  const globalMessageTarget = event.target.closest('[data-global-message-from]');
+  if (globalMessageTarget) {
+    event.preventDefault();
+    openGlobalMessageHit(
+      globalMessageTarget.getAttribute('data-global-message-from') || '',
+      globalMessageTarget.getAttribute('data-global-message-to') || '',
+    );
+    return;
+  }
   const target = event.target.closest('[data-dashboard-action]');
   if (!target) return;
   event.preventDefault();
@@ -3300,7 +3315,7 @@ function renderGlobalMessageSearch() {
     return haystack.includes(q);
   }).sort((a, b) => timeValue(b.timestamp) - timeValue(a.timestamp)).slice(0, 20);
   const html = hits.length ? hits.map(m => {
-    return `<div class="chat-global-hit" onclick="openGlobalMessageHit(${esc(jsArg(m.from || ''))},${esc(jsArg(m._to || ''))})">` +
+    return `<div class="chat-global-hit" data-global-message-from="${esc(m.from || '')}" data-global-message-to="${esc(m._to || '')}">` +
       `<b class="clip-1">${esc(m.subject || m.preview || m.body || 'Message')}</b>` +
       `<span class="clip-1">${esc(m.from || '')} -> ${esc(m._to || '')} · ${esc(fmtTime(m.timestamp))}</span>` +
       `</div>`;
@@ -3338,7 +3353,7 @@ function chatEmptyDmText() {
 
 function renderChatRailItem(item) {
   const active = window._chatSelected === item.key ? ' active' : '';
-  return `<div class="chat-item${active}" onclick="selectChatConversation(${esc(jsArg(item.key))})">` +
+  return `<div class="chat-item${active}" data-chat-key="${esc(item.key)}">` +
     `<div><div class="chat-item-title clip-1">${esc(item.title)}</div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
     `${item.unread ? `<span class="chat-unread">${item.unread}</span>` : ''}` +
     `</div>`;
