@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -26,7 +27,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next):
-        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json", "/ws"]
+        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
         if any(request.url.path.startswith(p) for p in skip_paths):
             return await call_next(request)
         provided_key = (
@@ -176,6 +177,14 @@ def create_app() -> FastAPI:
     @app.get("/", include_in_schema=False)
     async def root_redirect():
         return RedirectResponse(url="/api/v1/dashboard")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon_svg():
+        return FileResponse(Path(__file__).resolve().parent / "favicon.svg", media_type="image/svg+xml")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon_ico():
+        return FileResponse(Path(__file__).resolve().parent / "favicon.svg", media_type="image/svg+xml")
 
     return app
 

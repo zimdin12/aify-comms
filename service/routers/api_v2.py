@@ -7117,3 +7117,13 @@ async def dashboard():
 @router.get("/dashboard/dispatches", response_class=HTMLResponse)
 async def dashboard_dispatches():
     return await dashboard()
+
+
+@router.get("/favicon.svg", include_in_schema=False)
+async def favicon_svg():
+    return FileResponse(Path(__file__).parent.parent / "favicon.svg", media_type="image/svg+xml")
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    return FileResponse(Path(__file__).parent.parent / "favicon.svg", media_type="image/svg+xml")

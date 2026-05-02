@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>aify-comms</title>
+<link rel="icon" type="image/svg+xml" href="/api/v1/favicon.svg">
+<link rel="shortcut icon" href="/favicon.ico">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
@@ -1759,13 +1761,15 @@ async function runDashboardAction(id) {
   }
 }
 document.addEventListener('click', event => {
-  const chatTarget = event.target.closest('[data-chat-key]');
+  const clickedElement = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (!clickedElement) return;
+  const chatTarget = clickedElement.closest('[data-chat-key]');
   if (chatTarget) {
     event.preventDefault();
     selectChatConversation(chatTarget.getAttribute('data-chat-key') || '');
     return;
   }
-  const globalMessageTarget = event.target.closest('[data-global-message-from]');
+  const globalMessageTarget = clickedElement.closest('[data-global-message-from]');
   if (globalMessageTarget) {
     event.preventDefault();
     openGlobalMessageHit(
@@ -1774,7 +1778,7 @@ document.addEventListener('click', event => {
     );
     return;
   }
-  const target = event.target.closest('[data-dashboard-action]');
+  const target = clickedElement.closest('[data-dashboard-action]');
   if (!target) return;
   event.preventDefault();
   const menu = target.closest('.actions-menu');
