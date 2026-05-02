@@ -371,7 +371,13 @@ tr:hover{background:#19212a}
 .chat-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:8px;border-radius:6px;cursor:pointer}
 .chat-item:hover,.chat-item.active{background:var(--panel-3)}
 .chat-item.active{box-shadow:inset 3px 0 0 var(--blue)}
-.chat-item-title{font-weight:600;color:var(--text);min-width:0}
+.chat-item-title{font-weight:600;color:var(--text);min-width:0;display:flex;align-items:center;gap:7px}
+.chat-item-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-status-dot{display:inline-flex;width:8px;height:8px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;flex:0 0 auto}
+.chat-status-dot.working,.chat-status-dot.active{background:var(--green);box-shadow:0 0 0 4px #55c47522}
+.chat-status-dot.idle,.chat-status-dot.online{background:var(--amber);box-shadow:0 0 0 4px #dfb15622}
+.chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--red);box-shadow:0 0 0 4px #f2706b20}
+.chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting{background:var(--blue);box-shadow:0 0 0 4px #74b7ff20}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
 .chat-unread{background:#238636;color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:.72em;display:inline-flex;align-items:center;justify-content:center}
 .chat-main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;position:relative}
@@ -3245,6 +3251,21 @@ function isOnlineChatAgent(info) {
   return isLiveWakeAgent(info) && !liveIssueForAgent('', info);
 }
 
+function chatPresenceForAgent(info = {}) {
+  const activeRun = info.dispatchState?.activeRun;
+  const queuedRuns = Number(info.dispatchState?.queuedRuns || 0);
+  const raw = String(info.statusRaw || info.status || '').toLowerCase();
+  const issue = liveIssueForAgent('', info);
+  if (activeRun) return {kind: 'working', label: `working: ${activeRun.subject || activeRun.runId || 'active run'}`};
+  if (queuedRuns > 0) return {kind: 'working', label: `${queuedRuns} queued run${queuedRuns === 1 ? '' : 's'}`};
+  if (issue) return {kind: ['offline', 'stale', 'stopped'].includes(raw) ? raw : 'unreachable', label: issue};
+  if (raw === 'active') return {kind: 'online', label: 'online'};
+  if (raw === 'working') return {kind: 'working', label: 'working'};
+  if (raw === 'idle') return {kind: 'idle', label: 'idle online'};
+  if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: raw};
+  return {kind: 'online', label: 'online'};
+}
+
 function chatConversations() {
   const identity = chatIdentity();
   const filter = (document.getElementById('chat-filter')?.value || '').trim().toLowerCase();
@@ -3263,12 +3284,14 @@ function chatConversations() {
     const last = conversationPreviewForAgent(id, identity);
     if (openOnly && !last) return null;
     if (onlineOnly && !isOnlineChatAgent(info)) return null;
+    const presence = chatPresenceForAgent(info);
     return {
       key: `dm:${id}`,
       kind: 'dm',
       id,
       title: id,
       meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.preview ? ' · ' + last.preview : ''}`,
+      presence,
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
     };
@@ -3367,8 +3390,11 @@ function chatEmptyDmText() {
 
 function renderChatRailItem(item) {
   const active = window._chatSelected === item.key ? ' active' : '';
+  const presence = item.kind === 'dm' && item.presence
+    ? `<span class="chat-status-dot ${esc(item.presence.kind)}"${titleAttr(item.presence.label)}></span>`
+    : '';
   return `<div class="chat-item${active}" data-chat-key="${esc(item.key)}">` +
-    `<div><div class="chat-item-title clip-1">${esc(item.title)}</div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
+    `<div><div class="chat-item-title">${presence}<span class="chat-item-title-text">${esc(item.title)}</span></div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
     `${item.unread ? `<span class="chat-unread">${item.unread}</span>` : ''}` +
     `</div>`;
 }
