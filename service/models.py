@@ -151,6 +151,8 @@ class AgentEnvironmentAssignRequest(BaseModel):
     environmentId: str
     workspace: Optional[str] = None
     runtime: Optional[str] = None
+    model: Optional[str] = None
+    runtimeConfig: Optional[dict[str, Any]] = None
     requestedBy: Optional[str] = None
 
 
@@ -168,6 +170,7 @@ class SpawnRequestCreate(BaseModel):
     runtime: str
     workspace: Optional[str] = None
     model: Optional[str] = None
+    runtimeConfig: Optional[dict[str, Any]] = None
     profile: Optional[str] = None
     systemPrompt: Optional[str] = None
     instructions: Optional[str] = None

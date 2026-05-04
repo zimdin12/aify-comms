@@ -59,6 +59,8 @@ Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, 
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
+Sessions should expose compaction/continuation history from spawn records. A compact keeps the same teammate identity while creating a fresh managed backing; operators need to see the old source session, the new session, status, and handoff subject without digging through the raw spawn queue.
+
 ## Chat
 
 Chat should feel like a real team messenger:

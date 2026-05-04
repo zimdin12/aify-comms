@@ -1059,6 +1059,7 @@ tr:hover{background:#1b1f21}
         <select id="env-spawn-role"><option value="coder">coder</option><option value="reviewer">reviewer</option><option value="tester">tester</option><option value="researcher">researcher</option><option value="architect">architect</option><option value="manager">manager</option><option value="operator">operator</option></select>
         <input id="env-spawn-workspace" placeholder="Workspace">
         <input id="env-spawn-model" placeholder="Model/profile (optional)">
+        <select id="env-spawn-effort" title="Codex reasoning effort for this managed Codex spawn"><option value="">Effort: default</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
         <input id="env-spawn-prompt" placeholder="Initial task (optional)">
         <button class="btn btn-primary" title="Queue a managed-warm spawn request for the selected environment bridge" onclick="createSpawnRequest()">Spawn</button>
       </div>
@@ -1347,7 +1348,7 @@ aify-comms</pre>
   <!-- ============ SETTINGS ============ -->
   <div class="page" id="page-settings">
     <h2>Settings</h2>
-    <p class="worker-note">These are control-plane maintenance settings: retention, shared-file cleanup, presence thresholds, stale identity rotation, and browser refresh. Runtime/model/profile settings still belong in spawn specs and are not configured here yet.</p>
+    <p class="worker-note">These are control-plane defaults and maintenance settings. Runtime defaults apply to new managed spawns unless a specific agent/spawn overrides them.</p>
     <form id="settings-form" onsubmit="saveSettings(event)">
       <div class="form-group">
         <label>Message Retention (days)</label>
@@ -1388,6 +1389,17 @@ aify-comms</pre>
         <label>Auto-Rotation</label>
         <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
         <div class="hint">When enabled, rotation expires old messages/files and marks stale agents using the settings above.</div>
+      </div>
+      <h3>Managed Runtime Defaults</h3>
+      <div class="form-group">
+        <label>Managed Codex Model</label>
+        <input id="s-codex-model" placeholder="gpt-5.5">
+        <div class="hint">Default model for new managed Codex spawns when the spawn form leaves model blank. Repo fallback: gpt-5.5</div>
+      </div>
+      <div class="form-group">
+        <label>Managed Codex Effort</label>
+        <select id="s-codex-effort"><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
+        <div class="hint">Default reasoning effort for new managed Codex spawns. Repo fallback: high</div>
       </div>
       <h3>Work Loop / Reply Contracts</h3>
       <div class="form-group">
@@ -2274,6 +2286,8 @@ function openAgentEditor(agentId) {
   const selectedEnv = environments.find(env => env.id === currentEnvId) || environments[0] || {};
   const runtimeOptions = (selectedEnv.runtimes || []).map(item => item.runtime).filter(Boolean);
   const runtimeValue = session.runtime || agent.runtime || runtimeOptions[0] || '';
+  const modelValue = agent.model || '';
+  const effortValue = agent.runtimeConfig?.effort || '';
   const envOptions = environments.map(env => `<option value="${esc(env.id)}"${env.id === currentEnvId ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(env.id)})</option>`).join('');
   const runtimeSelect = `<select id="agent-edit-runtime">${
     runtimeOptions.length
@@ -2287,6 +2301,8 @@ function openAgentEditor(agentId) {
       <label>Environment<select id="agent-edit-env" data-agent-edit-env>${envOptions || '<option value="">No online environments</option>'}</select></label>
       <label>Runtime${runtimeSelect}</label>
       <label>Workspace<input id="agent-edit-workspace" value="${esc(workspace)}"></label>
+      <label>Model<input id="agent-edit-model" value="${esc(modelValue)}" placeholder="default"></label>
+      <label>Codex Effort<select id="agent-edit-effort"><option value=""${!effortValue ? ' selected' : ''}>default</option><option value="medium"${effortValue === 'medium' ? ' selected' : ''}>medium</option><option value="high"${effortValue === 'high' ? ' selected' : ''}>high</option><option value="xhigh"${effortValue === 'xhigh' ? ' selected' : ''}>xhigh</option></select></label>
       <p class="worker-note">Changing the ID rewrites aify-comms chats, channels, sessions, runs, spawn specs, and artifacts. A live/resident agent still needs to be told to use the new ID.</p>
       <div class="btn-row">
         ${actionButtonFn('Save', 'Save identity and environment changes', () => saveAgentEditor(agentId), 'btn-primary')}
@@ -2323,6 +2339,8 @@ async function saveAgentEditor(originalAgentId) {
   const environmentId = (document.getElementById('agent-edit-env')?.value || '').trim();
   const runtime = (document.getElementById('agent-edit-runtime')?.value || '').trim();
   const workspace = (document.getElementById('agent-edit-workspace')?.value || '').trim();
+  const model = (document.getElementById('agent-edit-model')?.value || '').trim();
+  const effort = (document.getElementById('agent-edit-effort')?.value || '').trim();
   if (!newAgentId) {
     toast('Agent ID is required', '#f85149');
     return;
@@ -2344,7 +2362,7 @@ async function saveAgentEditor(originalAgentId) {
       const assignResponse = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/environment`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({environmentId, runtime, workspace, requestedBy: chatIdentity()}),
+        body: JSON.stringify({environmentId, runtime, workspace, model, runtimeConfig: effort ? {effort} : {}, requestedBy: chatIdentity()}),
       });
       const assignRes = await assignResponse.json();
       if (!assignResponse.ok || assignRes.ok === false) throw new Error(assignRes.detail || assignRes.error || 'Assign environment failed');
@@ -4266,6 +4284,7 @@ function renderSessions(sessions) {
       actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-danger'),
       actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)),
       actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
+      actionButtonFn('History', 'View compaction and continuation history for this teammate', () => viewCompactionHistory(session.agentId)),
       canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
     ];
     html += `<tr>` +
@@ -4330,6 +4349,55 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
     </div>
   `);
   updateCompactModeUi();
+}
+
+function compactionHistoryRows(agentId) {
+  const lowerAgent = String(agentId || '').toLowerCase();
+  return (window._spawnRequests || [])
+    .filter(req => {
+      const subject = String(req.subject || '').toLowerCase();
+      const initial = String(req.initialMessage || '').toLowerCase();
+      const meta = req.spawnSpec?.metadata || {};
+      const compactMode = String(meta.compactMode || '').toLowerCase();
+      const compactedFrom = String(meta.compactedFromAgentId || meta.continuedFromAgentId || '').toLowerCase();
+      return req.agentId === agentId ||
+        compactedFrom === lowerAgent ||
+        compactMode ||
+        subject.includes('compact') ||
+        subject.includes('continue as') ||
+        initial.startsWith('continue from previous session');
+    })
+    .filter(req => req.agentId === agentId || String(req.spawnSpec?.metadata?.compactedFromAgentId || req.spawnSpec?.metadata?.continuedFromAgentId || '').toLowerCase() === lowerAgent)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+function compactionSourceSession(req) {
+  const meta = req.spawnSpec?.metadata || {};
+  const direct = meta.compactedFromSessionId || meta.continuedFromSessionId || '';
+  if (direct) return direct;
+  const match = String(req.initialMessage || '').match(/^Source session:\s*(.+)$/m);
+  return match ? match[1].trim() : '';
+}
+
+function viewCompactionHistory(agentId) {
+  const rows = compactionHistoryRows(agentId);
+  const body = rows.length
+    ? `<div class="table-wrap"><table class="compact-table"><thead><tr><th>Created</th><th>Spawn</th><th>Source Session</th><th>New Session</th><th>Status</th><th>Subject</th></tr></thead><tbody>` +
+      rows.map(req => `<tr>` +
+        `<td class="t">${esc(req.createdAt || '')}</td>` +
+        `<td class="t"${titleAttr(req.id || '')}>${esc(req.id || '')}</td>` +
+        `<td class="t"${titleAttr(compactionSourceSession(req))}>${esc(compactionSourceSession(req) || 'unknown')}</td>` +
+        `<td class="t"${titleAttr(req.sessionId || '')}>${esc(req.sessionId || '')}</td>` +
+        `<td>${esc(req.status || '')}</td>` +
+        `<td class="t"${titleAttr(req.subject || '')}>${esc(req.subject || '')}</td>` +
+      `</tr>`).join('') +
+      `</tbody></table></div>`
+    : '<p class="em">No compaction or continuation history found in the loaded spawn records for this teammate.</p>';
+  openModal(`Compaction History · ${agentId}`, `
+    <div class="modal-section">
+      <p class="worker-note">Handoff compaction keeps the same teammate identity but creates a fresh managed backing. This history is derived from spawn records and shows the old source session and the new session created by each compact/continue operation.</p>
+      ${body}
+    </div>`);
 }
 
 function updateCompactModeUi() {
@@ -5141,6 +5209,7 @@ async function createSpawnRequest() {
   const role = document.getElementById('env-spawn-role').value;
   const workspace = document.getElementById('env-spawn-workspace').value.trim();
   const model = document.getElementById('env-spawn-model').value.trim();
+  const effort = document.getElementById('env-spawn-effort')?.value || '';
   const initialMessage = document.getElementById('env-spawn-prompt').value.trim();
   if (!environmentId || !runtime || !agentId || !workspace) {
     toast('Need environment, runtime, agent ID, and workspace', '#f85149');
@@ -5158,6 +5227,7 @@ async function createSpawnRequest() {
         runtime,
         workspace,
         model,
+        runtimeConfig: effort ? {effort} : undefined,
         initialMessage,
         subject: initialMessage ? `Spawn ${agentId}` : '',
         mode: 'managed-warm',
@@ -5225,6 +5295,8 @@ async function loadSettings() {
   document.getElementById('s-offline').value = s.offline_minutes;
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
+  document.getElementById('s-codex-model').value = s.managed_codex_model || 'gpt-5.5';
+  document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
   document.getElementById('s-reply-repeat').value = s.reply_reminder_repeat_minutes;
@@ -5246,6 +5318,8 @@ async function saveSettings(e) {
       offline_minutes: parseInt(document.getElementById('s-offline').value),
       stale_agent_hours: parseInt(document.getElementById('s-stale').value),
       rotation_enabled: document.getElementById('s-rotation').value === 'true',
+      managed_codex_model: document.getElementById('s-codex-model').value.trim() || 'gpt-5.5',
+      managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
       reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
       reply_reminder_repeat_minutes: parseInt(document.getElementById('s-reply-repeat').value),

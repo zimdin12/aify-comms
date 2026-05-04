@@ -77,6 +77,8 @@ DEFAULT_SETTINGS = {
     "reply_reminder_repeat_minutes": 6,
     "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
+    "managed_codex_model": "gpt-5.5",
+    "managed_codex_effort": "high",
 }
 
 _RUNTIME_ALIASES = {
@@ -3193,6 +3195,16 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         workspace_root = _workspace_root_for(environment, workspace)
         if not workspace and workspace_root:
             workspace = workspace_root
+        settings = await _load_settings(db)
+        model = str(req.model or "").strip()
+        if normalized_runtime == "codex" and not model:
+            model = str(settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"]).strip()
+        runtime_config = req.runtimeConfig or {}
+        if normalized_runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
+            runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
+        metadata = req.metadata or {}
+        if runtime_config:
+            metadata = {**metadata, "runtimeConfig": runtime_config}
 
         now = _now()
         spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -3211,7 +3223,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                 req.environmentId,
                 normalized_runtime,
                 workspace,
-                req.model or "",
+                model,
                 req.profile or "",
                 mode,
                 req.systemPrompt or "",
@@ -3221,7 +3233,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                 json.dumps(req.budgetPolicy or {}),
                 json.dumps(req.contextPolicy or {}),
                 json.dumps(req.restartPolicy or {}),
-                json.dumps(req.metadata or {}),
+                json.dumps(metadata),
                 now,
                 now,
             ),
@@ -3372,7 +3384,11 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             effective_session_handle = req.sessionHandle or row["session_handle"] or ""
             if effective_session_handle:
                 runtime_state = _runtime_state_with_handle(row["runtime"], runtime_state, effective_session_handle)
-            agent_capabilities = _default_capabilities_for(row["runtime"], "managed", effective_session_handle)
+            spec_metadata = _json_loads_or(spec_row["metadata"], {})
+            runtime_config = spec_metadata.get("runtimeConfig") if isinstance(spec_metadata, dict) else {}
+            if not isinstance(runtime_config, dict):
+                runtime_config = {}
+            agent_capabilities = _default_capabilities_for(row["runtime"], "managed", effective_session_handle, runtime_config)
             await db.execute(
                 """
                 INSERT INTO agents (
@@ -3415,7 +3431,7 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     effective_session_handle,
                     row["created_by"] or "dashboard",
                     json.dumps(agent_capabilities),
-                    "{}",
+                    json.dumps(runtime_config),
                     json.dumps(runtime_state),
                     now,
                     now,
@@ -4116,6 +4132,15 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         if not _runtime_capability_for_environment(environment, runtime):
             raise HTTPException(400, f'Environment "{environment_id}" does not advertise runtime "{runtime}"')
         workspace, workspace_root = _workspace_for_environment(environment, req.workspace, agent["cwd"] or "")
+        settings = await _load_settings(db)
+        model = str(req.model if req.model is not None else (agent["model"] or "")).strip()
+        if runtime == "codex" and not model:
+            model = str(settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"]).strip()
+        existing_runtime_config = _json_loads_or(agent["runtime_config"], {})
+        requested_runtime_config = req.runtimeConfig or {}
+        runtime_config = {**existing_runtime_config, **requested_runtime_config}
+        if runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
+            runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
         now = _now()
         previous_runtime = _normalize_runtime(agent["runtime"] or runtime)
         latest_session = await (await db.execute(
@@ -4148,10 +4173,18 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             await db.execute(
                 """
                 UPDATE spawn_specs
-                SET environment_id = ?, runtime = ?, workspace = ?, updated_at = ?
+                SET environment_id = ?, runtime = ?, workspace = ?, model = ?, metadata = ?, updated_at = ?
                 WHERE agent_id = ?
                 """,
-                (environment_id, runtime, workspace, now, agent_id),
+                (
+                    environment_id,
+                    runtime,
+                    workspace,
+                    model,
+                    json.dumps({**_json_loads_or(spec["metadata"], {}), **({"runtimeConfig": runtime_config} if runtime_config else {})}),
+                    now,
+                    agent_id,
+                ),
             )
         else:
             spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -4169,7 +4202,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                     environment_id,
                     runtime,
                     workspace,
-                    agent["model"] or "",
+                    model,
                     "",
                     "managed-warm",
                     "",
@@ -4179,7 +4212,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                     "{}",
                     "{}",
                     "{}",
-                    json.dumps({"createdBy": req.requestedBy or "dashboard", "assignedFromDashboard": True}),
+                    json.dumps({"createdBy": req.requestedBy or "dashboard", "assignedFromDashboard": True, **({"runtimeConfig": runtime_config} if runtime_config else {})}),
                     now,
                     now,
                 ),
@@ -4248,18 +4281,19 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             """,
             (environment_id, runtime, workspace, workspace_root, now, agent_id),
         )
-        capabilities = _default_capabilities_for(runtime, "managed", preserve_handle)
+        capabilities = _default_capabilities_for(runtime, "managed", preserve_handle, runtime_config)
         await db.execute(
             """
             UPDATE agents
             SET cwd = ?,
+                model = ?,
                 runtime = ?,
                 machine_id = ?,
                 launch_mode = 'none',
                 session_mode = 'managed',
                 session_handle = ?,
                 capabilities = ?,
-                runtime_config = '{}',
+                runtime_config = ?,
                 runtime_state = ?,
                 status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END,
                 last_seen = ?
@@ -4267,10 +4301,12 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             """,
             (
                 workspace,
+                model,
                 runtime,
                 environment.get("machineId") or "",
                 preserve_handle,
                 json.dumps(capabilities),
+                json.dumps(runtime_config),
                 json.dumps(preserved_runtime_state),
                 now,
                 agent_id,

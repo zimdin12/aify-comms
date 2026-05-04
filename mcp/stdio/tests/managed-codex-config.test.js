@@ -15,8 +15,8 @@ const { managedCodexConfigText, prepareManagedCodexHome } = await import("../run
 const text = managedCodexConfigText({
   workspace: "/mnt/c/Users/Administrator/sand_castle",
   serverUrl: "http://localhost:8800",
-  model: "gpt-5.4",
-  effort: "medium",
+  model: "gpt-5.5",
+  effort: "high",
 });
 
 assert.match(text, /\[mcp_servers\.aify-comms\]/);
@@ -30,6 +30,13 @@ assert.match(text, /\[projects\."\/mnt\/c\/Users\/Administrator\/sand_castle"\]/
 assert.doesNotMatch(text, /openmemory/);
 assert.doesNotMatch(text, /host\.docker\.internal/);
 assert.doesNotMatch(text, /8765/);
+
+const defaultText = managedCodexConfigText({
+  workspace: "/mnt/c/Users/Administrator/sand_castle",
+  serverUrl: "http://localhost:8800",
+});
+assert.match(defaultText, /model = "gpt-5\.5"/);
+assert.match(defaultText, /model_reasoning_effort = "high"/);
 
 const managedHome = prepareManagedCodexHome({
   workspace: "/mnt/c/Users/Administrator/sand_castle",

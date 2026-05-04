@@ -275,8 +275,8 @@ function installManagedCodexSkills(sourceHome, targetHome) {
 
 export function managedCodexConfigText({ workspace = "", serverUrl = "", model = "", effort = "" } = {}) {
   const lines = [
-    `model = ${tomlString(model || "gpt-5.4")}`,
-    `model_reasoning_effort = ${tomlString(effort || "medium")}`,
+    `model = ${tomlString(model || "gpt-5.5")}`,
+    `model_reasoning_effort = ${tomlString(effort || "high")}`,
     "",
     "[features]",
     "multi_agent = true",
@@ -1283,8 +1283,8 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     ? 0
     : Math.max(10 * 1000, configuredAifyMcpToolTimeout);
   const hostCwd = agentInfo.cwd || process.cwd();
-  const model = agentInfo.model || config.model || "gpt-5.4";
-  const effort = config.effort || "medium";
+  const model = agentInfo.model || config.model || "gpt-5.5";
+  const effort = config.effort || "high";
   const summaryMode = config.summary || "concise";
   const approvalPolicy = config.approvalPolicy || "never";
   const networkAccess = config.networkAccess !== false;

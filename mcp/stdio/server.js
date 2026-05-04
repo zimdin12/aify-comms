@@ -986,7 +986,10 @@ async function runSpawnLoop() {
     });
 
     const runtime = normalizeRuntime(spawnRequest.runtime || "generic");
-    const runtimeConfig = {};
+    const runtimeConfig =
+      (spawnRequest.spawnSpec?.metadata && typeof spawnRequest.spawnSpec.metadata.runtimeConfig === "object")
+        ? spawnRequest.spawnSpec.metadata.runtimeConfig
+        : {};
     const requestedSessionHandle = String(spawnRequest.sessionHandle || "").trim();
     const capabilities = defaultCapabilitiesForRuntime(runtime, "managed", requestedSessionHandle, runtimeConfig);
     const runtimeState = {
