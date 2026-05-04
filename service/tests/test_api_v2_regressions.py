@@ -368,7 +368,76 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
+        self.assertIn("Managed Runtime Defaults", dashboard.text)
+        self.assertIn("env-spawn-effort", dashboard.text)
+        self.assertIn("agent-edit-effort", dashboard.text)
+        self.assertIn("Compaction History", dashboard.text)
         self.assertNotIn("assignAgentEnvironment", dashboard.text)
+
+    def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
+        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
+        settings = self.client.put(
+            "/api/v1/settings",
+            json={"managed_codex_model": "gpt-test-default", "managed_codex_effort": "xhigh"},
+        )
+        self.assertEqual(settings.status_code, 200, settings.text)
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "wsl:test-host:default",
+                "agentId": "default-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-test-default")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "xhigh")
+
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn['id']}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+                "sessionHandle": "thread-default",
+                "runtimeState": {"threadId": "thread-default"},
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-codex",))
+        self.assertEqual(agent["model"], "gpt-test-default")
+        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "xhigh")
+
+    def test_managed_codex_spawn_override_wins_over_settings_defaults(self):
+        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
+        self.client.put(
+            "/api/v1/settings",
+            json={"managed_codex_model": "gpt-default", "managed_codex_effort": "medium"},
+        )
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "wsl:test-host:default",
+                "agentId": "override-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+                "model": "gpt-custom",
+                "runtimeConfig": {"effort": "high", "quietTimeoutMs": 0},
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-custom")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["quietTimeoutMs"], 0)
 
     def test_environment_list_marks_missing_heartbeat_offline_and_orders_stably(self):
         self._heartbeat_environment(

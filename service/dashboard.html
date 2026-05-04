@@ -4581,7 +4581,7 @@ async function refreshDashboard() {
       apiFetch(API + '/agents').then(r => r.json()),
       apiFetch(API + '/dispatch/runs?limit=200').then(r => r.json()),
       apiFetch(API + '/environments').then(r => r.json()),
-      apiFetch(API + '/spawn-requests?limit=100').then(r => r.json()),
+      apiFetch(API + '/spawn-requests?limit=500').then(r => r.json()),
       apiFetch(API + '/sessions?limit=100').then(r => r.json()),
       apiFetch(API + `/channels?agentId=${encodeURIComponent(chatIdentity())}`).then(r => r.json()),
       apiFetch(API + '/messages/recent?limit=120').then(r => r.json()),
