@@ -110,6 +110,8 @@ aify-comms.cmd
 
 The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
+Managed runtime defaults are configured from Dashboard **Settings -> Managed Runtime Defaults**. New managed Claude Code teammates default to `opus`; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. Spawn and Team edit screens can override the model/profile per teammate.
+
 ## Design Rule
 
 Messaging remains the source of truth. A dispatch/run is a delivery/execution attempt attached to a message, not a separate communication concept.

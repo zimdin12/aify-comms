@@ -1058,7 +1058,7 @@ tr:hover{background:#1b1f21}
         <input id="env-spawn-agent-id" placeholder="Agent ID">
         <select id="env-spawn-role"><option value="coder">coder</option><option value="reviewer">reviewer</option><option value="tester">tester</option><option value="researcher">researcher</option><option value="architect">architect</option><option value="manager">manager</option><option value="operator">operator</option></select>
         <input id="env-spawn-workspace" placeholder="Workspace">
-        <input id="env-spawn-model" placeholder="Model/profile (optional)">
+        <input id="env-spawn-model" placeholder="Model/profile (blank = runtime default)">
         <select id="env-spawn-effort" title="Codex reasoning effort for this managed Codex spawn"><option value="">Effort: default</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
         <input id="env-spawn-prompt" placeholder="Initial task (optional)">
         <button class="btn btn-primary" title="Queue a managed-warm spawn request for the selected environment bridge" onclick="createSpawnRequest()">Spawn</button>
@@ -1307,7 +1307,7 @@ aify-comms</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>These settings are still relevant, but they are admin/maintenance settings: retention, file cleanup, presence labels, stale identity rotation, and browser refresh. They do not configure runtime models or spawn profiles yet.</p>
+      <p>These settings cover admin/maintenance behavior plus managed runtime defaults. Per-agent model/profile settings still live on the spawn form and Team edit modal.</p>
 
       <h3>API Endpoints</h3>
       <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Team, Environments, Sessions, Runs, and Artifacts.</p>
@@ -1392,9 +1392,14 @@ aify-comms</pre>
       </div>
       <h3>Managed Runtime Defaults</h3>
       <div class="form-group">
+        <label>Managed Claude Model</label>
+        <input id="s-claude-model" placeholder="opus">
+        <div class="hint">Default model for new managed Claude Code spawns when the spawn form leaves model blank. Repo fallback: opus.</div>
+      </div>
+      <div class="form-group">
         <label>Managed Codex Model</label>
         <input id="s-codex-model" placeholder="gpt-5.5">
-        <div class="hint">Default model for new managed Codex spawns when the spawn form leaves model blank. Repo fallback: gpt-5.5</div>
+        <div class="hint">Default model for new managed Codex spawns when the spawn form leaves model blank. Repo fallback: gpt-5.5.</div>
       </div>
       <div class="form-group">
         <label>Managed Codex Effort</label>
@@ -5295,6 +5300,7 @@ async function loadSettings() {
   document.getElementById('s-offline').value = s.offline_minutes;
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
+  document.getElementById('s-claude-model').value = s.managed_claude_model || 'opus';
   document.getElementById('s-codex-model').value = s.managed_codex_model || 'gpt-5.5';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
@@ -5318,6 +5324,7 @@ async function saveSettings(e) {
       offline_minutes: parseInt(document.getElementById('s-offline').value),
       stale_agent_hours: parseInt(document.getElementById('s-stale').value),
       rotation_enabled: document.getElementById('s-rotation').value === 'true',
+      managed_claude_model: document.getElementById('s-claude-model').value.trim() || 'opus',
       managed_codex_model: document.getElementById('s-codex-model').value.trim() || 'gpt-5.5',
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',

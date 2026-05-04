@@ -369,10 +369,62 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
         self.assertIn("Managed Runtime Defaults", dashboard.text)
+        self.assertIn("s-claude-model", dashboard.text)
         self.assertIn("env-spawn-effort", dashboard.text)
         self.assertIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
         self.assertNotIn("assignAgentEnvironment", dashboard.text)
+
+    def test_managed_claude_spawn_uses_settings_default_model(self):
+        self._heartbeat_environment(
+            id="windows:test-host:default",
+            bridgeId="bridge-current",
+            machineId="win32:test-host",
+            os="windows",
+            kind="windows",
+            cwdRoots=["C:/workspace"],
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"bridgeResume": True, "interrupt": True},
+                }
+            ],
+        )
+        settings = self.client.put(
+            "/api/v1/settings",
+            json={"managed_claude_model": "opus"},
+        )
+        self.assertEqual(settings.status_code, 200, settings.text)
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "windows:test-host:default",
+                "agentId": "default-claude",
+                "role": "manager",
+                "runtime": "claude-code",
+                "workspace": "C:/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["spawnSpec"]["model"], "opus")
+
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn['id']}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "machineId": "win32:test-host",
+                "sessionHandle": "claude-session-default",
+                "runtimeState": {"sessionId": "claude-session-default"},
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        agent = self._fetchone("SELECT model FROM agents WHERE id = ?", ("default-claude",))
+        self.assertEqual(agent["model"], "opus")
 
     def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")

@@ -39,14 +39,27 @@ assert.match(defaultText, /model = "gpt-5\.5"/);
 assert.match(defaultText, /model_reasoning_effort = "high"/);
 
 const managedHome = prepareManagedCodexHome({
+  agentId: "sc/coder:one",
   workspace: "/mnt/c/Users/Administrator/sand_castle",
   serverUrl: "http://localhost:8800",
 });
 
-assert.equal(managedHome, path.join(tempHome, ".local", "state", "aify-comms", "managed-codex-home"));
+assert.equal(managedHome, path.join(tempHome, ".local", "state", "aify-comms", "managed-codex-home-sc_coder_one"));
 assert.ok(fs.existsSync(path.join(managedHome, "config.toml")));
 assert.ok(fs.existsSync(path.join(managedHome, "skills", "aify-comms", "SKILL.md")));
 assert.ok(fs.existsSync(path.join(managedHome, "skills", "aify-comms-debug", "SKILL.md")));
+
+const otherManagedHome = prepareManagedCodexHome({
+  agentId: "sc-coder-two",
+  workspace: "/mnt/c/Users/Administrator/sand_castle",
+  serverUrl: "http://localhost:8800",
+  model: "gpt-other",
+  effort: "xhigh",
+});
+
+assert.equal(otherManagedHome, path.join(tempHome, ".local", "state", "aify-comms", "managed-codex-home-sc-coder-two"));
+assert.notEqual(otherManagedHome, managedHome);
+assert.match(fs.readFileSync(path.join(otherManagedHome, "config.toml"), "utf8"), /model = "gpt-other"/);
 
 if (originalHome === undefined) delete process.env.HOME;
 else process.env.HOME = originalHome;

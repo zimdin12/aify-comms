@@ -305,9 +305,13 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
   return `${lines.join("\n")}\n`;
 }
 
-export function prepareManagedCodexHome({ workspace = "", model = "", effort = "" } = {}) {
+export function prepareManagedCodexHome({ agentId = "", workspace = "", model = "", effort = "" } = {}) {
   const sourceHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", "managed-codex-home");
+  const safeAgentId = String(agentId || "").trim();
+  const homeName = safeAgentId
+    ? `managed-codex-home-${safeAgentId.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 80)}`
+    : "managed-codex-home";
+  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", homeName);
   fs.mkdirSync(targetHome, { recursive: true });
   for (const name of ["auth.json", "installation_id", "version.json"]) {
     copyIfExists(path.join(sourceHome, name), path.join(targetHome, name));
@@ -486,6 +490,10 @@ export function managedClaudePermissionArgs(config = {}, executionMode = "manage
     return ["--dangerously-skip-permissions"];
   }
   return [];
+}
+
+export function managedClaudeModel(agentInfo = {}, config = {}) {
+  return String(agentInfo.model || config.model || "opus").trim();
 }
 
 function normalizeCodexSandboxMode(value) {
@@ -1154,8 +1162,9 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
       "--append-system-prompt", buildSystemPrompt(agentId, agentInfo, run),
     ];
 
-    if (agentInfo.model) {
-      args.push("--model", agentInfo.model);
+    const model = managedClaudeModel(agentInfo, config);
+    if (model) {
+      args.push("--model", model);
     }
 
     const proc = spawnProcess(launcher.command, args, { cwd });
@@ -1299,7 +1308,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const spawnCwd = codexSpawnCwd(launcher, hostCwd);
   const managedCodexHome =
     executionMode === "managed"
-      ? prepareManagedCodexHome({ workspace: cwd, model, effort })
+      ? prepareManagedCodexHome({ agentId, workspace: cwd, model, effort })
       : "";
   const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
   const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
