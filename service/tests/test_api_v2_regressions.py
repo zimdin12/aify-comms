@@ -370,6 +370,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Edit identity ID", dashboard.text)
         self.assertIn("Managed Runtime Defaults", dashboard.text)
         self.assertIn("s-claude-model", dashboard.text)
+        self.assertIn("s-claude-effort", dashboard.text)
         self.assertIn("env-spawn-effort", dashboard.text)
         self.assertIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
@@ -393,7 +394,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         settings = self.client.put(
             "/api/v1/settings",
-            json={"managed_claude_model": "opus"},
+            json={"managed_claude_model": "opus", "managed_claude_effort": "medium"},
         )
         self.assertEqual(settings.status_code, 200, settings.text)
 
@@ -411,6 +412,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.text)
         spawn = created.json()["spawnRequest"]
         self.assertEqual(spawn["spawnSpec"]["model"], "opus")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "medium")
 
         updated = self.client.patch(
             f"/api/v1/spawn-requests/{spawn['id']}",
@@ -423,8 +425,9 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
-        agent = self._fetchone("SELECT model FROM agents WHERE id = ?", ("default-claude",))
+        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-claude",))
         self.assertEqual(agent["model"], "opus")
+        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
 
     def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")

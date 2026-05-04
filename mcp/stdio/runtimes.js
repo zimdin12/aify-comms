@@ -496,6 +496,15 @@ export function managedClaudeModel(agentInfo = {}, config = {}) {
   return String(agentInfo.model || config.model || "opus").trim();
 }
 
+export function managedClaudeEffort(config = {}) {
+  return String(config.effort || "high").trim();
+}
+
+export function managedCodexEffort(config = {}) {
+  const effort = String(config.effort || "high").trim();
+  return effort === "max" ? "xhigh" : effort;
+}
+
 function normalizeCodexSandboxMode(value) {
   const text = String(value || "").trim().toLowerCase().replace(/_/g, "-");
   if (["danger", "danger-full", "danger-full-access", "full", "full-access", "bypass", "unsafe"].includes(text)) {
@@ -1166,6 +1175,10 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
     if (model) {
       args.push("--model", model);
     }
+    const effort = managedClaudeEffort(config);
+    if (effort) {
+      args.push("--effort", effort);
+    }
 
     const proc = spawnProcess(launcher.command, args, { cwd });
     activeProcess = proc;
@@ -1293,7 +1306,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     : Math.max(10 * 1000, configuredAifyMcpToolTimeout);
   const hostCwd = agentInfo.cwd || process.cwd();
   const model = agentInfo.model || config.model || "gpt-5.5";
-  const effort = config.effort || "high";
+  const effort = managedCodexEffort(config);
   const summaryMode = config.summary || "concise";
   const approvalPolicy = config.approvalPolicy || "never";
   const networkAccess = config.networkAccess !== false;

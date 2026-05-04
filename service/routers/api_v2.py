@@ -78,6 +78,7 @@ DEFAULT_SETTINGS = {
     "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
     "managed_claude_model": "opus",
+    "managed_claude_effort": "high",
     "managed_codex_model": "gpt-5.5",
     "managed_codex_effort": "high",
 }
@@ -3206,6 +3207,8 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         runtime_config = req.runtimeConfig or {}
         if normalized_runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
+        elif normalized_runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
+            runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
         metadata = req.metadata or {}
         if runtime_config:
             metadata = {**metadata, "runtimeConfig": runtime_config}
@@ -4148,6 +4151,8 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         runtime_config = {**existing_runtime_config, **requested_runtime_config}
         if runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
+        elif runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
+            runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
         now = _now()
         previous_runtime = _normalize_runtime(agent["runtime"] or runtime)
         latest_session = await (await db.execute(

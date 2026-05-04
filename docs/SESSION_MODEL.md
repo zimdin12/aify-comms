@@ -140,9 +140,9 @@ The runtime supports a durable session/thread.
 
 Runtime model defaults and overrides:
 
-- managed Claude Code defaults to `opus`; managed Codex defaults to `gpt-5.5` with `high` reasoning effort
+- managed Claude Code defaults to `opus` with `high` effort; managed Codex defaults to `gpt-5.5` with `high` reasoning effort
 - dashboard settings define operator defaults, while spawn/team/session records can override them per agent
-- Claude model selection is per-run (`claude --model ...`) and does not mutate global Claude settings
+- Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
 - Codex uses per-agent managed `CODEX_HOME` directories plus explicit model/effort values on thread/turn calls, so one managed Codex session does not overwrite another session's config
 
 Codex target model:

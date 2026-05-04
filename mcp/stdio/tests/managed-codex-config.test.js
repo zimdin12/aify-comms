@@ -10,7 +10,7 @@ const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-managed-codex-home-
 process.env.HOME = tempHome;
 delete process.env.CODEX_HOME;
 
-const { managedCodexConfigText, prepareManagedCodexHome } = await import("../runtimes.js");
+const { managedCodexConfigText, managedCodexEffort, prepareManagedCodexHome } = await import("../runtimes.js");
 
 const text = managedCodexConfigText({
   workspace: "/mnt/c/Users/Administrator/sand_castle",
@@ -37,6 +37,8 @@ const defaultText = managedCodexConfigText({
 });
 assert.match(defaultText, /model = "gpt-5\.5"/);
 assert.match(defaultText, /model_reasoning_effort = "high"/);
+assert.equal(managedCodexEffort({ effort: "max" }), "xhigh");
+assert.equal(managedCodexEffort({ effort: "medium" }), "medium");
 
 const managedHome = prepareManagedCodexHome({
   agentId: "sc/coder:one",

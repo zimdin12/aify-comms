@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 
-const { managedClaudeModel, managedClaudePermissionArgs } = await import("../runtimes.js");
+const { managedClaudeEffort, managedClaudeModel, managedClaudePermissionArgs } = await import("../runtimes.js");
 
 assert.deepEqual(
   managedClaudePermissionArgs({}, "managed"),
@@ -43,6 +43,18 @@ assert.equal(
   managedClaudeModel({}, { model: "claude-opus-4-1-20250805" }),
   "claude-opus-4-1-20250805",
   "runtime config Claude model should be usable when no agent override exists",
+);
+
+assert.equal(
+  managedClaudeEffort({}),
+  "high",
+  "managed Claude should default to high effort for unattended coding work",
+);
+
+assert.equal(
+  managedClaudeEffort({ effort: "medium" }),
+  "medium",
+  "managed Claude effort should be configurable per agent/run",
 );
 
 console.log("managed-claude-permissions.test.js: all assertions passed");

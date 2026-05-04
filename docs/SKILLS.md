@@ -74,7 +74,7 @@ Dashboard-managed Codex sessions use a separate managed Codex home:
 
 The WSL/Linux bridge now copies the bundled Codex skills into that managed home whenever it prepares a managed Codex run. If a managed Codex teammate says `aify-comms` or `aify-comms-debug` is not exposed as a skill, update/restart the relevant `aify-comms` bridge so it regenerates the managed Codex home, or copy `.agents/skills/aify-comms*` into the managed home's `skills/` directory as a temporary live repair.
 
-Managed runtime defaults are documented in the main skill: Claude Code defaults to `opus`; Codex defaults to `gpt-5.5` with `high` reasoning effort. Dashboard settings set operator defaults, and teammate/spawn records can override them per agent.
+Managed runtime defaults are documented in the main skill: Claude Code defaults to `opus` with `high` effort; Codex defaults to `gpt-5.5` with `high` reasoning effort. Dashboard settings set operator defaults, and teammate/spawn records can override them per agent.
 
 Current bridge builds terminate the whole managed runtime process tree on timeout, interrupt, stop, and bridge shutdown. This is important for Codex/OpenCode app-server children and Windows Claude wrapper children; stale child processes should not keep agents falsely alive after the owning environment bridge is gone.
 
