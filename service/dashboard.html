@@ -862,6 +862,62 @@ tr:hover{background:#1b1f21}
   .chat-shell{height:100%;min-height:0}
   .env-meta,.detail-grid,.chat-kv{grid-template-columns:1fr;gap:3px}
 }
+
+select{
+  appearance:none;
+  -webkit-appearance:none;
+  background-image:
+    linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+    linear-gradient(135deg,var(--muted) 50%,transparent 50%),
+    linear-gradient(135deg,var(--accent-softer),transparent) !important;
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px),
+    0 0 !important;
+  background-size:6px 6px,6px 6px,100% 100% !important;
+  background-repeat:no-repeat !important;
+  padding-right:36px !important;
+}
+select:focus{border-color:var(--accent) !important;outline:none;box-shadow:0 0 0 3px var(--accent-shadow)}
+select::-ms-expand{display:none}
+.chat-as-label select{
+  background-color:#070808;
+  border:1px solid #2e3336;
+  color:var(--text);
+  border-radius:9px;
+  padding:8px 36px 8px 10px !important;
+  font-size:.84em;
+}
+input[type="checkbox"]{
+  appearance:none;
+  -webkit-appearance:none;
+  width:16px;
+  height:16px;
+  min-width:16px;
+  border:1px solid var(--line);
+  border-radius:5px;
+  background:#070808;
+  display:inline-grid;
+  place-content:center;
+  cursor:pointer;
+  transition:background .12s,border-color .12s,box-shadow .12s;
+}
+input[type="checkbox"]::before{
+  content:"";
+  width:8px;
+  height:8px;
+  border-radius:3px;
+  transform:scale(0);
+  transition:transform .12s ease;
+  background:var(--accent-contrast);
+}
+input[type="checkbox"]:checked{
+  background:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 75%,#fff);
+}
+input[type="checkbox"]:checked::before{transform:scale(1)}
+input[type="checkbox"]:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-shadow)}
+.switch-row input[type="checkbox"],.chat-toggle input[type="checkbox"]{flex:0 0 16px}
 </style>
 </head>
 <body>
