@@ -383,6 +383,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("btn-primary{background:var(--accent)", dashboard.text)
         self.assertIn("segmented button.active{background:var(--accent)", dashboard.text)
         self.assertIn("chart-line{fill:none;stroke:var(--accent)", dashboard.text)
+        self.assertIn(".sidebar.collapsed{width:52px;padding:56px 8px 16px", dashboard.text)
+        self.assertIn(".sidebar.collapsed .toggle-btn{right:13px;top:16px", dashboard.text)
         self.assertIn("value=\"12\" onchange=\"regenerateContinuePacket", dashboard.text)
         self.assertIn("[clipped ", dashboard.text)
         self.assertNotIn("id=\"status-dot\"", dashboard.text)
