@@ -1,0 +1,88 @@
+# aify-comms Operations Reference
+
+Load this file only for setup, runtime policy, bridge/session repair, or dashboard operations. For routine chat, use the main skill.
+
+## Install Or Update
+
+After every install/update:
+
+1. Rerun the install command from the repo install doc.
+2. Restart the affected CLI wrapper/client and long-running `aify-comms` environment bridge.
+3. Re-register from the exact live session you want other agents to trigger.
+4. Confirm with `comms_agent_info(agentId="...")`.
+
+Wrapper auto mode:
+
+- `codex-aify -auto` adds Codex's supported bypass flag.
+- `claude-aify -auto` adds `--dangerously-skip-permissions`.
+- Claude Code's valid skip-permissions flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not valid.
+
+## Managed Runtime Policy
+
+- Dashboard-managed agents are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
+- Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
+- Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
+- Managed Claude Code defaults to `opus` / `high`; managed Codex defaults to `gpt-5.5` / `high`.
+- Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
+- Tune with `runtimeConfig.timeoutMs`, `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`, and `runtimeConfig.mcpToolTimeoutMs` / `runtimeConfig.commsToolTimeoutMs`.
+- Set quiet timeout to `0` only for agents expected to run very long silent commands; set MCP tool timeout to `0` only while debugging the MCP transport.
+
+## Environment Bridges
+
+- `aify-comms --help` shows launcher usage. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries.
+- Starting a newer bridge for the same environment makes it current and asks the older bridge to exit. A hung old process may still need manual OS cleanup.
+- Killing a bridge stops the execution target, not the teammate identity. Managed teammates become offline/detached; chats, identities, spawn specs, and session records remain.
+- Forgetting an environment hides an obsolete execution target. It does not delete teammates, chats, spawn specs, or session records.
+- To keep a teammate after an environment is gone, assign it to another online environment from Team, then restart it from Sessions.
+
+## CLI Ownership Transfer
+
+- Use Dashboard **Pause for CLI** before opening a managed session directly. It pauses dashboard delivery so normal chat sends fail fast instead of racing the open CLI.
+- Re-register from the opened CLI with the same `agentId` so the dashboard stores the current Claude session ID, Codex thread ID, or OpenCode session ID.
+- `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process.
+- Codex should register with `$CODEX_THREAD_ID` and `$AIFY_CODEX_APP_SERVER_URL` when available.
+- Use **Restart** from Sessions when you want dashboard control back.
+- Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
+
+Browser CLI is planned, not current behavior. Until an environment advertises browser terminal/PTY attach, use Pause for CLI plus the native resume command.
+
+## Multi-Instance Rules
+
+| Runtime | Same project dir | Different project dirs |
+|---|---|---|
+| `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
+| `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
+| `opencode` | OK with explicit `sessionHandle` per session. | OK |
+
+Never register the same `agentId` from two tabs. Re-registering the same ID supersedes the previous bridge/session binding.
+
+## Dashboard Semantics
+
+- Home/Control is a live operations queue, not a full audit log.
+- Work Loop shows reply/work contracts derived from messages and runs. Hidden contracts are dashboard-local and do not delete audit history.
+- Muted live/session/handoff notices stay yellow but stop counting as active red issues.
+- Analytics has range selectors and separates historical counts from live capacity.
+- Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance.
+- Chat Peek mode lets an operator watch without marking messages read.
+- Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
+- Sessions hide ended/completed/cancelled rows by default; show ended/debug rows when investigating lifecycle history.
+
+## Status Meanings
+
+`active` means connected/heartbeating; it does not mean working. Use `comms_agent_info` for actual state.
+
+| Status | Meaning |
+|---|---|
+| `active` | Bridge alive; may be busy or idle. |
+| `working` | A tracked run is executing. |
+| `idle` | No recent heartbeat; session may be paused. |
+| `offline` | No heartbeat for the offline threshold. |
+| `blocked` | Agent-reported note state, not necessarily unreachable. |
+| `stopped` | Wake/dispatch disabled until restart or re-register. |
+
+## Repair Hints
+
+- If another agent is not triggerable, inspect `comms_agent_info(agentId="target")` first.
+- Codex path errors usually mean stale binding, wrong host path style, or stale bridge/app-server markers.
+- Claude `Session ID ... is already in use` means another Claude process owns that native session. Pause/close/take over explicitly; do not silently recreate unless the operator requests it.
+- `comms_listen` is deprecated. Do not use it for normal teamwork or managed runs.

@@ -1,8 +1,9 @@
 # Skills
 
-The repo currently ships two skills, duplicated for Codex and Claude Code install targets:
+The repo currently ships two skill families, duplicated for Codex and Claude Code install targets:
 
 - `.agents/skills/aify-comms/SKILL.md` and `.claude/skills/aify-comms/SKILL.md`
+- `.agents/skills/aify-comms/references/*.md` and `.claude/skills/aify-comms/references/*.md`
 - `.agents/skills/aify-comms-debug/SKILL.md` and `.claude/skills/aify-comms-debug/SKILL.md`
 
 ## Relevance
@@ -10,6 +11,13 @@ The repo currently ships two skills, duplicated for Codex and Claude Code instal
 Both are still relevant.
 
 `aify-comms` is the normal operating guide for agents using the bridge: live registration, direct messages, channels, shared artifacts, environment-backed spawn, dashboard use, and wrapper expectations.
+
+The main `aify-comms/SKILL.md` is intentionally small. Routine chat and managed turns should load only the core protocol. Slower details live in reference files:
+
+- `references/operations.md` — install/update, runtime policy, bridge/session ownership, dashboard operations, status meanings, and repair hints.
+- `references/teamwork.md` — manager/tech-lead/coder workflow, work-contract shape, labels, review discipline, and compact/rebrief patterns.
+
+This keeps normal agent turns cheaper while preserving the operational detail when an agent actually needs it.
 
 Agents create persistent comms-visible teammates through `comms_envs(...)` and `comms_spawn(...)`, the same environment-backed path used by dashboard **Environments -> Spawn Agent**. Agents can also use `comms_compact(mode="handoff", ...)` to create a fresh managed backing from an existing managed agent when a phase changes or context gets noisy; the default handoff identity is the same agent ID. Private subagents should report back to their parent unless the user explicitly wants a new persistent teammate.
 
@@ -96,4 +104,4 @@ to:
 
 ## Naming
 
-The skills use the `aify-comms` name because that is the product, MCP/server identity, installed tool namespace, and dashboard/control-plane name. Do not add a separate dashboard skill until the dashboard workflow has stabilized. For now, the main skill plus the debug skill are enough.
+The skills use the `aify-comms` name because that is the product, MCP/server identity, installed tool namespace, and dashboard/control-plane name. Do not add separate always-on role/dashboard skills unless the trigger is clearly distinct; extra skills increase metadata and can over-trigger. Prefer references under `aify-comms` for role guides and operator details until a workflow proves it needs its own skill.
