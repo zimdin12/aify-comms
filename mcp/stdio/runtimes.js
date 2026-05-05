@@ -274,8 +274,8 @@ function installManagedCodexSkills(sourceHome, targetHome) {
 }
 
 export function managedCodexConfigText({ workspace = "", serverUrl = "", model = "", effort = "" } = {}) {
+  const resolvedModel = String(model || "").trim();
   const lines = [
-    `model = ${tomlString(model || "gpt-5.5")}`,
     `model_reasoning_effort = ${tomlString(effort || "high")}`,
     "",
     "[features]",
@@ -301,6 +301,9 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
   ];
   if (workspace) {
     lines.push("", `[projects.${tomlString(workspace)}]`, 'trust_level = "trusted"');
+  }
+  if (resolvedModel) {
+    lines.unshift(`model = ${tomlString(resolvedModel)}`);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -488,7 +491,7 @@ export function managedClaudePermissionArgs(config = {}, executionMode = "manage
 }
 
 export function managedClaudeModel(agentInfo = {}, config = {}) {
-  return String(agentInfo.model || config.model || "opus").trim();
+  return String(agentInfo.model || config.model || "").trim();
 }
 
 export function managedClaudeEffort(config = {}) {
@@ -1299,7 +1302,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     ? 0
     : Math.max(10 * 1000, configuredAifyMcpToolTimeout);
   const hostCwd = agentInfo.cwd || process.cwd();
-  const model = agentInfo.model || config.model || "gpt-5.5";
+  const model = String(agentInfo.model || config.model || "").trim();
   const effort = managedCodexEffort(config);
   const summaryMode = config.summary || "concise";
   const approvalPolicy = config.approvalPolicy || "never";
@@ -1524,12 +1527,12 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
       const startThread = async () => {
         const threadStartParams = {
-          model,
           cwd,
           approvalPolicy,
           personality: "friendly",
           serviceName: "aify-comms",
         };
+        if (model) threadStartParams.model = model;
         let started;
         try {
           started = await rpc.request("thread/start", {
@@ -1643,17 +1646,18 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       callbacks.onEvent?.("turn", `Calling turn/start on thread ${activeThreadId} with cwd="${cwd}", writableRoots=["${cwd}"]`);
       let turn;
       try {
-        turn = await rpc.request("turn/start", {
+        const turnStartParams = {
           threadId: activeThreadId,
           input: [{ type: "text", text: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}` }],
           cwd,
           approvalPolicy,
           sandboxPolicy: codexTurnSandboxPolicy(sandboxMode, cwd, networkAccess),
-          model,
           effort,
           summary: summaryMode,
           personality: "friendly",
-        }, 60000);
+        };
+        if (model) turnStartParams.model = model;
+        turn = await rpc.request("turn/start", turnStartParams, 60000);
       } catch (error) {
         // turn/start sends cwd + writableRoots — if AbsolutePathBuf fires
         // here, it's one of those two fields. Label the error so the run

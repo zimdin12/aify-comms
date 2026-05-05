@@ -29,8 +29,8 @@ assert.deepEqual(
 
 assert.equal(
   managedClaudeModel({}, {}),
-  "opus",
-  "managed Claude should default to the latest capable Claude Code alias",
+  "",
+  "blank managed Claude model should let Claude Code use its runtime default/latest",
 );
 
 assert.equal(

@@ -84,7 +84,7 @@ h2::after{content:"";display:block;width:48px;height:2px;background:linear-gradi
 h3{color:var(--text);margin:18px 0 8px;font-size:1em;font-weight:650}
 .stats{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .sc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 18px;min-width:132px;box-shadow:0 8px 24px #00000020}
-.sc .n{font-size:1.9em;font-weight:750;color:var(--blue)}.sc .l{color:var(--muted);font-size:.78em;text-transform:uppercase}
+.sc .n{font-size:1.9em;font-weight:750;color:var(--secondary)}.sc .l{color:var(--muted);font-size:.78em;text-transform:uppercase}
 .sc .s{color:var(--subtle);font-size:.72em;margin-top:3px;max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sc.warn .n{color:var(--amber)}
 
@@ -146,7 +146,7 @@ tr:hover{background:#19212a}
 .t-channel{background:#e2b04424;color:var(--amber)}
 .st-active{color:var(--green)}.st-idle{color:var(--muted)}.st-working{color:var(--amber)}.st-stopped{color:var(--red)}
 .st-blocked{color:var(--red)}.st-completed{color:var(--green)}.st-stale{color:var(--red)}.st-offline{color:var(--subtle)}
-.st-queued{color:var(--muted)}.st-claimed{color:var(--amber)}.st-running{color:var(--blue)}.st-failed{color:var(--red)}.st-cancelled{color:var(--amber)}.st-cli-takeover{color:var(--amber)}
+.st-queued{color:var(--muted)}.st-claimed{color:var(--amber)}.st-running{color:var(--secondary)}.st-failed{color:var(--red)}.st-cancelled{color:var(--amber)}.st-cli-takeover{color:var(--amber)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fb input,.fb select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:.85em}
@@ -170,7 +170,7 @@ tr:hover{background:#19212a}
 .insight-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 8px 24px #00000018;min-width:0}
 .insight-card.warn{border-color:#5b4421;background:#181b1c}
 .insight-card h3{margin:0 0 8px;font-size:.95em}
-.insight-metric{font-size:1.7em;font-weight:750;color:var(--blue);line-height:1.1}
+.insight-metric{font-size:1.7em;font-weight:750;color:var(--secondary);line-height:1.1}
 .insight-card.warn .insight-metric{color:var(--amber)}
 .insight-card p{color:var(--muted);font-size:.84em;line-height:1.45;margin-top:5px}
 .attention-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:16px}
@@ -261,7 +261,12 @@ tr:hover{background:#19212a}
 .form-group input,.form-group select,.form-group textarea{background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:7px;font-size:.9em;width:280px}
 .form-group textarea{width:100%;min-height:260px;resize:vertical;font-family:inherit;line-height:1.42}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-shadow)}
-.form-group select,.chat-compose-row select,.send-row select{accent-color:var(--accent);background-image:linear-gradient(135deg,var(--accent-softer),transparent)}
+select{appearance:none;-webkit-appearance:none;background-color:#0a0f15;background-image:linear-gradient(135deg,var(--accent-softer),transparent),linear-gradient(45deg,transparent 50%,var(--accent-text) 50%),linear-gradient(135deg,var(--accent-text) 50%,transparent 50%);background-position:0 0,calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:100% 100%,5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px!important}
+.form-group select,.chat-compose-row select,.send-row select,.fb select{accent-color:var(--accent)}
+input[type="checkbox"]{appearance:none;-webkit-appearance:none;width:16px;height:16px;border:1px solid var(--line);border-radius:4px;background:#0a0f15;display:inline-grid;place-content:center;cursor:pointer;flex:0 0 auto}
+input[type="checkbox"]::before{content:"";width:8px;height:8px;transform:scale(0);transition:transform .12s ease;border-radius:2px;background:var(--accent)}
+input[type="checkbox"]:checked{border-color:var(--accent-border);background:var(--accent-soft)}
+input[type="checkbox"]:checked::before{transform:scale(1)}
 select option{background:#101315;color:var(--text)}
 a{color:var(--accent-text)}
 .form-group .hint{color:var(--subtle);font-size:.75em;margin-top:2px}
@@ -275,18 +280,17 @@ a{color:var(--accent-text)}
 .settings-panel.active{display:block}
 .settings-panel h3{margin:0 0 10px}
 .settings-panel .form-group input,.settings-panel .form-group select{width:min(420px,100%)}
-.theme-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-top:8px;max-width:620px}
-.theme-preview{border:1px solid var(--line-soft);border-radius:10px;background:#101214;padding:9px;min-width:0;cursor:pointer}
-.theme-preview:hover{border-color:var(--accent-border);background:var(--accent-softer)}
-.theme-preview.active{border-color:var(--accent-border);box-shadow:inset 3px 0 0 var(--accent);background:var(--accent-soft)}
-.theme-preview b{display:block;color:var(--text);font-size:.78em;margin-bottom:7px}
-.theme-preview-swatches{display:flex;gap:5px;align-items:center}
-.theme-preview-swatches span{height:18px;border-radius:999px;border:1px solid #ffffff24;flex:1}
+.theme-native-select{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
+.theme-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:9px;margin-top:8px;max-width:720px}
+.theme-preview{--tile-accent:var(--accent);--tile-secondary:var(--secondary);--tile-tertiary:var(--amber);border:1px solid var(--line-soft);border-radius:12px;background:linear-gradient(135deg,color-mix(in srgb,var(--tile-accent) 20%,#101214),color-mix(in srgb,var(--tile-secondary) 10%,#101214));padding:10px;min-width:0;cursor:pointer;text-align:left;box-shadow:0 8px 22px #00000022;transition:transform .14s ease,border-color .14s ease,background .14s ease}
+.theme-preview:hover{border-color:color-mix(in srgb,var(--tile-accent) 55%,#fff);transform:translateY(-1px)}
+.theme-preview.active{border-color:color-mix(in srgb,var(--tile-accent) 70%,#fff);box-shadow:inset 3px 0 0 var(--tile-accent),0 12px 28px #00000030;background:linear-gradient(135deg,color-mix(in srgb,var(--tile-accent) 28%,#101214),color-mix(in srgb,var(--tile-secondary) 16%,#101214))}
+.theme-preview b{display:block;color:var(--text);font-size:.82em;margin-bottom:7px}
+.theme-preview-sub{display:block;color:var(--muted);font-size:.68em;font-weight:750;text-transform:uppercase;letter-spacing:.45px;margin-top:7px}
+.theme-preview-swatches{display:grid;grid-template-columns:1.25fr 1.25fr .75fr;gap:5px;align-items:center}
+.theme-preview-swatches span{height:20px;border-radius:999px;border:1px solid #ffffff24;box-shadow:inset 0 1px 0 #ffffff18}
 .secondary-picker{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .secondary-picker input[type="color"]{width:54px;height:34px;padding:3px;border-radius:9px;background:#0a0f15;cursor:pointer}
-.secondary-preview{display:flex;align-items:center;gap:8px;margin-top:8px;max-width:420px;border:1px solid var(--line-soft);border-radius:10px;padding:10px;background:linear-gradient(135deg,var(--accent-soft),#101214)}
-.secondary-preview .sample-select{flex:1;border:1px solid var(--accent-border);border-radius:8px;padding:8px 36px 8px 10px;background:linear-gradient(135deg,var(--accent-softer),transparent);color:var(--text);font-size:.84em}
-.secondary-preview .sample-chip{border-radius:999px;padding:5px 9px;background:var(--accent-soft);color:var(--accent-text);font-size:.78em;font-weight:750;white-space:nowrap}
 .toast{position:fixed;top:16px;right:16px;background:var(--green);color:#07100a;padding:10px 18px;border-radius:8px;font-size:.85em;display:none;z-index:100;box-shadow:0 12px 36px #0007}
 .modal-backdrop{position:fixed;inset:0;background:#010409cc;display:none;align-items:center;justify-content:center;padding:18px;z-index:90}
 .modal-backdrop.open{display:flex}
@@ -372,7 +376,7 @@ a{color:var(--accent-text)}
 .actions-table tr:has(.actions-menu[open]){position:relative;z-index:240}
 .actions-table .actions-menu{z-index:40}
 .session-helper{margin-top:8px}
-.session-helper summary{cursor:pointer;color:var(--blue);font-size:.78em;font-weight:700;list-style:none}
+.session-helper summary{cursor:pointer;color:var(--secondary);font-size:.78em;font-weight:700;list-style:none}
 .session-helper summary::-webkit-details-marker{display:none}
 .session-helper pre{margin-top:7px;background:#080c10;border:1px solid var(--line-soft);border-radius:8px;padding:9px 10px;color:var(--text);font-size:.78em;white-space:pre-wrap;word-break:break-word}
 .cli-command-card{margin-top:10px;min-width:0}
@@ -427,15 +431,15 @@ a{color:var(--accent-text)}
 .chat-list{overflow:auto;padding:8px}
 .chat-section-label{color:var(--subtle);font-size:.72em;text-transform:uppercase;letter-spacing:.4px;margin:10px 8px 5px}
 .chat-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:8px;border-radius:6px;cursor:pointer}
-.chat-item:hover,.chat-item.active{background:var(--panel-3)}
-.chat-item.active{box-shadow:inset 3px 0 0 var(--blue)}
+.chat-item:hover{background:var(--panel-3)}
+.chat-item.active{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--secondary)}
 .chat-item-title{font-weight:600;color:var(--text);min-width:0;display:flex;align-items:center;gap:7px}
 .chat-item-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-status-dot{display:inline-flex;width:8px;height:8px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;flex:0 0 auto}
 .chat-status-dot.working,.chat-status-dot.active{background:var(--green);box-shadow:0 0 0 4px #55c47522}
 .chat-status-dot.idle,.chat-status-dot.online{background:var(--amber);box-shadow:0 0 0 4px #dfb15622}
 .chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--red);box-shadow:0 0 0 4px #f2706b20}
-.chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting{background:var(--blue);box-shadow:0 0 0 4px #74b7ff20}
+.chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting{background:var(--secondary);box-shadow:0 0 0 4px color-mix(in srgb,var(--secondary) 18%,transparent)}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
 .chat-unread{background:#238636;color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:.72em;display:inline-flex;align-items:center;justify-content:center}
 .chat-main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;position:relative}
@@ -451,10 +455,10 @@ a{color:var(--accent-text)}
 .chat-scroll-bottom.hidden{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px)}
 .chat-scroll-bottom:hover{transform:translateY(-1px);background:var(--accent-hover)}
 .chat-bubble{max-width:min(780px,85%);border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#0a0f15}
-.chat-bubble.mine{align-self:flex-end;background:#10243a;border-color:#2f81f780}
+.chat-bubble.mine{align-self:flex-end;background:color-mix(in srgb,var(--secondary) 18%,#10243a);border-color:color-mix(in srgb,var(--secondary) 58%,#2f81f7)}
 .chat-bubble.system{align-self:center;background:transparent;border-color:var(--line);color:var(--muted);max-width:80%;font-style:italic}
 .chat-bubble-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:5px}
-.chat-from{font-weight:700;color:var(--blue)}.chat-time{color:var(--subtle);font-size:.74em}
+.chat-from{font-weight:700;color:var(--secondary)}.chat-time{color:var(--subtle);font-size:.74em}
 .chat-text{white-space:pre-wrap;word-break:break-word;line-height:1.45;font-size:.92em}
 .chat-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
 .chat-run-note{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:7px}
@@ -462,16 +466,16 @@ a{color:var(--accent-text)}
 .chat-run-note pre{margin:7px 0 0;white-space:pre-wrap;word-break:break-word;color:var(--text);font-size:.82em}
 .chat-composer{border-top:1px solid var(--line-soft);padding:12px;background:#0f151c}
 .chat-composer.attention{animation:composerPulse 900ms ease}
-@keyframes composerPulse{0%{box-shadow:inset 0 0 0 2px #74b7ff00}30%{box-shadow:inset 0 0 0 2px #74b7ffcc}100%{box-shadow:inset 0 0 0 2px #74b7ff00}}
+@keyframes composerPulse{0%{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--secondary) 0%,transparent)}30%{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--secondary) 80%,transparent)}100%{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--secondary) 0%,transparent)}}
 .chat-reply-context{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#122234;border:1px solid #284766;border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--text);font-size:.84em}
 .chat-reply-context span{min-width:0}
-.chat-reply-context b{color:var(--blue)}
+.chat-reply-context b{color:var(--secondary)}
 .chat-compose-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
 .chat-compose-row select,.chat-compose-row input{background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:7px;font-size:.84em}
 .chat-compose-row label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.8em}
 .chat-view-label{color:var(--muted);font-size:.78em;text-transform:uppercase;letter-spacing:.4px}
 .chat-composer textarea{width:100%;height:92px;resize:vertical;background:#0a0f15;border:1px solid var(--line);color:var(--text);border-radius:7px;padding:10px;font:inherit;font-size:.92em;line-height:1.4}
-.chat-composer textarea:focus,.chat-compose-row input:focus,.chat-compose-row select:focus,.chat-rail-head input:focus{outline:none;border-color:var(--blue)}
+.chat-composer textarea:focus,.chat-compose-row input:focus,.chat-compose-row select:focus,.chat-rail-head input:focus{outline:none;border-color:var(--secondary);box-shadow:0 0 0 3px color-mix(in srgb,var(--secondary) 22%,transparent)}
 .chat-inspector{padding:12px;overflow:auto;overflow-x:hidden;min-width:0}
 .chat-inspector h3{margin-top:0}.chat-kv{display:grid;grid-template-columns:82px minmax(0,1fr);gap:7px 8px;font-size:.82em;margin-top:10px}
 .chat-kv dt{color:var(--muted)}.chat-kv dd{min-width:0;max-width:100%;overflow:hidden}
@@ -617,7 +621,7 @@ tr:hover{background:#1b1f21}
 .status-bar-row{display:grid;grid-template-columns:92px minmax(0,1fr) 34px;gap:8px;align-items:center}
 .status-bar-label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;min-width:0}
 .status-bar-track{height:8px;border-radius:999px;background:#0a0b0c;border:1px solid #282d30;overflow:hidden}
-.status-bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--blue))}
+.status-bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--secondary))}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
 .table-wrap{width:100%;max-width:100%;overflow:visible}
 .sessions-grid{table-layout:fixed}
@@ -1521,7 +1525,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
             </div>
             <div class="form-group">
               <label>Color Scheme</label>
-              <select id="s-dashboard-theme" onchange="previewAppearanceSettings()">
+              <select id="s-dashboard-theme" class="theme-native-select" onchange="previewAppearanceSettings()" aria-label="Color scheme">
                 <option value="default">Default dark</option>
                 <option value="forest">Forest</option>
                 <option value="violet">Violet</option>
@@ -1531,20 +1535,16 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
                 <option value="crimson">Crimson</option>
                 <option value="indigo">Indigo</option>
               </select>
-              <div class="hint">Use a different accent per service when multiple dashboards are open.</div>
+              <div class="hint">Pick a primary/secondary pair for this dashboard. The tile is the selector; use a different pair per service when multiple dashboards are open.</div>
               <div class="theme-preview-grid" id="theme-preview-grid" aria-label="Color scheme previews"></div>
             </div>
             <div class="form-group">
-              <label>Secondary Color</label>
+              <label>Secondary Color Override</label>
               <div class="secondary-picker">
                 <input type="color" id="s-dashboard-secondary" value="#74b7ff" oninput="this.dataset.custom='1'; previewSecondaryColor(this.value)" title="Secondary color for soft gradients and selected-chat surfaces">
                 <button type="button" class="btn btn-sm" title="Use the selected color scheme's built-in secondary color" onclick="resetSecondaryColor()">Use scheme default</button>
               </div>
-              <div class="hint">Controls soft gradients, selected chat rows, cards, and select backgrounds. Leave unset to use the color scheme default.</div>
-              <div class="secondary-preview" id="secondary-preview">
-                <span class="sample-select">Select / gradient sample</span>
-                <span class="sample-chip">Selected chat</span>
-              </div>
+              <div class="hint">Optional. Leave unset to use the selected scheme's secondary color for gradients, selected chats, cards, and select backgrounds.</div>
             </div>
           </section>
           <section class="settings-panel" data-settings-panel="maintenance">
@@ -1594,8 +1594,8 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <h3>Managed Runtime Policy</h3>
       <div class="form-group">
         <label>Managed Claude Model</label>
-        <input id="s-claude-model" placeholder="opus">
-        <div class="hint">Global default for managed Claude Code. Leave as your normal CLI model family if unsure. Repo fallback: opus.</div>
+        <input id="s-claude-model" placeholder="latest / CLI default">
+        <div class="hint">Optional global override. Leave blank to let Claude Code use its installed default/latest model. Effort still defaults to high.</div>
       </div>
       <div class="form-group">
         <label>Managed Claude Effort</label>
@@ -1604,8 +1604,8 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </div>
       <div class="form-group">
         <label>Managed Codex Model</label>
-        <input id="s-codex-model" placeholder="gpt-5.5">
-        <div class="hint">Default model for new managed Codex spawns when the spawn form leaves model blank. Repo fallback: gpt-5.5.</div>
+        <input id="s-codex-model" placeholder="latest / CLI default">
+        <div class="hint">Optional global override. Leave blank to let Codex use its installed default/latest model. Effort still defaults to high.</div>
       </div>
       <div class="form-group">
         <label>Managed Codex Effort</label>
@@ -1781,7 +1781,7 @@ function applyDashboardSettings(settings = {}) {
   window._dashboardSettings = {...(window._dashboardSettings || {}), ...settings};
   const titleText = String(window._dashboardSettings.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
   const theme = String(window._dashboardSettings.dashboard_theme || 'default').trim() || 'default';
-  const secondary = String(window._dashboardSettings.dashboard_secondary_color || localStorage.getItem('aifyDashboardSecondaryColor') || '').trim();
+  const secondary = String(window._dashboardSettings.dashboard_secondary_color || '').trim();
   document.title = titleText;
   document.body.dataset.theme = Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, theme) ? theme : 'default';
   if (/^#[0-9a-fA-F]{6}$/.test(secondary)) {
@@ -1792,7 +1792,7 @@ function applyDashboardSettings(settings = {}) {
   const brand = document.getElementById('sidebar-brand');
   if (brand) brand.textContent = titleText;
   renderThemePreviews();
-  updateSecondaryPreview();
+  syncSecondaryColorInput();
 }
 
 function showSettingsTab(tab) {
@@ -1822,13 +1822,14 @@ function renderThemePreviews() {
   if (!grid) return;
   const selected = document.getElementById('s-dashboard-theme')?.value || window._dashboardSettings?.dashboard_theme || 'default';
   grid.innerHTML = Object.entries(DASHBOARD_THEMES).map(([key, theme]) => `
-    <button type="button" class="theme-preview${key === selected ? ' active' : ''}" title="Use ${esc(theme.label)} color scheme" onclick="selectDashboardTheme(${jsArg(key)})">
+    <button type="button" class="theme-preview${key === selected ? ' active' : ''}" style="--tile-accent:${esc(theme.accent)};--tile-secondary:${esc(theme.secondary)};--tile-tertiary:${esc(theme.tertiary)}" title="Use ${esc(theme.label)} color scheme" data-theme-choice="${esc(key)}">
       <b>${esc(theme.label)}</b>
       <span class="theme-preview-swatches">
         <span style="background:${esc(theme.accent)}"></span>
         <span style="background:${esc(theme.secondary)}"></span>
         <span style="background:${esc(theme.tertiary)}"></span>
       </span>
+      <span class="theme-preview-sub">primary + secondary</span>
     </button>
   `).join('');
 }
@@ -1850,14 +1851,14 @@ function currentThemeDefaultSecondary() {
 function previewSecondaryColor(value) {
   const color = /^#[0-9a-fA-F]{6}$/.test(String(value || '').trim()) ? String(value).trim() : currentThemeDefaultSecondary();
   document.body.style.setProperty('--secondary', color);
-  updateSecondaryPreview();
+  syncSecondaryColorInput();
 }
 
 function resetSecondaryColor() {
   const input = document.getElementById('s-dashboard-secondary');
   if (input) input.dataset.custom = '';
   document.body.style.removeProperty('--secondary');
-  updateSecondaryPreview();
+  syncSecondaryColorInput();
 }
 
 function previewAppearanceSettings() {
@@ -1866,10 +1867,10 @@ function previewAppearanceSettings() {
   const input = document.getElementById('s-dashboard-secondary');
   if (input?.dataset.custom === '1') previewSecondaryColor(input.value);
   else document.body.style.removeProperty('--secondary');
-  updateSecondaryPreview();
+  syncSecondaryColorInput();
 }
 
-function updateSecondaryPreview() {
+function syncSecondaryColorInput() {
   const input = document.getElementById('s-dashboard-secondary');
   if (input && input.dataset.custom !== '1') input.value = currentThemeDefaultSecondary();
   renderThemePreviews();
@@ -2059,7 +2060,17 @@ function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
 function jsArg(s) { return JSON.stringify(String(s || '')); }
 function cssSel(s) { return window.CSS?.escape ? CSS.escape(String(s || '')) : String(s || '').replace(/["\\]/g, '\\$&'); }
 function actionButton(label, title, onclick, classes = '') {
-  return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} onclick="${esc(onclick)}">${esc(label)}</button>`;
+  const id = `act_${++window._dashboardActionSeq}`;
+  rememberDashboardAction(id, async () => {
+    if (typeof onclick === 'function') {
+      await onclick();
+      return;
+    }
+    const source = String(onclick || '').trim();
+    if (!source) return;
+    await Function(`"use strict"; return (${source});`)();
+  });
+  return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} ${dashboardActionAttr(id)}>${esc(label)}</button>`;
 }
 window._dashboardActions = window._dashboardActions || new Map();
 window._dashboardActionSeq = window._dashboardActionSeq || 0;
@@ -2119,6 +2130,12 @@ async function runDashboardAction(id) {
 document.addEventListener('click', event => {
   const clickedElement = event.target instanceof Element ? event.target : event.target?.parentElement;
   if (!clickedElement) return;
+  const themeTarget = clickedElement.closest('[data-theme-choice]');
+  if (themeTarget) {
+    event.preventDefault();
+    selectDashboardTheme(themeTarget.getAttribute('data-theme-choice') || 'default');
+    return;
+  }
   const chatTarget = clickedElement.closest('[data-chat-key]');
   if (chatTarget) {
     event.preventDefault();
@@ -5773,7 +5790,7 @@ async function loadSettings() {
   document.getElementById('s-dashboard-title').value = s.dashboard_title || 'AIFY Comms';
   document.getElementById('s-dashboard-theme').value = s.dashboard_theme || 'default';
   const secondaryInput = document.getElementById('s-dashboard-secondary');
-  const secondaryColor = String(s.dashboard_secondary_color || localStorage.getItem('aifyDashboardSecondaryColor') || '').trim();
+  const secondaryColor = String(s.dashboard_secondary_color || '').trim();
   if (secondaryInput) {
     secondaryInput.dataset.custom = /^#[0-9a-fA-F]{6}$/.test(secondaryColor) ? '1' : '';
     secondaryInput.value = secondaryInput.dataset.custom === '1' ? secondaryColor : currentThemeDefaultSecondary();
@@ -5787,9 +5804,9 @@ async function loadSettings() {
   document.getElementById('s-offline').value = s.offline_minutes;
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
-  document.getElementById('s-claude-model').value = s.managed_claude_model || 'opus';
+  document.getElementById('s-claude-model').value = s.managed_claude_model || '';
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
-  document.getElementById('s-codex-model').value = s.managed_codex_model || 'gpt-5.5';
+  document.getElementById('s-codex-model').value = s.managed_codex_model || '';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
@@ -5804,8 +5821,6 @@ async function loadSettings() {
 async function saveSettings(e) {
   e.preventDefault();
   const secondaryValue = document.getElementById('s-dashboard-secondary')?.dataset.custom === '1' ? document.getElementById('s-dashboard-secondary').value : '';
-  if (secondaryValue) localStorage.setItem('aifyDashboardSecondaryColor', secondaryValue);
-  else localStorage.removeItem('aifyDashboardSecondaryColor');
   await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
@@ -5819,9 +5834,9 @@ async function saveSettings(e) {
       offline_minutes: parseInt(document.getElementById('s-offline').value),
       stale_agent_hours: parseInt(document.getElementById('s-stale').value),
       rotation_enabled: document.getElementById('s-rotation').value === 'true',
-      managed_claude_model: document.getElementById('s-claude-model').value.trim() || 'opus',
+      managed_claude_model: document.getElementById('s-claude-model').value.trim(),
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
-      managed_codex_model: document.getElementById('s-codex-model').value.trim() || 'gpt-5.5',
+      managed_codex_model: document.getElementById('s-codex-model').value.trim(),
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
       reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),

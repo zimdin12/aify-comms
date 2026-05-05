@@ -23,7 +23,7 @@ Wrapper auto mode:
 - Dashboard-managed agents are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
-- Managed Claude Code defaults to `opus` / `high`; managed Codex defaults to `gpt-5.5` / `high`.
+- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort.
 - Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
 - Tune with `runtimeConfig.timeoutMs`, `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`, and `runtimeConfig.mcpToolTimeoutMs` / `runtimeConfig.commsToolTimeoutMs`.
 - Set quiet timeout to `0` only for agents expected to run very long silent commands; set MCP tool timeout to `0` only while debugging the MCP transport.

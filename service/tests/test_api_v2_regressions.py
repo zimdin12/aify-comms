@@ -509,6 +509,29 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["model"], "opus")
         self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
 
+    def test_managed_spawn_blank_model_uses_runtime_default_latest(self):
+        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
+        settings = self.client.get("/api/v1/settings")
+        self.assertEqual(settings.status_code, 200, settings.text)
+        self.assertEqual(settings.json().get("managed_codex_model"), "")
+        self.assertEqual(settings.json().get("managed_claude_model"), "")
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "wsl:test-host:default",
+                "agentId": "runtime-default-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["spawnSpec"]["model"], "")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
+
     def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
         settings = self.client.put(

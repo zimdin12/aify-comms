@@ -35,7 +35,7 @@ const defaultText = managedCodexConfigText({
   workspace: "/mnt/c/Users/Administrator/sand_castle",
   serverUrl: "http://localhost:8800",
 });
-assert.match(defaultText, /model = "gpt-5\.5"/);
+assert.doesNotMatch(defaultText, /^model = /m);
 assert.match(defaultText, /model_reasoning_effort = "high"/);
 assert.equal(managedCodexEffort({ effort: "medium" }), "medium");
 

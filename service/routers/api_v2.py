@@ -77,9 +77,9 @@ DEFAULT_SETTINGS = {
     "reply_reminder_repeat_minutes": 6,
     "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
-    "managed_claude_model": "opus",
+    "managed_claude_model": "",
     "managed_claude_effort": "high",
-    "managed_codex_model": "gpt-5.5",
+    "managed_codex_model": "",
     "managed_codex_effort": "high",
     "resident_lease_seconds": 150,
     "dashboard_title": "AIFY Comms",
@@ -1531,8 +1531,8 @@ async def _load_settings(db):
 
 async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
     defaults = [
-        ("claude-code", settings.get("managed_claude_model") or DEFAULT_SETTINGS["managed_claude_model"], settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
-        ("codex", settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"], settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
+        ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
+        ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
     ]
     for runtime, model, effort in defaults:
         model = str(model or "").strip()
@@ -3433,9 +3433,9 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         model = str(req.model or "").strip()
         if not model:
             if normalized_runtime == "codex":
-                model = str(settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"]).strip()
+                model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
             elif normalized_runtime == "claude-code":
-                model = str(settings.get("managed_claude_model") or DEFAULT_SETTINGS["managed_claude_model"]).strip()
+                model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
         runtime_config = req.runtimeConfig or {}
         if normalized_runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
@@ -4489,9 +4489,9 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         model = str(req.model if req.model is not None else (agent["model"] or "")).strip()
         if not model:
             if runtime == "codex":
-                model = str(settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"]).strip()
+                model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
             elif runtime == "claude-code":
-                model = str(settings.get("managed_claude_model") or DEFAULT_SETTINGS["managed_claude_model"]).strip()
+                model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
         existing_runtime_config = _json_loads_or(agent["runtime_config"], {})
         requested_runtime_config = req.runtimeConfig or {}
         runtime_config = {**existing_runtime_config, **requested_runtime_config}

@@ -118,7 +118,7 @@ aify-comms.cmd
 
 The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. New managed Claude Code teammates default to `opus` with `high` effort; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
+Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
 
 ## Design Rule
 
