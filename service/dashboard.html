@@ -1058,8 +1058,6 @@ tr:hover{background:#1b1f21}
         <input id="env-spawn-agent-id" placeholder="Agent ID">
         <select id="env-spawn-role"><option value="coder">coder</option><option value="reviewer">reviewer</option><option value="tester">tester</option><option value="researcher">researcher</option><option value="architect">architect</option><option value="manager">manager</option><option value="operator">operator</option></select>
         <input id="env-spawn-workspace" placeholder="Workspace">
-        <input id="env-spawn-model" placeholder="Model/profile (blank = runtime default)">
-        <select id="env-spawn-effort" title="Managed runtime effort for this spawn; max is Claude-only and Codex normalizes it to xhigh"><option value="">Effort: default</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select>
         <input id="env-spawn-prompt" placeholder="Initial task (optional)">
         <button class="btn btn-primary" title="Queue a managed-warm spawn request for the selected environment bridge" onclick="createSpawnRequest()">Spawn</button>
       </div>
@@ -1307,7 +1305,7 @@ aify-comms</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>These settings cover admin/maintenance behavior plus managed runtime defaults. Per-agent model/profile settings still live on the spawn form and Team edit modal.</p>
+      <p>These settings cover admin/maintenance behavior plus managed runtime defaults. Model and effort are global runtime policy, not per-agent dashboard fields.</p>
 
       <h3>API Endpoints</h3>
       <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Team, Environments, Sessions, Runs, and Artifacts.</p>
@@ -1398,8 +1396,8 @@ aify-comms</pre>
       </div>
       <div class="form-group">
         <label>Managed Claude Effort</label>
-        <select id="s-claude-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select>
-        <div class="hint">Default Claude Code effort for managed runs. Repo fallback: high. Opus 4.7 supports low, medium, high, xhigh, and max.</div>
+        <select id="s-claude-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
+        <div class="hint">Default Claude Code effort for managed runs. Repo fallback: high.</div>
       </div>
       <div class="form-group">
         <label>Managed Codex Model</label>
@@ -2296,8 +2294,6 @@ function openAgentEditor(agentId) {
   const selectedEnv = environments.find(env => env.id === currentEnvId) || environments[0] || {};
   const runtimeOptions = (selectedEnv.runtimes || []).map(item => item.runtime).filter(Boolean);
   const runtimeValue = session.runtime || agent.runtime || runtimeOptions[0] || '';
-  const modelValue = agent.model || '';
-  const effortValue = agent.runtimeConfig?.effort || '';
   const envOptions = environments.map(env => `<option value="${esc(env.id)}"${env.id === currentEnvId ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(env.id)})</option>`).join('');
   const runtimeSelect = `<select id="agent-edit-runtime">${
     runtimeOptions.length
@@ -2311,8 +2307,7 @@ function openAgentEditor(agentId) {
       <label>Environment<select id="agent-edit-env" data-agent-edit-env>${envOptions || '<option value="">No online environments</option>'}</select></label>
       <label>Runtime${runtimeSelect}</label>
       <label>Workspace<input id="agent-edit-workspace" value="${esc(workspace)}"></label>
-      <label>Model<input id="agent-edit-model" value="${esc(modelValue)}" placeholder="default"></label>
-      <label>Runtime Effort<select id="agent-edit-effort"><option value=""${!effortValue ? ' selected' : ''}>default</option><option value="low"${effortValue === 'low' ? ' selected' : ''}>low</option><option value="medium"${effortValue === 'medium' ? ' selected' : ''}>medium</option><option value="high"${effortValue === 'high' ? ' selected' : ''}>high</option><option value="xhigh"${effortValue === 'xhigh' ? ' selected' : ''}>xhigh</option><option value="max"${effortValue === 'max' ? ' selected' : ''}>max</option></select></label>
+      <p class="worker-note">Model and effort are managed globally in Settings so Claude and Codex use the same policy shape. This editor only changes identity, environment, runtime, and workspace.</p>
       <p class="worker-note">Changing the ID rewrites aify-comms chats, channels, sessions, runs, spawn specs, and artifacts. A live/resident agent still needs to be told to use the new ID.</p>
       <div class="btn-row">
         ${actionButtonFn('Save', 'Save identity and environment changes', () => saveAgentEditor(agentId), 'btn-primary')}
@@ -2349,8 +2344,6 @@ async function saveAgentEditor(originalAgentId) {
   const environmentId = (document.getElementById('agent-edit-env')?.value || '').trim();
   const runtime = (document.getElementById('agent-edit-runtime')?.value || '').trim();
   const workspace = (document.getElementById('agent-edit-workspace')?.value || '').trim();
-  const model = (document.getElementById('agent-edit-model')?.value || '').trim();
-  const effort = (document.getElementById('agent-edit-effort')?.value || '').trim();
   if (!newAgentId) {
     toast('Agent ID is required', '#f85149');
     return;
@@ -2372,7 +2365,7 @@ async function saveAgentEditor(originalAgentId) {
       const assignResponse = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/environment`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({environmentId, runtime, workspace, model, runtimeConfig: effort ? {effort} : {}, requestedBy: chatIdentity()}),
+        body: JSON.stringify({environmentId, runtime, workspace, requestedBy: chatIdentity()}),
       });
       const assignRes = await assignResponse.json();
       if (!assignResponse.ok || assignRes.ok === false) throw new Error(assignRes.detail || assignRes.error || 'Assign environment failed');
@@ -5218,8 +5211,6 @@ async function createSpawnRequest() {
   const agentId = document.getElementById('env-spawn-agent-id').value.trim();
   const role = document.getElementById('env-spawn-role').value;
   const workspace = document.getElementById('env-spawn-workspace').value.trim();
-  const model = document.getElementById('env-spawn-model').value.trim();
-  const effort = document.getElementById('env-spawn-effort')?.value || '';
   const initialMessage = document.getElementById('env-spawn-prompt').value.trim();
   if (!environmentId || !runtime || !agentId || !workspace) {
     toast('Need environment, runtime, agent ID, and workspace', '#f85149');
@@ -5236,8 +5227,6 @@ async function createSpawnRequest() {
         role,
         runtime,
         workspace,
-        model,
-        runtimeConfig: effort ? {effort} : undefined,
         initialMessage,
         subject: initialMessage ? `Spawn ${agentId}` : '',
         mode: 'managed-warm',

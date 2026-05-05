@@ -340,6 +340,7 @@ Current installer behavior:
 
 - `--with-hook` is Git Bash aware. It writes native Windows hook paths without MSYS path mangling, so the old `C:\c\Users\...` failure should not require manual `settings.json` or `hooks.json` edits.
 - The installer creates Bash wrappers and `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd`, `claude-aify.cmd`, and `codex-aify.cmd` when the matching client is installed.
+- `codex-aify` no longer hardcodes the older `--full-auto` alias. It probes `codex --help` and prefers `--dangerously-bypass-approvals-and-sandbox`, then explicit approval/sandbox flags, and uses `--full-auto` only when that is the supported option.
 - The `.cmd` shims prepend Git's Unix binary directories when they can find Git, so `sed`/`bash` should be available even when PowerShell only had `C:\Program Files\Git\cmd` on PATH.
 
 If Windows still cannot find `aify-comms.cmd` after install:

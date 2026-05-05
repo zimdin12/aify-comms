@@ -53,7 +53,7 @@ Daily workflow target:
 
 - As a user, I can connect WSL and Windows bridges and see both as spawn targets.
 - As a user, I can spawn a Codex agent in WSL or a Claude agent in Windows from the dashboard.
-- As a user, I can select workspace, runtime, role, optional model/profile, and initial instructions before spawn.
+- As a user, I can select workspace, runtime, role, and initial instructions before spawn. Managed model/effort policy is configured globally in dashboard settings.
 - As a user, I can DM a spawned agent immediately without asking it to manually register.
 - As a user, I can create a channel, add agents, and send a message to that channel.
 - As a user, I can see which agents are alive, idle, working, blocked, or dead.

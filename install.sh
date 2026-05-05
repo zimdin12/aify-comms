@@ -203,7 +203,19 @@ if ! wait_for_port "$PORT"; then
   exit 1
 fi
 
-codex --remote "$APP_SERVER_URL" --full-auto "$@"
+CODEX_HELP="$(codex --help 2>&1 || true)"
+CODEX_PERMISSION_FLAGS=()
+if grep -q -- "--dangerously-bypass-approvals-and-sandbox" <<<"$CODEX_HELP"; then
+  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
+elif grep -q -- "--ask-for-approval" <<<"$CODEX_HELP" && grep -q -- "--sandbox" <<<"$CODEX_HELP"; then
+  CODEX_PERMISSION_FLAGS+=(--ask-for-approval never --sandbox danger-full-access)
+elif grep -q -- "--full-auto" <<<"$CODEX_HELP"; then
+  CODEX_PERMISSION_FLAGS+=(--full-auto)
+else
+  echo "codex-aify: no recognized non-interactive permission flag found; launching without permission override." >&2
+fi
+
+codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "$@"
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"

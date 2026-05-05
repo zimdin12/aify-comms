@@ -305,13 +305,9 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
   return `${lines.join("\n")}\n`;
 }
 
-export function prepareManagedCodexHome({ agentId = "", workspace = "", model = "", effort = "" } = {}) {
+export function prepareManagedCodexHome({ workspace = "", model = "", effort = "" } = {}) {
   const sourceHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  const safeAgentId = String(agentId || "").trim();
-  const homeName = safeAgentId
-    ? `managed-codex-home-${safeAgentId.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 80)}`
-    : "managed-codex-home";
-  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", homeName);
+  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", "managed-codex-home");
   fs.mkdirSync(targetHome, { recursive: true });
   for (const name of ["auth.json", "installation_id", "version.json"]) {
     copyIfExists(path.join(sourceHome, name), path.join(targetHome, name));
@@ -501,8 +497,7 @@ export function managedClaudeEffort(config = {}) {
 }
 
 export function managedCodexEffort(config = {}) {
-  const effort = String(config.effort || "high").trim();
-  return effort === "max" ? "xhigh" : effort;
+  return String(config.effort || "high").trim();
 }
 
 function normalizeCodexSandboxMode(value) {
@@ -1321,7 +1316,7 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   const spawnCwd = codexSpawnCwd(launcher, hostCwd);
   const managedCodexHome =
     executionMode === "managed"
-      ? prepareManagedCodexHome({ agentId, workspace: cwd, model, effort })
+      ? prepareManagedCodexHome({ workspace: cwd, model, effort })
       : "";
   const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
   const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";

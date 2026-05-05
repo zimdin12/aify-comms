@@ -125,7 +125,7 @@ Required fields:
 
 Optional fields:
 
-- model/profile
+- global runtime model/effort policy from Settings
 - system prompt file or inline prompt
 - default group/channel memberships (future spawn-form enhancement; current channel membership is managed from Chat details)
 - budget limits
@@ -256,7 +256,7 @@ Flow:
 1. User selects old session.
 2. Dashboard creates a bounded message/context packet from the session identity plus the last selected number of relevant messages.
 3. User reviews/edits the packet.
-4. User chooses target identity, role, environment, runtime, workspace, model/profile, and identity mode.
+4. User chooses target identity, role, environment, runtime, workspace, and identity mode. Model/effort comes from global runtime settings.
 5. Dashboard creates a continuation spawn request.
 6. New managed-warm session starts with the compaction packet as initial context.
 
@@ -270,7 +270,7 @@ The review screen should show:
 
 - source session
 - target bridge/environment
-- target runtime/model
+- target runtime and global model/effort policy
 - target workspace
 - capability differences
 - compaction packet text

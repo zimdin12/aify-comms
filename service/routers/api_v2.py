@@ -1344,6 +1344,52 @@ async def _load_settings(db):
     return settings
 
 
+async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
+    defaults = [
+        ("claude-code", settings.get("managed_claude_model") or DEFAULT_SETTINGS["managed_claude_model"], settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
+        ("codex", settings.get("managed_codex_model") or DEFAULT_SETTINGS["managed_codex_model"], settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
+    ]
+    for runtime, model, effort in defaults:
+        model = str(model or "").strip()
+        effort = str(effort or "").strip()
+        await db.execute(
+            """
+            UPDATE agents
+            SET model = ?
+            WHERE runtime = ?
+              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
+            """,
+            (model, runtime),
+        )
+        cursor = await db.execute(
+            """
+            SELECT id, runtime_config
+            FROM agents
+            WHERE runtime = ?
+              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
+            """,
+            (runtime,),
+        )
+        for row in await cursor.fetchall():
+            runtime_config = _json_loads_or(row["runtime_config"], {})
+            runtime_config["effort"] = effort
+            await db.execute(
+                "UPDATE agents SET runtime_config = ? WHERE id = ?",
+                (json.dumps(runtime_config), row["id"]),
+            )
+        await db.execute("UPDATE spawn_specs SET model = ? WHERE runtime = ?", (model, runtime))
+        spec_cursor = await db.execute("SELECT id, metadata FROM spawn_specs WHERE runtime = ?", (runtime,))
+        for row in await spec_cursor.fetchall():
+            metadata = _json_loads_or(row["metadata"], {})
+            runtime_config = metadata.get("runtimeConfig") if isinstance(metadata.get("runtimeConfig"), dict) else {}
+            runtime_config = {**runtime_config, "effort": effort}
+            metadata = {**metadata, "runtimeConfig": runtime_config}
+            await db.execute(
+                "UPDATE spawn_specs SET metadata = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(metadata), _now(), row["id"]),
+            )
+
+
 async def _get_recipient_info(db, recipient_id: str):
     if recipient_id == "dashboard":
         return {
@@ -6730,6 +6776,9 @@ async def update_settings(request: Request):
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
                     (key, json.dumps(value))
                 )
+        settings = await _load_settings(db)
+        if any(str(key).startswith("managed_") for key in body.keys()):
+            await _apply_managed_runtime_defaults(db, settings)
         await db.commit()
         ws = await _get_ws(request)
         if ws: await ws.broadcast("settings_updated")

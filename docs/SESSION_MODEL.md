@@ -141,9 +141,9 @@ The runtime supports a durable session/thread.
 Runtime model defaults and overrides:
 
 - managed Claude Code defaults to `opus` with `high` effort; managed Codex defaults to `gpt-5.5` with `high` reasoning effort
-- dashboard settings define operator defaults, while spawn/team/session records can override them per agent
+- dashboard settings define operator defaults; normal dashboard spawn/team flows do not tune model/effort per agent
 - Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
-- Codex uses per-agent managed `CODEX_HOME` directories plus explicit model/effort values on thread/turn calls, so one managed Codex session does not overwrite another session's config
+- Codex uses the managed `CODEX_HOME` plus explicit model/effort values on thread/turn calls from global runtime policy
 
 Codex target model:
 
@@ -292,7 +292,7 @@ The packet should be human-readable and editable before launch. It is not just a
 1. User clicks **Compact**.
 2. User chooses **Handoff** or **Internal**. Handoff is the current reliable path; internal/native compaction is available only when a runtime adapter explicitly supports it.
 3. Dashboard asks the source session/agent to produce a compaction packet, or generates one from transcript/logs if the source is offline.
-4. User chooses target runtime, bridge/environment, workspace, model/profile, and whether to keep the same agent identity.
+4. User chooses target runtime, bridge/environment, workspace, and whether to keep the same agent identity. Managed model/effort comes from global runtime settings.
 5. Dashboard shows the generated compaction packet for review/edit.
 6. Server creates a new spawn request with `continuation_of_session_id` and `compaction_packet_id`.
 7. Target bridge launches a new managed-warm session.

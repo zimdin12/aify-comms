@@ -35,7 +35,7 @@ It now adds a first-class agent lifecycle layer:
 2. Connect one or more environment bridges.
 3. Open the dashboard.
 4. Click **Spawn Agent**.
-5. Pick runtime, environment, workspace, role, optional model/profile, and initial instructions.
+5. Pick runtime, environment, workspace, role, and initial instructions. Managed model/effort defaults are global settings.
 6. The agent identity, spawn spec, and session backing appear automatically.
 7. Talk to it in direct chat or channels, assign work through messages, inspect output, stop/restart/recover it, or compact it into a fresh backing.
 
@@ -110,7 +110,7 @@ aify-comms.cmd
 
 The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-Managed runtime defaults are configured from Dashboard **Settings -> Managed Runtime Defaults**. New managed Claude Code teammates default to `opus` with `high` effort; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. Spawn and Team edit screens can override the model/profile/effort per teammate.
+Managed runtime defaults are configured from Dashboard **Settings -> Managed Runtime Defaults**. New managed Claude Code teammates default to `opus` with `high` effort; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
 
 ## Design Rule
 

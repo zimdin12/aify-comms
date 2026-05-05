@@ -371,8 +371,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Managed Runtime Defaults", dashboard.text)
         self.assertIn("s-claude-model", dashboard.text)
         self.assertIn("s-claude-effort", dashboard.text)
-        self.assertIn("env-spawn-effort", dashboard.text)
-        self.assertIn("agent-edit-effort", dashboard.text)
+        self.assertIn("s-codex-model", dashboard.text)
+        self.assertIn("s-codex-effort", dashboard.text)
+        self.assertNotIn("env-spawn-effort", dashboard.text)
+        self.assertNotIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
         self.assertNotIn("assignAgentEnvironment", dashboard.text)
 
@@ -493,6 +495,42 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(spawn["spawnSpec"]["model"], "gpt-custom")
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["quietTimeoutMs"], 0)
+
+    def test_runtime_settings_update_existing_managed_agents_globally(self):
+        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "wsl:test-host:default",
+                "agentId": "global-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        codex_spawn = created.json()["spawnRequest"]
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{codex_spawn['id']}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+                "sessionHandle": "thread-global",
+                "runtimeState": {"threadId": "thread-global"},
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        settings = self.client.put(
+            "/api/v1/settings",
+            json={"managed_codex_model": "gpt-global", "managed_codex_effort": "xhigh"},
+        )
+        self.assertEqual(settings.status_code, 200, settings.text)
+        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("global-codex",))
+        self.assertEqual(agent["model"], "gpt-global")
+        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "xhigh")
 
     def test_environment_list_marks_missing_heartbeat_offline_and_orders_stably(self):
         self._heartbeat_environment(

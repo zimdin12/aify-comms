@@ -150,7 +150,7 @@ Step 2: Runtime target
 - environment/bridge
 - runtime
 - workspace
-- model/profile
+- global runtime model/effort policy
 
 Step 3: Behavior
 
@@ -233,7 +233,7 @@ Continue-from should feel like "start a cleaner successor session", not like a h
 Recommended UI:
 
 - **Source** card: old agent/session/runtime/workspace.
-- **Target** card: environment, runtime, workspace, model/profile.
+- **Target** card: environment, runtime, workspace, and the global runtime model/effort policy.
 - **Compaction editor**: generated handoff packet with editable sections.
 - **Warnings**: capability differences, path changes, runtime switch notes.
 - **Launch**: creates new managed-warm session and opens chat.
