@@ -40,7 +40,7 @@ Current dashboard behavior reflected by the skills:
 - if a later teammate reply completes a promise to report back to the human outside the current delivered run, managers/operators should send `comms_send(to="dashboard", type="info" or "response", ...)`; dashboard is a store-only human recipient, and backend summary mirroring is only a safety net
 - channel/group messages should prompt bounded discussion: reply when named, responsible, asked a question, or holding useful evidence; avoid broad automatic acknowledgement loops
 - persistent agents are created through dashboard Environment spawn, `comms_spawn`, or `comms_compact(mode="handoff", ...)`, not ordinary one-off subagents
-- existing resident/manual identities can be adopted from the dashboard Agents page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
+- existing resident/manual identities can be adopted from Dashboard **Sessions -> Identity Directory** by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
 - pending handoffs can be repaired by the dashboard; reviewed historical failures can be dismissed from Home without deleting audit history
 - Work Loop reminders should close the original contract. An agent should not merely acknowledge an automated reminder unless the reminder itself is the task.
 - successful spawn requests may still have status `running` in old/current data; the dashboard labels them as started history and hides them from the normal spawn-request list

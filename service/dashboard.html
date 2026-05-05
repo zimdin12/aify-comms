@@ -1037,19 +1037,18 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <h1 id="sidebar-brand">AIFY Comms</h1>
   <div class="ver">v4.0.0</div>
   <div class="nav">
-    <div class="nav-section">Command</div>
+    <div class="nav-section">Work</div>
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active" title="Control Room"><span><b>Control</b><small>live overview</small></span></a>
     <a onclick="showPage('chat')" id="nav-chat" title="Chat"><span><b>Chat</b><small>DMs and rooms</small></span></a>
     <a onclick="showPage('work')" id="nav-work" title="Work Loop"><span><b>Work Loop</b><small>contracts</small></span></a>
-    <div class="nav-section">People</div>
-    <a onclick="showPage('workers')" id="nav-workers" title="Agents"><span><b>Agents</b><small>identities</small></span></a>
-    <a onclick="showPage('analytics')" id="nav-analytics" title="Analytics"><span><b>Analytics</b><small>traffic and health</small></span></a>
     <div class="nav-section">Runtime</div>
     <a onclick="showPage('environments')" id="nav-environments" title="Environments"><span><b>Environments</b><small>spawn targets</small></span></a>
     <a onclick="showPage('sessions')" id="nav-sessions" title="Sessions"><span><b>Sessions</b><small>env backings</small></span></a>
     <a onclick="showPage('dispatches')" id="nav-dispatches" title="Runs"><span><b>Runs</b><small>tracked work</small></span></a>
-    <div class="nav-section">Library</div>
+    <div class="nav-section">Insight</div>
+    <a onclick="showPage('analytics')" id="nav-analytics" title="Analytics"><span><b>Analytics</b><small>traffic and health</small></span></a>
     <a onclick="showPage('files')" id="nav-files" title="Artifacts"><span><b>Artifacts</b><small>shared files</small></span></a>
+    <div class="nav-section">System</div>
     <a onclick="showPage('instructions')" id="nav-instructions" title="Help"><span><b>Help</b><small>setup and model</small></span></a>
     <a onclick="showPage('settings')" id="nav-settings" title="Settings"><span><b>Settings</b><small>maintenance</small></span></a>
   </div>
@@ -1082,7 +1081,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="ops-hero">
       <div>
         <h2>Control Room</h2>
-        <p>Live agent traffic, running work, online environments, and recent handoffs in one place. Offline identities stay out of the way unless you open Agents.</p>
+        <p>Live agent traffic, running work, online environments, and recent handoffs in one place. Identity details stay tucked into Sessions unless you need them.</p>
       </div>
       <div class="ops-status">
         <span class="ops-dot"></span>
@@ -1096,8 +1095,8 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="home-actions">
       <button class="btn btn-primary" title="Open the main chat surface for direct and channel messages" onclick="showPage('chat')">Open Chat</button>
       <button class="btn" title="Open environment-backed spawn controls" onclick="showPage('environments')">Spawn Agent</button>
-      <button class="btn" title="Open agent identities, roles, and saved resume state" onclick="showPage('workers')">Manage Agents</button>
-      <button class="btn" title="Open concrete runtime sessions for stop, restart, and recovery" onclick="showPage('sessions')">Runtime Sessions</button>
+      <button class="btn" title="Open the session management surface with identity directory access" onclick="showPage('sessions')">Manage Sessions</button>
+      <button class="btn" title="Open the on-demand identity directory for roles, resident bindings, and cleanup" onclick="openIdentityDirectory()">Identity Directory</button>
     </div>
     <div id="home-control-room"></div>
   </div>
@@ -1253,22 +1252,22 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     </div>
   </div>
 
-  <!-- ============ AGENTS ============ -->
+  <!-- ============ IDENTITY DIRECTORY (hidden debug/deep-link fallback; normal entry is Sessions -> Identity Directory) ============ -->
   <div class="page" id="page-workers">
     <div class="page-head-row">
-      <h2>Agents</h2>
+      <h2>Identity Directory</h2>
       <div class="btn-row">
         <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openAgentSpawn()">Add managed agent</button>
       </div>
     </div>
-    <p class="worker-note">Agents are stable identities: ID, role, inbox, chats, saved resume state, and routing policy. They are not the same as Sessions. Sessions are concrete Claude/Codex/OpenCode runtime backings hosted by Environments.</p>
+    <p class="worker-note">Identities are stable addresses: ID, role, inbox, chats, saved resume state, and routing policy. They are not the same as Sessions. Sessions are concrete Claude/Codex/OpenCode runtime backings hosted by Environments.</p>
     <div class="model-grid">
       <section class="model-card"><b>Agent</b><span>Who the persistent identity is: ID, role, inbox, channels, saved state.</span></section>
       <section class="model-card"><b>Environment</b><span>Where managed work can run: Windows, WSL, Linux, Docker, or remote bridge.</span></section>
       <section class="model-card"><b>Session</b><span>The current or historical runtime backing for an agent inside an environment.</span></section>
     </div>
     <div class="stats" id="worker-stats"></div>
-    <h3>Managed Agents</h3>
+    <h3>Managed Identities</h3>
     <div id="workers-table"></div>
     <h3>Manual / Resident CLI Identities</h3>
     <p class="worker-note">These are live CLI registrations and older/manual identities. Offline rows are historical identity records, not running processes; remove stale demo/test names here.</p>
@@ -1278,7 +1277,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <!-- ============ ENVIRONMENTS ============ -->
   <div class="page" id="page-environments">
     <h2>Environments</h2>
-    <p class="worker-note">Environments are connected host bridges. They claim spawn requests and run managed Sessions for Agents in allowed workspaces.</p>
+    <p class="worker-note">Environments are connected host bridges. They claim spawn requests and run managed Sessions for agent identities in allowed workspaces.</p>
     <div class="stats" id="environment-stats"></div>
     <div class="send-form">
       <h3>Spawn Agent</h3>
@@ -1305,7 +1304,13 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
 
   <!-- ============ SESSIONS ============ -->
   <div class="page" id="page-sessions">
-    <h2>Sessions</h2>
+    <div class="page-head-row">
+      <h2>Sessions</h2>
+      <div class="btn-row">
+        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openAgentSpawn()">Add managed agent</button>
+        <button class="btn" title="Open on-demand identity directory for roles, resident bindings, and cleanup" onclick="openIdentityDirectory()">Identity Directory</button>
+      </div>
+    </div>
     <p class="worker-note">Sessions are grouped by Environment because each session is a concrete runtime/process backing for an Agent on a specific host bridge. Stop/restart/compact here when you need to control a real managed runtime.</p>
     <div class="fb">
       <label class="switch-row" title="Show ended, completed, and cancelled session history. Keep this off for normal work; turn it on while debugging lifecycle issues.">
@@ -1475,7 +1480,7 @@ bash install.sh --client opencode http://localhost:8800</pre>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
-      <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or <b>Agents</b>.</p>
+      <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or the <b>Sessions</b> header.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
       <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://localhost:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
@@ -1535,8 +1540,8 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="guide-card">
           <h4>Resident CLI → Managed</h4>
           <ol>
-            <li>Open <b>Agents</b>, then the <b>Manual / Resident CLI Identities</b> section.</li>
-            <li>Use <b>Edit</b> or the row's <b>Actions → Adopt env</b>.</li>
+            <li>Open <b>Sessions</b>, then <b>Identity Directory</b>.</li>
+            <li>Use <b>Edit</b> or the identity row's <b>Actions → Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
             <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
           </ol>
@@ -1567,7 +1572,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and Agents edit forms do not tune model/effort per agent.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1581,7 +1586,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>API Endpoints</h3>
-      <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Agents, Environments, Sessions, Runs, and Artifacts.</p>
+      <p>Mostly useful for debugging integrations and tests; daily work should happen through Control, Chat, Work Loop, Environments, Sessions, Runs, and Artifacts.</p>
       <ul>
         <li><code>GET /health</code> — Health check</li>
         <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
@@ -1841,7 +1846,7 @@ function pageUrl(name) {
 }
 
 function isKnownPage(name) {
-  return ['dashboard', 'work', 'chat', 'workers', 'analytics', 'environments', 'sessions', 'dispatches', 'files', 'instructions', 'settings'].includes(name);
+  return ['dashboard', 'work', 'chat', 'analytics', 'environments', 'sessions', 'dispatches', 'files', 'instructions', 'settings'].includes(name);
 }
 
 function initialPageFromLocation() {
@@ -1855,7 +1860,6 @@ function pageTitle(name) {
     dashboard: 'Control Room',
     work: 'Work Loop',
     chat: 'Chat',
-    workers: 'Agents',
     analytics: 'Analytics',
     environments: 'Environments',
     sessions: 'Sessions',
@@ -1891,7 +1895,6 @@ function showPage(name, updateHistory = true) {
   if (name === 'dashboard') renderHomeFromState();
   if (name === 'work') renderWorkLoop();
   if (name === 'instructions') showInstructionsTab(localStorage.getItem('aifyInstructionsTab') || 'overview');
-  if (name === 'workers') renderAgentsFromState();
   if (name === 'environments') {
     renderEnvironments(window._environments || []);
     renderSpawnRequests(window._spawnRequests || []);
@@ -2761,12 +2764,9 @@ function renderDispatchStats(statsRes) {
     `<div class="sc${statsRes.dispatch_reply_pending ? ' warn' : ''}"><div class="n">${statsRes.dispatch_reply_pending || 0}</div><div class="l">Pending Handoffs</div></div>`;
 }
 
-function renderAgents(agents, containerId = 'manual-agents-table') {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+function residentAgentsTableHtml(agents) {
   if (!agents.length) {
-    container.innerHTML = '<p class="em">No manual/resident CLI bindings registered.</p>';
-    return;
+    return '<p class="em">No manual/resident CLI bindings registered.</p>';
   }
   const sortedAgents = [...agents].sort(([a], [b]) => String(a).localeCompare(String(b)));
   let html = '<table class="agents-grid actions-table"><thead><tr><th>ID</th><th>Role</th><th>Presence</th><th>Session</th><th>Wake</th><th>Work</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
@@ -2803,7 +2803,13 @@ function renderAgents(agents, containerId = 'manual-agents-table') {
       `</div></td></tr>`;
   }
   html += '</tbody></table>';
-  container.innerHTML = html;
+  return html;
+}
+
+function renderAgents(agents, containerId = 'manual-agents-table') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = residentAgentsTableHtml(agents);
 }
 
 function renderWorkerStats(workers) {
@@ -2815,18 +2821,16 @@ function renderWorkerStats(workers) {
   }).length;
   const unread = workers.reduce((sum, [, info]) => sum + Number(info.unread || 0), 0);
   document.getElementById('worker-stats').innerHTML =
-    `<div class="sc"><div class="n">${workers.length}</div><div class="l">Managed Agents</div></div>` +
+    `<div class="sc"><div class="n">${workers.length}</div><div class="l">Managed Identities</div></div>` +
     `<div class="sc"><div class="n">${activeRuns}</div><div class="l">Active Runs</div></div>` +
     `<div class="sc"><div class="n">${queued}</div><div class="l">Queued</div></div>` +
     `<div class="sc"><div class="n">${savedState}</div><div class="l">Saved State</div></div>` +
     `<div class="sc${unread ? ' warn' : ''}"><div class="n">${unread}</div><div class="l">Unread</div></div>`;
 }
 
-function renderWorkers(workers) {
-  renderWorkerStats(workers);
+function managedAgentsTableHtml(workers) {
   if (!workers.length) {
-    document.getElementById('workers-table').innerHTML = '<p class="em">No managed agents registered. Spawn one from Environments.</p>';
-    return;
+    return '<p class="em">No managed agents registered. Spawn one from Environments.</p>';
   }
   let html = '<table class="agents-grid actions-table"><thead><tr><th>ID</th><th>Owner</th><th>Presence</th><th>Wake</th><th>Work</th><th>State</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
   for (const [id, info] of workers) {
@@ -2857,7 +2861,39 @@ function renderWorkers(workers) {
       `</div></td></tr>`;
   }
   html += '</tbody></table>';
-  document.getElementById('workers-table').innerHTML = html;
+  return html;
+}
+
+function renderWorkers(workers) {
+  renderWorkerStats(workers);
+  const container = document.getElementById('workers-table');
+  if (!container) return;
+  container.innerHTML = managedAgentsTableHtml(workers);
+}
+
+function openIdentityDirectory() {
+  const managedWorkers = window._managedWorkers || [];
+  const residentAgents = window._residentAgents || [];
+  const visibleResidentAgents = residentAgents.filter(([, info]) => shouldShowManualBinding(info));
+  const hiddenResidentAgents = residentAgents.length - visibleResidentAgents.length;
+  const unread = [...managedWorkers, ...visibleResidentAgents].reduce((sum, [, info]) => sum + Number(info.unread || 0), 0);
+  openModal('Identity Directory', `
+    <p class="worker-note">Identities are the stable mailbox, role, channels, and routing policy behind chat. Normal runtime control lives on Sessions; use this directory only when you need to edit, adopt, or remove identities.</p>
+    <div class="stats">
+      <div class="sc"><div class="n">${managedWorkers.length}</div><div class="l">Managed</div></div>
+      <div class="sc"><div class="n">${visibleResidentAgents.length}</div><div class="l">Resident / Manual</div></div>
+      <div class="sc"><div class="n">${hiddenResidentAgents}</div><div class="l">Hidden Offline</div></div>
+      <div class="sc${unread ? ' warn' : ''}"><div class="n">${unread}</div><div class="l">Unread</div></div>
+    </div>
+    <div class="btn-row">
+      ${actionButtonFn('Add managed agent', 'Open environment-backed spawn controls', () => { closeModal(); openAgentSpawn(); }, 'btn-primary')}
+      ${actionButtonFn(window._showOfflineManualBindings ? 'Hide offline CLI' : 'Show offline CLI', 'Toggle offline/manual resident identity rows for cleanup', () => { toggleOfflineManualBindings(); closeModal(); setTimeout(openIdentityDirectory, 50); })}
+    </div>
+    <h3>Managed identities</h3>
+    <div class="table-wrap">${managedAgentsTableHtml(managedWorkers)}</div>
+    <h3>Resident / manual identities</h3>
+    <div class="table-wrap">${residentAgentsTableHtml(visibleResidentAgents)}</div>
+  `);
 }
 
 function openAgentSpawn() {
@@ -3126,7 +3162,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
   const sessionRows = sessions
     .slice(0, 6)
     .map(session => homeRow(session.agentId, `${session.runtime || ''} · ${session.environmentId || ''} · ${session.workspace || ''}`, session.status || 'unknown', ['failed', 'lost', 'stopped'].includes(String(session.status || '').toLowerCase()) ? 'warn' : '', actionButton('Sessions', 'Open sessions page', "showPage('sessions')")))
-    .join('') || `<div class="home-empty">No session records yet.${manualHidden ? ` ${manualHidden} offline manual CLI row(s) hidden on Agents.` : ''}</div>`;
+    .join('') || `<div class="home-empty">No session records yet.${manualHidden ? ` ${manualHidden} offline manual CLI row(s) hidden from the Identity Directory.` : ''}</div>`;
 
   el.innerHTML = `<div class="home-panel-grid">` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Live Environments</h3><span class="home-tag">${onlineEnvs.length} online</span></div><div class="home-panel-list">${envRows}</div></section>` +
@@ -3134,7 +3170,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
     `<section class="home-panel"><div class="home-panel-head"><h3>Recent Conversations</h3><span class="home-tag">as ${esc(identity)}</span></div><div class="home-panel-list">${conversationRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Failures</h3><span class="home-tag ${stats.run_failures_24h ? 'bad' : ''}">${stats.run_failures_24h || 0} / 24h</span></div><div class="home-panel-list">${failureRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Spawn Requests</h3><span class="home-tag">${spawnRequests.filter(req => ['queued','claimed','starting'].includes(req.status)).length} pending</span></div><div class="home-panel-list">${pendingSpawnRows}</div></section>` +
-    `<section class="home-panel"><div class="home-panel-head"><h3>Agents & Backings</h3><span class="home-tag">${managedAgents.length} managed</span></div><div class="home-panel-list">${agentRows}${sessionRows}</div></section>` +
+    `<section class="home-panel"><div class="home-panel-head"><h3>Identities & Sessions</h3><span class="home-tag">${managedAgents.length} managed</span></div><div class="home-panel-list">${agentRows}${sessionRows}</div></section>` +
     `</div>`;
 }
 
@@ -3169,7 +3205,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   if (statsEl) {
     statsEl.innerHTML =
       metric('Online environments', onlineEnvs.length) +
-      metric('Visible agents', visibleAgents.length) +
+      metric('Live identities', visibleAgents.length) +
       metric('Running work', runningRuns.length, runningRuns.length ? 'warn' : '') +
       metric('Queued runs', queuedRuns.length, queuedRuns.length ? 'warn' : '') +
       metric('Unread', (stats.unread_messages || 0) + (stats.channel_unread_messages || 0), ((stats.unread_messages || 0) + (stats.channel_unread_messages || 0)) ? 'warn' : '') +
@@ -3218,7 +3254,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
       const actionId = `team_${++window._dashboardActionSeq}`;
       rememberDashboardAction(actionId, () => openAgentChat(id));
       return `<div class="team-tile" ${dashboardActionAttr(actionId)} title="Open chat with ${esc(id)}"><b class="clip-1">${esc(id)}</b><span class="clip-2">${esc(meta)}</span><em class="team-state ${esc(state)}">${esc(state)}</em></div>`;
-    }).join('') || '<div class="home-empty">No online/active agents. Offline identities are hidden here.</div>';
+    }).join('') || '<div class="home-empty">No live identities. Offline identities stay in the Sessions identity directory.</div>';
 
   const envRows = onlineEnvs.slice(0, 6).map(env => {
     const runtimes = (env.runtimes || []).map(runtime => runtime.runtime).filter(Boolean).join(', ') || 'no runtimes';
@@ -3240,7 +3276,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   el.innerHTML = `<div class="ops-layout">` +
     `<div class="ops-stack">` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Recent Message Flow</h3><span class="ops-panel-sub">last exchange: ${esc(lastMessageAt)}</span></div><div class="activity-feed">${activityRows}</div></section>` +
-      `<section class="ops-panel"><div class="ops-panel-head"><h3>Visible Agents</h3><span class="ops-panel-sub">${visibleAgents.length} online/active, offline hidden</span></div><div class="team-grid">${teamRows}</div></section>` +
+      `<section class="ops-panel"><div class="ops-panel-head"><h3>Live Identities</h3><span class="ops-panel-sub">${visibleAgents.length} online/active, offline hidden</span></div><div class="team-grid">${teamRows}</div></section>` +
     `</div>` +
     `<div class="ops-stack">` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Working Now</h3><span class="ops-panel-sub">${runningRuns.length} running</span></div><div class="work-list">${workingRows}${queuedRows ? `<h3>Queued Next</h3>${queuedRows}` : ''}</div></section>` +
@@ -3275,7 +3311,6 @@ function renderAgentsFromState() {
 async function renderCurrentPageFromState() {
   if (currentPage === 'dashboard') renderHomeFromState();
   if (currentPage === 'work') renderWorkLoop();
-  if (currentPage === 'workers') renderAgentsFromState();
   if (currentPage === 'environments') {
     renderEnvironments(window._environments || []);
     renderSpawnRequests(window._spawnRequests || []);
@@ -4274,7 +4309,7 @@ function chatLiveWarning(meta) {
   if (!issue) return '';
   const key = `live:${meta.id}`;
   const muted = isIssueMuted(key);
-  return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Agents', 'Open identity details for this agent', "showPage('workers')")}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
+  return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButtonFn('Edit identity', 'Open identity details for this agent', () => openAgentEditor(meta.id))}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
 }
 
 function humanStatusLabel(status) {
@@ -4589,7 +4624,7 @@ function renderChatInspector(meta, messages) {
     } else {
       html += '<h3>Runtime Session</h3><p class="em">No managed runtime session is recorded for this identity. It may be an open resident CLI, an inbox-only identity, or historical chat.</p>' +
         '<div class="btn-row">' +
-        actionButton('Agents', 'Open identity management', "showPage('workers')") +
+        actionButtonFn('Identity Directory', 'Open identity management', () => openIdentityDirectory()) +
         actionButton('Environments', 'Spawn a managed agent into a connected environment', "showPage('environments')") +
         '</div>';
     }
@@ -5345,13 +5380,13 @@ async function refreshDashboard() {
       orphanAction = actionButton('Clear orphan unread', 'Delete unread messages addressed to agents that no longer exist', 'purgeOrphanUnread()');
     }
     if (managedWorkers.length) {
-      bannerParts.push(`${managedWorkers.length} managed agent(s) are shown on Agents. Identity presence is not the same as a running runtime process; concrete processes are on Sessions.`);
+      bannerParts.push(`${managedWorkers.length} managed agent identity record(s) are available from the Sessions identity directory. Identity presence is not the same as a running runtime process.`);
     }
     if (hiddenResidentAgents > 0) {
-      bannerParts.push(`${hiddenResidentAgents} offline or compatibility CLI identity row(s) are hidden on Agents.`);
+      bannerParts.push(`${hiddenResidentAgents} offline or compatibility CLI identity row(s) are hidden from the Sessions identity directory.`);
       orphanAction += actionButton('Show CLI bindings', 'Show offline/manual CLI identities for cleanup and debugging', 'toggleOfflineManualBindings()');
     } else if (window._showOfflineManualBindings && residentAgents.some(([, info]) => ['offline', 'stale'].includes((info.statusRaw || '').toLowerCase()))) {
-      orphanAction += actionButton('Hide offline CLI', 'Hide offline manual/resident identities from Agents', 'toggleOfflineManualBindings()');
+      orphanAction += actionButton('Hide offline CLI', 'Hide offline manual/resident identities from the identity directory', 'toggleOfflineManualBindings()');
     }
     if (statsRes.dispatch_reply_pending) {
       bannerParts.push(`${statsRes.dispatch_reply_pending} terminal run(s) still have no recorded handoff reply. These are the ones that feel "done but nobody was told".`);

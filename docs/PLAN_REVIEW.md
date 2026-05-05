@@ -49,7 +49,7 @@ Failure mode:
 
 Mitigation:
 
-- Chat, Home, Agents, Environments, Sessions are product views.
+- Chat, Control, Work Loop, Environments, Sessions, Runs, Analytics, Artifacts, Help, and Settings are product views. Identity Directory is an on-demand management drawer/modal, not primary navigation.
 - Runs/raw events/logs are inspector/debug views.
 - Long details move to drawers.
 - Primary rows show human labels and status chips.
@@ -166,7 +166,7 @@ Global nav | Context list | Main pane | Inspector drawer
 Examples:
 
 - Chat: nav -> DM/group list -> timeline/composer -> selected message/run details
-- Agents: nav -> filters -> agent table/cards -> session/spawn spec drawer
+- Identity Directory: Sessions -> directory -> identity table/cards -> session/spawn spec actions
 - Environments: nav -> bridge list -> environment detail -> logs/capabilities drawer
 - Sessions: nav -> session list -> live logs/telemetry -> recovery/actions drawer
 

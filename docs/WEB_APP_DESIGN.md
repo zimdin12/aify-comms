@@ -17,10 +17,10 @@ The user should be able to run a multi-agent team from the browser:
 
 Primary navigation is grouped by intent:
 
-- **Command:** Control, Chat, Work Loop
-- **People:** Agents, Analytics
+- **Work:** Control, Chat, Work Loop
 - **Runtime:** Environments, Sessions, Runs
-- **Library:** Artifacts, Help, Settings
+- **Insight:** Analytics, Artifacts
+- **System:** Help, Settings
 
 Secondary surfaces:
 
@@ -36,11 +36,11 @@ Use a consistent three-zone layout:
 ```text
 Left nav     List / context rail       Main pane                 Inspector
 ---------    -------------------       -------------------       ---------
-Home         DMs / agents / envs       Conversation/table/detail Selected item
+Control      Messages / runs / envs     Operations overview      Selected item
 Chat         DMs / channels            Composer/actions          Runs/logs/meta
-Agents       Filtered agent list       Agent profile/session     Spawn spec
+Sessions     Runtime backings          Identity/session actions   Spawn spec
 Envs         Bridge list               Environment details       Sessions/logs/caps
-Sessions     Env groups                Runtime backing rows      Resume/compact history
+Runs         Run list                   Events and controls       Reply/handoff state
 ```
 
 The inspector drawer prevents primary tables from growing too many columns. Tables should stay compact; details live in drawers.
@@ -48,7 +48,7 @@ The inspector drawer prevents primary tables from growing too many columns. Tabl
 ## UX Principles
 
 - **Default to action.** If an agent is offline but recoverable, show Restart. If a bridge is online, show Spawn Here.
-- **Expose hierarchy.** Agents are persistent identities, Environments are host bridges, Sessions are concrete runtime backings grouped under Environments, and Runs are tracked work attempts.
+- **Expose hierarchy.** Agent identities are persistent addresses, Environments are host bridges, Sessions are concrete runtime backings grouped under Environments, and Runs are tracked work attempts. The primary dashboard should manage identities through Sessions and Chat, not a top-level Agents page.
 - **Expose ownership.** Every active agent/session shows its bridge and workspace.
 - **Hide runtime weirdness until needed.** Show capability badges and clear warnings, not implementation internals.
 - **Prefer conversation over forms.** Chat is the main workflow; forms are for spawn/settings.

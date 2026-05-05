@@ -93,7 +93,7 @@ Bridge:
 
 Dashboard:
 
-- spawned agent appears in Agents and Sessions
+- spawned identity appears in the Identity Directory and its backing appears in Sessions
 - open direct chat after spawn
 - show owning bridge/environment and workspace
 

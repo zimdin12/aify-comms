@@ -4,14 +4,14 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 
 ## Ten Review Lenses
 
-1. Product fit: daily work should start from Chat, Agents, Environments, and Sessions. Legacy duplicate send/spawn forms should not be on Home.
-2. Navigation: Home is an overview; Agents means persistent identities; manual CLI bindings are labeled separately.
+1. Product fit: daily work should start from Control, Chat, Work Loop, Environments, and Sessions. Legacy duplicate send/spawn forms should not be on Home.
+2. Navigation: Home is an overview; Sessions is the main runtime/identity management surface. The Identity Directory is on demand for roles, resident bindings, adoption, and cleanup.
 3. Wording: avoid "resident session" for stale/manual rows because it implies a live process.
 4. Action safety: offline manual identities do not show Stop. Stop/disable language must say whether it affects wake/dispatch or a real runtime process.
 5. Tooltips: compact buttons need `title` text explaining what will happen before click.
 6. Read state: read/unread is scoped to the selected chat identity. A manager should not be forced to read every agent's inbox.
 7. Spawn model: `aify-comms` roots are safety boundaries; each agent's exact workspace is selected at spawn time.
-8. Runtime hierarchy: Agents are identities; Environments are host bridges; Sessions are grouped runtime backings inside environments; Runs are tracked work attempts.
+8. Runtime hierarchy: agent identities are stable addresses; Environments are host bridges; Sessions are grouped runtime backings inside environments; Runs are tracked work attempts.
 9. Debug surfaces: run/event tables and repair actions remain available but should not dominate daily use.
 10. Issue queue: Home should distinguish live blockers from reviewed history. Pending handoffs get repair actions; historical failed runs/spawns can be dismissed from Home while staying in audit views.
 11. Remaining debt: a dedicated frontend framework, inspector drawer, grouped DMs, richer run/thread linking, and true logs/telemetry views are still future work.
@@ -21,7 +21,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 
 - **Home**: operational stats, communication/failure/handoff/capacity signals, and "needs attention". It should not host duplicate send/spawn forms.
 - **Chat**: normal communication surface for DMs and channels. The selected **Viewing as** identity controls which messages are marked read, who sends, and which DM can be cleared.
-- **Agents**: managed agent identities spawned or controlled by the bridge, plus a separate manual/resident CLI section. Managed agents may have saved resume state without a currently running process.
+- **Identity Directory**: on-demand directory of managed identities plus manual/resident CLI rows. Managed identities may have saved resume state without a currently running process.
 - **Environments**: connected host/WSL/Windows/Linux bridges and the managed-warm spawn form.
 - **Spawn Requests**: active spawn requests and failures. Successful `running` spawn requests are historical "started" records, not active work, and should be hidden by default.
 - **Sessions**: concrete runtime/session backing records grouped under Environments. Stop/restart/continue belongs here when a real managed session exists. Ended/completed/cancelled rows are hidden by default and shown only through the debug-history toggle.

@@ -7,10 +7,9 @@ Initial dashboard sections:
 - **Home**: operational overview and "what needs attention".
 - **Work Loop**: computed reply/work contracts, overdue reminders, self-wakes, and inbox hygiene.
 - **Chat**: direct messages and channel conversations.
-- **Agents**: stable identities and current status.
 - **Analytics**: time-filtered communication volume, run health, spawn failures, and live capacity.
 - **Environments**: connected spawn targets.
-- **Sessions**: concrete runtime processes/threads, grouped under Environments.
+- **Sessions**: concrete runtime processes/threads grouped under Environments, with identity actions available from the row or Identity Directory.
 - **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
 - **Runs**: dispatch/run/handoff table.
 - **Artifacts**: shared files and text artifacts.
@@ -19,7 +18,7 @@ Initial dashboard sections:
 
 The dashboard should optimize for daily use first and debugging second. Admin tables are useful, but the default experience should answer "who is available, what is happening, and what do I need to do next?"
 
-Current implementation note: dashboard-spawned managed identities are the primary **Agents** surface. Manual `comms_register` rows are shown in a separate Agents-page section, and offline manual rows are hidden by default because they are usually stale identity records, not running processes. Channels are managed inside **Chat**, not as a separate top-level workflow.
+Current implementation note: dashboard-spawned managed identities are managed primarily through **Sessions** and Chat details. Manual `comms_register` rows are available in the on-demand **Identity Directory**, and offline manual rows are hidden by default because they are usually stale identity records, not running processes. Channels are managed inside **Chat**, not as a separate top-level workflow.
 
 Product mode note: the dashboard UX is live-wake-only. Non-live/message-only compatibility can remain in MCP/API paths for older clients and migration, but normal dashboard views should hide it.
 
@@ -164,7 +163,7 @@ Result:
 - dashboard creates a spawn request
 - target environment bridge claims it
 - bridge starts/attaches runtime
-- agent appears in Agents and Sessions
+- agent identity appears in the Identity Directory and its backing appears in Sessions
 - chat opens automatically to that agent
 
 Spawn form UX:
@@ -318,9 +317,9 @@ Keep the existing dispatch/runs concept but make it easier to scan:
 
 The run table should be secondary to Chat and Sessions. It is for operational triage, not the normal way to talk to agents.
 
-## Agents Page
+## Identity Directory
 
-Agents are persistent identities, not current processes.
+Identities are persistent addresses, not current processes. The directory is on demand from Sessions rather than a primary sidebar page.
 
 Columns:
 

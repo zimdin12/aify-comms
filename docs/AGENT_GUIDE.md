@@ -77,7 +77,7 @@ The dashboard should feel like a real work console, not a raw admin table:
 
 - Home/Control should show current activity, recent messages, live issues, and running work.
 - Chat should support reading/sending as the selected identity, unread state, delete/clear actions, channels, and useful conversation inspection.
-- Agents should focus on active managed agents and keep manual/resident identities sorted and clearly separated.
+- The dashboard should focus on active sessions and keep manual/resident identities available from the on-demand Identity Directory, not as a primary navigation page.
 - Environments should show only real connected spawn targets, with stop/forget controls.
 - Sessions and Runs should expose lifecycle details without duplicating Chat as a second messaging UI.
 - Compact should present two concepts clearly: handoff compaction is the reliable fresh-backing path and defaults to the same agent ID, while internal/native compaction is runtime-adapter dependent and currently unsupported for managed Claude Code/Codex.
