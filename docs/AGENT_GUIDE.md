@@ -19,7 +19,7 @@ This guide is for coding agents working on `aify-comms`.
 |---|---|---|
 | Backend API | `service/routers/api_v2.py` | Dashboard, environments, spawn requests, sessions, analytics, message actions |
 | Data model | `service/models.py`, `service/db.py` | Persistent SQLite schema and migrations |
-| Dashboard | `service/dashboard.html` | Single-page app for control, chat, team, analytics, environments, sessions, runs, artifacts, help, settings |
+| Dashboard | `service/dashboard.html` | Single-page app for control, chat, agents, analytics, environments, sessions, runs, artifacts, help, settings |
 | Stdio bridge | `mcp/stdio/server.js` | MCP tools, resident wake, environment-backed managed sessions, environment heartbeat/control loops |
 | Runtime adapters | `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt behavior |
 | Skills | `.agents/skills`, `.claude/skills` | Agent-facing instructions for Codex and Claude Code |
@@ -77,7 +77,7 @@ The dashboard should feel like a real work console, not a raw admin table:
 
 - Home/Control should show current activity, recent messages, live issues, and running work.
 - Chat should support reading/sending as the selected identity, unread state, delete/clear actions, channels, and useful conversation inspection.
-- Team should focus on active managed agents and keep manual/resident identities sorted and clearly separated.
+- Agents should focus on active managed agents and keep manual/resident identities sorted and clearly separated.
 - Environments should show only real connected spawn targets, with stop/forget controls.
 - Sessions and Runs should expose lifecycle details without duplicating Chat as a second messaging UI.
 - Compact should present two concepts clearly: handoff compaction is the reliable fresh-backing path and defaults to the same agent ID, while internal/native compaction is runtime-adapter dependent and currently unsupported for managed Claude Code/Codex.

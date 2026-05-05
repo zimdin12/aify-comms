@@ -964,6 +964,9 @@ h2::after{background:linear-gradient(90deg,var(--accent),var(--secondary),transp
 .nav a:hover,.chat-item:hover,.home-row:hover,.team-tile:hover,.work-card:hover,tr:hover,.mini-row:hover,.chat-global-hit:hover{background:var(--surface-hover);border-color:var(--selection-border)}
 .nav a.active,.chat-item.active,.settings-tabs button.active,.instructions-tabs button.active,.segmented button.active{background:var(--selection-bg);border-color:var(--selection-border);color:var(--text);box-shadow:inset 4px 0 0 var(--accent)}
 .nav a.active::before,.sidebar.collapsed .nav a.active::before{background:var(--accent);box-shadow:0 0 0 4px var(--accent-shadow)}
+.nav a.nav-child{margin-left:14px;position:relative}
+.nav a.nav-child::after{content:"";position:absolute;left:-8px;top:10px;bottom:10px;width:1px;background:var(--selection-border);opacity:.7}
+.nav a.nav-child.active::after{background:var(--accent);opacity:1}
 .settings-tabs button:hover,.instructions-tabs button:hover,.segmented button:hover,.switch-row:hover{background:var(--surface-hover);border-color:var(--selection-border);color:var(--text)}
 .theme-preview:hover{border-color:var(--selection-border);transform:none}
 .theme-preview.active{border-color:var(--selection-border);box-shadow:inset 4px 0 0 var(--accent),0 12px 28px #00000030;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 20%,#101214),color-mix(in srgb,var(--secondary) 18%,#101214),color-mix(in srgb,var(--tertiary) 8%,#101214))}
@@ -994,6 +997,23 @@ h2::after{background:linear-gradient(90deg,var(--accent),var(--secondary),transp
 .chat-rail-section[open] summary{color:var(--text);margin-bottom:8px}
 .chat-rail-section[open] summary::after{transform:rotate(225deg)}
 .chat-rail-section input{margin-top:0!important}
+.model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0 16px}
+.model-card{background:#101214;border:1px solid var(--selection-border);border-radius:12px;padding:11px 12px;min-width:0}
+.model-card b{display:block;color:var(--accent-text);font-size:.88em;margin-bottom:4px}
+.model-card span{display:block;color:var(--muted);font-size:.8em;line-height:1.35}
+.model-card:nth-child(2){border-color:color-mix(in srgb,var(--secondary) 38%,var(--line))}
+.model-card:nth-child(2) b{color:var(--secondary-text)}
+.model-card:nth-child(3){border-color:color-mix(in srgb,var(--tertiary) 36%,var(--line))}
+.model-card:nth-child(3) b{color:var(--tertiary-text)}
+.env-session-strip{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.env-session-strip b{font-size:.78em;color:var(--muted);margin-right:2px}
+.session-group{border:1px solid var(--line);border-radius:13px;background:#101214;margin:0 0 14px;overflow:visible}
+.session-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line-soft);background:linear-gradient(135deg,var(--selection-bg),transparent)}
+.session-group-title{min-width:0}
+.session-group-title b{display:block;color:var(--text)}
+.session-group-title span{display:block;color:var(--muted);font-size:.8em;margin-top:2px}
+.session-group-meta{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.session-group .table-wrap{border:0;border-radius:0;background:transparent}
 .chat-filter-row{margin:0;gap:7px}
 .chat-create-channel{margin-top:0}
 .chat-bubble.mine{background:var(--selection-bg);border-color:var(--selection-border)}
@@ -1004,6 +1024,9 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 input[type="checkbox"]:checked{background:var(--secondary);border-color:color-mix(in srgb,var(--secondary) 76%,#fff)}
 input[type="checkbox"]::before{background:var(--secondary-contrast)}
 @media (max-width:860px){
+  .nav a.nav-child{margin-left:0}
+  .nav a.nav-child::after{display:none}
+  .model-grid{grid-template-columns:1fr}
   .chat-rail-section{padding:9px}
   .chat-rail{overflow:hidden}
   .chat-list{min-height:0}
@@ -1018,15 +1041,16 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <h1 id="sidebar-brand">AIFY Comms</h1>
   <div class="ver">v4.0.0</div>
   <div class="nav">
-    <div class="nav-section">Operate</div>
+    <div class="nav-section">Command</div>
     <a onclick="showPage('dashboard')" id="nav-dashboard" class="active" title="Control Room"><span><b>Control</b><small>live overview</small></span></a>
-    <a onclick="showPage('work')" id="nav-work" title="Work Loop"><span><b>Work Loop</b><small>contracts</small></span></a>
     <a onclick="showPage('chat')" id="nav-chat" title="Chat"><span><b>Chat</b><small>DMs and rooms</small></span></a>
-    <a onclick="showPage('workers')" id="nav-workers" title="Team"><span><b>Team</b><small>agent identities</small></span></a>
+    <a onclick="showPage('work')" id="nav-work" title="Work Loop"><span><b>Work Loop</b><small>contracts</small></span></a>
+    <div class="nav-section">People</div>
+    <a onclick="showPage('workers')" id="nav-workers" title="Agents"><span><b>Agents</b><small>identities</small></span></a>
     <a onclick="showPage('analytics')" id="nav-analytics" title="Analytics"><span><b>Analytics</b><small>traffic and health</small></span></a>
     <div class="nav-section">Runtime</div>
     <a onclick="showPage('environments')" id="nav-environments" title="Environments"><span><b>Environments</b><small>spawn targets</small></span></a>
-    <a onclick="showPage('sessions')" id="nav-sessions" title="Sessions"><span><b>Sessions</b><small>process backing</small></span></a>
+    <a onclick="showPage('sessions')" id="nav-sessions" class="nav-child" title="Sessions"><span><b>Sessions</b><small>env backings</small></span></a>
     <a onclick="showPage('dispatches')" id="nav-dispatches" title="Runs"><span><b>Runs</b><small>tracked work</small></span></a>
     <div class="nav-section">Library</div>
     <a onclick="showPage('files')" id="nav-files" title="Artifacts"><span><b>Artifacts</b><small>shared files</small></span></a>
@@ -1062,7 +1086,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="ops-hero">
       <div>
         <h2>Control Room</h2>
-        <p>Live team traffic, running work, online environments, and recent handoffs in one place. Offline identities stay out of the way unless you open Team.</p>
+        <p>Live agent traffic, running work, online environments, and recent handoffs in one place. Offline identities stay out of the way unless you open Agents.</p>
       </div>
       <div class="ops-status">
         <span class="ops-dot"></span>
@@ -1076,7 +1100,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="home-actions">
       <button class="btn btn-primary" title="Open the main chat surface for direct and channel messages" onclick="showPage('chat')">Open Chat</button>
       <button class="btn" title="Open environment-backed spawn controls" onclick="showPage('environments')">Spawn Agent</button>
-      <button class="btn" title="Open managed teammate identities and their saved resume state" onclick="showPage('workers')">Manage Team</button>
+      <button class="btn" title="Open agent identities, roles, and saved resume state" onclick="showPage('workers')">Manage Agents</button>
       <button class="btn" title="Open concrete runtime sessions for stop, restart, and recovery" onclick="showPage('sessions')">Runtime Sessions</button>
     </div>
     <div id="home-control-room"></div>
@@ -1233,17 +1257,22 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     </div>
   </div>
 
-  <!-- ============ MANAGED WORKERS ============ -->
+  <!-- ============ AGENTS ============ -->
   <div class="page" id="page-workers">
     <div class="page-head-row">
-      <h2>Team</h2>
+      <h2>Agents</h2>
       <div class="btn-row">
-        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed teammate" onclick="openTeamSpawn()">Add managed teammate</button>
+        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openTeamSpawn()">Add managed agent</button>
       </div>
     </div>
-    <p class="worker-note">This page is identity management. A teammate identity can have chats, saved resume state, and queued work; concrete runtime processes live on Sessions.</p>
+    <p class="worker-note">Agents are stable identities: ID, role, inbox, chats, saved resume state, and routing policy. They are not the same as Sessions. Sessions are concrete Claude/Codex/OpenCode runtime backings hosted by Environments.</p>
+    <div class="model-grid">
+      <section class="model-card"><b>Agent</b><span>Who the persistent identity is: ID, role, inbox, channels, saved state.</span></section>
+      <section class="model-card"><b>Environment</b><span>Where managed work can run: Windows, WSL, Linux, Docker, or remote bridge.</span></section>
+      <section class="model-card"><b>Session</b><span>The current or historical runtime backing for an agent inside an environment.</span></section>
+    </div>
     <div class="stats" id="worker-stats"></div>
-    <h3>Managed Teammates</h3>
+    <h3>Managed Agents</h3>
     <div id="workers-table"></div>
     <h3>Manual / Resident CLI Identities</h3>
     <p class="worker-note">These are live CLI registrations and older/manual identities. Offline rows are historical identity records, not running processes; remove stale demo/test names here.</p>
@@ -1253,7 +1282,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <!-- ============ ENVIRONMENTS ============ -->
   <div class="page" id="page-environments">
     <h2>Environments</h2>
-    <p class="worker-note">Connected stdio bridges advertise where agents can run. Spawn requests are claimed by the matching bridge, then appear as managed agents.</p>
+    <p class="worker-note">Environments are connected host bridges. They claim spawn requests and run managed Sessions for Agents in allowed workspaces.</p>
     <div class="stats" id="environment-stats"></div>
     <div class="send-form">
       <h3>Spawn Agent</h3>
@@ -1281,7 +1310,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <!-- ============ SESSIONS ============ -->
   <div class="page" id="page-sessions">
     <h2>Sessions</h2>
-    <p class="worker-note">Sessions are concrete runtime/process backing records for agent identities.</p>
+    <p class="worker-note">Sessions are grouped by Environment because each session is a concrete runtime/process backing for an Agent on a specific host bridge. Stop/restart/compact here when you need to control a real managed runtime.</p>
     <div class="fb">
       <label class="switch-row" title="Show ended, completed, and cancelled session history. Keep this off for normal work; turn it on while debugging lifecycle issues.">
         <input type="checkbox" id="show-ended-sessions" onchange="setShowEndedSessions(this.checked)">
@@ -1392,7 +1421,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
 
       <div class="guide-flow">Dashboard / MCP service (:8800)
         |
-        | chat, runs, sessions, artifacts, team identity
+        | chat, runs, sessions, artifacts, agent identity
         v
 Environment bridge: aify-comms
         |
@@ -1406,7 +1435,7 @@ Agent session in a specific workspace</div>
       <div class="guide-grid">
         <div class="guide-card">
           <h4>Managed Mode</h4>
-          <p>Default path. Run <code>aify-comms</code> as the host bridge, spawn teammates from the dashboard, and let the dashboard own lifecycle, restart, compact, and recovery.</p>
+          <p>Default path. Run <code>aify-comms</code> as the host bridge, spawn agents from the dashboard, and let the dashboard own lifecycle, restart, compact, and recovery.</p>
         </div>
         <div class="guide-card">
           <h4>Resident Mode</h4>
@@ -1422,7 +1451,7 @@ Agent session in a specific workspace</div>
       <ul>
         <li><b>Chat:</b> conversation history and composer. Use <b>Viewing as</b> to read and send from a specific identity, such as <code>manager</code>. Read/unread and delete actions are scoped to the selected identity or selected conversation.</li>
         <li><b>Channel:</b> shared room inside Chat. Use it for group broadcasts and team history. It is not a separate top-level workflow.</li>
-        <li><b>Agent:</b> teammate identity. Managed agents are dashboard-spawned and recoverable. Manual/resident CLI bindings are human-open compatibility sessions.</li>
+        <li><b>Agent:</b> persistent identity. Managed agents are dashboard-spawned and recoverable. Manual/resident CLI bindings are human-open compatibility sessions.</li>
         <li><b>Session:</b> concrete runtime backing record for an agent: environment, workspace, process/session handle, resume capability, and lifecycle state.</li>
         <li><b>Run:</b> tracked execution attempt attached to a message. Use it when you need progress, events, interrupt/steer, failure state, or required handoff tracking.</li>
         <li><b>Work contract:</b> computed obligation from a message/run. It shows who owes a reply, whether the owner is queued/working/overdue/answered, and whether old inbox bookkeeping needs repair.</li>
@@ -1450,7 +1479,7 @@ bash install.sh --client opencode http://localhost:8800</pre>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
-      <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or <b>Team</b>.</p>
+      <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or <b>Agents</b>.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
       <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://localhost:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
@@ -1469,7 +1498,7 @@ claude-aify --aify-agent manager --aify-role manager -auto</pre>
 codex-aify --aify-agent coder --aify-role coder -auto</pre>
         </div>
       </div>
-      <p>Use resident mode when you want the visible CLI to own the session. Use managed mode when you want the dashboard to start, stop, restart, and compact the teammate without keeping a terminal open.</p>
+      <p>Use resident mode when you want the visible CLI to own the session. Use managed mode when you want the dashboard to start, stop, restart, and compact the agent without keeping a terminal open.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="sessions">
@@ -1477,7 +1506,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <div class="guide-grid">
         <div class="guide-card">
           <h4>Managed Agent</h4>
-          <p>Dashboard-spawned teammate. It has an environment, workspace, runtime, spawn spec, saved handle, and recovery metadata. This is the default team mode.</p>
+          <p>Dashboard-spawned agent. It has an environment, workspace, runtime, spawn spec, saved handle, and recovery metadata. This is the default managed mode.</p>
         </div>
         <div class="guide-card">
           <h4>Resident CLI</h4>
@@ -1510,7 +1539,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="guide-card">
           <h4>Resident CLI → Managed</h4>
           <ol>
-            <li>Open <b>Team → Manual / Resident CLI Identities</b>.</li>
+            <li>Open <b>Agents → Manual / Resident CLI Identities</b>.</li>
             <li>Use <b>Edit</b> or <b>Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
             <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
@@ -1531,10 +1560,10 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. <b>Mark read</b> acknowledges a direct message or the selected channel for the selected <b>Viewing as</b> identity.</p>
-      <p><b>Team communication:</b> keep each message scoped to one ask, result, blocker, or status update. Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed. Dashboard-managed delivered runs answer the current message in final plain text; the bridge captures and threads that answer into chat. Logs, tool output, and run summaries are telemetry, not the team-visible answer. If more work must happen after the current turn, the agent must send the next owner a message or self-schedule before finishing. Resident/live CLI sessions still use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies. Channels are for shared context and bounded discussion: agents should answer when named, responsible, asked a question, or holding useful evidence, not send broad automatic acks.</p>
+      <p><b>Agent communication:</b> keep each message scoped to one ask, result, blocker, or status update. Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed. Dashboard-managed delivered runs answer the current message in final plain text; the bridge captures and threads that answer into chat. Logs, tool output, and run summaries are telemetry, not the team-visible answer. If more work must happen after the current turn, the agent must send the next owner a message or self-schedule before finishing. Resident/live CLI sessions still use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies. Channels are for shared context and bounded discussion: agents should answer when named, responsible, asked a question, or holding useful evidence, not send broad automatic acks.</p>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and Team edit forms do not tune model/effort per agent.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and Agents edit forms do not tune model/effort per agent.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1548,7 +1577,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>API Endpoints</h3>
-      <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Team, Environments, Sessions, Runs, and Artifacts.</p>
+      <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Agents, Environments, Sessions, Runs, and Artifacts.</p>
       <ul>
         <li><code>GET /health</code> — Health check</li>
         <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
@@ -1822,7 +1851,7 @@ function pageTitle(name) {
     dashboard: 'Control Room',
     work: 'Work Loop',
     chat: 'Chat',
-    workers: 'Team',
+    workers: 'Agents',
     analytics: 'Analytics',
     environments: 'Environments',
     sessions: 'Sessions',
@@ -2201,6 +2230,7 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s || 
 function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
 function jsArg(s) { return JSON.stringify(String(s || '')); }
 function cssSel(s) { return window.CSS?.escape ? CSS.escape(String(s || '')) : String(s || '').replace(/["\\]/g, '\\$&'); }
+function cssToken(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'; }
 function actionButton(label, title, onclick, classes = '') {
   const id = `act_${++window._dashboardActionSeq}`;
   rememberDashboardAction(id, async () => {
@@ -2749,7 +2779,7 @@ function renderAgents(agents, containerId = 'manual-agents-table') {
     } else {
       controls.push(actionButtonFn('Stop wake', 'Disable wake/dispatch for this resident identity and ask its live bridge to terminate the host CLI/app process where possible.', () => controlResidentAgent(id, 'stop'), 'btn-danger'));
     }
-    controls.push(actionButtonFn('Adopt env', 'Open identity editor to convert this resident identity into a dashboard-managed teammate backed by an online environment. Close or stop the old CLI after adoption.', () => openAgentEditor(id)));
+    controls.push(actionButtonFn('Adopt env', 'Open identity editor to convert this resident identity into a dashboard-managed agent backed by an online environment. Close or stop the old CLI after adoption.', () => openAgentEditor(id)));
     controls.push(actionButtonFn('Remove from dashboard', 'Remove this identity from the dashboard and prevent stale bridges from recreating it until explicitly registered again', () => deleteAgent(id), 'btn-danger'));
     html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
       renderPresenceCell(info) +
@@ -2777,7 +2807,7 @@ function renderWorkerStats(workers) {
   }).length;
   const unread = workers.reduce((sum, [, info]) => sum + Number(info.unread || 0), 0);
   document.getElementById('worker-stats').innerHTML =
-    `<div class="sc"><div class="n">${workers.length}</div><div class="l">Managed Teammates</div></div>` +
+    `<div class="sc"><div class="n">${workers.length}</div><div class="l">Managed Agents</div></div>` +
     `<div class="sc"><div class="n">${activeRuns}</div><div class="l">Active Runs</div></div>` +
     `<div class="sc"><div class="n">${queued}</div><div class="l">Queued</div></div>` +
     `<div class="sc"><div class="n">${savedState}</div><div class="l">Saved State</div></div>` +
@@ -2799,7 +2829,7 @@ function renderWorkers(workers) {
     const activeRunId = info.dispatchState?.activeRun?.runId || '';
     const actionItems = [
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed agent', () => prefillWorkerMessage(id, 'request')),
-      actionButtonFn('Assign env', 'Open identity editor to retarget this teammate and saved spawn spec to another online environment', () => openAgentEditor(id)),
+      actionButtonFn('Assign env', 'Open identity editor to retarget this agent and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
       actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => recreateAgent(id), 'btn-danger'),
       actionButtonFn('Remove', 'Unregister this managed agent and cancel queued work', () => deleteAgent(id), 'btn-danger'),
@@ -3007,7 +3037,7 @@ function renderHomeInsights(stats, agents, environments, sessions, spawnRequests
   });
   if (failedOrLostSessions) attention.push({
     title: 'Sessions need attention',
-    body: `${failedOrLostSessions} session(s) are failed or lost. Restart them when you still need that teammate.`,
+    body: `${failedOrLostSessions} session(s) are failed or lost. Restart them when you still need that agent.`,
     action: actionButton('Open Sessions', 'Restart, recreate, or stop session records', "showPage('sessions')")
   });
   if (handoffPending) attention.push({
@@ -3088,7 +3118,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
   const sessionRows = sessions
     .slice(0, 6)
     .map(session => homeRow(session.agentId, `${session.runtime || ''} · ${session.environmentId || ''} · ${session.workspace || ''}`, session.status || 'unknown', ['failed', 'lost', 'stopped'].includes(String(session.status || '').toLowerCase()) ? 'warn' : '', actionButton('Sessions', 'Open sessions page', "showPage('sessions')")))
-    .join('') || `<div class="home-empty">No session records yet.${manualHidden ? ` ${manualHidden} offline manual CLI row(s) hidden on Team.` : ''}</div>`;
+    .join('') || `<div class="home-empty">No session records yet.${manualHidden ? ` ${manualHidden} offline manual CLI row(s) hidden on Agents.` : ''}</div>`;
 
   el.innerHTML = `<div class="home-panel-grid">` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Live Environments</h3><span class="home-tag">${onlineEnvs.length} online</span></div><div class="home-panel-list">${envRows}</div></section>` +
@@ -3096,7 +3126,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
     `<section class="home-panel"><div class="home-panel-head"><h3>Recent Conversations</h3><span class="home-tag">as ${esc(identity)}</span></div><div class="home-panel-list">${conversationRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Failures</h3><span class="home-tag ${stats.run_failures_24h ? 'bad' : ''}">${stats.run_failures_24h || 0} / 24h</span></div><div class="home-panel-list">${failureRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Spawn Requests</h3><span class="home-tag">${spawnRequests.filter(req => ['queued','claimed','starting'].includes(req.status)).length} pending</span></div><div class="home-panel-list">${pendingSpawnRows}</div></section>` +
-    `<section class="home-panel"><div class="home-panel-head"><h3>Team & Sessions</h3><span class="home-tag">${managedAgents.length} managed</span></div><div class="home-panel-list">${agentRows}${sessionRows}</div></section>` +
+    `<section class="home-panel"><div class="home-panel-head"><h3>Agents & Backings</h3><span class="home-tag">${managedAgents.length} managed</span></div><div class="home-panel-list">${agentRows}${sessionRows}</div></section>` +
     `</div>`;
 }
 
@@ -3202,7 +3232,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   el.innerHTML = `<div class="ops-layout">` +
     `<div class="ops-stack">` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Recent Message Flow</h3><span class="ops-panel-sub">last exchange: ${esc(lastMessageAt)}</span></div><div class="activity-feed">${activityRows}</div></section>` +
-      `<section class="ops-panel"><div class="ops-panel-head"><h3>Visible Team</h3><span class="ops-panel-sub">${visibleAgents.length} online/active, offline hidden</span></div><div class="team-grid">${teamRows}</div></section>` +
+      `<section class="ops-panel"><div class="ops-panel-head"><h3>Visible Agents</h3><span class="ops-panel-sub">${visibleAgents.length} online/active, offline hidden</span></div><div class="team-grid">${teamRows}</div></section>` +
     `</div>` +
     `<div class="ops-stack">` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Working Now</h3><span class="ops-panel-sub">${runningRuns.length} running</span></div><div class="work-list">${workingRows}${queuedRows ? `<h3>Queued Next</h3>${queuedRows}` : ''}</div></section>` +
@@ -3564,7 +3594,7 @@ function renderEnvironments(environments) {
     const status = String(env.status || 'unknown').toLowerCase();
     const isOnline = status === 'online';
     const startCommand = environmentStartCommand(env);
-    const statusClass = `env-${env.status || 'unknown'}`;
+    const statusClass = `env-${cssToken(env.status || 'unknown')}`;
     const pid = env.metadata && env.metadata.pid ? String(env.metadata.pid) : '';
     const manualRoots = !!(env.metadata && env.metadata.manualRoots);
     const roots = (env.cwdRoots || []).length
@@ -3576,6 +3606,15 @@ function renderEnvironments(environments) {
           return `<span class="env-pill"${titleAttr(detail || runtime.runtime)}>${esc(runtime.runtime || 'runtime')}</span>`;
         }).join('')}</div>`
       : '<span class="t">No runtimes advertised</span>';
+    const envSessions = (window._sessions || []).filter(session => session.environmentId === env.id);
+    const activeSessions = envSessions.filter(session => !isQuietSession(session));
+    const sessionStrip = envSessions.length
+      ? `<div class="env-session-strip"><b>Sessions</b>` +
+        `<span class="env-pill"${titleAttr(`${activeSessions.length} visible / active backing records in this environment`)}>${activeSessions.length} active</span>` +
+        `<span class="env-pill"${titleAttr(`${envSessions.length} total backing records including debug history`)}>${envSessions.length} total</span>` +
+        actionButton('Open', 'Open runtime sessions backed by this environment', "showPage('sessions')") +
+        `</div>`
+      : `<div class="env-session-strip"><b>Sessions</b><span class="t">No backing records yet</span></div>`;
     html += `<section class="env-card">` +
       `<div class="env-head"><div class="env-title"><b class="clip-1"${titleAttr(env.label || env.id)}>${esc(env.label || env.id)}</b><span class="env-id clip-1"${titleAttr(env.id)}>${esc(env.id)}</span></div><span class="env-status ${statusClass}">${esc(env.status || 'unknown')}</span></div>` +
       `<dl class="env-meta">` +
@@ -3588,6 +3627,7 @@ function renderEnvironments(environments) {
       `<dt>Roots</dt><dd>${roots}${manualRoots ? '<span class="mb mb-dispatch">dashboard override</span>' : ''}</dd>` +
       `<dt>Last seen</dt><dd class="t">${esc(env.lastSeen || '')}</dd>` +
       `</dl>` +
+      sessionStrip +
       `<pre class="env-command">${esc(startCommand)}</pre>` +
       `<div class="btn-row">` +
       (isOnline ? actionButtonFn('Spawn here', 'Prefill the spawn form with this environment and its first workspace root', () => prefillEnvironmentSpawn(env.id)) : '') +
@@ -3780,7 +3820,7 @@ async function resetEnvironmentRoots(environmentId) {
 async function controlEnvironment(environmentId, action) {
   const label = action === 'stop' ? 'stop this bridge process' : 'hide this environment target';
   const detail = action === 'stop'
-    ? 'Managed teammates from this environment become offline/detached until you restart the bridge or assign them to another environment.'
+    ? 'Managed agents from this environment become offline/detached until you restart the bridge or assign them to another environment.'
     : 'Agent identities, chats, sessions, and saved spawn specs remain. The environment row is hidden from normal lists and can reappear if its bridge heartbeats again.';
   if (!confirm(`Really ${label}?\n\nEnvironment: ${environmentId}\n\n${detail}`)) return;
   try {
@@ -4226,7 +4266,7 @@ function chatLiveWarning(meta) {
   if (!issue) return '';
   const key = `live:${meta.id}`;
   const muted = isIssueMuted(key);
-  return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Team', 'Open identity details for this agent', "showPage('workers')")}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
+  return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Agents', 'Open identity details for this agent', "showPage('workers')")}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
 }
 
 function humanStatusLabel(status) {
@@ -4309,7 +4349,7 @@ function updateChatControls(meta) {
       manageButton.title = 'Delete this channel and its channel messages';
     } else if (isDm) {
       manageButton.textContent = 'Clear DM';
-      manageButton.title = 'Delete the direct-message history between the selected viewing identity and this teammate';
+      manageButton.title = 'Delete the direct-message history between the selected viewing identity and this agent';
     } else {
       manageButton.textContent = 'Manage';
       manageButton.title = 'Select a conversation first';
@@ -4541,7 +4581,7 @@ function renderChatInspector(meta, messages) {
     } else {
       html += '<h3>Runtime Session</h3><p class="em">No managed runtime session is recorded for this identity. It may be an open resident CLI, an inbox-only identity, or historical chat.</p>' +
         '<div class="btn-row">' +
-        actionButton('Team', 'Open identity management', "showPage('workers')") +
+        actionButton('Agents', 'Open identity management', "showPage('workers')") +
         actionButton('Environments', 'Spawn a managed agent into a connected environment', "showPage('environments')") +
         '</div>';
     }
@@ -4901,46 +4941,73 @@ function renderSessions(sessions) {
     container.innerHTML = '<p class="em">Only ended/debug sessions are recorded. Turn on "Show ended/debug sessions" to inspect them.</p>';
     return;
   }
-  let html = '<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th>Agent</th><th>Runtime</th><th>Environment</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>';
+  const envMap = new Map((window._environments || []).map(env => [env.id, env]));
+  const grouped = new Map();
   for (const session of visibleSessions) {
-    const caps = session.capabilities || {};
-    const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
-    const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
-    const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
-    const resumeCommand = sessionResumeCommand(session, agentInfo);
-    const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
-    const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
-    const sessionStatus = String(session.status || '').toLowerCase();
-    const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
-    const spawnControl = pendingSpawn
-      ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
-      : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
-    const sessionActions = [
-      actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
-      activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
-      spawnControl,
-      resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
-      actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-danger'),
-      actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)),
-      actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
-      actionButtonFn('History', 'View compaction and continuation history for this teammate', () => viewCompactionHistory(session.agentId)),
-      canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
-    ];
-    html += `<tr>` +
-      `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
-      `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
-      `<td class="t"${titleAttr(session.environmentId || '')}><span class="clip-1">${esc(session.environmentId || '')}</span></td>` +
-      `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
-      `<td><span class="st-${esc(session.status || '')}">${esc(session.status || '')}</span></td>` +
-      `<td class="t"${titleAttr(capLabels)}><span class="clip-2">${esc(capLabels || 'none')}</span></td>` +
-      `<td class="t">${esc(session.lastSeen || '')}</td>` +
-      `<td><div class="run-controls">` +
-      actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
-      actionsMenu(sessionActions, 'Actions', `session:${session.id}`) +
-      `</div></td>` +
-      `</tr>`;
+    const key = session.environmentId || 'unassigned';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(session);
   }
-  html += '</tbody></table></div>';
+  const orderedGroups = [...grouped.entries()].sort(([a, aSessions], [b, bSessions]) => {
+    const aEnv = envMap.get(a) || {};
+    const bEnv = envMap.get(b) || {};
+    const statusRank = {online: 0, degraded: 1, unknown: 2, offline: 3, disabled: 4};
+    const ar = statusRank[String(aEnv.status || 'unknown').toLowerCase()] ?? 5;
+    const br = statusRank[String(bEnv.status || 'unknown').toLowerCase()] ?? 5;
+    if (ar !== br) return ar - br;
+    const labelCmp = String(aEnv.label || a).localeCompare(String(bEnv.label || b));
+    if (labelCmp) return labelCmp;
+    return bSessions.length - aSessions.length;
+  });
+  let html = '';
+  for (const [environmentId, groupSessions] of orderedGroups) {
+    const env = envMap.get(environmentId) || {};
+    const envStatus = env.status || (environmentId === 'unassigned' ? 'unassigned' : 'unknown');
+    const runningCount = groupSessions.filter(session => ['running', 'claimed', 'starting', 'recovering'].includes(String(session.status || '').toLowerCase())).length;
+    const issueCount = groupSessions.filter(session => ['failed', 'lost', 'stopped'].includes(String(session.status || '').toLowerCase())).length;
+    html += `<section class="session-group">` +
+      `<div class="session-group-head"><div class="session-group-title"><b class="clip-1"${titleAttr(env.label || environmentId)}>${esc(env.label || environmentId)}</b><span class="clip-1"${titleAttr(environmentId)}>${esc(environmentId)}</span></div>` +
+      `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupSessions.length} session${groupSessions.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}</div></div>` +
+      `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
+    for (const session of groupSessions) {
+      const caps = session.capabilities || {};
+      const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
+      const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
+      const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+      const resumeCommand = sessionResumeCommand(session, agentInfo);
+      const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
+      const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
+      const sessionStatus = String(session.status || '').toLowerCase();
+      const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
+      const spawnControl = pendingSpawn
+        ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
+        : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
+      const sessionActions = [
+        actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
+        activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
+        spawnControl,
+        resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
+        actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-danger'),
+        actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)),
+        actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
+        actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(session.agentId)),
+        canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
+      ];
+      html += `<tr>` +
+        `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
+        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
+        `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
+        `<td><span class="st-${esc(session.status || '')}">${esc(session.status || '')}</span></td>` +
+        `<td class="t"${titleAttr(capLabels)}><span class="clip-2">${esc(capLabels || 'none')}</span></td>` +
+        `<td class="t">${esc(session.lastSeen || '')}</td>` +
+        `<td><div class="run-controls">` +
+        actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
+        actionsMenu(sessionActions, 'Actions', `session:${session.id}`) +
+        `</div></td>` +
+        `</tr>`;
+    }
+    html += '</tbody></table></div></section>';
+  }
   container.innerHTML = html;
 }
 
@@ -4957,8 +5024,8 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
     <div class="modal-section">
       <input type="hidden" id="cont-split" value="${splitIdentity ? '1' : '0'}">
       <p class="worker-note">${splitIdentity
-        ? 'Create a separate teammate identity from this session using an editable handoff packet. Use this when you intentionally want a split, role change, or parallel successor.'
-        : 'Compact this same teammate identity into a fresh managed backing using an editable packet. The agent ID stays the same. Internal compaction would keep the native runtime session in place, but current Claude/Codex managed adapters do not expose a verified native compact API yet.'}</p>
+        ? 'Create a separate agent identity from this session using an editable handoff packet. Use this when you intentionally want a split, role change, or parallel successor.'
+        : 'Compact this same agent identity into a fresh managed backing using an editable packet. The agent ID stays the same. Internal compaction would keep the native runtime session in place, but current Claude/Codex managed adapters do not expose a verified native compact API yet.'}</p>
       <div class="send-row">
         ${splitIdentity ? '<input type="hidden" id="cont-mode" value="handoff">' : `<div class="form-group"><label>Mode</label><select id="cont-mode" onchange="updateCompactModeUi()">
           <option value="handoff" selected>Handoff (fresh backing)</option>
@@ -4978,7 +5045,7 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
       <div class="form-group cont-handoff-field">
         <label>Editable starting packet</label>
         <textarea id="cont-packet">${esc(packet)}</textarea>
-        <div class="hint">${splitIdentity ? 'Continue as intentionally creates a second teammate identity.' : 'Compact keeps the same agent ID; use Continue as when you want a split/new identity.'} The packet includes session identity plus clipped recent direct messages involving the source agent and channel posts authored by it.</div>
+        <div class="hint">${splitIdentity ? 'Continue as intentionally creates a second agent identity.' : 'Compact keeps the same agent ID; use Continue as when you want a split/new identity.'} The packet includes session identity plus clipped recent direct messages involving the source agent and channel posts authored by it.</div>
       </div>
       <div id="cont-internal-note" class="worker-note" style="display:none">Internal native compaction is not currently supported by the managed Claude Code, Codex, or OpenCode adapters. Use handoff compaction unless a future adapter advertises native support.</div>
       <div class="btn-row">
@@ -5031,10 +5098,10 @@ function viewCompactionHistory(agentId) {
         `<td class="t"${titleAttr(req.subject || '')}>${esc(req.subject || '')}</td>` +
       `</tr>`).join('') +
       `</tbody></table></div>`
-    : '<p class="em">No compaction or continuation history found in the loaded spawn records for this teammate.</p>';
+    : '<p class="em">No compaction or continuation history found in the loaded spawn records for this agent.</p>';
   openModal(`Compaction History · ${agentId}`, `
     <div class="modal-section">
-      <p class="worker-note">Handoff compaction keeps the same teammate identity but creates a fresh managed backing. This history is derived from spawn records and shows the old source session and the new session created by each compact/continue operation.</p>
+      <p class="worker-note">Handoff compaction keeps the same agent identity but creates a fresh managed backing. This history is derived from spawn records and shows the old source session and the new session created by each compact/continue operation.</p>
       ${body}
     </div>`);
 }
@@ -5103,7 +5170,7 @@ Current state:
 Open tasks:
 
 Next contract / wake:
-Who owns the next step, what result proves it is done, and whether this fresh backing should message a teammate or self-schedule follow-up work.`;
+Who owns the next step, what result proves it is done, and whether this fresh backing should message another agent or self-schedule follow-up work.`;
 }
 
 function regenerateContinuePacket(sessionId) {
@@ -5270,13 +5337,13 @@ async function refreshDashboard() {
       orphanAction = actionButton('Clear orphan unread', 'Delete unread messages addressed to agents that no longer exist', 'purgeOrphanUnread()');
     }
     if (managedWorkers.length) {
-      bannerParts.push(`${managedWorkers.length} managed teammate(s) are shown on Team. Identity presence is not the same as a running runtime process; concrete processes are on Sessions.`);
+      bannerParts.push(`${managedWorkers.length} managed agent(s) are shown on Agents. Identity presence is not the same as a running runtime process; concrete processes are on Sessions.`);
     }
     if (hiddenResidentAgents > 0) {
-      bannerParts.push(`${hiddenResidentAgents} offline or compatibility CLI identity row(s) are hidden on Team.`);
+      bannerParts.push(`${hiddenResidentAgents} offline or compatibility CLI identity row(s) are hidden on Agents.`);
       orphanAction += actionButton('Show CLI bindings', 'Show offline/manual CLI identities for cleanup and debugging', 'toggleOfflineManualBindings()');
     } else if (window._showOfflineManualBindings && residentAgents.some(([, info]) => ['offline', 'stale'].includes((info.statusRaw || '').toLowerCase()))) {
-      orphanAction += actionButton('Hide offline CLI', 'Hide offline manual/resident identities from Team', 'toggleOfflineManualBindings()');
+      orphanAction += actionButton('Hide offline CLI', 'Hide offline manual/resident identities from Agents', 'toggleOfflineManualBindings()');
     }
     if (statsRes.dispatch_reply_pending) {
       bannerParts.push(`${statsRes.dispatch_reply_pending} terminal run(s) still have no recorded handoff reply. These are the ones that feel "done but nobody was told".`);

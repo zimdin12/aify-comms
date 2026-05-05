@@ -43,7 +43,7 @@ comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle=
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
 
-Create persistent managed teammates through an environment:
+Create persistent managed agents through an environment:
 
 ```text
 comms_envs()

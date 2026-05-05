@@ -32,9 +32,9 @@ Wrapper auto mode:
 
 - `aify-comms --help` shows launcher usage. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries.
 - Starting a newer bridge for the same environment makes it current and asks the older bridge to exit. A hung old process may still need manual OS cleanup.
-- Killing a bridge stops the execution target, not the teammate identity. Managed teammates become offline/detached; chats, identities, spawn specs, and session records remain.
-- Forgetting an environment hides an obsolete execution target. It does not delete teammates, chats, spawn specs, or session records.
-- To keep a teammate after an environment is gone, assign it to another online environment from Team, then restart it from Sessions.
+- Killing a bridge stops the execution target, not the agent identity. Managed agents become offline/detached; chats, identities, spawn specs, and session records remain.
+- Forgetting an environment hides an obsolete execution target. It does not delete agents, chats, spawn specs, or session records.
+- To keep an agent after an environment is gone, assign it to another online environment from Agents, then restart it from Sessions.
 
 ## CLI Ownership Transfer
 

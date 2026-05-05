@@ -115,7 +115,7 @@ On Windows, the installer creates both a Bash `claude-aify` and a `claude-aify.c
 
 **Cause.** There are two possible causes. The common managed-run cause is using Claude Code's `--session-id` flag for a session that already has a transcript file; `--session-id` is for creating a specific new session, while `--resume <id>` continues an existing one. A less common Windows cause is a stale headless Claude process that still owns the backing session after a crash or duplicate restart.
 
-**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions/Team -> Recreate** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
+**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions/Agents -> Recreate** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
 
 **Resume behavior.** Current bridge builds check for the native Claude JSONL transcript under `.claude/projects/...`. If it exists, dashboard-managed Claude uses `--resume <session-id>`; if it does not, the first turn uses `--session-id <session-id>` to create the stable backing session. Pull latest, rerun the installer, and restart the Windows `aify-comms` bridge so it loads that fix.
 
@@ -248,8 +248,8 @@ If only the thread ID is available, pass `sessionHandle` without `appServerUrl`.
 - Pull latest, reinstall, and restart `aify-comms` so the bridge has graceful offline reporting.
 - Check for leftover processes with `ps -ef | rg 'aify-comms|mcp/stdio/server.js'` on WSL/Linux, or `Get-Process node | Select-Object Id,Path,CommandLine` on Windows.
 - Starting a newer `aify-comms` for the same environment supersedes older bridge heartbeats when both advertise `bridgeStartedAt`; the server also queues a stop control for the older bridge. A fresh bridge ignores stale stop controls that were requested before that bridge started. Old OS processes still need manual cleanup if they are hung and no longer polling, but they should not own spawn claims.
-- Use the dashboard **Kill bridge** action while the bridge is online. Managed teammates from that environment become offline/detached; chats and identities remain. Assign them to another online environment from **Team** or restart the bridge, then recover/restart from **Sessions**.
-- Use **Forget** only to hide an obsolete execution target. Forgetting keeps agent identities, chats, saved spawn specs, and session records; it no longer deletes managed teammates.
+- Use the dashboard **Kill bridge** action while the bridge is online. Managed agents from that environment become offline/detached; chats and identities remain. Assign them to another online environment from **Agents** or restart the bridge, then recover/restart from **Sessions**.
+- Use **Forget** only to hide an obsolete execution target. Forgetting keeps agent identities, chats, saved spawn specs, and session records; it no longer deletes managed agents.
 - If a spawn request is marked `running` but the first brief dispatch failed, current server code repairs it to `failed` on the next spawn-request list refresh.
 
 ## `aify-comms` exits with `environment ... was superseded`

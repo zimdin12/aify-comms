@@ -7,10 +7,10 @@ Initial dashboard sections:
 - **Home**: operational overview and "what needs attention".
 - **Work Loop**: computed reply/work contracts, overdue reminders, self-wakes, and inbox hygiene.
 - **Chat**: direct messages and channel conversations.
-- **Team**: identities and current status.
+- **Agents**: stable identities and current status.
 - **Analytics**: time-filtered communication volume, run health, spawn failures, and live capacity.
 - **Environments**: connected spawn targets.
-- **Sessions**: concrete runtime processes/threads.
+- **Sessions**: concrete runtime processes/threads, grouped under Environments.
 - **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
 - **Runs**: dispatch/run/handoff table.
 - **Artifacts**: shared files and text artifacts.
@@ -19,7 +19,7 @@ Initial dashboard sections:
 
 The dashboard should optimize for daily use first and debugging second. Admin tables are useful, but the default experience should answer "who is available, what is happening, and what do I need to do next?"
 
-Current implementation note: dashboard-spawned managed identities are the primary **Team** surface. Manual `comms_register` rows are shown in a separate Team-page section, and offline manual rows are hidden by default because they are usually stale identity records, not running processes. Channels are managed inside **Chat**, not as a separate top-level workflow.
+Current implementation note: dashboard-spawned managed identities are the primary **Agents** surface. Manual `comms_register` rows are shown in a separate Agents-page section, and offline manual rows are hidden by default because they are usually stale identity records, not running processes. Channels are managed inside **Chat**, not as a separate top-level workflow.
 
 Product mode note: the dashboard UX is live-wake-only. Non-live/message-only compatibility can remain in MCP/API paths for older clients and migration, but normal dashboard views should hide it.
 
@@ -62,7 +62,7 @@ Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, 
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
-Sessions should expose compaction/continuation history from spawn records. A compact keeps the same teammate identity while creating a fresh managed backing; operators need to see the old source session, the new session, status, and handoff subject without digging through the raw spawn queue.
+Sessions should be grouped by Environment and expose compaction/continuation history from spawn records. A compact keeps the same agent identity while creating a fresh managed backing; operators need to see the old source session, the new session, status, and handoff subject without digging through the raw spawn queue.
 
 ## Analytics
 
@@ -79,7 +79,7 @@ Analytics should answer "what happened in this window?" rather than only all-tim
 Settings should be grouped so the page does not become a long maintenance form:
 
 - **Appearance**: dashboard title/brand and accent color scheme. Default title is `AIFY Comms`.
-- **Runtime**: global managed Claude/Codex model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/team flows.
+- **Runtime**: global managed Claude/Codex model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
 - **Work Loop**: reply-contract reminders and history windows.
 - **Maintenance**: retention, shared file limits, refresh cadence, idle/offline thresholds, and rotation.
 
@@ -320,7 +320,7 @@ The run table should be secondary to Chat and Sessions. It is for operational tr
 
 ## Agents Page
 
-Agents are teammate identities, not just current processes.
+Agents are persistent identities, not current processes.
 
 Columns:
 

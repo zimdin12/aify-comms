@@ -32,7 +32,7 @@ Agent sessions are replaceable runtime instances:
 
 One agent can have many sessions over time. The dashboard should show both:
 
-- **Agent**: the teammate identity.
+- **Agent**: the stable comms identity.
 - **Session**: the current or historical concrete runtime backing that teammate.
 
 ## Spawn Spec
@@ -142,7 +142,7 @@ Runtime model defaults and overrides:
 
 - managed Claude Code and Codex model fields are blank by default; blank means the installed runtime chooses its default/latest model
 - managed Claude Code and Codex both default to `high` effort/reasoning effort
-- dashboard settings define operator defaults; normal dashboard spawn/team flows do not tune model/effort per agent
+- dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
 - Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
 - Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set
 

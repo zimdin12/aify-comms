@@ -61,7 +61,7 @@ If you start `aify-comms` again for the same environment before killing an older
 
 If a bridge is superseded immediately after spawning or messaging a managed Claude/Codex agent, update and reinstall the bridge launcher. Older launchers used an inherited `AIFY_ENVIRONMENT_BRIDGE=1` environment variable; managed child MCP servers could inherit it and briefly impersonate the environment bridge from the agent workspace. Current launchers pass `--environment-bridge` only to the real bridge process, and managed child processes strip bridge-only environment variables.
 
-Killing a bridge stops the execution target, not the team identity. Managed teammates that were backed by that environment are marked offline/detached and their active sessions become lost; chats and identity records remain. Restart the bridge, or assign the teammate to another online environment from **Team**, then restart from **Sessions**.
+Killing a bridge stops the execution target, not the agent identity. Managed agents that were backed by that environment are marked offline/detached and their active sessions become lost; chats and identity records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**.
 
 Forgetting an environment hides that execution target from normal dashboard lists. It does not delete agent identities, chats, saved spawn specs, or session records. A forgotten environment can reappear if its bridge starts heartbeating again.
 
@@ -193,13 +193,13 @@ Agent session
 
 Resident -> managed:
 
-1. Open **Team -> Manual / Resident CLI Identities**.
+1. Open **Agents -> Manual / Resident CLI Identities**.
 2. Choose **Edit** or **Actions -> Adopt env**.
 3. Assign an online environment, runtime, and workspace.
 4. Close the old resident CLI tab, or use dashboard **Stop wake** / session **Stop** if you want the resident host process terminated.
 5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately.
 
-This creates or updates managed backing for the same teammate identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
+This creates or updates managed backing for the same agent identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
 
 Managed -> resident CLI:
 
@@ -219,7 +219,7 @@ Claude Code has two different native continuation flags: `--session-id` creates 
 
 Current bridge builds terminate the whole managed runtime process tree when a run is interrupted, stopped, timed out, or when the bridge exits. On WSL/Linux this prevents orphan Codex/OpenCode MCP child processes from keeping stale tool state alive after the parent app-server is gone. On Windows this matters for managed Claude Code because the bridge may launch through `cmd.exe /c claude`; killing only the wrapper process can leave a hidden `claude -p --session-id ...` child behind. If a managed Claude run still reports `Session ID ... is already in use` after the resume check, the Windows bridge searches for a process command line containing the exact locked session ID, excludes interactive `claude-aify` / `--resume` commands, kills that process tree, and retries once. If the session ID is not visible in the process command line, the bridge also checks aify runtime markers for the same workspace and may stop a marked Claude parent only when that parent looks headless (`-p`, `--print`, or `--session-id`). If auto-cleanup still cannot find the owner, search for and stop the stale Claude process manually, then restart the Windows `aify-comms` bridge.
 
-Managed runtime defaults are explicit, symmetric, and global. Managed Claude Code and Codex model fields are blank by default; blank means the installed CLI/runtime chooses its own default/latest model. Both runtimes default to `high` effort/reasoning effort. Configure operator defaults in Dashboard **Settings -> Runtime**. The normal spawn and Team edit flows do not tune model/effort per agent. Claude receives model and effort as per-run `--model` / `--effort` flags when a model is set, and omits `--model` when blank. Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set.
+Managed runtime defaults are explicit, symmetric, and global. Managed Claude Code and Codex model fields are blank by default; blank means the installed CLI/runtime chooses its own default/latest model. Both runtimes default to `high` effort/reasoning effort. Configure operator defaults in Dashboard **Settings -> Runtime**. The normal spawn and Agents edit flows do not tune model/effort per agent. Claude receives model and effort as per-run `--model` / `--effort` flags when a model is set, and omits `--model` when blank. Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set.
 
 Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex uses Codex's unattended bypass sandbox profile by default (`danger-full-access` in app-server terms, equivalent to `codex --dangerously-bypass-approvals-and-sandbox`) because `approvalPolicy=never` plus `workspace-write` can still cancel or wedge MCP calls non-interactively. Use `runtimeConfig.sandboxMode="workspace-write"` only when deliberately debugging permission behavior in a trusted test session.
 

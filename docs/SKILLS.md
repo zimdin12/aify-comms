@@ -40,7 +40,7 @@ Current dashboard behavior reflected by the skills:
 - if a later teammate reply completes a promise to report back to the human outside the current delivered run, managers/operators should send `comms_send(to="dashboard", type="info" or "response", ...)`; dashboard is a store-only human recipient, and backend summary mirroring is only a safety net
 - channel/group messages should prompt bounded discussion: reply when named, responsible, asked a question, or holding useful evidence; avoid broad automatic acknowledgement loops
 - persistent teammates are created through dashboard Environment spawn, `comms_spawn`, or `comms_compact(mode="handoff", ...)`, not ordinary one-off subagents
-- existing resident/manual identities can be adopted from the dashboard Team page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
+- existing resident/manual identities can be adopted from the dashboard Agents page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
 - pending handoffs can be repaired by the dashboard; reviewed historical failures can be dismissed from Home without deleting audit history
 - Work Loop reminders should close the original contract. An agent should not merely acknowledge an automated reminder unless the reminder itself is the task.
 - successful spawn requests may still have status `running` in old/current data; the dashboard labels them as session-started history and hides them from the normal spawn queue
@@ -86,7 +86,7 @@ Dashboard-managed Codex sessions use a separate managed Codex home:
 
 The WSL/Linux bridge now copies the bundled Codex skills into that managed home whenever it prepares a managed Codex run. If a managed Codex teammate says `aify-comms` or `aify-comms-debug` is not exposed as a skill, update/restart the relevant `aify-comms` bridge so it regenerates the managed Codex home, or copy `.agents/skills/aify-comms*` into the managed home's `skills/` directory as a temporary live repair.
 
-Managed runtime defaults are documented in the main skill: Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Dashboard **Settings -> Runtime** sets global operator defaults; normal dashboard spawn/team flows do not tune model/effort per agent.
+Managed runtime defaults are documented in the main skill: Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Dashboard **Settings -> Runtime** sets global operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent.
 
 Current bridge builds terminate the whole managed runtime process tree on timeout, interrupt, stop, and bridge shutdown. This is important for Codex/OpenCode app-server children and Windows Claude wrapper children; stale child processes should not keep agents falsely alive after the owning environment bridge is gone.
 

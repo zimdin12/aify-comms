@@ -11,7 +11,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 5. Tooltips: compact buttons need `title` text explaining what will happen before click.
 6. Read state: read/unread is scoped to the selected chat identity. A manager should not be forced to read every agent's inbox.
 7. Spawn model: `aify-comms` roots are safety boundaries; each agent's exact workspace is selected at spawn time.
-8. Session control: Sessions are concrete runtime backing records; Agents are teammate identities; Runs are tracked work attempts.
+8. Runtime hierarchy: Agents are identities; Environments are host bridges; Sessions are grouped runtime backings inside environments; Runs are tracked work attempts.
 9. Debug surfaces: run/event tables and repair actions remain available but should not dominate daily use.
 10. Issue queue: Home should distinguish live blockers from reviewed history. Pending handoffs get repair actions; historical failed runs/spawns can be dismissed from Home while staying in audit views.
 11. Remaining debt: a dedicated frontend framework, inspector drawer, grouped DMs, richer run/thread linking, and true logs/telemetry views are still future work.
@@ -24,7 +24,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 - **Agents**: managed agent identities spawned or controlled by the bridge, plus a separate manual/resident CLI section. Managed agents may have saved resume state without a currently running process.
 - **Environments**: connected host/WSL/Windows/Linux bridges and the managed-warm spawn form.
 - **Spawn Requests**: active spawn requests and failures. Successful `running` spawn requests are historical "started" records, not active work, and should be hidden by default.
-- **Sessions**: concrete runtime/session backing records. Stop/restart/continue belongs here when a real managed session exists. Ended/completed/cancelled rows are hidden by default and shown only through the debug-history toggle.
+- **Sessions**: concrete runtime/session backing records grouped under Environments. Stop/restart/continue belongs here when a real managed session exists. Ended/completed/cancelled rows are hidden by default and shown only through the debug-history toggle.
 - **Runs**: dispatch attempts, handoff state, events, steering, and interrupts.
 - **Artifacts**: shared files.
 - **Help/Settings**: support and policy surfaces.
