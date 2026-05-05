@@ -207,6 +207,7 @@ tr:hover{background:#19212a}
 .work-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:12px;align-items:start}
 .contract-card{border:1px solid var(--line-soft);border-radius:11px;background:#101214;padding:11px;min-width:0;display:flex;flex-direction:column;gap:8px}
 .contract-card.overdue{border-color:#6a5125;background:#181715}.contract-card.missing_reply,.contract-card.failed{border-color:#6b3030;background:#1a1212}
+.contract-card.dismissed{border-color:#5b4421;background:#181715;opacity:.82}
 .contract-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .contract-route{font-weight:750;color:var(--text);line-height:1.25;min-width:0}
 .contract-subject{color:var(--text);font-size:.9em;line-height:1.3;overflow-wrap:anywhere}
@@ -926,6 +927,7 @@ tr:hover{background:#1b1f21}
       <button class="btn" title="Preview which overdue contracts would receive reminders" onclick="runContractReminders(true)">Preview Reminders</button>
       <button class="btn" title="Mark old dispatched source messages read when a run already claimed/handled them" onclick="repairContractReadReceipts()">Repair Delivered Reads</button>
       <button class="btn" title="Create fallback replies for terminal runs that never recorded a handoff" onclick="repairPendingHandoffs()">Repair Handoffs</button>
+      <button class="btn" title="Unhide every Work Loop contract hidden in this browser. Audit history remains untouched either way." onclick="clearDismissedContracts()">Clear Hidden</button>
     </div>
     <div class="fb">
       <input id="contract-filter" placeholder="Search contracts..." oninput="renderWorkLoop()">
@@ -950,6 +952,10 @@ tr:hover{background:#1b1f21}
       <label class="switch-row" title="Include recently answered/closed contracts. Keep this off for normal operations.">
         <input type="checkbox" id="contract-include-closed" onchange="refreshDashboard()">
         <span>Show answered/closed</span>
+      </label>
+      <label class="switch-row" title="Show contracts hidden from this browser. Hidden contracts are not deleted from Runs or Chat.">
+        <input type="checkbox" id="contract-show-hidden" onchange="setShowHiddenContracts(this.checked)">
+        <span>Show hidden</span>
       </label>
     </div>
     <div class="work-layout">
@@ -1536,6 +1542,7 @@ window._dashboardSettings = {};
 window._analyticsRange = localStorage.getItem('aifyAnalyticsRange') || 'hour';
 if (!['hour', 'day', 'month', 'all'].includes(window._analyticsRange)) window._analyticsRange = 'hour';
 window._showOfflineManualBindings = localStorage.getItem('aifyShowOfflineManualBindings') === '1';
+window._showHiddenContracts = localStorage.getItem('aifyShowHiddenContracts') === '1';
 
 function apiFetch(url, opts = {}) {
   opts.headers = {..._authHeaders, ...(opts.headers || {})};
@@ -2236,6 +2243,50 @@ function toggleIssueMute(key) {
   refreshDashboard();
 }
 
+function dismissedContractKeys() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('aifyDismissedContracts') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function isContractDismissed(contractId) {
+  return dismissedContractKeys().has(String(contractId || ''));
+}
+
+function dismissContract(contractId) {
+  const id = String(contractId || '').trim();
+  if (!id) return;
+  const keys = dismissedContractKeys();
+  keys.add(id);
+  localStorage.setItem('aifyDismissedContracts', JSON.stringify([...keys].slice(-1000)));
+  toast('Contract hidden from Work Loop. Run and chat history remain available.');
+  renderWorkLoop();
+}
+
+function restoreContract(contractId) {
+  const id = String(contractId || '').trim();
+  const keys = dismissedContractKeys();
+  keys.delete(id);
+  localStorage.setItem('aifyDismissedContracts', JSON.stringify([...keys].slice(-1000)));
+  toast('Contract restored');
+  renderWorkLoop();
+}
+
+function clearDismissedContracts() {
+  if (!confirm('Unhide all locally hidden Work Loop contracts?')) return;
+  localStorage.removeItem('aifyDismissedContracts');
+  toast('Hidden Work Loop contracts restored');
+  renderWorkLoop();
+}
+
+function setShowHiddenContracts(show) {
+  window._showHiddenContracts = !!show;
+  localStorage.setItem('aifyShowHiddenContracts', window._showHiddenContracts ? '1' : '0');
+  renderWorkLoop();
+}
+
 function dismissResolvedHomeIssues() {
   const keys = dismissedIssueKeys();
   for (const run of window._allRuns || []) {
@@ -2823,25 +2874,32 @@ function contractPriorityBadge(contract) {
   return priority === 'normal' ? '' : `<span class="contract-pill ${esc(priority)}">${esc(priority)}</span>`;
 }
 
+function workContractStatusText(contract) {
+  const state = contractStateLabel(contract);
+  const status = String(contract.status || '').replace(/_/g, ' ');
+  return state === status || !status ? state : `${state} · run ${status}`;
+}
+
 function contractCard(contract) {
   const state = contract.state || 'sent';
   const category = contract.category || 'direct';
+  const dismissed = isContractDismissed(contract.id);
   const read = contract.sourceReadAt ? `read ${fmtTime(Date.parse(contract.sourceReadAt) || 0)}` : 'not read';
   const reminder = contract.reminderCount ? `${contract.reminderCount} reminder(s)` : 'no reminders';
   const age = Number(contract.ageMinutes || 0);
   const ageText = age >= 60 ? `${Math.round(age / 6) / 10}h old` : `${Math.round(age)}m old`;
   const result = contract.resultPreview ? `<div class="contract-preview"><b>Answer:</b> ${esc(contract.resultPreview)}</div>` : '';
-  return `<article class="contract-card ${esc(state)}" data-run-id="${esc(contract.id)}">` +
+  return `<article class="contract-card ${esc(state)}${dismissed ? ' dismissed' : ''}" data-run-id="${esc(contract.id)}">` +
     `<div class="contract-head">` +
       `<div class="contract-route">${esc(contractRoute(contract))}</div>` +
-      `<span class="contract-pill ${esc(state)}">${esc(contractStateLabel(contract))}</span>` +
+      `<span class="contract-pill ${esc(state)}">${esc(workContractStatusText(contract))}</span>` +
     `</div>` +
     `<div class="contract-subject">${esc(contract.subject || contract.id)}</div>` +
     `<div class="contract-preview">${esc(contract.preview || '')}</div>` +
     result +
     `<div class="contract-meta">` +
       `<span class="contract-pill">${esc(category)}</span>` +
-      `<span class="contract-pill">${esc(contract.status || '')}</span>` +
+      (dismissed ? `<span class="contract-pill">hidden locally</span>` : '') +
       contractPriorityBadge(contract) +
       `<span class="contract-pill">${esc(read)}</span>` +
       `<span class="contract-pill">${esc(ageText)}</span>` +
@@ -2851,6 +2909,9 @@ function contractCard(contract) {
       actionButtonFn('View run', 'Open run details, events, controls, and result', () => viewRun(contract.id)) +
       actionButtonFn('Chat', 'Open direct chat with the target agent', () => openAgentChat(contract.targetAgentId)) +
       (contract.overdue ? actionButtonFn('Remind', 'Send a single overdue-reply reminder for this contract', () => runContractReminders(false, contract.id), 'btn-primary') : '') +
+      (dismissed
+        ? actionButtonFn('Restore', 'Show this contract in the normal Work Loop again', () => restoreContract(contract.id))
+        : actionButtonFn('Hide', 'Hide this contract from Work Loop without deleting run or chat audit history', () => dismissContract(contract.id))) +
     `</div>` +
   `</article>`;
 }
@@ -2861,7 +2922,9 @@ function filteredContracts() {
   const category = document.getElementById('contract-category')?.value || '';
   return (window._contracts || []).filter(contract => {
     const text = `${contract.from} ${contract.targetAgentId} ${contract.subject} ${contract.preview} ${contract.status} ${contract.state}`.toLowerCase();
-    return (!q || text.includes(q)) &&
+    const hidden = isContractDismissed(contract.id);
+    return (window._showHiddenContracts || !hidden) &&
+      (!q || text.includes(q)) &&
       (!state || (state === 'open'
         ? ['sent', 'seen', 'queued', 'working', 'overdue'].includes(contract.state)
         : contract.state === state)) &&
@@ -2880,6 +2943,9 @@ function filteredContracts() {
 function renderWorkLoop() {
   const settings = window._contractSettings || {};
   const contracts = filteredContracts();
+  const hiddenCount = (window._contracts || []).filter(contract => isContractDismissed(contract.id)).length;
+  const showHidden = document.getElementById('contract-show-hidden');
+  if (showHidden) showHidden.checked = !!window._showHiddenContracts;
   const stats = {
     overdue: contracts.filter(contract => contract.overdue).length,
     open: contracts.filter(contract => ['sent', 'seen', 'queued', 'working', 'overdue'].includes(contract.state)).length,
@@ -2895,13 +2961,14 @@ function renderWorkLoop() {
       `<div class="sc"><div class="n">${stats.open || 0}</div><div class="l">Open</div></div>` +
       `<div class="sc"><div class="n">${stats.working || 0}</div><div class="l">Working</div></div>` +
       `<div class="sc"><div class="n">${stats.queued || 0}</div><div class="l">Queued</div></div>` +
-      `<div class="sc${stats.missingReply ? ' warn' : ''}"><div class="n">${stats.missingReply || 0}</div><div class="l">Missing Reply</div></div>`;
+      `<div class="sc${stats.missingReply ? ' warn' : ''}"><div class="n">${stats.missingReply || 0}</div><div class="l">Missing Reply</div></div>` +
+      `<div class="sc${hiddenCount ? ' warn' : ''}"><div class="n">${hiddenCount}</div><div class="l">Hidden</div><div class="s">local browser</div></div>`;
   }
   const contractsEl = document.getElementById('work-contracts');
   if (contractsEl) {
     contractsEl.innerHTML = contracts.length
       ? `<div class="work-list">${contracts.map(contractCard).join('')}</div>`
-      : `<div class="work-empty">No matching work contracts. Free chat still exists; this page shows messages that behave like requests/reviews/work handoffs.</div>`;
+      : `<div class="work-empty">No matching work contracts.${hiddenCount && !window._showHiddenContracts ? ' Some contracts are hidden locally; enable Show hidden or Clear Hidden to review them.' : ' Free chat still exists; this page shows messages that behave like requests/reviews/work handoffs.'}</div>`;
   }
 
   const directUnread = (window._allMsgs || []).filter(message => !message.read && message._to !== 'dashboard').length;
@@ -3745,6 +3812,40 @@ function chatLiveWarning(meta) {
   return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Team', 'Open identity details for this agent', "showPage('workers')")}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
 }
 
+function humanStatusLabel(status) {
+  const text = String(status || 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function humanWakeLabel(wakeMode) {
+  const mode = String(wakeMode || '').toLowerCase();
+  if (mode === 'managed-worker') return 'Dashboard managed';
+  if (mode.endsWith('-live')) return 'Resident live CLI';
+  if (mode === 'message-only') return 'Inbox only';
+  if (mode === 'disabled') return 'Wake disabled';
+  return mode ? humanStatusLabel(mode) : 'Live';
+}
+
+function humanCapabilityLabel(key) {
+  return ({
+    nativeResume: 'Native resume',
+    bridgeResume: 'Bridge resume',
+    cliAttach: 'CLI attach',
+    interrupt: 'Interrupt',
+    streaming: 'Streaming',
+  })[key] || key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()).trim();
+}
+
+function conversationHealthText({meta, messages, agentInfo, session, environment, latestRun}) {
+  if (meta.kind === 'channel') return `${messages.length} message(s) in this channel. Membership controls only affect future delivery.`;
+  if (!agentInfo) return 'This identity has chat history but no current agent registration.';
+  const status = humanStatusLabel(agentInfo.statusRaw || agentInfo.status);
+  const wake = humanWakeLabel(agentInfo.wakeMode);
+  const run = latestRun ? ` Last run: ${humanStatusLabel(latestRun.status)}.` : '';
+  const backing = session ? ` Backed by ${environment?.label || session.environmentId || 'an environment'}.` : ' No managed runtime backing is recorded.';
+  return `${status}. ${wake}.${backing}${run}`;
+}
+
 function toggleChatInspector() {
   window._chatInspectorHidden = !window._chatInspectorHidden;
   if (isCompactChat() && !window._chatInspectorHidden) window._mobileChatRailOpen = false;
@@ -3939,24 +4040,26 @@ function renderChatInspector(meta, messages) {
   const sessionCount = meta.kind === 'dm' ? sessionsForAgent(meta.id).length : 0;
   const environment = session ? (window._environments || []).find(env => env.id === session.environmentId) : null;
   const newest = messages[messages.length - 1] || null;
-  let html = `<dl class="chat-kv">` +
-    `<dt>Type</dt><dd>${esc(meta.kind === 'dm' ? 'Direct message' : 'Channel')}</dd>` +
-    `<dt>ID</dt><dd class="clip-1"${titleAttr(meta.id)}>${esc(meta.id)}</dd>` +
-      `<dt>Messages</dt><dd>${messages.length}</dd>` +
-      `<dt>Viewing as</dt><dd>${esc(chatIdentity())}</dd>` +
-      `<dt>Last msg</dt><dd>${newest ? esc(fmtTime(newest.timestamp)) : 'none'}</dd>`;
+  const healthText = conversationHealthText({meta, messages, agentInfo, session, environment, latestRun});
+  let html = `<p class="worker-note">${esc(healthText)}</p>` +
+    `<dl class="chat-kv">` +
+    `<dt>Conversation</dt><dd>${esc(meta.kind === 'dm' ? `Direct chat with ${meta.id}` : `#${meta.id}`)}</dd>` +
+    `<dt>Viewing as</dt><dd>${esc(chatIdentity())}</dd>` +
+    `<dt>Messages</dt><dd>${messages.length}</dd>` +
+    `<dt>Latest</dt><dd>${newest ? esc(fmtTime(newest.timestamp)) : 'none'}</dd>`;
   if (agentInfo) {
     const status = String(agentInfo.statusRaw || agentInfo.status || 'unknown').toLowerCase();
     const activeRun = agentInfo.dispatchState?.activeRun || null;
-    html += `<dt>Status</dt><dd><span class="status-dot ${esc(status)}"></span>${esc(agentInfo.status || status)}</dd>` +
-      `<dt>Runtime</dt><dd class="clip-1"${titleAttr(agentRuntimeLabel(agentInfo))}>${esc(agentRuntimeLabel(agentInfo))}</dd>` +
-      `<dt>Wake</dt><dd>${esc(agentInfo.wakeMode || 'live')}</dd>` +
-      `<dt>Last seen</dt><dd class="clip-1"${titleAttr(agentInfo.lastSeen || '')}>${esc(agentInfo.lastSeen || '')}</dd>` +
-      `<dt>Unread</dt><dd>${Number(agentInfo.unread || 0)}</dd>`;
-    if (activeRun) html += `<dt>Working</dt><dd class="clip-2"${titleAttr(activeRun.subject || activeRun.runId)}>${esc(activeRun.subject || activeRun.runId)}</dd>`;
+    const conversationUnread = unreadForAgentConversation(meta.id, chatIdentity());
+    html += `<dt>Agent status</dt><dd><span class="status-dot ${esc(status)}"></span>${esc(humanStatusLabel(agentInfo.status || status))}</dd>` +
+      `<dt>Runtime</dt><dd class="clip-1"${titleAttr(agentRuntimeLabel(agentInfo))}>${esc(agentRuntimeLabel(agentInfo) || 'Unknown runtime')}</dd>` +
+      `<dt>Wake path</dt><dd>${esc(humanWakeLabel(agentInfo.wakeMode))}</dd>` +
+      `<dt>Last seen</dt><dd class="clip-1"${titleAttr(agentInfo.lastSeen || '')}>${agentInfo.lastSeen ? esc(fmtTime(agentInfo.lastSeen)) : 'never'}</dd>` +
+      `<dt>Unread here</dt><dd>${conversationUnread} for ${esc(chatIdentity())}</dd>`;
+    if (activeRun) html += `<dt>Current work</dt><dd class="clip-2"${titleAttr(activeRun.subject || activeRun.runId)}>${esc(activeRun.subject || activeRun.runId)}</dd>`;
   }
   if (latestRun) {
-    html += `<dt>Latest run</dt><dd class="clip-2"${titleAttr(latestRun.subject || latestRun.id)}>${esc(latestRun.status)} · ${esc(latestRun.subject || latestRun.id)}</dd>`;
+    html += `<dt>Last run</dt><dd class="clip-2"${titleAttr(latestRun.subject || latestRun.id)}>${esc(humanStatusLabel(latestRun.status))} · ${esc(latestRun.subject || latestRun.id)}</dd>`;
   }
   html += '</dl>';
   if (meta.kind === 'channel') {
@@ -3993,23 +4096,22 @@ function renderChatInspector(meta, messages) {
       const resumeCommand = sessionResumeCommand(session, agentInfo);
       const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming']
         .filter(key => caps[key])
-        .map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()));
+        .map(humanCapabilityLabel);
       const attachNote = runtimeAttachNote(session);
       const freshnessNote = backingFreshnessNote(session, agentInfo);
-      html += '<h3>Managed Backing</h3>' +
+      html += '<h3>Runtime Session</h3>' +
         ((!caps.cliAttach || freshnessNote)
           ? `<div class="banner"><div class="banner-row"><span>${esc([attachNote, freshnessNote].filter(Boolean).join(' '))}</span></div></div>`
           : '') +
         '<dl class="chat-kv">' +
-        `<dt>Backing</dt><dd class="clip-1"${titleAttr(session.id || '')}>${esc(session.id || '')}</dd>` +
-        `<dt>State</dt><dd><span class="status-dot ${esc(sessionStatus)}"></span>${esc(session.status || 'unknown')}</dd>` +
-        `<dt>Env</dt><dd class="clip-1"${titleAttr(session.environmentId || '')}><span class="status-dot ${esc(envStatus)}"></span>${esc(environment?.label || session.environmentId || '')}</dd>` +
+        `<dt>Session</dt><dd class="clip-1"${titleAttr(session.id || '')}>${esc(session.id || '')}</dd>` +
+        `<dt>State</dt><dd><span class="status-dot ${esc(sessionStatus)}"></span>${esc(humanStatusLabel(session.status || 'unknown'))}</dd>` +
+        `<dt>Environment</dt><dd class="clip-1"${titleAttr(session.environmentId || '')}><span class="status-dot ${esc(envStatus)}"></span>${esc(environment?.label || session.environmentId || '')}</dd>` +
         `<dt>Workspace</dt><dd class="clip-2"${titleAttr(session.workspace || '')}>${esc(session.workspace || '')}</dd>` +
-        `<dt>Mode</dt><dd>${esc(session.mode || 'managed-warm')}${caps.cliAttach ? '' : ' · headless'}</dd>` +
-        `<dt>Attach</dt><dd>${esc(caps.cliAttach ? 'CLI attach supported' : 'Dashboard only')}</dd>` +
+        `<dt>Control</dt><dd>${esc(caps.cliAttach ? 'Dashboard + CLI takeover' : 'Dashboard managed')}</dd>` +
         (runtimeHandle ? `<dt>Resume ID</dt><dd class="clip-1"${titleAttr(runtimeHandle)}>${esc(runtimeHandle)}</dd>` : '') +
-        `<dt>Records</dt><dd>${sessionCount}${sessionCount > 1 ? ' backing records' : ' backing record'}</dd>` +
-        `<dt>Caps</dt><dd class="clip-2"${titleAttr(capLabels.join(', '))}>${esc(capLabels.join(', ') || 'none reported')}</dd>` +
+        `<dt>History</dt><dd>${sessionCount}${sessionCount > 1 ? ' session records' : ' session record'}</dd>` +
+        `<dt>Supports</dt><dd class="clip-2"${titleAttr(capLabels.join(', '))}>${esc(capLabels.join(', ') || 'No runtime controls reported')}</dd>` +
         '</dl>' +
         sessionResumeCommandBlock(resumeCommand) +
         '<div class="btn-row">' +
@@ -4020,7 +4122,7 @@ function renderChatInspector(meta, messages) {
         actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart')) +
         `</div>`;
     } else {
-      html += '<h3>Runtime Backing</h3><p class="em">No managed session is recorded for this identity. It may be a manual/resident CLI binding or a historical chat identity.</p>' +
+      html += '<h3>Runtime Session</h3><p class="em">No managed runtime session is recorded for this identity. It may be an open resident CLI, an inbox-only identity, or historical chat.</p>' +
         '<div class="btn-row">' +
         actionButton('Team', 'Open identity management', "showPage('workers')") +
         actionButton('Environments', 'Spawn a managed agent into a connected environment', "showPage('environments')") +
@@ -4385,7 +4487,7 @@ function renderSessions(sessions) {
   let html = '<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th>Agent</th><th>Runtime</th><th>Environment</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>';
   for (const session of visibleSessions) {
     const caps = session.capabilities || {};
-    const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(key => key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase())).join(', ');
+    const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
     const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
     const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
     const resumeCommand = sessionResumeCommand(session, agentInfo);

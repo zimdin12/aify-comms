@@ -53,6 +53,7 @@ It should show:
 - route, subject, age, read state, reminder count, and latest answer preview
 - filters for state, category (`direct`, `channel`, `self-wake`), and free text; the daily default should be open direct contracts, with historical failures, answered items, channel fan-out, and self-wake audits opt-in
 - one-click run detail, chat jump, single-contract reminder, and batch due-reminder actions
+- local hide/restore for noisy historical contracts without deleting the source run or chat audit trail
 - hygiene indicators for old unread fan-out, answered-but-unread source messages, self-wakes, and pending fallback handoffs
 
 Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Reminders should be explicit automated messages, not hidden state changes. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder.
@@ -96,6 +97,7 @@ Chat should feel like a real team messenger:
 - mention support: `@agent`, `@group`, `@channel`
 - quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
 - thread drawer for run details, artifacts, and handoff state
+- conversation details should use operator-readable labels: current viewing identity, unread in this conversation, live wake path, runtime session, environment, workspace, and supported controls. Raw IDs are useful only where they identify a session/resume handle.
 - peek mode: watch a selected conversation without automatically marking incoming messages read; explicit Mark read remains available for direct messages and selected channels
 - channel details: show current members and allow adding/removing known agents from the right-side Members panel; the current viewing identity uses a clear **Leave** action and can be re-added later; add selection must be stable across realtime refreshes
 - artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
