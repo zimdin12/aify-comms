@@ -25,7 +25,7 @@ If every feature fits this model, the product stays coherent.
 ## Product Decisions That Should Not Drift
 
 - Dashboard-spawned agents do not require manual registration.
-- Managed warm is the default teammate mode.
+- Managed warm is the default agent mode.
 - Run-once is advanced/internal, not the main agent model.
 - Resident visible is for human-open CLI sessions such as `codex-aify` / `claude-aify`.
 - Every managed warm agent is persistent/backed.
@@ -149,7 +149,7 @@ Mitigation:
 
 - **Home answers what matters now.** Urgent unread, pending handoffs, failed spawns, lost sessions, degraded bridges.
 - **Chat is where work feels alive.** Messages, dispatch status, handoffs, artifacts, and run state appear inline.
-- **Agents are teammates.** Agents persist beyond one process.
+- **Agents are stable team identities.** Agents persist beyond one process.
 - **Sessions are machinery.** Sessions show runtime/process details and recovery state.
 - **Environments are capacity.** Bridges show what can be spawned where.
 - **Runs are diagnostics.** Useful, but not the primary workflow.

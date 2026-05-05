@@ -256,7 +256,7 @@ Advanced/internal mode for short utility calls:
 - `codex exec "..."`
 - `opencode run "..."`
 
-Run once is not a teammate mode. It can be used internally for tests, probes, or short tasks, but the main dashboard "Spawn Agent" flow should default to managed warm.
+Run once is not the normal persistent agent mode. It can be used internally for tests, probes, or short tasks, but the main dashboard "Spawn Agent" flow should default to managed warm.
 
 ## Capability Model
 

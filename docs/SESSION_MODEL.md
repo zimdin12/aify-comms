@@ -122,7 +122,7 @@ Meaning:
 
 ## Managed Warm
 
-Managed warm is the default dashboard-spawned teammate mode.
+Managed warm is the default dashboard-spawned agent mode.
 
 Behavior:
 
@@ -183,7 +183,7 @@ Resident visible sessions are not the default for dashboard-spawned agents. They
 
 ## Run Once
 
-Run once is not a teammate mode.
+Run once is not the normal persistent agent mode.
 
 Use it for:
 

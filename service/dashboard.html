@@ -965,9 +965,6 @@ h2::after{background:linear-gradient(90deg,var(--accent),var(--secondary),transp
 .nav a:hover,.chat-item:hover,.home-row:hover,.team-tile:hover,.work-card:hover,tr:hover,.mini-row:hover,.chat-global-hit:hover{background:var(--surface-hover);border-color:var(--selection-border)}
 .nav a.active,.chat-item.active,.settings-tabs button.active,.instructions-tabs button.active,.segmented button.active{background:var(--selection-bg);border-color:var(--selection-border);color:var(--text);box-shadow:inset 4px 0 0 var(--accent)}
 .nav a.active::before,.sidebar.collapsed .nav a.active::before{background:var(--accent);box-shadow:0 0 0 4px var(--accent-shadow)}
-.nav a.nav-child{margin-left:14px;position:relative}
-.nav a.nav-child::after{content:"";position:absolute;left:-8px;top:10px;bottom:10px;width:1px;background:var(--selection-border);opacity:.7}
-.nav a.nav-child.active::after{background:var(--accent);opacity:1}
 .settings-tabs button:hover,.instructions-tabs button:hover,.segmented button:hover,.switch-row:hover{background:var(--surface-hover);border-color:var(--selection-border);color:var(--text)}
 .theme-preview:hover{border-color:var(--selection-border);transform:none}
 .theme-preview.active{border-color:var(--selection-border);box-shadow:inset 4px 0 0 var(--accent),0 12px 28px #00000030;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 20%,#101214),color-mix(in srgb,var(--secondary) 18%,#101214),color-mix(in srgb,var(--tertiary) 8%,#101214))}
@@ -1025,8 +1022,6 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 input[type="checkbox"]:checked{background:var(--secondary);border-color:color-mix(in srgb,var(--secondary) 76%,#fff)}
 input[type="checkbox"]::before{background:var(--secondary-contrast)}
 @media (max-width:860px){
-  .nav a.nav-child{margin-left:0}
-  .nav a.nav-child::after{display:none}
   .model-grid{grid-template-columns:1fr}
   .chat-rail-section{padding:9px}
   .chat-rail{overflow:hidden}
@@ -1051,7 +1046,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <a onclick="showPage('analytics')" id="nav-analytics" title="Analytics"><span><b>Analytics</b><small>traffic and health</small></span></a>
     <div class="nav-section">Runtime</div>
     <a onclick="showPage('environments')" id="nav-environments" title="Environments"><span><b>Environments</b><small>spawn targets</small></span></a>
-    <a onclick="showPage('sessions')" id="nav-sessions" class="nav-child" title="Sessions"><span><b>Sessions</b><small>env backings</small></span></a>
+    <a onclick="showPage('sessions')" id="nav-sessions" title="Sessions"><span><b>Sessions</b><small>env backings</small></span></a>
     <a onclick="showPage('dispatches')" id="nav-dispatches" title="Runs"><span><b>Runs</b><small>tracked work</small></span></a>
     <div class="nav-section">Library</div>
     <a onclick="showPage('files')" id="nav-files" title="Artifacts"><span><b>Artifacts</b><small>shared files</small></span></a>
@@ -1540,8 +1535,8 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="guide-card">
           <h4>Resident CLI → Managed</h4>
           <ol>
-            <li>Open <b>Agents → Manual / Resident CLI Identities</b>.</li>
-            <li>Use <b>Edit</b> or <b>Adopt env</b>.</li>
+            <li>Open <b>Agents</b>, then the <b>Manual / Resident CLI Identities</b> section.</li>
+            <li>Use <b>Edit</b> or the row's <b>Actions → Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
             <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
           </ol>
@@ -1561,7 +1556,15 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. <b>Mark read</b> acknowledges a direct message or the selected channel for the selected <b>Viewing as</b> identity.</p>
-      <p><b>Agent communication:</b> keep each message scoped to one ask, result, blocker, or status update. Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed. Dashboard-managed delivered runs answer the current message in final plain text; the bridge captures and threads that answer into chat. Logs, tool output, and run summaries are telemetry, not the team-visible answer. If more work must happen after the current turn, the agent must send the next owner a message or self-schedule before finishing. Resident/live CLI sessions still use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies. Channels are for shared context and bounded discussion: agents should answer when named, responsible, asked a question, or holding useful evidence, not send broad automatic acks.</p>
+      <p><b>Agent communication:</b></p>
+      <ul>
+        <li>Keep each message scoped to one ask, result, blocker, or status update.</li>
+        <li>Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed.</li>
+        <li>Dashboard-managed delivered runs answer the current message in final plain text. Logs, tool output, and run summaries are telemetry, not the team-visible answer.</li>
+        <li>If more work must happen after the current turn, send the next owner a message or self-schedule before finishing.</li>
+        <li>Resident/live CLI sessions use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies.</li>
+        <li>Channels are for bounded shared context: answer when named, responsible, asked a question, or holding useful evidence.</li>
+      </ul>
 
       <h3>Dashboard Settings</h3>
       <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and Agents edit forms do not tune model/effort per agent.</p>
@@ -1765,7 +1768,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </div>
           </section>
       <div class="btn-row">
-        <button type="submit" class="btn btn-primary" title="Save dashboard retention, presence, and refresh settings">Save Settings</button>
+        <button type="submit" class="btn btn-primary" title="Save appearance, runtime, work-loop, retention, presence, and refresh settings">Save Settings</button>
         <button type="button" class="btn" title="Reload settings from the server without saving current edits" onclick="loadSettings()">Reset</button>
       </div>
         </div>

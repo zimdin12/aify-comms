@@ -1518,8 +1518,8 @@ server.tool(
           type: "text",
           text:
             "This is a dashboard-managed run. The agent identity is already registered by the environment bridge, " +
-            "so comms_register is disabled here to avoid converting the managed teammate into a resident CLI identity. " +
-            "Answer the current message in final plain text; use comms_send only for separate teammate/dashboard updates.",
+            "so comms_register is disabled here to avoid converting the managed agent into a resident CLI identity. " +
+            "Answer the current message in final plain text; use comms_send only for separate agent/dashboard updates.",
         }],
         isError: true,
       };

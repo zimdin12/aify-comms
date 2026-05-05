@@ -1,6 +1,6 @@
 # aify-comms Teamwork Reference
 
-Load this file when coordinating an autonomous team, assigning/reviewing lanes, compacting/rebriefing teammates, or diagnosing why the work loop lost momentum.
+Load this file when coordinating an autonomous team, assigning/reviewing lanes, compacting/rebriefing agents, or diagnosing why the work loop lost momentum.
 
 ## Roles
 
