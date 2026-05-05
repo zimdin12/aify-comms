@@ -93,25 +93,36 @@ install_claude_wrapper() {
 set -euo pipefail
 
 CLAUDE_RESUME_ID="\${CLAUDE_SESSION_ID:-}"
+CLAUDE_AUTO=false
+CLAUDE_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
+  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ]; then
+    CLAUDE_AUTO=true
+    continue
+  fi
+  CLAUDE_ARGS+=("\$ARG")
   if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ]; then
     CLAUDE_RESUME_ID="\$ARG"
-    break
-  fi
-  case "\$ARG" in
+  else
+    case "\$ARG" in
     --resume=*|--session-id=*)
       CLAUDE_RESUME_ID="\${ARG#*=}"
-      break
       ;;
-  esac
+    esac
+  fi
   PREV_ARG="\$ARG"
 done
 if [ -n "\$CLAUDE_RESUME_ID" ]; then
   export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
 fi
 
-claude --dangerously-load-development-channels server:aify-comms-channel "\$@"
+CLAUDE_PERMISSION_FLAGS=()
+if [ "\$CLAUDE_AUTO" = true ]; then
+  CLAUDE_PERMISSION_FLAGS+=(--dangerously-skip-permissions)
+fi
+
+claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?
 exit "\$STATUS"
 EOF
@@ -203,19 +214,31 @@ if ! wait_for_port "$PORT"; then
   exit 1
 fi
 
-CODEX_HELP="$(codex --help 2>&1 || true)"
 CODEX_PERMISSION_FLAGS=()
-if grep -q -- "--dangerously-bypass-approvals-and-sandbox" <<<"$CODEX_HELP"; then
-  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
-elif grep -q -- "--ask-for-approval" <<<"$CODEX_HELP" && grep -q -- "--sandbox" <<<"$CODEX_HELP"; then
-  CODEX_PERMISSION_FLAGS+=(--ask-for-approval never --sandbox danger-full-access)
-elif grep -q -- "--full-auto" <<<"$CODEX_HELP"; then
-  CODEX_PERMISSION_FLAGS+=(--full-auto)
-else
-  echo "codex-aify: no recognized non-interactive permission flag found; launching without permission override." >&2
+CODEX_ARGS=()
+CODEX_AUTO=false
+for ARG in "$@"; do
+  if [ "$ARG" = "-auto" ] || [ "$ARG" = "--auto" ]; then
+    CODEX_AUTO=true
+    continue
+  fi
+  CODEX_ARGS+=("$ARG")
+done
+
+if [ "$CODEX_AUTO" = true ]; then
+  CODEX_HELP="$(codex --help 2>&1 || true)"
+  if grep -q -- "--dangerously-bypass-approvals-and-sandbox" <<<"$CODEX_HELP"; then
+    CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
+  elif grep -q -- "--ask-for-approval" <<<"$CODEX_HELP" && grep -q -- "--sandbox" <<<"$CODEX_HELP"; then
+    CODEX_PERMISSION_FLAGS+=(--ask-for-approval never --sandbox danger-full-access)
+  elif grep -q -- "--full-auto" <<<"$CODEX_HELP"; then
+    CODEX_PERMISSION_FLAGS+=(--full-auto)
+  else
+    echo "codex-aify: no recognized non-interactive permission flag found; launching without permission override." >&2
+  fi
 fi
 
-codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "$@"
+codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"

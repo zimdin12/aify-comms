@@ -47,6 +47,14 @@ claude-aify
 That wrapper enables the local aify channel bridge, adds Claude’s current development-channel flag automatically, and records the live resident-session binding so `comms_register` can advertise `claude-live` reliably.
 If Claude says `server:aify-comms-channel · no MCP server configured with that name`, rerun the installer with a real server URL and restart Claude Code.
 
+Add `-auto` when you want the visible resident Claude session to skip permission prompts:
+
+```bash
+claude-aify -auto
+```
+
+The wrapper removes `-auto` before launching Claude and adds `--dangerously-skip-permissions`.
+
 Windows note:
 - If you run the installer from Git Bash on Windows, it installs Bash wrappers plus `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd` and `claude-aify.cmd`, and adds that directory to your user `PATH`.
 - Open a new PowerShell after install. If `aify-comms.cmd` is still not recognized, run `$env:Path += ";$env:USERPROFILE\.local\bin"` for the current window or launch it directly with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd"`.
@@ -56,6 +64,7 @@ Windows note:
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence. When the current Claude process was started with `claude-aify`, that resident session becomes wakeable and steerable through its own local aify channel bridge. This uses Claude Code Channels (`notifications/claude/channel`), not the Codex `turn/steer` API.
+- `claude-aify -auto` adds `--dangerously-skip-permissions`. Without `-auto`, `claude-aify` preserves normal visible CLI permission behavior.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stale/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
 - Delivered dashboard-managed runs should answer the current message in final plain text. The bridge captures and stores/threads that final answer into chat. Treat each message as a small contract and do not rely on stdout/logs/tool output/run summaries as the team-visible answer. Use `comms_send(...)` from managed runs only for separate out-of-band/proactive messages or to schedule the next owner/self-wake; resident/live CLI sessions should still reply to inbox messages with `comms_send(type="response", inReplyTo=...)`.

@@ -44,6 +44,14 @@ codex-aify
 
 That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, launches the visible TUI with `codex --remote ...`, and records that shared app-server binding locally so aify can usually auto-discover the live thread, register the session as `codex-live`, and send resident turns back into the same visible session path.
 
+Add `-auto` when you want the visible resident Codex session to bypass approvals/sandbox prompts:
+
+```bash
+codex-aify -auto
+```
+
+The wrapper removes `-auto` before launching Codex and adds the best permission flag supported by the installed Codex CLI.
+
 Windows note:
 - If you run the installer from Git Bash on Windows, it installs Bash wrappers plus `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd` and `codex-aify.cmd`, and adds that directory to your user `PATH`.
 - Open a new PowerShell after install. If `aify-comms.cmd` is still not recognized, run `$env:Path += ";$env:USERPROFILE\.local\bin"` for the current window or launch it directly with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd"`.
@@ -96,7 +104,7 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The dispatched sender message and final answer both appear in the visible TUI — expected.
-- `codex-aify` probes the installed Codex CLI and uses the best supported non-interactive permission flag. Newer Codex builds may reject the older `--full-auto` alias, so the wrapper prefers `--dangerously-bypass-approvals-and-sandbox`, then explicit `--ask-for-approval never --sandbox danger-full-access`, and only falls back to `--full-auto` when that is the supported option.
+- `codex-aify -auto` probes the installed Codex CLI and uses the best supported non-interactive permission flag. Newer Codex builds may reject the older `--full-auto` alias, so the wrapper prefers `--dangerously-bypass-approvals-and-sandbox`, then explicit `--ask-for-approval never --sandbox danger-full-access`, and only falls back to `--full-auto` when that is the supported option. Without `-auto`, `codex-aify` preserves normal visible CLI permission behavior.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stale/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
 - Delivered dashboard-managed runs should answer the current message in final plain text. The bridge captures and stores/threads that final answer into chat. Treat each message as a small contract and do not rely on stdout/logs/tool output/run summaries as the team-visible answer. Use `comms_send(...)` from managed runs only for separate out-of-band/proactive messages or to schedule the next owner/self-wake; resident/live CLI sessions should still reply to inbox messages with `comms_send(type="response", inReplyTo=...)`.
