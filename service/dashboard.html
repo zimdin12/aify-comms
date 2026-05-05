@@ -289,8 +289,11 @@ a{color:var(--accent-text)}
 .theme-preview-sub{display:block;color:var(--muted);font-size:.68em;font-weight:750;text-transform:uppercase;letter-spacing:.45px;margin-top:7px}
 .theme-preview-swatches{display:grid;grid-template-columns:1.25fr 1.25fr .75fr;gap:5px;align-items:center}
 .theme-preview-swatches span{height:20px;border-radius:999px;border:1px solid #ffffff24;box-shadow:inset 0 1px 0 #ffffff18}
-.secondary-picker{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.secondary-picker input[type="color"]{width:54px;height:34px;padding:3px;border-radius:9px;background:#0a0f15;cursor:pointer}
+.palette-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;max-width:520px}
+.palette-picker{display:grid;grid-template-columns:38px minmax(0,1fr);gap:9px;align-items:center;border:1px solid var(--line-soft);border-radius:11px;background:#101214;padding:9px}
+.palette-picker input[type="color"]{width:38px;height:34px;padding:3px;border-radius:9px;background:#0a0f15;cursor:pointer}
+.palette-picker b{display:block;color:var(--text);font-size:.8em}
+.palette-picker span{display:block;color:var(--subtle);font-size:.7em;margin-top:1px}
 .toast{position:fixed;top:16px;right:16px;background:var(--green);color:#07100a;padding:10px 18px;border-radius:8px;font-size:.85em;display:none;z-index:100;box-shadow:0 12px 36px #0007}
 .modal-backdrop{position:fixed;inset:0;background:#010409cc;display:none;align-items:center;justify-content:center;padding:18px;z-index:90}
 .modal-backdrop.open{display:flex}
@@ -1535,16 +1538,26 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
                 <option value="crimson">Crimson</option>
                 <option value="indigo">Indigo</option>
               </select>
-              <div class="hint">Pick a primary/secondary pair for this dashboard. The tile is the selector; use a different pair per service when multiple dashboards are open.</div>
+              <div class="hint">Preset tiles load the three palette values below. Preview is immediate; reload reverts unless you save.</div>
               <div class="theme-preview-grid" id="theme-preview-grid" aria-label="Color scheme previews"></div>
             </div>
             <div class="form-group">
-              <label>Secondary Color Override</label>
-              <div class="secondary-picker">
-                <input type="color" id="s-dashboard-secondary" value="#74b7ff" oninput="this.dataset.custom='1'; previewSecondaryColor(this.value)" title="Secondary color for soft gradients and selected-chat surfaces">
-                <button type="button" class="btn btn-sm" title="Use the selected color scheme's built-in secondary color" onclick="resetSecondaryColor()">Use scheme default</button>
+              <label>Palette</label>
+              <div class="palette-picker-grid">
+                <label class="palette-picker" title="Primary action and brand color">
+                  <input type="color" id="s-dashboard-primary" value="#51c5b0" oninput="previewAppearanceSettings()">
+                  <span><b>Primary</b><span>actions, brand</span></span>
+                </label>
+                <label class="palette-picker" title="Secondary highlight color">
+                  <input type="color" id="s-dashboard-secondary" value="#74b7ff" oninput="previewAppearanceSettings()">
+                  <span><b>Secondary</b><span>chat, metrics</span></span>
+                </label>
+                <label class="palette-picker" title="Tertiary accent color">
+                  <input type="color" id="s-dashboard-tertiary" value="#dfb156" oninput="previewAppearanceSettings()">
+                  <span><b>Tertiary</b><span>warnings, charts</span></span>
+                </label>
               </div>
-              <div class="hint">Optional. Leave unset to use the selected scheme's secondary color for gradients, selected chats, cards, and select backgrounds.</div>
+              <div class="hint">Use a preset as a starting point, then tune any color directly.</div>
             </div>
           </section>
           <section class="settings-panel" data-settings-panel="maintenance">
@@ -1780,19 +1793,14 @@ function showPage(name, updateHistory = true) {
 function applyDashboardSettings(settings = {}) {
   window._dashboardSettings = {...(window._dashboardSettings || {}), ...settings};
   const titleText = String(window._dashboardSettings.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
-  const theme = String(window._dashboardSettings.dashboard_theme || 'default').trim() || 'default';
-  const secondary = String(window._dashboardSettings.dashboard_secondary_color || '').trim();
+  const theme = currentThemeKey(window._dashboardSettings.dashboard_theme);
   document.title = titleText;
-  document.body.dataset.theme = Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, theme) ? theme : 'default';
-  if (/^#[0-9a-fA-F]{6}$/.test(secondary)) {
-    document.body.style.setProperty('--secondary', secondary);
-  } else {
-    document.body.style.removeProperty('--secondary');
-  }
+  document.body.dataset.theme = theme;
   const brand = document.getElementById('sidebar-brand');
   if (brand) brand.textContent = titleText;
+  setPaletteInputs(paletteFromSettings(window._dashboardSettings, theme));
+  applyPaletteFromInputs();
   renderThemePreviews();
-  syncSecondaryColorInput();
 }
 
 function showSettingsTab(tab) {
@@ -1829,50 +1837,102 @@ function renderThemePreviews() {
         <span style="background:${esc(theme.secondary)}"></span>
         <span style="background:${esc(theme.tertiary)}"></span>
       </span>
-      <span class="theme-preview-sub">primary + secondary</span>
+      <span class="theme-preview-sub">primary + secondary + tertiary</span>
     </button>
   `).join('');
 }
 
 function selectDashboardTheme(theme) {
+  const selected = currentThemeKey(theme);
   const select = document.getElementById('s-dashboard-theme');
-  if (select) select.value = theme;
-  renderThemePreviews();
-  const input = document.getElementById('s-dashboard-secondary');
-  if (input) input.dataset.custom = '';
+  if (select) select.value = selected;
+  setPaletteInputs(DASHBOARD_THEMES[selected]);
   previewAppearanceSettings();
 }
 
-function currentThemeDefaultSecondary() {
-  const theme = document.getElementById('s-dashboard-theme')?.value || window._dashboardSettings?.dashboard_theme || 'default';
-  return DASHBOARD_THEMES[theme]?.secondary || DASHBOARD_THEMES.default.secondary;
+function currentThemeKey(value) {
+  const key = String(value || 'default').trim() || 'default';
+  return Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, key) ? key : 'default';
 }
 
-function previewSecondaryColor(value) {
-  const color = /^#[0-9a-fA-F]{6}$/.test(String(value || '').trim()) ? String(value).trim() : currentThemeDefaultSecondary();
-  document.body.style.setProperty('--secondary', color);
-  syncSecondaryColorInput();
+function normalizedHexColor(value, fallback) {
+  const color = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
 }
 
-function resetSecondaryColor() {
-  const input = document.getElementById('s-dashboard-secondary');
-  if (input) input.dataset.custom = '';
-  document.body.style.removeProperty('--secondary');
-  syncSecondaryColorInput();
+function paletteFromSettings(settings = {}, themeKey = 'default') {
+  const preset = DASHBOARD_THEMES[currentThemeKey(themeKey)] || DASHBOARD_THEMES.default;
+  const localPalette = loadLocalDashboardPalette();
+  return {
+    accent: normalizedHexColor(settings.dashboard_primary_color || localPalette.dashboard_primary_color, preset.accent),
+    secondary: normalizedHexColor(settings.dashboard_secondary_color || localPalette.dashboard_secondary_color, preset.secondary),
+    tertiary: normalizedHexColor(settings.dashboard_tertiary_color || localPalette.dashboard_tertiary_color, preset.tertiary),
+  };
+}
+
+function loadLocalDashboardPalette() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('aifyDashboardPalette') || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalDashboardPalette(palette) {
+  localStorage.setItem('aifyDashboardPalette', JSON.stringify({
+    dashboard_primary_color: normalizedHexColor(palette.dashboard_primary_color, DASHBOARD_THEMES.default.accent),
+    dashboard_secondary_color: normalizedHexColor(palette.dashboard_secondary_color, DASHBOARD_THEMES.default.secondary),
+    dashboard_tertiary_color: normalizedHexColor(palette.dashboard_tertiary_color, DASHBOARD_THEMES.default.tertiary),
+  }));
+}
+
+function setPaletteInputs(palette = {}) {
+  const primary = document.getElementById('s-dashboard-primary');
+  const secondary = document.getElementById('s-dashboard-secondary');
+  const tertiary = document.getElementById('s-dashboard-tertiary');
+  const preset = DASHBOARD_THEMES.default;
+  if (primary) primary.value = normalizedHexColor(palette.accent, preset.accent);
+  if (secondary) secondary.value = normalizedHexColor(palette.secondary, preset.secondary);
+  if (tertiary) tertiary.value = normalizedHexColor(palette.tertiary, preset.tertiary);
+}
+
+function hexLuminance(hex) {
+  const value = normalizedHexColor(hex, '#ffffff').slice(1);
+  const rgb = [0, 2, 4].map(index => {
+    const channel = parseInt(value.slice(index, index + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+}
+
+function applyPalette(primary, secondary, tertiary) {
+  const accent = normalizedHexColor(primary, DASHBOARD_THEMES.default.accent);
+  const second = normalizedHexColor(secondary, DASHBOARD_THEMES.default.secondary);
+  const third = normalizedHexColor(tertiary, DASHBOARD_THEMES.default.tertiary);
+  const contrast = hexLuminance(accent) > 0.45 ? '#06110f' : '#f7fbff';
+  document.body.style.setProperty('--accent', accent);
+  document.body.style.setProperty('--teal', accent);
+  document.body.style.setProperty('--accent-strong', `color-mix(in srgb, ${accent} 72%, #000000)`);
+  document.body.style.setProperty('--accent-hover', `color-mix(in srgb, ${accent} 82%, #ffffff)`);
+  document.body.style.setProperty('--accent-text', hexLuminance(accent) > 0.38 ? accent : `color-mix(in srgb, ${accent} 64%, #ffffff)`);
+  document.body.style.setProperty('--accent-contrast', contrast);
+  document.body.style.setProperty('--secondary', second);
+  document.body.style.setProperty('--blue', second);
+  document.body.style.setProperty('--amber', third);
+}
+
+function applyPaletteFromInputs() {
+  const primary = document.getElementById('s-dashboard-primary')?.value || DASHBOARD_THEMES.default.accent;
+  const secondary = document.getElementById('s-dashboard-secondary')?.value || DASHBOARD_THEMES.default.secondary;
+  const tertiary = document.getElementById('s-dashboard-tertiary')?.value || DASHBOARD_THEMES.default.tertiary;
+  applyPalette(primary, secondary, tertiary);
 }
 
 function previewAppearanceSettings() {
-  const theme = document.getElementById('s-dashboard-theme')?.value || 'default';
-  document.body.dataset.theme = Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, theme) ? theme : 'default';
-  const input = document.getElementById('s-dashboard-secondary');
-  if (input?.dataset.custom === '1') previewSecondaryColor(input.value);
-  else document.body.style.removeProperty('--secondary');
-  syncSecondaryColorInput();
-}
-
-function syncSecondaryColorInput() {
-  const input = document.getElementById('s-dashboard-secondary');
-  if (input && input.dataset.custom !== '1') input.value = currentThemeDefaultSecondary();
+  const theme = currentThemeKey(document.getElementById('s-dashboard-theme')?.value || 'default');
+  document.body.dataset.theme = theme;
+  applyPaletteFromInputs();
   renderThemePreviews();
 }
 
@@ -5789,13 +5849,9 @@ async function loadSettings() {
   applyDashboardSettings(s);
   document.getElementById('s-dashboard-title').value = s.dashboard_title || 'AIFY Comms';
   document.getElementById('s-dashboard-theme').value = s.dashboard_theme || 'default';
-  const secondaryInput = document.getElementById('s-dashboard-secondary');
-  const secondaryColor = String(s.dashboard_secondary_color || '').trim();
-  if (secondaryInput) {
-    secondaryInput.dataset.custom = /^#[0-9a-fA-F]{6}$/.test(secondaryColor) ? '1' : '';
-    secondaryInput.value = secondaryInput.dataset.custom === '1' ? secondaryColor : currentThemeDefaultSecondary();
-  }
-  previewAppearanceSettings();
+  setPaletteInputs(paletteFromSettings(s, s.dashboard_theme || 'default'));
+  applyPaletteFromInputs();
+  renderThemePreviews();
   document.getElementById('s-retention').value = s.retention_days;
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
@@ -5820,12 +5876,16 @@ async function loadSettings() {
 
 async function saveSettings(e) {
   e.preventDefault();
-  const secondaryValue = document.getElementById('s-dashboard-secondary')?.dataset.custom === '1' ? document.getElementById('s-dashboard-secondary').value : '';
+  const palettePayload = {
+    dashboard_primary_color: document.getElementById('s-dashboard-primary').value,
+    dashboard_secondary_color: document.getElementById('s-dashboard-secondary').value,
+    dashboard_tertiary_color: document.getElementById('s-dashboard-tertiary').value,
+  };
   await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
       dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
-      dashboard_secondary_color: secondaryValue,
+      ...palettePayload,
       retention_days: parseInt(document.getElementById('s-retention').value),
       max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
       max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
@@ -5844,6 +5904,7 @@ async function saveSettings(e) {
       reply_reminder_max_count: parseInt(document.getElementById('s-reply-max').value),
       contract_stale_hours: parseInt(document.getElementById('s-contract-stale').value),
     })});
+  saveLocalDashboardPalette(palettePayload);
   toast('Settings saved'); loadSettings();
 }
 

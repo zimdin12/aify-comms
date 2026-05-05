@@ -84,7 +84,9 @@ DEFAULT_SETTINGS = {
     "resident_lease_seconds": 150,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
+    "dashboard_primary_color": "",
     "dashboard_secondary_color": "",
+    "dashboard_tertiary_color": "",
 }
 
 _RUNTIME_ALIASES = {
