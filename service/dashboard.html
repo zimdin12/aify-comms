@@ -5288,7 +5288,7 @@ async function refreshDashboard() {
 
     const bannerParts = [];
     if (statsRes.channel_unread_messages) {
-      bannerParts.push(`${statsRes.channel_unread_messages} unread message(s) came from channels and are shown in Chat, not in the direct-message audit table.`);
+      bannerParts.push(`${statsRes.channel_unread_messages} unread message(s) came from channels and are shown in Chat, not counted as direct-message obligations.`);
     }
     let orphanAction = '';
     if (statsRes.orphan_unread_messages) {

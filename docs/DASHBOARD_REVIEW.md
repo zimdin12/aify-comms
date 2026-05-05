@@ -11,7 +11,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 5. Tooltips: compact buttons need `title` text explaining what will happen before click.
 6. Read state: read/unread is scoped to the selected chat identity. A manager should not be forced to read every agent's inbox.
 7. Spawn model: `aify-comms` roots are safety boundaries; each agent's exact workspace is selected at spawn time.
-8. Runtime hierarchy: agent identities are stable addresses; Environments are host bridges; Sessions are grouped runtime backings inside environments; Runs are tracked work attempts.
+8. Runtime hierarchy: agent identities are stable addresses; Environments are host bridges; Sessions are grouped runtime backings inside environments; Runs are execution/delivery audit records.
 9. Debug surfaces: run/event tables and repair actions remain available but should not dominate daily use.
 10. Issue queue: Home should distinguish live blockers from reviewed history. Pending handoffs get repair actions; historical failed runs/spawns can be dismissed from Home while staying in audit views.
 11. Remaining debt: a dedicated frontend framework, inspector drawer, grouped DMs, richer run/thread linking, and true logs/telemetry views are still future work.
