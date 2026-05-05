@@ -215,7 +215,7 @@ Environment health states:
 - `disabled`: user disabled spawning
 - `unknown`: seen before, no current health data
 
-Spawn queue should show queued/claimed/starting requests and failures by default. Successful `running` spawn request rows mean the request already started a managed session; label them as **session started** and hide them behind **Show successful spawn history** so they do not look like active work.
+Spawn requests should show queued/claimed/starting requests and failures by default. Successful `running` spawn request rows mean the request already produced or updated a managed session; label them as **started** and hide them behind **Show successful spawn history** so they do not look like active work.
 
 ## Sessions Page
 

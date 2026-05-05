@@ -9,7 +9,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-:root{
+:root,body{
   --bg:#08090b;
   --panel:#171819;
   --panel-2:#101214;
@@ -941,6 +941,74 @@ input[type="checkbox"]:checked{
 input[type="checkbox"]:checked::before{transform:scale(1)}
 input[type="checkbox"]:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-shadow)}
 .switch-row input[type="checkbox"],.chat-toggle input[type="checkbox"]{flex:0 0 16px}
+
+/* Consistency pass: primary = strong brand/action, secondary = selected tint/focus,
+   tertiary = fine borders/depth. Status colors stay separate from the palette. */
+:root,body{
+  --selection-bg:color-mix(in srgb,var(--secondary) 14%,transparent);
+  --selection-bg-strong:color-mix(in srgb,var(--secondary) 22%,#101214);
+  --selection-border:color-mix(in srgb,var(--tertiary) 42%,#303437);
+  --surface-hover:color-mix(in srgb,var(--secondary) 8%,#181b1d);
+  --surface-hover-strong:color-mix(in srgb,var(--secondary) 13%,#1b1f21);
+  --accent-soft:var(--selection-bg);
+  --accent-softer:color-mix(in srgb,var(--secondary) 8%,transparent);
+  --accent-border:var(--selection-border);
+  --accent-shadow:color-mix(in srgb,var(--accent) 24%,transparent);
+}
+*{scrollbar-color:color-mix(in srgb,var(--accent) 54%,#4b5359) #101214}
+*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 62%,#3c4449),color-mix(in srgb,var(--secondary) 42%,#3c4449));border-color:#101214}
+*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 76%,#566168),color-mix(in srgb,var(--secondary) 56%,#566168))}
+::selection{background:var(--secondary);color:var(--secondary-contrast)}
+body::before{background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 7%,#0b0d0e) 0%,#08090b 36%,#0c0d0f 66%,color-mix(in srgb,var(--secondary) 8%,#0b0d10) 100%)}
+h2::after{background:linear-gradient(90deg,var(--accent),var(--secondary),transparent)}
+.nav a:hover,.chat-item:hover,.home-row:hover,.team-tile:hover,.work-card:hover,tr:hover,.mini-row:hover,.chat-global-hit:hover{background:var(--surface-hover);border-color:var(--selection-border)}
+.nav a.active,.chat-item.active,.settings-tabs button.active,.instructions-tabs button.active,.segmented button.active{background:var(--selection-bg);border-color:var(--selection-border);color:var(--text);box-shadow:inset 4px 0 0 var(--accent)}
+.nav a.active::before,.sidebar.collapsed .nav a.active::before{background:var(--accent);box-shadow:0 0 0 4px var(--accent-shadow)}
+.settings-tabs button:hover,.instructions-tabs button:hover,.segmented button:hover,.switch-row:hover{background:var(--surface-hover);border-color:var(--selection-border);color:var(--text)}
+.theme-preview:hover{border-color:var(--selection-border);transform:none}
+.theme-preview.active{border-color:var(--selection-border);box-shadow:inset 4px 0 0 var(--accent),0 12px 28px #00000030;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 20%,#101214),color-mix(in srgb,var(--secondary) 18%,#101214),color-mix(in srgb,var(--tertiary) 8%,#101214))}
+.btn{position:relative;z-index:1;border-color:color-mix(in srgb,var(--tertiary) 18%,#34393d);transition:background .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease}
+.btn:hover{background:var(--surface-hover);border-color:var(--selection-border);transform:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--tertiary) 18%,transparent) inset}
+.btn-primary{background:var(--accent);border-color:color-mix(in srgb,var(--accent) 72%,#fff);color:var(--accent-contrast)}
+.btn-primary:hover{background:var(--accent-hover);border-color:color-mix(in srgb,var(--accent-hover) 72%,#fff);color:var(--accent-contrast);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,#fff) inset}
+.actions-menu-panel{z-index:520;background:#101418;border-color:var(--selection-border);box-shadow:0 18px 54px #000d,0 0 0 1px color-mix(in srgb,var(--tertiary) 16%,transparent) inset}
+.actions-menu-panel .btn{justify-content:flex-start;width:100%;text-align:left}
+.actions-table tr:has(.actions-menu[open]){z-index:260}
+.table-wrap{overflow-x:auto;overflow-y:visible;max-width:100%;padding-bottom:2px}
+.actions-table th:last-child,.actions-table td:last-child{position:relative;background:inherit}
+.run-controls{align-items:flex-start;justify-content:flex-start}
+.modal-backdrop{z-index:1000}
+.modal{position:relative;z-index:1001;border-color:var(--selection-border)}
+.toast{z-index:1100}
+.sc .n,.insight-metric,.ops-metric b,.health-card b,.chart-summary b{color:var(--text)}
+.sc.warn .n,.insight-card.warn .insight-metric,.ops-metric.warn b,.health-card.warn b{color:var(--state-working)}
+.ops-metric.bad b,.health-card.bad b{color:var(--state-error)}
+.health-card.good b{color:var(--state-online)}
+.activity-route,.instructions h3,.modal-section h3,.chat-inspector h3,.ch-msg .ch-from,.chat-from{color:var(--accent-text)}
+.chat-shell{isolation:isolate}
+.chat-rail-head{display:flex;flex-direction:column;gap:9px}
+.chat-rail-section{border:1px solid var(--line-soft);border-radius:12px;background:#0c0f11;padding:8px}
+.chat-rail-section summary{list-style:none;cursor:pointer;color:var(--muted);font-size:.72em;font-weight:850;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.chat-rail-section summary::-webkit-details-marker{display:none}
+.chat-rail-section summary::after{content:"";width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .12s ease}
+.chat-rail-section[open] summary{color:var(--text);margin-bottom:8px}
+.chat-rail-section[open] summary::after{transform:rotate(225deg)}
+.chat-rail-section input{margin-top:0!important}
+.chat-filter-row{margin:0;gap:7px}
+.chat-create-channel{margin-top:0}
+.chat-bubble.mine{background:var(--selection-bg);border-color:var(--selection-border)}
+.chat-reply-context{background:var(--selection-bg);border-color:var(--selection-border)}
+.chat-reply-context b{color:var(--accent-text)}
+.chat-composer textarea:focus,.chat-compose-row input:focus,.chat-compose-row select:focus,.chat-rail-head input:focus,.chat-message-search:focus,.modal-form input:focus,.modal-form select:focus,.modal-form textarea:focus{border-color:var(--secondary)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--secondary) 22%,transparent);outline:none}
+select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%),linear-gradient(135deg,var(--selection-bg),transparent)!important}
+input[type="checkbox"]:checked{background:var(--secondary);border-color:color-mix(in srgb,var(--secondary) 76%,#fff)}
+input[type="checkbox"]::before{background:var(--secondary-contrast)}
+@media (max-width:860px){
+  .chat-rail-section{padding:9px}
+  .chat-rail{overflow:hidden}
+  .chat-list{min-height:0}
+  .actions-menu-panel{z-index:520}
+}
 </style>
 </head>
 <body>
@@ -1081,27 +1149,36 @@ input[type="checkbox"]:focus-visible{outline:none;box-shadow:0 0 0 3px var(--acc
     <div class="chat-shell">
       <aside class="chat-rail">
         <div class="chat-rail-head">
-          <input id="chat-filter" placeholder="Search conversations" oninput="renderChatRail()">
-          <input id="chat-global-search" placeholder="Search all loaded inbox messages" oninput="renderGlobalMessageSearch()" style="margin-top:8px">
-          <div class="chat-global-results" id="chat-global-results"></div>
-          <div class="chat-filter-row">
-            <label class="chat-toggle" title="Show only direct chats that have messages with the selected Viewing as identity">
-              <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
-              <span>Open only</span>
-            </label>
-            <label class="chat-toggle" title="Show only agents that are currently live/startable">
-              <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
-              <span>Online only</span>
-            </label>
-            <label class="chat-toggle" title="View chats without marking incoming messages read automatically">
-              <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
-              <span>Peek mode</span>
-            </label>
-          </div>
-          <div class="chat-create-channel">
-            <input id="chat-new-channel" placeholder="New channel">
-            <button class="btn btn-sm" title="Create a channel and join as the selected chat identity" onclick="createChatChannel()">Create</button>
-          </div>
+          <details class="chat-rail-section" data-stable-key="chat-rail:search" open>
+            <summary>Find</summary>
+            <input id="chat-filter" placeholder="Search conversations" oninput="renderChatRail()">
+            <input id="chat-global-search" placeholder="Search all loaded inbox messages" oninput="renderGlobalMessageSearch()" style="margin-top:8px">
+            <div class="chat-global-results" id="chat-global-results"></div>
+          </details>
+          <details class="chat-rail-section" data-stable-key="chat-rail:filters" open>
+            <summary>Filters</summary>
+            <div class="chat-filter-row">
+              <label class="chat-toggle" title="Show only direct chats that have messages with the selected Viewing as identity">
+                <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
+                <span>Open only</span>
+              </label>
+              <label class="chat-toggle" title="Show only agents that are currently live/startable">
+                <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
+                <span>Online only</span>
+              </label>
+              <label class="chat-toggle" title="View chats without marking incoming messages read automatically">
+                <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
+                <span>Peek mode</span>
+              </label>
+            </div>
+          </details>
+          <details class="chat-rail-section" data-stable-key="chat-rail:channels">
+            <summary>Channels</summary>
+            <div class="chat-create-channel">
+              <input id="chat-new-channel" placeholder="New channel">
+              <button class="btn btn-sm" title="Create a channel and join as the selected chat identity" onclick="createChatChannel()">Create</button>
+            </div>
+          </details>
         </div>
         <div class="chat-list" id="chat-list"></div>
       </aside>
@@ -1192,8 +1269,8 @@ input[type="checkbox"]:focus-visible{outline:none;box-shadow:0 0 0 3px var(--acc
     </div>
     <div id="environments-list"></div>
     <div class="fb">
-      <h3>Spawn Queue</h3>
-      <label class="switch-row" title="Show successful historical spawn records. Keep this off for normal work; a running spawn request means the session was started.">
+      <h3>Spawn Requests</h3>
+      <label class="switch-row" title="Show successful historical spawn records. Keep this off for normal work; a started spawn request means the request already produced a managed session.">
         <input type="checkbox" id="show-spawn-history" onchange="setShowSpawnHistory(this.checked)">
         <span>Show successful spawn history</span>
       </label>
@@ -3018,7 +3095,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
     `<section class="home-panel"><div class="home-panel-head"><h3>Active Work</h3><span class="home-tag">${runs.filter(run => ['queued','claimed','running'].includes(run.status)).length} open</span></div><div class="home-panel-list">${activeOrQueuedRuns}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Recent Conversations</h3><span class="home-tag">as ${esc(identity)}</span></div><div class="home-panel-list">${conversationRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Failures</h3><span class="home-tag ${stats.run_failures_24h ? 'bad' : ''}">${stats.run_failures_24h || 0} / 24h</span></div><div class="home-panel-list">${failureRows}</div></section>` +
-    `<section class="home-panel"><div class="home-panel-head"><h3>Spawn Queue</h3><span class="home-tag">${spawnRequests.filter(req => ['queued','claimed','starting'].includes(req.status)).length} pending</span></div><div class="home-panel-list">${pendingSpawnRows}</div></section>` +
+    `<section class="home-panel"><div class="home-panel-head"><h3>Spawn Requests</h3><span class="home-tag">${spawnRequests.filter(req => ['queued','claimed','starting'].includes(req.status)).length} pending</span></div><div class="home-panel-list">${pendingSpawnRows}</div></section>` +
     `<section class="home-panel"><div class="home-panel-head"><h3>Team & Sessions</h3><span class="home-tag">${managedAgents.length} managed</span></div><div class="home-panel-list">${agentRows}${sessionRows}</div></section>` +
     `</div>`;
 }
@@ -4742,7 +4819,7 @@ function setShowSpawnHistory(show) {
 function spawnRequestStatusLabel(req) {
   const status = String(req.status || 'queued').toLowerCase();
   if (status === 'running') {
-    return {label: 'session started', title: 'The spawn request succeeded and produced/updated a managed session. This is history, not an active queued request.'};
+    return {label: 'started', title: 'This spawn request already produced or updated a managed session. It is history, not an active queue item.'};
   }
   if (status === 'cancelled') {
     return {label: 'cancelled', title: 'The request was cancelled before it produced a session.'};

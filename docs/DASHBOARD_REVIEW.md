@@ -23,7 +23,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 - **Chat**: normal communication surface for DMs and channels. The selected **Viewing as** identity controls which messages are marked read, who sends, and which DM can be cleared.
 - **Agents**: managed agent identities spawned or controlled by the bridge, plus a separate manual/resident CLI section. Managed agents may have saved resume state without a currently running process.
 - **Environments**: connected host/WSL/Windows/Linux bridges and the managed-warm spawn form.
-- **Spawn Queue**: active spawn requests and failures. Successful `running` spawn requests are historical "session started" records, not active work, and should be hidden by default.
+- **Spawn Requests**: active spawn requests and failures. Successful `running` spawn requests are historical "started" records, not active work, and should be hidden by default.
 - **Sessions**: concrete runtime/session backing records. Stop/restart/continue belongs here when a real managed session exists. Ended/completed/cancelled rows are hidden by default and shown only through the debug-history toggle.
 - **Runs**: dispatch attempts, handoff state, events, steering, and interrupts.
 - **Artifacts**: shared files.
