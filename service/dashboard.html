@@ -1401,7 +1401,7 @@ Agent session in a specific workspace</div>
         <li><b>Channel:</b> shared room inside Chat. Use it for group broadcasts and team history. It is not a separate top-level workflow.</li>
         <li><b>Agent:</b> persistent identity. Managed agents are dashboard-spawned and recoverable. Manual/resident CLI bindings are human-open compatibility sessions.</li>
         <li><b>Session:</b> concrete runtime backing record for an agent: environment, workspace, process/session handle, resume capability, and lifecycle state.</li>
-        <li><b>Run:</b> tracked execution attempt attached to a message. Use it when you need progress, events, interrupt/steer, failure state, or required handoff tracking.</li>
+        <li><b>Run:</b> execution/delivery audit record attached to a message. Use it when you need events, interrupt/steer, failure state, or handoff tracking.</li>
         <li><b>Work contract:</b> computed obligation from a message/run. It shows who owes a reply, whether the owner is queued/working/overdue/answered, and whether old inbox bookkeeping needs repair.</li>
         <li><b>Artifact:</b> shared file or text blob. Chat can upload a file and insert its reference; the Artifacts page lists and deletes stored artifacts.</li>
       </ul>
@@ -2442,7 +2442,7 @@ function agentSessionLabel(info) {
   if (info?.sessionHandle) return 'resident bound to live handle';
   if (info?.bridgeId || info?.runtimeState?.bridgeInstanceId) return 'resident bridge binding';
   if ((info?.capabilities || []).includes('resident-run')) return 'resident registered';
-  return 'manual / legacy identity';
+  return 'manual / compatibility identity';
 }
 
 function residentControlNote(info) {
@@ -5376,7 +5376,7 @@ function renderRuns(runs, containerId = 'dispatch-runs-table') {
       run.mode === 'require_start'
         ? 'dispatch (require start)'
         : run.mode === 'message_only'
-          ? 'legacy inbox run'
+          ? 'compat inbox run'
           : 'dispatch';
     const mode = `${run.executionMode || 'managed'} / ${modeLabel}`;
     html += `<tr>` +

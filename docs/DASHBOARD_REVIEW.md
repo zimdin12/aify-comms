@@ -2,7 +2,7 @@
 
 This dashboard is now treated as the product surface, not as a raw admin page.
 
-## Ten Review Lenses
+## Review Lenses
 
 1. Product fit: daily work should start from Control, Chat, Work Loop, Environments, and Sessions. Legacy duplicate send/spawn forms should not be on Home.
 2. Navigation: Home is an overview; Sessions is the main runtime/identity management surface. The Identity Directory is on demand for roles, resident bindings, adoption, and cleanup.

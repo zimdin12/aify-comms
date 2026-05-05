@@ -17,7 +17,7 @@ For a multi-agent workflow, the user needs a control room:
 
 ## Product Goal
 
-Build a headless agent bridge where connected environments are treated as execution capacity and agents are treated as managed, observable sessions.
+Build a control plane where connected environments are treated as execution capacity and agent identities are backed by managed, observable sessions.
 
 Messages are the work interface. Runs, sessions, bridges, handoffs, artifacts, and environment state are operational telemetry and controls around that message flow.
 
