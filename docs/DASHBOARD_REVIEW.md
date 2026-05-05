@@ -5,7 +5,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 ## Ten Review Lenses
 
 1. Product fit: daily work should start from Chat, Agents, Environments, and Sessions. Legacy duplicate send/spawn forms should not be on Home.
-2. Navigation: Home is an overview; Agents means managed dashboard-spawned teammates; manual CLI bindings are labeled separately.
+2. Navigation: Home is an overview; Agents means persistent identities; manual CLI bindings are labeled separately.
 3. Wording: avoid "resident session" for stale/manual rows because it implies a live process.
 4. Action safety: offline manual identities do not show Stop. Stop/disable language must say whether it affects wake/dispatch or a real runtime process.
 5. Tooltips: compact buttons need `title` text explaining what will happen before click.
@@ -62,5 +62,5 @@ Remaining high-value fixes:
 2. **Replace remaining browser prompts**: steering, restart instructions, pagination, and some destructive confirmations still use `prompt()`/`confirm()`. Move these to proper modals/drawers.
 3. **Group chat policy**: channels exist, but loop budgets, auto-reply controls, and private multi-agent groups are still not fully modeled.
 4. **Unread semantics**: read marking is scoped to "Viewing as", which is correct, but unread counts need a clearer per-identity/global distinction in Home and Chat.
-5. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting teammate identity/session/spec records. Remaining polish: show clearer banners for detached teammates.
+5. **Environment cleanup UX**: bridge replacement now makes the newer bridge current and queues a stop for the old bridge. Fresh bridges ignore stale stop controls that predate their own start time, so reconnecting should not immediately kill the new process. Forget hides an obsolete execution target without deleting agent identity/session/spec records. Remaining polish: show clearer banners for detached agents.
 6. **Frontend structure**: `service/dashboard.html` is now very large. Extracting API/client/state/render modules or moving to a small SPA would reduce regression risk.

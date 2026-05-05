@@ -2,7 +2,7 @@
 
 Dashboard-driven communication and control plane for AI coding teams.
 
-`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run an `aify-comms` bridge in each execution environment, open the dashboard, spawn persistent managed teammates into chosen workspaces, then coordinate through chat.
+`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run an `aify-comms` bridge in each execution environment, open the dashboard, spawn persistent managed agents into chosen workspaces, then coordinate through chat.
 
 The dashboard is the product surface. Messages are the work interface; runs, sessions, bridges, and handoffs are operational telemetry around those messages.
 
@@ -43,7 +43,7 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 ## Managed And Resident Modes
 
-Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn teammates from the dashboard. Managed teammates have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
+Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed agents have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
 
 Use **resident mode** when you intentionally open a real Claude/Codex terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
 
@@ -53,7 +53,7 @@ Normal dashboard chat is live-delivery gated for unreachable targets: offline, s
 
 The **Work Loop** page turns message/run state into operational contracts: who asked, who owns the reply, whether the run is queued/working/overdue/answered, and whether old read receipts or handoffs need repair. It does not replace chat; it makes the implicit obligations in chat visible enough for an autonomous team to keep moving without guessing from raw unread counts.
 
-Reliable compaction in `aify-comms` means creating a fresh managed backing from an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, and OpenCode, and it defaults to the same agent ID so chats and team identity remain stable. Native in-place compaction is runtime-adapter dependent; current managed Claude Code and Codex adapters do not expose a verified internal compact API.
+Reliable compaction in `aify-comms` means creating a fresh managed backing from an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, and OpenCode, and it defaults to the same agent ID so chats and agent identity remain stable. Native in-place compaction is runtime-adapter dependent; current managed Claude Code and Codex adapters do not expose a verified internal compact API.
 
 ## Current State
 

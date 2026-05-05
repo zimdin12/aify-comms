@@ -33,7 +33,7 @@ Agent sessions are replaceable runtime instances:
 One agent can have many sessions over time. The dashboard should show both:
 
 - **Agent**: the stable comms identity.
-- **Session**: the current or historical concrete runtime backing that teammate.
+- **Session**: the current or historical concrete runtime backing for that identity.
 
 ## Spawn Spec
 
@@ -82,7 +82,7 @@ Native runtime handles must not be silently discarded. If a Claude session ID is
 
 Native runtime handles also must not be silently invented during ordinary recovery. A new Claude session ID, Codex thread ID, or OpenCode session ID is expected only when:
 
-- the operator creates a new managed teammate through spawn
+- the operator creates a new managed agent through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
 - the operator explicitly chooses **Recreate**
 

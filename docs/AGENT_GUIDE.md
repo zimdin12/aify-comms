@@ -93,4 +93,4 @@ Keep only two skills unless the workflow clearly demands another:
 - `aify-comms`: normal operating guide
 - `aify-comms-debug`: failure recovery and known issues
 
-Do not teach agents to use silent/inbox-only paths as the default. New persistent teammates should be created through `comms_spawn` or dashboard Environment spawn, not ad hoc one-off launch paths. Phase-change compaction should use dashboard **Compact** or `comms_compact(mode="handoff", ...)`, which starts a fresh backing from a handoff packet and keeps the same agent identity unless the operator intentionally chooses a new ID.
+Do not teach agents to use silent/inbox-only paths as the default. New persistent agent identities should be created through `comms_spawn` or dashboard Environment spawn, not ad hoc one-off launch paths. Phase-change compaction should use dashboard **Compact** or `comms_compact(mode="handoff", ...)`, which starts a fresh backing from a handoff packet and keeps the same agent identity unless the operator intentionally chooses a new ID.

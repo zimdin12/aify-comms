@@ -19,13 +19,13 @@ The main `aify-comms/SKILL.md` is intentionally small. Routine chat and managed 
 
 This keeps normal agent turns cheaper while preserving the operational detail when an agent actually needs it.
 
-Agents create persistent comms-visible teammates through `comms_envs(...)` and `comms_spawn(...)`, the same environment-backed path used by dashboard **Environments -> Spawn Agent**. Agents can also use `comms_compact(mode="handoff", ...)` to create a fresh managed backing from an existing managed agent when a phase changes or context gets noisy; the default handoff identity is the same agent ID. Private subagents should report back to their parent unless the user explicitly wants a new persistent teammate.
+Agents create persistent comms-visible identities through `comms_envs(...)` and `comms_spawn(...)`, the same environment-backed path used by dashboard **Environments -> Spawn Agent**. Agents can also use `comms_compact(mode="handoff", ...)` to create a fresh managed backing from an existing managed agent when a phase changes or context gets noisy; the default handoff identity is the same agent ID. Private subagents should report back to their parent unless the user explicitly wants a new persistent agent identity.
 
 `aify-comms-debug` is the troubleshooting guide for stale bridges, failed dispatch, wrong wake mode, Codex path/session problems, and Claude channel issues. It should stay separate so routine agents do not need to load the longer failure catalog unless something breaks.
 
 Current dashboard behavior reflected by the skills:
 
-- managed mode is the default persistent-team path: run the `aify-comms` environment bridge, spawn teammates from the dashboard or `comms_spawn(...)`, and let the dashboard own lifecycle/restart/compact
+- managed mode is the default persistent-agent path: run the `aify-comms` environment bridge, spawn agents from the dashboard or `comms_spawn(...)`, and let the dashboard own lifecycle/restart/compact
 - resident mode is a deliberate visible-terminal path: start `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when the CLI should temporarily own a live session; if launched without an ID, register manually from that same session
 - normal teamwork uses `comms_send`; `comms_dispatch` is a lower-level debug/run-control tool
 - every message is treated as a small contract: owner, expected action or answer, evidence/result needed, and whether a reply or follow-up wake is owed
@@ -43,7 +43,7 @@ Current dashboard behavior reflected by the skills:
 - existing resident/manual identities can be adopted from the dashboard Agents page by opening **Edit** and assigning an online environment/runtime/workspace; agents should still close or stop the old CLI session for that same ID after adoption
 - pending handoffs can be repaired by the dashboard; reviewed historical failures can be dismissed from Home without deleting audit history
 - Work Loop reminders should close the original contract. An agent should not merely acknowledge an automated reminder unless the reminder itself is the task.
-- successful spawn requests may still have status `running` in old/current data; the dashboard labels them as session-started history and hides them from the normal spawn queue
+- successful spawn requests may still have status `running` in old/current data; the dashboard labels them as started history and hides them from the normal spawn-request list
 - ended/completed/cancelled session rows are debug history and are hidden by default in Sessions
 
 ## Install Or Update

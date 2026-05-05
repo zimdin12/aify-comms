@@ -32,7 +32,9 @@ html,body{height:100%;overflow:hidden}
   --accent-hover:#2a8979;
   --accent-text:#77d6c7;
   --accent-contrast:#06110f;
+  --secondary-text:#a9d1ff;
   --secondary-contrast:#06110f;
+  --tertiary-text:#e9c77a;
   --tertiary-contrast:#06110f;
   --accent-soft:color-mix(in srgb,var(--secondary) 15%,transparent);
   --accent-softer:color-mix(in srgb,var(--secondary) 7%,transparent);
@@ -631,14 +633,13 @@ tr:hover{background:#1b1f21}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
 .table-wrap{width:100%;max-width:100%;overflow:visible}
 .sessions-grid{table-layout:fixed}
-.sessions-grid th:nth-child(1),.sessions-grid td:nth-child(1){width:18%}
-.sessions-grid th:nth-child(2),.sessions-grid td:nth-child(2){width:12%}
-.sessions-grid th:nth-child(3),.sessions-grid td:nth-child(3){width:15%}
-.sessions-grid th:nth-child(4),.sessions-grid td:nth-child(4){width:17%}
-.sessions-grid th:nth-child(5),.sessions-grid td:nth-child(5){width:9%}
-.sessions-grid th:nth-child(6),.sessions-grid td:nth-child(6){width:14%}
-.sessions-grid th:nth-child(7),.sessions-grid td:nth-child(7){width:9%}
-.sessions-grid th:nth-child(8),.sessions-grid td:nth-child(8){width:118px}
+.sessions-grid th:nth-child(1),.sessions-grid td:nth-child(1){width:19%}
+.sessions-grid th:nth-child(2),.sessions-grid td:nth-child(2){width:13%}
+.sessions-grid th:nth-child(3),.sessions-grid td:nth-child(3){width:29%}
+.sessions-grid th:nth-child(4),.sessions-grid td:nth-child(4){width:10%}
+.sessions-grid th:nth-child(5),.sessions-grid td:nth-child(5){width:17%}
+.sessions-grid th:nth-child(6),.sessions-grid td:nth-child(6){width:12%}
+.sessions-grid th:nth-child(7),.sessions-grid td:nth-child(7){width:118px}
 .compact-table{table-layout:fixed}
 .compact-table td,.compact-table th{overflow:hidden}
 @media (max-width:1100px){.analytics-layout{grid-template-columns:1fr}.analytics-wide{grid-column:auto}}
@@ -1262,7 +1263,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="page-head-row">
       <h2>Agents</h2>
       <div class="btn-row">
-        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openTeamSpawn()">Add managed agent</button>
+        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openAgentSpawn()">Add managed agent</button>
       </div>
     </div>
     <p class="worker-note">Agents are stable identities: ID, role, inbox, chats, saved resume state, and routing policy. They are not the same as Sessions. Sessions are concrete Claude/Codex/OpenCode runtime backings hosted by Environments.</p>
@@ -1887,7 +1888,7 @@ function showPage(name, updateHistory = true) {
   if (name === 'dashboard') renderHomeFromState();
   if (name === 'work') renderWorkLoop();
   if (name === 'instructions') showInstructionsTab(localStorage.getItem('aifyInstructionsTab') || 'overview');
-  if (name === 'workers') renderTeamFromState();
+  if (name === 'workers') renderAgentsFromState();
   if (name === 'environments') {
     renderEnvironments(window._environments || []);
     renderSpawnRequests(window._spawnRequests || []);
@@ -2022,14 +2023,18 @@ function applyPalette(primary, secondary, tertiary) {
   const contrast = hexLuminance(accent) > 0.45 ? '#06110f' : '#f7fbff';
   const secondaryContrast = hexLuminance(second) > 0.45 ? '#06110f' : '#f7fbff';
   const tertiaryContrast = hexLuminance(third) > 0.45 ? '#06110f' : '#f7fbff';
+  const secondaryText = hexLuminance(second) > 0.38 ? second : `color-mix(in srgb, ${second} 64%, #ffffff)`;
+  const tertiaryText = hexLuminance(third) > 0.38 ? third : `color-mix(in srgb, ${third} 64%, #ffffff)`;
   document.body.style.setProperty('--accent', accent);
   document.body.style.setProperty('--accent-strong', `color-mix(in srgb, ${accent} 72%, #000000)`);
   document.body.style.setProperty('--accent-hover', `color-mix(in srgb, ${accent} 82%, #ffffff)`);
   document.body.style.setProperty('--accent-text', hexLuminance(accent) > 0.38 ? accent : `color-mix(in srgb, ${accent} 64%, #ffffff)`);
   document.body.style.setProperty('--accent-contrast', contrast);
   document.body.style.setProperty('--secondary', second);
+  document.body.style.setProperty('--secondary-text', secondaryText);
   document.body.style.setProperty('--secondary-contrast', secondaryContrast);
   document.body.style.setProperty('--tertiary', third);
+  document.body.style.setProperty('--tertiary-text', tertiaryText);
   document.body.style.setProperty('--tertiary-contrast', tertiaryContrast);
 }
 
@@ -2852,7 +2857,7 @@ function renderWorkers(workers) {
   document.getElementById('workers-table').innerHTML = html;
 }
 
-function openTeamSpawn() {
+function openAgentSpawn() {
   showPage('environments');
   if ((window._environments || []).length) {
     const online = (window._environments || []).find(env => env.status === 'online') || window._environments[0];
@@ -3257,7 +3262,7 @@ function renderHomeFromState() {
   );
 }
 
-function renderTeamFromState() {
+function renderAgentsFromState() {
   const residentAgents = window._residentAgents || [];
   const visibleResidentAgents = residentAgents.filter(([, info]) => shouldShowManualBinding(info));
   renderAgents(visibleResidentAgents, 'manual-agents-table');
@@ -3267,7 +3272,7 @@ function renderTeamFromState() {
 async function renderCurrentPageFromState() {
   if (currentPage === 'dashboard') renderHomeFromState();
   if (currentPage === 'work') renderWorkLoop();
-  if (currentPage === 'workers') renderTeamFromState();
+  if (currentPage === 'workers') renderAgentsFromState();
   if (currentPage === 'environments') {
     renderEnvironments(window._environments || []);
     renderSpawnRequests(window._spawnRequests || []);

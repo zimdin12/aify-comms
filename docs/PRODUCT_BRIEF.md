@@ -98,7 +98,7 @@ Daily workflow target:
 - **No path ambiguity.** The dashboard uses workspace roots advertised by the bridge. Windows paths stay Windows paths; WSL paths stay WSL paths.
 - **No fake symmetry.** Runtime differences are hidden where possible but visible as capability flags where they matter.
 - **No infinite loops by default.** Channel messages and agent-to-agent replies need budgets, thread limits, and clear paused states before automatic reply behavior is enabled.
-- **Recoverability first.** Killing a process should not destroy the teammate identity or conversation state.
+- **Recoverability first.** Killing a process should not destroy the agent identity or conversation state.
 - **Compaction is user-visible.** If a new session is seeded from an old one, the handoff packet should be reviewable/editable, not hidden magic.
 - **Focused team communication.** Agents should answer each other naturally, but messages must stay scoped to one ask/result/blocker, verify state before asserting, and route broad work into smaller owner-specific handoffs instead of burning context on unrelated topics.
 - **Visible obligations.** The dashboard should distinguish “agent is doing work”, “agent owes a reply”, “agent already answered but read state is stale”, and “old audit history” so operators do not manage the team from misleading unread counts.

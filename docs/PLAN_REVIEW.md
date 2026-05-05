@@ -14,8 +14,8 @@ The strongest mental model is:
 Dashboard = command center
 Bridge = connected execution capacity
 Environment = where native processes can run
-Agent = stable teammate identity
-Session = current runtime backing for that teammate
+Agent = stable identity
+Session = current runtime backing for that identity
 Spawn spec = durable recipe to recreate the session
 Conversation backing = durable memory/transcript continuity
 ```

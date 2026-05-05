@@ -102,7 +102,7 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 
 - `comms_compact(mode="handoff", agentId="...")` is the reliable path today. It creates a fresh managed backing from a compact handoff packet and defaults to the same agent ID.
 - `mode="internal"` requests native in-place compact and may be unsupported. Current managed Claude Code and Codex adapters do not expose a verified headless native compact API.
-- Dashboard **Compact** keeps the same teammate identity; **Continue as** intentionally creates a separate identity.
+- Dashboard **Compact** keeps the same agent identity; **Continue as** intentionally creates a separate identity.
 
 ## Tool Map
 
