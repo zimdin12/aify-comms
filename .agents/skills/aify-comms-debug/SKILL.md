@@ -189,7 +189,7 @@ Current managed Codex config also sets `tool_timeout_sec = 25`, `disabled_tools 
 
 **Bad root artifacts.** Older launchers could accidentally treat `--help` or another flag-like argument as an advertised workspace root. Current launchers make `aify-comms --help` print usage and reject unknown options, and the service ignores flag-like roots from stale heartbeats. If an environment still shows a root like `--help`, restart the bridge after reinstalling, or edit/reset the environment roots in the dashboard.
 
-**Cause (Claude resident).** On older bridge code, the channel bridge claimed dispatch runs and left them `running` indefinitely — it had no way to track Claude's progress. On current code, the channel bridge completes runs immediately on delivery, so this failure mode no longer occurs for Claude agents. If you still see it, the bridge is running pre-fix code — `git pull` and restart `claude-aify`.
+**Cause (Claude resident).** On older bridge code, the channel bridge claimed run records and left them `running` indefinitely — it had no way to track Claude's progress. On current code, the channel bridge completes runs immediately on delivery, so this failure mode no longer occurs for Claude agents. If you still see it, the bridge is running pre-fix code — `git pull` and restart `claude-aify`.
 
 **Auto-recovery (current build).** When a replacement bridge polls `/dispatch/claim` for the same agent, the server gives a recently claimed run a short grace window before declaring it stale. During that window the replacement bridge sees `blockedBy.reason = "active_run_owned_by_previous_bridge"` and should retry. If the previous bridge does not finish, the server then marks the orphaned run failed automatically and existing queued run-control work may be claimed normally. Normal `comms_send` will not create additional queued work while the target is blocked.
 
@@ -249,7 +249,7 @@ If only the thread ID is available, pass `sessionHandle` without `appServerUrl`.
 - Check for leftover processes with `ps -ef | rg 'aify-comms|mcp/stdio/server.js'` on WSL/Linux, or `Get-Process node | Select-Object Id,Path,CommandLine` on Windows.
 - Starting a newer `aify-comms` for the same environment supersedes older bridge heartbeats when both advertise `bridgeStartedAt`; the server also queues a stop control for the older bridge. A fresh bridge ignores stale stop controls that were requested before that bridge started. Old OS processes still need manual cleanup if they are hung and no longer polling, but they should not own spawn claims.
 - Use the dashboard **Kill bridge** action while the bridge is online. Managed agents from that environment become offline/detached; chats and identities remain. Assign them to another online environment from **Sessions -> Identity Directory** or restart the bridge, then recover/restart from **Sessions**.
-- Use **Forget** only to hide an obsolete execution target. Forgetting keeps agent identities, chats, saved spawn specs, and session records; it no longer deletes managed agents.
+- Use **Forget** only to hide an obsolete execution target. Forgetting keeps agent identities, chats, saved spawn specs, and session records; it no longer deletes managed identities.
 - If a spawn request is marked `running` but the first brief dispatch failed, current server code repairs it to `failed` on the next spawn-request list refresh.
 
 ## `aify-comms` exits with `environment ... was superseded`

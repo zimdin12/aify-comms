@@ -2,7 +2,7 @@
 
 Dashboard-driven communication and control plane for AI coding teams.
 
-`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run an `aify-comms` bridge in each execution environment, open the dashboard, spawn persistent managed agents into chosen workspaces, then coordinate through chat.
+`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run an `aify-comms` bridge in each execution environment, open the dashboard, spawn persistent managed identities into chosen workspaces, then coordinate through chat.
 
 The dashboard is the product surface. Messages are the work interface; runs, sessions, bridges, and handoffs are operational telemetry around those messages.
 
@@ -12,18 +12,18 @@ The intended team behavior is conversational but disciplined: dashboard direct c
 
 `aify-comms` keeps the original communication core:
 
-- direct messages, channels, inboxes, dispatch runs, handoffs, and shared artifacts
+- direct messages, channels, inboxes, execution/run audit records, handoffs, and shared artifacts
 - host-side bridges for Claude Code, Codex, and OpenCode
 - resident session wakeups and environment-backed managed sessions
 - dashboard-backed operational visibility
 
-It now adds a first-class agent lifecycle layer:
+It now adds a first-class identity/session lifecycle layer:
 
 - connected environment registry: WSL, Windows, Linux, Docker host, remote machine
 - spawn from dashboard into any connected environment
 - runtime adapters for Claude Code, Codex, and OpenCode managed/resident execution
 - automatic identity/registration for spawned agents
-- managed-warm sessions for long-lived agents
+- managed-warm sessions for long-lived agent identities
 - portable compact/continue into fresh managed backings when a phase changes or context gets noisy
 - Work Loop contracts for overdue replies, self-wakes, missing handoffs, and inbox hygiene
 - runtime/session visibility, with token/cost telemetry shown only when runtimes expose it
@@ -43,7 +43,7 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 ## Managed And Resident Modes
 
-Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed agents have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
+Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
 
 Use **resident mode** when you intentionally open a real Claude/Codex terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
 
@@ -122,7 +122,7 @@ Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. 
 
 ## Design Rule
 
-Messaging remains the source of truth. A dispatch/run is a delivery/execution attempt attached to a message, not a separate communication concept.
+Messaging remains the source of truth. A run is a delivery/execution attempt attached to a message, not a separate communication concept.
 
 Managed warm agents are also always backed: the system stores identity, spawn spec, workspace, runtime state, transcript/memory, and recovery policy. Native runtime session handles are used when available; otherwise the bridge emulates continuity from stored transcript and summaries.
 

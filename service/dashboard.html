@@ -1553,8 +1553,8 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <li><code>POST /api/v1/messages/{id}/read</code> — Mark one message read/unread for its recipient</li>
         <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
         <li><code>POST /api/v1/messages/conversation/clear</code> — Clear a direct chat between two identities</li>
-        <li><code>POST /api/v1/dispatch</code> — Queue active work for triggerable manual sessions or managed agents</li>
-        <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a dispatch run, events, and controls</li>
+        <li><code>POST /api/v1/dispatch</code> — Create a tracked delivery/run for triggerable resident sessions or managed identities</li>
+        <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a run record, events, and controls</li>
         <li><code>POST /api/v1/dispatch/runs/{id}/control</code> — Request interrupt or steer for an active run</li>
         <li><code>GET /api/v1/contracts</code> — Computed work contracts over messages/runs</li>
         <li><code>POST /api/v1/contracts/reminders/run</code> — Send overdue reply reminders</li>
@@ -2734,7 +2734,7 @@ function residentAgentsTableHtml(agents) {
     } else {
       controls.push(actionButtonFn('Stop wake', 'Disable wake/dispatch for this resident identity and ask its live bridge to terminate the host CLI/app process where possible.', () => controlResidentAgent(id, 'stop'), 'btn-danger'));
     }
-    controls.push(actionButtonFn('Adopt env', 'Open identity editor to convert this resident identity into a dashboard-managed agent backed by an online environment. Close or stop the old CLI after adoption.', () => openAgentEditor(id)));
+    controls.push(actionButtonFn('Adopt env', 'Open identity editor to convert this resident identity into a dashboard-managed identity backed by an online environment. Close or stop the old CLI after adoption.', () => openAgentEditor(id)));
     controls.push(actionButtonFn('Remove from dashboard', 'Remove this identity from the dashboard and prevent stale bridges from recreating it until explicitly registered again', () => deleteAgent(id), 'btn-danger'));
     html += `<tr><td><b>${esc(id)}</b></td><td><span class="rb">${esc(info.role)}</span></td>` +
       renderPresenceCell(info) +
@@ -2755,7 +2755,7 @@ function residentAgentsTableHtml(agents) {
 
 function managedAgentsTableHtml(workers) {
   if (!workers.length) {
-    return '<p class="em">No managed agents registered. Spawn one from Environments.</p>';
+    return '<p class="em">No managed identities registered. Spawn one from Environments.</p>';
   }
   let html = '<table class="agents-grid actions-table"><thead><tr><th>ID</th><th>Owner</th><th>Presence</th><th>Wake</th><th>Work</th><th>State</th><th>Runtime</th><th>Unread</th><th>Last Seen</th><th></th></tr></thead><tbody>';
   for (const [id, info] of workers) {
@@ -2765,11 +2765,11 @@ function managedAgentsTableHtml(workers) {
     const wake = info.wakeMode || 'managed-worker';
     const activeRunId = info.dispatchState?.activeRun?.runId || '';
     const actionItems = [
-      actionButtonFn('Assign task', 'Open chat composer as a request to this managed agent', () => prefillWorkerMessage(id, 'request')),
+      actionButtonFn('Assign task', 'Open chat composer as a request to this managed identity', () => prefillWorkerMessage(id, 'request')),
       actionButtonFn('Assign env', 'Open identity editor to retarget this agent and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
       actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => recreateAgent(id), 'btn-danger'),
-      actionButtonFn('Remove', 'Unregister this managed agent and cancel queued work', () => deleteAgent(id), 'btn-danger'),
+      actionButtonFn('Remove', 'Unregister this managed identity and cancel queued work', () => deleteAgent(id), 'btn-danger'),
     ];
     html += `<tr><td><b>${esc(id)}</b></td>` +
       `<td class="t"${titleAttr(info.managedBy || '')}><span class="session-text">${esc(info.managedBy || '')}</span></td>` +
@@ -2780,7 +2780,7 @@ function managedAgentsTableHtml(workers) {
       `<td class="t"${titleAttr(runtime)}><span class="runtime-text">${esc(runtime)}</span></td>` +
       `<td>${info.unread || 0}</td><td class="t">${esc(info.lastSeen)}</td>` +
       `<td><div class="run-controls">` +
-      actionButtonFn('Chat', 'Open a direct chat with this managed agent', () => openAgentChat(id)) +
+      actionButtonFn('Chat', 'Open a direct chat with this managed identity', () => openAgentChat(id)) +
       actionButtonFn('Edit', 'Edit identity ID, environment, runtime, and workspace', () => openAgentEditor(id)) +
       actionsMenu(actionItems, 'Actions', `worker:${id}`) +
       `</div></td></tr>`;
@@ -2804,7 +2804,7 @@ function openIdentityDirectory() {
       <div class="sc${unread ? ' warn' : ''}"><div class="n">${unread}</div><div class="l">Unread</div></div>
     </div>
     <div class="btn-row">
-      ${actionButtonFn('Add managed agent', 'Open environment-backed spawn controls', () => { closeModal(); openAgentSpawn(); }, 'btn-primary')}
+      ${actionButtonFn('Spawn Agent', 'Open environment-backed spawn controls for a managed identity', () => { closeModal(); openAgentSpawn(); }, 'btn-primary')}
       ${actionButtonFn(window._showOfflineManualBindings ? 'Hide offline CLI' : 'Show offline CLI', 'Toggle offline/manual resident identity rows for cleanup', () => { toggleOfflineManualBindings(); closeModal(); setTimeout(openIdentityDirectory, 50); })}
     </div>
     <h3>Managed identities</h3>
@@ -3074,7 +3074,7 @@ function renderHomePanels(stats, agents, managedAgents, manualAgents, environmen
   const agentRows = managedAgents
     .slice(0, 6)
     .map(([id, info]) => homeRow(id, `${info.role || 'agent'} · ${agentRuntimeLabel(info)} · ${agentWorkText(info) || info.wakeMode || 'ready'}`, info.statusRaw || 'unknown', ['offline', 'stale', 'stopped'].includes((info.statusRaw || '').toLowerCase()) ? 'warn' : '', actionButtonFn('Chat', 'Open agent chat', () => openAgentChat(id))))
-    .join('') || '<div class="home-empty">No managed agents yet. Spawn one from Environments.</div>';
+    .join('') || '<div class="home-empty">No managed identities yet. Spawn one from Environments.</div>';
 
   const manualHidden = manualAgents.filter(([, info]) => !shouldShowManualBinding(info)).length;
   const sessionRows = sessions
@@ -4542,7 +4542,7 @@ function renderChatInspector(meta, messages) {
       html += '<h3>Runtime Session</h3><p class="em">No managed runtime session is recorded for this identity. It may be an open resident CLI, an inbox-only identity, or historical chat.</p>' +
         '<div class="btn-row">' +
         actionButtonFn('Identity Directory', 'Open identity management', () => openIdentityDirectory()) +
-        actionButton('Environments', 'Spawn a managed agent into a connected environment', "showPage('environments')") +
+        actionButton('Environments', 'Spawn a managed identity into a connected environment', "showPage('environments')") +
         '</div>';
     }
   }
@@ -5296,7 +5296,7 @@ async function refreshDashboard() {
       orphanAction = actionButton('Clear orphan unread', 'Delete unread messages addressed to agents that no longer exist', 'purgeOrphanUnread()');
     }
     if (managedWorkers.length) {
-      bannerParts.push(`${managedWorkers.length} managed agent identity record(s) are available from the Sessions identity directory. Identity presence is not the same as a running runtime process.`);
+      bannerParts.push(`${managedWorkers.length} managed identity record(s) are available from the Sessions identity directory. Identity presence is not the same as a running runtime process.`);
     }
     if (hiddenResidentAgents > 0) {
       bannerParts.push(`${hiddenResidentAgents} offline or compatibility CLI identity row(s) are hidden from the Sessions identity directory.`);
@@ -5361,7 +5361,7 @@ async function refreshDashboard() {
 
 function renderRuns(runs, containerId = 'dispatch-runs-table') {
   if (!runs.length) {
-    document.getElementById(containerId).innerHTML = '<p class="em">No dispatch runs yet.</p>';
+    document.getElementById(containerId).innerHTML = '<p class="em">No run records yet.</p>';
     return;
   }
   let html = '<div class="table-wrap"><table class="runs-grid actions-table"><thead><tr><th>Requested</th><th>From → Target</th><th>Status</th><th>Mode</th><th>Runtime</th><th>Subject</th><th>Summary / Error</th><th></th></tr></thead><tbody>';
@@ -5697,7 +5697,7 @@ function prefillWorkerMessage(agentId, mode) {
 function recreateAgent(agentId) {
   const session = primarySessionForAgent(agentId);
   if (!session?.id) {
-    toast(`No managed session record for ${agentId}; spawn a fresh managed agent from Environments.`, '#f85149');
+    toast(`No managed session record for ${agentId}; spawn a fresh managed identity from Environments.`, '#f85149');
     return;
   }
   controlSession(session.id, 'recreate');

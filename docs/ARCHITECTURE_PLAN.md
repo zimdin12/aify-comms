@@ -7,7 +7,7 @@ Dashboard
   |
 FastAPI control plane
   |-- messages / channels / inboxes
-  |-- dispatch runs / handoffs
+  |-- run audit records / handoffs
   |-- environments
   |-- spawn requests
   |-- agent sessions
@@ -299,10 +299,10 @@ Important API families:
 - environments and bridge heartbeat/control
 - spawn requests, spawn specs, and managed agent adoption
 - agent sessions stop/restart/recover/pause/continue
-- dispatch runs, events, handoffs, interrupt, and steer controls
+- run audit records, events, handoffs, interrupt, and steer controls
 - direct messages, channel messages, read state, and shared artifacts
 - compaction packets and managed successors
 
 ## Compatibility Rule
 
-`comms_spawn` and dashboard Environment spawn both create spawn requests. Existing direct `comms_register` remains supported for human-open resident sessions, but persistent managed agents should use environment-backed spawn.
+`comms_spawn` and dashboard Environment spawn both create spawn requests. Existing direct `comms_register` remains supported for human-open resident sessions, but persistent managed identities should use environment-backed spawn.

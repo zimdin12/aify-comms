@@ -20,7 +20,7 @@ Wrapper auto mode:
 
 ## Managed Runtime Policy
 
-- Dashboard-managed agents are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
+- Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
 - Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort.
@@ -32,9 +32,9 @@ Wrapper auto mode:
 
 - `aify-comms --help` shows launcher usage. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries.
 - Starting a newer bridge for the same environment makes it current and asks the older bridge to exit. A hung old process may still need manual OS cleanup.
-- Killing a bridge stops the execution target, not the agent identity. Managed agents become offline/detached; chats, identities, spawn specs, and session records remain.
-- Forgetting an environment hides an obsolete execution target. It does not delete agents, chats, spawn specs, or session records.
-- To keep an agent after an environment is gone, assign it to another online environment from Sessions -> Identity Directory, then restart it from Sessions.
+- Killing a bridge stops the execution target, not the agent identity. Managed identities become offline/detached; chats, identities, spawn specs, and session records remain.
+- Forgetting an environment hides an obsolete execution target. It does not delete identities, chats, spawn specs, or session records.
+- To keep an identity after an environment is gone, assign it to another online environment from Sessions -> Identity Directory, then restart it from Sessions.
 
 ## CLI Ownership Transfer
 

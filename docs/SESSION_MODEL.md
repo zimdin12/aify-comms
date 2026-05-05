@@ -82,7 +82,7 @@ Native runtime handles must not be silently discarded. If a Claude session ID is
 
 Native runtime handles also must not be silently invented during ordinary recovery. A new Claude session ID, Codex thread ID, or OpenCode session ID is expected only when:
 
-- the operator creates a new managed agent through spawn
+- the operator creates a new managed identity through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
 - the operator explicitly chooses **Recreate**
 
@@ -127,7 +127,7 @@ Managed warm is the default dashboard-spawned agent mode.
 Behavior:
 
 - The bridge owns the runtime session.
-- The agent is reachable through dashboard chat and channels. Runs/dispatches are the execution attempts attached to those messages, not a separate normal conversation mode.
+- The agent is reachable through dashboard chat and channels. Runs are the execution/delivery audit records attached to those messages, not a separate normal conversation mode.
 - Messages are delivered into the same logical agent context.
 - The bridge stores transcript/memory and native handles.
 - The dashboard can stop, restart, or respawn the session from the stored spawn spec.
@@ -360,8 +360,8 @@ In all cases, the old session remains visible in history.
 
 ## Non-Negotiable Invariants
 
-- A dashboard-spawned managed agent must never depend on manual `comms_register`.
-- A warm managed agent must always have a stored spawn spec.
+- A dashboard-spawned managed identity must never depend on manual `comms_register`.
+- A warm managed identity must always have a stored spawn spec.
 - A managed session must have exactly one owning bridge at a time.
 - A workspace must be validated by the owning bridge, not guessed by the container.
 - CLI attach is capability-driven, not assumed.

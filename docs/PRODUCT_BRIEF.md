@@ -27,7 +27,7 @@ The dashboard becomes the primary UI for:
 - agent spawning
 - environment selection
 - runtime/process/session monitoring
-- dispatch/run/handoff inspection
+- run/handoff audit inspection
 - kill/restart/resume controls
 
 The dashboard should feel like a real web application, not a database admin page. It should answer these questions immediately:
@@ -46,7 +46,7 @@ Daily workflow target:
 1. Start the service/dashboard container.
 2. Run `aify-comms` in each execution environment, for example native Windows and WSL.
 3. Open the dashboard.
-4. Spawn or recover managed agents from the dashboard, selecting the exact workspace per agent.
+4. Spawn or recover managed identities from the dashboard, selecting the exact workspace per agent.
 5. Chat with agents and channels from the dashboard; keep manual resident CLI registrations as compatibility/debug bindings.
 
 ## Core User Stories
@@ -79,7 +79,7 @@ Daily workflow target:
 ## Key Product Decisions
 
 - Environments are first-class. A machine/OS bridge advertises what it can run.
-- Agents are lifecycle-managed records, not just self-registered inbox owners.
+- Agent identities are lifecycle-managed records, not just self-registered inbox owners.
 - Messaging is the source of truth. Dispatch/run state remains attached to messages.
 - Dashboard spawn is the normal path. Manual `comms_register` is compatibility/debug.
 - Dashboard chat is live-delivery gated for offline/stale/stopped/no-wake targets; those messages are not stored for future delivery. Busy steer-capable targets receive normal sends as steer into the active run between tool calls; busy non-steer targets queue or merge as next-turn work. Queue is an explicit next-turn action even when steer is available.

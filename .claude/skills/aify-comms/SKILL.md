@@ -1,12 +1,12 @@
 ---
 name: aify-comms
-description: Inter-agent communication hub for Claude Code, Codex, and OpenCode — live messaging, channels, file sharing, managed agent spawn, operational run tracking, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
+description: Inter-agent communication hub for Claude Code, Codex, and OpenCode — live messaging, channels, file sharing, managed agent spawn, execution audit, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
 trigger: tool_available("comms_register") OR tool_available("comms_send") OR tool_available("comms_inbox")
 ---
 
 # aify-comms
 
-Use aify-comms as the team chat and work-loop control plane: direct messages for owned handoffs, channels for shared context, artifacts for long/binary content, and run/contract state as telemetry. Keep the context you load small; read `references/operations.md` only for setup, runtime policy, bridge/session repair, or dashboard operator details.
+Use aify-comms as the team chat and work-loop control plane: direct messages for owned handoffs, channels for shared context, artifacts for long/binary content, and run audit/contract state as telemetry. Keep the context you load small; read `references/operations.md` only for setup, runtime policy, bridge/session repair, or dashboard operator details.
 
 ## Core Contract
 
@@ -31,7 +31,7 @@ comms_agent_info(agentId="my-agent")
 
 When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>` or `codex-aify --aify-agent my-agent ...`. Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID.
 
-Managed mode is the normal persistent-agent path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when that CLI should temporarily own the live session.
+Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when that CLI should temporarily own the live session.
 
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
@@ -43,7 +43,7 @@ comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle=
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
 
-Create persistent managed agents through an environment:
+Create persistent managed identities through an environment:
 
 ```text
 comms_envs()
