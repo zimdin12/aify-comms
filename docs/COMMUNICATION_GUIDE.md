@@ -80,7 +80,7 @@ Contracts are expected for:
 - dashboard-managed runs with required replies
 - self-wakes that intentionally schedule the same agent's next bounded turn
 
-Contracts are closed by a real answer to the original sender/result, not by silently completing local work. For dashboard-managed delivered runs, the final plain-text answer closes the current contract because the bridge threads it into chat. For resident/live CLI sessions, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`.
+Contracts are closed by a real answer to the original sender/result, not by silently completing local work. `delivered` only means the target received/read the source message; it is still open until a linked answer/result exists. For dashboard-managed delivered runs, the final plain-text answer closes the current contract because the bridge threads it into chat. For resident/live CLI sessions, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`.
 
 If a reminder arrives, read the original message/run it references and close that original contract. Do not just reply "ack reminder" unless the reminder itself is the work.
 

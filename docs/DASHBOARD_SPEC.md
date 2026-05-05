@@ -50,11 +50,13 @@ Work Loop is the operations view over chat obligations. It should not introduce 
 It should show:
 
 - open/overdue/working/queued/missing-reply counts
-- route, subject, age, read state, reminder count, and latest answer preview
+- route, subject, age, target read state, reminder count, and latest answer preview
 - filters for state, category (`direct`, `channel`, `self-wake`), and free text; the daily default should be open direct contracts, with historical failures, answered items, channel fan-out, and self-wake audits opt-in
 - one-click run detail, chat jump, single-contract reminder, and batch due-reminder actions
 - local hide/restore for noisy historical contracts without deleting the source run or chat audit trail
 - hygiene indicators for old unread fan-out, answered-but-unread source messages, self-wakes, and pending fallback handoffs
+
+`delivered` means the bridge delivered/read the source message into the target's live or managed context. It is not a completed work contract by itself. A delivered contract remains open or overdue until a linked reply/result is recorded.
 
 Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Reminders should be explicit automated messages, not hidden state changes. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder.
 
