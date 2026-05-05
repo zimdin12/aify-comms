@@ -41,7 +41,7 @@ Wrapper auto mode:
 - Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>` or the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command.
 - Manual `comms_register(...)` from the opened CLI remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Ownership transfer is turn-boundary safe. Active managed work defers resident takeover until the run ends. Closing the resident CLI lets dashboard sends return to managed backing after the resident lease expires.
-- Stop/Kill on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
+- Dashboard **Stop wake** / session **Stop** on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
 - Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
 
 Browser CLI is planned, not current behavior. Until an environment advertises browser terminal/PTY attach, use the native resume command with `--aify-agent`; use Pause for CLI only when you intentionally want dashboard sends blocked while the terminal owns the session.

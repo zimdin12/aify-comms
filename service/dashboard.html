@@ -1249,12 +1249,12 @@ Agent session in a specific workspace</div>
 
       <div class="guide-grid">
         <div class="guide-card">
-          <h4>Normal Path</h4>
-          <p>Use Environments or Team to spawn managed teammates, then talk from Chat. The dashboard owns lifecycle and recovery.</p>
+          <h4>Managed Mode</h4>
+          <p>Default path. Run <code>aify-comms</code> as the host bridge, spawn teammates from the dashboard, and let the dashboard own lifecycle, restart, compact, and recovery.</p>
         </div>
         <div class="guide-card">
-          <h4>Resident Path</h4>
-          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, or OpenCode registration only when a human-open terminal should receive live messages.</p>
+          <h4>Resident Mode</h4>
+          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, or explicit OpenCode registration when a terminal you opened should temporarily own the live session.</p>
         </div>
         <div class="guide-card">
           <h4>Debug Path</h4>
@@ -1293,11 +1293,27 @@ bash install.sh --client codex http://localhost:8800 --with-hook</pre>
 bash install.sh --client opencode http://localhost:8800</pre>
         </div>
       </div>
-      <p>Restart the client after install. Then run an environment bridge in every execution environment you want the dashboard to use:</p>
+      <h3>Run Managed Mode</h3>
+      <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or <b>Team</b>.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
       <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://localhost:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
-      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working.</p></div>
+      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
+      <h3>Run Resident Mode</h3>
+      <p>Resident mode is for a real terminal session you want to watch or drive directly. Start the runtime through the wrapper and bind it to an agent ID. The wrapper auto-registers that live owner; if you omit <code>--aify-agent</code>, register manually from inside the session.</p>
+      <div class="guide-grid">
+        <div class="guide-card">
+          <h4>Claude Code Resident</h4>
+          <pre>cd /path/to/project
+claude-aify --aify-agent manager --aify-role manager -auto</pre>
+        </div>
+        <div class="guide-card">
+          <h4>Codex Resident</h4>
+          <pre>cd /path/to/project
+codex-aify --aify-agent coder --aify-role coder -auto</pre>
+        </div>
+      </div>
+      <p>Use resident mode when you want the visible CLI to own the session. Use managed mode when you want the dashboard to start, stop, restart, and compact the teammate without keeping a terminal open.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="sessions">
@@ -1309,7 +1325,7 @@ aify-comms</pre>
         </div>
         <div class="guide-card">
           <h4>Resident CLI</h4>
-          <p>A terminal session you opened yourself and registered with <code>comms_register</code>. It can receive live wakeups, but the dashboard does not own the terminal process.</p>
+          <p>A terminal session you opened yourself through <code>claude-aify</code> or <code>codex-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
         </div>
         <div class="guide-card">
           <h4>Session</h4>
@@ -1332,7 +1348,7 @@ aify-comms</pre>
             <li>Open <b>Sessions</b> for the agent.</li>
             <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper auto-registers the live owner.</li>
             <li>If the managed run is still active, takeover waits until that turn finishes.</li>
-            <li>Use manual <code>comms_register(...)</code> only when the wrapper was launched without an agent ID.</li>
+            <li>Use manual <code>comms_register(...)</code> only when the wrapper was launched without <code>--aify-agent</code> or when you are binding a new ID.</li>
           </ol>
         </div>
         <div class="guide-card">
@@ -1341,7 +1357,7 @@ aify-comms</pre>
             <li>Open <b>Team → Manual / Resident CLI Identities</b>.</li>
             <li>Use <b>Edit</b> or <b>Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
-            <li>Close the CLI, or use <b>Stop/Kill</b> to terminate the resident host. Future dashboard sends return to managed backing after the lease expires.</li>
+            <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
           </ol>
         </div>
       </div>
@@ -1351,7 +1367,7 @@ aify-comms</pre>
 
       <h3>Compact</h3>
       <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed Claude Code and Codex paths do not.</p>
-      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> remains available as an explicit dashboard-delivery pause, but the normal resume command now includes wrapper auto-registration. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
+      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="daily">
@@ -1362,7 +1378,7 @@ aify-comms</pre>
       <p><b>Team communication:</b> keep each message scoped to one ask, result, blocker, or status update. Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed. Dashboard-managed delivered runs answer the current message in final plain text; the bridge captures and threads that answer into chat. Logs, tool output, and run summaries are telemetry, not the team-visible answer. If more work must happen after the current turn, the agent must send the next owner a message or self-schedule before finishing. Resident/live CLI sessions still use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies. Channels are for shared context and bounded discussion: agents should answer when named, responsible, asked a question, or holding useful evidence, not send broad automatic acks.</p>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover admin/maintenance behavior plus managed runtime defaults. Model and effort are global runtime policy, not per-agent dashboard fields.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and Team edit forms do not tune model/effort per agent.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1493,7 +1509,7 @@ aify-comms</pre>
       </div>
           </section>
           <section class="settings-panel" data-settings-panel="runtime">
-      <h3>Managed Runtime Defaults</h3>
+      <h3>Managed Runtime Policy</h3>
       <div class="form-group">
         <label>Managed Claude Model</label>
         <input id="s-claude-model" placeholder="opus">

@@ -167,6 +167,11 @@ The headless environment bridge is enough for dashboard-managed spawns. Resident
 - Claude Code: install Claude support, start with `claude-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
 - OpenCode: register with a real `sessionHandle` for resident resume, or use managed dashboard spawns.
 
+Choose the mode intentionally:
+
+- **Managed mode:** keep `aify-comms` running as the host bridge, spawn agents from the dashboard, and let the dashboard own lifecycle. This is the normal persistent team mode.
+- **Resident mode:** open `claude-aify` or `codex-aify` yourself when you want a visible terminal to own the session temporarily. Bind it with `--aify-agent <agentId>` or call `comms_register(...)` from inside the session.
+
 Stopping a resident from the dashboard disables wake/dispatch in the control plane and, when the live resident bridge is still polling, asks that bridge to terminate its host CLI/app process. If the resident bridge is already gone, stop is only a control-plane state change. Managed sessions spawned through the bridge can be stopped or restarted through their stored spawn spec; Recreate is the explicit fresh-context reset.
 
 System shape:
@@ -191,7 +196,7 @@ Resident -> managed:
 1. Open **Team -> Manual / Resident CLI Identities**.
 2. Choose **Edit** or **Actions -> Adopt env**.
 3. Assign an online environment, runtime, and workspace.
-4. Close the old resident CLI tab, or use dashboard **Stop/Kill** if you want the resident host process terminated.
+4. Close the old resident CLI tab, or use dashboard **Stop wake** / session **Stop** if you want the resident host process terminated.
 5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately.
 
 This creates or updates managed backing for the same teammate identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
@@ -203,8 +208,8 @@ Managed -> resident CLI:
    - `claude-aify --aify-agent <agentId> --resume <session-id>`
    - `codex-aify --aify-agent <agentId> resume --include-non-interactive <thread-id>`
 3. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle.
-5. Do the direct terminal work.
-6. Close the CLI when done. Dashboard control returns automatically after the resident lease expires; use **Restart** only when you want to force a managed run now.
+4. Do the direct terminal work.
+5. Close the CLI when done. Dashboard control returns automatically after the resident lease expires; use **Restart** only when you want to force a managed run now.
 
 `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. Registration updates the saved Claude session ID, Codex thread ID, or OpenCode session ID. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
 
@@ -214,7 +219,7 @@ Claude Code has two different native continuation flags: `--session-id` creates 
 
 Current bridge builds terminate the whole managed runtime process tree when a run is interrupted, stopped, timed out, or when the bridge exits. On WSL/Linux this prevents orphan Codex/OpenCode MCP child processes from keeping stale tool state alive after the parent app-server is gone. On Windows this matters for managed Claude Code because the bridge may launch through `cmd.exe /c claude`; killing only the wrapper process can leave a hidden `claude -p --session-id ...` child behind. If a managed Claude run still reports `Session ID ... is already in use` after the resume check, the Windows bridge searches for a process command line containing the exact locked session ID, excludes interactive `claude-aify` / `--resume` commands, kills that process tree, and retries once. If the session ID is not visible in the process command line, the bridge also checks aify runtime markers for the same workspace and may stop a marked Claude parent only when that parent looks headless (`-p`, `--print`, or `--session-id`). If auto-cleanup still cannot find the owner, search for and stop the stale Claude process manually, then restart the Windows `aify-comms` bridge.
 
-Managed runtime defaults are explicit, symmetric, and global. Managed Claude Code defaults to `opus` with `high` effort; managed Codex defaults to `gpt-5.5` with `high` reasoning effort. Configure operator defaults in Dashboard **Settings -> Managed Runtime Defaults**. The normal spawn and Team edit flows do not tune model/effort per agent. Claude receives model and effort as per-run `--model` / `--effort` flags. Codex uses the managed `CODEX_HOME` plus explicit thread/turn model and effort values from the same global policy. If no dashboard setting exists, the repo fallback in `mcp/stdio/runtimes.js` is used.
+Managed runtime defaults are explicit, symmetric, and global. Managed Claude Code defaults to `opus` with `high` effort; managed Codex defaults to `gpt-5.5` with `high` reasoning effort. Configure operator defaults in Dashboard **Settings -> Runtime**. The normal spawn and Team edit flows do not tune model/effort per agent. Claude receives model and effort as per-run `--model` / `--effort` flags. Codex uses the managed `CODEX_HOME` plus explicit thread/turn model and effort values from the same global policy. If no dashboard setting exists, the repo fallback in `mcp/stdio/runtimes.js` is used.
 
 Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex uses Codex's unattended bypass sandbox profile by default (`danger-full-access` in app-server terms, equivalent to `codex --dangerously-bypass-approvals-and-sandbox`) because `approvalPolicy=never` plus `workspace-write` can still cancel or wedge MCP calls non-interactively. Use `runtimeConfig.sandboxMode="workspace-write"` only when deliberately debugging permission behavior in a trusted test session.
 

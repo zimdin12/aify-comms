@@ -41,6 +41,14 @@ It now adds a first-class agent lifecycle layer:
 
 Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the normal dashboard-managed workflow.
 
+## Managed And Resident Modes
+
+Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn teammates from the dashboard. Managed teammates have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
+
+Use **resident mode** when you intentionally open a real Claude/Codex terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
+
+Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary Restart/Recover/Adopt should preserve the stored handle and fail visibly if the handle is locked or cannot be resumed.
+
 Normal dashboard chat is live-delivery gated for unreachable targets: offline, stale, stopped, or no-wake agents fail visibly and the message is not stored for a future run. Busy live targets receive ordinary sends as steer when supported, or as queued/merged next-turn work when steering is not available; the explicit **Queue** action forces next-turn delivery. Required handoffs are repaired automatically when a terminal run finishes without an explicit reply, and the Home page exposes repair/dismiss actions for old issue states.
 
 The **Work Loop** page turns message/run state into operational contracts: who asked, who owns the reply, whether the run is queued/working/overdue/answered, and whether old read receipts or handoffs need repair. It does not replace chat; it makes the implicit obligations in chat visible enough for an autonomous team to keep moving without guessing from raw unread counts.
@@ -110,7 +118,7 @@ aify-comms.cmd
 
 The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-Managed runtime defaults are configured from Dashboard **Settings -> Managed Runtime Defaults**. New managed Claude Code teammates default to `opus` with `high` effort; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
+Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. New managed Claude Code teammates default to `opus` with `high` effort; new managed Codex teammates default to `gpt-5.5` with `high` reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
 
 ## Design Rule
 

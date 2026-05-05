@@ -371,7 +371,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
-        self.assertIn("Managed Runtime Defaults", dashboard.text)
+        self.assertIn("Managed Runtime Policy", dashboard.text)
         self.assertIn("Dashboard Title", dashboard.text)
         self.assertIn("Color Scheme", dashboard.text)
         self.assertIn("value=\"ocean\"", dashboard.text)

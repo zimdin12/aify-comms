@@ -25,6 +25,8 @@ Agents create persistent comms-visible teammates through `comms_envs(...)` and `
 
 Current dashboard behavior reflected by the skills:
 
+- managed mode is the default persistent-team path: run the `aify-comms` environment bridge, spawn teammates from the dashboard or `comms_spawn(...)`, and let the dashboard own lifecycle/restart/compact
+- resident mode is a deliberate visible-terminal path: start `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when the CLI should temporarily own a live session; if launched without an ID, register manually from that same session
 - normal teamwork uses `comms_send`; `comms_dispatch` is a lower-level debug/run-control tool
 - every message is treated as a small contract: owner, expected action or answer, evidence/result needed, and whether a reply or follow-up wake is owed
 - agents and managers can use `comms_contracts(...)` to inspect computed Work Loop contracts before claiming a teammate is silent, overdue, answered, or blocked by stale bookkeeping. It defaults to open direct contracts; channel, self-wake, missing-reply, failed, and answered audits are explicit filters.
@@ -84,7 +86,7 @@ Dashboard-managed Codex sessions use a separate managed Codex home:
 
 The WSL/Linux bridge now copies the bundled Codex skills into that managed home whenever it prepares a managed Codex run. If a managed Codex teammate says `aify-comms` or `aify-comms-debug` is not exposed as a skill, update/restart the relevant `aify-comms` bridge so it regenerates the managed Codex home, or copy `.agents/skills/aify-comms*` into the managed home's `skills/` directory as a temporary live repair.
 
-Managed runtime defaults are documented in the main skill: Claude Code defaults to `opus` with `high` effort; Codex defaults to `gpt-5.5` with `high` reasoning effort. Dashboard settings set global operator defaults; normal dashboard spawn/team flows do not tune model/effort per agent.
+Managed runtime defaults are documented in the main skill: Claude Code defaults to `opus` with `high` effort; Codex defaults to `gpt-5.5` with `high` reasoning effort. Dashboard **Settings -> Runtime** sets global operator defaults; normal dashboard spawn/team flows do not tune model/effort per agent.
 
 Current bridge builds terminate the whole managed runtime process tree on timeout, interrupt, stop, and bridge shutdown. This is important for Codex/OpenCode app-server children and Windows Claude wrapper children; stale child processes should not keep agents falsely alive after the owning environment bridge is gone.
 

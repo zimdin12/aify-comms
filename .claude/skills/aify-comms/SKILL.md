@@ -31,6 +31,8 @@ comms_agent_info(agentId="my-agent")
 
 When opening a known teammate directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>` or `codex-aify --aify-agent my-agent ...`. Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID.
 
+Managed mode is the normal persistent team path: the operator runs an `aify-comms` environment bridge and spawns teammates through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when that CLI should temporarily own the live session.
+
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
 For live Codex, prefer exact binding from the same `codex-aify` session:

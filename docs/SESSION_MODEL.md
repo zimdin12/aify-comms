@@ -213,7 +213,7 @@ Dashboard rule:
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Resident takeover is automatic but turn-boundary safe: if a managed run is active, the backend records a pending resident takeover and applies it only after that run ends.
 - Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path.
-- Stop/Kill on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
+- **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.
 - Dashboard chat and terminal input must not drive the same active turn concurrently.
 
