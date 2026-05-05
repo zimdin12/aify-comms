@@ -14,7 +14,7 @@ Initial dashboard sections:
 - **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
 - **Runs**: dispatch/run/handoff table.
 - **Artifacts**: shared files and text artifacts.
-- **Help**: product concepts and setup pointers.
+- **Help**: tabbed product concepts, setup, daily-use, session/CLI, and reference guidance. It should be readable in-dashboard without turning into a long unstructured manual.
 - **Settings**: grouped control-plane settings: appearance, managed runtime defaults, reply-contract policy, retention, presence thresholds, and dashboard refresh.
 
 The dashboard should optimize for daily use first and debugging second. Admin tables are useful, but the default experience should answer "who is available, what is happening, and what do I need to do next?"

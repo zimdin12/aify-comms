@@ -300,13 +300,24 @@ tr:hover{background:#19212a}
 
 .pagination{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.85em;color:#8b949e}
 
-.instructions{max-width:1040px}
+.instructions{max-width:1180px}
 .instructions code{background:var(--panel);padding:2px 6px;border-radius:4px;font-size:.85em;color:#9fcdff}
 .instructions pre{background:var(--panel);border:1px solid var(--line-soft);border-radius:8px;padding:14px;margin:10px 0;overflow-x:auto;font-size:.82em;color:var(--text)}
 .instructions p{margin:8px 0;line-height:1.5;color:var(--muted)}
 .instructions li{margin:4px 0;line-height:1.5;color:var(--muted)}
 .instructions ul{padding-left:20px;margin:8px 0}
 .instructions h3{color:var(--blue);margin-top:20px}
+.instructions-shell{display:grid;grid-template-columns:220px minmax(0,1fr);gap:14px;align-items:start}
+.instructions-tabs{position:sticky;top:0;display:flex;flex-direction:column;gap:7px;background:#101214;border:1px solid var(--line);border-radius:14px;padding:9px}
+.instructions-tabs button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);border-radius:10px;padding:10px;cursor:pointer;font-weight:750}
+.instructions-tabs button span{font-size:.72em;color:var(--subtle);font-weight:650}
+.instructions-tabs button:hover{background:#1a1f22;color:var(--text);border-color:#2f363a}
+.instructions-tabs button.active{background:#1d211f;border-color:#3d5049;color:var(--text);box-shadow:inset 3px 0 0 var(--teal)}
+.instruction-panel{display:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 14px 44px #00000030}
+.instruction-panel.active{display:block}
+.instruction-panel h3:first-child{margin-top:0}
+.instruction-callout{border:1px solid #355146;background:#101916;border-radius:10px;padding:11px 13px;margin:10px 0;color:var(--text)}
+.instruction-callout p{margin:0;color:var(--text)}
 .guide-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0 16px}
 .guide-card{background:var(--panel);border:1px solid var(--line-soft);border-radius:8px;padding:13px 14px}
 .guide-card h4{font-size:.86em;color:var(--text);margin:0 0 8px;text-transform:uppercase;letter-spacing:.4px}
@@ -688,8 +699,9 @@ tr:hover{background:#1b1f21}
   .sc .n,.ops-metric b,.health-card b{font-size:1.35em}
   .home-actions,.fb,.send-row,.chat-compose-row,.btn-row{display:grid;grid-template-columns:1fr;gap:8px}
   .home-actions .btn,.fb .btn,.send-row .btn,.chat-compose-row .btn,.btn-row .btn{width:100%}
-  .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout,.settings-shell{grid-template-columns:1fr}
+  .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout,.settings-shell,.instructions-shell{grid-template-columns:1fr}
   .settings-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .instructions-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .ops-panel,.home-panel,.send-form,.env-card,.advanced-panel{border-radius:14px;padding:12px}
   .ops-panel-head,.home-panel-head{align-items:flex-start;flex-direction:column}
   .ops-panel-sub{white-space:normal}
@@ -1194,6 +1206,16 @@ tr:hover{background:#1b1f21}
   <div class="page" id="page-instructions">
     <h2>Help</h2>
     <div class="instructions">
+      <div class="instructions-shell">
+        <div class="instructions-tabs" aria-label="Help topics">
+          <button type="button" class="active" data-instruction-tab="overview" onclick="showInstructionsTab('overview')">Overview<span>system model</span></button>
+          <button type="button" data-instruction-tab="setup" onclick="showInstructionsTab('setup')">Setup<span>install and bridge</span></button>
+          <button type="button" data-instruction-tab="daily" onclick="showInstructionsTab('daily')">Daily Use<span>chat and work loop</span></button>
+          <button type="button" data-instruction-tab="sessions" onclick="showInstructionsTab('sessions')">Sessions<span>CLI and compact</span></button>
+          <button type="button" data-instruction-tab="reference" onclick="showInstructionsTab('reference')">Reference<span>tools and API</span></button>
+        </div>
+        <div>
+          <section class="instruction-panel active" data-instruction-panel="overview">
       <h3>What is this?</h3>
       <p>This is the <b>aify-comms</b> control plane: a dashboard for connected Windows, WSL, Linux, Docker, and remote bridges. Use it to spawn managed agents into chosen workspaces, chat with them, inspect runs, stop/restart sessions, and keep old manual CLI bindings visible only when they matter.</p>
 
@@ -1225,6 +1247,19 @@ Agent session in a specific workspace</div>
         </div>
       </div>
 
+      <h3>Core Concepts</h3>
+      <ul>
+        <li><b>Chat:</b> conversation history and composer. Use <b>Viewing as</b> to read and send from a specific identity, such as <code>manager</code>. Read/unread and delete actions are scoped to the selected identity or selected conversation.</li>
+        <li><b>Channel:</b> shared room inside Chat. Use it for group broadcasts and team history. It is not a separate top-level workflow.</li>
+        <li><b>Agent:</b> teammate identity. Managed agents are dashboard-spawned and recoverable. Manual/resident CLI bindings are human-open compatibility sessions.</li>
+        <li><b>Session:</b> concrete runtime backing record for an agent: environment, workspace, process/session handle, resume capability, and lifecycle state.</li>
+        <li><b>Run:</b> tracked execution attempt attached to a message. Use it when you need progress, events, interrupt/steer, failure state, or required handoff tracking.</li>
+        <li><b>Work contract:</b> computed obligation from a message/run. It shows who owes a reply, whether the owner is queued/working/overdue/answered, and whether old inbox bookkeeping needs repair.</li>
+        <li><b>Artifact:</b> shared file or text blob. Chat can upload a file and insert its reference; the Artifacts page lists and deletes stored artifacts.</li>
+      </ul>
+          </section>
+
+          <section class="instruction-panel" data-instruction-panel="setup">
       <h3>Quick Setup</h3>
       <div class="guide-grid">
         <div class="guide-card">
@@ -1247,7 +1282,10 @@ bash install.sh --client opencode http://localhost:8800</pre>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
       <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://localhost:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
+      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working.</p></div>
+          </section>
 
+          <section class="instruction-panel" data-instruction-panel="sessions">
       <h3>Managed, Resident, Session</h3>
       <div class="guide-grid">
         <div class="guide-card">
@@ -1298,26 +1336,23 @@ aify-comms</pre>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code> and register with <code>sessionHandle="$CODEX_THREAD_ID"</code> and <code>appServerUrl="$AIFY_CODEX_APP_SERVER_URL"</code> when available.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
+      <h3>Compact</h3>
+      <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed Claude Code and Codex paths do not.</p>
+      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> pauses dashboard delivery and copies the native resume command for direct project work. Re-register from that CLI session before returning to dashboard control. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
+          </section>
+
+          <section class="instruction-panel" data-instruction-panel="daily">
+      <h3>Daily Use</h3>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. <b>Mark read</b> acknowledges a direct message or the selected channel for the selected <b>Viewing as</b> identity.</p>
       <p><b>Team communication:</b> keep each message scoped to one ask, result, blocker, or status update. Treat every message as a small contract: owner, expected action or answer, evidence/result, and whether a reply or follow-up wake is owed. Dashboard-managed delivered runs answer the current message in final plain text; the bridge captures and threads that answer into chat. Logs, tool output, and run summaries are telemetry, not the team-visible answer. If more work must happen after the current turn, the agent must send the next owner a message or self-schedule before finishing. Resident/live CLI sessions still use <code>comms_send(type="response", inReplyTo=...)</code> for inbox replies. Channels are for shared context and bounded discussion: agents should answer when named, responsible, asked a question, or holding useful evidence, not send broad automatic acks.</p>
 
-      <h3>Core Concepts</h3>
-      <ul>
-        <li><b>Chat:</b> conversation history and composer. Use <b>Viewing as</b> to read and send from a specific identity, such as <code>manager</code>. Read/unread and delete actions are scoped to the selected identity or selected conversation.</li>
-        <li><b>Channel:</b> shared room inside Chat. Use it for group broadcasts and team history. It is not a separate top-level workflow.</li>
-        <li><b>Agent:</b> teammate identity. Managed agents are dashboard-spawned and recoverable. Manual/resident CLI bindings are human-open compatibility sessions.</li>
-        <li><b>Session:</b> concrete runtime backing record for an agent: environment, workspace, process/session handle, resume capability, and lifecycle state.</li>
-        <li><b>Run:</b> tracked execution attempt attached to a message. Use it when you need progress, events, interrupt/steer, failure state, or required handoff tracking.</li>
-        <li><b>Work contract:</b> computed obligation from a message/run. It shows who owes a reply, whether the owner is queued/working/overdue/answered, and whether old inbox bookkeeping needs repair.</li>
-        <li><b>Artifact:</b> shared file or text blob. Chat can upload a file and insert its reference; the Artifacts page lists and deletes stored artifacts.</li>
-      </ul>
+      <h3>Dashboard Settings</h3>
+      <p>Settings cover admin/maintenance behavior plus managed runtime defaults. Model and effort are global runtime policy, not per-agent dashboard fields.</p>
+          </section>
 
-      <h3>Compact</h3>
-      <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed Claude Code and Codex paths do not.</p>
-      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> pauses dashboard delivery and copies the native resume command for direct project work. Re-register from that CLI session before returning to dashboard control. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
-
+          <section class="instruction-panel" data-instruction-panel="reference">
       <h3>Tools</h3>
       <ul>
         <li><b>Messaging:</b> <code>comms_register</code>, <code>comms_envs</code>, <code>comms_spawn</code>, <code>comms_compact</code>, <code>comms_agents</code>, <code>comms_status</code>, <code>comms_agent_info</code>, <code>comms_send</code> (normal teamwork; live-gated), <code>comms_inbox</code>, <code>comms_unsend</code>, <code>comms_search</code>, <code>comms_contracts</code>. <code>comms_listen</code> remains only as deprecated compatibility/debug long-polling.</li>
@@ -1326,9 +1361,6 @@ aify-comms</pre>
         <li><b>File sharing:</b> <code>comms_share</code> (text + binary), <code>comms_read</code>, <code>comms_files</code></li>
         <li><b>Management:</b> <code>comms_clear</code>, <code>comms_dashboard</code></li>
       </ul>
-
-      <h3>Dashboard Settings</h3>
-      <p>These settings cover admin/maintenance behavior plus managed runtime defaults. Model and effort are global runtime policy, not per-agent dashboard fields.</p>
 
       <h3>API Endpoints</h3>
       <p>Mostly useful for debugging integrations and tests; daily work should happen through Home, Chat, Team, Environments, Sessions, Runs, and Artifacts.</p>
@@ -1363,6 +1395,9 @@ aify-comms</pre>
         <li><code>GET/POST /api/v1/shared</code> — Shared files (text + binary upload)</li>
         <li><code>GET/PUT /api/v1/settings</code> — Settings</li>
       </ul>
+          </section>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1604,6 +1639,7 @@ function showPage(name, updateHistory = true) {
   }
   if (name === 'dashboard') renderHomeFromState();
   if (name === 'work') renderWorkLoop();
+  if (name === 'instructions') showInstructionsTab(localStorage.getItem('aifyInstructionsTab') || 'overview');
   if (name === 'workers') renderTeamFromState();
   if (name === 'environments') {
     renderEnvironments(window._environments || []);
@@ -1635,6 +1671,17 @@ function showSettingsTab(tab) {
     panel.classList.toggle('active', panel.dataset.settingsPanel === selected);
   });
   localStorage.setItem('aifySettingsTab', selected);
+}
+
+function showInstructionsTab(tab) {
+  const selected = ['overview', 'setup', 'daily', 'sessions', 'reference'].includes(tab) ? tab : 'overview';
+  document.querySelectorAll('[data-instruction-tab]').forEach(button => {
+    button.classList.toggle('active', button.dataset.instructionTab === selected);
+  });
+  document.querySelectorAll('[data-instruction-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.instructionPanel === selected);
+  });
+  localStorage.setItem('aifyInstructionsTab', selected);
 }
 
 function updateAppViewportVars() {
