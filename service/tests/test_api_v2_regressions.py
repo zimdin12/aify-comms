@@ -374,6 +374,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Managed Runtime Policy", dashboard.text)
         self.assertIn("Dashboard Title", dashboard.text)
         self.assertIn("Color Scheme", dashboard.text)
+        self.assertIn("Secondary Color", dashboard.text)
+        self.assertIn("theme-preview-grid", dashboard.text)
+        self.assertIn("s-dashboard-secondary", dashboard.text)
         self.assertIn("value=\"ocean\"", dashboard.text)
         self.assertIn("value=\"graphite\"", dashboard.text)
         self.assertIn("value=\"crimson\"", dashboard.text)
@@ -409,14 +412,16 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.status_code, 200, settings.text)
         self.assertEqual(settings.json()["dashboard_title"], "AIFY Comms")
         self.assertEqual(settings.json()["dashboard_theme"], "default")
+        self.assertEqual(settings.json()["dashboard_secondary_color"], "")
 
         updated = self.client.put(
             "/api/v1/settings",
-            json={"dashboard_title": "Sand Castle Comms", "dashboard_theme": "ember"},
+            json={"dashboard_title": "Sand Castle Comms", "dashboard_theme": "ember", "dashboard_secondary_color": "#8ebaf1"},
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["dashboard_title"], "Sand Castle Comms")
         self.assertEqual(updated.json()["dashboard_theme"], "ember")
+        self.assertEqual(updated.json()["dashboard_secondary_color"], "#8ebaf1")
 
     def test_analytics_range_filters_run_mix_and_all_time_series(self):
         self._register("lead")

@@ -27,26 +27,27 @@ html,body{height:100%;overflow:hidden}
   --teal:#51c5b0;
   --rose:#d883a0;
   --accent:#51c5b0;
+  --secondary:#74b7ff;
   --accent-strong:#1f6f62;
   --accent-hover:#2a8979;
   --accent-text:#77d6c7;
   --accent-contrast:#06110f;
-  --accent-soft:color-mix(in srgb,var(--accent) 15%,transparent);
-  --accent-softer:color-mix(in srgb,var(--accent) 7%,transparent);
-  --accent-border:color-mix(in srgb,var(--accent) 45%,#303437);
+  --accent-soft:color-mix(in srgb,var(--secondary) 15%,transparent);
+  --accent-softer:color-mix(in srgb,var(--secondary) 7%,transparent);
+  --accent-border:color-mix(in srgb,var(--secondary) 36%,#303437);
   --accent-shadow:color-mix(in srgb,var(--accent) 26%,transparent);
   --app-height:100vh;
   --mobile-nav-height:calc(72px + env(safe-area-inset-bottom));
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#0d0f10 0%,#08090b 36%,#0b0b0c 100%);color:var(--text);display:flex;min-height:100vh}
-body[data-theme="default"]{--teal:#51c5b0;--blue:#74b7ff;--blue-strong:#327df1;--green:#4fc17b;--amber:#dfb156;--rose:#d883a0;--accent:#51c5b0;--accent-strong:#1f6f62;--accent-hover:#2a8979;--accent-text:#77d6c7;--accent-contrast:#06110f}
-body[data-theme="forest"]{--teal:#5fd6a3;--blue:#8bbdf5;--blue-strong:#26805f;--green:#65c987;--amber:#e4bb69;--rose:#db8e9c;--accent:#49b87e;--accent-strong:#26805f;--accent-hover:#32a978;--accent-text:#7ee2ad;--accent-contrast:#07110d}
-body[data-theme="violet"]{--teal:#b9a5ff;--blue:#8ab8ff;--blue-strong:#7257db;--green:#60c78d;--amber:#e1b76b;--rose:#f095c0;--accent:#b9a5ff;--accent-strong:#7257db;--accent-hover:#8c73ef;--accent-text:#cabaff;--accent-contrast:#140f24}
-body[data-theme="ember"]{--teal:#f2b76e;--blue:#8dbcf6;--blue-strong:#b46b2f;--green:#7bc47f;--amber:#f0c15e;--rose:#e78776;--accent:#f2b76e;--accent-strong:#b46b2f;--accent-hover:#d98a41;--accent-text:#ffc985;--accent-contrast:#170d04}
-body[data-theme="ocean"]{--teal:#52d1d5;--blue:#70b8ff;--blue-strong:#1e7aa8;--green:#67c987;--amber:#d7bd68;--rose:#dc8da7;--accent:#52d1d5;--accent-strong:#1e7aa8;--accent-hover:#2ba8b7;--accent-text:#80e8ec;--accent-contrast:#041113}
-body[data-theme="graphite"]{--teal:#a9b5bc;--blue:#89b9e8;--blue-strong:#5d6b78;--green:#79be83;--amber:#d0b66c;--rose:#d38d98;--accent:#a9b5bc;--accent-strong:#5d6b78;--accent-hover:#c1ccd2;--accent-text:#c7d2d8;--accent-contrast:#071014}
-body[data-theme="crimson"]{--teal:#f08aa0;--blue:#8ebaf1;--blue-strong:#a23b50;--green:#71c984;--amber:#e0bc64;--rose:#f08aa0;--accent:#d34b64;--accent-strong:#a23b50;--accent-hover:#e06278;--accent-text:#ff9aad;--accent-contrast:#fff7fa}
-body[data-theme="indigo"]{--teal:#9ab5ff;--blue:#9ab5ff;--blue-strong:#5165d6;--green:#66c889;--amber:#dcb968;--rose:#dd90bd;--accent:#8ea7ff;--accent-strong:#5165d6;--accent-hover:#6f84ef;--accent-text:#b6c4ff;--accent-contrast:#0b1024}
+body[data-theme="default"]{--teal:#51c5b0;--blue:#74b7ff;--blue-strong:#327df1;--green:#4fc17b;--amber:#dfb156;--rose:#d883a0;--accent:#51c5b0;--secondary:#74b7ff;--accent-strong:#1f6f62;--accent-hover:#2a8979;--accent-text:#77d6c7;--accent-contrast:#06110f}
+body[data-theme="forest"]{--teal:#5fd6a3;--blue:#8bbdf5;--blue-strong:#26805f;--green:#65c987;--amber:#e4bb69;--rose:#db8e9c;--accent:#49b87e;--secondary:#e4bb69;--accent-strong:#26805f;--accent-hover:#32a978;--accent-text:#7ee2ad;--accent-contrast:#07110d}
+body[data-theme="violet"]{--teal:#b9a5ff;--blue:#8ab8ff;--blue-strong:#7257db;--green:#60c78d;--amber:#e1b76b;--rose:#f095c0;--accent:#b9a5ff;--secondary:#f095c0;--accent-strong:#7257db;--accent-hover:#8c73ef;--accent-text:#cabaff;--accent-contrast:#140f24}
+body[data-theme="ember"]{--teal:#f2b76e;--blue:#8dbcf6;--blue-strong:#b46b2f;--green:#7bc47f;--amber:#f0c15e;--rose:#e78776;--accent:#f2b76e;--secondary:#e78776;--accent-strong:#b46b2f;--accent-hover:#d98a41;--accent-text:#ffc985;--accent-contrast:#170d04}
+body[data-theme="ocean"]{--teal:#52d1d5;--blue:#70b8ff;--blue-strong:#1e7aa8;--green:#67c987;--amber:#d7bd68;--rose:#dc8da7;--accent:#52d1d5;--secondary:#70b8ff;--accent-strong:#1e7aa8;--accent-hover:#2ba8b7;--accent-text:#80e8ec;--accent-contrast:#041113}
+body[data-theme="graphite"]{--teal:#a9b5bc;--blue:#89b9e8;--blue-strong:#5d6b78;--green:#79be83;--amber:#d0b66c;--rose:#d38d98;--accent:#a9b5bc;--secondary:#89b9e8;--accent-strong:#5d6b78;--accent-hover:#c1ccd2;--accent-text:#c7d2d8;--accent-contrast:#071014}
+body[data-theme="crimson"]{--teal:#f08aa0;--blue:#8ebaf1;--blue-strong:#a23b50;--green:#71c984;--amber:#e0bc64;--rose:#f08aa0;--accent:#d34b64;--secondary:#8ebaf1;--accent-strong:#a23b50;--accent-hover:#e06278;--accent-text:#ff9aad;--accent-contrast:#fff7fa}
+body[data-theme="indigo"]{--teal:#9ab5ff;--blue:#9ab5ff;--blue-strong:#5165d6;--green:#66c889;--amber:#dcb968;--rose:#dd90bd;--accent:#8ea7ff;--secondary:#dd90bd;--accent-strong:#5165d6;--accent-hover:#6f84ef;--accent-text:#b6c4ff;--accent-contrast:#0b1024}
 *{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--accent) 58%,#3c4449) #101214}
 *::-webkit-scrollbar{width:10px;height:10px}
 *::-webkit-scrollbar-track{background:#101214}
@@ -274,6 +275,18 @@ a{color:var(--accent-text)}
 .settings-panel.active{display:block}
 .settings-panel h3{margin:0 0 10px}
 .settings-panel .form-group input,.settings-panel .form-group select{width:min(420px,100%)}
+.theme-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-top:8px;max-width:620px}
+.theme-preview{border:1px solid var(--line-soft);border-radius:10px;background:#101214;padding:9px;min-width:0;cursor:pointer}
+.theme-preview:hover{border-color:var(--accent-border);background:var(--accent-softer)}
+.theme-preview.active{border-color:var(--accent-border);box-shadow:inset 3px 0 0 var(--accent);background:var(--accent-soft)}
+.theme-preview b{display:block;color:var(--text);font-size:.78em;margin-bottom:7px}
+.theme-preview-swatches{display:flex;gap:5px;align-items:center}
+.theme-preview-swatches span{height:18px;border-radius:999px;border:1px solid #ffffff24;flex:1}
+.secondary-picker{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.secondary-picker input[type="color"]{width:54px;height:34px;padding:3px;border-radius:9px;background:#0a0f15;cursor:pointer}
+.secondary-preview{display:flex;align-items:center;gap:8px;margin-top:8px;max-width:420px;border:1px solid var(--line-soft);border-radius:10px;padding:10px;background:linear-gradient(135deg,var(--accent-soft),#101214)}
+.secondary-preview .sample-select{flex:1;border:1px solid var(--accent-border);border-radius:8px;padding:8px 36px 8px 10px;background:linear-gradient(135deg,var(--accent-softer),transparent);color:var(--text);font-size:.84em}
+.secondary-preview .sample-chip{border-radius:999px;padding:5px 9px;background:var(--accent-soft);color:var(--accent-text);font-size:.78em;font-weight:750;white-space:nowrap}
 .toast{position:fixed;top:16px;right:16px;background:var(--green);color:#07100a;padding:10px 18px;border-radius:8px;font-size:.85em;display:none;z-index:100;box-shadow:0 12px 36px #0007}
 .modal-backdrop{position:fixed;inset:0;background:#010409cc;display:none;align-items:center;justify-content:center;padding:18px;z-index:90}
 .modal-backdrop.open{display:flex}
@@ -1508,7 +1521,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
             </div>
             <div class="form-group">
               <label>Color Scheme</label>
-              <select id="s-dashboard-theme">
+              <select id="s-dashboard-theme" onchange="previewAppearanceSettings()">
                 <option value="default">Default dark</option>
                 <option value="forest">Forest</option>
                 <option value="violet">Violet</option>
@@ -1519,6 +1532,19 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
                 <option value="indigo">Indigo</option>
               </select>
               <div class="hint">Use a different accent per service when multiple dashboards are open.</div>
+              <div class="theme-preview-grid" id="theme-preview-grid" aria-label="Color scheme previews"></div>
+            </div>
+            <div class="form-group">
+              <label>Secondary Color</label>
+              <div class="secondary-picker">
+                <input type="color" id="s-dashboard-secondary" value="#74b7ff" oninput="this.dataset.custom='1'; previewSecondaryColor(this.value)" title="Secondary color for soft gradients and selected-chat surfaces">
+                <button type="button" class="btn btn-sm" title="Use the selected color scheme's built-in secondary color" onclick="resetSecondaryColor()">Use scheme default</button>
+              </div>
+              <div class="hint">Controls soft gradients, selected chat rows, cards, and select backgrounds. Leave unset to use the color scheme default.</div>
+              <div class="secondary-preview" id="secondary-preview">
+                <span class="sample-select">Select / gradient sample</span>
+                <span class="sample-chip">Selected chat</span>
+              </div>
             </div>
           </section>
           <section class="settings-panel" data-settings-panel="maintenance">
@@ -1667,6 +1693,16 @@ window._analyticsRange = localStorage.getItem('aifyAnalyticsRange') || 'hour';
 if (!['hour', 'day', 'month', 'all'].includes(window._analyticsRange)) window._analyticsRange = 'hour';
 window._showOfflineManualBindings = localStorage.getItem('aifyShowOfflineManualBindings') === '1';
 window._showHiddenContracts = localStorage.getItem('aifyShowHiddenContracts') === '1';
+const DASHBOARD_THEMES = {
+  default: {label: 'Default dark', accent: '#51c5b0', secondary: '#74b7ff', tertiary: '#dfb156'},
+  forest: {label: 'Forest', accent: '#49b87e', secondary: '#e4bb69', tertiary: '#8bbdf5'},
+  violet: {label: 'Violet', accent: '#b9a5ff', secondary: '#f095c0', tertiary: '#60c78d'},
+  ember: {label: 'Ember', accent: '#f2b76e', secondary: '#e78776', tertiary: '#8dbcf6'},
+  ocean: {label: 'Ocean', accent: '#52d1d5', secondary: '#70b8ff', tertiary: '#67c987'},
+  graphite: {label: 'Graphite', accent: '#a9b5bc', secondary: '#89b9e8', tertiary: '#d0b66c'},
+  crimson: {label: 'Crimson', accent: '#d34b64', secondary: '#8ebaf1', tertiary: '#e0bc64'},
+  indigo: {label: 'Indigo', accent: '#8ea7ff', secondary: '#dd90bd', tertiary: '#66c889'},
+};
 
 function apiFetch(url, opts = {}) {
   opts.headers = {..._authHeaders, ...(opts.headers || {})};
@@ -1745,10 +1781,18 @@ function applyDashboardSettings(settings = {}) {
   window._dashboardSettings = {...(window._dashboardSettings || {}), ...settings};
   const titleText = String(window._dashboardSettings.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
   const theme = String(window._dashboardSettings.dashboard_theme || 'default').trim() || 'default';
+  const secondary = String(window._dashboardSettings.dashboard_secondary_color || localStorage.getItem('aifyDashboardSecondaryColor') || '').trim();
   document.title = titleText;
-  document.body.dataset.theme = ['default', 'forest', 'violet', 'ember', 'ocean', 'graphite', 'crimson', 'indigo'].includes(theme) ? theme : 'default';
+  document.body.dataset.theme = Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, theme) ? theme : 'default';
+  if (/^#[0-9a-fA-F]{6}$/.test(secondary)) {
+    document.body.style.setProperty('--secondary', secondary);
+  } else {
+    document.body.style.removeProperty('--secondary');
+  }
   const brand = document.getElementById('sidebar-brand');
   if (brand) brand.textContent = titleText;
+  renderThemePreviews();
+  updateSecondaryPreview();
 }
 
 function showSettingsTab(tab) {
@@ -1771,6 +1815,64 @@ function showInstructionsTab(tab) {
     panel.classList.toggle('active', panel.dataset.instructionPanel === selected);
   });
   localStorage.setItem('aifyInstructionsTab', selected);
+}
+
+function renderThemePreviews() {
+  const grid = document.getElementById('theme-preview-grid');
+  if (!grid) return;
+  const selected = document.getElementById('s-dashboard-theme')?.value || window._dashboardSettings?.dashboard_theme || 'default';
+  grid.innerHTML = Object.entries(DASHBOARD_THEMES).map(([key, theme]) => `
+    <button type="button" class="theme-preview${key === selected ? ' active' : ''}" title="Use ${esc(theme.label)} color scheme" onclick="selectDashboardTheme(${jsArg(key)})">
+      <b>${esc(theme.label)}</b>
+      <span class="theme-preview-swatches">
+        <span style="background:${esc(theme.accent)}"></span>
+        <span style="background:${esc(theme.secondary)}"></span>
+        <span style="background:${esc(theme.tertiary)}"></span>
+      </span>
+    </button>
+  `).join('');
+}
+
+function selectDashboardTheme(theme) {
+  const select = document.getElementById('s-dashboard-theme');
+  if (select) select.value = theme;
+  renderThemePreviews();
+  const input = document.getElementById('s-dashboard-secondary');
+  if (input) input.dataset.custom = '';
+  previewAppearanceSettings();
+}
+
+function currentThemeDefaultSecondary() {
+  const theme = document.getElementById('s-dashboard-theme')?.value || window._dashboardSettings?.dashboard_theme || 'default';
+  return DASHBOARD_THEMES[theme]?.secondary || DASHBOARD_THEMES.default.secondary;
+}
+
+function previewSecondaryColor(value) {
+  const color = /^#[0-9a-fA-F]{6}$/.test(String(value || '').trim()) ? String(value).trim() : currentThemeDefaultSecondary();
+  document.body.style.setProperty('--secondary', color);
+  updateSecondaryPreview();
+}
+
+function resetSecondaryColor() {
+  const input = document.getElementById('s-dashboard-secondary');
+  if (input) input.dataset.custom = '';
+  document.body.style.removeProperty('--secondary');
+  updateSecondaryPreview();
+}
+
+function previewAppearanceSettings() {
+  const theme = document.getElementById('s-dashboard-theme')?.value || 'default';
+  document.body.dataset.theme = Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, theme) ? theme : 'default';
+  const input = document.getElementById('s-dashboard-secondary');
+  if (input?.dataset.custom === '1') previewSecondaryColor(input.value);
+  else document.body.style.removeProperty('--secondary');
+  updateSecondaryPreview();
+}
+
+function updateSecondaryPreview() {
+  const input = document.getElementById('s-dashboard-secondary');
+  if (input && input.dataset.custom !== '1') input.value = currentThemeDefaultSecondary();
+  renderThemePreviews();
 }
 
 function updateAppViewportVars() {
@@ -5670,6 +5772,13 @@ async function loadSettings() {
   applyDashboardSettings(s);
   document.getElementById('s-dashboard-title').value = s.dashboard_title || 'AIFY Comms';
   document.getElementById('s-dashboard-theme').value = s.dashboard_theme || 'default';
+  const secondaryInput = document.getElementById('s-dashboard-secondary');
+  const secondaryColor = String(s.dashboard_secondary_color || localStorage.getItem('aifyDashboardSecondaryColor') || '').trim();
+  if (secondaryInput) {
+    secondaryInput.dataset.custom = /^#[0-9a-fA-F]{6}$/.test(secondaryColor) ? '1' : '';
+    secondaryInput.value = secondaryInput.dataset.custom === '1' ? secondaryColor : currentThemeDefaultSecondary();
+  }
+  previewAppearanceSettings();
   document.getElementById('s-retention').value = s.retention_days;
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
@@ -5694,10 +5803,14 @@ async function loadSettings() {
 
 async function saveSettings(e) {
   e.preventDefault();
+  const secondaryValue = document.getElementById('s-dashboard-secondary')?.dataset.custom === '1' ? document.getElementById('s-dashboard-secondary').value : '';
+  if (secondaryValue) localStorage.setItem('aifyDashboardSecondaryColor', secondaryValue);
+  else localStorage.removeItem('aifyDashboardSecondaryColor');
   await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
       dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
+      dashboard_secondary_color: secondaryValue,
       retention_days: parseInt(document.getElementById('s-retention').value),
       max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
       max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
