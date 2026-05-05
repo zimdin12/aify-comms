@@ -81,7 +81,8 @@ The dashboard should feel like a real work console, not a raw admin table:
 - Environments should show only real connected spawn targets, with stop/forget controls.
 - Sessions and Runs should expose lifecycle details without duplicating Chat as a second messaging UI.
 - Compact should present two concepts clearly: handoff compaction is the reliable fresh-backing path and defaults to the same agent ID, while internal/native compaction is runtime-adapter dependent and currently unsupported for managed Claude Code/Codex.
-- Analytics should show useful time-based views, not dense tables of counters.
+- Analytics should show useful time-based views, not dense tables of counters: top cards and run mix follow the selected time range, while live capacity remains a separate "now" panel.
+- Settings should stay grouped by operator intent: appearance, managed runtime defaults, work-loop policy, and maintenance.
 
 Keep advanced IDs, JSON, logs, and rarely used compatibility details in inspectors/drawers or Help, not in the primary flow.
 

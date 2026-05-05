@@ -8,14 +8,14 @@ Initial dashboard sections:
 - **Work Loop**: computed reply/work contracts, overdue reminders, self-wakes, and inbox hygiene.
 - **Chat**: direct messages and channel conversations.
 - **Team**: identities and current status.
-- **Analytics**: communication volume, agent availability, run health, and recent failure rates.
+- **Analytics**: time-filtered communication volume, run health, spawn failures, and live capacity.
 - **Environments**: connected spawn targets.
 - **Sessions**: concrete runtime processes/threads.
 - **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
 - **Runs**: dispatch/run/handoff table.
 - **Artifacts**: shared files and text artifacts.
 - **Help**: product concepts and setup pointers.
-- **Settings**: admin retention, cleanup, presence thresholds, and dashboard refresh.
+- **Settings**: grouped control-plane settings: appearance, managed runtime defaults, reply-contract policy, retention, presence thresholds, and dashboard refresh.
 
 The dashboard should optimize for daily use first and debugging second. Admin tables are useful, but the default experience should answer "who is available, what is happening, and what do I need to do next?"
 
@@ -38,7 +38,7 @@ The home page should show:
 
 Primary cards:
 
-- **Needs attention**: pending handoffs, unread urgent messages, failed spawns, lost sessions. Old terminal handoffs should have a repair action; reviewed historical failures should be dismissible from the home queue without deleting run/spawn audit history.
+- **Needs attention**: pending handoffs, unread urgent messages, failed spawns, lost sessions, and live delivery issues. Old terminal handoffs should have a repair action; reviewed historical failures should be dismissible from the home queue without deleting run/spawn audit history. Repeated known live/session/handoff notices should be muted one by one: muted notices remain visible as yellow context but do not count as active red issues.
 - **Live capacity**: bridges/environments and supported runtimes.
 - **Active work**: current running sessions/runs.
 - **Recent conversation**: latest DMs and channels.
@@ -60,6 +60,27 @@ Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
 Sessions should expose compaction/continuation history from spawn records. A compact keeps the same teammate identity while creating a fresh managed backing; operators need to see the old source session, the new session, status, and handoff subject without digging through the raw spawn queue.
+
+## Analytics
+
+Analytics should answer "what happened in this window?" rather than only all-time accumulation.
+
+- Range selector: last 24 hours, last 30 days, last 12 months, and all time.
+- Top cards use the selected range for message count, run count, completed runs, failed/cancelled runs, and spawn failures.
+- Capacity is a separate "now" panel: live agents, online agents, working agents, online environments, and spawn request inventory are not historical metrics.
+- Run Status Mix should render proportional bars plus counts for the selected range.
+- All-time should still be available for long-term health checks, but recent ranges are the daily default.
+
+## Settings
+
+Settings should be grouped so the page does not become a long maintenance form:
+
+- **Appearance**: dashboard title/brand and accent color scheme. Default title is `AIFY Comms`.
+- **Runtime**: global managed Claude/Codex model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/team flows.
+- **Work Loop**: reply-contract reminders and history windows.
+- **Maintenance**: retention, shared file limits, refresh cadence, idle/offline thresholds, and rotation.
+
+Every non-obvious setting should include a short hint that states the default and the operational effect.
 
 ## Chat
 

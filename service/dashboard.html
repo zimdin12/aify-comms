@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>aify-comms</title>
+<title>AIFY Comms</title>
 <link rel="icon" type="image/svg+xml" href="/api/v1/favicon.svg">
 <link rel="shortcut icon" href="/favicon.ico">
 <style>
@@ -30,13 +30,17 @@ html,body{height:100%;overflow:hidden}
   --mobile-nav-height:calc(72px + env(safe-area-inset-bottom));
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#0d0f10 0%,#08090b 36%,#0b0b0c 100%);color:var(--text);display:flex;min-height:100vh}
+body[data-theme="default"]{--teal:#51c5b0;--blue:#74b7ff;--blue-strong:#327df1;--green:#4fc17b;--amber:#dfb156;--rose:#d883a0}
+body[data-theme="forest"]{--teal:#5fd6a3;--blue:#8bbdf5;--blue-strong:#26805f;--green:#65c987;--amber:#e4bb69;--rose:#db8e9c}
+body[data-theme="violet"]{--teal:#b9a5ff;--blue:#8ab8ff;--blue-strong:#7257db;--green:#60c78d;--amber:#e1b76b;--rose:#f095c0}
+body[data-theme="ember"]{--teal:#f2b76e;--blue:#8dbcf6;--blue-strong:#b46b2f;--green:#7bc47f;--amber:#f0c15e;--rose:#e78776}
 *{scrollbar-width:thin;scrollbar-color:#3c4449 #101214}
 *::-webkit-scrollbar{width:10px;height:10px}
 *::-webkit-scrollbar-track{background:#101214}
 *::-webkit-scrollbar-thumb{background:#3c4449;border:2px solid #101214;border-radius:999px}
 *::-webkit-scrollbar-thumb:hover{background:#566168}
 
-.sidebar{width:224px;height:100vh;background:#11171f;border-right:1px solid var(--line-soft);padding:16px 14px;flex-shrink:0;display:flex;flex-direction:column;transition:width .2s,padding .2s;box-shadow:1px 0 0 #0004;position:relative}
+.sidebar{width:224px;height:100vh;background:#11171f;border-right:1px solid var(--line-soft);padding:16px 14px;flex-shrink:0;display:flex;flex-direction:column;transition:width .2s,padding .2s;box-shadow:1px 0 0 #0004;position:relative;overflow-y:auto;overflow-x:visible}
 .sidebar.collapsed{width:52px;padding:16px 8px;overflow:visible}
 .sidebar.collapsed h1,.sidebar.collapsed .ver,.sidebar.collapsed .sidebar-footer,.sidebar.collapsed .nav-section{display:none}
 .sidebar.collapsed .nav{align-items:center}
@@ -241,6 +245,16 @@ tr:hover{background:#19212a}
 .form-group textarea{width:100%;min-height:260px;resize:vertical;font-family:inherit;line-height:1.42}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--blue);outline:none}
 .form-group .hint{color:var(--subtle);font-size:.75em;margin-top:2px}
+.settings-shell{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
+.settings-tabs{position:sticky;top:0;display:flex;flex-direction:column;gap:7px;background:#101214;border:1px solid var(--line);border-radius:14px;padding:9px}
+.settings-tabs button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);border-radius:10px;padding:10px;cursor:pointer;font-weight:750}
+.settings-tabs button span{font-size:.72em;color:var(--subtle);font-weight:650}
+.settings-tabs button:hover{background:#1a1f22;color:var(--text);border-color:#2f363a}
+.settings-tabs button.active{background:#1d211f;border-color:#3d5049;color:var(--text);box-shadow:inset 3px 0 0 var(--teal)}
+.settings-panel{display:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:0 14px 44px #00000030}
+.settings-panel.active{display:block}
+.settings-panel h3{margin:0 0 10px}
+.settings-panel .form-group input,.settings-panel .form-group select{width:min(420px,100%)}
 .toast{position:fixed;top:16px;right:16px;background:var(--green);color:#07100a;padding:10px 18px;border-radius:8px;font-size:.85em;display:none;z-index:100;box-shadow:0 12px 36px #0007}
 .modal-backdrop{position:fixed;inset:0;background:#010409cc;display:none;align-items:center;justify-content:center;padding:18px;z-index:90}
 .modal-backdrop.open{display:flex}
@@ -328,6 +342,7 @@ tr:hover{background:#19212a}
 .modal-form input,.modal-form select,.modal-form textarea{background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font:inherit;font-size:.9em}
 .modal-form textarea{min-height:120px;resize:vertical}
 .banner{background:#1d2631;border:1px solid #344253;color:#e7be63;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:.85em}
+.banner.muted{background:#241f13;border-color:#5b4421;color:#e8c878}
 .banner-row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .dispatch-subject{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dispatch-id{color:#484f58;font-size:.72em}
@@ -435,7 +450,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 .sidebar{width:268px;background:#0d0f10;border-right:1px solid #282c2f;padding:18px 14px;box-shadow:8px 0 34px #00000038;position:relative}
 .sidebar h1{font-size:1.16em;letter-spacing:.3px;padding:12px 12px 2px}
 .sidebar .ver{padding:0 12px 14px;margin-bottom:12px;color:#7c858b;border-bottom:1px solid #25292c}
-.nav{display:flex;flex-direction:column;gap:5px}
+.nav{display:flex;flex-direction:column;gap:5px;min-height:0}
 .nav a{display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:9px;margin:0;color:#a9b0b5;background:transparent;border:1px solid transparent;font-weight:600}
 .nav a::before{content:"";width:8px;height:8px;border-radius:2px;background:#4a5157;box-shadow:0 0 0 3px #4a51571c;flex:0 0 auto}
 .nav a:hover{background:#191c1f;color:#f4f6f7;border-color:#2a3034}
@@ -558,7 +573,7 @@ tr:hover{background:#1b1f21}
 .status-bar-row{display:grid;grid-template-columns:92px minmax(0,1fr) 34px;gap:8px;align-items:center}
 .status-bar-label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;min-width:0}
 .status-bar-track{height:8px;border-radius:999px;background:#0a0b0c;border:1px solid #282d30;overflow:hidden}
-.status-bar-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--teal),var(--blue))}
+.status-bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--teal),var(--blue))}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
 .table-wrap{width:100%;max-width:100%;overflow:visible}
 .sessions-grid{table-layout:fixed}
@@ -672,7 +687,8 @@ tr:hover{background:#1b1f21}
   .sc .n,.ops-metric b,.health-card b{font-size:1.35em}
   .home-actions,.fb,.send-row,.chat-compose-row,.btn-row{display:grid;grid-template-columns:1fr;gap:8px}
   .home-actions .btn,.fb .btn,.send-row .btn,.chat-compose-row .btn,.btn-row .btn{width:100%}
-  .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout{grid-template-columns:1fr}
+  .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout,.settings-shell{grid-template-columns:1fr}
+  .settings-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .ops-panel,.home-panel,.send-form,.env-card,.advanced-panel{border-radius:14px;padding:12px}
   .ops-panel-head,.home-panel-head{align-items:flex-start;flex-direction:column}
   .ops-panel-sub{white-space:normal}
@@ -820,7 +836,7 @@ tr:hover{background:#1b1f21}
 
 <div class="sidebar" id="sidebar">
   <button class="toggle-btn" title="Collapse or expand navigation" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
-  <h1>aify-comms</h1>
+  <h1 id="sidebar-brand">AIFY Comms</h1>
   <div class="ver">v3.6.6</div>
   <div class="nav">
     <div class="nav-section">Operate</div>
@@ -1122,12 +1138,13 @@ tr:hover{background:#1b1f21}
             <button title="Show hourly traffic for the last 24 hours" onclick="setAnalyticsRange('hour')">24h</button>
             <button title="Show daily traffic for the last 30 days" onclick="setAnalyticsRange('day')">30d</button>
             <button title="Show monthly traffic for the last 12 months" onclick="setAnalyticsRange('month')">12m</button>
+            <button title="Show all-time traffic and run totals" onclick="setAnalyticsRange('all')">All</button>
           </div>
         </div>
         <div id="analytics-traffic"></div>
       </section>
       <section class="ops-panel">
-        <div class="ops-panel-head"><h3>Live Health</h3><span class="ops-panel-sub">agents, environments, runs</span></div>
+        <div class="ops-panel-head"><h3>Capacity Now</h3><span class="ops-panel-sub">not time-filtered</span></div>
         <div id="analytics-health"></div>
       </section>
       <section class="ops-panel analytics-wide">
@@ -1346,9 +1363,37 @@ aify-comms</pre>
   <!-- ============ SETTINGS ============ -->
   <div class="page" id="page-settings">
     <h2>Settings</h2>
-    <p class="worker-note">These are control-plane defaults and maintenance settings. Runtime defaults apply to new managed spawns unless a specific agent/spawn overrides them.</p>
+    <p class="worker-note">These are control-plane defaults and maintenance settings. Managed runtime defaults are global operator policy and apply to existing and future managed sessions.</p>
     <form id="settings-form" onsubmit="saveSettings(event)">
-      <div class="form-group">
+      <div class="settings-shell">
+        <div class="settings-tabs" aria-label="Settings groups">
+          <button type="button" class="active" data-settings-tab="appearance" onclick="showSettingsTab('appearance')">Appearance<span>title and color</span></button>
+          <button type="button" data-settings-tab="runtime" onclick="showSettingsTab('runtime')">Runtime<span>managed defaults</span></button>
+          <button type="button" data-settings-tab="work" onclick="showSettingsTab('work')">Work Loop<span>reply contracts</span></button>
+          <button type="button" data-settings-tab="maintenance" onclick="showSettingsTab('maintenance')">Maintenance<span>retention and presence</span></button>
+        </div>
+        <div>
+          <section class="settings-panel active" data-settings-panel="appearance">
+            <h3>Appearance</h3>
+            <div class="form-group">
+              <label>Dashboard Title</label>
+              <input id="s-dashboard-title" placeholder="AIFY Comms">
+              <div class="hint">Shown in the browser title, sidebar brand, and top bar. Default: AIFY Comms</div>
+            </div>
+            <div class="form-group">
+              <label>Color Scheme</label>
+              <select id="s-dashboard-theme">
+                <option value="default">Default dark</option>
+                <option value="forest">Forest</option>
+                <option value="violet">Violet</option>
+                <option value="ember">Ember</option>
+              </select>
+              <div class="hint">Use a different accent per service when multiple dashboards are open.</div>
+            </div>
+          </section>
+          <section class="settings-panel" data-settings-panel="maintenance">
+            <h3>Maintenance and Presence</h3>
+            <div class="form-group">
         <label>Message Retention (days)</label>
         <input type="number" id="s-retention" min="1" max="3650">
         <div class="hint">Messages older than this are deleted during rotation. Default: 90</div>
@@ -1388,11 +1433,13 @@ aify-comms</pre>
         <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
         <div class="hint">When enabled, rotation expires old messages/files and marks stale agents using the settings above.</div>
       </div>
+          </section>
+          <section class="settings-panel" data-settings-panel="runtime">
       <h3>Managed Runtime Defaults</h3>
       <div class="form-group">
         <label>Managed Claude Model</label>
         <input id="s-claude-model" placeholder="opus">
-        <div class="hint">Default model for new managed Claude Code spawns when the spawn form leaves model blank. Repo fallback: opus.</div>
+        <div class="hint">Global default for managed Claude Code. Leave as your normal CLI model family if unsure. Repo fallback: opus.</div>
       </div>
       <div class="form-group">
         <label>Managed Claude Effort</label>
@@ -1409,6 +1456,8 @@ aify-comms</pre>
         <select id="s-codex-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
         <div class="hint">Default reasoning effort for new managed Codex spawns. Repo fallback: high</div>
       </div>
+          </section>
+          <section class="settings-panel" data-settings-panel="work">
       <h3>Work Loop / Reply Contracts</h3>
       <div class="form-group">
         <label>Reply Contract Reminders</label>
@@ -1435,9 +1484,12 @@ aify-comms</pre>
         <input type="number" id="s-contract-stale" min="1" max="720">
         <div class="hint">Answered/closed contracts inside this window can still appear in Work Loop when enabled. Default: 24</div>
       </div>
+          </section>
       <div class="btn-row">
         <button type="submit" class="btn btn-primary" title="Save dashboard retention, presence, and refresh settings">Save Settings</button>
         <button type="button" class="btn" title="Reload settings from the server without saving current edits" onclick="loadSettings()">Reset</button>
+      </div>
+        </div>
       </div>
     </form>
   </div>
@@ -1480,7 +1532,9 @@ window._dashboardStats = null;
 window._contracts = [];
 window._contractSummary = {};
 window._contractSettings = {};
+window._dashboardSettings = {};
 window._analyticsRange = localStorage.getItem('aifyAnalyticsRange') || 'hour';
+if (!['hour', 'day', 'month', 'all'].includes(window._analyticsRange)) window._analyticsRange = 'hour';
 window._showOfflineManualBindings = localStorage.getItem('aifyShowOfflineManualBindings') === '1';
 
 function apiFetch(url, opts = {}) {
@@ -1553,6 +1607,27 @@ function showPage(name, updateHistory = true) {
   if (name === 'channels') loadChannels();
   if (name === 'files') loadFiles();
   requestAnimationFrame(() => enhanceResponsiveTables(page));
+}
+
+function applyDashboardSettings(settings = {}) {
+  window._dashboardSettings = {...(window._dashboardSettings || {}), ...settings};
+  const titleText = String(window._dashboardSettings.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
+  const theme = String(window._dashboardSettings.dashboard_theme || 'default').trim() || 'default';
+  document.title = titleText;
+  document.body.dataset.theme = ['default', 'forest', 'violet', 'ember'].includes(theme) ? theme : 'default';
+  const brand = document.getElementById('sidebar-brand');
+  if (brand) brand.textContent = titleText;
+}
+
+function showSettingsTab(tab) {
+  const selected = ['appearance', 'runtime', 'work', 'maintenance'].includes(tab) ? tab : 'appearance';
+  document.querySelectorAll('[data-settings-tab]').forEach(button => {
+    button.classList.toggle('active', button.dataset.settingsTab === selected);
+  });
+  document.querySelectorAll('[data-settings-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.settingsPanel === selected);
+  });
+  localStorage.setItem('aifySettingsTab', selected);
 }
 
 function updateAppViewportVars() {
@@ -2136,6 +2211,31 @@ function dismissIssue(key) {
   refreshDashboard();
 }
 
+function mutedIssueKeys() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('aifyMutedIssues') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function isIssueMuted(key) {
+  return mutedIssueKeys().has(key);
+}
+
+function toggleIssueMute(key) {
+  const keys = mutedIssueKeys();
+  if (keys.has(key)) {
+    keys.delete(key);
+    toast('Notice unmuted');
+  } else {
+    keys.add(key);
+    toast('Notice muted; it no longer counts as an active issue', '#dfb156');
+  }
+  localStorage.setItem('aifyMutedIssues', JSON.stringify([...keys].slice(-500)));
+  refreshDashboard();
+}
+
 function dismissResolvedHomeIssues() {
   const keys = dismissedIssueKeys();
   for (const run of window._allRuns || []) {
@@ -2566,10 +2666,17 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   const liveIssues = agents
     .map(([id, info]) => ({id, issue: liveIssueForAgent(id, info), info}))
     .filter(item => item.issue && (item.info.unread || item.info.dispatchState?.activeRun || item.info.dispatchState?.queuedRuns || ['active', 'working'].includes(String(item.info.statusRaw || item.info.status || '').toLowerCase())))
+    .map(item => ({...item, key: `live:${item.id}`}))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const activeLiveIssues = liveIssues.filter(item => !isIssueMuted(item.key));
+  const mutedLiveIssues = liveIssues.filter(item => isIssueMuted(item.key));
   const failedRuns = runs.filter(run => ['failed', 'cancelled'].includes(run.status) && !isIssueDismissed(`run:${run.id}`));
   const failedSpawns = spawnRequests.filter(req => req.status === 'failed' && !isIssueDismissed(`spawn:${req.id}`));
-  const failedItems = failedRuns.length + failedSpawns.length + sessions.filter(session => ['failed', 'lost'].includes(session.status)).length + liveIssues.length;
+  const failedSessions = sessions.filter(session => ['failed', 'lost'].includes(session.status)).map(session => ({...session, key: `session:${session.id}`}));
+  const activeFailedSessions = failedSessions.filter(session => !isIssueMuted(session.key));
+  const handoffIssueKey = 'handoff:pending';
+  const handoffCountsAsIssue = !!stats.dispatch_reply_pending && !isIssueMuted(handoffIssueKey);
+  const failedItems = failedRuns.length + failedSpawns.length + activeFailedSessions.length + activeLiveIssues.length;
 
   const metric = (label, value, klass = '') => `<div class="ops-metric ${klass}"><b>${esc(String(value))}</b><span>${esc(label)}</span></div>`;
   const statsEl = document.getElementById('stats-cards');
@@ -2580,7 +2687,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
       metric('Running work', runningRuns.length, runningRuns.length ? 'warn' : '') +
       metric('Queued runs', queuedRuns.length, queuedRuns.length ? 'warn' : '') +
       metric('Unread', (stats.unread_messages || 0) + (stats.channel_unread_messages || 0), ((stats.unread_messages || 0) + (stats.channel_unread_messages || 0)) ? 'warn' : '') +
-      metric('Issues', failedItems + (stats.dispatch_reply_pending || 0), failedItems || stats.dispatch_reply_pending ? 'bad' : '');
+      metric('Issues', failedItems + (handoffCountsAsIssue ? (stats.dispatch_reply_pending || 0) : 0), failedItems || handoffCountsAsIssue ? 'bad' : '');
   }
 
   const lastMessageAt = recentMessages?.[0]?.timestamp ? fmtTime(recentMessages[0].timestamp) : 'No messages yet';
@@ -2634,8 +2741,11 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   }).join('') || '<div class="home-empty">No online environments. Start aify-comms in WSL or Windows.</div>';
 
   const issueRows = [
-    ...(stats.dispatch_reply_pending ? [homeRow('Pending handoff replies', `${stats.dispatch_reply_pending} old terminal run(s) have no recorded reply. Repairing them is safe after the agents are working again.`, String(stats.dispatch_reply_pending), 'bad', actionButton('Repair', 'Create fallback handoff replies', 'repairPendingHandoffs(false)'))] : []),
-    ...liveIssues.slice(0, 5).map(item => homeRow(item.id, item.issue, 'live issue', 'bad', actionButtonFn('Open', 'Open this chat and inspect live binding', () => openAgentChat(item.id)))),
+    ...(stats.dispatch_reply_pending ? [homeRow('Pending handoff replies', `${stats.dispatch_reply_pending} old terminal run(s) have no recorded reply. Repairing them is safe after the agents are working again.`, isIssueMuted(handoffIssueKey) ? 'muted' : String(stats.dispatch_reply_pending), isIssueMuted(handoffIssueKey) ? 'warn' : 'bad', actionButton('Repair', 'Create fallback handoff replies', 'repairPendingHandoffs(false)') + actionButtonFn(isIssueMuted(handoffIssueKey) ? 'Unmute' : 'Mute', 'Mute or unmute this notice in the dashboard issue count', () => toggleIssueMute(handoffIssueKey)))] : []),
+    ...activeFailedSessions.slice(0, 4).map(session => homeRow(session.agentId || session.id, `${session.runtime || ''} · ${session.environmentId || ''} · ${session.workspace || ''}`, session.status || 'session issue', 'bad', actionButton('Sessions', 'Open sessions page', "showPage('sessions')") + actionButtonFn('Mute', 'Mute this session notice in the dashboard issue count', () => toggleIssueMute(session.key)))),
+    ...activeLiveIssues.slice(0, 5).map(item => homeRow(item.id, item.issue, 'live issue', 'bad', actionButtonFn('Open', 'Open this chat and inspect live binding', () => openAgentChat(item.id)) + actionButtonFn('Mute', 'Mute this live-delivery notice in the dashboard issue count', () => toggleIssueMute(item.key)))),
+    ...mutedLiveIssues.slice(0, 3).map(item => homeRow(item.id, item.issue, 'muted', 'warn', actionButtonFn('Unmute', 'Restore this live-delivery notice to the issue count', () => toggleIssueMute(item.key)))),
+    ...failedSessions.filter(session => isIssueMuted(session.key)).slice(0, 3).map(session => homeRow(session.agentId || session.id, `${session.runtime || ''} · ${session.environmentId || ''}`, 'muted', 'warn', actionButtonFn('Unmute', 'Restore this session notice to the issue count', () => toggleIssueMute(session.key)))),
     ...failedSpawns.slice(0, 4).map(req => homeRow(req.agentId || req.id, req.error || req.workspace || '', 'spawn failed', 'bad', actionButton('Open', 'Open spawn queue', "showPage('environments')") + actionButtonFn('Dismiss', 'Hide this resolved historical spawn failure from Needs Attention', () => dismissIssue(`spawn:${req.id}`)))),
     ...failedRuns.slice(0, 4).map(run => homeRow(run.subject || run.id, run.error || run.summary || run.targetAgentId || '', run.status, 'bad', actionButtonFn('View', 'Open run failure', () => viewRun(run.id)) + actionButtonFn('Dismiss', 'Hide this resolved historical run failure from Needs Attention', () => dismissIssue(`run:${run.id}`)))),
     ...(failedRuns.length || failedSpawns.length ? [homeRow('Resolved old failures?', 'Hide all currently listed failed/cancelled runs and failed spawns from this homepage issue queue. Audit history stays in Runs and Environments.', 'reviewed', '', actionButtonFn('Dismiss listed', 'Hide currently listed historical failures from Needs Attention', () => dismissResolvedHomeIssues()))] : []),
@@ -2649,7 +2759,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     `<div class="ops-stack">` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Working Now</h3><span class="ops-panel-sub">${runningRuns.length} running</span></div><div class="work-list">${workingRows}${queuedRows ? `<h3>Queued Next</h3>${queuedRows}` : ''}</div></section>` +
       `<section class="ops-panel"><div class="ops-panel-head"><h3>Online Environments</h3><span class="ops-panel-sub">${onlineEnvs.length} bridge(s)</span></div><div class="home-panel-list">${envRows}</div></section>` +
-      `<section class="ops-panel"><div class="ops-panel-head"><h3>Needs Attention</h3><span class="ops-panel-sub">${failedItems + (stats.dispatch_reply_pending || 0)} issue(s)</span></div><div class="home-panel-list">${issueRows}</div></section>` +
+      `<section class="ops-panel"><div class="ops-panel-head"><h3>Needs Attention</h3><span class="ops-panel-sub">${failedItems + (handoffCountsAsIssue ? (stats.dispatch_reply_pending || 0) : 0)} active${mutedLiveIssues.length || failedSessions.some(session => isIssueMuted(session.key)) || isIssueMuted(handoffIssueKey) ? ' · muted shown yellow' : ''}</span></div><div class="home-panel-list">${issueRows}</div></section>` +
     `</div>` +
     `</div>`;
 }
@@ -2837,15 +2947,16 @@ async function repairContractReadReceipts() {
 }
 
 function setAnalyticsRange(range) {
-  window._analyticsRange = ['hour', 'day', 'month'].includes(range) ? range : 'hour';
+  window._analyticsRange = ['hour', 'day', 'month', 'all'].includes(range) ? range : 'hour';
   localStorage.setItem('aifyAnalyticsRange', window._analyticsRange);
-  renderAnalytics(window._analytics || {});
+  refreshDashboard();
 }
 
 function analyticsSeries(data = {}) {
   const range = window._analyticsRange || 'hour';
   if (range === 'day') return {label: 'last 30 days', items: data.messagesPerDay || [], maxItems: 30};
   if (range === 'month') return {label: 'last 12 months', items: data.messagesPerMonth || [], maxItems: 12};
+  if (range === 'all') return {label: 'all time', items: data.messagesPerAllTime || [], maxItems: Math.max(1, (data.messagesPerAllTime || []).length)};
   return {label: 'last 24 hours', items: data.messagesPerHour || [], maxItems: 24};
 }
 
@@ -2888,7 +2999,8 @@ function renderTrafficChart(data = {}) {
     const text = button.textContent.trim();
     const active = (window._analyticsRange === 'hour' && text === '24h') ||
       (window._analyticsRange === 'day' && text === '30d') ||
-      (window._analyticsRange === 'month' && text === '12m');
+      (window._analyticsRange === 'month' && text === '12m') ||
+      (window._analyticsRange === 'all' && text === 'All');
     button.classList.toggle('active', active);
   });
   return `<div class="chart-wrap">` +
@@ -2922,13 +3034,16 @@ function renderAnalytics(data = {}) {
   const stats = document.getElementById('analytics-stats');
   if (!stats) return;
   const runsByStatus = data.runsByStatus || {};
+  const rangeLabel = data.rangeLabel || analyticsSeries(data).label;
+  const failedRuns = Number(runsByStatus.failed || 0) + Number(runsByStatus.cancelled || 0);
+  const failedSpawns = Number((data.spawnRequestsByStatus || {}).failed || 0);
   stats.innerHTML =
-    `<div class="sc"><div class="n">${data.liveAgents || 0}</div><div class="l">Live Agents</div></div>` +
-    `<div class="sc"><div class="n">${data.onlineAgents || 0}</div><div class="l">Online Agents</div></div>` +
-    `<div class="sc"><div class="n">${data.workingAgents || 0}</div><div class="l">Working</div></div>` +
-    `<div class="sc"><div class="n">${data.onlineEnvironments || 0}</div><div class="l">Online Envs</div></div>` +
-    `<div class="sc"><div class="n">${runsByStatus.running || 0}</div><div class="l">Runs Running</div></div>` +
-    `<div class="sc${(runsByStatus.failed || 0) ? ' warn' : ''}"><div class="n">${runsByStatus.failed || 0}</div><div class="l">Runs Failed</div></div>`;
+    `<div class="sc"><div class="n">${data.messageTotal || 0}</div><div class="l">Messages</div><div class="s">${esc(rangeLabel)}</div></div>` +
+    `<div class="sc"><div class="n">${data.runTotal || 0}</div><div class="l">Runs</div><div class="s">${esc(rangeLabel)}</div></div>` +
+    `<div class="sc"><div class="n">${runsByStatus.completed || 0}</div><div class="l">Completed</div><div class="s">${esc(rangeLabel)}</div></div>` +
+    `<div class="sc${failedRuns ? ' warn' : ''}"><div class="n">${failedRuns}</div><div class="l">Failed / Cancelled</div><div class="s">${esc(rangeLabel)}</div></div>` +
+    `<div class="sc${failedSpawns ? ' warn' : ''}"><div class="n">${failedSpawns}</div><div class="l">Spawn Failures</div><div class="s">${esc(rangeLabel)}</div></div>` +
+    `<div class="sc"><div class="n">${runsByStatus.running || 0}</div><div class="l">Running Runs</div><div class="s">current window</div></div>`;
   const traffic = document.getElementById('analytics-traffic');
   const health = document.getElementById('analytics-health');
   const runs = document.getElementById('analytics-runs');
@@ -2940,8 +3055,8 @@ function renderAnalytics(data = {}) {
       `<div class="health-card"><b>${data.onlineAgents || 0}</b><span>Online agents</span></div>` +
       `<div class="health-card warn"><b>${data.workingAgents || 0}</b><span>Working now</span></div>` +
       `<div class="health-card"><b>${data.onlineEnvironments || 0}</b><span>Online envs</span></div>` +
-      `<div class="health-card"><b>${runsByStatus.running || 0}</b><span>Running runs</span></div>` +
-      `<div class="health-card ${(runsByStatus.failed || 0) ? 'bad' : ''}"><b>${runsByStatus.failed || 0}</b><span>Failed runs</span></div>` +
+      `<div class="health-card"><b>${(data.spawnRequestTotal || 0)}</b><span>Spawn requests</span></div>` +
+      `<div class="health-card ${(failedSpawns || 0) ? 'bad' : ''}"><b>${failedSpawns || 0}</b><span>Spawn failures</span></div>` +
       `</div>`;
   }
   if (runs) runs.innerHTML = renderRunStatusMix(runsByStatus);
@@ -3625,7 +3740,9 @@ function chatLiveWarning(meta) {
   if (!entry) return `<div class="banner"><div class="banner-row"><span>Target "${esc(meta.id)}" is not registered. Messages cannot wake it until a live agent or managed session exists.</span></div></div>`;
   const issue = liveIssueForAgent(meta.id, entry[1]);
   if (!issue) return '';
-  return `<div class="banner"><div class="banner-row"><span><b>Live delivery issue:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Team', 'Open identity details for this agent', "showPage('workers')")}</div></div>`;
+  const key = `live:${meta.id}`;
+  const muted = isIssueMuted(key);
+  return `<div class="banner${muted ? ' muted' : ''}"><div class="banner-row"><span><b>${muted ? 'Muted live notice' : 'Live delivery issue'}:</b> ${esc(issue)}. Send will fail until this agent is startable.</span>${actionButton('Team', 'Open identity details for this agent', "showPage('workers')")}${actionButtonFn(muted ? 'Unmute' : 'Mute', 'Mute or unmute this live-delivery notice in dashboard issue counts', () => toggleIssueMute(key))}</div></div>`;
 }
 
 function toggleChatInspector() {
@@ -4590,7 +4707,8 @@ async function refreshDashboard() {
       apiFetch(API + '/messages/recent?limit=120').then(r => r.json()),
       apiFetch(API + `/contracts?${contractParams.toString()}`).then(r => r.json()).catch(() => ({contracts: [], summary: {}, settings: {}})),
     ]);
-    const analyticsRes = await apiFetch(API + '/analytics').then(r => r.json()).catch(() => ({}));
+    const analyticsRange = ['hour', 'day', 'month', 'all'].includes(window._analyticsRange) ? window._analyticsRange : 'hour';
+    const analyticsRes = await apiFetch(API + `/analytics?range=${encodeURIComponent(analyticsRange)}`).then(r => r.json()).catch(() => ({}));
     const runs = runsRes.runs || [];
     const environments = envRes.environments || [];
     const spawnRequests = spawnRes.spawnRequests || [];
@@ -5286,6 +5404,9 @@ async function purgeOrphanUnread() {
 
 async function loadSettings() {
   const s = await apiFetch(API + '/settings').then(r=>r.json());
+  applyDashboardSettings(s);
+  document.getElementById('s-dashboard-title').value = s.dashboard_title || 'AIFY Comms';
+  document.getElementById('s-dashboard-theme').value = s.dashboard_theme || 'default';
   document.getElementById('s-retention').value = s.retention_days;
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
@@ -5305,12 +5426,15 @@ async function loadSettings() {
   document.getElementById('s-contract-stale').value = s.contract_stale_hours;
   if (refreshInterval) clearInterval(refreshInterval);
   refreshInterval = setInterval(refreshDashboard, s.dashboard_refresh_seconds * 1000);
+  showSettingsTab(localStorage.getItem('aifySettingsTab') || 'appearance');
 }
 
 async function saveSettings(e) {
   e.preventDefault();
   await apiFetch(API + '/settings', {method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
+      dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
+      dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
       retention_days: parseInt(document.getElementById('s-retention').value),
       max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
       max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),

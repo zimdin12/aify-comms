@@ -369,6 +369,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
         self.assertIn("Managed Runtime Defaults", dashboard.text)
+        self.assertIn("Dashboard Title", dashboard.text)
+        self.assertIn("Color Scheme", dashboard.text)
+        self.assertIn("setAnalyticsRange('all')", dashboard.text)
+        self.assertIn("toggleIssueMute", dashboard.text)
         self.assertIn("s-claude-model", dashboard.text)
         self.assertIn("s-claude-effort", dashboard.text)
         self.assertIn("s-codex-model", dashboard.text)
@@ -377,6 +381,53 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
         self.assertNotIn("assignAgentEnvironment", dashboard.text)
+
+    def test_settings_include_dashboard_appearance_defaults(self):
+        settings = self.client.get("/api/v1/settings")
+        self.assertEqual(settings.status_code, 200, settings.text)
+        self.assertEqual(settings.json()["dashboard_title"], "AIFY Comms")
+        self.assertEqual(settings.json()["dashboard_theme"], "default")
+
+        updated = self.client.put(
+            "/api/v1/settings",
+            json={"dashboard_title": "Sand Castle Comms", "dashboard_theme": "ember"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["dashboard_title"], "Sand Castle Comms")
+        self.assertEqual(updated.json()["dashboard_theme"], "ember")
+
+    def test_analytics_range_filters_run_mix_and_all_time_series(self):
+        self._register("lead")
+        self._register("coder")
+        self._send_message(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="recent",
+            body="recent body",
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, message_type, subject, body,
+                status, requested_at, finished_at
+            ) VALUES
+                ('run_recent', 'lead', 'coder', 'request', 'recent', 'recent body', 'completed', '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z'),
+                ('run_old', 'lead', 'coder', 'request', 'old', 'old body', 'failed', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')
+            """,
+        )
+
+        scoped = self.client.get("/api/v1/analytics?range=hour")
+        self.assertEqual(scoped.status_code, 200, scoped.text)
+        self.assertEqual(scoped.json()["rangeLabel"], "last 24 hours")
+        self.assertEqual(scoped.json()["runsByStatus"].get("failed", 0), 0)
+        self.assertEqual(scoped.json()["runsByStatus"].get("completed", 0), 1)
+
+        all_time = self.client.get("/api/v1/analytics?range=all")
+        self.assertEqual(all_time.status_code, 200, all_time.text)
+        self.assertEqual(all_time.json()["rangeLabel"], "all time")
+        self.assertEqual(all_time.json()["runsByStatus"].get("failed", 0), 1)
+        self.assertTrue(all_time.json()["messagesPerAllTime"])
 
     def test_managed_claude_spawn_uses_settings_default_model(self):
         self._heartbeat_environment(

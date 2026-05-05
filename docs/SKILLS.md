@@ -52,6 +52,8 @@ bash install.sh --client claude http://localhost:8800 --with-hook
 
 After either install/update, restart the relevant CLI wrapper/client and any long-running `aify-comms` environment bridge so both resident sessions and managed environment spawns load the updated skills and bridge code.
 
+Dashboard operators can tune appearance and operations separately. Dashboard **Settings -> Appearance** controls the browser title/brand and accent theme for distinguishing multiple services. **Settings -> Runtime** controls global managed Claude/Codex model and effort policy. Home issue muting is dashboard-local: muted live/session/handoff notices stay visible as yellow context but stop counting as red active issues.
+
 The installer copies the Codex skills from:
 
 ```text

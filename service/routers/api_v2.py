@@ -81,6 +81,8 @@ DEFAULT_SETTINGS = {
     "managed_claude_effort": "high",
     "managed_codex_model": "gpt-5.5",
     "managed_codex_effort": "high",
+    "dashboard_title": "AIFY Comms",
+    "dashboard_theme": "default",
 }
 
 _RUNTIME_ALIASES = {
@@ -98,6 +100,7 @@ _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
+CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
 
 async def _get_ws(request: Request):
     try:
@@ -204,7 +207,7 @@ def _is_delivery_only_claude_run(row) -> bool:
     return (
         str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() == "claude-code"
         and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() == "completed"
-        and str((row["summary"] if "summary" in row.keys() else "") or "").strip() == "Delivered to Claude resident session"
+        and str((row["summary"] if "summary" in row.keys() else "") or "").strip().startswith(CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX)
     )
 
 
@@ -6923,7 +6926,7 @@ async def get_stats(request: Request):
               AND NOT (
                   runtime = 'claude-code'
                   AND status = 'completed'
-                  AND COALESCE(summary, '') = 'Delivered to Claude resident session'
+                  AND COALESCE(summary, '') LIKE 'Delivered to Claude resident session%'
               )
             """
         )
@@ -6960,9 +6963,11 @@ async def get_stats(request: Request):
 
 
 @router.get("/analytics")
-async def get_analytics(request: Request):
+async def get_analytics(request: Request, analytics_range: str = Query("hour", alias="range", pattern="^(hour|day|month|all)$")):
+    selected_range = analytics_range
     db = await get_db()
     try:
+        settings = await _load_settings(db)
         now_s = int(time.time())
         message_where = """
           (
@@ -7021,8 +7026,59 @@ async def get_analytics(request: Request):
                 "count": await count_messages_between(start_s * 1000, end_s * 1000),
             })
 
-        status_c = await db.execute("SELECT status, COUNT(*) as cnt FROM dispatch_runs GROUP BY status")
+        all_time_c = await db.execute(
+            f"""
+            SELECT strftime('%Y-%m', datetime(timestamp / 1000, 'unixepoch')) AS bucket,
+                   MIN(timestamp) AS start_ms,
+                   COUNT(*) AS cnt
+            FROM messages
+            WHERE {message_where}
+            GROUP BY bucket
+            ORDER BY bucket ASC
+            """
+        )
+        all_time = [
+            {"label": row["bucket"] or "unknown", "start": _iso_from_ms(int(row["start_ms"] or 0)), "count": int(row["cnt"] or 0)}
+            for row in await all_time_c.fetchall()
+        ]
+
+        since_s_by_range = {
+            "hour": now_s - 24 * 3600,
+            "day": now_s - 30 * 86400,
+            "month": now_s - 366 * 86400,
+        }
+        since_s = since_s_by_range.get(selected_range)
+        run_where = ""
+        run_params: tuple[Any, ...] = ()
+        spawn_where = ""
+        spawn_params: tuple[Any, ...] = ()
+        message_count_where = message_where
+        message_count_params: tuple[Any, ...] = ()
+        if since_s is not None:
+            since_iso = _iso_from_ms(since_s * 1000)
+            since_ms = since_s * 1000
+            run_where = "WHERE COALESCE(finished_at, requested_at) >= ?"
+            run_params = (since_iso,)
+            spawn_where = "WHERE updated_at >= ?"
+            spawn_params = (since_iso,)
+            message_count_where = f"{message_where} AND timestamp >= ?"
+            message_count_params = (since_ms,)
+
+        status_c = await db.execute(
+            f"SELECT status, COUNT(*) as cnt FROM dispatch_runs {run_where} GROUP BY status",
+            run_params,
+        )
         runs_by_status = {row["status"]: row["cnt"] for row in await status_c.fetchall()}
+        message_total_c = await db.execute(
+            f"SELECT COUNT(*) FROM messages WHERE {message_count_where}",
+            message_count_params,
+        )
+        message_total = int((await message_total_c.fetchone())[0])
+        spawn_status_c = await db.execute(
+            f"SELECT status, COUNT(*) as cnt FROM spawn_requests {spawn_where} GROUP BY status",
+            spawn_params,
+        )
+        spawns_by_status = {row["status"]: row["cnt"] for row in await spawn_status_c.fetchall()}
 
         agents_c = await db.execute("SELECT * FROM agents")
         agent_rows = await agents_c.fetchall()
@@ -7033,7 +7089,7 @@ async def get_analytics(request: Request):
             mode = _agent_wake_mode(row)
             if mode != "message-only" and mode != "disabled":
                 live_agents += 1
-            status = await _compute_agent_status(row, DEFAULT_SETTINGS["idle_minutes"], DEFAULT_SETTINGS["offline_minutes"], db)
+            status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
             if not status.startswith("offline") and not status.startswith("stale"):
                 online_agents += 1
             if status.startswith("working"):
@@ -7047,7 +7103,14 @@ async def get_analytics(request: Request):
             "messagesPerHour": hourly,
             "messagesPerDay": daily,
             "messagesPerMonth": monthly,
+            "messagesPerAllTime": all_time,
+            "range": selected_range,
+            "rangeLabel": {"hour": "last 24 hours", "day": "last 30 days", "month": "last 12 months", "all": "all time"}[selected_range],
+            "messageTotal": message_total,
             "runsByStatus": runs_by_status,
+            "runTotal": sum(runs_by_status.values()),
+            "spawnRequestsByStatus": spawns_by_status,
+            "spawnRequestTotal": sum(spawns_by_status.values()),
             "liveAgents": live_agents,
             "onlineAgents": online_agents,
             "workingAgents": working_agents,

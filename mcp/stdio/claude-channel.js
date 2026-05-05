@@ -176,7 +176,7 @@ async function emitChannel(content, meta = {}) {
 async function markDispatchDelivered(runId) {
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: "completed",
-    summary: "Delivered to Claude resident session",
+    summary: "Delivered to Claude resident session; awaiting explicit reply",
     runtime: "claude-code",
     agentStatus: "active",
     appendEvent: "Delivered and completed by channel bridge",
