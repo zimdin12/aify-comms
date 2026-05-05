@@ -11,7 +11,7 @@ Initial dashboard sections:
 - **Environments**: connected spawn targets.
 - **Sessions**: concrete runtime processes/threads grouped under Environments, with identity actions available from the row or Identity Directory.
 - **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
-- **Runs**: dispatch/run/handoff table.
+- **Runs**: execution/delivery audit table for run events, failures, steering, interrupts, and handoff state.
 - **Artifacts**: shared files and text artifacts.
 - **Help**: tabbed product concepts, setup, daily-use, session/CLI, and reference guidance. It should be readable in-dashboard without turning into a long unstructured manual.
 - **Settings**: grouped control-plane settings: appearance, managed runtime defaults, reply-contract policy, retention, presence thresholds, and dashboard refresh.

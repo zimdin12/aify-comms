@@ -48,7 +48,7 @@ The inspector drawer prevents primary tables from growing too many columns. Tabl
 ## UX Principles
 
 - **Default to action.** If an agent is offline but recoverable, show Restart. If a bridge is online, show Spawn Here.
-- **Expose hierarchy.** Agent identities are persistent addresses, Environments are host bridges, Sessions are concrete runtime backings grouped under Environments, and Runs are tracked work attempts. The primary dashboard should manage identities through Sessions and Chat, not a top-level Agents page.
+- **Expose hierarchy.** Agent identities are persistent addresses, Environments are host bridges, Sessions are concrete runtime backings grouped under Environments, and Runs are execution audit records. The primary dashboard should manage identities through Sessions and Chat, not a top-level Agents page.
 - **Expose ownership.** Every active agent/session shows its bridge and workspace.
 - **Hide runtime weirdness until needed.** Show capability badges and clear warnings, not implementation internals.
 - **Prefer conversation over forms.** Chat is the main workflow; forms are for spawn/settings.

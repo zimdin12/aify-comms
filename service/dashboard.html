@@ -252,13 +252,6 @@ tr:hover{background:#19212a}
 .team-state.idle{background:#30363d;color:var(--muted)}
 @media (max-width:1200px){.ops-layout,.work-layout{grid-template-columns:1fr}.ops-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.ops-hero{grid-template-columns:1fr}.ops-status{justify-content:flex-start}.ops-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-row,.hygiene-row{grid-template-columns:1fr}.activity-time{text-align:left}.contract-head{flex-direction:column}}
-.advanced-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);margin:12px 0;overflow:hidden}
-.advanced-panel[open]{padding-bottom:10px}
-.advanced-panel summary{padding:10px 12px;cursor:pointer;color:var(--text);font-weight:600;font-size:.9em;background:var(--panel)}
-.advanced-panel summary:hover{background:var(--panel-3)}
-.advanced-panel .send-form{border:0;border-top:1px solid var(--line-soft);border-radius:0;margin:0;background:var(--panel-2)}
-.advanced-panel .fb{padding:10px 12px 0;margin:0 0 10px}
-.advanced-panel #messages-table{padding:0 12px}
 
 .form-group{margin-bottom:14px}
 .form-group label{display:block;color:var(--muted);font-size:.82em;margin-bottom:4px}
@@ -643,7 +636,7 @@ tr:hover{background:#1b1f21}
 .compact-table{table-layout:fixed}
 .compact-table td,.compact-table th{overflow:hidden}
 @media (max-width:1100px){.analytics-layout{grid-template-columns:1fr}.analytics-wide{grid-column:auto}}
-.env-card,.send-form,.modal,.advanced-panel{border-radius:14px;background:#151718;border-color:#2b3033;box-shadow:0 14px 44px #00000030}
+.env-card,.send-form,.modal{border-radius:14px;background:#151718;border-color:#2b3033;box-shadow:0 14px 44px #00000030}
 .env-pill,.home-tag,.rb,.tb,.mb{border-radius:999px}
 @media (max-width:1200px){.ops-layout{grid-template-columns:1fr}.ops-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.chat-shell{grid-template-columns:280px minmax(0,1fr)}.chat-inspector{display:none}}
 @media (max-width:1200px){
@@ -745,7 +738,7 @@ tr:hover{background:#1b1f21}
   .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout,.settings-shell,.instructions-shell{grid-template-columns:1fr}
   .settings-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .instructions-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .ops-panel,.home-panel,.send-form,.env-card,.advanced-panel{border-radius:14px;padding:12px}
+  .ops-panel,.home-panel,.send-form,.env-card{border-radius:14px;padding:12px}
   .ops-panel-head,.home-panel-head{align-items:flex-start;flex-direction:column}
   .ops-panel-sub{white-space:normal}
   .activity-row{grid-template-columns:1fr;gap:5px}
@@ -1044,7 +1037,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="nav-section">Runtime</div>
     <a onclick="showPage('environments')" id="nav-environments" title="Environments"><span><b>Environments</b><small>spawn targets</small></span></a>
     <a onclick="showPage('sessions')" id="nav-sessions" title="Sessions"><span><b>Sessions</b><small>env backings</small></span></a>
-    <a onclick="showPage('dispatches')" id="nav-dispatches" title="Runs"><span><b>Runs</b><small>tracked work</small></span></a>
+    <a onclick="showPage('dispatches')" id="nav-dispatches" title="Runs"><span><b>Runs</b><small>execution audit</small></span></a>
     <div class="nav-section">Insight</div>
     <a onclick="showPage('analytics')" id="nav-analytics" title="Analytics"><span><b>Analytics</b><small>traffic and health</small></span></a>
     <a onclick="showPage('files')" id="nav-files" title="Artifacts"><span><b>Artifacts</b><small>shared files</small></span></a>
@@ -1096,7 +1089,6 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
       <button class="btn btn-primary" title="Open the main chat surface for direct and channel messages" onclick="showPage('chat')">Open Chat</button>
       <button class="btn" title="Open environment-backed spawn controls" onclick="showPage('environments')">Spawn Agent</button>
       <button class="btn" title="Open the session management surface with identity directory access" onclick="showPage('sessions')">Manage Sessions</button>
-      <button class="btn" title="Open the on-demand identity directory for roles, resident bindings, and cleanup" onclick="openIdentityDirectory()">Identity Directory</button>
     </div>
     <div id="home-control-room"></div>
   </div>
@@ -1252,28 +1244,6 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     </div>
   </div>
 
-  <!-- ============ IDENTITY DIRECTORY (hidden debug/deep-link fallback; normal entry is Sessions -> Identity Directory) ============ -->
-  <div class="page" id="page-workers">
-    <div class="page-head-row">
-      <h2>Identity Directory</h2>
-      <div class="btn-row">
-        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openAgentSpawn()">Add managed agent</button>
-      </div>
-    </div>
-    <p class="worker-note">Identities are stable addresses: ID, role, inbox, chats, saved resume state, and routing policy. They are not the same as Sessions. Sessions are concrete Claude/Codex/OpenCode runtime backings hosted by Environments.</p>
-    <div class="model-grid">
-      <section class="model-card"><b>Agent</b><span>Who the persistent identity is: ID, role, inbox, channels, saved state.</span></section>
-      <section class="model-card"><b>Environment</b><span>Where managed work can run: Windows, WSL, Linux, Docker, or remote bridge.</span></section>
-      <section class="model-card"><b>Session</b><span>The current or historical runtime backing for an agent inside an environment.</span></section>
-    </div>
-    <div class="stats" id="worker-stats"></div>
-    <h3>Managed Identities</h3>
-    <div id="workers-table"></div>
-    <h3>Manual / Resident CLI Identities</h3>
-    <p class="worker-note">These are live CLI registrations and older/manual identities. Offline rows are historical identity records, not running processes; remove stale demo/test names here.</p>
-    <div id="manual-agents-table"></div>
-  </div>
-
   <!-- ============ ENVIRONMENTS ============ -->
   <div class="page" id="page-environments">
     <h2>Environments</h2>
@@ -1307,11 +1277,11 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="page-head-row">
       <h2>Sessions</h2>
       <div class="btn-row">
-        <button class="btn btn-primary" title="Open the environment-backed spawn form for a new managed agent identity" onclick="openAgentSpawn()">Add managed agent</button>
+        <button class="btn btn-primary" title="Open environment-backed spawn controls" onclick="openAgentSpawn()">Spawn Agent</button>
         <button class="btn" title="Open on-demand identity directory for roles, resident bindings, and cleanup" onclick="openIdentityDirectory()">Identity Directory</button>
       </div>
     </div>
-    <p class="worker-note">Sessions are grouped by Environment because each session is a concrete runtime/process backing for an Agent on a specific host bridge. Stop/restart/compact here when you need to control a real managed runtime.</p>
+    <p class="worker-note">Sessions are grouped by Environment because each session is a concrete runtime/process backing on a specific host bridge. Identity = mailbox/role. Session = runtime backing. Environment = host bridge.</p>
     <div class="fb">
       <label class="switch-row" title="Show ended, completed, and cancelled session history. Keep this off for normal work; turn it on while debugging lifecycle issues.">
         <input type="checkbox" id="show-ended-sessions" onchange="setShowEndedSessions(this.checked)">
@@ -1325,6 +1295,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   <!-- ============ DISPATCHES ============ -->
   <div class="page" id="page-dispatches">
     <h2>Runs</h2>
+    <p class="worker-note">Runs are execution and delivery audit history. Use Work Loop for open obligations; use Runs to inspect events, failures, interrupts, steering, and handoff state.</p>
     <div class="stats" id="dispatch-stats"></div>
     <div class="fb">
       <input id="runf" placeholder="Search runs..." oninput="filterRuns()">
@@ -1367,33 +1338,9 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         <div id="analytics-health"></div>
       </section>
       <section class="ops-panel analytics-wide">
-        <div class="ops-panel-head"><h3>Run Status Mix</h3><span class="ops-panel-sub">tracked work state</span></div>
+        <div class="ops-panel-head"><h3>Run Status Mix</h3><span class="ops-panel-sub">execution outcomes</span></div>
         <div id="analytics-runs"></div>
       </section>
-    </div>
-  </div>
-
-  <!-- ============ CHANNELS ============ -->
-  <div class="page" id="page-channels">
-    <div id="channels-list"></div>
-    <div id="channel-detail" style="display:none">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <button class="btn btn-sm" title="Return to the channel list" onclick="showChannelList()">&larr; Back</button>
-        <h2 id="channel-title" style="margin:0"></h2>
-        <span class="t" id="channel-meta"></span>
-      </div>
-      <div id="channel-messages"></div>
-      <div id="channel-pagination"></div>
-      <div class="send-form" style="margin-top:12px">
-        <div class="send-row">
-          <input id="ch-send-from" placeholder="Your agent ID" style="width:120px">
-          <input id="ch-send-body" placeholder="Message..." style="flex:1;min-width:200px">
-          <select id="ch-send-mode" style="width:160px">
-            <option value="wake">Notify members</option>
-          </select>
-          <button class="btn btn-primary" title="Post to this channel and wake members" onclick="sendChannelMsg()">Send</button>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -1590,7 +1537,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <ul>
         <li><code>GET /health</code> — Health check</li>
         <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
-        <li><code>GET/POST/DELETE /api/v1/agents</code> — Agents</li>
+        <li><code>GET/POST /api/v1/agents</code>, <code>DELETE /api/v1/agents/{id}</code> — Identity records</li>
         <li><code>POST /api/v1/agents/{id}/control</code> — Stop, resume, or interrupt active work for an identity</li>
         <li><code>GET /api/v1/environments</code> — Connected execution environments</li>
         <li><code>POST /api/v1/environments/heartbeat</code> — Environment bridge heartbeat</li>
@@ -1795,7 +1742,6 @@ const _urlParams = new URLSearchParams(window.location.search);
 const _apiKey = _urlParams.get('api_key') || '';
 const _authHeaders = _apiKey ? {'X-API-Key': _apiKey} : {};
 window._allMsgs = [];
-window._filteredMsgs = [];
 window._allRuns = [];
 window._filteredRuns = [];
 window._allAgents = [];
@@ -1889,7 +1835,6 @@ function showPage(name, updateHistory = true) {
   if (name === 'analytics') renderAnalytics(window._analytics || {});
   if (name === 'dispatches') {
     renderDispatchStats(window._dashboardStats || {});
-    applyFiltersAndRender();
     applyRunFiltersAndRender();
   }
   if (name === 'dashboard') renderHomeFromState();
@@ -1901,7 +1846,6 @@ function showPage(name, updateHistory = true) {
     syncSpawnControls(window._environments || []);
   }
   if (name === 'sessions') renderSessions(window._sessions || []);
-  if (name === 'channels') loadChannels();
   if (name === 'files') loadFiles();
   requestAnimationFrame(() => enhanceResponsiveTables(page));
 }
@@ -2080,10 +2024,13 @@ function closeModal() {
 }
 
 function updateConnectionStatus(text, color) {
-  const el = document.getElementById('status-dot');
+  const el = document.getElementById('topbar-live');
   if (!el) return;
-  el.style.color = color;
-  el.textContent = text;
+  const label = String(text || 'Live').replace(/^●\s*/, '');
+  el.style.color = color || '';
+  el.textContent = label;
+  el.title = `Realtime: ${label}`;
+  el.classList.toggle('disconnected', /disconnect|error|unavailable/i.test(label));
 }
 
 function scheduleRealtimeRefresh() {
@@ -2806,28 +2753,6 @@ function residentAgentsTableHtml(agents) {
   return html;
 }
 
-function renderAgents(agents, containerId = 'manual-agents-table') {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  container.innerHTML = residentAgentsTableHtml(agents);
-}
-
-function renderWorkerStats(workers) {
-  const activeRuns = workers.filter(([, info]) => !!info.dispatchState?.activeRun).length;
-  const queued = workers.reduce((sum, [, info]) => sum + Number(info.dispatchState?.queuedRuns || 0), 0);
-  const savedState = workers.filter(([, info]) => {
-    const state = info.runtimeState || {};
-    return !!(state.threadId || state.sessionId || info.sessionHandle);
-  }).length;
-  const unread = workers.reduce((sum, [, info]) => sum + Number(info.unread || 0), 0);
-  document.getElementById('worker-stats').innerHTML =
-    `<div class="sc"><div class="n">${workers.length}</div><div class="l">Managed Identities</div></div>` +
-    `<div class="sc"><div class="n">${activeRuns}</div><div class="l">Active Runs</div></div>` +
-    `<div class="sc"><div class="n">${queued}</div><div class="l">Queued</div></div>` +
-    `<div class="sc"><div class="n">${savedState}</div><div class="l">Saved State</div></div>` +
-    `<div class="sc${unread ? ' warn' : ''}"><div class="n">${unread}</div><div class="l">Unread</div></div>`;
-}
-
 function managedAgentsTableHtml(workers) {
   if (!workers.length) {
     return '<p class="em">No managed agents registered. Spawn one from Environments.</p>';
@@ -2862,13 +2787,6 @@ function managedAgentsTableHtml(workers) {
   }
   html += '</tbody></table>';
   return html;
-}
-
-function renderWorkers(workers) {
-  renderWorkerStats(workers);
-  const container = document.getElementById('workers-table');
-  if (!container) return;
-  container.innerHTML = managedAgentsTableHtml(workers);
 }
 
 function openIdentityDirectory() {
@@ -3220,7 +3138,14 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     const preview = message.preview || '';
     const peer = message.from === chatIdentity() ? (message.to || '') : (message.from || '');
     const actionId = `flow_${++window._dashboardActionSeq}`;
-    rememberDashboardAction(actionId, () => isChannel ? selectChatConversation(`channel:${message.channel || ''}`) : openAgentChat(peer));
+    rememberDashboardAction(actionId, () => {
+      if (isChannel) {
+        showPage('chat');
+        selectChatConversation(`channel:${message.channel || ''}`);
+      } else {
+        openAgentChat(peer);
+      }
+    });
     return `<div class="activity-row" ${dashboardActionAttr(actionId)} title="Open this conversation">` +
       `<div class="activity-route">${esc(route)}</div>` +
       `<div class="activity-main"><div class="activity-title clip-1"${titleAttr(title)}>${esc(title)}</div><div class="activity-preview clip-2"${titleAttr(preview)}>${esc(preview)}</div></div>` +
@@ -3234,7 +3159,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     return `<div class="work-card"><div class="work-card-head"><b class="clip-1"${titleAttr(title)}>${esc(title)}</b><span class="home-tag ${run.status === 'running' ? '' : 'warn'}">${esc(run.status)}</span></div>` +
       `<p>${esc(route)} · ${esc(run.runtime || run.requestedRuntime || run.executionMode || 'runtime')}</p>` +
       `<div class="btn-row">${actionButtonFn('View run', 'Open run details and controls', () => viewRun(run.id))}${actionButtonFn('Chat', 'Open target chat', () => openAgentChat(run.targetAgentId || ''))}</div></div>`;
-  }).join('') || '<div class="home-empty">No agents are currently executing tracked work.</div>';
+  }).join('') || '<div class="home-empty">No sessions are currently executing work.</div>';
 
   const queuedRows = queuedRuns.slice(0, 5).map(run =>
     homeRow(run.subject || run.id, `${run.from || ''} -> ${run.targetAgentId || ''}`, run.status || 'queued', 'warn', actionButtonFn('View', 'Open queued run', () => viewRun(run.id)))
@@ -3301,13 +3226,6 @@ function renderHomeFromState() {
   );
 }
 
-function renderAgentsFromState() {
-  const residentAgents = window._residentAgents || [];
-  const visibleResidentAgents = residentAgents.filter(([, info]) => shouldShowManualBinding(info));
-  renderAgents(visibleResidentAgents, 'manual-agents-table');
-  renderWorkers(window._managedWorkers || []);
-}
-
 async function renderCurrentPageFromState() {
   if (currentPage === 'dashboard') renderHomeFromState();
   if (currentPage === 'work') renderWorkLoop();
@@ -3319,7 +3237,6 @@ async function renderCurrentPageFromState() {
   if (currentPage === 'sessions') renderSessions(window._sessions || []);
   if (currentPage === 'dispatches') {
     renderDispatchStats(window._dashboardStats || {});
-    applyFiltersAndRender();
     applyRunFiltersAndRender();
   }
   if (currentPage === 'analytics') renderAnalytics(window._analytics || {});
@@ -4763,7 +4680,6 @@ async function unsendChatMessage(messageId) {
     if (!res.ok) throw new Error(res.detail || res.error || 'Unsend failed');
     window._allMsgs = (window._allMsgs || []).filter(item => item.id !== messageId);
     renderChat();
-    applyFiltersAndRender();
     toast('Message unsent');
   } catch (e) {
     toast(e.message || 'Unsend failed', '#f85149');
@@ -5396,8 +5312,6 @@ async function refreshDashboard() {
       bannerParts.length ? `<div class="banner"><div class="banner-row"><span>${bannerParts.join(' ')}</span>${orphanAction}</div></div>` : '';
 
     const agentIds = agents.map(([id]) => id);
-    syncSelectOptions('af1', 'From: All', agentIds.concat('dashboard'));
-    syncSelectOptions('af2', 'To: All', agentIds.concat('dashboard'));
     syncSelectOptions('run-from', 'From: All', agentIds.concat('dashboard'));
     syncSelectOptions('run-to', 'Target: All', agentIds);
     const runtimes = [...new Set(runs.map(run => run.runtime || run.requestedRuntime || '').filter(Boolean))].sort();
@@ -5417,7 +5331,6 @@ async function refreshDashboard() {
     }
     allMsgs.sort((a,b) => timeValue(b.timestamp) - timeValue(a.timestamp));
     window._allMsgs = allMsgs;
-    window._msgPage = window._msgPage || 0;
     await renderCurrentPageFromState();
     enhanceResponsiveTables();
     restoreDashboardViewState(viewState);
@@ -5556,73 +5469,6 @@ async function steerRun(runId) {
   }
 }
 
-const MSG_PER_PAGE = 30;
-
-function renderMessages(msgs, page) {
-  if (!document.getElementById('messages-table')) return;
-  if (!msgs.length) {
-    document.getElementById('messages-table').innerHTML = '<p class="em">No messages.</p>';
-    return;
-  }
-  const total = msgs.length;
-  const totalPages = Math.ceil(total / MSG_PER_PAGE);
-  const pg = Math.min(page || 0, totalPages - 1);
-  const start = pg * MSG_PER_PAGE;
-  const slice = msgs.slice(start, start + MSG_PER_PAGE);
-
-  let html = '<div class="table-wrap"><table id="mt" class="compact-table"><thead><tr><th>Time</th><th>From &rarr; To</th><th>Type</th><th>Subject</th><th>Body</th></tr></thead><tbody>';
-  for (const m of slice) {
-    const cls = m.read ? 'mr' : 'mu';
-    const pri = (m.priority && m.priority !== 'normal') ? `<br><span class="p-${esc(m.priority)}">${esc(m.priority).toUpperCase()}</span>` : '';
-    const delivery = deliveryBadge(!!m.dispatchRequested);
-    html += `<tr class="${cls}" data-from="${esc(m.from)}" data-to="${esc(m._to)}">` +
-      `<td class="t">${fmtTime(m.timestamp)}</td>` +
-      `<td><div class="msg-route"><div class="msg-route-line"><span class="msg-route-label">from</span><span class="msg-route-agent">${esc(m.from)}</span></div><div class="msg-route-line"><span class="msg-route-label">to</span><span class="msg-route-agent">${esc(m._to)}</span></div></div></td>` +
-      `<td><div class="msg-type-cell"><span class="tb t-${esc(m.type||'info')}">${esc(m.type)}</span>${delivery}${pri}</div></td>` +
-      `<td><div class="msg-subject"><b>${esc(m.subject)}</b></div></td>` +
-      `<td><div class="msg-body" onclick="this.classList.toggle('expanded')">${esc(m.body||'')}</div></td></tr>`;
-  }
-  html += '</tbody></table></div>';
-  if (totalPages > 1) {
-    html += `<div class="pagination">`;
-    if (pg > 0) html += actionButton('Newer', 'Show newer direct-message audit rows', 'msgPage(-1)');
-    html += `<span>Page ${pg+1} of ${totalPages} (${total} messages)</span>`;
-    if (pg < totalPages - 1) html += actionButton('Older', 'Show older direct-message audit rows', 'msgPage(1)');
-    html += `</div>`;
-  }
-  document.getElementById('messages-table').innerHTML = html;
-}
-
-function msgPage(dir) {
-  window._msgPage = Math.max(0, (window._msgPage || 0) + dir);
-  renderMessages(window._filteredMsgs || window._allMsgs, window._msgPage);
-}
-
-function applyFiltersAndRender() {
-  if (!document.getElementById('messages-table')) return;
-  const text = (document.getElementById('mf')?.value || '').toLowerCase();
-  const type = document.getElementById('tf')?.value || '';
-  const delivery = document.getElementById('wf')?.value || '';
-  const read = document.getElementById('rf')?.value || '';
-  const fromA = document.getElementById('af1')?.value || '';
-  const toA = document.getElementById('af2')?.value || '';
-  const filtered = (window._allMsgs || []).filter(m => {
-    const haystack = `${m.from} ${m._to} ${m.type} ${m.subject} ${m.body}`.toLowerCase();
-    const isRead = !!m.read;
-    return (!text || haystack.includes(text)) &&
-           (!type || m.type === type) &&
-           (!delivery || (delivery === 'wake' && !!m.dispatchRequested) || (delivery === 'background' && !m.dispatchRequested)) &&
-           (!read || (read==='unread' && !isRead) || (read==='read' && isRead)) &&
-           (!fromA || m.from === fromA) &&
-           (!toA || m._to === toA);
-  });
-  window._filteredMsgs = filtered;
-  window._msgPage = 0;
-  renderMessages(filtered, 0);
-}
-
-function filterMessages() { applyFiltersAndRender(); }
-
 function applyRunFiltersAndRender() {
   const text = (document.getElementById('runf')?.value || '').toLowerCase();
   const status = document.getElementById('run-status')?.value || '';
@@ -5644,106 +5490,6 @@ function applyRunFiltersAndRender() {
 }
 
 function filterRuns() { applyRunFiltersAndRender(); }
-
-// ─── Channels ──────────────────────────────
-
-let _chPage = 0;
-let _chName = '';
-
-async function loadChannels() {
-  showChannelList();
-}
-
-async function showChannelList() {
-  document.getElementById('channels-list').style.display = 'block';
-  document.getElementById('channel-detail').style.display = 'none';
-  try {
-    const res = await apiFetch(API + `/channels?agentId=${encodeURIComponent(chatIdentity())}`).then(r => r.json());
-    const channels = res.channels || [];
-    if (!channels.length) {
-      document.getElementById('channels-list').innerHTML = '<h2>Channels</h2><p class="em">No channels.</p>';
-      return;
-    }
-    let html = '<h2>Channels</h2><div class="table-wrap"><table class="compact-table"><thead><tr><th>Channel</th><th>Members</th><th>Messages</th><th>Unread</th><th>Created By</th></tr></thead><tbody>';
-    for (const ch of channels) {
-      const actionId = `channel_${++window._dashboardActionSeq}`;
-      rememberDashboardAction(actionId, () => openChannel(ch.name));
-      html += `<tr style="cursor:pointer" ${dashboardActionAttr(actionId)}>` +
-        `<td><b style="color:var(--accent-text)">#${esc(ch.name)}</b><br><span class="t clip-1"${titleAttr(ch.description || '')}>${esc(ch.description||'')}</span></td>` +
-        `<td><span class="clip-2"${titleAttr((ch.members||[]).join(', '))}>${esc((ch.members||[]).join(', '))}</span></td>` +
-        `<td>${ch.messageCount || 0}</td>` +
-        `<td>${ch.unreadCount || 0}</td>` +
-        `<td class="t">${esc(ch.createdBy)}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
-    document.getElementById('channels-list').innerHTML = html;
-  } catch(e) {
-    document.getElementById('channels-list').innerHTML = '<h2>Channels</h2><p class="em">Failed to load.</p>';
-  }
-}
-
-async function openChannel(name) {
-  _chName = name;
-  _chPage = 0;
-  document.getElementById('channels-list').style.display = 'none';
-  document.getElementById('channel-detail').style.display = 'block';
-  await renderChannel();
-}
-
-async function renderChannel() {
-  try {
-    const detail = await apiFetch(API + `/channels/${_chName}?limit=30&offset=${_chPage * 30}&agentId=${encodeURIComponent(chatIdentity())}`).then(r => r.json());
-    document.getElementById('channel-title').textContent = `#${_chName}`;
-    document.getElementById('channel-meta').textContent = `${detail.members?.length || 0} members, ${detail.totalMessages || 0} messages`;
-
-    const msgs = detail.messages || [];
-    let html = '';
-    if (!msgs.length) {
-      html = '<p class="em">No messages.</p>';
-    } else {
-      for (const m of msgs) {
-        if (m.from === '_system') {
-          html += `<div class="ch-sys">${esc(m.body)}</div>`;
-        } else {
-          html += `<div class="ch-msg"><span class="ch-from">${esc(m.from)}</span> ${deliveryBadge(!!m.dispatchRequested)}<span class="ch-time">${fmtTime(m.timestamp)}</span><div class="ch-body">${esc(m.body)}</div></div>`;
-        }
-      }
-    }
-    document.getElementById('channel-messages').innerHTML = html;
-
-    const total = detail.totalMessages || 0;
-    const totalPages = Math.ceil(total / 30);
-    let pag = '';
-    if (totalPages > 1) {
-      pag = '<div class="pagination">';
-      if (_chPage > 0) pag += actionButton('Newer', 'Show newer channel messages', 'chPage(-1)');
-      pag += `<span>Page ${_chPage+1} of ${totalPages}</span>`;
-      if (_chPage < totalPages - 1) pag += actionButton('Older', 'Show older channel messages', 'chPage(1)');
-      pag += '</div>';
-    }
-    document.getElementById('channel-pagination').innerHTML = pag;
-  } catch(e) {
-    document.getElementById('channel-messages').innerHTML = '<p class="em">Failed to load.</p>';
-  }
-}
-
-function chPage(dir) { _chPage = Math.max(0, _chPage + dir); renderChannel(); }
-
-async function sendChannelMsg() {
-  const from = document.getElementById('ch-send-from').value.trim() || chatIdentity();
-  const body = document.getElementById('ch-send-body').value.trim();
-  if (!body) { toast('Need a message', '#f85149'); return; }
-  try {
-    const response = await apiFetch(API + `/channels/${_chName}/send`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({from_agent: from, channel: _chName, body, trigger: true}),
-    });
-    const result = await response.json();
-    if (!response.ok || result.ok === false) throw new Error(result.detail || result.error || 'Send failed');
-    document.getElementById('ch-send-body').value = '';
-    renderChannel();
-  } catch(e) { toast(e.message || 'Send failed', '#f85149'); }
-}
 
 // ─── Files ──────────────────────────────
 
