@@ -8,13 +8,14 @@ After every install/update:
 
 1. Rerun the install command from the repo install doc.
 2. Restart the affected CLI wrapper/client and long-running `aify-comms` environment bridge.
-3. Re-register from the exact live session you want other agents to trigger.
+3. Re-register from the exact live session you want other agents to trigger, or launch with `--aify-agent <agentId>` so the wrapper registers it automatically.
 4. Confirm with `comms_agent_info(agentId="...")`.
 
 Wrapper auto mode:
 
 - `codex-aify -auto` adds Codex's supported bypass flag.
 - `claude-aify -auto` adds `--dangerously-skip-permissions`.
+- `claude-aify --aify-agent <agentId> --resume <session-id>` and `codex-aify --aify-agent <agentId> ...` auto-register that live resident session.
 - Claude Code's valid skip-permissions flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not valid.
 
 ## Managed Runtime Policy
@@ -37,14 +38,13 @@ Wrapper auto mode:
 
 ## CLI Ownership Transfer
 
-- Use Dashboard **Pause for CLI** before opening a managed session directly. It pauses dashboard delivery so normal chat sends fail fast instead of racing the open CLI.
-- Re-register from the opened CLI with the same `agentId` so the dashboard stores the current Claude session ID, Codex thread ID, or OpenCode session ID.
-- `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process.
-- Codex should register with `$CODEX_THREAD_ID` and `$AIFY_CODEX_APP_SERVER_URL` when available.
-- Use **Restart** from Sessions when you want dashboard control back.
+- Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>` or the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command.
+- Manual `comms_register(...)` from the opened CLI remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
+- Ownership transfer is turn-boundary safe. Active managed work defers resident takeover until the run ends. Closing the resident CLI lets dashboard sends return to managed backing after the resident lease expires.
+- Stop/Kill on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
 - Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
 
-Browser CLI is planned, not current behavior. Until an environment advertises browser terminal/PTY attach, use Pause for CLI plus the native resume command.
+Browser CLI is planned, not current behavior. Until an environment advertises browser terminal/PTY attach, use the native resume command with `--aify-agent`; use Pause for CLI only when you intentionally want dashboard sends blocked while the terminal owns the session.
 
 ## Multi-Instance Rules
 

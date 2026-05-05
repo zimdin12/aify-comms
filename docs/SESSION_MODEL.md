@@ -210,10 +210,12 @@ Dashboard rule:
 
 - Show **Open in CLI** only when `cliAttach=true`.
 - Show the CLI resume command as a copyable code block when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
-- Prefer **Pause for CLI** before opening the native CLI. It pauses dashboard delivery for that agent so normal chat sends fail fast instead of racing the open CLI and producing runtime lock errors. Use **Restart** when returning control to the dashboard.
-- After the native CLI opens, re-register from that same CLI session. This updates the dashboard's stored handle so returning to dashboard control can resume the conversation instead of starting from a blank backing.
+- Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
+- Resident takeover is automatic but turn-boundary safe: if a managed run is active, the backend records a pending resident takeover and applies it only after that run ends.
+- Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path.
+- Stop/Kill on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.
-- If the bridge owns an active managed session, attaching a human CLI must either pause bridge ownership or use explicit shared-session locking to avoid races.
+- Dashboard chat and terminal input must not drive the same active turn concurrently.
 
 ## Workspace Rule
 

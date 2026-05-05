@@ -1319,22 +1319,20 @@ aify-comms</pre>
 
       <h3>Move Between Dashboard And CLI</h3>
       <div class="guide-flow">Managed dashboard control
-  -> Pause for CLI
-  -> copy resume command from Sessions/Chat
-  -> open claude-aify/codex-aify with that handle
-  -> re-register same agentId from the CLI
+  -> copy/open resume command with --aify-agent
+  -> wrapper auto-registers resident owner
   -> do direct terminal work
   -> close CLI
-  -> Restart in Sessions
-  -> dashboard control resumes with the saved handle</div>
+  -> resident lease expires
+  -> dashboard sends resume through managed backing</div>
       <div class="guide-steps">
         <div class="guide-card">
           <h4>Managed → Resident CLI</h4>
           <ol>
             <li>Open <b>Sessions</b> for the agent.</li>
-            <li>Use <b>Pause for CLI</b> before opening the native CLI.</li>
-            <li>Run the shown resume command. The code block copies on click.</li>
-            <li>Re-register from that CLI with the same <code>agentId</code>.</li>
+            <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper auto-registers the live owner.</li>
+            <li>If the managed run is still active, takeover waits until that turn finishes.</li>
+            <li>Use manual <code>comms_register(...)</code> only when the wrapper was launched without an agent ID.</li>
           </ol>
         </div>
         <div class="guide-card">
@@ -1343,17 +1341,17 @@ aify-comms</pre>
             <li>Open <b>Team → Manual / Resident CLI Identities</b>.</li>
             <li>Use <b>Edit</b> or <b>Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
-            <li>Close or stop the old CLI tab for that same <code>agentId</code>, then use <b>Restart</b> in Sessions.</li>
+            <li>Close the CLI, or use <b>Stop/Kill</b> to terminate the resident host. Future dashboard sends return to managed backing after the lease expires.</li>
           </ol>
         </div>
       </div>
-      <p>Adoption creates managed backing for future dashboard work. It does not magically attach the currently open CLI process. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
-      <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code> and register with <code>sessionHandle="$CODEX_THREAD_ID"</code> and <code>appServerUrl="$AIFY_CODEX_APP_SERVER_URL"</code> when available.</p>
+      <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
+      <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
       <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed Claude Code and Codex paths do not.</p>
-      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> pauses dashboard delivery and copies the native resume command for direct project work. Re-register from that CLI session before returning to dashboard control. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
+      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> remains available as an explicit dashboard-delivery pause, but the normal resume command now includes wrapper auto-registration. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="daily">
@@ -3320,15 +3318,16 @@ function sessionResumeCommand(session, agentInfo = {}) {
   const osText = String(environment.os || environment.kind || session.environmentId || '').toLowerCase();
   const workspace = session.workspace || agentInfo.cwd || '';
   const windows = osText.includes('win') || /^[A-Za-z]:[\\/]/.test(workspace);
+  const agentFlag = session.agentId ? ` --aify-agent ${windows ? quoteCmd(session.agentId) : quoteShell(session.agentId)}` : '';
   if (runtime === 'claude-code') {
     return windows
-      ? `cd /d ${quoteCmd(workspace)}\nclaude-aify.cmd --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nclaude-aify --dangerously-skip-permissions --resume ${quoteShell(handle)}`;
+      ? `cd /d ${quoteCmd(workspace)}\nclaude-aify.cmd${agentFlag} --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
+      : `cd ${quoteShell(workspace)}\nclaude-aify${agentFlag} --dangerously-skip-permissions --resume ${quoteShell(handle)}`;
   }
   if (runtime === 'codex') {
     return windows
-      ? `cd /d ${quoteCmd(workspace)}\nset "CODEX_HOME=%USERPROFILE%\\.local\\state\\aify-comms\\managed-codex-home" && codex resume --include-non-interactive ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nCODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" codex resume --include-non-interactive ${quoteShell(handle)}`;
+      ? `cd /d ${quoteCmd(workspace)}\nset "CODEX_HOME=%USERPROFILE%\\.local\\state\\aify-comms\\managed-codex-home" && codex-aify.cmd${agentFlag} resume --include-non-interactive ${quoteCmd(handle)}`
+      : `cd ${quoteShell(workspace)}\nCODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" codex-aify${agentFlag} resume --include-non-interactive ${quoteShell(handle)}`;
   }
   if (runtime === 'opencode') {
     return windows

@@ -1855,6 +1855,137 @@ class ApiV2RegressionTests(unittest.TestCase):
         session = self._fetchone("SELECT session_handle FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["session_handle"], "thread-from-cli")
 
+    def test_resident_register_auto_takes_over_idle_managed_agent(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "auto-owner", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
+        running = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
+        self.assertEqual(running.status_code, 200, running.text)
+
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "auto-owner",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "sessionHandle": "resident-thread",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["sessionMode"], "resident")
+        agent = self._fetchone("SELECT session_mode, session_handle, launch_mode, runtime_state FROM agents WHERE id = ?", ("auto-owner",))
+        self.assertEqual(agent["session_mode"], "resident")
+        self.assertEqual(agent["session_handle"], "resident-thread")
+        self.assertNotEqual(agent["launch_mode"], "none")
+        self.assertEqual(json.loads(agent["runtime_state"]).get("bridgeInstanceId"), "resident-bridge")
+        session = self._fetchone("SELECT status, session_handle FROM agent_sessions WHERE agent_id = ?", ("auto-owner",))
+        self.assertEqual(session["status"], "cli-takeover")
+        self.assertEqual(session["session_handle"], "resident-thread")
+
+    def test_resident_register_defers_takeover_until_active_managed_run_ends(self):
+        self._heartbeat_environment()
+        self._register("defer-owner", runtime="codex", sessionMode="managed", launchMode="managed", capabilities=["managed-run", "resume", "interrupt", "steer"])
+        run = self._dispatch(from_agent="dashboard", to="defer-owner", subject="active", body="work", mode="start_if_possible")
+        run_id = run["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", run_id))
+
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "defer-owner",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "sessionHandle": "resident-thread",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+        agent = self._fetchone("SELECT session_mode, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+
+        patched = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={"status": "completed", "summary": "done"})
+        self.assertEqual(patched.status_code, 200, patched.text)
+        agent = self._fetchone("SELECT session_mode, session_handle, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
+        self.assertEqual(agent["session_mode"], "resident")
+        self.assertEqual(agent["session_handle"], "resident-thread")
+        self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+
+    def test_stale_resident_auto_returns_to_managed_on_send(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "return-owner", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
+        self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
+        self._register(
+            "return-owner",
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle="resident-thread",
+            machineId="linux:test-host",
+            bridgeId="resident-bridge",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
+        )
+        self._execute("UPDATE agents SET last_seen = ?, runtime_state = ? WHERE id = ?", ("2000-01-01T00:00:00Z", json.dumps({"bridgeInstanceId": "resident-bridge"}), "return-owner"))
+        self._execute("UPDATE bridge_instances SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "resident-bridge"))
+
+        sent = self._send_message(from_agent="dashboard", to="return-owner", type="request", subject="resume managed", body="hello", trigger=True)
+        self.assertTrue(sent["ok"])
+        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (sent["dispatchRuns"][0]["runId"],))
+        self.assertEqual(run["execution_mode"], "managed")
+        agent = self._fetchone("SELECT session_mode, launch_mode, session_handle FROM agents WHERE id = ?", ("return-owner",))
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertEqual(agent["launch_mode"], "managed")
+        self.assertEqual(agent["session_handle"], "resident-thread")
+
+    def test_session_stop_marks_resident_owner_for_bridge_termination(self):
+        self._heartbeat_environment()
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={"createdBy": "dashboard", "environmentId": "linux:test-host:default", "agentId": "stop-resident", "role": "coder", "runtime": "codex", "workspace": "/workspace/repo"},
+        )
+        spawn_id = created.json()["spawnRequest"]["id"]
+        self.client.post("/api/v1/spawn-requests/claim", json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"})
+        running = self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "managed-thread"})
+        session_id = running.json()["spawnRequest"]["sessionId"]
+        self._register(
+            "stop-resident",
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle="resident-thread",
+            machineId="linux:test-host",
+            bridgeId="resident-bridge",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
+        )
+
+        stopped = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("stop-resident",))
+        self.assertEqual(agent["status"], "stopped")
+        self.assertEqual(agent["launch_mode"], "none")
+        self.assertIn("terminate", agent["status_note"])
+
     def test_list_sessions_repairs_superseded_recovering_rows(self):
         self._heartbeat_environment()
         created = self.client.post(

@@ -36,6 +36,7 @@ import {
   launchRuntimeRun,
   normalizeRuntime,
   runtimeLaunchAvailability,
+  terminateProcessTree,
 } from "./runtimes.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
@@ -56,6 +57,8 @@ const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
 const BRIDGE_VERSION = "3.7.0";
 const BRIDGE_STARTED_AT = new Date().toISOString();
+const AIFY_AGENT_ID = String(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "").trim();
+const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
 
 // Write the Codex runtime marker from this long-lived bridge process when
 // we detect we are running inside a codex-aify wrapper (which sets the
@@ -386,6 +389,67 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
   return runtimeConfig;
 }
 
+async function autoRegisterConfiguredAgent() {
+  if (!IS_REMOTE || IS_MANAGED_DISPATCH || !AIFY_AGENT_ID) return;
+  try { validateName(AIFY_AGENT_ID, "agent ID"); } catch (error) {
+    console.error(`[aify] AIFY_AGENT_ID ignored: ${error.message}`);
+    return;
+  }
+  const runtime = detectRuntime(process.env.AIFY_RUNTIME || "");
+  const cwd = normalizeRegistrationCwd(runtime, process.env.AIFY_AGENT_CWD || DEFAULT_CWD);
+  let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
+  const initialHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  let codexLiveBinding = null;
+  if (runtime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
+    codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle: initialHandle, cwd });
+    if (codexLiveBinding?.runtimeConfig) runtimeConfig = { ...runtimeConfig, ...codexLiveBinding.runtimeConfig };
+  }
+  const discoveredCodexThreadId =
+    runtime === "codex" && hasCodexLiveAppServer(runtimeConfig)
+      ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, cwd))
+      : "";
+  const sessionHandle = initialHandle || discoveredCodexThreadId || "";
+  const capabilities = defaultCapabilitiesForRuntime(runtime, "resident", sessionHandle, runtimeConfig);
+  const payload = {
+    agentId: AIFY_AGENT_ID,
+    role: AIFY_AGENT_ROLE || "coder",
+    name: process.env.AIFY_AGENT_NAME || AIFY_AGENT_ID,
+    cwd,
+    runtime,
+    machineId: MACHINE_ID,
+    bridgeId: BRIDGE_INSTANCE_ID,
+    launchMode: "detached",
+    sessionMode: "resident",
+    sessionHandle,
+    capabilities,
+    runtimeConfig,
+    restoreDeleted: true,
+    autoRegister: true,
+  };
+  try {
+    const r = await httpCall("POST", "/agents", payload);
+    let runtimeState = {};
+    try {
+      const agentInfo = await httpCall("GET", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}`);
+      runtimeState = agentInfo.agent?.runtimeState || {};
+    } catch {
+      // Best effort.
+    }
+    runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
+    try {
+      await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
+    } catch {
+      // Best effort.
+    }
+    REMOTE_AGENT_STATE.set(AIFY_AGENT_ID, { info: { ...payload, runtimeState } });
+    ensureDispatchLoop();
+    const transition = r.ownershipTransition ? ` (${r.ownershipTransition})` : "";
+    console.error(`[aify] auto-registered "${AIFY_AGENT_ID}" as resident ${runtime}${sessionHandle ? ` session ${sessionHandle}` : ""}${transition}`);
+  } catch (error) {
+    console.error(`[aify] auto-register failed for "${AIFY_AGENT_ID}": ${error?.message || error}`);
+  }
+}
+
 function supportedExecutionModes(info = {}) {
   const sessionMode = normalizeSessionMode(info.sessionMode);
   const runtime = normalizeRuntime(info.runtime || "generic");
@@ -633,6 +697,24 @@ function forgetRemoteAgent(agentId, reason = "") {
   if (reason) {
     console.error(`[aify] stopped tracking "${agentId}": ${reason}`);
   }
+}
+
+let residentStopInProgress = false;
+function terminateResidentHost(reason = "Resident session stopped from dashboard") {
+  if (residentStopInProgress) return;
+  residentStopInProgress = true;
+  console.error(`[aify] ${reason}; terminating resident host process`);
+  setTimeout(() => {
+    try {
+      const parentPid = Number(process.ppid);
+      if (Number.isInteger(parentPid) && parentPid > 1) {
+        terminateProcessTree({ pid: parentPid, kill: (signal) => process.kill(parentPid, signal) });
+      }
+    } catch {
+      // Best effort. If the parent cannot be killed, still stop this MCP process.
+    }
+    process.exit(0);
+  }, 25).unref();
 }
 
 function environmentKind() {
@@ -1089,6 +1171,14 @@ async function runDispatchLoop() {
         const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
         const liveAgent = agentRes.agent || null;
         if (liveAgent) {
+          if (
+            normalizeSessionMode(liveAgent.sessionMode) === "resident" &&
+            (liveAgent.launchMode || "") === "none" &&
+            String(liveAgent.statusRaw || liveAgent.status || "").toLowerCase().startsWith("stopped")
+          ) {
+            terminateResidentHost(`Stop requested for resident agent "${agentId}"`);
+            continue;
+          }
           state.info = {
             ...state.info,
             ...liveAgent,
@@ -3459,6 +3549,7 @@ async function main() {
   console.error("aify-comms-mcp v3.7.0 running on stdio");
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
+  await autoRegisterConfiguredAgent();
 }
 
 main().catch((err) => {

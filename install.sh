@@ -94,13 +94,39 @@ set -euo pipefail
 
 CLAUDE_RESUME_ID="\${CLAUDE_SESSION_ID:-}"
 CLAUDE_AUTO=false
+CLAUDE_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
+CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 CLAUDE_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
+  if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
+    CLAUDE_AIFY_AGENT_ID="\$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "\$PREV_ARG" = "--aify-role" ]; then
+    CLAUDE_AIFY_ROLE="\$ARG"
+    PREV_ARG=""
+    continue
+  fi
   if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ]; then
     CLAUDE_AUTO=true
     continue
   fi
+  if [ "\$ARG" = "--aify-agent" ] || [ "\$ARG" = "--agent-id" ] || [ "\$ARG" = "--aify-role" ]; then
+    PREV_ARG="\$ARG"
+    continue
+  fi
+  case "\$ARG" in
+  --aify-agent=*|--agent-id=*)
+    CLAUDE_AIFY_AGENT_ID="\${ARG#*=}"
+    continue
+    ;;
+  --aify-role=*)
+    CLAUDE_AIFY_ROLE="\${ARG#*=}"
+    continue
+    ;;
+  esac
   CLAUDE_ARGS+=("\$ARG")
   if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ]; then
     CLAUDE_RESUME_ID="\$ARG"
@@ -115,6 +141,11 @@ for ARG in "\$@"; do
 done
 if [ -n "\$CLAUDE_RESUME_ID" ]; then
   export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
+fi
+export AIFY_RUNTIME="claude-code"
+if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
+  export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
+  export AIFY_AGENT_ROLE="\$CLAUDE_AIFY_ROLE"
 fi
 
 CLAUDE_PERMISSION_FLAGS=()
@@ -217,25 +248,48 @@ fi
 CODEX_PERMISSION_FLAGS=()
 CODEX_ARGS=()
 CODEX_AUTO=false
+CODEX_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
+CODEX_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+PREV_ARG=""
 for ARG in "$@"; do
+  if [ "$PREV_ARG" = "--aify-agent" ] || [ "$PREV_ARG" = "--agent-id" ]; then
+    CODEX_AIFY_AGENT_ID="$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "$PREV_ARG" = "--aify-role" ]; then
+    CODEX_AIFY_ROLE="$ARG"
+    PREV_ARG=""
+    continue
+  fi
   if [ "$ARG" = "-auto" ] || [ "$ARG" = "--auto" ]; then
     CODEX_AUTO=true
     continue
   fi
+  if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
+    PREV_ARG="$ARG"
+    continue
+  fi
+  case "$ARG" in
+  --aify-agent=*|--agent-id=*)
+    CODEX_AIFY_AGENT_ID="${ARG#*=}"
+    continue
+    ;;
+  --aify-role=*)
+    CODEX_AIFY_ROLE="${ARG#*=}"
+    continue
+    ;;
+  esac
   CODEX_ARGS+=("$ARG")
 done
+export AIFY_RUNTIME="codex"
+if [ -n "$CODEX_AIFY_AGENT_ID" ]; then
+  export AIFY_AGENT_ID="$CODEX_AIFY_AGENT_ID"
+  export AIFY_AGENT_ROLE="$CODEX_AIFY_ROLE"
+fi
 
 if [ "$CODEX_AUTO" = true ]; then
-  CODEX_HELP="$(codex --help 2>&1 || true)"
-  if grep -q -- "--dangerously-bypass-approvals-and-sandbox" <<<"$CODEX_HELP"; then
-    CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
-  elif grep -q -- "--ask-for-approval" <<<"$CODEX_HELP" && grep -q -- "--sandbox" <<<"$CODEX_HELP"; then
-    CODEX_PERMISSION_FLAGS+=(--ask-for-approval never --sandbox danger-full-access)
-  elif grep -q -- "--full-auto" <<<"$CODEX_HELP"; then
-    CODEX_PERMISSION_FLAGS+=(--full-auto)
-  else
-    echo "codex-aify: no recognized non-interactive permission flag found; launching without permission override." >&2
-  fi
+  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
 
 codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"

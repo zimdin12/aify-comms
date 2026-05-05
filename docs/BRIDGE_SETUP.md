@@ -163,11 +163,11 @@ Dashboard spawn requests outside these roots are rejected by the service and by 
 
 The headless environment bridge is enough for dashboard-managed spawns. Resident visible sessions still need the runtime wrapper when you want the dashboard to wake an already-open CLI:
 
-- Codex: install Codex support, start with `codex-aify`, then register from that session.
-- Claude Code: install Claude support, start with `claude-aify`, then register from that session.
+- Codex: install Codex support, start with `codex-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
+- Claude Code: install Claude support, start with `claude-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
 - OpenCode: register with a real `sessionHandle` for resident resume, or use managed dashboard spawns.
 
-Stopping a resident from the dashboard disables wake/dispatch in the control plane and interrupts active work when a runtime control path exists. It does not forcibly close a human's terminal window. Managed sessions spawned through the bridge can be stopped or restarted through their stored spawn spec; Recreate is the explicit fresh-context reset.
+Stopping a resident from the dashboard disables wake/dispatch in the control plane and, when the live resident bridge is still polling, asks that bridge to terminate its host CLI/app process. If the resident bridge is already gone, stop is only a control-plane state change. Managed sessions spawned through the bridge can be stopped or restarted through their stored spawn spec; Recreate is the explicit fresh-context reset.
 
 System shape:
 
@@ -191,21 +191,24 @@ Resident -> managed:
 1. Open **Team -> Manual / Resident CLI Identities**.
 2. Choose **Edit** or **Actions -> Adopt env**.
 3. Assign an online environment, runtime, and workspace.
-4. Close or stop the old resident CLI tab for that same `agentId`.
-5. Use **Sessions -> Restart** to run future work through the environment bridge.
+4. Close the old resident CLI tab, or use dashboard **Stop/Kill** if you want the resident host process terminated.
+5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately.
 
-This does not attach the already-open CLI process to an environment. It converts the identity into a managed teammate by creating a spawn spec and a recoverable session record for the selected environment/workspace/runtime.
+This creates or updates managed backing for the same teammate identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
 
 Managed -> resident CLI:
 
 1. Open **Sessions** for the agent.
-2. Use **Pause for CLI** before opening the native CLI.
-3. Run the shown resume command. The dashboard shows it as a code block; click it to copy.
-4. Call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle.
+2. Run the shown native resume command with the same identity, or pass it directly to the wrapper:
+   - `claude-aify --aify-agent <agentId> --resume <session-id>`
+   - `codex-aify --aify-agent <agentId> resume --include-non-interactive <thread-id>`
+3. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle.
 5. Do the direct terminal work.
-6. Close the CLI and use **Restart** when returning dashboard control.
+6. Close the CLI when done. Dashboard control returns automatically after the resident lease expires; use **Restart** only when you want to force a managed run now.
 
-`claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so a normal Claude registration can capture it. Codex should register with `$CODEX_THREAD_ID` and `$AIFY_CODEX_APP_SERVER_URL` when available. That registration updates the saved Claude session ID, Codex thread ID, or OpenCode session ID. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
+`claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. Registration updates the saved Claude session ID, Codex thread ID, or OpenCode session ID. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
+
+Ownership transfer is turn-boundary safe. If a resident CLI registers while a managed run is active, the backend records a pending resident takeover and applies it only after the active run reaches a terminal state. If dashboard sends to a stale resident that has managed backing, the backend switches queued future work back to managed mode before creating the run. Queued but unclaimed work is safe to retarget; claimed/running work is not interrupted by ownership transfer.
 
 Claude Code has two different native continuation flags: `--session-id` creates a specific new session, while `--resume <id>` continues an existing transcript. The bridge now checks for the transcript under `.claude/projects/...` and uses `--resume` after the first managed turn, so dashboard messages keep native Claude memory instead of colliding with the already-created session file.
 

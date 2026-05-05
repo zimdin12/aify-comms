@@ -260,7 +260,7 @@ Do not show stop/kill-style actions for rows that only represent offline identit
 
 Ended/completed/cancelled sessions are debug history. The normal Sessions page should hide them by default and expose a **Show ended/debug sessions** toggle for lifecycle investigation.
 
-Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption should be explicit: it creates managed backing for future dashboard work, but it does not magically attach the currently open CLI process. The UI should tell the operator to close/stop the old resident CLI for that `agentId` and restart the managed session from Sessions.
+Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
 Future browser terminal mode should reuse the same ownership model as native CLI access. Opening an in-browser terminal should visibly pause dashboard chat delivery for that session, attach through the owning environment bridge, and provide a clear **Return to dashboard** path. It should not let dashboard chat and terminal input drive the same Claude/Codex/OpenCode handle concurrently.
 

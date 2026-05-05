@@ -81,6 +81,7 @@ DEFAULT_SETTINGS = {
     "managed_claude_effort": "high",
     "managed_codex_model": "gpt-5.5",
     "managed_codex_effort": "high",
+    "resident_lease_seconds": 150,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
 }
@@ -755,6 +756,189 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
     if exclude_run_id and active.get("runId") == exclude_run_id:
         return None
     return active
+
+
+async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
+    bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
+    if bridge_id:
+        cursor = await db.execute(
+            "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            (bridge_id, row["id"]),
+        )
+        bridge = await cursor.fetchone()
+        seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
+        if seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)):
+            return True
+    seen_s = _iso_to_epoch(row["last_seen"] or "")
+    return bool(seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)))
+
+
+async def _latest_spawn_spec(db, agent_id: str):
+    return await (await db.execute(
+        "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
+        (agent_id,),
+    )).fetchone()
+
+
+async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dict[str, Any]):
+    if not row or _normalize_session_mode(row["session_mode"] or "resident") != "resident":
+        return row, ""
+    if str(row["status"] or "").strip().lower() == "stopped" or (row["launch_mode"] or "detached") == "none":
+        return row, ""
+    runtime_state = _json_loads_or(row["runtime_state"], {})
+    if runtime_state.get("pendingResidentTakeover"):
+        return row, ""
+    if await _get_blocking_active_run(db, row["id"]):
+        return row, ""
+    if await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
+        return row, ""
+
+    spec = await _latest_spawn_spec(db, row["id"])
+    if not spec:
+        return row, ""
+    env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (spec["environment_id"],))).fetchone()
+    if not env:
+        return row, ""
+    env_status = _environment_effective_status(env, offline_seconds=settings.get("environment_offline_seconds", 90))
+    if env_status not in {"online", "degraded"}:
+        return row, ""
+
+    now = _now()
+    runtime = _normalize_runtime(spec["runtime"] or row["runtime"] or "generic")
+    runtime_config = _json_loads_or(row["runtime_config"], {})
+    spec_meta = _json_loads_or(spec["metadata"], {})
+    if isinstance(spec_meta.get("runtimeConfig"), dict):
+        runtime_config = {**runtime_config, **spec_meta["runtimeConfig"]}
+    session_handle = str(row["session_handle"] or "").strip()
+    if not session_handle:
+        latest_session = await (await db.execute(
+            """
+            SELECT session_handle
+            FROM agent_sessions
+            WHERE agent_id = ? AND runtime = ?
+            ORDER BY
+              CASE WHEN COALESCE(NULLIF(session_handle, ''), '') != '' THEN 0 ELSE 1 END,
+              last_seen DESC
+            LIMIT 1
+            """,
+            (row["id"], runtime),
+        )).fetchone()
+        session_handle = str((latest_session["session_handle"] if latest_session else "") or "").strip()
+    capabilities = _default_capabilities_for(runtime, "managed", session_handle, runtime_config)
+    next_state = _runtime_state_with_handle(runtime, {}, session_handle)
+    next_state.update({
+        "environmentId": spec["environment_id"],
+        "ownership": {
+            "mode": "managed",
+            "previousMode": "resident",
+            "reason": "resident_lease_expired",
+            "at": now,
+        },
+    })
+    await db.execute(
+        """
+        UPDATE agents
+        SET cwd = ?,
+            model = COALESCE(NULLIF(model, ''), ?),
+            runtime = ?,
+            machine_id = ?,
+            launch_mode = 'managed',
+            session_mode = 'managed',
+            session_handle = ?,
+            capabilities = ?,
+            runtime_config = ?,
+            runtime_state = ?,
+            status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END,
+            status_note = ?,
+            last_seen = ?
+        WHERE id = ?
+        """,
+        (
+            spec["workspace"] or row["cwd"] or "",
+            spec["model"] or row["model"] or "",
+            runtime,
+            env["machine_id"] or "",
+            session_handle,
+            json.dumps(capabilities),
+            json.dumps(runtime_config),
+            json.dumps(next_state),
+            "Resident CLI lease expired; future work will use the managed environment backing.",
+            now,
+            row["id"],
+        ),
+    )
+    await db.execute(
+        "UPDATE dispatch_runs SET execution_mode = 'managed' WHERE target_agent = ? AND status = 'queued'",
+        (row["id"],),
+    )
+    return await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["id"],))).fetchone(), "resident_to_managed"
+
+
+async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
+    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if not row:
+        return False
+    state = _json_loads_or(row["runtime_state"], {})
+    pending = state.get("pendingResidentTakeover")
+    if not isinstance(pending, dict):
+        return False
+    if await _get_blocking_active_run(db, agent_id):
+        return False
+    now = _now()
+    runtime = _normalize_runtime(pending.get("runtime") or row["runtime"] or "generic")
+    runtime_config = pending.get("runtimeConfig") if isinstance(pending.get("runtimeConfig"), dict) else {}
+    session_handle = str(pending.get("sessionHandle") or "").strip()
+    next_state = _runtime_state_with_handle(runtime, {k: v for k, v in state.items() if k != "pendingResidentTakeover"}, session_handle)
+    next_state["bridgeInstanceId"] = str(pending.get("bridgeId") or "").strip()
+    next_state["ownership"] = {"mode": "resident", "previousMode": "managed", "reason": "registered_cli", "at": now}
+    capabilities = pending.get("capabilities") if isinstance(pending.get("capabilities"), list) else _default_capabilities_for(runtime, "resident", session_handle, runtime_config)
+    await db.execute(
+        """
+        UPDATE agents
+        SET cwd = ?,
+            runtime = ?,
+            machine_id = ?,
+            launch_mode = ?,
+            session_mode = 'resident',
+            session_handle = ?,
+            capabilities = ?,
+            runtime_config = ?,
+            runtime_state = ?,
+            status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
+            status_note = ?,
+            last_seen = ?
+        WHERE id = ?
+        """,
+        (
+            pending.get("cwd") or row["cwd"] or "",
+            runtime,
+            pending.get("machineId") or row["machine_id"] or "",
+            pending.get("launchMode") or "detached",
+            session_handle,
+            json.dumps(capabilities),
+            json.dumps(runtime_config),
+            json.dumps(next_state),
+            "Resident CLI took ownership after the previous managed turn finished.",
+            now,
+            agent_id,
+        ),
+    )
+    await db.execute(
+        """
+        UPDATE agent_sessions
+        SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
+            ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
+            session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+            last_seen = ?
+        WHERE agent_id = ?
+        """,
+        (now, session_handle, session_handle, now, agent_id),
+    )
+    await db.execute(
+        "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
+        (agent_id,),
+    )
+    return True
 
 
 async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
@@ -1440,6 +1624,7 @@ async def _preflight_live_send_recipients(
         if not row:
             not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
             continue
+        row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
 
         dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
         active = dispatch_state.get("activeRun")
@@ -3804,10 +3989,24 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     ),
                 )
             else:
-                await db.execute(
-                    "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
-                    (now, agent_id),
-                )
+                agent_current = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                if agent_current and _normalize_session_mode(agent_current["session_mode"] or "resident") == "resident":
+                    await db.execute(
+                        """
+                        UPDATE agents
+                        SET status = 'stopped',
+                            status_note = ?,
+                            launch_mode = 'none',
+                            last_seen = ?
+                        WHERE id = ?
+                        """,
+                        ("Resident session stop requested from dashboard; live bridge should terminate the CLI host.", now, agent_id),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'offline' END, last_seen = ? WHERE id = ?",
+                        (now, agent_id),
+                    )
         else:
             await db.execute(
                 "UPDATE agents SET status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END, last_seen = ? WHERE id = ?",
@@ -3906,12 +4105,13 @@ async def register_agent(req: AgentRegister, request: Request):
             await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
+        pending_resident_takeover = False
         # Re-register is a full state refresh: sessionHandle and runtime_state come
         # from the new request only. Preserving them across re-register let stale
         # Codex thread IDs survive a fresh codex-aify start, which then made
         # thread/resume fail with AbsolutePathBuf or "no rollout found".
         session_handle = req.sessionHandle or ""
-        existing_state = "{}"
+        existing_state = json.dumps(_runtime_state_with_handle(normalized_runtime, {}, session_handle))
         # Description is team-facing metadata that survives re-register when the
         # caller does not pass a new value. Passing "" explicitly clears it.
         if req.description is None:
@@ -3922,6 +4122,89 @@ async def register_agent(req: AgentRegister, request: Request):
         if capabilities is None:
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
         bridge_id = (req.bridgeId or "").strip()
+        fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
+        if bridge_id:
+            fresh_state["bridgeInstanceId"] = bridge_id
+        if normalized_session_mode == "resident":
+            fresh_state["ownership"] = {
+                "mode": "resident",
+                "previousMode": _normalize_session_mode(row["session_mode"] or "managed") if row else "",
+                "reason": "registered_cli",
+                "at": now,
+            }
+        elif normalized_session_mode == "managed" and req.launchMode == "managed":
+            fresh_state["ownership"] = {
+                "mode": "managed",
+                "previousMode": _normalize_session_mode(row["session_mode"] or "resident") if row else "",
+                "reason": "registered_managed",
+                "at": now,
+            }
+        existing_state = json.dumps(fresh_state)
+        if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
+            active_run = await _get_blocking_active_run(db, req.agentId)
+            if active_run:
+                existing_state = _json_loads_or(row["runtime_state"], {})
+                pending_payload = {
+                    "runtime": normalized_runtime,
+                    "machineId": req.machineId or "",
+                    "bridgeId": bridge_id,
+                    "launchMode": req.launchMode or "detached",
+                    "sessionHandle": session_handle,
+                    "cwd": resolved_cwd,
+                    "runtimeConfig": runtime_config,
+                    "capabilities": capabilities or [],
+                    "registeredAt": now,
+                    "blockedByRunId": active_run.get("runId") or "",
+                }
+                existing_state["pendingResidentTakeover"] = pending_payload
+                await db.execute(
+                    """
+                    UPDATE agents
+                    SET runtime_state = ?,
+                        status_note = ?,
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        json.dumps(existing_state),
+                        f"Resident CLI registered and will take ownership after active run {active_run.get('runId') or ''} finishes.",
+                        now,
+                        req.agentId,
+                    ),
+                )
+                if bridge_id:
+                    await db.execute(
+                        """
+                        INSERT OR REPLACE INTO bridge_instances (
+                            id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
+                        ) VALUES (?,?,?,?,?,?,?,?,?)
+                        """,
+                        (bridge_id, req.agentId, req.machineId or "", normalized_runtime, "resident", now, now, "", None),
+                    )
+                await db.commit()
+                ws = await _get_ws(request)
+                if ws:
+                    await ws.broadcast("agent_registered", {
+                        "agentId": req.agentId,
+                        "role": req.role,
+                        "runtime": normalized_runtime,
+                        "machineId": req.machineId or "",
+                        "sessionMode": "managed",
+                        "pendingSessionMode": "resident",
+                    })
+                return {
+                    "ok": True,
+                    "agentId": req.agentId,
+                    "role": req.role,
+                    "status": row["status"] or "active",
+                    "runtime": normalized_runtime,
+                    "machineId": req.machineId or "",
+                    "bridgeId": bridge_id,
+                    "sessionMode": "managed",
+                    "ownershipTransition": "pending_resident_takeover",
+                    "blockedByRun": active_run,
+                }
+            pending_resident_takeover = True
         await db.execute(
             """
             INSERT INTO agents (
@@ -4032,6 +4315,22 @@ async def register_agent(req: AgentRegister, request: Request):
                 machine_id=req.machineId or "",
                 superseding_bridge_id=bridge_id,
                 finished_at=now,
+            )
+        if pending_resident_takeover:
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
+                    ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
+                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+                    last_seen = ?
+                WHERE agent_id = ?
+                """,
+                (now, session_handle, session_handle, now, req.agentId),
+            )
+            await db.execute(
+                "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
+                (req.agentId,),
             )
         await db.commit()
         ws = await _get_ws(request)
@@ -5104,9 +5403,12 @@ async def create_dispatch(req: DispatchRequest, request: Request):
         not_started = []
         launchable_recipients = []
         recipient_rows = {}
+        settings = await _load_settings(db)
         for recipient_id in recipients:
             cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
             row = await cursor.fetchone()
+            if row:
+                row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
             if row:
                 recipient_rows[recipient_id] = row
             execution_mode = None
@@ -5974,6 +6276,8 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                     result_message_id=result_message_id,
                 )
                 await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row)
+                if refreshed_row:
+                    await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
 
         if req.agentStatus:
             await db.execute(

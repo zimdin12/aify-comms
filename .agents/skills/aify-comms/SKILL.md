@@ -29,6 +29,8 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
+When opening a known teammate directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>` or `codex-aify --aify-agent my-agent ...`. Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID.
+
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
 For live Codex, prefer exact binding from the same `codex-aify` session:

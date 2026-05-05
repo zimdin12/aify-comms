@@ -148,7 +148,7 @@ Then restart the Windows `aify-comms` bridge and recover/restart the dashboard s
 
 If you want the resumed CLI to match managed-agent permissions, use `--dangerously-skip-permissions`. Do not use `--permanently-skip-permissions`; Claude Code rejects it as an unknown option.
 
-Use dashboard **Pause for CLI** before opening a managed Claude session directly. It sets the agent to a paused/disabled dashboard state so new dashboard chat sends fail fast instead of trying to write into a Claude session already owned by your terminal. Use **Recover** or **Restart** from Sessions after closing the CLI if you want dashboard control back.
+Prefer the dashboard resume command or `claude-aify --aify-agent <agentId> --resume <session-id>` when opening a managed Claude session directly. The wrapper auto-registers the resident owner. If a managed run is active, takeover is deferred until that turn ends; after closing the CLI, dashboard sends can return to the saved managed backing once the resident lease expires. **Pause for CLI** remains an explicit safety control when you want dashboard sends to fail fast while the terminal owns the session.
 
 After opening the native CLI, re-register from that same session with the same `agentId`. That is how the dashboard learns the current native handle. If the agent forgets CLI conversation after returning to dashboard, check whether the session's stored handle changed or was recreated during adopt/restart. Current code should preserve handles across same-runtime adopt/recover/restart; a new handle should only appear after a new spawn or explicit **Recreate**.
 
@@ -340,7 +340,7 @@ Current installer behavior:
 
 - `--with-hook` is Git Bash aware. It writes native Windows hook paths without MSYS path mangling, so the old `C:\c\Users\...` failure should not require manual `settings.json` or `hooks.json` edits.
 - The installer creates Bash wrappers and `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd`, `claude-aify.cmd`, and `codex-aify.cmd` when the matching client is installed.
-- `codex-aify` does not force auto permissions by default. Use `codex-aify -auto` to request auto mode; it probes `codex --help` and prefers `--dangerously-bypass-approvals-and-sandbox`, then explicit approval/sandbox flags, and uses `--full-auto` only when that is the supported option.
+- `codex-aify` does not force auto permissions by default. Use `codex-aify -auto` to request auto mode; current wrappers pass `--dangerously-bypass-approvals-and-sandbox`. They do not use the older `--full-auto` flag.
 - `claude-aify` also preserves normal permissions by default. Use `claude-aify -auto` to add `--dangerously-skip-permissions`.
 - The `.cmd` shims prepend Git's Unix binary directories when they can find Git, so `sed`/`bash` should be available even when PowerShell only had `C:\Program Files\Git\cmd` on PATH.
 
