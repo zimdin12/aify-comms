@@ -21,7 +21,7 @@ class ServiceConfig:
 
     # Identity
     name: str = "aify-comms"
-    version: str = "0.1.0"
+    version: str = "4.0.0"
     description: str = "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments"
 
     # Network

@@ -55,7 +55,7 @@ const IS_ENVIRONMENT_BRIDGE =
   ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
 const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
-const BRIDGE_VERSION = "3.7.0";
+const BRIDGE_VERSION = "4.0.0";
 const BRIDGE_STARTED_AT = new Date().toISOString();
 const AIFY_AGENT_ID = String(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "").trim();
 const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
@@ -435,11 +435,19 @@ async function autoRegisterConfiguredAgent() {
     } catch {
       // Best effort.
     }
-    runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
-    try {
-      await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
-    } catch {
-      // Best effort.
+    const pendingTakeover =
+      r.ownershipTransition === "pending_resident_takeover" ||
+      (
+        runtimeState?.pendingResidentTakeover &&
+        String(runtimeState.pendingResidentTakeover.bridgeId || "") === BRIDGE_INSTANCE_ID
+      );
+    if (!pendingTakeover) {
+      runtimeState = { ...runtimeState, bridgeInstanceId: BRIDGE_INSTANCE_ID };
+      try {
+        await httpCall("PATCH", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/runtime-state`, { runtimeState });
+      } catch {
+        // Best effort.
+      }
     }
     REMOTE_AGENT_STATE.set(AIFY_AGENT_ID, { info: { ...payload, runtimeState } });
     ensureDispatchLoop();
@@ -1184,6 +1192,17 @@ async function runDispatchLoop() {
             ...liveAgent,
             runtimeState: liveAgent.runtimeState || state.info.runtimeState || {},
           };
+          if (
+            normalizeSessionMode(liveAgent.sessionMode) === "managed" &&
+            liveAgent.runtimeState?.pendingResidentTakeover &&
+            String(liveAgent.runtimeState.pendingResidentTakeover.bridgeId || "") === BRIDGE_INSTANCE_ID
+          ) {
+            // A CLI registered for this agent while a managed turn was active.
+            // Keep heartbeating, but do not claim work until the backend
+            // promotes ownership after that active turn reaches a terminal
+            // state.
+            continue;
+          }
         }
       } catch (error) {
         // If the server forgot about this agent (404), auto-re-register from
@@ -1463,7 +1482,7 @@ async function processRunControls(agentId, activeRun) {
 
 const server = new McpServer({
   name: "aify-comms-mcp",
-  version: "3.7.0",
+  version: "4.0.0",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3546,7 +3565,7 @@ th{background:#21262d;color:#8b949e}tr:hover{background:#1c2128}
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("aify-comms-mcp v3.7.0 running on stdio");
+  console.error("aify-comms-mcp v4.0.0 running on stdio");
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
   await autoRegisterConfiguredAgent();

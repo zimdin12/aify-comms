@@ -193,7 +193,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             "os": "linux",
             "kind": "wsl",
             "bridgeId": "bridge-1",
-            "bridgeVersion": "3.7.0",
+            "bridgeVersion": "4.0.0",
             "cwdRoots": ["/mnt/c/Docker"],
             "runtimes": [
                 {
@@ -1926,6 +1926,53 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["session_handle"], "resident-thread")
         self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
 
+    def test_pending_resident_runtime_patch_does_not_clobber_managed_bridge(self):
+        self._heartbeat_environment()
+        self._register(
+            "pending-owner",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            capabilities=["managed-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"sandboxMode": "danger-full-access"},
+        )
+        self.client.patch(
+            "/api/v1/agents/pending-owner/runtime-state",
+            json={"runtimeState": {"bridgeInstanceId": "managed-bridge", "environmentId": "linux:test-host:default"}},
+        )
+        run = self._dispatch(from_agent="dashboard", to="pending-owner", subject="active", body="work", mode="start_if_possible")
+        run_id = run["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", run_id))
+
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "pending-owner",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "sessionHandle": "resident-thread",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+
+        patched = self.client.patch(
+            "/api/v1/agents/pending-owner/runtime-state",
+            json={"runtimeState": {"bridgeInstanceId": "resident-bridge", "threadId": "resident-thread"}},
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        state = patched.json()["runtimeState"]
+        self.assertEqual(state["bridgeInstanceId"], "managed-bridge")
+        self.assertEqual(state["environmentId"], "linux:test-host:default")
+        self.assertEqual(state["pendingResidentTakeover"]["bridgeId"], "resident-bridge")
+        agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("pending-owner",))
+        self.assertEqual(agent["session_mode"], "managed")
+
     def test_stale_resident_auto_returns_to_managed_on_send(self):
         self._heartbeat_environment()
         created = self.client.post(
@@ -1982,6 +2029,25 @@ class ApiV2RegressionTests(unittest.TestCase):
         stopped = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(stopped.status_code, 200, stopped.text)
         agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("stop-resident",))
+        self.assertEqual(agent["status"], "stopped")
+        self.assertEqual(agent["launch_mode"], "none")
+        self.assertIn("terminate", agent["status_note"])
+
+    def test_agent_stop_marks_resident_owner_for_bridge_termination(self):
+        self._register(
+            "agent-stop-resident",
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle="resident-thread",
+            machineId="linux:test-host",
+            bridgeId="resident-bridge",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
+        )
+
+        stopped = self.client.post("/api/v1/agents/agent-stop-resident/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("agent-stop-resident",))
         self.assertEqual(agent["status"], "stopped")
         self.assertEqual(agent["launch_mode"], "none")
         self.assertIn("terminate", agent["status_note"])

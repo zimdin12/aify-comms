@@ -1148,9 +1148,6 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     status_note = _row_status_note(row)
     effective_status = _status_with_dispatch(status, dispatch_state)
-    display_status = effective_status
-    if status_note and effective_status == status:
-        display_status = f"{effective_status}: {status_note}"
     return {
         "role": row["role"],
         "name": row["name"],
@@ -1158,7 +1155,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "model": row["model"],
         "description": (row["description"] if "description" in row.keys() else "") or "",
         "instructions": row["instructions"],
-        "status": display_status,
+        "status": effective_status,
         "statusRaw": effective_status,
         "statusNote": status_note,
         "registeredAt": row["registered_at"],
@@ -2970,7 +2967,7 @@ async def _has_recent_direct_delivery_for_channel_fanout(
 async def root():
     return {
         "service": "aify-comms",
-        "version": "3.6.6",
+        "version": "4.0.0",
         "storage": "sqlite",
         "endpoints": {
             "agents": "/api/v1/agents",
@@ -4748,13 +4745,16 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 )
                 await _append_dispatch_event(db, row["id"], "agent_stopped", "Agent stopped from dashboard")
                 cancelled_queued += 1
+            stop_note = "Stopped from dashboard. Resume to allow wake/dispatch again."
+            if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
+                stop_note = "Resident session stop requested from dashboard; live bridge should terminate the CLI host."
             await db.execute(
                 """
                 UPDATE agents
                 SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ?
                 WHERE id = ?
                 """,
-                ("Stopped from dashboard. Resume to allow wake/dispatch again.", now, agent_id),
+                (stop_note, now, agent_id),
             )
         elif action == "resume":
             await db.execute(
@@ -4815,15 +4815,36 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
     db = await get_db()
     try:
         now = _now()
-        cursor = await db.execute(
-            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-            (json.dumps(req.runtimeState or {}), now, agent_id)
-        )
-        await _touch_current_agent_session(db, agent_id, req.runtimeState or {}, now)
-        await db.commit()
-        if cursor.rowcount == 0:
+        current = await (await db.execute("SELECT session_mode, runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not current:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        return {"ok": True, "agentId": agent_id, "runtimeState": req.runtimeState or {}}
+        next_state = dict(req.runtimeState or {})
+        current_state = _json_loads_or(current["runtime_state"], {})
+        pending = current_state.get("pendingResidentTakeover")
+        if (
+            _normalize_session_mode(current["session_mode"] or "resident") == "managed"
+            and isinstance(pending, dict)
+            and str(next_state.get("bridgeInstanceId") or "").strip() == str(pending.get("bridgeId") or "").strip()
+        ):
+            # A pending resident bridge is allowed to heartbeat while a managed
+            # turn owns the agent, but it must not overwrite the current
+            # managed bridge identity until the pending takeover is applied at
+            # the turn boundary.
+            managed_bridge_id = str(current_state.get("bridgeInstanceId") or "").strip()
+            if managed_bridge_id:
+                next_state["bridgeInstanceId"] = managed_bridge_id
+            else:
+                next_state.pop("bridgeInstanceId", None)
+            if current_state.get("environmentId"):
+                next_state["environmentId"] = current_state["environmentId"]
+            next_state["pendingResidentTakeover"] = pending
+        await db.execute(
+            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+            (json.dumps(next_state), now, agent_id)
+        )
+        await _touch_current_agent_session(db, agent_id, next_state, now)
+        await db.commit()
+        return {"ok": True, "agentId": agent_id, "runtimeState": next_state}
     finally:
         await db.close()
 

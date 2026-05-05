@@ -1,6 +1,6 @@
 {
   "name": "aify-comms",
-  "version": "0.1.0",
+  "version": "4.0.0",
   "description": "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments",
 
   "mcp_enabled": true,
