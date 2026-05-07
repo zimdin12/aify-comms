@@ -1,6 +1,6 @@
 ---
 name: aify-comms
-description: Inter-agent communication hub for Claude Code, Codex, and OpenCode — live messaging, channels, file sharing, managed agent spawn, execution audit, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
+description: Inter-agent communication hub for Claude Code, Codex, OpenCode, and Oh My Pi — live messaging, channels, file sharing, managed agent spawn, execution audit, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
 trigger: tool_available("comms_register") OR tool_available("comms_send") OR tool_available("comms_inbox")
 ---
 
@@ -29,9 +29,9 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
-When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>` or `codex-aify --aify-agent my-agent ...`. Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID.
+When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>`, `codex-aify --aify-agent my-agent ...`, or `omp-aify --aify-agent my-agent --resume <session-id>` (`pi-aify` alias). Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID.
 
-Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` when that CLI should temporarily own the live session.
+Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` alias) when that CLI should temporarily own the live session.
 
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
@@ -39,6 +39,12 @@ For live Codex, prefer exact binding from the same `codex-aify` session:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+```
+
+For live Oh My Pi, bind the real resumable session handle from the same `omp-aify` or `pi-aify` session:
+
+```text
+comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
 ```
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
@@ -101,7 +107,7 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 ## Compacting
 
 - `comms_compact(mode="handoff", agentId="...")` is the reliable path today. It creates a fresh managed backing from a compact handoff packet and defaults to the same agent ID.
-- `mode="internal"` requests native in-place compact and may be unsupported. Current managed Claude Code and Codex adapters do not expose a verified headless native compact API.
+- `mode="internal"` requests native in-place compact and may be unsupported. Current managed runtime adapters do not expose a verified headless native compact API.
 - Dashboard **Compact** keeps the same agent identity; **Continue as** intentionally creates a separate identity.
 
 ## Tool Map
@@ -123,7 +129,7 @@ Deprecated: `comms_listen` remains for compatibility/debug long-poll experiments
 Read `references/operations.md` only when you need:
 
 - install/update steps, wrapper flags, or multi-instance rules
-- managed Claude/Codex runtime policy and permissions
+- managed runtime policy and permissions
 - environment bridge behavior, stale bridge repair, or session ownership transfer
 - dashboard operator behavior and issue/work-loop semantics
 - status meanings, role suggestions, or debug handoffs

@@ -1,11 +1,12 @@
 #!/bin/bash
-# Unified installer for aify-comms on Claude Code, Codex, or OpenCode.
+# Unified installer for aify-comms on Claude Code, Codex, OpenCode, or Oh My Pi.
 #
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
 #   bash install.sh --client codex http://localhost:8800 --with-hook
 #   bash install.sh --client opencode http://localhost:8800
+#   bash install.sh --client pi http://localhost:8800
 
 set -euo pipefail
 
@@ -17,13 +18,14 @@ WITH_HOOK=false
 usage() {
   cat <<EOF
 Usage:
-  bash install.sh --client <claude|codex|opencode> [SERVER_URL] [--with-hook]
+  bash install.sh --client <claude|codex|opencode|pi> [SERVER_URL] [--with-hook]
 
 Examples:
   bash install.sh --client claude
   bash install.sh --client claude http://localhost:8800 --with-hook
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client opencode http://localhost:8800
+  bash install.sh --client pi http://localhost:8800
 EOF
 }
 
@@ -53,7 +55,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "opencode" ]; then
+if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "opencode" ] && [ "$CLIENT" != "pi" ]; then
   echo "Unsupported client: $CLIENT"
   usage
   exit 1
@@ -298,6 +300,78 @@ EOF
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }
 
+install_pi_wrapper() {
+  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_path="$wrapper_dir/pi-aify"
+  local alias_path="$wrapper_dir/omp-aify"
+  mkdir -p "$wrapper_dir"
+  cat > "$wrapper_path" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+PI_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
+PI_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+PI_SESSION_HANDLE="${PI_SESSION_ID:-${OMP_SESSION_ID:-${AIFY_PI_SESSION_ID:-}}}"
+PI_RUNTIME_COMMAND="${AIFY_PI_COMMAND:-${PI_COMMAND:-omp}}"
+PI_ARGS=()
+PREV_ARG=""
+for ARG in "$@"; do
+  if [ "$PREV_ARG" = "--aify-agent" ] || [ "$PREV_ARG" = "--agent-id" ]; then
+    PI_AIFY_AGENT_ID="$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "$PREV_ARG" = "--aify-role" ]; then
+    PI_AIFY_ROLE="$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
+    PREV_ARG="$ARG"
+    continue
+  fi
+  case "$ARG" in
+  --aify-agent=*|--agent-id=*)
+    PI_AIFY_AGENT_ID="${ARG#*=}"
+    continue
+    ;;
+  --aify-role=*)
+    PI_AIFY_ROLE="${ARG#*=}"
+    continue
+    ;;
+  --resume=*|--session-id=*)
+    PI_SESSION_HANDLE="${ARG#*=}"
+    ;;
+  -r=*)
+    PI_SESSION_HANDLE="${ARG#*=}"
+    ;;
+  esac
+  PI_ARGS+=("$ARG")
+  if [ "$PREV_ARG" = "--resume" ] || [ "$PREV_ARG" = "--session-id" ] || [ "$PREV_ARG" = "-r" ]; then
+    PI_SESSION_HANDLE="$ARG"
+  fi
+  PREV_ARG="$ARG"
+done
+
+export AIFY_RUNTIME="pi"
+if [ -n "$PI_AIFY_AGENT_ID" ]; then
+  export AIFY_AGENT_ID="$PI_AIFY_AGENT_ID"
+  export AIFY_AGENT_ROLE="$PI_AIFY_ROLE"
+fi
+if [ -n "$PI_SESSION_HANDLE" ]; then
+  export PI_SESSION_ID="$PI_SESSION_HANDLE"
+  export AIFY_SESSION_HANDLE="$PI_SESSION_HANDLE"
+fi
+
+exec "$PI_RUNTIME_COMMAND" "${PI_ARGS[@]}"
+EOF
+  chmod +x "$wrapper_path"
+  cp "$wrapper_path" "$alias_path"
+  chmod +x "$alias_path"
+  install_windows_cmd_shim "pi-aify" "$wrapper_dir"
+  install_windows_cmd_shim "omp-aify" "$wrapper_dir"
+}
+
 install_bridge_launcher() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/aify-comms"
@@ -510,6 +584,55 @@ EOF
   " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
 }
 
+install_pi_config() {
+  local config_root="$HOME/.omp/agent"
+  local config_file="$config_root/mcp.json"
+  local node_config_file=""
+  local node_server_path=""
+  local api_key="${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}"
+  mkdir -p "$config_root"
+  if [ ! -f "$config_file" ]; then
+    cat > "$config_file" <<'EOF'
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {}
+}
+EOF
+  fi
+
+  node_config_file="$(path_for_node "$config_file")"
+  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+
+  MSYS_NO_PATHCONV=1 node -e "
+    const fs = require('fs');
+    const file = process.argv[1];
+    const serverUrl = process.argv[2];
+    const apiKey = process.argv[3];
+    const serverPath = process.argv[4];
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (_) {}
+    if (!data || typeof data !== 'object') data = {};
+    if (!data['\$schema']) data['\$schema'] = 'https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json';
+    if (!data.mcpServers || typeof data.mcpServers !== 'object' || Array.isArray(data.mcpServers)) data.mcpServers = {};
+    const env = {};
+    if (serverUrl) {
+      env.AIFY_SERVER_URL = serverUrl;
+      env.CLAUDE_MCP_SERVER_URL = serverUrl;
+    }
+    if (apiKey) {
+      env.AIFY_API_KEY = apiKey;
+      env.CLAUDE_MCP_API_KEY = apiKey;
+    }
+    data.mcpServers['aify-comms'] = {
+      type: 'stdio',
+      command: 'node',
+      args: [serverPath],
+      ...(Object.keys(env).length ? { env } : {}),
+    };
+    fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+  " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
+}
+
 enable_codex_hooks_feature() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local config_file="$codex_home/config.toml"
@@ -661,6 +784,9 @@ register_stdio_server() {
   elif [ "$cli" = "opencode" ]; then
     install_opencode_config
     return
+  elif [ "$cli" = "pi" ]; then
+    install_pi_config
+    return
   else
     "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
   fi
@@ -723,7 +849,11 @@ echo ""
 
 require_cmd node
 require_cmd npm
-require_cmd "$CLIENT"
+if [ "$CLIENT" = "pi" ]; then
+  require_cmd omp
+else
+  require_cmd "$CLIENT"
+fi
 
 echo "[1/4] Installing MCP dependencies..."
 cd "$SCRIPT_DIR/mcp/stdio"
@@ -754,7 +884,7 @@ if [ "$WITH_HOOK" = true ]; then
   elif [ "$CLIENT" = "codex" ]; then
     install_codex_hook
   else
-    echo "  OpenCode hook install is not implemented yet; skipping."
+    echo "  Notification hook install is not implemented for $CLIENT yet; skipping."
   fi
   echo "  Done."
 else
@@ -769,6 +899,8 @@ if [ "$CLIENT" = "claude" ]; then
   fi
 elif [ "$CLIENT" = "codex" ]; then
   install_codex_wrapper
+elif [ "$CLIENT" = "pi" ]; then
+  install_pi_wrapper
 fi
 
 echo ""
@@ -801,7 +933,16 @@ elif [ "$CLIENT" = "codex" ]; then
     echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\codex-aify.cmd"
   fi
 else
-  echo "Restart OpenCode for changes to take effect."
+  if [ "$CLIENT" = "opencode" ]; then
+    echo "Restart OpenCode for changes to take effect."
+  else
+    echo "Restart Oh My Pi for changes to take effect."
+    echo "For resident-session wakeups, start Pi with: omp-aify (alias: pi-aify)"
+    echo "  (wrappers installed at ~/.local/bin/omp-aify and ~/.local/bin/pi-aify)"
+    if is_git_bash_windows; then
+      echo "  Windows shims installed at %USERPROFILE%\\.local\\bin\\omp-aify.cmd and pi-aify.cmd"
+    fi
+  fi
 fi
 echo ""
 echo "Quick start:"
@@ -810,6 +951,9 @@ if [ "$CLIENT" = "codex" ]; then
   echo "  # If those live env vars are unavailable, fall back to: comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\")"
 elif [ "$CLIENT" = "claude" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")"
+elif [ "$CLIENT" = "pi" ]; then
+  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"pi\", sessionHandle=\"\$PI_SESSION_ID\")"
+  echo "  # If PI_SESSION_ID is unavailable, omit sessionHandle; resident Pi will be visible but not resumable until bound."
 else
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
 fi

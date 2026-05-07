@@ -15,7 +15,13 @@ const RUNTIME_ALIASES = new Map([
   ["claude-code", "claude-code"],
   ["claude_code", "claude-code"],
   ["codex", "codex"],
+  ["oh-my-pi", "pi"],
+  ["oh_my_pi", "pi"],
   ["opencode", "opencode"],
+  ["omp", "pi"],
+  ["pi", "pi"],
+  ["pi-agent", "pi"],
+  ["pi_agent", "pi"],
   ["generic", "generic"],
 ]);
 
@@ -616,6 +622,11 @@ function defaultClaudeCommand() {
   return { command: configured || "claude", args: [] };
 }
 
+function defaultPiCommand() {
+  const configured = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "").trim();
+  return { command: configured || "omp", args: [] };
+}
+
 function hasExecutable(command) {
   const value = String(command || "").trim();
   if (!value) return false;
@@ -667,6 +678,16 @@ export function runtimeLaunchAvailability(runtime) {
   if (normalized === "opencode") {
     return { available: true, message: "OpenCode SDK available" };
   }
+  if (normalized === "pi") {
+    const launcher = defaultPiCommand();
+    const available = hasExecutable(launcher.command);
+    return {
+      available,
+      message: available
+        ? "Pi launcher available"
+        : `Runtime "pi" is not launchable from this bridge because "${launcher.command}" is not on PATH. Install Oh My Pi for this OS/user or restart the bridge from a shell where "${launcher.command}" works.`,
+    };
+  }
   return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
 }
 
@@ -700,7 +721,7 @@ export function normalizeRuntime(runtime) {
 }
 
 export function canLaunchRuntime(runtime) {
-  return ["claude-code", "codex", "opencode"].includes(normalizeRuntime(runtime));
+  return ["claude-code", "codex", "opencode", "pi"].includes(normalizeRuntime(runtime));
 }
 
 export function controlCapabilitiesForRuntime(runtime) {
@@ -708,6 +729,8 @@ export function controlCapabilitiesForRuntime(runtime) {
     case "codex":
       return { interrupt: true, steer: true };
     case "opencode":
+      return { interrupt: true, steer: false };
+    case "pi":
       return { interrupt: true, steer: false };
     case "claude-code":
       return { interrupt: true, steer: false };
@@ -722,6 +745,8 @@ export function defaultSessionHandleForRuntime(runtime) {
       return process.env.CODEX_THREAD_ID || "";
     case "opencode":
       return process.env.OPENCODE_SESSION_ID || process.env.OPENCODE_SESSION || "";
+    case "pi":
+      return process.env.PI_SESSION_ID || process.env.OMP_SESSION_ID || process.env.AIFY_PI_SESSION_ID || "";
     case "claude-code":
       return process.env.CLAUDE_SESSION_ID || "";
     default:
@@ -1918,11 +1943,194 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   };
 }
 
+function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const config = getRuntimeConfig(agentInfo);
+  const availability = runtimeLaunchAvailability("pi");
+  if (!availability.available) throw new Error(availability.message);
+  const launcher = defaultPiCommand();
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
+  const cwd = agentInfo.cwd || process.cwd();
+  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
+  const model = String(agentInfo.model || config.model || "").trim();
+  const thinking = String(config.thinking || config.effort || "").trim();
+  let sessionId =
+    executionMode === "resident"
+      ? residentSessionId
+      : String(runtimeState?.sessionId || residentSessionId || "").trim();
+
+  if (executionMode === "resident" && !sessionId) {
+    throw new Error(
+      `Resident Pi session "${agentId}" has no bound session ID. ` +
+      "Start omp-aify or pi-aify with a resumable session or pass sessionHandle explicitly when registering.",
+    );
+  }
+
+  const args = [...launcher.args, "--mode", "rpc"];
+  if (sessionId) args.push("--resume", sessionId);
+  if (model) args.push("--model", model);
+  if (thinking) args.push("--thinking", thinking);
+
+  let interrupted = false;
+  let settled = false;
+  let proc = null;
+  let promptAcked = false;
+  let finalText = "";
+  let finalError = "";
+  let requestCounter = 1;
+
+  const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
+
+  function send(payload) {
+    if (!proc || !proc.stdin.writable) return;
+    proc.stdin.write(`${JSON.stringify(payload)}\n`);
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    proc = spawnProcess(launcher.command, args, { cwd });
+    callbacks.onEvent?.("thread", `Started ${executionMode} Pi RPC runtime${sessionId ? ` for session ${sessionId}` : ""}`);
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        interrupted = true;
+        try {
+          send({ id: nextRequestId("abort"), type: "abort" });
+        } catch {
+          // best effort
+        }
+        terminateProcessTree(proc);
+        reject(new Error(`Pi run timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+
+    proc.on("error", (error) => {
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+
+    const stdout = readline.createInterface({ input: proc.stdout });
+    stdout.on("line", (line) => {
+      const text = String(line || "").trim();
+      if (!text) return;
+      let event;
+      try {
+        event = JSON.parse(text);
+      } catch {
+        finalText += `${text}\n`;
+        return;
+      }
+
+      if (event.sessionId || event.sessionID) {
+        sessionId = String(event.sessionId || event.sessionID || "").trim() || sessionId;
+        callbacks.onRuntimeState?.({ sessionId });
+        callbacks.onRefs?.({ threadId: sessionId });
+      }
+
+      if (event.type === "ready") {
+        send({
+          id: nextRequestId("prompt"),
+          type: "prompt",
+          message: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}`,
+        });
+        return;
+      }
+
+      if (event.type === "response") {
+        if (event.command === "prompt") {
+          promptAcked = event.success !== false;
+          if (event.success === false) finalError = String(event.error || "Pi prompt failed");
+        }
+        return;
+      }
+
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        finalText += String(event.assistantMessageEvent.delta || "");
+        return;
+      }
+
+      if (event.type === "agent_start") {
+        callbacks.onEvent?.("pi", "Started Pi agent turn");
+        return;
+      }
+
+      if (event.type === "agent_end") {
+        settled = true;
+        clearTimeout(timer);
+        callbacks.onRuntimeState?.({ sessionId });
+        callbacks.onRefs?.({ threadId: sessionId });
+        resolve({
+          status: interrupted ? "cancelled" : "completed",
+          summary: finalText.trim() || "(no output)",
+          runtimeState: { sessionId },
+          externalRefs: { threadId: sessionId, turnId: String(event.id || "") },
+        });
+        try {
+          terminateProcessTree(proc);
+        } catch {
+          // ignore shutdown errors
+        }
+        return;
+      }
+
+      if (event.type === "error") {
+        finalError = String(event.error || event.message || "Pi runtime error");
+      }
+    });
+
+    const stderr = readline.createInterface({ input: proc.stderr });
+    stderr.on("line", (line) => {
+      const text = quoteForDisplay(line);
+      if (text) callbacks.onEvent?.("stderr", text);
+    });
+
+    proc.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (interrupted) {
+        resolve({
+          status: "cancelled",
+          summary: finalText.trim() || finalError || "Run interrupted",
+          runtimeState: { sessionId },
+          externalRefs: { threadId: sessionId },
+        });
+        return;
+      }
+      if (code === 0 && promptAcked && !finalError) {
+        resolve({
+          status: "completed",
+          summary: finalText.trim() || "(no output)",
+          runtimeState: { sessionId },
+          externalRefs: { threadId: sessionId },
+        });
+        return;
+      }
+      reject(new Error(finalError || finalText.trim() || `Pi exited with code ${code}`));
+    });
+  });
+
+  return {
+    capabilities: controlCapabilitiesForRuntime("pi"),
+    interrupt: async () => {
+      interrupted = true;
+      send({ id: nextRequestId("abort"), type: "abort" });
+      terminateProcessTree(proc);
+    },
+    steer: async () => {
+      throw new Error('Runtime "pi" does not support steer');
+    },
+    promise,
+  };
+}
+
 export function detectRuntime(explicitRuntime) {
   if (explicitRuntime) return normalizeRuntime(explicitRuntime);
   if (process.env.AIFY_AGENT_RUNTIME) return normalizeRuntime(process.env.AIFY_AGENT_RUNTIME);
+  if (process.env.AIFY_RUNTIME) return normalizeRuntime(process.env.AIFY_RUNTIME);
   if (process.env.CODEX_HOME || process.env.CODEX_SANDBOX) return "codex";
   if (process.env.OPENCODE_CLIENT || process.env.OPENCODE_CONFIG_DIR) return "opencode";
+  if (process.env.PI_SESSION_ID || process.env.OMP_SESSION_ID || process.env.AIFY_PI_SESSION_ID) return "pi";
   if (process.env.CLAUDE_PROJECT_DIR || process.env.CLAUDECODE) return "claude-code";
   return "generic";
 }
@@ -1938,6 +2146,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
       case "codex":
         return ["managed-run", "resume", "interrupt", "steer", "spawn"];
       case "opencode":
+        return ["managed-run", "resume", "interrupt", "spawn"];
+      case "pi":
         return ["managed-run", "resume", "interrupt", "spawn"];
       case "claude-code":
         return ["managed-run", "resume", "interrupt", "spawn"];
@@ -1957,6 +2167,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
       if (!hasCodexLiveAppServer(runtimeConfig) && !canUseDefaultResidentCodexBridge()) return [];
       return ["resident-run", "resume", "interrupt", "steer"];
     case "opencode":
+      return ["resident-run", "resume", "interrupt"];
+    case "pi":
       return ["resident-run", "resume", "interrupt"];
     default:
       return [];
@@ -1988,6 +2200,9 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
   }
   if (runtime === "opencode") {
     return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
+  if (runtime === "pi") {
+    return createPiController({ agentId, agentInfo, run, runtimeState, callbacks });
   }
   if (runtime === "claude-code") {
     return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });

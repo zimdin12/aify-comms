@@ -13,7 +13,7 @@ The intended team behavior is conversational but disciplined: dashboard direct c
 `aify-comms` keeps the original communication core:
 
 - direct messages, channels, inboxes, execution/run audit records, handoffs, and shared artifacts
-- host-side bridges for Claude Code, Codex, and OpenCode
+- host-side bridges for Claude Code, Codex, OpenCode, and Oh My Pi
 - resident session wakeups and environment-backed managed sessions
 - dashboard-backed operational visibility
 
@@ -21,7 +21,7 @@ It now adds a first-class identity/session lifecycle layer:
 
 - connected environment registry: WSL, Windows, Linux, Docker host, remote machine
 - spawn from dashboard into any connected environment
-- runtime adapters for Claude Code, Codex, and OpenCode managed/resident execution
+- runtime adapters for Claude Code, Codex, OpenCode, and Oh My Pi managed/resident execution
 - automatic identity/registration for spawned agents
 - managed-warm sessions for long-lived agent identities
 - portable compact/continue into fresh managed backings when a phase changes or context gets noisy
@@ -45,7 +45,7 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
 
-Use **resident mode** when you intentionally open a real Claude/Codex terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>` or `codex-aify --aify-agent <id>` so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
+Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` is an alias) so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
 
 Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary Restart/Recover/Adopt should preserve the stored handle and fail visibly if the handle is locked or cannot be resumed.
 
@@ -53,7 +53,7 @@ Normal dashboard chat is live-delivery gated for unreachable targets: offline, s
 
 The **Work Loop** page turns message/run state into operational contracts: who asked, who owns the reply, whether the run is queued/working/overdue/answered, and whether old read receipts or handoffs need repair. It does not replace chat; it makes the implicit obligations in chat visible enough for an autonomous team to keep moving without guessing from raw unread counts.
 
-Reliable compaction in `aify-comms` means creating a fresh managed backing from an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, and OpenCode, and it defaults to the same agent ID so chats and agent identity remain stable. Native in-place compaction is runtime-adapter dependent; current managed Claude Code and Codex adapters do not expose a verified internal compact API.
+Reliable compaction in `aify-comms` means creating a fresh managed backing from an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, OpenCode, and Oh My Pi, and it defaults to the same agent ID so chats and agent identity remain stable. Native in-place compaction is runtime-adapter dependent; current managed adapters do not expose a verified internal compact API.
 
 ## Current State
 
@@ -87,18 +87,19 @@ curl http://localhost:8800/health
 
 The default port is `8800`. Change `.env` only if another service already uses that port.
 
-Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, or `claude-aify`. Pick the client you use on that host:
+Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, or `omp-aify`/`pi-aify`. Pick the client you use on that host:
 
 ```bash
 bash install.sh --client codex http://localhost:8800 --with-hook
 bash install.sh --client claude http://localhost:8800 --with-hook
+bash install.sh --client pi http://localhost:8800
 ```
 
 After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills.
 
 ## Connect Environments
 
-Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, or OpenCode on Windows, WSL, Linux, Docker, or a remote machine.
+Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, OpenCode, or Oh My Pi on Windows, WSL, Linux, Docker, or a remote machine.
 
 See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for Linux/WSL and native Windows bridge commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
 
@@ -118,7 +119,7 @@ aify-comms.cmd
 
 The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
+Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Oh My Pi keeps its own runtime defaults unless model/thinking are supplied through runtime config. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
 
 ## Design Rule
 

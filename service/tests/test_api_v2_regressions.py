@@ -1020,6 +1020,28 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(control["currentEnvironment"]["bridgeId"], "bridge-new")
         self.assertEqual(control["currentEnvironment"]["metadata"]["pid"], 222)
 
+    def test_pi_runtime_alias_is_spawnable_from_environment(self):
+        environment = self._heartbeat_environment(
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self.assertEqual(environment["runtimes"][0]["runtime"], "pi")
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "pi-worker",
+                "role": "coder",
+                "runtime": "oh-my-pi",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_request = created.json()["spawnRequest"]
+        self.assertEqual(spawn_request["runtime"], "pi")
+        self.assertEqual(spawn_request["spawnSpec"]["runtime"], "pi")
+
     def test_forget_environment_hides_target_but_preserves_agent_session_and_spec(self):
         self._heartbeat_environment(id="linux:test-host:default")
         created = self.client.post(

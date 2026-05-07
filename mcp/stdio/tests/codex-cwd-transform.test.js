@@ -38,38 +38,38 @@ const wslTransform = (raw) => {
 //    it. On Windows that means a forward-slash drive-letter path; on Linux/WSL
 //    a Windows registration path must be converted to /mnt/<drive>/... .
 const residentWin = resolveCodexRequestCwdFor({
-  hostCwd: "C:\\Docker\\aify-project-graph",
+  hostCwd: "C:\\Docker\\sample-project",
   appServerUrl: "ws://127.0.0.1:55555",
   legacyTransform: wslTransform,
 });
 assert.equal(
   residentWin,
-  process.platform === "win32" ? "C:/Docker/aify-project-graph" : "/mnt/c/Docker/aify-project-graph",
+  process.platform === "win32" ? "C:/Docker/sample-project" : "/mnt/c/Docker/sample-project",
   "resident (appServerUrl set) must send a path format native to the Codex host OS",
 );
 
 // 2. Same case but the input already uses forward slashes.
 const residentWinFwd = resolveCodexRequestCwdFor({
-  hostCwd: "C:/Docker/aify-project-graph",
+  hostCwd: "C:/Docker/sample-project",
   appServerUrl: "ws://127.0.0.1:55555",
   legacyTransform: wslTransform,
 });
 assert.equal(
   residentWinFwd,
-  process.platform === "win32" ? "C:/Docker/aify-project-graph" : "/mnt/c/Docker/aify-project-graph",
+  process.platform === "win32" ? "C:/Docker/sample-project" : "/mnt/c/Docker/sample-project",
 );
 
 // 3. No appServerUrl → we're about to spawn our own Codex via the legacy
 //    launcher, so the legacy transform applies. On Windows that means
 //    /mnt/c/..., which is correct when we're spawning wsl.exe.
 const managedWin = resolveCodexRequestCwdFor({
-  hostCwd: "C:\\Docker\\aify-project-graph",
+  hostCwd: "C:\\Docker\\sample-project",
   appServerUrl: "",
   legacyTransform: wslTransform,
 });
 assert.equal(
   managedWin,
-  "/mnt/c/Docker/aify-project-graph",
+  "/mnt/c/Docker/sample-project",
   "managed (no appServerUrl) must defer to legacy launcher transform",
 );
 
@@ -101,13 +101,14 @@ assert.equal(emptyManaged, "");
 //    when they copy a path from Explorer). Both branches must collapse to a
 //    single consistent form.
 const mixed = resolveCodexRequestCwdFor({
-  hostCwd: "C:\\Docker/aify-project-graph\\subdir",
+  hostCwd: "C:\\Docker/sample-project\\subdir",
   appServerUrl: "ws://127.0.0.1:55555",
   legacyTransform: wslTransform,
 });
 assert.equal(
   mixed,
-  process.platform === "win32" ? "C:/Docker/aify-project-graph/subdir" : "/mnt/c/Docker/aify-project-graph/subdir",
+  process.platform === "win32" ? "C:/Docker/sample-project/subdir" : "/mnt/c/Docker/sample-project/subdir",
 );
 
 console.log("codex-cwd-transform.test.js: all assertions passed");
+

@@ -78,7 +78,7 @@ Analytics should answer "what happened in this window?" rather than only all-tim
 Settings should be grouped so the page does not become a long maintenance form:
 
 - **Appearance**: dashboard title/brand and accent color scheme. Default title is `AIFY Comms`.
-- **Runtime**: global managed Claude/Codex model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
+- **Runtime**: global managed runtime model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
 - **Work Loop**: reply-contract reminders and history windows.
 - **Maintenance**: retention, shared file limits, refresh cadence, idle/offline thresholds, and rotation.
 
@@ -141,7 +141,7 @@ Required fields:
 
 - agent ID or generated ID
 - role
-- runtime: Claude, Codex, OpenCode
+- runtime: Claude, Codex, OpenCode, Pi
 - environment
 - workspace
 - mode: managed warm/live-wake
@@ -261,7 +261,7 @@ Ended/completed/cancelled sessions are debug history. The normal Sessions page s
 
 Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
-Future browser terminal mode should reuse the same ownership model as native CLI access. Opening an in-browser terminal should visibly pause dashboard chat delivery for that session, attach through the owning environment bridge, and provide a clear **Return to dashboard** path. It should not let dashboard chat and terminal input drive the same Claude/Codex/OpenCode handle concurrently.
+Future browser terminal mode should reuse the same ownership model as native CLI access. Opening an in-browser terminal should visibly pause dashboard chat delivery for that session, attach through the owning environment bridge, and provide a clear **Return to dashboard** path. It should not let dashboard chat and terminal input drive the same runtime handle concurrently.
 
 ## Continue From Session Flow
 

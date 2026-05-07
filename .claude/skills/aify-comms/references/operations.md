@@ -15,7 +15,8 @@ Wrapper auto mode:
 
 - `codex-aify -auto` adds Codex's supported bypass flag.
 - `claude-aify -auto` adds `--dangerously-skip-permissions`.
-- `claude-aify --aify-agent <agentId> --resume <session-id>` and `codex-aify --aify-agent <agentId> ...` auto-register that live resident session.
+- `omp-aify` / `pi-aify` has no special `-auto` permission mode; model/thinking defaults come from Oh My Pi unless passed through runtime config.
+- `claude-aify --aify-agent <agentId> --resume <session-id>`, `codex-aify --aify-agent <agentId> ...`, and `omp-aify --aify-agent <agentId> --resume <session-id>` auto-register that live resident session.
 - Claude Code's valid skip-permissions flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not valid.
 
 ## Managed Runtime Policy
@@ -23,7 +24,7 @@ Wrapper auto mode:
 - Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
-- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort.
+- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Oh My Pi uses its own runtime defaults unless `runtimeConfig.model` or `runtimeConfig.thinking` is set.
 - Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
 - Tune with `runtimeConfig.timeoutMs`, `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`, and `runtimeConfig.mcpToolTimeoutMs` / `runtimeConfig.commsToolTimeoutMs`.
 - Set quiet timeout to `0` only for agents expected to run very long silent commands; set MCP tool timeout to `0` only while debugging the MCP transport.
@@ -38,7 +39,7 @@ Wrapper auto mode:
 
 ## CLI Ownership Transfer
 
-- Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>` or the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command.
+- Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>`, the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command, or `omp-aify --aify-agent <agentId> --resume <id>`.
 - Manual `comms_register(...)` from the opened CLI remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Ownership transfer is turn-boundary safe. Active managed work defers resident takeover until the run ends. Closing the resident CLI lets dashboard sends return to managed backing after the resident lease expires.
 - Dashboard **Stop wake** / session **Stop** on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
@@ -53,6 +54,7 @@ Browser CLI is planned, not current behavior. Until an environment advertises br
 | `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
 | `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
 | `opencode` | OK with explicit `sessionHandle` per session. | OK |
+| `pi` | OK with explicit `sessionHandle` per session. | OK |
 
 Never register the same `agentId` from two tabs. Re-registering the same ID supersedes the previous bridge/session binding.
 

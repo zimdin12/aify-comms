@@ -244,6 +244,7 @@ Use when a human-visible CLI session already exists:
 
 - `codex-aify`
 - `claude-aify`
+- `omp-aify` / `pi-aify`
 - existing `aify-comms` live wake model
 
 This is still useful, but it is not the default dashboard spawn path. It is for agents the user wants to personally use through the CLI.
@@ -272,7 +273,7 @@ The UI and scheduler must respect runtime/session capabilities:
 - `costTelemetry`: cost can be estimated
 - `contextReset`: runtime context can reset without losing agent identity
 
-Do not infer these from runtime name alone. Codex, Claude Code, and OpenCode may change behavior across versions.
+Do not infer these from runtime name alone. Codex, Claude Code, OpenCode, and Oh My Pi may change behavior across versions.
 
 ## Workspace Model
 

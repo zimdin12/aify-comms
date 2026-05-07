@@ -301,8 +301,10 @@ function wakeModeSummary(info = {}) {
   }
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
+  if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
+  if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
   return "message-only";
 }
@@ -467,7 +469,7 @@ function supportedExecutionModes(info = {}) {
     modes.push("managed");
   }
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex" || runtime === "opencode") modes.push("resident");
+    if (runtime === "codex" || runtime === "opencode" || runtime === "pi") modes.push("resident");
   }
   return modes;
 }
@@ -769,7 +771,7 @@ function runtimeCapability(runtime) {
     unavailableReason: availability.available ? "" : availability.message,
     capabilities: {
       persistent: true,
-      nativeResume: normalized === "codex" || normalized === "opencode",
+      nativeResume: normalized === "codex" || normalized === "opencode" || normalized === "pi",
       bridgeResume: true,
       cliAttach: false,
       interrupt: true,
@@ -782,7 +784,7 @@ function runtimeCapability(runtime) {
 }
 
 function advertisedEnvironmentRuntimes() {
-  return ["codex", "claude-code", "opencode"]
+  return ["codex", "claude-code", "opencode", "pi"]
     .map(runtimeCapability)
     .filter((runtime) => runtime.available);
 }
@@ -1104,7 +1106,7 @@ async function runSpawnLoop() {
       runtimeState,
       capabilities: {
         persistent: true,
-        nativeResume: Boolean(requestedSessionHandle) || runtime === "codex" || runtime === "opencode",
+        nativeResume: Boolean(requestedSessionHandle) || runtime === "codex" || runtime === "opencode" || runtime === "pi",
         bridgeResume: true,
         cliAttach: false,
         interrupt: true,
@@ -1502,7 +1504,7 @@ server.tool(
     model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
     description: z.string().optional().describe("Team-facing short description: who you are, what project you're on, what you focus on. Visible to other agents in comms_agents. Preserved across re-register; pass \"\" to clear."),
     instructions: z.string().optional().describe("Standing instructions for when triggered"),
-    runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex')"),
+    runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex', 'opencode', 'pi')"),
     machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
     launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
     sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
@@ -1761,6 +1763,8 @@ function internalCompactUnsupportedText(sourceSession = {}) {
       "Codex app-server/CLI currently exposes resume, turn, interrupt, and steer controls, but no native compact/context-reset API.",
     opencode:
       "OpenCode support has no verified native compact adapter yet.",
+    pi:
+      "Oh My Pi support has no verified native compact adapter yet.",
   };
   const detail = detailByRuntime[runtime] || `Runtime "${runtime}" has no verified native compact adapter.`;
   return [
@@ -1840,7 +1844,7 @@ server.tool(
     environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, first online environment supporting runtime is used."),
     agentId: z.string().describe("Stable agent ID to create"),
     role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
-    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, or opencode"),
+    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, opencode, or pi"),
     workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
     name: z.string().optional().describe("Friendly name"),
     model: z.string().optional().describe("Preferred model/profile value"),

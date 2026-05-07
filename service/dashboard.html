@@ -1375,7 +1375,7 @@ Environment bridge: aify-comms
         |
         | claims managed work for one host/WSL/Windows environment
         v
-Runtime adapter: Claude Code / Codex / OpenCode
+Runtime adapter: Claude Code / Codex / OpenCode / Pi
         |
         v
 Agent session in a specific workspace</div>
@@ -1387,7 +1387,7 @@ Agent session in a specific workspace</div>
         </div>
         <div class="guide-card">
           <h4>Resident Mode</h4>
-          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, or explicit OpenCode registration when a terminal you opened should temporarily own the live session.</p>
+          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, <code>omp-aify</code> / <code>pi-aify</code>, or explicit OpenCode registration when a terminal you opened should temporarily own the live session.</p>
         </div>
         <div class="guide-card">
           <h4>Debug Path</h4>
@@ -1424,6 +1424,8 @@ bash install.sh --client codex http://localhost:8800 --with-hook</pre>
           <h4>OpenCode</h4>
           <pre>cd /path/to/aify-comms
 bash install.sh --client opencode http://localhost:8800</pre>
+      <p><b>Oh My Pi / Pi:</b></p>
+      <pre>bash install.sh --client pi http://localhost:8800</pre>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
@@ -1458,11 +1460,11 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         </div>
         <div class="guide-card">
           <h4>Resident CLI</h4>
-          <p>A terminal session you opened yourself through <code>claude-aify</code> or <code>codex-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
+          <p>A terminal session you opened yourself through <code>claude-aify</code>, <code>codex-aify</code>, or <code>omp-aify</code> / <code>pi-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
         </div>
         <div class="guide-card">
           <h4>Session</h4>
-          <p>The concrete runtime backing for an agent: Claude session ID, Codex thread ID, OpenCode handle, process state, workspace, and environment.</p>
+          <p>The concrete runtime backing for an agent: Claude session ID, Codex thread ID, OpenCode/Pi handle, process state, workspace, and environment.</p>
         </div>
       </div>
 
@@ -1496,10 +1498,11 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </div>
       <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
+      <p>Pi CLI note: for resident live wakeups, start Oh My Pi through <code>omp-aify</code> or <code>pi-aify</code>. Resume a known Pi session when you need resident dispatch to target the same native session handle.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
-      <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed Claude Code and Codex paths do not.</p>
+      <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed adapters do not.</p>
       <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
           </section>
 
@@ -1519,7 +1522,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed Claude/Codex model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless runtime config supplies model/thinking.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -2491,8 +2494,8 @@ function renderPresenceCell(info) {
 
 function workerStateLabel(info) {
   const state = info?.runtimeState || {};
-  if (state.threadId) return {main: `thread ${state.threadId}`, meta: 'Codex/OpenCode thread will be resumed on next run'};
-  if (state.sessionId) return {main: `session ${state.sessionId}`, meta: 'Claude/OpenCode session will be resumed on next run'};
+  if (state.threadId) return {main: `thread ${state.threadId}`, meta: 'Runtime thread will be resumed on next run'};
+  if (state.sessionId) return {main: `session ${state.sessionId}`, meta: 'Runtime session will be resumed on next run'};
   if (info?.sessionHandle) return {main: `handle ${info.sessionHandle}`, meta: 'Bound live handle'};
   return {main: 'fresh on next run', meta: 'No saved thread/session state'};
 }
@@ -3640,6 +3643,7 @@ function sessionRuntimeHandle(session, agentInfo = {}) {
   if (runtime === 'claude-code') return String(state.sessionId || agentInfo.sessionHandle || '');
   if (runtime === 'codex') return String(state.threadId || agentInfo.sessionHandle || '');
   if (runtime === 'opencode') return String(state.sessionId || agentInfo.sessionHandle || '');
+  if (runtime === 'pi') return String(state.sessionId || agentInfo.sessionHandle || '');
   return String(agentInfo.sessionHandle || '');
 }
 
@@ -3666,6 +3670,11 @@ function sessionResumeCommand(session, agentInfo = {}) {
     return windows
       ? `cd /d ${quoteCmd(workspace)}\nopencode`
       : `cd ${quoteShell(workspace)}\nopencode`;
+  }
+  if (runtime === 'pi') {
+    return windows
+      ? `cd /d ${quoteCmd(workspace)}\nomp-aify.cmd${agentFlag} --resume ${quoteCmd(handle)}`
+      : `cd ${quoteShell(workspace)}\nomp-aify${agentFlag} --resume ${quoteShell(handle)}`;
   }
   return '';
 }
@@ -5006,7 +5015,7 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
         <textarea id="cont-packet">${esc(packet)}</textarea>
         <div class="hint">${splitIdentity ? 'Continue as intentionally creates a second agent identity.' : 'Compact keeps the same agent ID; use Continue as when you want a split/new identity.'} The packet includes session identity plus clipped recent direct messages involving the source agent and channel posts authored by it.</div>
       </div>
-      <div id="cont-internal-note" class="worker-note" style="display:none">Internal native compaction is not currently supported by the managed Claude Code, Codex, or OpenCode adapters. Use handoff compaction unless a future adapter advertises native support.</div>
+      <div id="cont-internal-note" class="worker-note" style="display:none">Internal native compaction is not currently supported by the managed Claude Code, Codex, OpenCode, or Pi adapters. Use handoff compaction unless a future adapter advertises native support.</div>
       <div class="btn-row">
         <span class="cont-handoff-field">${actionButtonFn('Regenerate', 'Regenerate the packet from the selected message count', () => regenerateContinuePacket(sessionId))}</span>
         ${actionButtonFn(splitIdentity ? 'Continue as' : 'Compact', 'Queue the selected handoff action', () => submitContinueSessionAs(sessionId), 'btn-primary')}

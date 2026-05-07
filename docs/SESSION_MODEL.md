@@ -80,7 +80,7 @@ The bridge should prefer native runtime state when it is reliable, but it must s
 
 Native runtime handles must not be silently discarded. If a Claude session ID is locked or a user wants a fresh backing thread/session, that should be an explicit operator action such as **Recreate**. Restart should preserve the stored handle and use the saved spawn spec. It must not erase native memory unless the operator explicitly chooses Recreate.
 
-Native runtime handles also must not be silently invented during ordinary recovery. A new Claude session ID, Codex thread ID, or OpenCode session ID is expected only when:
+Native runtime handles also must not be silently invented during ordinary recovery. A new Claude session ID, Codex thread ID, OpenCode session ID, or Pi session handle is expected only when:
 
 - the operator creates a new managed identity through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
@@ -142,6 +142,7 @@ Runtime model defaults and overrides:
 
 - managed Claude Code and Codex model fields are blank by default; blank means the installed runtime chooses its default/latest model
 - managed Claude Code and Codex both default to `high` effort/reasoning effort
+- managed Oh My Pi uses its runtime defaults unless model/thinking are supplied through runtime config
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
 - Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
 - Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set
@@ -175,7 +176,8 @@ Resident visible is for human-open CLI sessions:
 
 - `codex-aify`
 - `claude-aify`
-- future visible OpenCode wrapper
+- `omp-aify` / `pi-aify`
+- explicit OpenCode registration with a real session handle
 
 Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it.
 
@@ -206,6 +208,7 @@ Examples:
 - Claude managed-warm currently starts the first headless turn with a session ID and later resumes with the stored handle. It may not show up in the `claude-aify` resume picker, but the same session can be opened by ID with `claude-aify --resume <session-id>` when the backing has recorded a resume ID.
 - To match managed Claude's unattended permission behavior in a resumed CLI, use `claude-aify --dangerously-skip-permissions --resume <session-id>`. `--permanently-skip-permissions` is not a Claude Code CLI option.
 - Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
+- Pi managed-warm can be opened with `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` when a real Oh My Pi session handle is recorded.
 
 Dashboard rule:
 

@@ -94,10 +94,16 @@ _RUNTIME_ALIASES = {
     "claude-code": "claude-code",
     "claude_code": "claude-code",
     "codex": "codex",
+    "oh-my-pi": "pi",
+    "oh_my_pi": "pi",
     "opencode": "opencode",
+    "omp": "pi",
+    "pi": "pi",
+    "pi-agent": "pi",
+    "pi_agent": "pi",
     "generic": "generic",
 }
-_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "opencode"}
+_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "opencode", "pi"}
 _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
@@ -525,6 +531,8 @@ def _default_capabilities_for(
             return ["managed-run", "resume", "interrupt", "steer", "spawn"]
         if normalized_runtime == "opencode":
             return ["managed-run", "resume", "interrupt", "spawn"]
+        if normalized_runtime == "pi":
+            return ["managed-run", "resume", "interrupt", "spawn"]
         if normalized_runtime == "claude-code":
             return ["managed-run", "resume", "interrupt", "spawn"]
         return []
@@ -533,6 +541,10 @@ def _default_capabilities_for(
             return []
         return ["resident-run", "resume", "interrupt", "steer"]
     if normalized_runtime == "opencode":
+        if not session_handle:
+            return []
+        return ["resident-run", "resume", "interrupt"]
+    if normalized_runtime == "pi":
         if not session_handle:
             return []
         return ["resident-run", "resume", "interrupt"]
@@ -595,10 +607,14 @@ def _agent_wake_mode(row) -> str:
         return "codex-thread-resume"
     if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
         return "opencode-session-resume"
+    if session_mode == "resident" and runtime == "pi" and "resident-run" in capabilities and session_handle:
+        return "pi-session-resume"
     if session_mode == "resident" and runtime == "codex" and not session_handle:
         return "codex-missing-handle"
     if session_mode == "resident" and runtime == "opencode" and not session_handle:
         return "opencode-missing-handle"
+    if session_mode == "resident" and runtime == "pi" and not session_handle:
+        return "pi-missing-handle"
     if session_mode == "resident" and runtime == "claude-code":
         return "claude-needs-channel"
     return "message-only"
@@ -630,6 +646,11 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
         return None, (
             f'agent "{row["id"]}" is a resident OpenCode session without a bound session handle. '
             "Re-register that live session with sessionHandle explicitly or create an environment-managed session."
+        )
+    if runtime == "pi" and not session_handle:
+        return None, (
+            f'agent "{row["id"]}" is a resident Pi session without a bound session handle. '
+            "Restart with omp-aify or pi-aify and a resumable session handle, or create an environment-managed session."
         )
     if (row["launch_mode"] or "detached") == "none":
         return None, "launch mode is disabled"
@@ -690,6 +711,19 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
             f'comms_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
             f'comms_envs()',
             f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="opencode")',
+            f'comms_agent_info(agentId="{recipient_id}")',
+        ]
+        return hint
+
+    if runtime == "pi" and session_mode == "resident" and not session_handle:
+        hint["fix"] = (
+            "Restart Oh My Pi with omp-aify or pi-aify and a resumable session handle, "
+            "or spawn a persistent Pi agent from a connected dashboard environment."
+        )
+        hint["suggestedCommands"] = [
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="pi", sessionHandle="<session-id>")',
+            f'comms_envs()',
+            f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="pi")',
             f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
@@ -976,7 +1010,7 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
         }
 
     runtime = _normalize_runtime((agent_row["runtime"] if agent_row else "") or "generic")
-    if runtime not in {"codex", "opencode"}:
+    if runtime not in {"codex", "opencode", "pi"}:
         return None
 
     session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "resident")
@@ -1003,7 +1037,7 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
             "bridgeId": bridge_id,
             "currentBridgeId": current_bridge_id,
             "agentId": agent_id,
-            "hint": "This bridge is not the current stdio bridge for the agent. Restart or shut down stale codex-aify/opencode-aify processes.",
+            "hint": "This bridge is not the current stdio bridge for the agent. Restart or shut down stale runtime bridge/wrapper processes such as codex-aify, omp-aify, or pi-aify.",
         }
 
     if session_mode == "managed":
