@@ -955,6 +955,39 @@ function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {})
   });
 }
 
+export function codexAppServerReachable(url, { token, timeoutMs = 1200 } = {}) {
+  const target = String(url || "").trim();
+  if (!target) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let socket;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+          socket.close();
+        }
+      } catch {
+        // best effort
+      }
+      resolve(Boolean(ok));
+    };
+    const timer = setTimeout(() => finish(false), Math.max(250, Number(timeoutMs) || 1200));
+    try {
+      socket = new WebSocket(target, Object.keys(headers).length ? { headers } : undefined);
+      socket.on("open", () => finish(true));
+      socket.on("error", () => finish(false));
+      socket.on("close", () => finish(false));
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 function parseTimestamp(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const text = String(value || "").trim();

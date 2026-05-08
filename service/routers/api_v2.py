@@ -21,7 +21,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -817,7 +817,14 @@ async def _latest_spawn_spec(db, agent_id: str):
     )).fetchone()
 
 
-async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dict[str, Any]):
+async def _auto_return_resident_to_managed_if_possible(
+    db,
+    row,
+    *,
+    settings: dict[str, Any],
+    force: bool = False,
+    reason: str = "resident_lease_expired",
+):
     if not row or _normalize_session_mode(row["session_mode"] or "resident") != "resident":
         return row, ""
     if str(row["status"] or "").strip().lower() == "stopped" or (row["launch_mode"] or "detached") == "none":
@@ -827,7 +834,7 @@ async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dic
         return row, ""
     if await _get_blocking_active_run(db, row["id"]):
         return row, ""
-    if await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
+    if not force and await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
         return row, ""
 
     spec = await _latest_spawn_spec(db, row["id"])
@@ -846,6 +853,9 @@ async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dic
     spec_meta = _json_loads_or(spec["metadata"], {})
     if isinstance(spec_meta.get("runtimeConfig"), dict):
         runtime_config = {**runtime_config, **spec_meta["runtimeConfig"]}
+    # Resident Codex live bindings store a localhost app-server URL. Managed
+    # recovery must not keep that dead resident URL in the agent's policy.
+    runtime_config.pop("appServerUrl", None)
     session_handle = str(row["session_handle"] or "").strip()
     if not session_handle:
         latest_session = await (await db.execute(
@@ -868,7 +878,7 @@ async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dic
         "ownership": {
             "mode": "managed",
             "previousMode": "resident",
-            "reason": "resident_lease_expired",
+            "reason": reason or "resident_lease_expired",
             "at": now,
         },
     })
@@ -899,7 +909,11 @@ async def _auto_return_resident_to_managed_if_possible(db, row, *, settings: dic
             json.dumps(capabilities),
             json.dumps(runtime_config),
             json.dumps(next_state),
-            "Resident CLI lease expired; future work will use the managed environment backing.",
+            (
+                "Resident runtime was lost; future work will use the managed environment backing."
+                if force else
+                "Resident CLI lease expired; future work will use the managed environment backing."
+            ),
             now,
             row["id"],
         ),
@@ -4886,6 +4900,83 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
         await db.close()
 
 
+@router.post("/agents/{agent_id}/resident-lost")
+async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: Request):
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+        runtime_state = _json_loads_or(row["runtime_state"], {})
+        current_bridge_id = str(runtime_state.get("bridgeInstanceId") or "").strip()
+        bridge_id = str(req.bridgeId or "").strip()
+        if bridge_id and current_bridge_id and bridge_id != current_bridge_id:
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "bridge_not_current",
+                "agentId": agent_id,
+                "currentBridgeId": current_bridge_id,
+                "bridgeId": bridge_id,
+            }
+
+        if bridge_id:
+            await db.execute(
+                """
+                UPDATE bridge_instances
+                SET superseded_by = CASE WHEN COALESCE(superseded_by, '') = '' THEN 'resident-lost' ELSE superseded_by END,
+                    superseded_at = COALESCE(superseded_at, ?)
+                WHERE id = ? AND agent_id = ?
+                """,
+                (now, bridge_id, agent_id),
+            )
+
+        settings = await _load_settings(db)
+        returned, transition = await _auto_return_resident_to_managed_if_possible(
+            db,
+            row,
+            settings=settings,
+            force=True,
+            reason="resident_runtime_lost",
+        )
+
+        if not transition:
+            await db.execute(
+                """
+                UPDATE agents
+                SET status = 'stopped',
+                    status_note = ?,
+                    launch_mode = 'none',
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    str(req.reason or "Resident runtime bridge was lost and no managed backing was available.")[:500],
+                    now,
+                    agent_id,
+                ),
+            )
+            returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            transition = "resident_to_stopped"
+
+        await db.commit()
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        status = await _compute_agent_status(returned, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_resident_lost", {"agentId": agent_id, "transition": transition})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "transition": transition,
+            "agent": _agent_record_to_dict(returned, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
 async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[str, Any] | None, now: str) -> None:
     """Keep the dashboard backing record fresh when a managed runtime is used."""
     state = runtime_state or {}
@@ -5313,6 +5404,18 @@ async def agent_heartbeat(agent_id: str, request: Request):
         tombstone = await _agent_tombstone(db, agent_id)
         if tombstone:
             raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        if bridge_id:
+            bridge_row = await (await db.execute(
+                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+                (bridge_id, agent_id),
+            )).fetchone()
+            if bridge_row and str(bridge_row["superseded_by"] or "").strip():
+                return {
+                    "ok": False,
+                    "ignored": True,
+                    "reason": "bridge_superseded",
+                    "supersededBy": str(bridge_row["superseded_by"] or "").strip(),
+                }
         await db.execute(
             "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
             (now, agent_id),

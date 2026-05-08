@@ -202,6 +202,8 @@ Resident -> managed:
 
 This creates or updates managed backing for the same agent identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
 
+Current resident Codex bridges also verify that their live app-server is reachable before heartbeating or claiming work. If a visible `codex-aify` CLI closes but an MCP child process is orphaned, the backend marks that resident bridge lost and returns the identity to managed backing when a spawn spec exists.
+
 Managed -> resident CLI:
 
 1. Open **Sessions** for the agent.

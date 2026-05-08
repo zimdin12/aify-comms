@@ -53,6 +53,13 @@ class AgentRuntimeStateUpdate(BaseModel):
     runtimeState: dict[str, Any]
 
 
+class AgentResidentLostRequest(BaseModel):
+    bridgeId: Optional[str] = None
+    machineId: Optional[str] = None
+    runtime: Optional[str] = None
+    reason: Optional[str] = None
+
+
 class ConversationClearRequest(BaseModel):
     agentId: str
     peerId: str

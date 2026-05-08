@@ -719,6 +719,91 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = listed.json()["agents"]["managed-coder"]
         self.assertEqual(agent["statusRaw"], "offline")
 
+    def test_lost_resident_bridge_returns_to_managed_backing(self):
+        self._heartbeat_environment(
+            id="wsl:test-host:default",
+            bridgeId="env-bridge",
+            machineId="wsl-Ubuntu:test-host",
+        )
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "wsl:test-host:default",
+                "agentId": "dual-mode-coder",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn['id']}",
+            json={
+                "status": "running",
+                "bridgeId": "env-bridge",
+                "machineId": "wsl-Ubuntu:test-host",
+                "sessionHandle": "thread-managed",
+                "runtimeState": {"threadId": "thread-managed", "environmentId": "wsl:test-host:default"},
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        self._register(
+            "dual-mode-coder",
+            role="coder",
+            runtime="codex",
+            machineId="linux:test-host",
+            cwd="/workspace/project",
+            bridgeId="resident-bridge",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="thread-managed",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
+        )
+        resident = self.client.get("/api/v1/agents/dual-mode-coder").json()
+        self.assertEqual(resident["agent"]["sessionMode"], "resident")
+        self.assertEqual(resident["agent"]["wakeMode"], "codex-live")
+
+        lost = self.client.post(
+            "/api/v1/agents/dual-mode-coder/resident-lost",
+            json={"bridgeId": "resident-bridge", "runtime": "codex", "reason": "connect ECONNREFUSED 127.0.0.1:9"},
+        )
+        self.assertEqual(lost.status_code, 200, lost.text)
+        payload = lost.json()
+        self.assertEqual(payload["transition"], "resident_to_managed")
+        self.assertEqual(payload["agent"]["sessionMode"], "managed")
+        self.assertEqual(payload["agent"]["wakeMode"], "managed-worker")
+        self.assertEqual(payload["agent"]["sessionHandle"], "thread-managed")
+        self.assertEqual(payload["agent"]["runtimeState"]["environmentId"], "wsl:test-host:default")
+        self.assertEqual(payload["agent"]["runtimeState"]["ownership"]["reason"], "resident_runtime_lost")
+        self.assertNotIn("appServerUrl", payload["agent"]["runtimeConfig"])
+
+        bridge = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("resident-bridge",))
+        self.assertEqual(bridge["superseded_by"], "resident-lost")
+
+        heartbeat = self.client.post(
+            "/api/v1/agents/dual-mode-coder/heartbeat",
+            json={"bridgeId": "resident-bridge"},
+        )
+        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+        self.assertTrue(heartbeat.json()["ignored"])
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="dual-mode-coder",
+            type="request",
+            subject="managed after resident close",
+            body="use managed backing",
+            mode="require_start",
+            requireReply=True,
+        )
+        self.assertTrue(dispatched["ok"], dispatched)
+        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (dispatched["runs"][0]["runId"],))
+        self.assertEqual(run["execution_mode"], "managed")
+
     def test_send_does_not_steer_into_offline_environment_active_run(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",

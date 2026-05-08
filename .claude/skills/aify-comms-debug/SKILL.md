@@ -230,6 +230,16 @@ comms_agent_info(agentId="my-agent")
 
 If only the thread ID is available, pass `sessionHandle` without `appServerUrl`. If neither is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
 
+## Closed resident Codex still receives dashboard work
+
+**Symptom.** Dashboard chat to an agent you previously opened in `codex-aify` fails with `connect ECONNREFUSED 127.0.0.1:<port>`. Chat details still say **Resident live CLI**, even though you closed that visible CLI. The same identity may also have a managed backing and a CLI resume command.
+
+**Cause.** The Codex app-server died when the visible CLI closed, but an orphaned aify-comms stdio bridge process was still heartbeating. The backend saw a fresh resident bridge lease and kept routing to the dead resident `appServerUrl` instead of returning the identity to managed backing.
+
+**Fix (current build).** Resident Codex bridges now probe their app-server before heartbeating or claiming work. If the app-server is unreachable twice in a row, the bridge reports `resident-lost`, stops tracking the resident binding, and the backend immediately returns the identity to its saved managed environment when a spawn spec exists. Superseded/lost bridge heartbeats are ignored, so orphaned MCP child processes cannot keep the identity active.
+
+**Manual recovery on older builds.** Restart the relevant `aify-comms` environment bridge and stop the orphaned stdio process. Then use Dashboard **Sessions -> Restart** or **Recover** on the identity. If needed, inspect with `comms_agent_info(agentId="...")`; healthy fallback should show `sessionMode: managed` and `wakeMode: managed-worker`.
+
 ## Superseded or stale bridge: claim blocked
 
 **Symptom.** A bridge's dispatch loop logs `blockedBy: {reason: "bridge_superseded"}` or `blockedBy: {reason: "bridge_not_current"}`.

@@ -26,6 +26,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
+  codexAppServerReachable,
   defaultCapabilitiesForRuntime,
   defaultSessionHandleForRuntime,
   defaultMachineId,
@@ -145,6 +146,8 @@ let spawnClaimLastLogAt = 0;
 let remoteEffectiveCwdRoots = null;
 const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
+const RESIDENT_BINDING_FAILURES = new Map();
+const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
@@ -709,6 +712,49 @@ function forgetRemoteAgent(agentId, reason = "") {
   }
 }
 
+async function residentRuntimeBindingLost(agentId, info = {}) {
+  const sessionMode = normalizeSessionMode(info.sessionMode);
+  const runtime = normalizeRuntime(info.runtime || "generic");
+  if (sessionMode !== "resident" || runtime !== "codex") return false;
+  const runtimeConfig = info.runtimeConfig || {};
+  const appServerUrl = String(runtimeConfig.appServerUrl || "").trim();
+  if (!appServerUrl || !info.sessionHandle) {
+    RESIDENT_BINDING_FAILURES.delete(agentId);
+    return false;
+  }
+  const remoteAuthTokenEnv = String(runtimeConfig.remoteAuthTokenEnv || "").trim();
+  const token = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
+  const reachable = await codexAppServerReachable(appServerUrl, { token, timeoutMs: 1200 });
+  if (reachable) {
+    RESIDENT_BINDING_FAILURES.delete(agentId);
+    return false;
+  }
+  const failures = (RESIDENT_BINDING_FAILURES.get(agentId) || 0) + 1;
+  RESIDENT_BINDING_FAILURES.set(agentId, failures);
+  console.error(`[aify] resident Codex app-server for "${agentId}" is unreachable (${failures}/${RESIDENT_BINDING_LOST_AFTER_FAILURES}): ${appServerUrl}`);
+  return failures >= RESIDENT_BINDING_LOST_AFTER_FAILURES;
+}
+
+async function reportResidentRuntimeLost(agentId, info = {}, reason = "resident runtime app-server is unreachable") {
+  try {
+    const result = await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/resident-lost`, {
+      bridgeId: BRIDGE_INSTANCE_ID,
+      machineId: info.machineId || MACHINE_ID,
+      runtime: normalizeRuntime(info.runtime || "generic"),
+      reason,
+    });
+    const transition = result?.transition ? ` (${result.transition})` : "";
+    console.error(`[aify] resident runtime lost for "${agentId}"${transition}: ${reason}`);
+  } catch (error) {
+    console.error(`[aify] failed to report resident runtime loss for "${agentId}": ${error?.message || error}`);
+  } finally {
+    forgetRemoteAgent(agentId, reason);
+    if (!IS_ENVIRONMENT_BRIDGE && REMOTE_AGENT_STATE.size === 0) {
+      setTimeout(() => { shutdownWithStatus(0); }, 50).unref();
+    }
+  }
+}
+
 let residentStopInProgress = false;
 function terminateResidentHost(reason = "Resident session stopped from dashboard") {
   if (residentStopInProgress) return;
@@ -1162,15 +1208,13 @@ async function runDispatchLoop() {
     for (const [agentId, state] of REMOTE_AGENT_STATE.entries()) {
       if (!state?.info) continue;
 
-      // Heartbeat on every poll — keeps agent status "active" as long
-      // as the bridge is alive, whether or not there's work in flight.
-      httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        machineId: state.info.machineId || MACHINE_ID,
-      }).catch(() => {});
-
       const active = ACTIVE_RUNS.get(agentId);
       if (active) {
+        // Heartbeat while an active run is genuinely owned by this process.
+        httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
+          bridgeId: BRIDGE_INSTANCE_ID,
+          machineId: state.info.machineId || MACHINE_ID,
+        }).catch(() => {});
         await processRunControls(agentId, active).catch((error) => {
           console.error("[aify] control processing error:", error);
         });
@@ -1222,6 +1266,18 @@ async function runDispatchLoop() {
         }
         // Other errors: log only, keep going.
       }
+
+      if (await residentRuntimeBindingLost(agentId, state.info)) {
+        await reportResidentRuntimeLost(agentId, state.info, "resident Codex app-server is unreachable");
+        continue;
+      }
+
+      // Heartbeat after validating resident runtime reachability. This avoids
+      // orphaned MCP child processes keeping a closed resident CLI "active".
+      httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        machineId: state.info.machineId || MACHINE_ID,
+      }).catch(() => {});
 
       const executionModes = supportedExecutionModes(state.info);
       if (!executionModes.length) continue;
