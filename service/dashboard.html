@@ -422,6 +422,8 @@ a{color:var(--accent-text)}
 .chat-rail{display:flex;flex-direction:column;overflow:hidden}
 .chat-rail-head{padding:12px;border-bottom:1px solid var(--line-soft)}
 .chat-rail-head input{width:100%;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font-size:.85em}
+.chat-rail-mobile-head{display:none}
+.chat-rail-close{width:auto!important}
 .chat-global-results{display:none;margin-top:9px;border-top:1px solid var(--line-soft);padding-top:8px;max-height:220px;overflow:auto}
 .chat-global-results.active{display:block}
 .chat-global-hit{display:block;border:1px solid transparent;border-radius:8px;padding:8px;text-decoration:none;color:var(--text);cursor:pointer}
@@ -822,6 +824,9 @@ tr:hover{background:#1b1f21}
     border-radius:16px;
   }
   .chat-shell.mobile-rail-open .chat-rail{display:flex}
+  .chat-rail-mobile-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .chat-rail-mobile-head b{font-size:.92rem;color:var(--text)}
+  .chat-rail-close{min-width:70px;min-height:34px;padding:6px 10px}
   .chat-main{height:100%;min-height:0;border:0;border-radius:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;box-shadow:none}
   .chat-topbar{flex-direction:column;align-items:stretch;gap:8px;border-radius:0;padding:10px 12px}
   .chat-title b{font-size:1rem}
@@ -1160,6 +1165,10 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
     <div class="chat-shell">
       <aside class="chat-rail">
         <div class="chat-rail-head">
+          <div class="chat-rail-mobile-head">
+            <b>Chats</b>
+            <button class="btn btn-sm chat-rail-close" title="Close conversation list" onclick="toggleMobileChatRail(false)">Close</button>
+          </div>
           <details class="chat-rail-section" data-stable-key="chat-rail:search" open>
             <summary>Find</summary>
             <input id="chat-filter" placeholder="Search conversations" oninput="renderChatRail()">
@@ -1493,17 +1502,18 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
             <li>Use <b>Edit</b> or the identity row's <b>Actions → Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
             <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
+            <li>Reopen with <code>--aify-agent</code> to make the visible CLI the resident owner again.</li>
           </ol>
         </div>
       </div>
-      <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
+      <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
       <p>Pi CLI note: for resident live wakeups, start Oh My Pi through <code>omp-aify</code> or <code>pi-aify</code>. Resume a known Pi session when you need resident dispatch to target the same native session handle.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
       <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed adapters do not.</p>
-      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
+      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Set handle</b> is for operator repair when you know the correct native ID. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. If managed Claude reports a session ID is already in use, the Windows bridge tries to release a matching stale headless Claude process and retries once; interactive CLI sessions remain protected.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="daily">
@@ -1542,6 +1552,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
         <li><code>GET/POST /api/v1/agents</code>, <code>DELETE /api/v1/agents/{id}</code> — Identity records</li>
         <li><code>POST /api/v1/agents/{id}/control</code> — Stop, resume, or interrupt active work for an identity</li>
+        <li><code>PATCH /api/v1/agents/{id}/session-handle</code> — Operator repair for the saved native resume handle</li>
         <li><code>GET /api/v1/environments</code> — Connected execution environments</li>
         <li><code>POST /api/v1/environments/heartbeat</code> — Environment bridge heartbeat</li>
         <li><code>GET/POST /api/v1/spawn-requests</code> — Dashboard spawn queue</li>
@@ -1831,6 +1842,9 @@ function showPage(name, updateHistory = true) {
   if (!page) return;
   page.classList.add('active');
   if (nav) nav.classList.add('active');
+  if (nav && window.matchMedia?.('(max-width:860px)').matches) {
+    nav.scrollIntoView({block: 'nearest', inline: 'center', behavior: 'smooth'});
+  }
   const title = document.getElementById('app-page-title');
   if (title) title.textContent = pageTitle(name);
   if (updateHistory) history.replaceState({page: name}, '', pageUrl(name));
@@ -2844,13 +2858,16 @@ function openAgentEditor(agentId) {
       : `<option value="${esc(runtimeValue)}">${esc(runtimeValue || 'No runtimes advertised')}</option>`
   }</select>`;
   const workspace = session.workspace || agent.cwd || selectedEnv.cwdRoots?.[0] || '';
+  const sessionHandle = sessionRuntimeHandle(session, agent);
   openModal(`Edit ${agentId}`, `
     <div class="modal-form">
       <label>Agent ID<input id="agent-edit-id" value="${esc(agentId)}"></label>
       <label>Environment<select id="agent-edit-env" data-agent-edit-env>${envOptions || '<option value="">No online environments</option>'}</select></label>
       <label>Runtime${runtimeSelect}</label>
       <label>Workspace<input id="agent-edit-workspace" value="${esc(workspace)}"></label>
-      <p class="worker-note">Model and effort are managed globally in Settings so Claude and Codex use the same policy shape. This editor only changes identity, environment, runtime, and workspace.</p>
+      <label>Session handle<input id="agent-edit-session-handle" value="${esc(sessionHandle)}" placeholder="Claude session ID, Codex thread ID, OpenCode/Pi handle"></label>
+      <p class="worker-note">Model and effort are managed globally in Settings so Claude and Codex use the same policy shape. This editor changes identity, environment, runtime, workspace, and the saved native resume handle.</p>
+      <p class="worker-note">Set the handle only when recovering a known native transcript/thread. A wrong value can bind this identity to the wrong chat context.</p>
       <p class="worker-note">Changing the ID rewrites aify-comms chats, channels, sessions, runs, spawn specs, and artifacts. A live/resident agent still needs to be told to use the new ID.</p>
       <div class="btn-row">
         ${actionButtonFn('Save', 'Save identity and environment changes', () => saveAgentEditor(agentId), 'btn-primary')}
@@ -2887,6 +2904,10 @@ async function saveAgentEditor(originalAgentId) {
   const environmentId = (document.getElementById('agent-edit-env')?.value || '').trim();
   const runtime = (document.getElementById('agent-edit-runtime')?.value || '').trim();
   const workspace = (document.getElementById('agent-edit-workspace')?.value || '').trim();
+  const sessionHandle = (document.getElementById('agent-edit-session-handle')?.value || '').trim();
+  const originalAgent = (window._allAgents || []).find(([id]) => id === originalAgentId)?.[1] || {};
+  const originalSession = primarySessionForAgent(originalAgentId) || (window._sessions || []).find(item => item.agentId === originalAgentId) || {};
+  const originalHandle = sessionRuntimeHandle(originalSession, originalAgent).trim();
   if (!newAgentId) {
     toast('Agent ID is required', '#f85149');
     return;
@@ -2912,6 +2933,15 @@ async function saveAgentEditor(originalAgentId) {
       });
       const assignRes = await assignResponse.json();
       if (!assignResponse.ok || assignRes.ok === false) throw new Error(assignRes.detail || assignRes.error || 'Assign environment failed');
+    }
+    if (sessionHandle !== originalHandle) {
+      const handleResponse = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session-handle`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sessionHandle, requestedBy: chatIdentity()}),
+      });
+      const handleRes = await handleResponse.json();
+      if (!handleResponse.ok || handleRes.ok === false) throw new Error(handleRes.detail || handleRes.error || 'Set handle failed');
     }
     closeModal();
     toast(`Saved ${agentId}`);
@@ -3716,6 +3746,33 @@ async function takeOverSessionInCli(sessionId) {
     await refreshDashboard();
   } catch (e) {
     toast(e.message || 'CLI takeover failed', '#f85149');
+  }
+}
+
+async function setAgentSessionHandle(agentId, currentHandle = '') {
+  const nextHandle = prompt(
+    `Set native session handle for ${agentId}.\n\nUse a known Claude session ID, Codex thread ID, OpenCode/Pi handle, or leave blank to clear it.`,
+    currentHandle || '',
+  );
+  if (nextHandle === null) return;
+  const sessionHandle = String(nextHandle || '').trim();
+  if (sessionHandle !== currentHandle && currentHandle && !sessionHandle) {
+    if (!confirm(`Clear saved native handle for ${agentId}?\n\nRestart/resume will not be able to target the previous native context until a new handle is recorded.`)) return;
+  } else if (sessionHandle && sessionHandle !== currentHandle) {
+    if (!confirm(`Set saved native handle for ${agentId} to:\n\n${sessionHandle}\n\nUse this only when you know this ID belongs to the intended native transcript/thread.`)) return;
+  }
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session-handle`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sessionHandle, requestedBy: chatIdentity()}),
+    });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) throw new Error(result.detail || result.error || 'Set handle failed');
+    toast(sessionHandle ? 'Session handle updated' : 'Session handle cleared');
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Set handle failed', '#f85149');
   }
 }
 
@@ -4543,6 +4600,7 @@ function renderChatInspector(meta, messages) {
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
         (resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '') +
+        actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(meta.id, runtimeHandle)) +
         actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)) +
         actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)) +
         actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart')) +
@@ -4947,11 +5005,13 @@ function renderSessions(sessions) {
       const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
       const sessionStatus = String(session.status || '').toLowerCase();
       const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
+      const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
       const spawnControl = pendingSpawn
         ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
         : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
       const sessionActions = [
         actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
+        actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(session.agentId, runtimeHandle)),
         activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
         spawnControl,
         resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',

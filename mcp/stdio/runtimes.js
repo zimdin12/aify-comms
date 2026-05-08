@@ -258,6 +258,137 @@ function copyIfExists(source, target) {
   }
 }
 
+function defaultCodexHomePath() {
+  return path.join(os.homedir(), ".codex");
+}
+
+function resolvedPath(value) {
+  try {
+    return path.resolve(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+}
+
+function sameResolvedPath(left, right) {
+  return resolvedPath(left) === resolvedPath(right);
+}
+
+function codexSourceHomes(targetHome = "") {
+  const candidates = [
+    process.env.CODEX_HOME || "",
+    defaultCodexHomePath(),
+  ];
+  const seen = new Set();
+  return candidates
+    .map((candidate) => String(candidate || "").trim())
+    .filter(Boolean)
+    .filter((candidate) => {
+      const resolved = resolvedPath(candidate);
+      if (seen.has(resolved)) return false;
+      seen.add(resolved);
+      return !targetHome || !sameResolvedPath(candidate, targetHome);
+    });
+}
+
+function findFilesContaining(baseDir, needle, { prefix = "", suffix = "" } = {}) {
+  const root = String(baseDir || "").trim();
+  const id = String(needle || "").trim();
+  if (!root || !id) return [];
+  try {
+    if (!fs.statSync(root).isDirectory()) return [];
+  } catch {
+    return [];
+  }
+
+  const matches = [];
+  const stack = [root];
+  while (stack.length) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (prefix && !entry.name.startsWith(prefix)) continue;
+      if (suffix && !entry.name.endsWith(suffix)) continue;
+      if (!entry.name.includes(id)) continue;
+      matches.push(fullPath);
+    }
+  }
+  return matches.sort();
+}
+
+export function findCodexThreadFiles({ threadId, sourceHome } = {}) {
+  const home = String(sourceHome || "").trim();
+  const id = String(threadId || "").trim();
+  if (!home || !id) return { rollouts: [], shellSnapshots: [] };
+  return {
+    rollouts: findFilesContaining(path.join(home, "sessions"), id, {
+      prefix: "rollout-",
+      suffix: ".jsonl",
+    }),
+    shellSnapshots: findFilesContaining(path.join(home, "shell_snapshots"), id),
+  };
+}
+
+function copyPreservingCodexRelativePath(sourceHome, targetHome, filePath) {
+  const relative = path.relative(sourceHome, filePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  const targetPath = path.join(targetHome, relative);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(filePath, targetPath);
+  return true;
+}
+
+export function importCodexThreadRollout({ threadId, targetHome, sourceHome = "" } = {}) {
+  const id = String(threadId || "").trim();
+  const target = String(targetHome || "").trim();
+  if (!id || !target) {
+    return { imported: false, sourceHome: "", rollouts: [], shellSnapshots: [] };
+  }
+
+  const sources = sourceHome
+    ? [sourceHome]
+    : codexSourceHomes(target);
+  for (const candidate of sources) {
+    const source = String(candidate || "").trim();
+    if (!source || sameResolvedPath(source, target)) continue;
+    const files = findCodexThreadFiles({ threadId: id, sourceHome: source });
+    if (!files.rollouts.length) continue;
+
+    const copiedRollouts = [];
+    const copiedSnapshots = [];
+    fs.mkdirSync(target, { recursive: true });
+    for (const filePath of files.rollouts) {
+      if (copyPreservingCodexRelativePath(source, target, filePath)) {
+        copiedRollouts.push(path.relative(source, filePath));
+      }
+    }
+    for (const filePath of files.shellSnapshots) {
+      if (copyPreservingCodexRelativePath(source, target, filePath)) {
+        copiedSnapshots.push(path.relative(source, filePath));
+      }
+    }
+    return {
+      imported: copiedRollouts.length > 0,
+      sourceHome: source,
+      rollouts: copiedRollouts,
+      shellSnapshots: copiedSnapshots,
+    };
+  }
+
+  return { imported: false, sourceHome: "", rollouts: [], shellSnapshots: [] };
+}
+
 function copyDirectoryFreshIfExists(source, target) {
   try {
     if (!fs.existsSync(source)) return false;
@@ -315,7 +446,7 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
 }
 
 export function prepareManagedCodexHome({ workspace = "", model = "", effort = "" } = {}) {
-  const sourceHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const sourceHome = process.env.CODEX_HOME || defaultCodexHomePath();
   const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", "managed-codex-home");
   fs.mkdirSync(targetHome, { recursive: true });
   for (const name of ["auth.json", "installation_id", "version.json"]) {
@@ -1646,51 +1777,89 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
               { cause: error },
             );
           }
-          if (!allowFreshContext) {
+
+          let resumedAfterImport = false;
+          if (executionMode === "managed" && failure.noRollout && managedCodexHome) {
+            const imported = importCodexThreadRollout({
+              threadId: activeThreadId,
+              targetHome: managedCodexHome,
+            });
+            if (imported.imported) {
+              callbacks.onEvent?.(
+                "thread",
+                `Imported Codex rollout for ${activeThreadId} from ${imported.sourceHome}; retrying thread/resume`,
+              );
+              try {
+                const resumed = await rpc.request("thread/resume", {
+                  threadId: activeThreadId,
+                  personality: "friendly",
+                }, 60000);
+                activeThreadId = resumed.thread?.id || activeThreadId;
+                callbacks.onEvent?.(
+                  "thread",
+                  `Resumed imported Codex thread ${activeThreadId} (${imported.rollouts.length} rollout file(s), ${imported.shellSnapshots.length} shell snapshot(s))`,
+                );
+                markActivity("thread/resume imported rollout");
+                resumedAfterImport = true;
+              } catch (retryError) {
+                throw new Error(
+                  `Codex thread/resume failed for saved thread ${activeThreadId} after importing its rollout from ${imported.sourceHome}: ` +
+                  `${retryError?.message || retryError}`,
+                  { cause: retryError },
+                );
+              }
+            }
+          }
+
+          if (resumedAfterImport) {
+            // The native rollout was found in another Codex home and the
+            // retry succeeded. Keep the saved handle unchanged and continue.
+          } else if (!allowFreshContext) {
             throw new Error(
               `Codex thread/resume failed for saved thread ${activeThreadId} (${failure.healReason}: ${resumeMessage}). ` +
               `The bridge did not create a fresh thread because that would discard native chat memory. ` +
               `Use Dashboard -> Sessions -> Recreate only when you intentionally want a new context.`,
               { cause: error },
             );
-          }
-          // Only explicit fresh-context requests may create a replacement
-          // thread. Ordinary restart/recovery must fail loudly instead of
-          // silently discarding native chat memory.
-          const previousThreadId = activeThreadId;
-          const reasonLabel = failure.corruptRollout
-            ? `Rollout for thread ${previousThreadId} is corrupt (${resumeMessage})`
-            : `Thread ${previousThreadId} has no rollout`;
-          const modeLabel = executionMode === "resident"
-            ? "; healing resident session with a fresh thread (visibility in the live TUI is lost until the user relaunches codex-aify from a clean environment)"
-            : "; starting a fresh thread";
-          callbacks.onEvent?.("thread", reasonLabel + modeLabel);
-          try {
-            activeThreadId = await startThread();
-          } catch (healError) {
-            throw new Error(
-              `Codex thread/resume for ${previousThreadId} failed with ${failure.healReason} (${resumeMessage}), ` +
-              `and the auto-heal fallback thread/start also failed: ${healError?.message || healError}. ` +
-              `This usually means Codex's app-server itself is in a bad state — kill the codex app-server process ` +
-              `and relaunch codex-aify from the target project directory. See the aify-comms-debug skill.`,
-              { cause: healError },
-            );
-          }
-          // Push the new thread id back to the caller so the backend's
-          // stored sessionHandle gets updated. Without this, the very next
-          // dispatch would try to resume the same poisoned thread and hit
-          // the exact same error.
-          if (activeThreadId && activeThreadId !== previousThreadId) {
+          } else {
+            // Only explicit fresh-context requests may create a replacement
+            // thread. Ordinary restart/recovery must fail loudly instead of
+            // silently discarding native chat memory.
+            const previousThreadId = activeThreadId;
+            const reasonLabel = failure.corruptRollout
+              ? `Rollout for thread ${previousThreadId} is corrupt (${resumeMessage})`
+              : `Thread ${previousThreadId} has no rollout`;
+            const modeLabel = executionMode === "resident"
+              ? "; healing resident session with a fresh thread (visibility in the live TUI is lost until the user relaunches codex-aify from a clean environment)"
+              : "; starting a fresh thread";
+            callbacks.onEvent?.("thread", reasonLabel + modeLabel);
             try {
-              await callbacks.onSessionHandleChange?.(activeThreadId, {
-                previous: previousThreadId,
-                reason: failure.healReason,
-              });
-              callbacks.onEvent?.("thread", `Healed: ${previousThreadId} → ${activeThreadId} (${failure.healReason})`);
-            } catch (cbError) {
-              console.error(
-                `[aify] onSessionHandleChange callback failed after healing thread: ${cbError?.message || cbError}`,
+              activeThreadId = await startThread();
+            } catch (healError) {
+              throw new Error(
+                `Codex thread/resume for ${previousThreadId} failed with ${failure.healReason} (${resumeMessage}), ` +
+                `and the auto-heal fallback thread/start also failed: ${healError?.message || healError}. ` +
+                `This usually means Codex's app-server itself is in a bad state — kill the codex app-server process ` +
+                `and relaunch codex-aify from the target project directory. See the aify-comms-debug skill.`,
+                { cause: healError },
               );
+            }
+            // Push the new thread id back to the caller so the backend's
+            // stored sessionHandle gets updated. Without this, the very next
+            // dispatch would try to resume the same poisoned thread and hit
+            // the exact same error.
+            if (activeThreadId && activeThreadId !== previousThreadId) {
+              try {
+                await callbacks.onSessionHandleChange?.(activeThreadId, {
+                  previous: previousThreadId,
+                  reason: failure.healReason,
+                });
+                callbacks.onEvent?.("thread", `Healed: ${previousThreadId} → ${activeThreadId} (${failure.healReason})`);
+              } catch (cbError) {
+                console.error(
+                  `[aify] onSessionHandleChange callback failed after healing thread: ${cbError?.message || cbError}`,
+                );
+              }
             }
           }
         }

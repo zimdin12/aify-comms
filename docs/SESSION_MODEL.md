@@ -84,9 +84,10 @@ Native runtime handles also must not be silently invented during ordinary recove
 
 - the operator creates a new managed identity through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
+- the operator explicitly repairs a known native ID with **Set handle**
 - the operator explicitly chooses **Recreate**
 
-When a managed session is taken over in CLI, the CLI should re-register with the same `agentId` and its real runtime handle. The backend records that handle on the latest session. Later **Adopt env** and **Restart** should carry that stored handle forward when the runtime is unchanged. If the handle is missing or locked, the system should surface the problem instead of quietly creating a contextless replacement.
+When a managed session is taken over in CLI, the CLI should re-register with the same `agentId` and its real runtime handle. The backend records that handle on the latest session. Later **Adopt env** and **Restart** should carry that stored handle forward when the runtime is unchanged. If the handle is missing or locked, the system should surface the problem instead of quietly creating a contextless replacement. **Set handle** is an operator repair for a known native ID; it updates saved state but must not start a fresh context by itself.
 
 ## Capability Flags
 
@@ -216,7 +217,8 @@ Dashboard rule:
 - Show the CLI resume command as a copyable code block when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Resident takeover is automatic but turn-boundary safe: if a managed run is active, the backend records a pending resident takeover and applies it only after that run ends.
-- Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path.
+- Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path. Reopening a wrapper with `--aify-agent` returns the identity to resident ownership once safe.
+- Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or recreate path.
 - **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.
 - Dashboard chat and terminal input must not drive the same active turn concurrently.

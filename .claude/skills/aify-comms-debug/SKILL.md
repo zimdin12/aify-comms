@@ -17,9 +17,11 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 
 **Backend guard (current build).** The server now rejects impossible resident Codex registrations up front: `linux:` / `darwin:` machine IDs cannot register `C:/...` cwds when `appServerUrl` is present, and `win32:` machine IDs cannot register `/mnt/...` cwds. If `comms_register` now fails immediately with `Invalid cwd`, that is the intended fast-fail path; fix the cwd and re-register instead of trying to dispatch through it.
 
-**Root cause #2 (stored rollout).** Codex's `thread/resume` loads the thread's stored rollout from `~/.codex/sessions/...`. If a path field in that file cannot be deserialized, or if the rollout/context has grown past Codex's websocket frame limit (`Space limit exceeded: Message too long: ... > 16777216`), the call crashes before the bridge can send anything else. The tell is that the failed run has an **empty `externalThreadId`**: the bridge never got past `thread/resume`. This is the case the auto-heal path (below) is designed for.
+**Root cause #2 (stored rollout).** Codex's `thread/resume` loads the thread's stored rollout from the active `CODEX_HOME` under `sessions/...`. Dashboard-managed Codex uses a managed home (`~/.local/state/aify-comms/managed-codex-home`), while a resident or manually started Codex usually used `~/.codex`. If the saved handle points at a rollout that exists only in the other home, Codex reports `no rollout found for thread id ...`. If a path field in the file cannot be deserialized, or if the rollout/context has grown past Codex's websocket frame limit (`Space limit exceeded: Message too long: ... > 16777216`), the call crashes before the bridge can send anything else. The tell is that the failed run has an **empty `externalThreadId`**: the bridge never got past `thread/resume`.
 
-**Auto-recovery (shipped).** On current bridge code, **both managed and resident** sessions auto-heal this case. When `thread/resume` fails with `AbsolutePathBuf deserialized`, `AbsolutePathBufGuard`, `no rollout found for thread id`, or Codex's websocket `Space limit exceeded` / `Message too long` error, the bridge:
+**Auto-recovery (current build).** When managed Codex gets `no rollout found for thread id`, the bridge first searches the normal Codex homes (`CODEX_HOME`, then `~/.codex`), copies the matching `sessions/.../rollout-*.jsonl` and any `shell_snapshots/...` files into the managed Codex home, and retries `thread/resume` once. This preserves native chat memory when the thread exists but was stored under the resident/default Codex home.
+
+If the rollout is corrupt, oversized, or cannot be found in any Codex home, ordinary recover/restart fails loudly instead of silently discarding memory. Only an explicit Dashboard **Sessions -> Recreate** / `fresh_context` request creates a replacement thread. In that explicit mode the bridge:
 
 1. Calls `thread/start` to create a brand-new Codex thread.
 2. Fires `onSessionHandleChange(newHandle)`, which updates the cached agent state and POSTs `/agents` so the backend's stored `sessionHandle` points at the healed thread.
@@ -31,7 +33,7 @@ You'll see a line in the Codex session's stderr like:
 [aify] healed sessionHandle for "graph-senior-dev" → <new-uuid> (reason: corrupt_rollout, previous: <old-uuid>)
 ```
 
-For the websocket frame-limit case the reason is `oversized_rollout`.
+For the websocket frame-limit case the reason is `oversized_rollout`. For managed `no_rollout` imports, the run log instead shows `Imported Codex rollout ...; retrying thread/resume` followed by `Resumed imported Codex thread ...`.
 
 **Trade-off for resident sessions.** The healed thread is *not* the one attached to the visible Codex TUI — it's a fresh background thread the Codex app-server knows about but your interactive session cannot see. Dispatched work runs successfully but you lose TUI visibility for that dispatch. The old behavior was "dispatch fails forever with a cryptic error", which is strictly worse. To restore full TUI visibility for future work, do the hard-reset sequence below.
 
@@ -151,6 +153,8 @@ If you want the resumed CLI to match managed-agent permissions, use `--dangerous
 Prefer the dashboard resume command or `claude-aify --aify-agent <agentId> --resume <session-id>` when opening a managed Claude session directly. The wrapper auto-registers the resident owner. If a managed run is active, takeover is deferred until that turn ends; after closing the CLI, dashboard sends can return to the saved managed backing once the resident lease expires. **Pause for CLI** remains an explicit safety control when you want dashboard sends to fail fast while the terminal owns the session.
 
 After opening the native CLI, re-register from that same session with the same `agentId`. That is how the dashboard learns the current native handle. If the agent forgets CLI conversation after returning to dashboard, check whether the session's stored handle changed or was recreated during adopt/restart. Current code should preserve handles across same-runtime adopt/recover/restart; a new handle should only appear after a new spawn or explicit **Recreate**.
+
+**Dashboard handle repair.** If you know the correct native Claude session ID / Codex thread ID / OpenCode or Pi handle, use Dashboard **Chat details -> Runtime Session -> Set handle** or **Sessions -> Actions -> Set handle**. This updates the identity's saved `sessionHandle`, runtime state (`sessionId` or `threadId`), and latest session record without creating a fresh context. Use it only when you know the handle belongs to the intended transcript/thread; a wrong handle binds the identity to the wrong native memory.
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 
@@ -342,7 +346,7 @@ Do not use `comms_clear(target="agents")` unless you intend to remove every agen
 
 Note that `description` is the one exception: omitting it preserves the existing value. Pass `description=""` to clear it explicitly.
 
-**Fix.** Pass every field you care about on the re-register call. For Codex resident triggering, that usually means `cwd`, `sessionHandle`, and `appServerUrl` all explicit.
+**Fix.** Pass every field you care about on the re-register call. For Codex resident triggering, that usually means `cwd`, `sessionHandle`, and `appServerUrl` all explicit. If you only need to repair a known saved native ID, prefer Dashboard **Set handle** so you do not accidentally refresh unrelated identity fields.
 
 ## Install.sh on Windows / Git Bash
 

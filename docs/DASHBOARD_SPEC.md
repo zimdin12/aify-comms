@@ -99,6 +99,7 @@ Chat should feel like a real team messenger:
 - quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
 - thread drawer for run details, artifacts, and handoff state
 - conversation details should use operator-readable labels: current viewing identity, unread in this conversation, live wake path, runtime session, environment, workspace, and supported controls. Raw IDs are useful only where they identify a session/resume handle.
+- on mobile, the conversation rail and details inspector behave as temporary overlays with explicit in-panel close controls; controls must remain reachable after scrolling and after realtime refreshes.
 - peek mode: watch a selected conversation without automatically marking incoming messages read; explicit Mark read remains available for direct messages and selected channels
 - channel details: show current members and allow adding/removing known agents from the right-side Members panel; the current viewing identity uses a clear **Leave** action and can be re-added later; add selection must be stable across realtime refreshes
 - artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
@@ -238,6 +239,7 @@ Actions:
 - stop
 - restart
 - resume/attach when supported
+- set handle when the operator knows the correct native runtime ID
 - recover from backing
 - continue from this session
 - reset context
@@ -346,7 +348,7 @@ Actions:
 - view sessions
 - archive/remove identity
 
-If an agent has no live session but has a spawn spec, show **Restart** to restore it with the saved handle. Show **Recreate** only as the explicit fresh-context reset.
+If an agent has no live session but has a spawn spec, show **Restart** to restore it with the saved handle. Show **Set handle** when the saved native ID needs operator repair and the correct value is known. Show **Recreate** only as the explicit fresh-context reset.
 
 Use **Recreate** for the explicit fresh-context reset. It must be clear that messages, files, dispatch history, and the agent identity remain, but the native Claude session ID / Codex thread ID is intentionally left behind.
 
@@ -358,6 +360,7 @@ The dashboard should feel like an operations cockpit mixed with a messenger:
 - second column for chat/session lists where relevant
 - main content pane with clear hierarchy
 - right-side inspector drawer for selected agent/session/run
+- mobile navigation keeps the active page visible after page changes, even when the bottom nav overflows horizontally
 - status colors with labels, not color-only meaning
 - compact tables with truncation and hover/click detail drawers
 - websocket/live updates for status, logs, runs, and message delivery

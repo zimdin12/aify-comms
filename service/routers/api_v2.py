@@ -21,7 +21,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -179,6 +179,24 @@ def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle:
         result["threadId"] = handle
     else:
         result["sessionId"] = handle
+    return result
+
+
+def _runtime_state_replacing_handle(runtime: Any, runtime_state: Any, session_handle: str) -> dict[str, Any]:
+    state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
+    result = dict(state or {})
+    result.pop("sessionId", None)
+    result.pop("threadId", None)
+    return _runtime_state_with_handle(runtime, result, session_handle)
+
+
+def _session_capabilities_replacing_handle(capabilities: Any, session_handle: str) -> dict[str, Any]:
+    existing = capabilities if isinstance(capabilities, dict) else _json_loads_or(capabilities, {})
+    result = dict(existing or {}) if isinstance(existing, dict) else {}
+    handle_present = bool(str(session_handle or "").strip())
+    result.setdefault("persistent", True)
+    result["bridgeResume"] = True
+    result["nativeResume"] = handle_present
     return result
 
 
@@ -4857,6 +4875,101 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         ws = await _get_ws(request)
         if ws: await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status})
         return {"ok": True, "agentId": agent_id, "status": status_val, "statusRaw": req.status, "statusNote": note}
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/session-handle")
+async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpdate, request: Request):
+    validate_name(agent_id, "agent ID")
+    session_handle = str(req.sessionHandle or "").strip()
+    if len(session_handle) > 512:
+        raise HTTPException(400, "sessionHandle must be 512 characters or fewer")
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        session_mode = _normalize_session_mode(row["session_mode"] or "resident")
+        runtime_config = _json_loads_or(row["runtime_config"], {})
+        runtime_state = _runtime_state_replacing_handle(runtime, row["runtime_state"], session_handle)
+        capabilities = _default_capabilities_for(runtime, session_mode, session_handle, runtime_config)
+        registered_handle = _runtime_state_with_handle(runtime, {}, session_handle)
+        await db.execute(
+            """
+            UPDATE agents
+            SET session_handle = ?,
+                runtime_state = ?,
+                capabilities = ?,
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                session_handle,
+                json.dumps(runtime_state),
+                json.dumps(capabilities),
+                f"Session handle set by {req.requestedBy or 'operator'}." if session_handle else f"Session handle cleared by {req.requestedBy or 'operator'}.",
+                now,
+                agent_id,
+            ),
+        )
+        latest_session = await (await db.execute(
+            """
+            SELECT id, capabilities, telemetry
+            FROM agent_sessions
+            WHERE agent_id = ?
+              AND runtime = ?
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id, runtime),
+        )).fetchone()
+        if latest_session:
+            session_telemetry = _json_loads_or(latest_session["telemetry"], {})
+            if registered_handle:
+                session_telemetry["registeredHandle"] = registered_handle
+            else:
+                session_telemetry.pop("registeredHandle", None)
+            session_capabilities = _session_capabilities_replacing_handle(latest_session["capabilities"], session_handle)
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET session_handle = ?,
+                    capabilities = ?,
+                    telemetry = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    session_handle,
+                    json.dumps(session_capabilities),
+                    json.dumps(session_telemetry),
+                    now,
+                    latest_session["id"],
+                ),
+            )
+        await db.commit()
+
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": session_handle})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "sessionHandle": session_handle,
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
     finally:
         await db.close()
 

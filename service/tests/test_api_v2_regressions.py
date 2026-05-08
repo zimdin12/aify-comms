@@ -1769,6 +1769,93 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["session_handle"], "")
         self.assertEqual(agent["runtime_state"], "{}")
 
+    def test_operator_can_set_agent_session_handle_for_each_runtime(self):
+        self._heartbeat_environment()
+        cases = {
+            "claude-code": "sessionId",
+            "codex": "threadId",
+            "opencode": "sessionId",
+            "pi": "sessionId",
+        }
+        for runtime, handle_key in cases.items():
+            agent_id = f"lead-{runtime.replace('-', '')}"
+            session_id = f"sess-{agent_id}"
+            with self.subTest(runtime=runtime):
+                self._register(
+                    agent_id,
+                    role="tech-lead",
+                    runtime=runtime,
+                    sessionMode="managed",
+                    launchMode="managed",
+                    cwd="C:/Docker/aify-project-graph",
+                )
+                self._execute(
+                    "UPDATE agents SET runtime_state = ? WHERE id = ?",
+                    (json.dumps({"sessionId": "old-session", "threadId": "old-thread", "keep": True}), agent_id),
+                )
+                self._execute(
+                    """
+                    INSERT INTO agent_sessions (
+                        id, agent_id, environment_id, runtime, workspace, mode, session_handle,
+                        spawn_spec_id, spawn_request_id, capabilities, telemetry, status, started_at, last_seen
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        session_id,
+                        agent_id,
+                        "linux:test-host:default",
+                        runtime,
+                        "C:/Docker/aify-project-graph",
+                        "managed-warm",
+                        "old-session",
+                        None,
+                        None,
+                        json.dumps({"persistent": True, "nativeResume": False}),
+                        "{}",
+                        "running",
+                        "2026-04-28T10:00:00Z",
+                        "2026-04-28T10:00:00Z",
+                    ),
+                )
+
+                updated = self.client.patch(
+                    f"/api/v1/agents/{agent_id}/session-handle",
+                    json={"sessionHandle": "new-session", "requestedBy": "dashboard"},
+                )
+                self.assertEqual(updated.status_code, 200, updated.text)
+                self.assertEqual(updated.json()["agent"]["sessionHandle"], "new-session")
+                self.assertEqual(updated.json()["agent"]["runtimeState"][handle_key], "new-session")
+
+                agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", (agent_id,))
+                runtime_state = json.loads(agent["runtime_state"])
+                self.assertEqual(agent["session_handle"], "new-session")
+                self.assertEqual(runtime_state[handle_key], "new-session")
+                self.assertTrue(runtime_state["keep"])
+                self.assertNotIn("threadId" if handle_key == "sessionId" else "sessionId", runtime_state)
+
+                session = self._fetchone("SELECT session_handle, capabilities, telemetry FROM agent_sessions WHERE id = ?", (session_id,))
+                session_capabilities = json.loads(session["capabilities"])
+                session_telemetry = json.loads(session["telemetry"])
+                self.assertEqual(session["session_handle"], "new-session")
+                self.assertTrue(session_capabilities["nativeResume"])
+                self.assertTrue(session_capabilities["bridgeResume"])
+                self.assertEqual(session_telemetry["registeredHandle"][handle_key], "new-session")
+
+                cleared = self.client.patch(
+                    f"/api/v1/agents/{agent_id}/session-handle",
+                    json={"sessionHandle": "", "requestedBy": "dashboard"},
+                )
+                self.assertEqual(cleared.status_code, 200, cleared.text)
+                agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", (agent_id,))
+                runtime_state = json.loads(agent["runtime_state"])
+                self.assertEqual(agent["session_handle"], "")
+                self.assertNotIn("sessionId", runtime_state)
+                self.assertNotIn("threadId", runtime_state)
+                session = self._fetchone("SELECT session_handle, capabilities, telemetry FROM agent_sessions WHERE id = ?", (session_id,))
+                self.assertEqual(session["session_handle"], "")
+                self.assertFalse(json.loads(session["capabilities"])["nativeResume"])
+                self.assertNotIn("registeredHandle", json.loads(session["telemetry"]))
+
     def test_recovered_session_running_ends_previous_recovering_session(self):
         self._heartbeat_environment()
         created = self.client.post(

@@ -29,6 +29,8 @@ Secondary surfaces:
 - toast/event center
 - advanced/debug drawer
 
+On narrow screens, secondary surfaces become temporary overlays or drawers. Each overlay must include a visible close control inside the surface, and bottom navigation should keep the active item in view after route changes.
+
 ## Core Layout Pattern
 
 Use a consistent three-zone layout:

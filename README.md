@@ -45,9 +45,11 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. The dashboard can restart, stop, compact, or recreate them without keeping a CLI tab open.
 
-Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` is an alias) so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state.
+Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` is an alias) so the wrapper registers that terminal as the temporary live owner. If you close the CLI and the identity has managed backing, dashboard sends can return to the managed backing after the resident lease expires. If a managed run is active when the CLI registers, takeover is deferred until that turn reaches a terminal state. Reopening the runtime with `--aify-agent` switches ownership back to resident once it is safe.
 
 Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary Restart/Recover/Adopt should preserve the stored handle and fail visibly if the handle is locked or cannot be resumed.
+
+If the dashboard is pointing at the wrong saved native context and you know the correct Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle, use **Set handle** from Chat details or Sessions actions. This repairs the saved handle and runtime state without creating a fresh context. Use it only for known-good handles; a wrong value binds the identity to the wrong native memory.
 
 Normal dashboard chat is live-delivery gated for unreachable targets: offline, stale, stopped, or no-wake agents fail visibly and the message is not stored for a future run. Busy live targets receive ordinary sends as steer when supported, or as queued/merged next-turn work when steering is not available; the explicit **Queue** action forces next-turn delivery. Required handoffs are repaired automatically when a terminal run finishes without an explicit reply, and the Home page exposes repair/dismiss actions for old issue states.
 
@@ -125,6 +127,6 @@ Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. 
 
 Messaging remains the source of truth. A run is a delivery/execution attempt attached to a message, not a separate communication concept.
 
-Managed warm agents are also always backed: the system stores identity, spawn spec, workspace, runtime state, transcript/memory, and recovery policy. Native runtime session handles are used when available; otherwise the bridge emulates continuity from stored transcript and summaries.
+Managed warm agents are also always backed: the system stores identity, spawn spec, workspace, runtime state, transcript/memory, and recovery policy. Native runtime session handles are used when available; otherwise the bridge emulates continuity from stored transcript and summaries. Operator handle repair updates the saved handle; it is not a context reset.
 
 The container hosts the control plane. Bridges execute. The service must not try to directly launch native Windows/WSL/Linux runtime processes unless a bridge for that environment claims the spawn request.

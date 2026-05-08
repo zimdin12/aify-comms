@@ -198,7 +198,7 @@ Resident -> managed:
 2. Choose **Edit** or **Actions -> Adopt env**.
 3. Assign an online environment, runtime, and workspace.
 4. Close the old resident CLI tab, or use dashboard **Stop wake** / session **Stop** if you want the resident host process terminated.
-5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately.
+5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately. Reopening the native CLI with `--aify-agent` switches ownership back to resident once the current turn boundary allows it.
 
 This creates or updates managed backing for the same agent identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
 
@@ -216,6 +216,8 @@ Managed -> resident CLI:
 5. Close the CLI when done. Dashboard control returns automatically after the resident lease expires; use **Restart** only when you want to force a managed run now.
 
 `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. `omp-aify --resume <id>` and `pi-aify --resume <id>` export `PI_SESSION_ID=<id>`. Registration updates the saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi session handle. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
+
+If you know the correct native ID and only need to repair the saved handle, use Dashboard **Chat details -> Runtime Session -> Set handle** or **Sessions -> Actions -> Set handle**. This updates the identity, runtime state, and latest session record without creating a fresh context. Use it only for known-good handles; a wrong value binds the identity to the wrong native memory.
 
 Ownership transfer is turn-boundary safe. If a resident CLI registers while a managed run is active, the backend records a pending resident takeover and applies it only after the active run reaches a terminal state. If dashboard sends to a stale resident that has managed backing, the backend switches queued future work back to managed mode before creating the run. Queued but unclaimed work is safe to retarget; claimed/running work is not interrupted by ownership transfer.
 

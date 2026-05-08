@@ -53,6 +53,11 @@ class AgentRuntimeStateUpdate(BaseModel):
     runtimeState: dict[str, Any]
 
 
+class AgentSessionHandleUpdate(BaseModel):
+    sessionHandle: Optional[str] = None
+    requestedBy: Optional[str] = None
+
+
 class AgentResidentLostRequest(BaseModel):
     bridgeId: Optional[str] = None
     machineId: Optional[str] = None
