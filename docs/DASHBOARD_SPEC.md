@@ -89,14 +89,18 @@ Every non-obvious setting should include a short hint that states the default an
 Chat should feel like a real team messenger:
 
 - left sidebar: DMs and channels
+- sidebar tools: Find, Filters, and Channels are tabbed/closable so the rail can become a compact conversation list during focused work
 - sidebar search: filter conversations, and search loaded direct-message inbox history across identities
+- conversation sorting: support activity, unread-first, name, and status sorting without changing read state
 - main pane: message timeline
 - timeline search: filter the selected conversation without changing the selected conversation or read state
 - scroll behavior: realtime refresh should not steal composer focus or force-scroll while the operator is reading; show a bottom-jump button when the newest messages are below the viewport
-- composer: body-first for normal chat; subject remains available for handoffs and searchable task titles
+- composer: body-first for normal chat; send/queue stay visible, while type, priority, subject, and artifact controls live in collapsible options
+- compact mode: the chat rail can hide row metadata and narrow itself when the operator wants more timeline space
 - message badges: `live`, `not sent`, `handoff pending`, `handoff done`; legacy stored-only messages may appear in history/debug views
 - mention support: `@agent`, `@group`, `@channel`
 - quick actions: reply/follow-up, mark read, clear DM/delete channel, share artifact
+- message and run IDs shown in chat should be clickable where dashboard state can open the related message or run details
 - thread drawer for run details, artifacts, and handoff state
 - conversation details should use operator-readable labels: current viewing identity, unread in this conversation, live wake path, runtime session, environment, workspace, and supported controls. Raw IDs are useful only where they identify a session/resume handle.
 - on mobile, the conversation rail and details inspector behave as temporary overlays with explicit in-panel close controls; controls must remain reachable after scrolling and after realtime refreshes.

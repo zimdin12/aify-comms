@@ -47,6 +47,8 @@ Runs         Run list                   Events and controls       Reply/handoff 
 
 The inspector drawer prevents primary tables from growing too many columns. Tables should stay compact; details live in drawers.
 
+Dense workflow pages should expose compact modes and collapsible secondary tools instead of stacking every control above the primary content. Chat in particular should keep the message timeline and composer dominant, with search, filters, sort, channel creation, and advanced send options tucked into tabs or collapsible panels.
+
 ## UX Principles
 
 - **Default to action.** If an agent is offline but recoverable, show Restart. If a bridge is online, show Spawn Here.

@@ -424,6 +424,18 @@ a{color:var(--accent-text)}
 .chat-rail-head input{width:100%;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font-size:.85em}
 .chat-rail-mobile-head{display:none}
 .chat-rail-close{width:auto!important}
+.chat-rail-controls{display:flex;align-items:center;gap:8px;min-width:0}
+.chat-tool-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:4px;flex:1 1 auto;min-width:0}
+.chat-tool-tabs button,.chat-tool-open{border:1px solid var(--line);background:var(--panel-3);color:var(--muted);border-radius:7px;padding:6px 8px;font-size:.76em;font-weight:800;cursor:pointer}
+.chat-tool-tabs button:hover,.chat-tool-open:hover{color:var(--text);border-color:var(--accent-border);background:var(--accent-softer)}
+.chat-tool-tabs button.active{background:var(--accent-soft);border-color:var(--accent-border);color:var(--text)}
+.chat-tool-close{min-width:30px}
+.chat-tool-open{display:none;flex:0 0 auto}
+.chat-rail-panel{display:none}
+.chat-rail-panel.active{display:block}
+.chat-field-label{display:grid;gap:5px;color:var(--muted);font-size:.72em;font-weight:850;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.chat-field-label select{width:100%;min-width:0;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font-size:1.08em;text-transform:none;letter-spacing:0;font-weight:650}
+.chat-compact-toggle{margin-top:8px!important}
 .chat-global-results{display:none;margin-top:9px;border-top:1px solid var(--line-soft);padding-top:8px;max-height:220px;overflow:auto}
 .chat-global-results.active{display:block}
 .chat-global-hit{display:block;border:1px solid transparent;border-radius:8px;padding:8px;text-decoration:none;color:var(--text);cursor:pointer}
@@ -444,8 +456,15 @@ a{color:var(--accent-text)}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
 .chat-unread{background:#238636;color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:.72em;display:inline-flex;align-items:center;justify-content:center}
+.chat-shell.chat-compact{grid-template-columns:248px minmax(0,1fr) 280px}
+.chat-shell.chat-compact.inspector-hidden{grid-template-columns:248px minmax(0,1fr) 0}
+.chat-shell.chat-compact .chat-list{padding:6px}
+.chat-shell.chat-compact .chat-section-label{margin:8px 8px 4px;font-size:.68em}
+.chat-shell.chat-compact .chat-item{padding:7px 8px;gap:4px}
+.chat-shell.chat-compact .chat-item-meta{display:none}
+.chat-shell.chat-compact .chat-status-dot{width:7px;height:7px}
 .chat-main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;position:relative}
-.chat-topbar{padding:12px 14px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:12px;background:#151d26}
+.chat-topbar{padding:8px 12px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:10px;background:#151d26}
 .chat-title{min-width:0}.chat-title b{display:block}.chat-title span{display:block;color:var(--muted);font-size:.78em;margin-top:2px}
 .chat-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .chat-as-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.78em}
@@ -457,10 +476,13 @@ a{color:var(--accent-text)}
 .chat-scroll-bottom.hidden{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px)}
 .chat-scroll-bottom:hover{transform:translateY(-1px);background:var(--accent-hover)}
 .chat-bubble{max-width:min(780px,85%);border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#0a0f15}
+.chat-bubble.attention{animation:composerPulse 900ms ease}
 .chat-bubble.mine{align-self:flex-end;background:color-mix(in srgb,var(--secondary) 18%,#10243a);border-color:color-mix(in srgb,var(--secondary) 58%,#2f81f7)}
 .chat-bubble.system{align-self:center;background:transparent;border-color:var(--line);color:var(--muted);max-width:80%;font-style:italic}
 .chat-bubble-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:5px}
 .chat-from{font-weight:700;color:var(--secondary)}.chat-time{color:var(--subtle);font-size:.74em}
+.chat-id-link,.chat-run-link{border:0;background:transparent;color:var(--muted);font:inherit;font-size:.74em;padding:0;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+.chat-id-link:hover,.chat-run-link:hover{color:var(--accent-text)}
 .chat-text{white-space:pre-wrap;word-break:break-word;line-height:1.45;font-size:.92em}
 .chat-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
 .chat-run-note{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:7px}
@@ -472,12 +494,18 @@ a{color:var(--accent-text)}
 .chat-reply-context{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#122234;border:1px solid #284766;border-radius:8px;padding:8px 10px;margin-bottom:8px;color:var(--text);font-size:.84em}
 .chat-reply-context span{min-width:0}
 .chat-reply-context b{color:var(--secondary)}
-.chat-compose-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.chat-compose-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
 .chat-compose-row select,.chat-compose-row input{background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:7px;font-size:.84em}
 .chat-compose-row label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.8em}
 .chat-view-label{color:var(--muted);font-size:.78em;text-transform:uppercase;letter-spacing:.4px}
 .chat-composer textarea{width:100%;height:92px;resize:vertical;background:#0a0f15;border:1px solid var(--line);color:var(--text);border-radius:7px;padding:10px;font:inherit;font-size:.92em;line-height:1.4}
 .chat-composer textarea:focus,.chat-compose-row input:focus,.chat-compose-row select:focus,.chat-rail-head input:focus{outline:none;border-color:var(--secondary);box-shadow:0 0 0 3px color-mix(in srgb,var(--secondary) 22%,transparent)}
+.chat-sendbar{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-top:8px}
+.chat-send-options{min-width:0;flex:1 1 auto}
+.chat-send-options summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-size:.8em;font-weight:800;list-style:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--panel-3)}
+.chat-send-options summary::-webkit-details-marker{display:none}
+.chat-send-options summary:hover{color:var(--text);background:var(--accent-softer);border-color:var(--accent-border)}
+.chat-send-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex:0 0 auto}
 .chat-inspector{padding:12px;overflow:auto;overflow-x:hidden;min-width:0}
 .chat-inspector h3{margin-top:0}.chat-kv{display:grid;grid-template-columns:82px minmax(0,1fr);gap:7px 8px;font-size:.82em;margin-top:10px}
 .chat-kv dt{color:var(--muted)}.chat-kv dd{min-width:0;max-width:100%;overflow:hidden}
@@ -556,33 +584,35 @@ tr:hover{background:#1b1f21}
 .team-tile{padding:12px}
 .team-tile:hover,.home-row:hover,.work-card:hover{background:var(--accent-softer);border-color:var(--accent-border)}
 .home-actions{background:#111314;border:1px solid #252a2d;border-radius:13px;padding:10px;margin-bottom:16px}
-.chat-shell{grid-template-columns:320px minmax(0,1fr) 300px;gap:14px;height:100%;min-height:0}
+.chat-shell{grid-template-columns:300px minmax(0,1fr) 300px;gap:14px;height:100%;min-height:0}
 .chat-rail,.chat-main,.chat-inspector{border-radius:16px;background:#151718;border-color:#2b3033;box-shadow:0 16px 50px #00000032}
-.chat-rail-head{padding:14px;background:#101214;border-bottom-color:#252a2d;border-radius:16px 16px 0 0}
+.chat-rail-head{padding:10px;background:#101214;border-bottom-color:#252a2d;border-radius:16px 16px 0 0}
 .chat-rail-head input,.chat-create-channel input{background:#070808;border-color:#2e3336;border-radius:10px;padding:10px 12px}
 .chat-filter-row{display:flex;gap:8px;flex-wrap:wrap;margin:9px 2px 0}
 .chat-toggle{display:flex;align-items:center;gap:7px;margin:0;color:#8b949e;font-size:.8em;font-weight:700}
 .chat-toggle input{width:auto;min-width:0}
+.chat-tool-tabs button,.chat-tool-open,.chat-send-options summary{border-radius:9px;background:#171a1c;border-color:#2e3336}
+.chat-tool-tabs button.active{background:var(--selection-bg);border-color:var(--selection-border);box-shadow:inset 3px 0 0 var(--accent)}
+.chat-rail-panel{border:1px solid #282d30;border-radius:11px;background:#0c0f11;padding:9px;margin-top:8px}
 .chat-list{padding:10px}
 .chat-section-label{margin:14px 10px 7px;color:#7e878d;font-weight:800;letter-spacing:.7px}
 .chat-item{border:1px solid transparent;border-radius:11px;padding:10px}
 .chat-item:hover{background:var(--accent-softer);border-color:var(--accent-border)}
 .chat-item.active{background:var(--accent-soft);border-color:var(--accent-border);box-shadow:inset 4px 0 0 var(--secondary)}
-.chat-topbar{padding:14px 16px;background:#101214;border-bottom-color:#252a2d;border-radius:16px 16px 0 0}
-.chat-topbar{min-width:0;align-items:flex-start}
+.chat-topbar{padding:8px 12px;background:#101214;border-bottom-color:#252a2d;border-radius:16px 16px 0 0}
+.chat-topbar{min-width:0;align-items:center}
 .chat-title{flex:1 1 auto;min-width:0}
 .chat-actions{flex:0 1 auto;min-width:0;justify-content:flex-end}
 .chat-actions .btn{white-space:nowrap}
-.chat-as-label{min-width:0}
-.chat-as-label select{min-width:120px;max-width:190px}
-.chat-title b{font-size:1.05em}
+.chat-title b{font-size:.96em}
+.chat-title span{font-size:.72em}
 .chat-timeline{padding:20px;background:linear-gradient(180deg,#121415 0%,#101112 100%)}
 .chat-bubble{border-radius:14px;background:#1b1d1f;border-color:#303538;padding:12px 14px;box-shadow:0 8px 26px #00000024}
 .chat-bubble.mine{background:var(--accent-soft);border-color:var(--accent-border)}
 .chat-bubble.system{background:#101214;border-style:dashed}
-.chat-composer{padding:14px;background:#101214;border-top-color:#252a2d;border-radius:0 0 16px 16px}
+.chat-composer{padding:10px 12px;background:#101214;border-top-color:#252a2d;border-radius:0 0 16px 16px}
 .chat-compose-row select,.chat-compose-row input{background:#070808;border-color:#2e3336;border-radius:9px;padding:8px 10px}
-.chat-composer textarea{height:110px;background:#070808;border-color:#2e3336;border-radius:12px;padding:12px}
+.chat-composer textarea{height:86px;background:#070808;border-color:#2e3336;border-radius:12px;padding:12px}
 .chat-inspector{background:#111314;padding:14px}
 .chat-inspector h3{color:var(--accent-text)}
 .status-dot{display:inline-flex;width:9px;height:9px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;margin-right:6px;vertical-align:middle}
@@ -833,25 +863,24 @@ tr:hover{background:#1b1f21}
   .chat-title span{font-size:.78em}
   .chat-actions{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto);gap:7px;justify-content:stretch;align-items:center}
   .chat-actions .btn{min-height:34px;padding:6px 9px}
-  .chat-actions .btn[title^="Refresh"]{display:none}
   .chat-message-search{grid-column:1/-1;max-width:none;width:100%;min-width:0;height:34px}
-  .chat-as-label{grid-column:auto;display:block;min-width:0}
-  .chat-as-label span{display:none}
-  .chat-as-label select{max-width:none;width:100%;min-width:0}
+  .chat-more-menu summary{min-height:34px}
   .chat-timeline{padding:12px 10px;gap:8px;min-height:0;overflow:auto;overscroll-behavior:contain}
   .chat-scroll-bottom{right:12px;bottom:12px;padding:7px 10px}
   .chat-bubble,.chat-bubble.mine,.chat-bubble.system{max-width:100%;width:100%;border-radius:14px;padding:11px 12px}
   .chat-bubble .btn-row{display:flex;gap:6px}
   .chat-bubble .btn-row .btn{width:auto}
   .chat-composer{position:relative;bottom:auto;z-index:20;border-radius:0;padding:9px 10px calc(10px + env(safe-area-inset-bottom));display:grid;gap:8px}
-  .chat-composer textarea{order:1;height:76px;max-height:22dvh;min-height:58px;resize:none;font-size:16px}
-  .chat-compose-row{order:2;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto auto;gap:7px;align-items:center}
+  .chat-composer textarea{height:76px;max-height:22dvh;min-height:58px;resize:none;font-size:16px}
+  .chat-sendbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:0}
+  .chat-send-actions{gap:7px}
+  .chat-send-actions .btn{height:34px;padding:6px 10px}
+  .chat-compose-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:7px;align-items:center}
   .chat-compose-row #chat-subject-input{grid-column:1/-1;grid-row:1;height:34px}
   .chat-compose-row select{min-width:0;height:34px;padding:6px 8px}
   .chat-compose-row .btn{width:auto;min-width:0;height:34px;padding:6px 9px}
-  #chat-artifact-btn,#chat-queue-btn{font-size:0}
+  #chat-artifact-btn{font-size:0}
   #chat-artifact-btn::after{content:"File";font-size:.78rem}
-  #chat-queue-btn::after{content:"Queue";font-size:.78rem}
   .chat-reply-context{align-items:flex-start;flex-direction:column}
   .chat-inspector{
     display:none;
@@ -1169,14 +1198,28 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
             <b>Chats</b>
             <button class="btn btn-sm chat-rail-close" title="Close conversation list" onclick="toggleMobileChatRail(false)">Close</button>
           </div>
-          <details class="chat-rail-section" data-stable-key="chat-rail:search" open>
-            <summary>Find</summary>
+          <div class="chat-rail-controls">
+            <div class="chat-tool-tabs" role="tablist" aria-label="Chat tools">
+              <button type="button" data-chat-tool-tab="find" onclick="setChatToolTab('find')">Find</button>
+              <button type="button" data-chat-tool-tab="filters" onclick="setChatToolTab('filters')">Filters</button>
+              <button type="button" data-chat-tool-tab="channels" onclick="setChatToolTab('channels')">Channels</button>
+              <button type="button" class="chat-tool-close" title="Hide chat tools" onclick="setChatToolTab('')">x</button>
+            </div>
+            <button class="btn btn-sm chat-tool-open" id="chat-tool-open" title="Show chat tools" onclick="setChatToolTab('find')">Tools</button>
+          </div>
+          <div class="chat-rail-panel" data-chat-tool-panel="find">
             <input id="chat-filter" placeholder="Search conversations" oninput="renderChatRail()">
             <input id="chat-global-search" placeholder="Search all loaded inbox messages" oninput="renderGlobalMessageSearch()" style="margin-top:8px">
             <div class="chat-global-results" id="chat-global-results"></div>
-          </details>
-          <details class="chat-rail-section" data-stable-key="chat-rail:filters" open>
-            <summary>Filters</summary>
+          </div>
+          <div class="chat-rail-panel" data-chat-tool-panel="filters">
+            <label class="chat-field-label">Viewing as<select id="chat-from" onchange="changeChatIdentity()"></select></label>
+            <label class="chat-field-label">Sort<select id="chat-sort" onchange="setChatSort(this.value)">
+              <option value="activity">Activity</option>
+              <option value="unread">Unread first</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+            </select></label>
             <div class="chat-filter-row">
               <label class="chat-toggle" title="Show only direct chats that have messages with the selected Viewing as identity">
                 <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
@@ -1191,14 +1234,17 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <span>Peek mode</span>
               </label>
             </div>
-          </details>
-          <details class="chat-rail-section" data-stable-key="chat-rail:channels">
-            <summary>Channels</summary>
+            <label class="chat-toggle chat-compact-toggle" title="Use denser conversation rows and a narrower chat rail">
+              <input type="checkbox" id="chat-compact-toggle" onchange="setChatCompactMode(this.checked)">
+              <span>Compact list</span>
+            </label>
+          </div>
+          <div class="chat-rail-panel" data-chat-tool-panel="channels">
             <div class="chat-create-channel">
               <input id="chat-new-channel" placeholder="New channel">
               <button class="btn btn-sm" title="Create a channel and join as the selected chat identity" onclick="createChatChannel()">Create</button>
             </div>
-          </details>
+          </div>
         </div>
         <div class="chat-list" id="chat-list"></div>
       </aside>
@@ -1209,12 +1255,16 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
             <span id="chat-subtitle">Select an agent or channel</span>
           </div>
           <div class="chat-actions">
-            <label class="chat-as-label"><span>Viewing as</span><select id="chat-from" onchange="changeChatIdentity()"></select></label>
             <input class="chat-message-search" id="chat-message-filter" placeholder="Search this chat" oninput="renderChat()">
             <button class="btn btn-sm mobile-chat-list-btn" id="chat-rail-toggle" title="Show or hide the conversation list" onclick="toggleMobileChatRail()">Chats</button>
-            <button class="btn btn-sm" title="Refresh agents, messages, channels, sessions, and runs now" onclick="refreshDashboard()">Refresh</button>
             <button class="btn btn-sm" id="chat-inspector-toggle" title="Show or hide conversation details" onclick="toggleChatInspector()">Details</button>
-            <button class="btn btn-sm btn-danger" id="chat-manage-btn" title="Clear this direct-message history or delete this channel" onclick="manageSelectedChat()">Manage</button>
+            <details class="actions-menu chat-more-menu" data-stable-key="chat:more">
+              <summary class="btn btn-sm" title="More chat actions">More</summary>
+              <div class="actions-menu-panel">
+                <button class="btn btn-sm" title="Refresh agents, messages, channels, sessions, and runs now" onclick="refreshDashboard()">Refresh</button>
+                <button class="btn btn-sm btn-danger" id="chat-manage-btn" title="Clear this direct-message history or delete this channel" onclick="manageSelectedChat()">Manage</button>
+              </div>
+            </details>
           </div>
         </div>
         <div class="chat-timeline-wrap">
@@ -1223,27 +1273,34 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         </div>
         <div class="chat-composer">
           <div id="chat-reply-context" class="chat-reply-context" style="display:none"></div>
-          <div class="chat-compose-row">
-            <select id="chat-type">
-              <option value="info">info</option>
-              <option value="request">request</option>
-              <option value="review">review</option>
-              <option value="approval">approval</option>
-              <option value="response">response</option>
-              <option value="error">error</option>
-            </select>
-            <select id="chat-priority">
-              <option value="normal">normal</option>
-              <option value="high">high</option>
-              <option value="urgent">urgent</option>
-            </select>
-            <input id="chat-subject-input" placeholder="Subject for tasks / handoffs">
-            <input id="chat-artifact-file" type="file" style="display:none" onchange="uploadChatArtifactFile(event)">
-            <button class="btn" id="chat-artifact-btn" title="Upload a file artifact and insert its reference into this message" onclick="chooseChatArtifactFile()">Artifact</button>
-            <button class="btn" id="chat-queue-btn" title="Queue this message for the next turn instead of steering an active run. Direct messages and channels only." onclick="sendChatMessage({queueIfBusy:true})">Queue</button>
-            <button class="btn btn-primary" id="chat-send-btn" title="Send now. Busy steer-capable targets receive it between tool calls; busy non-steer targets queue or merge it for the next turn." onclick="sendChatMessage()">Send</button>
-          </div>
           <textarea id="chat-body" placeholder="Message agents or channels from here. Use @agent names naturally in the text."></textarea>
+          <div class="chat-sendbar">
+            <details class="chat-send-options" id="chat-send-options" data-stable-key="chat:send-options">
+              <summary>Options</summary>
+              <div class="chat-compose-row">
+                <select id="chat-type">
+                  <option value="info">info</option>
+                  <option value="request">request</option>
+                  <option value="review">review</option>
+                  <option value="approval">approval</option>
+                  <option value="response">response</option>
+                  <option value="error">error</option>
+                </select>
+                <select id="chat-priority">
+                  <option value="normal">normal</option>
+                  <option value="high">high</option>
+                  <option value="urgent">urgent</option>
+                </select>
+                <input id="chat-subject-input" placeholder="Subject for tasks / handoffs">
+                <input id="chat-artifact-file" type="file" style="display:none" onchange="uploadChatArtifactFile(event)">
+                <button class="btn" id="chat-artifact-btn" title="Upload a file artifact and insert its reference into this message" onclick="chooseChatArtifactFile()">Artifact</button>
+              </div>
+            </details>
+            <div class="chat-send-actions">
+              <button class="btn" id="chat-queue-btn" title="Queue this message for the next turn instead of steering an active run. Direct messages and channels only." onclick="sendChatMessage({queueIfBusy:true})">Queue</button>
+              <button class="btn btn-primary" id="chat-send-btn" title="Send now. Busy steer-capable targets receive it between tool calls; busy non-steer targets queue or merge it for the next turn." onclick="sendChatMessage()">Send</button>
+            </div>
+          </div>
         </div>
       </section>
       <aside class="chat-inspector">
@@ -1773,6 +1830,9 @@ window._chatInspectorHidden = localStorage.getItem('aifyChatInspectorHidden') ==
 if (window.matchMedia?.('(max-width:860px)').matches && localStorage.getItem('aifyChatInspectorHidden') === null) {
   window._chatInspectorHidden = true;
 }
+window._chatToolTab = localStorage.getItem('aifyChatToolTab') || 'find';
+if (!['find', 'filters', 'channels', ''].includes(window._chatToolTab)) window._chatToolTab = 'find';
+window._chatCompactMode = localStorage.getItem('aifyChatCompactMode') === '1';
 window._recentMessages = [];
 window._analytics = null;
 window._dashboardStats = null;
@@ -2296,6 +2356,20 @@ document.addEventListener('click', event => {
       globalMessageTarget.getAttribute('data-global-message-from') || '',
       globalMessageTarget.getAttribute('data-global-message-to') || '',
     );
+    return;
+  }
+  const messageOpenTarget = clickedElement.closest('[data-message-open]');
+  if (messageOpenTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    openMessageById(messageOpenTarget.getAttribute('data-message-open') || '');
+    return;
+  }
+  const runOpenTarget = clickedElement.closest('[data-run-open]');
+  if (runOpenTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    viewRun(runOpenTarget.getAttribute('data-run-open') || '');
     return;
   }
   const target = clickedElement.closest('[data-dashboard-action]');
@@ -3933,6 +4007,48 @@ function setChatPeekMode(value) {
   renderChat();
 }
 
+function chatSortMode() {
+  const value = localStorage.getItem('aifyChatSortMode') || 'activity';
+  return ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity';
+}
+
+function setChatSort(value) {
+  localStorage.setItem('aifyChatSortMode', ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity');
+  renderChat();
+}
+
+function chatCompactMode() {
+  return window._chatCompactMode || localStorage.getItem('aifyChatCompactMode') === '1';
+}
+
+function setChatCompactMode(value) {
+  window._chatCompactMode = !!value;
+  localStorage.setItem('aifyChatCompactMode', value ? '1' : '0');
+  updateChatInspectorVisibility();
+  renderChatRail();
+}
+
+function setChatToolTab(tab) {
+  const value = ['find', 'filters', 'channels'].includes(tab) ? tab : '';
+  window._chatToolTab = value;
+  localStorage.setItem('aifyChatToolTab', value);
+  updateChatToolPanels();
+}
+
+function updateChatToolPanels() {
+  const active = window._chatToolTab || '';
+  document.querySelectorAll('[data-chat-tool-tab]').forEach(button => {
+    button.classList.toggle('active', button.getAttribute('data-chat-tool-tab') === active);
+  });
+  document.querySelectorAll('[data-chat-tool-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.getAttribute('data-chat-tool-panel') === active);
+  });
+  const opener = document.getElementById('chat-tool-open');
+  const tabs = document.querySelector('.chat-tool-tabs');
+  if (opener) opener.style.display = active ? 'none' : 'inline-flex';
+  if (tabs) tabs.style.display = active ? 'grid' : 'none';
+}
+
 function isOnlineChatAgent(info) {
   return isLiveWakeAgent(info) && !liveIssueForAgent('', info);
 }
@@ -3957,6 +4073,23 @@ function chatConversations() {
   const filter = (document.getElementById('chat-filter')?.value || '').trim().toLowerCase();
   const openOnly = chatOpenOnly();
   const onlineOnly = chatOnlineOnly();
+  const sortMode = chatSortMode();
+  const statusRank = item => ({working: 4, active: 3, online: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
+  const sortItems = (items) => items.sort((a, b) => {
+    if (sortMode === 'name') return a.title.localeCompare(b.title);
+    if (sortMode === 'status') {
+      const statusDiff = statusRank(b) - statusRank(a);
+      if (statusDiff) return statusDiff;
+      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
+      if (unreadDiff) return unreadDiff;
+      return a.title.localeCompare(b.title);
+    }
+    const unreadDiff = sortMode === 'unread' ? (b.unread || 0) - (a.unread || 0) : Number(b.unread > 0) - Number(a.unread > 0);
+    if (unreadDiff) return unreadDiff;
+    const timeDiff = (b.ts || 0) - (a.ts || 0);
+    if (timeDiff) return timeDiff;
+    return a.title.localeCompare(b.title);
+  });
   const agentIds = new Set(agentIdsForChat());
   for (const m of window._allMsgs || []) {
     const fromInfo = (window._allAgents || []).find(([agentId]) => agentId === m.from)?.[1] || null;
@@ -3965,7 +4098,7 @@ function chatConversations() {
     if (m.from === identity && m._to && toInfo) agentIds.add(m._to);
   }
   agentIds.delete(identity);
-  const dmItems = [...agentIds].map(id => {
+  const dmItems = sortItems([...agentIds].map(id => {
     const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
     const last = conversationPreviewForAgent(id, identity);
     if (openOnly && !last) return null;
@@ -3981,21 +4114,19 @@ function chatConversations() {
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
     };
-  }).filter(Boolean).sort((a, b) => {
-    const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
-    if (unreadDiff) return unreadDiff;
-    const timeDiff = (b.ts || 0) - (a.ts || 0);
-    if (timeDiff) return timeDiff;
-    return a.title.localeCompare(b.title);
-  });
-  const channelItems = (window._channels || []).map(ch => ({
-    key: `channel:${ch.name}`,
-    kind: 'channel',
-    id: ch.name,
-    title: `#${ch.name}`,
-    meta: `${ch.memberCount || 0} members · ${ch.messageCount || 0} messages`,
-    unread: ch.unreadCount || 0,
-    ts: Date.parse(ch.createdAt || '') || 0,
+  }).filter(Boolean));
+  const channelItems = sortItems((window._channels || []).map(ch => {
+    const cachedMessages = window._chatChannelMessages[ch.name] || [];
+    const latestCached = cachedMessages.length ? cachedMessages[cachedMessages.length - 1] : null;
+    return {
+      key: `channel:${ch.name}`,
+      kind: 'channel',
+      id: ch.name,
+      title: `#${ch.name}`,
+      meta: `${ch.memberCount || 0} members · ${ch.messageCount || 0} messages`,
+      unread: ch.unreadCount || 0,
+      ts: timeValue(ch.lastMessageAt || ch.updatedAt || latestCached?.timestamp || ch.createdAt),
+    };
   }));
   const matches = item => !filter || `${item.title} ${item.meta}`.toLowerCase().includes(filter);
   return {dmItems: dmItems.filter(matches), channelItems: channelItems.filter(matches)};
@@ -4007,9 +4138,14 @@ function renderChatRail() {
   const openToggle = document.getElementById('chat-open-only');
   const onlineToggle = document.getElementById('chat-online-only');
   const peekToggle = document.getElementById('chat-peek-mode');
+  const compactToggle = document.getElementById('chat-compact-toggle');
+  const sortSelect = document.getElementById('chat-sort');
   if (openToggle) openToggle.checked = chatOpenOnly();
   if (onlineToggle) onlineToggle.checked = chatOnlineOnly();
   if (peekToggle) peekToggle.checked = chatPeekMode();
+  if (compactToggle) compactToggle.checked = chatCompactMode();
+  if (sortSelect) sortSelect.value = chatSortMode();
+  updateChatToolPanels();
   const {dmItems, channelItems} = chatConversations();
   let html = '<div class="chat-section-label">Direct Messages</div>';
   html += dmItems.length ? dmItems.map(renderChatRailItem).join('') : `<p class="em">${chatEmptyDmText()}</p>`;
@@ -4063,6 +4199,65 @@ function openGlobalMessageHit(fromAgent, toAgent) {
     localStorage.setItem('aifyChatIdentity', viewer);
   }
   selectChatConversation(`dm:${other}`);
+}
+
+function shortInlineId(value) {
+  const text = String(value || '');
+  if (text.length <= 18) return text;
+  return `${text.slice(0, 8)}...${text.slice(-6)}`;
+}
+
+function messageOpenButton(messageId, label = '') {
+  const id = String(messageId || '').trim();
+  if (!id) return '';
+  return `<button type="button" class="chat-id-link" data-message-open="${esc(id)}"${titleAttr(`Open message ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
+}
+
+function runOpenButton(runId, label = '') {
+  const id = String(runId || '').trim();
+  if (!id) return '';
+  return `<button type="button" class="chat-run-link" data-run-open="${esc(id)}"${titleAttr(`Open run ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
+}
+
+function findLoadedChatMessage(messageId) {
+  const id = String(messageId || '').trim();
+  if (!id) return null;
+  const direct = (window._allMsgs || []).find(m => m.id === id);
+  if (direct) return direct;
+  for (const [channel, messages] of Object.entries(window._chatChannelMessages || {})) {
+    const match = (messages || []).find(m => m.id === id);
+    if (match) return {...match, source: 'channel', channel, _to: `#${channel}`};
+  }
+  return null;
+}
+
+async function openMessageById(messageId) {
+  const message = findLoadedChatMessage(messageId);
+  if (!message) {
+    await copyText(messageId, 'Message ID copied');
+    toast('Message is not loaded in the current dashboard cache; ID copied.');
+    return;
+  }
+  if (message.source === 'channel' || message.channel) {
+    await selectChatConversation(`channel:${message.channel}`);
+  } else {
+    const identity = chatIdentity();
+    const other = message.from === identity ? message._to : message.from;
+    if (message.from !== identity && message._to !== identity && message._to) {
+      const select = document.getElementById('chat-from');
+      if (select) select.value = message._to;
+      localStorage.setItem('aifyChatIdentity', message._to);
+    }
+    await selectChatConversation(`dm:${other}`);
+  }
+  requestAnimationFrame(() => {
+    const target = document.querySelector(`[data-message-id="${cssSel(messageId)}"]`);
+    if (target) {
+      target.scrollIntoView({block: 'center', behavior: 'smooth'});
+      target.classList.add('attention');
+      setTimeout(() => target.classList.remove('attention'), 900);
+    }
+  });
 }
 
 function chatEmptyDmText() {
@@ -4361,6 +4556,7 @@ function updateChatInspectorVisibility() {
   shell.classList.toggle('inspector-hidden', !!window._chatInspectorHidden);
   shell.classList.toggle('mobile-rail-open', !!window._mobileChatRailOpen && isMobileDashboard());
   shell.classList.toggle('mobile-inspector-open', !window._chatInspectorHidden && isCompactChat());
+  shell.classList.toggle('chat-compact', chatCompactMode());
   if (button) button.textContent = window._chatInspectorHidden ? 'Details' : 'Hide details';
   if (railButton) railButton.textContent = window._mobileChatRailOpen ? 'Hide chats' : 'Chats';
 }
@@ -4482,7 +4678,7 @@ function renderChatMessage(m, currentFrom) {
   const deliveryLabel = messageDeliveryLabel(deliveryRun);
   const deliveryDetail = messageDeliveryDetail(deliveryRun);
   const runDetail = relatedRun && (deliveryDetail || relatedRun.status)
-    ? `<details class="chat-run-note"><summary>${esc(deliveryLabel || 'run')} · ${esc(relatedRun.id || '')}${relatedRun.resultMessageId ? ' · reply linked' : ''}</summary><pre>${esc(deliveryDetail || relatedRun.status || '')}</pre></details>`
+    ? `<details class="chat-run-note"><summary>${esc(deliveryLabel || 'run')} · ${runOpenButton(relatedRun.id)}${relatedRun.resultMessageId ? ` · reply ${messageOpenButton(relatedRun.resultMessageId, 'linked')}` : ''}</summary><pre>${esc(deliveryDetail || relatedRun.status || '')}</pre></details>`
     : '';
   const subjectText = String(m.subject || '').trim();
   const isThreadReplySubject = !!m.parentContext && /^(re|reply|response)\s*:/i.test(subjectText);
@@ -4500,7 +4696,7 @@ function renderChatMessage(m, currentFrom) {
   }
   if (mine && m.id) actions.push(actionButtonFn('Unsend', 'Delete this sent message and matching channel fan-out copies where applicable', () => unsendChatMessage(m.id), 'btn-danger'));
   return `<article class="chat-bubble${klass}" data-message-id="${esc(m.id || '')}">` +
-    `<div class="chat-bubble-head"><span class="chat-from">${esc(m.from || '')}</span><span class="chat-time">${fmtTime(m.timestamp)}</span>${type}${priority}</div>` +
+    `<div class="chat-bubble-head"><span class="chat-from">${esc(m.from || '')}</span><span class="chat-time">${fmtTime(m.timestamp)}</span>${m.id ? messageOpenButton(m.id) : ''}${type}${priority}</div>` +
     parent +
     subjectLine +
     `<div class="chat-text">${esc(m.body || m.preview || '')}</div>` +
