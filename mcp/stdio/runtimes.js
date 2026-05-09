@@ -10,6 +10,8 @@ import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 
+const DEFAULT_CLAUDE_MAX_TURNS = 50;
+
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
   ["claude-code", "claude-code"],
@@ -633,6 +635,12 @@ export function managedClaudeModel(agentInfo = {}, config = {}) {
 
 export function managedClaudeEffort(config = {}) {
   return String(config.effort || "high").trim();
+}
+
+export function managedClaudeMaxTurns(config = {}) {
+  const value = Number(config.maxTurns || DEFAULT_CLAUDE_MAX_TURNS);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_CLAUDE_MAX_TURNS;
+  return Math.floor(value);
 }
 
 export function managedCodexEffort(config = {}) {
@@ -1333,7 +1341,7 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
     executionMode === "resident"
       ? residentSessionId
       : (runtimeState?.sessionId || residentSessionId || randomUUID());
-  const maxTurns = String(config.maxTurns || 15);
+  const maxTurns = String(managedClaudeMaxTurns(config));
   const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
   if (executionMode === "resident" && !initialSessionId) {
     throw new Error(

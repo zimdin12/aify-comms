@@ -41,7 +41,7 @@ html,body{height:100%;overflow:hidden}
   --accent-border:color-mix(in srgb,var(--secondary) 36%,#303437);
   --accent-shadow:color-mix(in srgb,var(--accent) 26%,transparent);
   --app-height:100vh;
-  --mobile-nav-height:calc(72px + env(safe-area-inset-bottom));
+  --mobile-nav-height:calc(88px + env(safe-area-inset-bottom));
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#0d0f10 0%,#08090b 36%,#0b0b0c 100%);color:var(--text);display:flex;min-height:100vh}
 body[data-theme="default"]{--accent:#51c5b0;--secondary:#74b7ff;--tertiary:#dfb156;--accent-strong:#1f6f62;--accent-hover:#2a8979;--accent-text:#77d6c7;--accent-contrast:#06110f;--secondary-contrast:#06110f;--tertiary-contrast:#06110f}
@@ -269,7 +269,7 @@ a{color:var(--accent-text)}
 .form-group .hint{color:var(--subtle);font-size:.75em;margin-top:2px}
 .settings-shell{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
 .settings-tabs{position:sticky;top:0;display:flex;flex-direction:column;gap:7px;background:#101214;border:1px solid var(--line);border-radius:14px;padding:9px}
-.settings-tabs button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);border-radius:10px;padding:10px;cursor:pointer;font-weight:750}
+.settings-tabs button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);border-radius:10px;padding:10px;cursor:pointer;font-weight:750;min-width:0;max-width:100%;overflow:hidden}
 .settings-tabs button span{font-size:.72em;color:var(--subtle);font-weight:650}
 .settings-tabs button:hover{background:var(--accent-softer);color:var(--text);border-color:var(--accent-border)}
 .settings-tabs button.active{background:var(--accent-soft);border-color:var(--accent-border);color:var(--text);box-shadow:inset 3px 0 0 var(--secondary)}
@@ -277,6 +277,7 @@ a{color:var(--accent-text)}
 .settings-panel.active{display:block}
 .settings-panel h3{margin:0 0 10px}
 .settings-panel .form-group input,.settings-panel .form-group select{width:min(420px,100%)}
+.settings-shell>div{min-width:0}
 .theme-native-select{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
 .theme-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:9px;margin-top:8px;max-width:720px}
 .theme-preview{--tile-accent:var(--accent);--tile-secondary:var(--secondary);--tile-tertiary:var(--tertiary);border:1px solid var(--line-soft);border-radius:12px;background:linear-gradient(135deg,color-mix(in srgb,var(--tile-accent) 20%,#101214),color-mix(in srgb,var(--tile-secondary) 10%,#101214),color-mix(in srgb,var(--tile-tertiary) 8%,#101214));padding:10px;min-width:0;cursor:pointer;text-align:left;box-shadow:0 8px 22px #00000022;transition:transform .14s ease,border-color .14s ease,background .14s ease}
@@ -426,10 +427,10 @@ a{color:var(--accent-text)}
 .chat-rail-close{width:auto!important}
 .chat-rail-controls{display:flex;align-items:center;gap:8px;min-width:0}
 .chat-tool-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:4px;flex:1 1 auto;min-width:0}
-.chat-tool-tabs button,.chat-tool-open{border:1px solid var(--line);background:var(--panel-3);color:var(--muted);border-radius:7px;padding:6px 8px;font-size:.76em;font-weight:800;cursor:pointer}
+.chat-tool-tabs button,.chat-tool-open{border:1px solid var(--line);background:var(--panel-3);color:var(--muted);border-radius:7px;padding:6px 6px;font-size:.72em;font-weight:800;cursor:pointer;min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-tool-tabs button:hover,.chat-tool-open:hover{color:var(--text);border-color:var(--accent-border);background:var(--accent-softer)}
 .chat-tool-tabs button.active{background:var(--accent-soft);border-color:var(--accent-border);color:var(--text)}
-.chat-tool-close{min-width:30px}
+.chat-tool-close{min-width:28px}
 .chat-tool-open{display:none;flex:0 0 auto}
 .chat-rail-panel{display:none}
 .chat-rail-panel.active{display:block}
@@ -706,7 +707,7 @@ tr:hover{background:#1b1f21}
     left:0;right:0;bottom:0;
     width:auto;height:auto;
     min-height:var(--mobile-nav-height);
-    padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+    padding:8px 8px calc(10px + env(safe-area-inset-bottom));
     z-index:320;
     border-right:0;
     border-top:1px solid #252a2d;
@@ -714,7 +715,7 @@ tr:hover{background:#1b1f21}
     backdrop-filter:blur(18px);
     box-shadow:0 -14px 40px #0009;
   }
-  .sidebar.collapsed{width:auto;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+  .sidebar.collapsed{width:auto;padding:8px 8px calc(10px + env(safe-area-inset-bottom))}
   .sidebar h1,.sidebar .ver,.sidebar-footer,.nav-section,.toggle-btn{display:none!important}
   .sidebar .nav,.sidebar.collapsed .nav{
     display:flex;
@@ -729,8 +730,8 @@ tr:hover{background:#1b1f21}
   }
   .sidebar .nav::-webkit-scrollbar{display:none}
   .nav a,.sidebar.collapsed .nav a{
-    flex:0 0 78px;
-    width:78px;
+    flex:0 0 88px;
+    width:88px;
     height:54px;
     padding:7px 6px;
     margin:0;
@@ -743,7 +744,7 @@ tr:hover{background:#1b1f21}
   }
   .sidebar.collapsed .nav a span,.nav a span{display:flex}
   .nav a small{display:none}
-  .nav a b{font-size:.78rem}
+  .nav a b{display:block;width:100%;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .nav a::before,.sidebar.collapsed .nav a::before{
     width:6px;height:6px;border-radius:999px;
     position:absolute;top:7px;left:50%;transform:translateX(-50%);
@@ -768,7 +769,12 @@ tr:hover{background:#1b1f21}
   .home-actions,.fb,.send-row,.chat-compose-row,.btn-row{display:grid;grid-template-columns:1fr;gap:8px}
   .home-actions .btn,.fb .btn,.send-row .btn,.chat-compose-row .btn,.btn-row .btn{width:100%}
   .home-panel-grid,.insight-grid,.attention-list,.guide-grid,.guide-steps,.analytics-layout,.ops-layout,.settings-shell,.instructions-shell{grid-template-columns:1fr}
-  .settings-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .settings-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:100%;overflow:hidden}
+  .settings-tabs button{padding:9px 8px;font-size:.82em;line-height:1.15;white-space:normal}
+  .settings-tabs button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .settings-panel{padding:12px;max-width:100%;overflow:hidden}
+  .settings-panel .form-group input,.settings-panel .form-group select{width:100%;min-width:0}
+  .theme-preview-grid,.palette-picker-grid{grid-template-columns:1fr;max-width:100%}
   .instructions-tabs{position:relative;top:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .ops-panel,.home-panel,.send-form,.env-card{border-radius:14px;padding:12px}
   .ops-panel-head,.home-panel-head{align-items:flex-start;flex-direction:column}
@@ -902,14 +908,14 @@ tr:hover{background:#1b1f21}
   .main{padding-left:9px;padding-right:9px}
   body[data-page="chat"] .main{padding-left:0;padding-right:0}
   .app-topbar{margin-left:-9px;margin-right:-9px;padding-left:9px;padding-right:9px}
-  .nav a,.sidebar.collapsed .nav a{flex-basis:70px;width:70px}
-  .nav a b{font-size:.72rem}
+  .nav a,.sidebar.collapsed .nav a{flex-basis:94px;width:94px}
+  .nav a b{font-size:.64rem}
   .ops-strip,.stats,.chart-summary,.health-grid{grid-template-columns:1fr}
   table.mobile-card-table td{grid-template-columns:1fr;gap:4px}
   table.mobile-card-table td::before{font-size:.68em}
   .chat-actions{grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .chat-actions .btn{padding-left:8px;padding-right:8px}
-  .chat-compose-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto auto}
+  .chat-compose-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}
   .chat-shell{height:100%;min-height:0}
   .env-meta,.detail-grid,.chat-kv{grid-template-columns:1fr;gap:3px}
 }
@@ -2213,7 +2219,7 @@ function restoreDashboardViewState(state) {
       if (item.nearBottom && id !== 'chat-timeline') continue;
       const el = document.getElementById(id);
       if (!el) continue;
-      if (id === 'chat-timeline' && (item.nearBottom || window._chatFollowBottom)) continue;
+      if (id === 'chat-timeline' && item.nearBottom) continue;
       if (item.anchor?.id) {
         const anchor = el.querySelector(`[data-message-id="${cssSel(item.anchor.id)}"]`);
         if (anchor) {
@@ -2362,14 +2368,20 @@ document.addEventListener('click', event => {
   if (messageOpenTarget) {
     event.preventDefault();
     event.stopPropagation();
-    openMessageById(messageOpenTarget.getAttribute('data-message-open') || '');
+    openMessageById(messageOpenTarget.getAttribute('data-message-open') || '').catch(error => {
+      console.error('Open message failed', error);
+      toast(error?.message || 'Open message failed', '#f85149');
+    });
     return;
   }
   const runOpenTarget = clickedElement.closest('[data-run-open]');
   if (runOpenTarget) {
     event.preventDefault();
     event.stopPropagation();
-    viewRun(runOpenTarget.getAttribute('data-run-open') || '');
+    viewRun(runOpenTarget.getAttribute('data-run-open') || '').catch(error => {
+      console.error('Open run failed', error);
+      toast(error?.message || 'Open run failed', '#f85149');
+    });
     return;
   }
   const target = clickedElement.closest('[data-dashboard-action]');
@@ -4077,6 +4089,13 @@ function chatConversations() {
   const statusRank = item => ({working: 4, active: 3, online: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
     if (sortMode === 'name') return a.title.localeCompare(b.title);
+    if (sortMode === 'activity') {
+      const timeDiff = (b.ts || 0) - (a.ts || 0);
+      if (timeDiff) return timeDiff;
+      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
+      if (unreadDiff) return unreadDiff;
+      return a.title.localeCompare(b.title);
+    }
     if (sortMode === 'status') {
       const statusDiff = statusRank(b) - statusRank(a);
       if (statusDiff) return statusDiff;
@@ -4084,7 +4103,7 @@ function chatConversations() {
       if (unreadDiff) return unreadDiff;
       return a.title.localeCompare(b.title);
     }
-    const unreadDiff = sortMode === 'unread' ? (b.unread || 0) - (a.unread || 0) : Number(b.unread > 0) - Number(a.unread > 0);
+    const unreadDiff = (b.unread || 0) - (a.unread || 0);
     if (unreadDiff) return unreadDiff;
     const timeDiff = (b.ts || 0) - (a.ts || 0);
     if (timeDiff) return timeDiff;
@@ -4109,7 +4128,7 @@ function chatConversations() {
       kind: 'dm',
       id,
       title: id,
-      meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.preview ? ' · ' + last.preview : ''}`,
+      meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`,
       presence,
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
@@ -4210,13 +4229,13 @@ function shortInlineId(value) {
 function messageOpenButton(messageId, label = '') {
   const id = String(messageId || '').trim();
   if (!id) return '';
-  return `<button type="button" class="chat-id-link" data-message-open="${esc(id)}"${titleAttr(`Open message ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
+  return `<button type="button" class="chat-id-link" data-message-open="${esc(id)}" onclick='openMessageById(${esc(jsArg(id))})'${titleAttr(`Open message ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
 }
 
 function runOpenButton(runId, label = '') {
   const id = String(runId || '').trim();
   if (!id) return '';
-  return `<button type="button" class="chat-run-link" data-run-open="${esc(id)}"${titleAttr(`Open run ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
+  return `<button type="button" class="chat-run-link" data-run-open="${esc(id)}" onclick='viewRun(${esc(jsArg(id))})'${titleAttr(`Open run ${id}`)}>${esc(label || shortInlineId(id))}</button>`;
 }
 
 function findLoadedChatMessage(messageId) {
@@ -4231,13 +4250,49 @@ function findLoadedChatMessage(messageId) {
   return null;
 }
 
-async function openMessageById(messageId) {
+function messageRouteLabel(message) {
+  if (!message) return '';
+  if (message.source === 'channel' || message.channel) return `#${message.channel || String(message._to || '').replace(/^#/, '')}`;
+  return `${message.from || ''} -> ${message._to || message.to || ''}`;
+}
+
+function openMessageDetails(message) {
+  if (!message) return;
+  const delivery = messageDeliveryRun(message.id);
+  const relatedRun = delivery?.run || null;
+  const route = messageRouteLabel(message);
+  const body = message.body || message.preview || '';
+  const parent = message.parentContext
+    ? `<div class="modal-section"><h3>Parent</h3><dl class="detail-grid">` +
+      `<dt>From</dt><dd>${esc(message.parentContext.from || '')}</dd>` +
+      `<dt>Preview</dt><dd>${esc(message.parentContext.preview || '')}</dd>` +
+      `</dl></div>`
+    : '';
+  openModal(`Message ${shortInlineId(message.id)}`, `
+    <div class="modal-section">
+      <dl class="detail-grid">
+        <dt>ID</dt><dd class="t">${esc(message.id || '')}</dd>
+        <dt>Route</dt><dd>${esc(route)}</dd>
+        <dt>Type</dt><dd>${esc(message.type || 'info')}${message.priority && message.priority !== 'normal' ? ` / ${esc(message.priority)}` : ''}</dd>
+        <dt>Time</dt><dd>${esc(fmtTime(message.timestamp))}</dd>
+        <dt>Subject</dt><dd>${esc(message.subject || '')}</dd>
+        <dt>Read</dt><dd>${message.read === false ? 'unread' : 'read/sent'}</dd>
+        ${relatedRun ? `<dt>Run</dt><dd>${runOpenButton(relatedRun.id, relatedRun.id || 'open run')}</dd>` : ''}
+      </dl>
+    </div>
+    ${body ? `<div class="modal-section"><h3>Body</h3><div class="modal-pre">${esc(body)}</div></div>` : ''}
+    ${parent}
+    <div class="btn-row">
+      ${actionButtonFn('Show in chat', 'Open this message in its conversation and scroll to it', () => scrollLoadedMessageIntoView(message.id))}
+      ${actionButtonFn('Copy ID', 'Copy this message ID', () => copyText(message.id, 'Message ID copied'))}
+      ${relatedRun ? actionButtonFn('Open run', 'Open the dispatch run for this message', () => viewRun(relatedRun.id)) : ''}
+    </div>
+  `);
+}
+
+async function scrollLoadedMessageIntoView(messageId) {
   const message = findLoadedChatMessage(messageId);
-  if (!message) {
-    await copyText(messageId, 'Message ID copied');
-    toast('Message is not loaded in the current dashboard cache; ID copied.');
-    return;
-  }
+  if (!message) return;
   if (message.source === 'channel' || message.channel) {
     await selectChatConversation(`channel:${message.channel}`);
   } else {
@@ -4258,6 +4313,16 @@ async function openMessageById(messageId) {
       setTimeout(() => target.classList.remove('attention'), 900);
     }
   });
+}
+
+async function openMessageById(messageId) {
+  const message = findLoadedChatMessage(messageId);
+  if (!message) {
+    await copyText(messageId, 'Message ID copied');
+    toast('Message is not loaded in the current dashboard cache; ID copied.');
+    return;
+  }
+  openMessageDetails(message);
 }
 
 function chatEmptyDmText() {
@@ -4405,7 +4470,8 @@ function renderChat() {
   const previousKey = timeline.dataset.chatKey || '';
   const latestMessage = messages[messages.length - 1] || {};
   const latestKey = latestMessage.id || String(latestMessage.timestamp || '');
-  const shouldStickToBottom = window._chatFollowBottom || chatIsAtBottom(timeline);
+  const atBottomBeforeRender = chatIsAtBottom(timeline);
+  const shouldStickToBottom = previousKey !== (window._chatSelected || '') || atBottomBeforeRender;
   const prelude = chatPeekBanner() + chatLiveWarning(meta) + chatSearchBanner(messageFilter, messages.length, allMessages.length);
   const from = chatIdentity();
   const messageSignature = messages.map(m => {

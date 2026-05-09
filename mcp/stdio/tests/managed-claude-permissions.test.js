@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 
-const { managedClaudeEffort, managedClaudeModel, managedClaudePermissionArgs } = await import("../runtimes.js");
+const { managedClaudeEffort, managedClaudeMaxTurns, managedClaudeModel, managedClaudePermissionArgs } = await import("../runtimes.js");
 
 assert.deepEqual(
   managedClaudePermissionArgs({}, "managed"),
@@ -55,6 +55,24 @@ assert.equal(
   managedClaudeEffort({ effort: "medium" }),
   "medium",
   "managed Claude effort should be configurable per agent/run",
+);
+
+assert.equal(
+  managedClaudeMaxTurns({}),
+  50,
+  "managed Claude should allow enough turns for non-trivial dashboard work by default",
+);
+
+assert.equal(
+  managedClaudeMaxTurns({ maxTurns: 12 }),
+  12,
+  "managed Claude max turns should remain configurable per agent/run",
+);
+
+assert.equal(
+  managedClaudeMaxTurns({ maxTurns: -1 }),
+  50,
+  "invalid managed Claude max turns should fall back to the safe default",
 );
 
 console.log("managed-claude-permissions.test.js: all assertions passed");
