@@ -22,6 +22,7 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
@@ -58,6 +59,42 @@ const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
 const BRIDGE_VERSION = "4.0.0";
 const BRIDGE_STARTED_AT = new Date().toISOString();
+
+// Compute a build tag the user can paste from an error message to prove
+// which code is actually running. Reads .git/HEAD next to this script so
+// it works whether the bridge was started from a clone or a release tarball.
+function computeBridgeBuildTag() {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    // mcp/stdio -> repo root is two levels up
+    const gitDir = path.resolve(here, "..", "..", ".git");
+    const headPath = path.join(gitDir, "HEAD");
+    if (!fs.existsSync(headPath)) return "no-git";
+    const head = fs.readFileSync(headPath, "utf-8").trim();
+    if (head.startsWith("ref:")) {
+      const refPath = path.join(gitDir, head.slice(4).trim());
+      if (fs.existsSync(refPath)) {
+        return fs.readFileSync(refPath, "utf-8").trim().slice(0, 12);
+      }
+      // packed-refs fallback
+      const packed = path.join(gitDir, "packed-refs");
+      if (fs.existsSync(packed)) {
+        const lines = fs.readFileSync(packed, "utf-8").split(/\r?\n/);
+        const refName = head.slice(4).trim();
+        for (const line of lines) {
+          if (line.endsWith(refName)) return line.split(/\s+/)[0].slice(0, 12);
+        }
+      }
+      return "unknown-ref";
+    }
+    return head.slice(0, 12);
+  } catch {
+    return "unknown";
+  }
+}
+const BRIDGE_BUILD_TAG = computeBridgeBuildTag();
+// Log to stderr on startup so users can see which code is running.
+console.error(`[aify-comms bridge] version=${BRIDGE_VERSION} build=${BRIDGE_BUILD_TAG} instance=${BRIDGE_INSTANCE_ID} pid=${process.pid} cwd=${process.cwd()} script=${fileURLToPath(import.meta.url)}`);
 const AIFY_AGENT_ID = String(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "").trim();
 const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
 
