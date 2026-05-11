@@ -158,6 +158,25 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 
+## Claude/Pi managed run fails: `spawn "/path/to/claude-or-omp" ENOENT`
+
+**Symptom.** A managed Claude Code or Oh My Pi run fails before the agent replies with an error like `spawn "/home/dev/.local/bin/claude" ENOENT` or `spawn "/home/dev/.local/bin/omp" ENOENT`, even though the diagnostic says `command -v` resolved the launcher.
+
+**Cause.** Node reports the same `spawn <command> ENOENT` shape when either the command cannot be executed **or the requested runtime cwd/workspace does not exist on that bridge host**. This is common after moving between Windows, WSL, Linux, or another PC: the launcher path may be valid, but the saved agent workspace belongs to a different environment or a root that is not mounted there. Other real launcher causes are still possible: missing execute bit, stale symlink, a script with a broken shebang interpreter, or an ELF/native binary whose loader is missing.
+
+**Fix (current build).** Runtime launches preflight the cwd before `spawn()`. A bad workspace now fails as `Workspace "... " does not exist on this bridge host` / `not a directory` / `not readable`, instead of blaming `claude` or `omp`. Update and restart the host-side bridge/wrapper so this diagnostic is loaded.
+
+If the cwd is valid and the error still says the launcher cannot execute, verify the launcher on the same host/user as the bridge:
+
+```bash
+ls -l /home/dev/.local/bin/claude /home/dev/.local/bin/omp
+readlink -f /home/dev/.local/bin/claude /home/dev/.local/bin/omp
+head -1 /home/dev/.local/bin/claude /home/dev/.local/bin/omp
+command -v node bun claude omp
+```
+
+Set `AIFY_CLAUDE_COMMAND` or `AIFY_PI_COMMAND` only when you know the absolute path points at a real executable for that host. If the problem is a workspace mismatch, repair the agent/session workspace or spawn/adopt it in the environment that owns that path; do not paper over it with a launcher override.
+
 ## Machine ID shows `win32:unknown-host`
 
 **Symptom.** Agent's `machineId` is `win32:unknown-host` instead of the real hostname.

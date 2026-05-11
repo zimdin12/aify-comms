@@ -28,8 +28,10 @@ const RUNTIME_ALIASES = new Map([
 ]);
 
 function spawnProcess(command, args, options = {}) {
+  const cwd = options.cwd || process.cwd();
+  assertLaunchCwd(cwd);
   const proc = spawn(command, args, {
-    cwd: options.cwd,
+    cwd,
     env: runtimeChildEnv(options.env || {}),
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
@@ -41,6 +43,37 @@ function spawnProcess(command, args, options = {}) {
   // bug cannot crash the bridge process before the adapter wires rejection.
   proc.on("error", () => {});
   return proc;
+}
+
+export function launchCwdProblem(cwd) {
+  const value = String(cwd || "").trim();
+  if (!value) return null;
+  try {
+    const st = fs.statSync(value);
+    if (!st.isDirectory()) return `Workspace "${value}" is not a directory.`;
+    try {
+      fs.accessSync(value, fs.constants.R_OK | fs.constants.X_OK);
+    } catch {
+      return `Workspace "${value}" is not readable/searchable by user ${os.userInfo().username}.`;
+    }
+    return null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return `Workspace "${value}" does not exist on this bridge host.`;
+    if (error?.code === "EACCES") return `Workspace "${value}" is not accessible by user ${os.userInfo().username}.`;
+    return `Workspace "${value}" cannot be used as a runtime cwd: ${error?.message || String(error)}`;
+  }
+}
+
+function assertLaunchCwd(cwd) {
+  const problem = launchCwdProblem(cwd);
+  if (!problem) return;
+  const error = new Error(
+    `${problem} Runtime launch aborted before spawn(). Check that the agent workspace is valid for ` +
+    `environment "${process.env.AIFY_ENVIRONMENT_ID || "unknown"}" on ${os.hostname()}, then update the agent/session workspace or environment roots.`,
+  );
+  error.code = "AIFY_INVALID_RUNTIME_CWD";
+  error.cwd = cwd;
+  throw error;
 }
 
 export function descendantPids(pid) {
@@ -1673,6 +1706,7 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
             `but Node could not execute it. Most common causes: (a) the binary requires a shell wrapper / function ` +
             `that only exists in an interactive bash, (b) the file lacks the execute bit for this user, ` +
             `(c) the resolved path is a symlink to a missing target. ` +
+            `Also verify the runtime cwd exists: "${cwd}". ` +
             `Fix: set AIFY_CLAUDE_COMMAND to an absolute path to a real "claude" binary and restart aify-comms. ` +
             `Diagnostic: ${diagnosticsFor(String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "claude").trim())}`,
           );
@@ -2506,7 +2540,8 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
           `spawn "${launcher.command}" ENOENT — this bridge resolved Oh My Pi to "${launcher.command}" ` +
           `but Node could not execute it. Common causes: missing exec bit, broken shebang interpreter ` +
           `(e.g., the script's #!/usr/bin/env node points at a node that isn't on the bridge's PATH), ` +
-          `or a stale symlink. Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
+          `or a stale symlink. Also verify the runtime cwd exists: "${cwd}". ` +
+          `Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
           `restart aify-comms. Diagnostic: ${diagnosticsFor(piTarget)}`,
         );
         enriched.code = error.code;

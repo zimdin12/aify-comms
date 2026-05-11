@@ -10,6 +10,7 @@ const {
   controlCapabilitiesForRuntime,
   defaultCapabilitiesForRuntime,
   defaultSessionHandleForRuntime,
+  launchCwdProblem,
   launchRuntimeRun,
   normalizeRuntime,
   runtimeLaunchAvailability,
@@ -51,6 +52,41 @@ rl.on("line", (line) => {
 `, { mode: 0o755 });
 
 process.env.AIFY_PI_COMMAND = fakeOmp;
+const missingCwd = path.join(tmpDir, "missing-workspace");
+assert.match(
+  launchCwdProblem(missingCwd),
+  /does not exist on this bridge host/,
+  "missing workspaces should be detected before runtime spawn",
+);
+const badCwdController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: missingCwd,
+    runtimeConfig: { timeoutMs: 5000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi missing cwd",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  badCwdController.promise,
+  /Workspace ".*missing-workspace" does not exist on this bridge host/,
+  "missing cwd should fail with a workspace error, not a launcher ENOENT",
+);
+
 const events = [];
 const runtimeStates = [];
 const controller = launchRuntimeRun({
