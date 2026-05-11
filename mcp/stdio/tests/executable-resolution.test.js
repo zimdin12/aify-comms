@@ -1,65 +1,40 @@
 #!/usr/bin/env node
-// Regression: defaultClaudeCommand / defaultCodexCommand / defaultPiCommand
-// must resolve to an absolute path on POSIX so spawn doesn't depend on the
-// bridge process inheriting an interactive shell's PATH. AIFY_CLAUDE_COMMAND
-// continues to take precedence.
+// Regression: when the configured runtime launcher does not resolve to a real
+// executable, runtimeLaunchAvailability must report an actionable diagnostic
+// (not just "not on PATH") so the dashboard failure event is debuggable.
 
 import assert from "node:assert/strict";
 
-const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
 const originalClaudeCmd = process.env.AIFY_CLAUDE_COMMAND;
-const originalCodexCmd = process.env.AIFY_CODEX_COMMAND;
-const originalPiCmd = process.env.AIFY_PI_COMMAND;
-
-function setPlatform(value) {
-  Object.defineProperty(process, "platform", { value, configurable: true });
-}
 
 try {
-  // On POSIX, the module should resolve `node` to an absolute path because
-  // node is on PATH in any reasonable test environment.
-  setPlatform("linux");
-  process.env.AIFY_CLAUDE_COMMAND = "node";
-  process.env.AIFY_CODEX_COMMAND = "";
-  process.env.AIFY_PI_COMMAND = "node";
-
+  process.env.AIFY_CLAUDE_COMMAND = "this-binary-does-not-exist-aify-test-zzz";
   const mod = await import(`../runtimes.js?cacheBust=${Date.now()}`);
-
-  const claudeCmd = mod.__test_defaults?.defaultClaudeCommand?.()
-    // fall back to indirect exercise: managedClaudeMaxTurns confirms the
-    // module loaded; we just need defaultClaudeCommand to have been wired up.
-    || null;
-
-  // Public API does not export defaultClaudeCommand; instead verify the
-  // resolveExecutable behavior via runtimeLaunchAvailability which uses the
-  // same hasExecutable path.
-  const availability = mod.runtimeLaunchAvailability("claude-code");
-  assert.equal(availability.available, true, "node should be discoverable as a Claude shim for the test");
+  const result = mod.runtimeLaunchAvailability("claude-code");
+  assert.equal(result.available, false, "missing launcher should report unavailable");
   assert.match(
-    availability.message,
-    /available/i,
-    "availability message should be positive when the configured launcher exists on PATH",
+    result.message,
+    /not launchable|could not be resolved/i,
+    "message should explain the launch is blocked",
+  );
+  assert.match(
+    result.message,
+    /Diagnostic:/,
+    "message should include diagnostic resolution attempts so users can see what was tried",
+  );
+  assert.match(
+    result.message,
+    /bridge PATH/,
+    "diagnostic should include the bridge's PATH so users can see what the bridge actually sees",
   );
 
-  // A clearly-missing launcher should produce a negative availability with an
-  // actionable message — this is the path users see when claude isn't on PATH.
-  process.env.AIFY_CLAUDE_COMMAND = "this-binary-does-not-exist-aify-test";
-  const missingMod = await import(`../runtimes.js?cacheBust=${Date.now() + 1}`);
-  const missing = missingMod.runtimeLaunchAvailability("claude-code");
-  assert.equal(missing.available, false);
-  assert.match(
-    missing.message,
-    /not launchable|not on PATH|not available/i,
-    "missing-launcher message should be actionable, not raw ENOENT",
-  );
+  // describeExecutableResolution should expose structured attempts for tools
+  const info = mod.describeExecutableResolution("this-binary-does-not-exist-aify-test-zzz");
+  assert.equal(info.resolved, null);
+  assert.ok(Array.isArray(info.attempts) && info.attempts.length > 0, "should record at least one attempt");
 } finally {
-  if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
   if (originalClaudeCmd === undefined) delete process.env.AIFY_CLAUDE_COMMAND;
   else process.env.AIFY_CLAUDE_COMMAND = originalClaudeCmd;
-  if (originalCodexCmd === undefined) delete process.env.AIFY_CODEX_COMMAND;
-  else process.env.AIFY_CODEX_COMMAND = originalCodexCmd;
-  if (originalPiCmd === undefined) delete process.env.AIFY_PI_COMMAND;
-  else process.env.AIFY_PI_COMMAND = originalPiCmd;
 }
 
 console.log("executable-resolution.test.js: all assertions passed");

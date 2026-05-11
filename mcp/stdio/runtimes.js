@@ -782,17 +782,34 @@ function defaultPiCommand() {
 }
 
 const RESOLVED_EXECUTABLE_CACHE = new Map();
+const EXECUTABLE_RESOLUTION_LOG = new Map();
+
+function isReallyExecutable(absPath) {
+  if (!absPath || !/[\\/]/.test(absPath)) return false;
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile()) return false;
+    if (process.platform !== "win32") {
+      // Check exec bit for the current user
+      fs.accessSync(absPath, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function resolveExecutable(command) {
   const value = String(command || "").trim();
   if (!value) return null;
   if (/[\\/]/.test(value)) {
-    return fs.existsSync(value) ? value : null;
+    return isReallyExecutable(value) ? value : null;
   }
   if (RESOLVED_EXECUTABLE_CACHE.has(value)) {
     return RESOLVED_EXECUTABLE_CACHE.get(value);
   }
   let resolved = null;
+  const attempts = [];
   try {
     if (process.platform === "win32") {
       const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
@@ -801,36 +818,82 @@ function resolveExecutable(command) {
         timeout: 3000,
         encoding: "utf-8",
       });
+      attempts.push({ method: "where", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
       if (result.status === 0) {
         const lines = String(result.stdout || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
         if (lines.length) resolved = lines[0];
       }
     } else {
       const quoted = value.replace(/'/g, "'\\''");
-      // Try login shell first (sources .profile so npm-global / nvm shims resolve)
+      // Try login shell first (sources .profile so npm-global etc. resolve)
       let result = spawnSync("sh", ["-lc", `command -v '${quoted}' 2>/dev/null`], {
         timeout: 3000,
         encoding: "utf-8",
       });
+      attempts.push({ method: "sh -lc command -v", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
       if (result.status !== 0 || !String(result.stdout || "").trim()) {
-        // Fall back to non-login lookup using current PATH
+        // Non-login fallback uses the current process's PATH directly
         result = spawnSync("sh", ["-c", `command -v '${quoted}' 2>/dev/null`], {
           timeout: 3000,
           encoding: "utf-8",
         });
+        attempts.push({ method: "sh -c command -v", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
+      }
+      // Last-ditch: an interactive bash that sources .bashrc (nvm puts its
+      // shim init in .bashrc, not .profile, so login-shell sh doesn't see it)
+      if (result.status !== 0 || !String(result.stdout || "").trim()) {
+        result = spawnSync("bash", ["-ic", `command -v '${quoted}' 2>/dev/null`], {
+          timeout: 3000,
+          encoding: "utf-8",
+          env: process.env,
+        });
+        attempts.push({ method: "bash -ic command -v", status: result.status, stdout: (result.stdout || "").trim().slice(0, 400) });
       }
       const out = String(result.stdout || "").trim();
       if (result.status === 0 && out) resolved = out;
     }
-  } catch {
+  } catch (err) {
+    attempts.push({ method: "exception", error: err?.message || String(err) });
+  }
+  // Verify the resolved path is something Node can actually spawn. A common
+  // failure mode: `command -v claude` returns "claude" (a shell function) or
+  // a path that exists but lacks the exec bit for the current user.
+  if (resolved && !isReallyExecutable(resolved)) {
+    attempts.push({ method: "stat-check", rejected: resolved, reason: "not a real executable file" });
     resolved = null;
   }
   RESOLVED_EXECUTABLE_CACHE.set(value, resolved);
+  EXECUTABLE_RESOLUTION_LOG.set(value, { resolved, attempts });
   return resolved;
+}
+
+export function describeExecutableResolution(command) {
+  const value = String(command || "").trim();
+  if (!value) return { resolved: null, attempts: [] };
+  if (!EXECUTABLE_RESOLUTION_LOG.has(value)) resolveExecutable(value);
+  return EXECUTABLE_RESOLUTION_LOG.get(value) || { resolved: null, attempts: [] };
 }
 
 function hasExecutable(command) {
   return resolveExecutable(command) !== null;
+}
+
+function pathSummary() {
+  const value = String(process.env.PATH || "").trim();
+  if (!value) return "(empty)";
+  const parts = value.split(path.delimiter).filter(Boolean);
+  return parts.length > 6 ? `${parts.length} entries; head: ${parts.slice(0, 6).join(path.delimiter)} ...` : value;
+}
+
+function diagnosticsFor(name) {
+  const info = describeExecutableResolution(name);
+  const tried = (info.attempts || []).map(a => {
+    const tag = a.method;
+    if (a.rejected) return `[rejected ${a.rejected}: ${a.reason}]`;
+    if (a.error) return `[${tag}: error ${a.error}]`;
+    return `[${tag}: status=${a.status}${a.stdout ? ` stdout="${a.stdout}"` : ""}]`;
+  }).join(" ");
+  return `attempts: ${tried || "(none)"}; bridge PATH: ${pathSummary()}`;
 }
 
 export function runtimeLaunchAvailability(runtime) {
@@ -842,8 +905,10 @@ export function runtimeLaunchAvailability(runtime) {
     return {
       available,
       message: available
-        ? "Claude Code launcher available"
-        : `Runtime "claude-code" is not launchable from this bridge because "${expected}" is not on PATH. Install Claude Code for this OS/user or restart the bridge from a shell where "${expected}" works.`,
+        ? `Claude Code launcher available (resolved to ${resolveExecutable(expected)})`
+        : `Runtime "claude-code" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
+          `Install Claude Code for this OS/user, or set AIFY_CLAUDE_COMMAND to an absolute path and restart the bridge. ` +
+          `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
   if (normalized === "codex") {
@@ -852,8 +917,9 @@ export function runtimeLaunchAvailability(runtime) {
     return {
       available,
       message: available
-        ? "Codex launcher available"
-        : `Runtime "codex" is not launchable from this bridge because "${launcher.command}" is not available.`,
+        ? `Codex launcher available (${launcher.command})`
+        : `Runtime "codex" is not launchable from this bridge because "${launcher.command}" is not available. ` +
+          `Diagnostic: ${diagnosticsFor(launcher.command)}`,
     };
   }
   if (normalized === "opencode") {
@@ -865,8 +931,10 @@ export function runtimeLaunchAvailability(runtime) {
     return {
       available,
       message: available
-        ? "Pi launcher available"
-        : `Runtime "pi" is not launchable from this bridge because "${launcher.command}" is not on PATH. Install Oh My Pi for this OS/user or restart the bridge from a shell where "${launcher.command}" works.`,
+        ? `Pi launcher available (${launcher.command})`
+        : `Runtime "pi" is not launchable from this bridge because "${launcher.command}" is not on PATH. ` +
+          `Install Oh My Pi for this OS/user or restart the bridge from a shell where "${launcher.command}" works. ` +
+          `Diagnostic: ${diagnosticsFor(launcher.command)}`,
     };
   }
   return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
@@ -1439,6 +1507,25 @@ function createClaudeController({ agentId, agentInfo, run, runtimeState, callbac
       proc.on("error", (error) => {
         settled = true;
         clearTimeout(timer);
+        // Self-describing failure: when ENOENT escapes here it means the
+        // path the availability check accepted is not actually spawnable
+        // from this bridge process. Surface what we tried to spawn and what
+        // the bridge's PATH looks like so the dashboard's failure event is
+        // actionable instead of "spawn claude ENOENT".
+        if (error && error.code === "ENOENT") {
+          const enriched = new Error(
+            `spawn "${launcher.command}" ENOENT — this bridge resolved Claude Code to "${launcher.command}" ` +
+            `but Node could not execute it. Most common causes: (a) the binary requires a shell wrapper / function ` +
+            `that only exists in an interactive bash, (b) the file lacks the execute bit for this user, ` +
+            `(c) the resolved path is a symlink to a missing target. ` +
+            `Fix: set AIFY_CLAUDE_COMMAND to an absolute path to a real "claude" binary and restart aify-comms. ` +
+            `Diagnostic: ${diagnosticsFor(String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "claude").trim())}`,
+          );
+          enriched.code = error.code;
+          enriched.originalError = error.message;
+          reject(enriched);
+          return;
+        }
         reject(error);
       });
 
