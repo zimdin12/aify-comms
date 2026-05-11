@@ -756,13 +756,14 @@ function codexSpawnCwd(launcher, cwd) {
 }
 
 function bashShebangFallback(absPath) {
-  // Wrap the script in `bash -lc 'exec "$0" "$@"'` so the interactive login
-  // shell sources .bashrc/.profile (nvm, asdf, mise, fnm etc. live there)
-  // and the script's `#!/usr/bin/env node` shebang sees a node interpreter
-  // again. Using exec preserves stdin/stdout/stderr semantics.
+  // Wrap the script in `bash -lic 'exec "$0" "$@"'` so the shell sources
+  // both .profile (login: -l) AND .bashrc (interactive: -i) before exec'ing
+  // the script. Nvm's installer adds its init to .bashrc by default — a
+  // plain `bash -l` would miss it and the broken-shebang problem would
+  // recur. Using exec preserves stdin/stdout/stderr semantics for Node.
   return {
     command: "bash",
-    args: ["-lc", `exec "$0" "$@"`, absPath],
+    args: ["-lic", `exec "$0" "$@"`, absPath],
   };
 }
 
@@ -827,10 +828,33 @@ function isReallyExecutable(absPath) {
   }
 }
 
+// Walks the bridge process's own PATH (the one the kernel will use when
+// invoking /usr/bin/env <name>) and returns the absolute path to the first
+// executable match. Does NOT spawn a shell — must match kernel semantics.
+function findOnProcessPath(name) {
+  if (!name || /[\\/]/.test(name)) {
+    return isReallyExecutable(name) ? name : null;
+  }
+  const PATH = String(process.env.PATH || "");
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32"
+    ? String(process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  for (const dir of PATH.split(sep)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext);
+      if (isReallyExecutable(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 // Inspects a script's #! line. Returns { interpreter, args, valid, missing }
 // or null if the file is not a script. valid=false means we can prove the
-// interpreter is unreachable; missing carries the offending interpreter name
-// so error messages can be specific.
+// interpreter is unreachable from THIS PROCESS's PATH (which is what the
+// kernel will use for /usr/bin/env <name>); missing carries the offending
+// interpreter name so error messages can be specific.
 function inspectShebang(absPath) {
   if (process.platform === "win32") return null;
   try {
@@ -848,15 +872,26 @@ function inspectShebang(absPath) {
       let valid = false;
       let missing = null;
       if (interpreter === "/usr/bin/env" || interpreter === "/bin/env") {
-        // env <name> [args] — first arg is the binary to look up via PATH
-        if (args.length === 0) {
-          valid = fs.existsSync(interpreter);
-          if (!valid) missing = interpreter;
+        if (!fs.existsSync(interpreter)) {
+          missing = interpreter;
+        } else if (args.length === 0) {
+          valid = true;
         } else {
           const target = args[0];
-          const resolved = /[\\/]/.test(target) ? (isReallyExecutable(target) ? target : null) : resolveExecutable(target);
-          valid = resolved !== null;
-          if (!valid) missing = target;
+          // CRITICAL: validate against process.env.PATH (kernel-level
+          // semantics), NOT against an interactive shell. A `sh -lc command
+          // -v node` may succeed because the shell sources .bashrc/.profile,
+          // but the kernel's execve of /usr/bin/env will only see the
+          // bridge process's PATH. These two routinely disagree for
+          // nvm/asdf/fnm setups.
+          if (/[\\/]/.test(target)) {
+            valid = isReallyExecutable(target);
+            if (!valid) missing = target;
+          } else {
+            const onProc = findOnProcessPath(target);
+            valid = onProc !== null;
+            if (!valid) missing = target;
+          }
         }
       } else {
         valid = isReallyExecutable(interpreter);
@@ -2465,6 +2500,20 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     proc.on("error", (error) => {
       settled = true;
       clearTimeout(timer);
+      if (error && error.code === "ENOENT") {
+        const piTarget = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "omp").trim();
+        const enriched = new Error(
+          `spawn "${launcher.command}" ENOENT — this bridge resolved Oh My Pi to "${launcher.command}" ` +
+          `but Node could not execute it. Common causes: missing exec bit, broken shebang interpreter ` +
+          `(e.g., the script's #!/usr/bin/env node points at a node that isn't on the bridge's PATH), ` +
+          `or a stale symlink. Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
+          `restart aify-comms. Diagnostic: ${diagnosticsFor(piTarget)}`,
+        );
+        enriched.code = error.code;
+        enriched.originalError = error.message;
+        reject(enriched);
+        return;
+      }
       reject(error);
     });
 
