@@ -755,6 +755,17 @@ function codexSpawnCwd(launcher, cwd) {
     : "C:\\";
 }
 
+function bashShebangFallback(absPath) {
+  // Wrap the script in `bash -lc 'exec "$0" "$@"'` so the interactive login
+  // shell sources .bashrc/.profile (nvm, asdf, mise, fnm etc. live there)
+  // and the script's `#!/usr/bin/env node` shebang sees a node interpreter
+  // again. Using exec preserves stdin/stdout/stderr semantics.
+  return {
+    command: "bash",
+    args: ["-lc", `exec "$0" "$@"`, absPath],
+  };
+}
+
 function defaultClaudeCommand() {
   const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
   if (process.platform === "win32") {
@@ -768,7 +779,17 @@ function defaultClaudeCommand() {
   // an actionable message before the spawn is attempted.
   const target = configured || "claude";
   const resolved = resolveExecutable(target);
-  return { command: resolved || target, args: [] };
+  if (resolved) {
+    // If the resolved script has a broken shebang (its #! interpreter isn't
+    // reachable from the bridge's PATH), run it through bash -lc so the
+    // login shell can re-resolve the interpreter via nvm/asdf/etc.
+    const shebang = inspectShebang(resolved);
+    if (shebang && !shebang.valid) {
+      return bashShebangFallback(resolved);
+    }
+    return { command: resolved, args: [] };
+  }
+  return { command: target, args: [] };
 }
 
 function defaultPiCommand() {
@@ -778,7 +799,14 @@ function defaultPiCommand() {
   }
   const target = configured || "omp";
   const resolved = resolveExecutable(target);
-  return { command: resolved || target, args: [] };
+  if (resolved) {
+    const shebang = inspectShebang(resolved);
+    if (shebang && !shebang.valid) {
+      return bashShebangFallback(resolved);
+    }
+    return { command: resolved, args: [] };
+  }
+  return { command: target, args: [] };
 }
 
 const RESOLVED_EXECUTABLE_CACHE = new Map();
@@ -796,6 +824,50 @@ function isReallyExecutable(absPath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+// Inspects a script's #! line. Returns { interpreter, args, valid, missing }
+// or null if the file is not a script. valid=false means we can prove the
+// interpreter is unreachable; missing carries the offending interpreter name
+// so error messages can be specific.
+function inspectShebang(absPath) {
+  if (process.platform === "win32") return null;
+  try {
+    const fd = fs.openSync(absPath, "r");
+    try {
+      const buf = Buffer.alloc(512);
+      const bytes = fs.readSync(fd, buf, 0, 512, 0);
+      const text = buf.slice(0, bytes).toString("utf-8");
+      if (!text.startsWith("#!")) return null;
+      const firstLine = text.split(/\r?\n/, 1)[0].slice(2).trim();
+      if (!firstLine) return null;
+      const tokens = firstLine.split(/\s+/);
+      const interpreter = tokens.shift();
+      const args = tokens;
+      let valid = false;
+      let missing = null;
+      if (interpreter === "/usr/bin/env" || interpreter === "/bin/env") {
+        // env <name> [args] — first arg is the binary to look up via PATH
+        if (args.length === 0) {
+          valid = fs.existsSync(interpreter);
+          if (!valid) missing = interpreter;
+        } else {
+          const target = args[0];
+          const resolved = /[\\/]/.test(target) ? (isReallyExecutable(target) ? target : null) : resolveExecutable(target);
+          valid = resolved !== null;
+          if (!valid) missing = target;
+        }
+      } else {
+        valid = isReallyExecutable(interpreter);
+        if (!valid) missing = interpreter;
+      }
+      return { interpreter, args, valid, missing, line: firstLine };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -861,6 +933,25 @@ function resolveExecutable(command) {
   if (resolved && !isReallyExecutable(resolved)) {
     attempts.push({ method: "stat-check", rejected: resolved, reason: "not a real executable file" });
     resolved = null;
+  }
+  // Second failure mode: the file exists with the exec bit but its shebang
+  // line points at an interpreter the kernel can't reach (e.g., a stale
+  // /home/.../node path from an uninstalled nvm version, or `#!/usr/bin/env
+  // node` on a system where node isn't on the bridge's PATH). execve will
+  // return ENOENT against the SCRIPT, not the interpreter, which is what
+  // produces the confusing "spawn /home/.../claude ENOENT" message.
+  if (resolved) {
+    const shebang = inspectShebang(resolved);
+    if (shebang && !shebang.valid) {
+      attempts.push({
+        method: "shebang-check",
+        rejected: resolved,
+        reason: `shebang interpreter "${shebang.missing}" is not reachable from this bridge (shebang: #!${shebang.line})`,
+      });
+      // Don't null out resolved — the user may want to set
+      // AIFY_CLAUDE_COMMAND to a different wrapper. But surface the problem
+      // in the resolution log so runtimeLaunchAvailability can report it.
+    }
   }
   RESOLVED_EXECUTABLE_CACHE.set(value, resolved);
   EXECUTABLE_RESOLUTION_LOG.set(value, { resolved, attempts });
