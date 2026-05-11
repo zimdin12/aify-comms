@@ -707,7 +707,10 @@ function defaultCodexCommand() {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
   }
-  return { command: "codex", args: ["app-server"] };
+  // Resolve to absolute path so spawn doesn't depend on the bridge process
+  // inheriting an interactive shell's PATH (see defaultClaudeCommand notes).
+  const resolved = resolveExecutable("codex");
+  return { command: resolved || "codex", args: ["app-server"] };
 }
 
 function isWslCodexLauncher(launcher) {
@@ -758,37 +761,76 @@ function defaultClaudeCommand() {
     const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
     return { command: comspec, args: ["/d", "/s", "/c", configured || "claude"] };
   }
-  return { command: configured || "claude", args: [] };
+  // On POSIX, resolve to an absolute path so Node's spawn doesn't depend on the
+  // bridge process inheriting an interactive shell's PATH (npm-global, nvm shims
+  // etc. only appear after .profile/.bashrc sources them). Falls back to the
+  // bare name if resolution fails — runtimeLaunchAvailability will then surface
+  // an actionable message before the spawn is attempted.
+  const target = configured || "claude";
+  const resolved = resolveExecutable(target);
+  return { command: resolved || target, args: [] };
 }
 
 function defaultPiCommand() {
   const configured = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "").trim();
-  return { command: configured || "omp", args: [] };
+  if (process.platform === "win32") {
+    return { command: configured || "omp", args: [] };
+  }
+  const target = configured || "omp";
+  const resolved = resolveExecutable(target);
+  return { command: resolved || target, args: [] };
 }
 
-function hasExecutable(command) {
+const RESOLVED_EXECUTABLE_CACHE = new Map();
+
+function resolveExecutable(command) {
   const value = String(command || "").trim();
-  if (!value) return false;
-  if (/[\\/]/.test(value)) return fs.existsSync(value);
+  if (!value) return null;
+  if (/[\\/]/.test(value)) {
+    return fs.existsSync(value) ? value : null;
+  }
+  if (RESOLVED_EXECUTABLE_CACHE.has(value)) {
+    return RESOLVED_EXECUTABLE_CACHE.get(value);
+  }
+  let resolved = null;
   try {
     if (process.platform === "win32") {
       const comspec = process.env.ComSpec || process.env.COMSPEC || "cmd.exe";
       const result = spawnSync(comspec, ["/d", "/s", "/c", `where ${value}`], {
-        stdio: "ignore",
         windowsHide: true,
         timeout: 3000,
+        encoding: "utf-8",
       });
-      return result.status === 0;
+      if (result.status === 0) {
+        const lines = String(result.stdout || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        if (lines.length) resolved = lines[0];
+      }
+    } else {
+      const quoted = value.replace(/'/g, "'\\''");
+      // Try login shell first (sources .profile so npm-global / nvm shims resolve)
+      let result = spawnSync("sh", ["-lc", `command -v '${quoted}' 2>/dev/null`], {
+        timeout: 3000,
+        encoding: "utf-8",
+      });
+      if (result.status !== 0 || !String(result.stdout || "").trim()) {
+        // Fall back to non-login lookup using current PATH
+        result = spawnSync("sh", ["-c", `command -v '${quoted}' 2>/dev/null`], {
+          timeout: 3000,
+          encoding: "utf-8",
+        });
+      }
+      const out = String(result.stdout || "").trim();
+      if (result.status === 0 && out) resolved = out;
     }
-    const quoted = value.replace(/'/g, "'\\''");
-    const result = spawnSync("sh", ["-lc", `command -v '${quoted}' >/dev/null 2>&1`], {
-      stdio: "ignore",
-      timeout: 3000,
-    });
-    return result.status === 0;
   } catch {
-    return false;
+    resolved = null;
   }
+  RESOLVED_EXECUTABLE_CACHE.set(value, resolved);
+  return resolved;
+}
+
+function hasExecutable(command) {
+  return resolveExecutable(command) !== null;
 }
 
 export function runtimeLaunchAvailability(runtime) {
