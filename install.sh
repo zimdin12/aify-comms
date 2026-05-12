@@ -641,38 +641,45 @@ enable_codex_hooks_feature() {
   if [ ! -f "$config_file" ]; then
     cat > "$config_file" <<'EOF'
 [features]
-codex_hooks = true
+hooks = true
 EOF
     return
   fi
 
-  if grep -Eq '^[[:space:]]*codex_hooks[[:space:]]*=' "$config_file"; then
-    awk '
-      /^[[:space:]]*codex_hooks[[:space:]]*=/ {
-        print "codex_hooks = true"
-        next
+  # Migrate any legacy codex_hooks key and ensure hooks = true exists exactly once
+  # under [features]. Recent Codex CLI deprecated codex_hooks in favor of hooks.
+  awk '
+    BEGIN { in_features = 0; injected = 0 }
+    /^\[/ {
+      if (in_features && !injected) {
+        print "hooks = true"
+        injected = 1
       }
-      { print }
-    ' "$config_file" > "$config_file.tmp"
-    mv "$config_file.tmp" "$config_file"
-    return
-  fi
-
-  if grep -Eq '^\[features\][[:space:]]*$' "$config_file"; then
-    awk '
-      /^\[features\][[:space:]]*$/ && !done {
-        print
-        print "codex_hooks = true"
-        done = 1
-        next
+      in_features = ($0 ~ /^\[features\][[:space:]]*$/)
+      print
+      next
+    }
+    in_features && /^[[:space:]]*(codex_hooks|hooks)[[:space:]]*=/ {
+      if (!injected) {
+        print "hooks = true"
+        injected = 1
       }
-      { print }
-    ' "$config_file" > "$config_file.tmp"
-    mv "$config_file.tmp" "$config_file"
-    return
-  fi
-
-  printf '\n[features]\ncodex_hooks = true\n' >> "$config_file"
+      next
+    }
+    { print }
+    END {
+      if (in_features && !injected) {
+        print "hooks = true"
+        injected = 1
+      }
+      if (!injected) {
+        print ""
+        print "[features]"
+        print "hooks = true"
+      }
+    }
+  ' "$config_file" > "$config_file.tmp"
+  mv "$config_file.tmp" "$config_file"
 }
 
 install_codex_hook() {

@@ -452,7 +452,7 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "",
     "[features]",
     "multi_agent = true",
-    "codex_hooks = false",
+    "hooks = false",
     "",
     "[notice]",
     "hide_full_access_warning = true",
