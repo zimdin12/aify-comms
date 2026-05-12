@@ -2532,6 +2532,31 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("outside the roots", response.text)
 
+    def test_spawn_request_normalizes_linux_workspace_slashes_before_persisting(self):
+        self._heartbeat_environment(cwdRoots=["/home/dev/projects"])
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "linux-path-agent",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "\\home\\dev\\projects\\blei-code-intel",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["workspace"], "/home/dev/projects/blei-code-intel")
+        self.assertEqual(spawn["spawnSpec"]["workspace"], "/home/dev/projects/blei-code-intel")
+
+        claimed = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertEqual(claimed.json()["spawnRequest"]["workspace"], "/home/dev/projects/blei-code-intel")
+
     def test_channel_fanout_suppresses_duplicate_direct_delivery(self):
         self._register("alice", runtime="codex", sessionMode="managed")
         self._register("bob", runtime="codex", sessionMode="managed")

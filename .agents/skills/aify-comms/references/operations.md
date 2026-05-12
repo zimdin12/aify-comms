@@ -24,7 +24,7 @@ Wrapper auto mode:
 - Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
-- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Managed Claude Code uses 50 max turns by default (`runtimeConfig.maxTurns` can override). Oh My Pi uses its own runtime defaults unless `runtimeConfig.model` or `runtimeConfig.thinking` is set.
+- Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Managed Claude Code uses 50 max turns by default (`runtimeConfig.maxTurns` can override). Oh My Pi uses its own runtime defaults unless `runtimeConfig.model` or `runtimeConfig.thinking` is set; for Pi, blank or `default` model means no `--model` override.
 - Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
 - Tune with `runtimeConfig.timeoutMs`, `runtimeConfig.quietTimeoutMs` / `runtimeConfig.silenceTimeoutMs`, and `runtimeConfig.mcpToolTimeoutMs` / `runtimeConfig.commsToolTimeoutMs`.
 - Set quiet timeout to `0` only for agents expected to run very long silent commands; set MCP tool timeout to `0` only while debugging the MCP transport.

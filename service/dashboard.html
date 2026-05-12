@@ -2126,6 +2126,12 @@ function scheduleRealtimeRefresh() {
 
 const CHAT_BOTTOM_EPSILON = 18;
 window._chatFollowBottom = window._chatFollowBottom ?? true;
+window._dashboardScrollVersion = window._dashboardScrollVersion || 0;
+window._dashboardRestoringScroll = false;
+
+document.addEventListener('scroll', () => {
+  if (!window._dashboardRestoringScroll) window._dashboardScrollVersion += 1;
+}, true);
 
 function chatIsAtBottom(el) {
   if (!el) return true;
@@ -2197,6 +2203,7 @@ function captureDashboardViewState() {
     page: currentPage,
     pageScrollTop: activePage ? activePage.scrollTop : 0,
     pageScrollLeft: activePage ? activePage.scrollLeft : 0,
+    scrollVersion: window._dashboardScrollVersion,
     openDetails: [...document.querySelectorAll('details[open][data-stable-key]')].map(el => el.getAttribute('data-stable-key')).filter(Boolean),
     focusState,
     scrollState,
@@ -2210,26 +2217,34 @@ function restoreDashboardViewState(state) {
       const el = document.querySelector(`details[data-stable-key="${cssSel(key)}"]`);
       if (el) el.open = true;
     }
-    const activePage = document.querySelector('.page.active');
-    if (activePage && currentPage !== 'chat') {
-      activePage.scrollTop = state.pageScrollTop || 0;
-      activePage.scrollLeft = state.pageScrollLeft || 0;
-    }
-    for (const [id, item] of Object.entries(state.scrollState || {})) {
-      if (item.nearBottom && id !== 'chat-timeline') continue;
-      const el = document.getElementById(id);
-      if (!el) continue;
-      if (id === 'chat-timeline' && item.nearBottom) continue;
-      if (item.anchor?.id) {
-        const anchor = el.querySelector(`[data-message-id="${cssSel(item.anchor.id)}"]`);
-        if (anchor) {
-          el.scrollTop += anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - (item.anchor.offset || 0);
-          el.scrollLeft = item.left || 0;
-          continue;
+    const userScrolledDuringRefresh = state.scrollVersion !== window._dashboardScrollVersion;
+    if (!userScrolledDuringRefresh) {
+      window._dashboardRestoringScroll = true;
+      try {
+        const activePage = document.querySelector('.page.active');
+        if (activePage && currentPage !== 'chat') {
+          activePage.scrollTop = state.pageScrollTop || 0;
+          activePage.scrollLeft = state.pageScrollLeft || 0;
         }
+        for (const [id, item] of Object.entries(state.scrollState || {})) {
+          if (item.nearBottom && id !== 'chat-timeline') continue;
+          const el = document.getElementById(id);
+          if (!el) continue;
+          if (id === 'chat-timeline' && item.nearBottom) continue;
+          if (item.anchor?.id) {
+            const anchor = el.querySelector(`[data-message-id="${cssSel(item.anchor.id)}"]`);
+            if (anchor) {
+              el.scrollTop += anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - (item.anchor.offset || 0);
+              el.scrollLeft = item.left || 0;
+              continue;
+            }
+          }
+          el.scrollTop = item.top || 0;
+          el.scrollLeft = item.left || 0;
+        }
+      } finally {
+        requestAnimationFrame(() => { window._dashboardRestoringScroll = false; });
       }
-      el.scrollTop = item.top || 0;
-      el.scrollLeft = item.left || 0;
     }
     if (state.focusState?.id) {
       const el = document.getElementById(state.focusState.id);

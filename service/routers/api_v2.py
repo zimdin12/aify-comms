@@ -1441,8 +1441,28 @@ def _runtime_capability_for_environment(environment: dict[str, Any], runtime: st
     return None
 
 
+def _environment_uses_windows_paths(environment: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(environment.get(key) or "")
+        for key in ("id", "os", "kind", "machineId")
+    ).lower()
+    if "win32" in text or "windows" in text:
+        return True
+    roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
+    return any(re.match(r"^[A-Za-z]:[\\/]", root) for root in roots)
+
+
+def _normalize_workspace_for_environment(environment: dict[str, Any], workspace: str) -> str:
+    value = str(workspace or "").strip()
+    if not value:
+        return ""
+    if _environment_uses_windows_paths(environment):
+        return value
+    return value.replace("\\", "/")
+
+
 def _workspace_root_for(environment: dict[str, Any], workspace: str) -> str:
-    workspace_value = str(workspace or "").strip()
+    workspace_value = _normalize_workspace_for_environment(environment, workspace)
     roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
     if not workspace_value or not roots:
         return roots[0] if roots else ""
@@ -1456,7 +1476,7 @@ def _workspace_root_for(environment: dict[str, Any], workspace: str) -> str:
 
 def _workspace_for_environment(environment: dict[str, Any], requested_workspace: Optional[str], fallback_workspace: Optional[str] = "") -> tuple[str, str]:
     roots = [str(root or "").strip() for root in (environment.get("cwdRoots") or []) if str(root or "").strip()]
-    workspace = str(requested_workspace or fallback_workspace or "").strip()
+    workspace = _normalize_workspace_for_environment(environment, requested_workspace or fallback_workspace or "")
     if not workspace:
         workspace = roots[0] if roots else ""
     try:
@@ -1464,7 +1484,7 @@ def _workspace_for_environment(environment: dict[str, Any], requested_workspace:
     except HTTPException:
         if requested_workspace:
             raise
-        workspace = roots[0] if roots else ""
+        workspace = _normalize_workspace_for_environment(environment, roots[0] if roots else "")
         workspace_root = _workspace_root_for(environment, workspace)
     if not workspace and workspace_root:
         workspace = workspace_root
@@ -3493,7 +3513,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
         if not runtime_capability:
             raise HTTPException(400, f'Environment "{req.environmentId}" does not advertise runtime "{normalized_runtime}"')
-        workspace = str(req.workspace or "").strip()
+        workspace = _normalize_workspace_for_environment(environment, req.workspace or "")
         workspace_root = _workspace_root_for(environment, workspace)
         if not workspace and workspace_root:
             workspace = workspace_root
@@ -3945,7 +3965,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             environment = _environment_record_to_dict(env_row)
             if str(environment.get("status") or "").lower() != "online":
                 raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}; assign a live environment before {action}.')
-            workspace = spawn_spec_row["workspace"] or session["workspace"] or ""
+            workspace = _normalize_workspace_for_environment(environment, spawn_spec_row["workspace"] or session["workspace"] or "")
             workspace_root = _workspace_root_for(environment, workspace)
             request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
             resume_policy = "fresh_context" if action == "recreate" else "native_first"

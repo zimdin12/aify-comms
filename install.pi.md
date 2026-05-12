@@ -47,6 +47,8 @@ Managed Pi agents are spawned from the dashboard or `comms_spawn(..., runtime="p
 Current Pi note:
 - Runtime aliases `pi`, `omp`, `oh-my-pi`, and `pi-agent` normalize to `pi`.
 - Managed Pi supports persistent managed work, resume handles when OMP exposes them, and interrupt.
+- Managed Pi captures streamed `text_delta` output and final assistant text from RPC completion events such as `message_end` / `agent_end`.
+- A blank model, or a stored model value of `default`, means no `--model` override; Oh My Pi then uses `~/.omp/agent/config.yml`.
 - Steering is intentionally disabled until a stable Pi follow-up/steer contract is verified.
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`).
 - Set `AIFY_PI_COMMAND` or `PI_COMMAND` before starting `aify-comms` if `omp` is installed somewhere that is not on the bridge process `PATH`.

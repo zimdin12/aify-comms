@@ -726,6 +726,31 @@ function summarizeOpenCodeParts(parts = []) {
   return textChunks.join("").trim();
 }
 
+function extractPiAssistantText(value) {
+  const messages = Array.isArray(value) ? value : [value];
+  const chunks = [];
+  for (const message of messages) {
+    if (!message || String(message.role || "").toLowerCase() !== "assistant") continue;
+    const content = message.content;
+    if (typeof content === "string") {
+      chunks.push(content);
+      continue;
+    }
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const type = String(part.type || "").toLowerCase();
+      if (type === "text" && typeof part.text === "string") chunks.push(part.text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+function normalizePiModelOverride(value) {
+  const text = String(value || "").trim();
+  return text.toLowerCase() === "default" ? "" : text;
+}
+
 function requireOpenCodeData(response, fallbackMessage) {
   if (response?.data) return response.data;
   const errorMessage =
@@ -2480,7 +2505,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   const residentSessionId = String(agentInfo.sessionHandle || "").trim();
   const cwd = agentInfo.cwd || process.cwd();
   const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const model = String(agentInfo.model || config.model || "").trim();
+  const model = normalizePiModelOverride(agentInfo.model || config.model || "");
   const thinking = String(config.thinking || config.effort || "").trim();
   let sessionId =
     executionMode === "resident"
@@ -2504,10 +2529,12 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   let proc = null;
   let promptAcked = false;
   let finalText = "";
+  let finalSnapshotText = "";
   let finalError = "";
   let requestCounter = 1;
 
   const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
+  const resolvedText = () => finalText.trim() || finalSnapshotText.trim();
 
   function send(payload) {
     if (!proc || !proc.stdin.writable) return;
@@ -2592,19 +2619,32 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         return;
       }
 
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_end") {
+        finalSnapshotText = String(event.assistantMessageEvent.content || finalSnapshotText || "");
+        return;
+      }
+
+      if (event.type === "message_end" || event.type === "turn_end") {
+        const text = extractPiAssistantText(event.message);
+        if (text) finalSnapshotText = text;
+        return;
+      }
+
       if (event.type === "agent_start") {
         callbacks.onEvent?.("pi", "Started Pi agent turn");
         return;
       }
 
       if (event.type === "agent_end") {
+        const text = extractPiAssistantText(event.messages);
+        if (text) finalSnapshotText = text;
         settled = true;
         clearTimeout(timer);
         callbacks.onRuntimeState?.({ sessionId });
         callbacks.onRefs?.({ threadId: sessionId });
         resolve({
           status: interrupted ? "cancelled" : "completed",
-          summary: finalText.trim() || "(no output)",
+          summary: resolvedText() || "(no output)",
           runtimeState: { sessionId },
           externalRefs: { threadId: sessionId, turnId: String(event.id || "") },
         });
@@ -2634,7 +2674,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       if (interrupted) {
         resolve({
           status: "cancelled",
-          summary: finalText.trim() || finalError || "Run interrupted",
+          summary: resolvedText() || finalError || "Run interrupted",
           runtimeState: { sessionId },
           externalRefs: { threadId: sessionId },
         });
@@ -2643,7 +2683,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       if (code === 0 && promptAcked && !finalError) {
         resolve({
           status: "completed",
-          summary: finalText.trim() || "(no output)",
+          summary: resolvedText() || "(no output)",
           runtimeState: { sessionId },
           externalRefs: { threadId: sessionId },
         });
