@@ -32,6 +32,35 @@ try {
   const info = mod.describeExecutableResolution("this-binary-does-not-exist-aify-test-zzz");
   assert.equal(info.resolved, null);
   assert.ok(Array.isArray(info.attempts) && info.attempts.length > 0, "should record at least one attempt");
+
+  const controller = mod.launchRuntimeRun({
+    agentId: "claude-worker",
+    agentInfo: {
+      agentId: "claude-worker",
+      role: "coder",
+      runtime: "claude-code",
+      sessionMode: "managed",
+      cwd: process.cwd(),
+    },
+    run: {
+      from: "dashboard",
+      subject: "missing launcher smoke",
+      body: "hello",
+      executionMode: "managed",
+    },
+    runtimeState: {},
+    callbacks: {
+      onEvent: () => {},
+      onRuntimeState: () => {},
+      onRefs: () => {},
+    },
+  });
+  assert.equal(typeof controller.promise?.then, "function", "launchRuntimeRun should return a controller even when startup fails");
+  await assert.rejects(
+    controller.promise,
+    /not launchable|could not be resolved/i,
+    "startup failures should reject the controller promise instead of throwing before dispatch can mark the run failed",
+  );
 } finally {
   if (originalClaudeCmd === undefined) delete process.env.AIFY_CLAUDE_COMMAND;
   else process.env.AIFY_CLAUDE_COMMAND = originalClaudeCmd;

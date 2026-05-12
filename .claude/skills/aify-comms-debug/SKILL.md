@@ -177,6 +177,32 @@ command -v node bun claude omp
 
 Set `AIFY_CLAUDE_COMMAND` or `AIFY_PI_COMMAND` only when you know the absolute path points at a real executable for that host. If the problem is a workspace mismatch, repair the agent/session workspace or spawn/adopt it in the environment that owns that path; do not paper over it with a launcher override.
 
+**If the error still shows an old `bridge build=` after an update.** That is not Node's module cache. The build tag is computed from the git checkout that the currently running bridge process loaded. If it says `bridge build=231c607...` after the repo has newer commits, the active process was not restarted or is running from a different checkout. On the affected host, inspect the PID from the error:
+
+```bash
+ps -fp <pid>
+readlink -f /proc/<pid>/cwd
+tr '\0' '\n' < /proc/<pid>/environ | grep -E '^(AIFY|PATH|HOME)='
+cd /home/dev/aify-comms && git rev-parse --short HEAD
+```
+
+Then stop every old bridge/wrapper for that host and start a fresh bridge from the intended checkout:
+
+```bash
+pkill -f 'mcp/stdio/server.js'
+pkill -f 'aify-comms'
+pkill -f 'claude-aify'
+pkill -f 'omp-aify'
+cd /home/dev/aify-comms
+git pull
+bash install.sh --client codex http://localhost:8800 --with-hook
+bash install.sh --client claude http://localhost:8800 --with-hook
+bash install.sh --client pi http://localhost:8800
+aify-comms /path/to/workspace-root
+```
+
+The next dashboard failure/success diagnostic should report the new build tag. If it does not, the dashboard is still talking to another bridge process or another checkout.
+
 ## Machine ID shows `win32:unknown-host`
 
 **Symptom.** Agent's `machineId` is `win32:unknown-host` instead of the real hostname.

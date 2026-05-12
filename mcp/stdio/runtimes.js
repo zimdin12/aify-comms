@@ -2738,17 +2738,21 @@ export function defaultMachineId() {
 
 export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const runtime = normalizeRuntime(agentInfo.runtime || "generic");
-  if (runtime === "codex") {
-    return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks });
-  }
-  if (runtime === "opencode") {
-    return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
-  }
-  if (runtime === "pi") {
-    return createPiController({ agentId, agentInfo, run, runtimeState, callbacks });
-  }
-  if (runtime === "claude-code") {
-    return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
+  try {
+    if (runtime === "codex") {
+      return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks });
+    }
+    if (runtime === "opencode") {
+      return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
+    }
+    if (runtime === "pi") {
+      return createPiController({ agentId, agentInfo, run, runtimeState, callbacks });
+    }
+    if (runtime === "claude-code") {
+      return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
+    }
+  } catch (error) {
+    return failedRuntimeController(runtime, error);
   }
   return {
     capabilities: controlCapabilitiesForRuntime(runtime),
@@ -2757,5 +2761,17 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       throw new Error(`Runtime "${runtime}" does not support active dispatch`);
     },
     promise: Promise.reject(new Error(`Runtime "${runtime}" does not support active dispatch`)),
+  };
+}
+
+function failedRuntimeController(runtime, error) {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  return {
+    capabilities: controlCapabilitiesForRuntime(runtime),
+    interrupt: () => {},
+    steer: async () => {
+      throw new Error(`Runtime "${runtime}" does not support active dispatch`);
+    },
+    promise: Promise.reject(failure),
   };
 }
