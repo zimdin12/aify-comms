@@ -633,6 +633,23 @@ EOF
   " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
 }
 
+migrate_codex_hooks_key() {
+  # Recent Codex CLI renamed [features].codex_hooks -> [features].hooks.
+  # Rename the key in place if present, preserving the original value.
+  # Safe to run unconditionally; a no-op when nothing matches.
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local config_file="$codex_home/config.toml"
+  [ -f "$config_file" ] || return 0
+  grep -Eq '^[[:space:]]*codex_hooks[[:space:]]*=' "$config_file" || return 0
+  awk '
+    /^\[/ { in_features = ($0 ~ /^\[features\][[:space:]]*$/); print; next }
+    in_features && /^[[:space:]]*codex_hooks[[:space:]]*=/ {
+      sub(/codex_hooks/, "hooks"); print; next
+    }
+    { print }
+  ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+}
+
 enable_codex_hooks_feature() {
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local config_file="$codex_home/config.toml"
@@ -646,37 +663,24 @@ EOF
     return
   fi
 
-  # Migrate any legacy codex_hooks key and ensure hooks = true exists exactly once
-  # under [features]. Recent Codex CLI deprecated codex_hooks in favor of hooks.
+  migrate_codex_hooks_key
+
+  # Ensure [features].hooks = true exists exactly once.
   awk '
     BEGIN { in_features = 0; injected = 0 }
     /^\[/ {
-      if (in_features && !injected) {
-        print "hooks = true"
-        injected = 1
-      }
+      if (in_features && !injected) { print "hooks = true"; injected = 1 }
       in_features = ($0 ~ /^\[features\][[:space:]]*$/)
-      print
-      next
+      print; next
     }
-    in_features && /^[[:space:]]*(codex_hooks|hooks)[[:space:]]*=/ {
-      if (!injected) {
-        print "hooks = true"
-        injected = 1
-      }
+    in_features && /^[[:space:]]*hooks[[:space:]]*=/ {
+      if (!injected) { print "hooks = true"; injected = 1 }
       next
     }
     { print }
     END {
-      if (in_features && !injected) {
-        print "hooks = true"
-        injected = 1
-      }
-      if (!injected) {
-        print ""
-        print "[features]"
-        print "hooks = true"
-      }
+      if (in_features && !injected) { print "hooks = true"; injected = 1 }
+      if (!injected) { print ""; print "[features]"; print "hooks = true" }
     }
   ' "$config_file" > "$config_file.tmp"
   mv "$config_file.tmp" "$config_file"
@@ -880,6 +884,9 @@ echo "[3/4] Registering MCP server..."
 register_stdio_server "$CLIENT"
 if [ "$CLIENT" = "claude" ]; then
   register_claude_channel_server "$CLIENT"
+fi
+if [ "$CLIENT" = "codex" ]; then
+  migrate_codex_hooks_key
 fi
 install_bridge_launcher
 echo "  Done."
