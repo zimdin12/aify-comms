@@ -591,7 +591,17 @@ def _row_capabilities(row) -> list[str]:
         return capabilities
     runtime = _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "generic")
     session_mode = _normalize_session_mode((row["session_mode"] if "session_mode" in row.keys() else "") or "resident")
+    session_handle = str((row["session_handle"] if "session_handle" in row.keys() else "") or "").strip()
     runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+    if runtime == "pi":
+        if session_mode == "managed":
+            for cap in ("managed-run", "resume", "interrupt", "steer", "spawn"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
+        elif session_handle:
+            for cap in ("resident-run", "resume", "interrupt", "steer"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
     if runtime == "claude-code" and session_mode == "resident":
         channel_enabled = isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True
         if not channel_enabled:

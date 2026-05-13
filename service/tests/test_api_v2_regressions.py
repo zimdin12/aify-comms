@@ -3548,6 +3548,54 @@ class ApiV2RegressionTests(unittest.TestCase):
         queued_rows = self._fetchall("SELECT from_agent, target_agent FROM dispatch_runs WHERE target_agent = ? AND status = 'queued' ORDER BY requested_at", ("manager",))
         self.assertEqual([row["from_agent"] for row in queued_rows], ["lead", "qa"])
 
+    def test_stale_pi_capabilities_gain_steer_without_recreate(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register(
+            "old-pi",
+            runtime="pi",
+            sessionMode="managed",
+            launchMode="managed",
+            capabilities=["managed-run", "resume", "interrupt", "spawn"],
+        )
+        info = self.client.get("/api/v1/agents/old-pi")
+        self.assertEqual(info.status_code, 200, info.text)
+        self.assertIn("steer", info.json()["agent"]["capabilities"])
+
+        active = self._dispatch(
+            from_agent="dashboard",
+            to="old-pi",
+            type="request",
+            subject="active",
+            body="work",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        active_run_id = active["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", ("2026-01-01T00:00:00Z", active_run_id))
+
+        steered = self._send_message(
+            from_agent="lead",
+            to="old-pi",
+            type="request",
+            subject="current guidance",
+            body="use this now",
+            trigger=True,
+        )
+        self.assertTrue(steered["ok"], steered)
+        self.assertEqual(steered["dispatchRuns"][0]["status"], "steered")
+        self.assertEqual(steered["dispatchRuns"][0]["runId"], active_run_id)
+
+        self._register(
+            "old-resident-pi",
+            runtime="pi",
+            sessionMode="resident",
+            sessionHandle="pi-session",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        resident = self.client.get("/api/v1/agents/old-resident-pi")
+        self.assertEqual(resident.status_code, 200, resident.text)
+        self.assertIn("steer", resident.json()["agent"]["capabilities"])
+
     def test_response_messages_steer_when_sender_is_busy_and_steer_capable(self):
         self._register("manager", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
