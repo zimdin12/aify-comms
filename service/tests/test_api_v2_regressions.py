@@ -1313,11 +1313,26 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(listed_env["pty"])
         self.assertEqual(listed_env["terminalRuntimes"], ["codex", "pi"])
 
-    def _create_running_session(self, *, terminal: bool = False, workspace: str = "/workspace/repo"):
+    def _create_running_session(
+        self,
+        *,
+        terminal: bool = False,
+        workspace: str = "/workspace/repo",
+        runtime: str = "codex",
+        terminal_runtimes: list[str] | None = None,
+        session_handle: str = "thread-1",
+    ):
         self._heartbeat_environment(
             terminal=terminal,
             pty=terminal,
-            terminalRuntimes=["codex"] if terminal else [],
+            terminalRuntimes=(terminal_runtimes if terminal_runtimes is not None else ([runtime] if terminal else [])),
+            runtimes=[
+                {
+                    "runtime": runtime,
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                }
+            ],
         )
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -1326,7 +1341,7 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "environmentId": "linux:test-host:default",
                 "agentId": "console-agent",
                 "role": "coder",
-                "runtime": "codex",
+                "runtime": runtime,
                 "workspace": workspace,
             },
         )
@@ -1339,7 +1354,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(claim.status_code, 200, claim.text)
         running = self.client.patch(
             f"/api/v1/spawn-requests/{spawn_id}",
-            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "thread-1"},
+            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": session_handle},
         )
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
@@ -1482,7 +1497,23 @@ class ApiV2RegressionTests(unittest.TestCase):
         command = started.json()["terminal"]["command"]
         self.assertIn("codex-aify", command)
         self.assertIn("--aify-agent console-agent", command)
-        self.assertIn("--resume thread-1", command)
+        self.assertIn("resume --include-non-interactive thread-1", command)
+        self.assertNotIn("--resume", command)
+
+    def test_console_start_builds_claude_channels_command_without_dev_prompt(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        command = started.json()["terminal"]["command"]
+        self.assertIn("claude", command)
+        self.assertIn("--channels server:aify-comms-channel", command)
+        self.assertIn("--resume claude-session-1", command)
+        self.assertNotIn("--dangerously-load-development-channels", command)
 
     def test_pi_console_requires_handle_unless_fresh_context_requested(self):
         self._heartbeat_environment(

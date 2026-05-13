@@ -1059,6 +1059,31 @@ async function updateTerminalControl(controlId, body) {
   return httpCall("PATCH", `/terminals/controls/${encodeURIComponent(controlId)}`, body);
 }
 
+function unquoteShellToken(value = "") {
+  const text = String(value || "").trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function extractTerminalSessionHandle(runtime = "", command = "") {
+  const key = normalizeRuntime(runtime);
+  const text = String(command || "");
+  const token = String.raw`(?:"([^"]+)"|'([^']+)'|(\S+))`;
+  const readMatch = (match) => unquoteShellToken(match?.[1] || match?.[2] || match?.[3] || "");
+  if (key === "codex") {
+    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${token}`)));
+  }
+  if (key === "claude-code") {
+    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)(?:--resume|--session-id)(?:=|\s+)${token}`)));
+  }
+  if (key === "pi") {
+    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)--resume(?:=|\s+)${token}`)));
+  }
+  return "";
+}
+
 async function runTerminalControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;
   terminalControlBusy = true;
@@ -1081,14 +1106,22 @@ async function runTerminalControlLoop() {
             throw new Error(`Terminal workspace "${workspace}" is outside this bridge's advertised roots`);
           }
           const command = terminal.command || control.body || "";
+          const runtime = normalizeRuntime(terminal.runtime || "");
+          const sessionHandle = extractTerminalSessionHandle(runtime, command);
           const started = await TERMINAL_MANAGER.start({
             id: terminalId,
             command,
             cwd: workspace,
             env: {
               ...process.env,
+              AIFY_RUNTIME: runtime,
               AIFY_AGENT_ID: terminal.agentId || "",
               AIFY_COMMS_AGENT_ID: terminal.agentId || "",
+              AIFY_AGENT_CWD: workspace,
+              AIFY_SESSION_HANDLE: sessionHandle,
+              CLAUDE_SESSION_ID: runtime === "claude-code" ? sessionHandle : (process.env.CLAUDE_SESSION_ID || ""),
+              CODEX_THREAD_ID: runtime === "codex" ? sessionHandle : (process.env.CODEX_THREAD_ID || ""),
+              PI_SESSION_ID: runtime === "pi" ? sessionHandle : (process.env.PI_SESSION_ID || ""),
               AIFY_ENVIRONMENT_BRIDGE: "1",
               AIFY_TERMINAL_ID: terminalId,
             },

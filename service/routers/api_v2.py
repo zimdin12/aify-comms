@@ -4142,11 +4142,17 @@ def _default_console_command(session, workspace: str) -> str:
     handle = str(session["session_handle"] or "").strip()
     runtime = _normalize_runtime(session["runtime"] or "")
     if runtime == "claude-code":
-        parts = ["claude-aify", "--aify-agent", agent_id]
+        parts = ["claude", "--channels", "server:aify-comms-channel", "--dangerously-skip-permissions"]
+        if handle:
+            parts.extend(["--resume", handle])
+        return " ".join(part for part in parts if part)
     elif runtime == "pi":
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
         parts = ["codex-aify", "--aify-agent", agent_id]
+        if handle:
+            parts.extend(["resume", "--include-non-interactive", handle])
+        return " ".join(part for part in parts if part)
     else:
         parts = [runtime or "agent", "--aify-agent", agent_id]
     if handle:
