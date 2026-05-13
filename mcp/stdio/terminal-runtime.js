@@ -1,9 +1,19 @@
 import { spawn } from "child_process";
-import pty from "node-pty";
+import { createRequire } from "module";
 import { terminateProcessTree } from "./runtimes.js";
 
+const require = createRequire(import.meta.url);
+let pty = null;
+try {
+  const loaded = require("node-pty");
+  pty = loaded?.default || loaded;
+} catch {
+  pty = null;
+}
+
 export function bridgeTerminalSupported() {
-  return !["0", "false", "no"].includes(String(process.env.AIFY_TERMINAL_BRIDGE || "1").toLowerCase());
+  if (["0", "false", "no"].includes(String(process.env.AIFY_TERMINAL_BRIDGE || "1").toLowerCase())) return false;
+  return !!pty;
 }
 
 export class TerminalProcessManager {

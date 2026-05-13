@@ -4708,14 +4708,14 @@ function renderConsoleChat(meta) {
     body = `<div class="banner"><div class="banner-row"><span>${esc(reason)}</span></div></div>`;
   } else if (!terminalId || ['stopped', 'failed'].includes(String(liveStatus || '').toLowerCase())) {
     const startTitle = piNeedsFreshChoice ? 'Start a fresh Pi console; exact context needs a saved session handle' : 'Start a console using the saved session handle when available';
-    actions = actionButtonFn(piNeedsFreshChoice ? 'Start fresh' : 'Start console', startTitle, () => startConsoleForSelected(piNeedsFreshChoice));
+    actions = `<button class="btn btn-sm"${titleAttr(startTitle)} onclick="startConsoleForSelected(${piNeedsFreshChoice ? 'true' : 'false'})">${esc(piNeedsFreshChoice ? 'Start fresh' : 'Start console')}</button>`;
     if (piNeedsFreshChoice) {
       body = '<div class="banner"><div class="banner-row"><span>Pi has no saved native session handle for this identity. A fresh Console can start, but it will not prove same-context resume until a handle is captured or set.</span></div></div>';
     }
   } else {
     actions =
-      actionButtonFn('Refresh', 'Reload terminal output and events', () => loadTerminal(terminalId, {force: true})) +
-      actionButtonFn('Stop', 'Stop this dashboard-owned console and return the session to managed Messenger ownership', () => stopSelectedConsole(), 'btn-danger');
+      `<button class="btn btn-sm" title="Reload terminal output and events" onclick="refreshSelectedConsole()">Refresh</button>` +
+      `<button class="btn btn-sm btn-danger" title="Stop this dashboard-owned console and return the session to managed Messenger ownership" onclick="stopSelectedConsole()">Stop</button>`;
   }
   const outputHtml = output
     ? esc(output)
@@ -4761,6 +4761,17 @@ function renderConsoleChat(meta) {
   const outputEl = document.getElementById('chat-console-output');
   if (outputEl && (previousTerminalId !== terminalId || atBottomBeforeRender)) outputEl.scrollTop = outputEl.scrollHeight;
   updateChatScrollButton();
+}
+
+async function refreshSelectedConsole() {
+  const meta = selectedChatMeta();
+  const session = meta.kind === 'dm' ? primarySessionForAgent(meta.id) : null;
+  const terminalId = String(session?.terminalId || '').trim();
+  if (!terminalId) {
+    toast('No Console terminal to refresh', '#f85149');
+    return;
+  }
+  await loadTerminal(terminalId, {force: true});
 }
 
 async function startConsoleForSelected(freshContext = false) {
