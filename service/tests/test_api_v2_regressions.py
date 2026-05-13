@@ -1397,6 +1397,164 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(event["event_type"], "console_start_requested")
         self.assertIn("dashboard", event["body"])
 
+    def test_terminal_controls_claim_update_and_output_buffer(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard", "command": "bash"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        claim = self.client.post(
+            "/api/v1/terminals/controls/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        control = claim.json()["controls"][0]
+        self.assertEqual(control["terminalId"], terminal_id)
+        self.assertEqual(control["action"], "start")
+
+        updated = self.client.patch(
+            f"/api/v1/terminals/controls/{control['id']}",
+            json={"status": "completed", "terminalStatus": "attached", "output": "ready\n"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.json()["terminal"]["status"], "attached")
+        self.assertEqual(fetched.json()["terminal"]["output"], "ready\n")
+
+        sent = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/input",
+            json={"requestedBy": "dashboard", "body": "echo hi\n"},
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        resized = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/resize",
+            json={"requestedBy": "dashboard", "cols": 120, "rows": 40},
+        )
+        self.assertEqual(resized.status_code, 200, resized.text)
+        stopped = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/stop",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+
+        controls = self._fetchall(
+            "SELECT action, status FROM terminal_controls WHERE terminal_id = ? ORDER BY id",
+            (terminal_id,),
+        )
+        self.assertEqual([row["action"] for row in controls], ["start", "input", "resize", "stop"])
+        self.assertEqual(controls[-1]["status"], "pending")
+
+    def test_terminal_output_buffer_is_bounded(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        output = "x" * 70000
+        appended = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": output, "status": "attached"},
+        )
+        self.assertEqual(appended.status_code, 200, appended.text)
+        terminal = self.client.get(f"/api/v1/terminals/{terminal_id}").json()["terminal"]
+        self.assertEqual(len(terminal["output"]), 65536)
+        self.assertEqual(terminal["output"], "x" * 65536)
+
+        stopped = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "\nbye\n", "status": "stopped"},
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        session = self.client.get("/api/v1/sessions?agentId=console-agent").json()["sessions"][0]
+        self.assertEqual(session["ownerMode"], "managed")
+        self.assertEqual(session["terminalStatus"], "stopped")
+
+    def test_console_start_builds_codex_resume_command(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        command = started.json()["terminal"]["command"]
+        self.assertIn("codex-aify", command)
+        self.assertIn("--aify-agent console-agent", command)
+        self.assertIn("--resume thread-1", command)
+
+    def test_pi_console_requires_handle_unless_fresh_context_requested(self):
+        self._heartbeat_environment(
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["pi"],
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                }
+            ],
+        )
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "pi-console-agent",
+                "role": "coder",
+                "runtime": "pi",
+                "workspace": "/workspace/repo",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": ""},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        session_id = running.json()["spawnRequest"]["sessionId"]
+
+        rejected = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertIn("needs a session handle", rejected.text)
+
+        fresh = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard", "freshContext": True},
+        )
+        self.assertEqual(fresh.status_code, 200, fresh.text)
+        self.assertIn("pi-aify", fresh.json()["terminal"]["command"])
+        self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
+
+    def test_managed_dispatch_does_not_claim_while_console_owns_session(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["runs"][0]["runId"]
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "console-agent", "machineId": "linux:test-host", "bridgeId": "bridge-current", "executionModes": ["managed"]},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertIsNone(claim.json()["run"])
+        self.assertEqual(claim.json()["blockedBy"]["reason"], "console_owner_active")
+        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(run["status"], "queued")
+
     def test_assign_agent_environment_retargets_saved_managed_config(self):
         self._heartbeat_environment(id="linux:old-host:default", bridgeId="bridge-old")
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])

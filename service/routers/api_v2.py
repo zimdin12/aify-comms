@@ -25,7 +25,7 @@ from service.models import (
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
-    ConsoleStartRequest, TerminalControlRequest,
+    ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalOutputRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -1677,6 +1677,7 @@ def _agent_session_to_dict(row) -> dict[str, Any]:
 
 
 def _terminal_session_to_dict(row) -> dict[str, Any]:
+    keys = set(row.keys())
     return {
         "id": row["id"],
         "sessionId": row["session_id"],
@@ -1686,6 +1687,7 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "runtime": row["runtime"],
         "workspace": row["workspace"] or "",
         "command": row["command"] or "",
+        "output": (row["output"] if "output" in keys else "") or "",
         "status": row["status"] or "",
         "requestedBy": row["requested_by"] or "",
         "createdAt": row["created_at"] or "",
@@ -1703,6 +1705,32 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
         "body": row["body"] or "",
         "createdAt": row["created_at"] or "",
     }
+
+
+def _terminal_control_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "terminalId": row["terminal_id"],
+        "environmentId": row["environment_id"],
+        "bridgeId": row["bridge_id"] or "",
+        "action": row["action"],
+        "body": row["body"] or "",
+        "cols": int(row["cols"] or 0),
+        "rows": int(row["rows"] or 0),
+        "status": row["status"] or "",
+        "requestedBy": row["requested_by"] or "",
+        "requestedAt": row["requested_at"] or "",
+        "claimedAt": row["claimed_at"] or "",
+        "handledAt": row["handled_at"] or "",
+        "error": row["error"] or "",
+    }
+
+
+def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
+    value = str(text or "")
+    if len(value) <= max_chars:
+        return value
+    return value[-max_chars:]
 
 
 async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db=None):
@@ -1916,6 +1944,65 @@ async def _append_terminal_event(db, terminal_id: str, event_type: str, body: st
         "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) VALUES (?,?,?,?)",
         (terminal_id, event_type, body or "", _now()),
     )
+
+
+async def _append_terminal_control(
+    db,
+    *,
+    terminal_id: str,
+    environment_id: str,
+    bridge_id: str,
+    action: str,
+    requested_by: str = "dashboard",
+    body: str = "",
+    cols: int = 0,
+    rows: int = 0,
+) -> str:
+    control_id = f"termctl_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    await db.execute(
+        """
+        INSERT INTO terminal_controls (
+            id, terminal_id, environment_id, bridge_id, action, body, cols, rows, status, requested_by, requested_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            control_id,
+            terminal_id,
+            environment_id,
+            bridge_id,
+            action,
+            body or "",
+            int(cols or 0),
+            int(rows or 0),
+            "pending",
+            requested_by or "dashboard",
+            _now(),
+        ),
+    )
+    return control_id
+
+
+async def _append_terminal_output(db, terminal, output: str, *, status: str = ""):
+    chunk = str(output or "")
+    if not chunk and not status:
+        return
+    current = terminal["output"] if "output" in terminal.keys() else ""
+    next_output = _trim_terminal_output(f"{current or ''}{chunk}")
+    updates = ["output = ?", "updated_at = ?"]
+    params: list[Any] = [next_output, _now()]
+    if status:
+        updates.append("status = ?")
+        params.append(status)
+        if status in {"stopped", "failed"}:
+            updates.append("stopped_at = COALESCE(stopped_at, ?)")
+            params.append(_now())
+    params.append(terminal["id"])
+    await db.execute(
+        f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?",
+        tuple(params),
+    )
+    if chunk:
+        await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
 
 
 async def _append_dispatch_control(
@@ -4086,6 +4173,9 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                 409,
                 f'Environment "{environment.get("id")}" does not advertise terminal support for runtime "{session["runtime"]}".',
             )
+        runtime = _normalize_runtime(session["runtime"] or "")
+        if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
+            raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
 
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -4097,8 +4187,8 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             """
             INSERT INTO terminal_sessions (
                 id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
-                status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                output, status, requested_by, created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -4109,6 +4199,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                 session["runtime"],
                 workspace,
                 command,
+                "",
                 "starting",
                 requested_by,
                 now,
@@ -4122,6 +4213,15 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             terminal_id,
             "console_start_requested",
             json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace, "command": command}),
+        )
+        await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=session["environment_id"],
+            bridge_id=bridge_id,
+            action="start",
+            requested_by=requested_by,
+            body=command,
         )
         await db.execute(
             """
@@ -4172,6 +4272,95 @@ async def get_terminal(terminal_id: str):
         await db.close()
 
 
+@router.post("/terminals/{terminal_id}/output")
+async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, request: Request):
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        if req.bridgeId and str(req.bridgeId).strip() != str(terminal["bridge_id"] or "").strip():
+            raise HTTPException(409, "Terminal is owned by a different bridge")
+        status = str(req.status or "").strip()
+        await _append_terminal_output(db, terminal, req.output or "", status=status)
+        if status in {"stopped", "failed"}:
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET terminal_status = ?,
+                    owner_mode = 'managed',
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (status, _now(), terminal["session_id"]),
+            )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": updated["status"] or "", "output": req.output or ""})
+        return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
+    finally:
+        await db.close()
+
+
+@router.post("/terminals/{terminal_id}/input")
+async def send_terminal_input(terminal_id: str, req: TerminalControlRequest, request: Request):
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        control_id = await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=terminal["environment_id"],
+            bridge_id=terminal["bridge_id"] or "",
+            action="input",
+            requested_by=requested_by,
+            body=req.body or "",
+        )
+        await _append_terminal_event(db, terminal_id, "terminal_input_requested", json.dumps({"requestedBy": requested_by, "controlId": control_id}))
+        await db.commit()
+        control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_control_requested", {"terminalId": terminal_id, "action": "input"})
+        return {"ok": True, "control": _terminal_control_to_dict(control)}
+    finally:
+        await db.close()
+
+
+@router.post("/terminals/{terminal_id}/resize")
+async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        control_id = await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=terminal["environment_id"],
+            bridge_id=terminal["bridge_id"] or "",
+            action="resize",
+            requested_by=requested_by,
+            cols=int(req.cols or 0),
+            rows=int(req.rows or 0),
+        )
+        await _append_terminal_event(db, terminal_id, "terminal_resize_requested", json.dumps({"requestedBy": requested_by, "cols": req.cols or 0, "rows": req.rows or 0}))
+        await db.commit()
+        control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_control_requested", {"terminalId": terminal_id, "action": "resize"})
+        return {"ok": True, "control": _terminal_control_to_dict(control)}
+    finally:
+        await db.close()
+
+
 @router.post("/terminals/{terminal_id}/stop")
 async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
     db = await get_db()
@@ -4181,25 +4370,33 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
         now = _now()
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
-        await db.execute(
-            """
-            UPDATE terminal_sessions
-            SET status = 'stopped', updated_at = ?, stopped_at = ?
-            WHERE id = ?
-            """,
-            (now, now, terminal_id),
+        control_id = await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=terminal["environment_id"],
+            bridge_id=terminal["bridge_id"] or "",
+            action="stop",
+            requested_by=requested_by,
+            body=req.body or "",
         )
         await _append_terminal_event(
             db,
             terminal_id,
             "console_stop_requested",
-            json.dumps({"requestedBy": requested_by, "body": req.body or ""}),
+            json.dumps({"requestedBy": requested_by, "body": req.body or "", "controlId": control_id}),
+        )
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopping', updated_at = ?
+            WHERE id = ?
+            """,
+            (now, terminal_id),
         )
         await db.execute(
             """
             UPDATE agent_sessions
-            SET owner_mode = 'managed',
-                terminal_status = 'stopped',
+            SET terminal_status = 'stopping',
                 last_seen = ?
             WHERE id = ?
             """,
@@ -4211,6 +4408,109 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
         if ws:
             await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
         return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
+    finally:
+        await db.close()
+
+
+@router.post("/terminals/controls/claim")
+async def claim_terminal_controls(req: TerminalControlClaim):
+    db = await get_db()
+    try:
+        now = _now()
+        cursor = await db.execute(
+            """
+            SELECT *
+            FROM terminal_controls
+            WHERE environment_id = ?
+              AND COALESCE(bridge_id, '') = ?
+              AND status = 'pending'
+            ORDER BY requested_at ASC
+            LIMIT 20
+            """,
+            (req.environmentId, req.bridgeId),
+        )
+        controls = await cursor.fetchall()
+        if controls:
+            ids = [row["id"] for row in controls]
+            await db.executemany(
+                "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE id = ? AND status = 'pending'",
+                [(now, control_id) for control_id in ids],
+            )
+            await db.commit()
+            refreshed = []
+            for control_id in ids:
+                row = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
+                if row:
+                    refreshed.append(row)
+            controls = refreshed
+        return {"ok": True, "controls": [_terminal_control_to_dict(row) for row in controls]}
+    finally:
+        await db.close()
+
+
+@router.patch("/terminals/controls/{control_id}")
+async def update_terminal_control(control_id: str, req: TerminalControlUpdate, request: Request):
+    status = str(req.status or "").strip().lower()
+    if status not in {"completed", "failed"}:
+        raise HTTPException(400, f'Unsupported terminal control status "{req.status}"')
+    db = await get_db()
+    try:
+        control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
+        if not control:
+            raise HTTPException(404, f'Terminal control "{control_id}" not found')
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (control["terminal_id"],))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{control["terminal_id"]}" not found')
+        now = _now()
+        await db.execute(
+            """
+            UPDATE terminal_controls
+            SET status = ?, handled_at = ?, error = ?
+            WHERE id = ?
+            """,
+            (status, now, req.error or "", control_id),
+        )
+        terminal_status = str(req.terminalStatus or "").strip()
+        if status == "failed":
+            terminal_status = terminal_status or "failed"
+        if control["action"] == "stop" and status == "completed":
+            terminal_status = terminal_status or "stopped"
+        if terminal_status:
+            await db.execute(
+                """
+                UPDATE terminal_sessions
+                SET status = ?, updated_at = ?, stopped_at = CASE WHEN ? IN ('stopped','failed') THEN COALESCE(stopped_at, ?) ELSE stopped_at END,
+                    error = CASE WHEN ? = 'failed' THEN ? ELSE error END
+                WHERE id = ?
+                """,
+                (terminal_status, now, terminal_status, now, status, req.error or "", terminal["id"]),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET terminal_status = ?,
+                    owner_mode = CASE WHEN ? IN ('stopped','failed') THEN 'managed' ELSE owner_mode END,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (terminal_status, terminal_status, now, terminal["session_id"]),
+            )
+        if req.output:
+            latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
+            await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
+        await _append_terminal_event(
+            db,
+            terminal["id"],
+            f"terminal_control_{status}",
+            json.dumps({"controlId": control_id, "action": control["action"], "error": req.error or ""}),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
+        updated_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_control_updated", {"terminalId": terminal["id"], "controlId": control_id, "status": status})
+        return {"ok": True, "control": _terminal_control_to_dict(updated), "terminal": _terminal_session_to_dict(updated_terminal)}
     finally:
         await db.close()
 
@@ -6243,6 +6543,31 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             )
             await _append_dispatch_event(db, active_run["runId"], "auto_heal", f"Stale run cleanup: {owner_label} -> {req.bridgeId}")
             await _fail_pending_controls_for_run(db, active_run["runId"], handled_at=finished_at, response_text=f'Stale run cleaned by live bridge "{req.bridgeId}".')
+        owner_cursor = await db.execute(
+            """
+            SELECT id, owner_mode, terminal_id, terminal_status
+            FROM agent_sessions
+            WHERE agent_id = ?
+              AND status IN ('starting','running','recovering','restarting')
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (req.agentId,),
+        )
+        owner_session = await owner_cursor.fetchone()
+        if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console":
+            await db.commit()
+            return {
+                "ok": True,
+                "run": None,
+                "blockedBy": {
+                    "reason": "console_owner_active",
+                    "sessionId": owner_session["id"],
+                    "terminalId": owner_session["terminal_id"] or "",
+                    "terminalStatus": owner_session["terminal_status"] or "",
+                    "hint": "Console owns this runtime handle. Stop or return Console to managed before claiming managed Messenger work.",
+                },
+            }
         run_cursor = await db.execute(
             """
             SELECT * FROM dispatch_runs

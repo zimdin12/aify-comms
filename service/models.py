@@ -231,6 +231,7 @@ class ConsoleStartRequest(BaseModel):
     requestedBy: Optional[str] = None
     workspace: Optional[str] = None
     command: Optional[str] = None
+    freshContext: Optional[bool] = False
 
 
 class TerminalControlRequest(BaseModel):
@@ -238,6 +239,24 @@ class TerminalControlRequest(BaseModel):
     body: Optional[str] = None
     cols: Optional[int] = None
     rows: Optional[int] = None
+
+
+class TerminalControlClaim(BaseModel):
+    environmentId: str
+    bridgeId: str
+
+
+class TerminalControlUpdate(BaseModel):
+    status: str
+    terminalStatus: Optional[str] = None
+    output: Optional[str] = None
+    error: Optional[str] = None
+
+
+class TerminalOutputRequest(BaseModel):
+    bridgeId: Optional[str] = None
+    output: Optional[str] = None
+    status: Optional[str] = None
 
 
 class AgentControlRequest(BaseModel):

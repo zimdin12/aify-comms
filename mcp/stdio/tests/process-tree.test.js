@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { descendantPids, terminateProcessTree } from "../runtimes.js";
 
 function isAlive(pid) {
   try {
     process.kill(pid, 0);
+    const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+    if (state.status === 0 && String(state.stdout || "").trim().startsWith("Z")) return false;
     return true;
   } catch {
     return false;

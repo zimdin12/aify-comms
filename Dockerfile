@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     build-essential \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 (needed for Claude Code CLI)
@@ -30,8 +31,8 @@ COPY service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install MCP client dependencies
-COPY mcp/stdio/package.json ./mcp/stdio/
-RUN cd mcp/stdio && npm install
+COPY mcp/stdio/package.json mcp/stdio/package-lock.json ./mcp/stdio/
+RUN cd mcp/stdio && npm ci
 
 # Copy service code
 COPY service/ ./service/

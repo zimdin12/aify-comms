@@ -311,6 +311,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     runtime TEXT NOT NULL,
     workspace TEXT DEFAULT '',
     command TEXT DEFAULT '',
+    output TEXT DEFAULT '',
     status TEXT DEFAULT 'starting',
     requested_by TEXT DEFAULT '',
     created_at TEXT NOT NULL,
@@ -330,8 +331,28 @@ CREATE TABLE IF NOT EXISTS terminal_events (
     FOREIGN KEY (terminal_id) REFERENCES terminal_sessions(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS terminal_controls (
+    id TEXT PRIMARY KEY,
+    terminal_id TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    bridge_id TEXT DEFAULT '',
+    action TEXT NOT NULL,
+    body TEXT DEFAULT '',
+    cols INTEGER DEFAULT 0,
+    rows INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    requested_by TEXT DEFAULT '',
+    requested_at TEXT NOT NULL,
+    claimed_at TEXT,
+    handled_at TEXT,
+    error TEXT DEFAULT '',
+    FOREIGN KEY (terminal_id) REFERENCES terminal_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session ON terminal_sessions(session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
+CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, status, requested_at);
 """
 
 AGENT_MIGRATIONS = {
@@ -373,6 +394,10 @@ AGENT_SESSION_MIGRATIONS = {
     "terminal_status": "ALTER TABLE agent_sessions ADD COLUMN terminal_status TEXT DEFAULT ''",
     "terminal_command": "ALTER TABLE agent_sessions ADD COLUMN terminal_command TEXT DEFAULT ''",
     "terminal_workspace": "ALTER TABLE agent_sessions ADD COLUMN terminal_workspace TEXT DEFAULT ''",
+}
+
+TERMINAL_SESSION_MIGRATIONS = {
+    "output": "ALTER TABLE terminal_sessions ADD COLUMN output TEXT DEFAULT ''",
 }
 
 
@@ -424,6 +449,14 @@ async def _migrate_agent_sessions_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+async def _migrate_terminal_sessions_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(terminal_sessions)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in TERMINAL_SESSION_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def init_db(db_path: Path = None):
     global _db_path
     if db_path:
@@ -439,6 +472,7 @@ async def init_db(db_path: Path = None):
         await _migrate_dispatch_controls_table(db)
         await _migrate_environments_table(db)
         await _migrate_agent_sessions_table(db)
+        await _migrate_terminal_sessions_table(db)
         await db.commit()
 
 async def get_db() -> aiosqlite.Connection:

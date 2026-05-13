@@ -118,6 +118,15 @@ function killPid(pid, signal) {
   }
 }
 
+function pidIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function terminateProcessTree(proc, signal = "SIGTERM") {
   if (!proc || !proc.pid) return;
   if (process.platform === "win32") {
@@ -142,6 +151,14 @@ export function terminateProcessTree(proc, signal = "SIGTERM") {
       killPid(-pid, signal);
       for (const childPid of descendants) {
         killPid(childPid, signal);
+      }
+      if (signal !== "SIGKILL") {
+        setTimeout(() => {
+          for (const childPid of descendants) {
+            if (pidIsAlive(childPid)) killPid(childPid, "SIGKILL");
+          }
+          if (pidIsAlive(pid)) killPid(pid, "SIGKILL");
+        }, 150);
       }
     }
   }

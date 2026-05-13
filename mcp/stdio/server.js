@@ -40,6 +40,7 @@ import {
   runtimeLaunchAvailability,
   terminateProcessTree,
 } from "./runtimes.js";
+import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
@@ -147,6 +148,11 @@ function cleanupOnExit() {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
   }
+  if (terminalControlTimer) {
+    clearInterval(terminalControlTimer);
+    terminalControlTimer = null;
+  }
+  TERMINAL_MANAGER.stopAll("bridge process exiting").catch(() => {});
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
@@ -177,6 +183,8 @@ let environmentControlTimer = null;
 let environmentControlBusy = false;
 let spawnLoopTimer = null;
 let spawnLoopBusy = false;
+let terminalControlTimer = null;
+let terminalControlBusy = false;
 let managedEnvironmentSyncBusy = false;
 let spawnClaimFailureCount = 0;
 let spawnClaimLastLogAt = 0;
@@ -185,6 +193,23 @@ const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 const RESIDENT_BINDING_FAILURES = new Map();
 const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
+const TERMINAL_MANAGER = new TerminalProcessManager({
+  onOutput: async (terminalId, output) => {
+    await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
+      bridgeId: BRIDGE_INSTANCE_ID,
+      output,
+      status: "attached",
+    });
+  },
+  onExit: async (terminalId, detail = {}) => {
+    const error = detail?.error?.message || "";
+    await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
+      bridgeId: BRIDGE_INSTANCE_ID,
+      output: error ? `\n[terminal failed] ${error}\n` : `\n[terminal exited]\n`,
+      status: error ? "failed" : "stopped",
+    });
+  },
+});
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
@@ -888,6 +913,9 @@ function environmentHeartbeatPayload() {
     bridgeVersion: BRIDGE_VERSION,
     cwdRoots: cwdRootsForEnvironment(),
     runtimes: advertisedEnvironmentRuntimes(),
+    terminal: bridgeTerminalSupported(),
+    pty: bridgeTerminalSupported(),
+    terminalRuntimes: advertisedEnvironmentRuntimes().map((runtime) => runtime.runtime),
     metadata: {
       pid: process.pid,
       platform: process.platform,
@@ -1017,6 +1045,86 @@ function ensureSpawnLoop() {
   spawnLoopTimer = setInterval(() => {
     runSpawnLoop().catch((error) => console.error("[aify] spawn loop error:", error));
   }, DISPATCH_POLL_MS);
+}
+
+function ensureTerminalControlLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlTimer || !bridgeTerminalSupported()) return;
+  runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
+  terminalControlTimer = setInterval(() => {
+    runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
+  }, DISPATCH_POLL_MS);
+}
+
+async function updateTerminalControl(controlId, body) {
+  return httpCall("PATCH", `/terminals/controls/${encodeURIComponent(controlId)}`, body);
+}
+
+async function runTerminalControlLoop() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;
+  terminalControlBusy = true;
+  try {
+    const environment = effectiveEnvironmentPayload();
+    const claim = await httpCall("POST", "/terminals/controls/claim", {
+      environmentId: environment.id,
+      bridgeId: BRIDGE_INSTANCE_ID,
+    });
+    const controls = claim?.controls || [];
+    for (const control of controls) {
+      try {
+        const terminalId = String(control.terminalId || "").trim();
+        if (!terminalId) throw new Error("Terminal control missing terminal id");
+        if (control.action === "start") {
+          const terminalRes = await httpCall("GET", `/terminals/${encodeURIComponent(terminalId)}`);
+          const terminal = terminalRes?.terminal || {};
+          const workspace = terminal.workspace || DEFAULT_CWD;
+          if (!workspaceWithinRoots(workspace, environment.cwdRoots)) {
+            throw new Error(`Terminal workspace "${workspace}" is outside this bridge's advertised roots`);
+          }
+          const command = terminal.command || control.body || "";
+          const started = await TERMINAL_MANAGER.start({
+            id: terminalId,
+            command,
+            cwd: workspace,
+            env: {
+              ...process.env,
+              AIFY_AGENT_ID: terminal.agentId || "",
+              AIFY_COMMS_AGENT_ID: terminal.agentId || "",
+              AIFY_ENVIRONMENT_BRIDGE: "1",
+              AIFY_TERMINAL_ID: terminalId,
+            },
+          });
+          await updateTerminalControl(control.id, {
+            status: "completed",
+            terminalStatus: "attached",
+            output: `[terminal attached pid=${started.pid}]\n`,
+          });
+        } else if (control.action === "input") {
+          TERMINAL_MANAGER.input(terminalId, control.body || "");
+          await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
+        } else if (control.action === "resize") {
+          TERMINAL_MANAGER.resize(terminalId, control.cols || 0, control.rows || 0);
+          await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
+        } else if (control.action === "stop") {
+          await TERMINAL_MANAGER.stop(terminalId, "terminal stop control");
+          await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
+        } else {
+          throw new Error(`Unsupported terminal control action: ${control.action}`);
+        }
+      } catch (error) {
+        await updateTerminalControl(control.id, {
+          status: "failed",
+          terminalStatus: "failed",
+          error: error?.message || String(error),
+        }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("[aify] terminal control claim failed:", error?.message || error);
+    }
+  } finally {
+    terminalControlBusy = false;
+  }
 }
 
 function noteSpawnClaimFailure(error) {
@@ -1237,6 +1345,7 @@ function ensureDispatchLoop() {
 ensureEnvironmentHeartbeat();
 ensureEnvironmentControlLoop();
 ensureSpawnLoop();
+ensureTerminalControlLoop();
 
 async function runDispatchLoop() {
   if (!IS_REMOTE || dispatchLoopBusy) return;

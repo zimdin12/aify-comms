@@ -263,9 +263,13 @@ Initial setting should be conservative: detach but show an obvious “Detached t
 
 ## Implementation Slices
 
+Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Real resident terminal mirroring remains a follow-up capability; dashboard-opened Console streams are implemented.
+
 ### Slice 1: Data Model And Read-Only UI
 
 Add terminal/owner fields to session state, render Console tab disabled unless bridge advertises terminal capability, and show explanatory state.
+
+Status: implemented.
 
 Tests:
 
@@ -277,6 +281,8 @@ Tests:
 
 Add bridge heartbeat capability fields and no-op terminal API routes that create auditable terminal records without spawning a PTY.
 
+Status: implemented.
+
 Tests:
 
 - bridge capabilities persist
@@ -287,6 +293,8 @@ Tests:
 ### Slice 3: Local PTY Prototype
 
 Implement PTY start/input/resize/stop for one host family first. Prefer Linux/WSL for the first slice unless Windows ConPTY is needed first for the operator’s main workflow.
+
+Status: implemented with `node-pty` as the primary bridge PTY path and pipe fallback for constrained hosts.
 
 Tests:
 
@@ -300,6 +308,8 @@ Tests:
 
 Start `claude-aify --aify-agent <id> --resume <handle>` inside the PTY and verify channel marker registration.
 
+Status: command building and ownership protection implemented. Live Claude verification was deferred because the operator reported Claude Code usage was exhausted during implementation.
+
 Tests:
 
 - console start creates resident/console ownership
@@ -312,6 +322,8 @@ Tests:
 
 Add runtime-specific command builders for `codex-aify` and `omp-aify` / `pi-aify`.
 
+Status: implemented. Pi requires a saved handle for context-preserving Console start unless the operator explicitly starts fresh.
+
 Tests:
 
 - Codex uses managed `CODEX_HOME` when resuming managed thread
@@ -321,6 +333,8 @@ Tests:
 ### Slice 6: Polish And Operations
 
 Add reconnect UI, terminal status badges, output buffer limits, idle lease settings, and docs.
+
+Status: partially implemented for status badges, buffered output, stop/reconnect via terminal id, process-tree cleanup, and docs. Lease-expiry policy and real resident terminal mirroring are still follow-up decisions.
 
 Tests:
 
