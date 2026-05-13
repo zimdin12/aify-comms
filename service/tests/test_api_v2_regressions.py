@@ -529,6 +529,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.status_code, 200, settings.text)
         self.assertEqual(settings.json().get("managed_codex_model"), "")
         self.assertEqual(settings.json().get("managed_claude_model"), "")
+        self.assertEqual(settings.json().get("managed_pi_model"), "")
 
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -545,6 +546,47 @@ class ApiV2RegressionTests(unittest.TestCase):
         spawn = created.json()["spawnRequest"]
         self.assertEqual(spawn["spawnSpec"]["model"], "")
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
+
+    def test_managed_pi_spawn_uses_settings_defaults_and_persists_runtime_config(self):
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        settings = self.client.put(
+            "/api/v1/settings",
+            json={"managed_pi_model": "gpt-5.5", "managed_pi_effort": "high"},
+        )
+        self.assertEqual(settings.status_code, 200, settings.text)
+
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "default-pi",
+                "role": "coder",
+                "runtime": "pi",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn = created.json()["spawnRequest"]
+        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-5.5")
+        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
+
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn['id']}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-pi",))
+        self.assertEqual(agent["model"], "gpt-5.5")
+        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "high")
 
     def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
@@ -646,6 +688,40 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("global-codex",))
         self.assertEqual(agent["model"], "gpt-global")
         self.assertEqual(json.loads(agent["runtime_config"])["effort"], "xhigh")
+
+    def test_runtime_settings_update_existing_managed_pi_agents_globally(self):
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "global-pi",
+                "role": "coder",
+                "runtime": "pi",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        pi_spawn = created.json()["spawnRequest"]
+        updated = self.client.patch(
+            f"/api/v1/spawn-requests/{pi_spawn['id']}",
+            json={"status": "running", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        settings = self.client.put(
+            "/api/v1/settings",
+            json={"managed_pi_model": "gpt-5.5", "managed_pi_effort": "medium"},
+        )
+        self.assertEqual(settings.status_code, 200, settings.text)
+        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("global-pi",))
+        self.assertEqual(agent["model"], "gpt-5.5")
+        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
 
     def test_environment_list_marks_missing_heartbeat_offline_and_orders_stably(self):
         self._heartbeat_environment(
@@ -1855,6 +1931,64 @@ class ApiV2RegressionTests(unittest.TestCase):
                 self.assertEqual(session["session_handle"], "")
                 self.assertFalse(json.loads(session["capabilities"])["nativeResume"])
                 self.assertNotIn("registeredHandle", json.loads(session["telemetry"]))
+
+    def test_runtime_state_update_persists_reported_managed_native_handle(self):
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "late-handle-pi",
+                "role": "coder",
+                "runtime": "pi",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={
+                "status": "running",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+                "runtimeState": {
+                    "bridgeInstanceId": "bridge-current",
+                    "environmentId": "linux:test-host:default",
+                    "spawnRequestId": spawn_id,
+                    "sessionId": "",
+                },
+            },
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        self.assertEqual(running.json()["spawnRequest"]["sessionHandle"], "")
+
+        state_update = self.client.patch(
+            "/api/v1/agents/late-handle-pi/runtime-state",
+            json={
+                "runtimeState": {
+                    "bridgeInstanceId": "bridge-current",
+                    "environmentId": "linux:test-host:default",
+                    "spawnRequestId": spawn_id,
+                    "sessionId": "pi-native-session",
+                }
+            },
+        )
+        self.assertEqual(state_update.status_code, 200, state_update.text)
+
+        agent = self._fetchone("SELECT session_handle, runtime_state FROM agents WHERE id = ?", ("late-handle-pi",))
+        self.assertEqual(agent["session_handle"], "pi-native-session")
+        self.assertEqual(json.loads(agent["runtime_state"])["sessionId"], "pi-native-session")
+        session = self._fetchone(
+            "SELECT session_handle FROM agent_sessions WHERE agent_id = ? AND spawn_request_id = ?",
+            ("late-handle-pi", spawn_id),
+        )
+        self.assertEqual(session["session_handle"], "pi-native-session")
 
     def test_recovered_session_running_ends_previous_recovering_session(self):
         self._heartbeat_environment()

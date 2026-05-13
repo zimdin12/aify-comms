@@ -143,7 +143,7 @@ Runtime model defaults and overrides:
 
 - managed Claude Code and Codex model fields are blank by default; blank means the installed runtime chooses its default/latest model
 - managed Claude Code and Codex both default to `high` effort/reasoning effort
-- managed Oh My Pi uses its runtime defaults unless model/thinking are supplied through runtime config; blank or `default` model means no explicit `--model` override
+- managed Oh My Pi uses its runtime defaults unless model/thinking are supplied through Dashboard Runtime settings or runtime config; blank or `default` model means no explicit `--model` override, and Pi effort maps to OMP `--thinking`
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
 - Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
 - Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set

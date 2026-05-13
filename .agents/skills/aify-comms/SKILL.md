@@ -41,7 +41,7 @@ For live Codex, prefer exact binding from the same `codex-aify` session:
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
 
-For live Oh My Pi, bind the real resumable session handle from the same `omp-aify` or `pi-aify` session:
+For live Oh My Pi, `omp-aify --aify-agent <id> --resume <session-id>` / `pi-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session. When registering manually, bind the real resumable session handle from that same wrapper session:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")

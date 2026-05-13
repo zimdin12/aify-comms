@@ -49,6 +49,8 @@ Current Pi note:
 - Managed Pi supports persistent managed work, resume handles when OMP exposes them, and interrupt.
 - Managed Pi captures streamed `text_delta` output and final assistant text from RPC completion events such as `message_end` / `agent_end`.
 - A blank model, or a stored model value of `default`, means no `--model` override; Oh My Pi then uses `~/.omp/agent/config.yml`.
+- Dashboard **Settings -> Runtime** can set managed Pi model and effort defaults. Pi effort is passed to OMP as `--thinking` when set.
+- When managed OMP later reports a native `sessionId`, aify stores it as the agent/session handle so the dashboard edit field and future resumes can use it.
 - Steering is intentionally disabled until a stable Pi follow-up/steer contract is verified.
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`).
 - Set `AIFY_PI_COMMAND` or `PI_COMMAND` before starting `aify-comms` if `omp` is installed somewhere that is not on the bridge process `PATH`.

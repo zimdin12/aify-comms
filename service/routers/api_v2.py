@@ -81,6 +81,8 @@ DEFAULT_SETTINGS = {
     "managed_claude_effort": "high",
     "managed_codex_model": "",
     "managed_codex_effort": "high",
+    "managed_pi_model": "",
+    "managed_pi_effort": "",
     "resident_lease_seconds": 150,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
@@ -1621,6 +1623,7 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
     defaults = [
         ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
         ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
+        ("pi", settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"]), settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]),
     ]
     for runtime, model, effort in defaults:
         model = str(model or "").strip()
@@ -3524,11 +3527,17 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                 model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
             elif normalized_runtime == "claude-code":
                 model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
+            elif normalized_runtime == "pi":
+                model = str(settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"])).strip()
         runtime_config = req.runtimeConfig or {}
         if normalized_runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
         elif normalized_runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
+        elif normalized_runtime == "pi" and not str(runtime_config.get("effort") or runtime_config.get("thinking") or "").strip():
+            pi_effort = str(settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]).strip()
+            if pi_effort:
+                runtime_config = {**runtime_config, "effort": pi_effort}
         metadata = req.metadata or {}
         if runtime_config:
             metadata = {**metadata, "runtimeConfig": runtime_config}
@@ -4580,6 +4589,8 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                 model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
             elif runtime == "claude-code":
                 model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
+            elif runtime == "pi":
+                model = str(settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"])).strip()
         existing_runtime_config = _json_loads_or(agent["runtime_config"], {})
         requested_runtime_config = req.runtimeConfig or {}
         runtime_config = {**existing_runtime_config, **requested_runtime_config}
@@ -4587,6 +4598,10 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
         elif runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
             runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
+        elif runtime == "pi" and not str(runtime_config.get("effort") or runtime_config.get("thinking") or "").strip():
+            pi_effort = str(settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]).strip()
+            if pi_effort:
+                runtime_config = {**runtime_config, "effort": pi_effort}
         now = _now()
         previous_runtime = _normalize_runtime(agent["runtime"] or runtime)
         latest_session = await (await db.execute(
@@ -4999,7 +5014,7 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
     db = await get_db()
     try:
         now = _now()
-        current = await (await db.execute("SELECT session_mode, runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        current = await (await db.execute("SELECT runtime, session_mode, session_handle, capabilities, runtime_config, runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not current:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         next_state = dict(req.runtimeState or {})
@@ -5022,10 +5037,23 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
             if current_state.get("environmentId"):
                 next_state["environmentId"] = current_state["environmentId"]
             next_state["pendingResidentTakeover"] = pending
-        await db.execute(
-            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
-            (json.dumps(next_state), now, agent_id)
-        )
+        reported_handle = _runtime_handle_from_state(current["runtime"], next_state)
+        if reported_handle:
+            capabilities = _default_capabilities_for(
+                current["runtime"],
+                current["session_mode"] or "resident",
+                reported_handle,
+                _json_loads_or(current["runtime_config"], {}),
+            )
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, session_handle = ?, capabilities = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(next_state), reported_handle, json.dumps(capabilities), now, agent_id)
+            )
+        else:
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(next_state), now, agent_id)
+            )
         await _touch_current_agent_session(db, agent_id, next_state, now)
         await db.commit()
         return {"ok": True, "agentId": agent_id, "runtimeState": next_state}

@@ -1595,7 +1595,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless runtime config supplies model/thinking.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1766,6 +1766,16 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <label>Managed Codex Effort</label>
         <select id="s-codex-effort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
         <div class="hint">Default reasoning effort for new managed Codex spawns. Repo fallback: high</div>
+      </div>
+      <div class="form-group">
+        <label>Managed Pi Model</label>
+        <input id="s-pi-model" placeholder="Oh My Pi default">
+        <div class="hint">Optional global override passed to Oh My Pi as <code>--model</code>. Blank or <code>default</code> lets OMP use its configured default.</div>
+      </div>
+      <div class="form-group">
+        <label>Managed Pi Effort</label>
+        <select id="s-pi-effort"><option value="">OMP default</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
+        <div class="hint">Optional thinking/effort value passed to Oh My Pi as <code>--thinking</code>.</div>
       </div>
           </section>
           <section class="settings-panel" data-settings-panel="work">
@@ -6148,6 +6158,8 @@ async function loadSettings() {
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
   document.getElementById('s-codex-model').value = s.managed_codex_model || '';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
+  document.getElementById('s-pi-model').value = s.managed_pi_model || '';
+  document.getElementById('s-pi-effort').value = s.managed_pi_effort || '';
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
   document.getElementById('s-reply-repeat').value = s.reply_reminder_repeat_minutes;
@@ -6182,6 +6194,8 @@ async function saveSettings(e) {
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
       managed_codex_model: document.getElementById('s-codex-model').value.trim(),
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
+      managed_pi_model: document.getElementById('s-pi-model').value.trim(),
+      managed_pi_effort: document.getElementById('s-pi-effort').value || '',
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
       reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
       reply_reminder_repeat_minutes: parseInt(document.getElementById('s-reply-repeat').value),
