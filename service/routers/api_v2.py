@@ -485,6 +485,35 @@ async def _delete_messages_by_ids(db, message_ids: list[str], *, chunk_size: int
     return deleted
 
 
+async def _cancel_queued_dispatch_runs_for_message_ids(db, message_ids: list[str], *, chunk_size: int = 250) -> list[str]:
+    pending = _dedupe_preserve([str(message_id or "").strip() for message_id in message_ids if str(message_id or "").strip()])
+    if not pending:
+        return []
+
+    cancelled_ids = []
+    finished_at = _now()
+    summary = "Cancelled because source message was unsent."
+    for start in range(0, len(pending), chunk_size):
+        chunk = pending[start:start + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        cursor = await db.execute(
+            f"SELECT id FROM dispatch_runs WHERE status = 'queued' AND message_id IN ({placeholders})",
+            chunk,
+        )
+        run_ids = [str(row["id"]) for row in await cursor.fetchall()]
+        if not run_ids:
+            continue
+        run_placeholders = ",".join("?" for _ in run_ids)
+        await db.execute(
+            f"UPDATE dispatch_runs SET status = 'cancelled', summary = ?, finished_at = ? WHERE id IN ({run_placeholders})",
+            (summary, finished_at, *run_ids),
+        )
+        for run_id in run_ids:
+            await _append_dispatch_event(db, run_id, "cancelled", summary)
+        cancelled_ids.extend(run_ids)
+    return cancelled_ids
+
+
 async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] = ()) -> int:
     message_ids = await _select_message_ids(db, where_clause, params)
     return await _delete_messages_by_ids(db, message_ids)
@@ -6792,12 +6821,21 @@ async def unsend_message(message_id: str, request: Request):
                 (f"{message_id}-%", row["channel"] or ""),
             )
             message_ids.extend([fanout["id"] for fanout in await fanout_cursor.fetchall()])
+        cancelled_dispatch_run_ids = await _cancel_queued_dispatch_runs_for_message_ids(db, message_ids)
         deleted = await _delete_messages_by_ids(db, message_ids)
         await db.commit()
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("message_deleted", {"id": message_id, "deleted": deleted})
-        return {"ok": True, "id": message_id, "deleted": deleted}
+            for run_id in cancelled_dispatch_run_ids:
+                await ws.broadcast("dispatch_updated", {"runId": run_id, "status": "cancelled"})
+        return {
+            "ok": True,
+            "id": message_id,
+            "deleted": deleted,
+            "cancelledDispatchRuns": len(cancelled_dispatch_run_ids),
+            "cancelledDispatchRunIds": cancelled_dispatch_run_ids,
+        }
     finally:
         await db.close()
 

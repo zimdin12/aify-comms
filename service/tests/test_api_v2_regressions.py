@@ -2808,6 +2808,52 @@ class ApiV2RegressionTests(unittest.TestCase):
         rows_after = self._fetchall("SELECT id FROM messages WHERE id = ? OR id LIKE ?", (canonical_id, f"{canonical_id}-%"))
         self.assertEqual(rows_after, [])
 
+    def test_unsending_queued_message_cancels_attached_dispatch_run(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("manager", role="manager", runtime="claude-code", sessionMode="managed")
+
+        active = self._dispatch(
+            from_agent="dashboard",
+            to="manager",
+            type="request",
+            subject="active turn",
+            body="keep going",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        active_run_id = active["runs"][0]["runId"]
+        self._execute(
+            "UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?",
+            ("2026-01-01T00:00:00Z", active_run_id),
+        )
+
+        sent = self._send_message(
+            from_agent="lead",
+            to="manager",
+            type="request",
+            subject="queued update",
+            body="do this later",
+            trigger=True,
+        )
+        self.assertTrue(sent["ok"])
+        message_id = sent["messageId"]
+        queued_run_id = sent["dispatchRuns"][0]["runId"]
+        self.assertEqual(sent["dispatchRuns"][0]["status"], "queued")
+
+        deleted = self.client.delete(f"/api/v1/messages/{message_id}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json()["deleted"], 1)
+        self.assertEqual(deleted.json()["cancelledDispatchRuns"], 1)
+
+        queued_run = self._fetchone(
+            "SELECT status, summary, message_id, finished_at FROM dispatch_runs WHERE id = ?",
+            (queued_run_id,),
+        )
+        self.assertEqual(queued_run["status"], "cancelled")
+        self.assertEqual(queued_run["summary"], "Cancelled because source message was unsent.")
+        self.assertIsNone(queued_run["message_id"])
+        self.assertTrue(queued_run["finished_at"])
+
     def test_clear_direct_conversation_removes_only_that_dm_pair(self):
         self._register("manager")
         self._register("alice")

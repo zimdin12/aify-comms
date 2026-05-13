@@ -5037,7 +5037,9 @@ async function unsendChatMessage(messageId) {
     if (!res.ok) throw new Error(res.detail || res.error || 'Unsend failed');
     window._allMsgs = (window._allMsgs || []).filter(item => item.id !== messageId);
     renderChat();
-    toast('Message unsent');
+    const cancelled = Number(res.cancelledDispatchRuns || 0);
+    toast(cancelled ? `Message unsent; cancelled ${cancelled} queued run${cancelled === 1 ? '' : 's'}` : 'Message unsent');
+    refreshDashboard();
   } catch (e) {
     toast(e.message || 'Unsend failed', '#f85149');
   }
