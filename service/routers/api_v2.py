@@ -25,6 +25,7 @@ from service.models import (
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
+    ConsoleStartRequest, TerminalControlRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -1301,11 +1302,15 @@ def _environment_effective_status(row, *, offline_seconds: int = 90) -> str:
 def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, Any]:
     status = _environment_effective_status(row, offline_seconds=offline_seconds)
     runtimes = _json_loads_or(row["runtimes"], [])
+    metadata = _json_loads_or(row["metadata"], {})
     normalized_runtimes = []
     for runtime in runtimes:
         if not isinstance(runtime, dict):
             continue
         normalized_runtimes.append({**runtime, "modes": ["managed-warm"]})
+    terminal = bool(metadata.get("terminal"))
+    pty = bool(metadata.get("pty"))
+    terminal_runtimes = metadata.get("terminalRuntimes") if isinstance(metadata.get("terminalRuntimes"), list) else []
     return {
         "id": row["id"],
         "label": row["label"] or row["id"],
@@ -1316,8 +1321,11 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         "bridgeVersion": (row["bridge_version"] if "bridge_version" in row.keys() else "") or "",
         "cwdRoots": _json_loads_or(row["cwd_roots"], []),
         "runtimes": normalized_runtimes,
+        "terminal": terminal,
+        "pty": pty,
+        "terminalRuntimes": terminal_runtimes,
         "status": status,
-        "metadata": _json_loads_or(row["metadata"], {}),
+        "metadata": metadata,
         "registeredAt": row["registered_at"] or "",
         "lastSeen": row["last_seen"] or "",
     }
@@ -1480,6 +1488,19 @@ def _runtime_capability_for_environment(environment: dict[str, Any], runtime: st
         if _normalize_runtime(item.get("runtime") or "") == normalized:
             return item
     return None
+
+
+def _environment_supports_terminal(environment: dict[str, Any], runtime: str) -> bool:
+    if not bool(environment.get("terminal")) or not bool(environment.get("pty")):
+        return False
+    allowed = [
+        _normalize_runtime(str(item or ""))
+        for item in (environment.get("terminalRuntimes") or [])
+        if str(item or "").strip()
+    ]
+    if allowed and _normalize_runtime(runtime) not in allowed:
+        return False
+    return True
 
 
 def _environment_uses_windows_paths(environment: dict[str, Any]) -> bool:
@@ -1652,6 +1673,35 @@ def _agent_session_to_dict(row) -> dict[str, Any]:
         "startedAt": row["started_at"] or "",
         "lastSeen": row["last_seen"] or "",
         "endedAt": row["ended_at"] or "",
+    }
+
+
+def _terminal_session_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "agentId": row["agent_id"],
+        "environmentId": row["environment_id"],
+        "bridgeId": row["bridge_id"] or "",
+        "runtime": row["runtime"],
+        "workspace": row["workspace"] or "",
+        "command": row["command"] or "",
+        "status": row["status"] or "",
+        "requestedBy": row["requested_by"] or "",
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
+        "stoppedAt": row["stopped_at"] or "",
+        "error": row["error"] or "",
+    }
+
+
+def _terminal_event_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "terminalId": row["terminal_id"],
+        "eventType": row["event_type"],
+        "body": row["body"] or "",
+        "createdAt": row["created_at"] or "",
     }
 
 
@@ -1858,6 +1908,13 @@ async def _append_dispatch_event(db, run_id: str, event_type: str, body: str = "
     await db.execute(
         "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
         (run_id, event_type, body or "", _now())
+    )
+
+
+async def _append_terminal_event(db, terminal_id: str, event_type: str, body: str = ""):
+    await db.execute(
+        "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) VALUES (?,?,?,?)",
+        (terminal_id, event_type, body or "", _now()),
     )
 
 
@@ -3173,6 +3230,16 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     cwd_roots = _normalize_roots(req.cwdRoots or [])
     runtimes = req.runtimes or []
     metadata = req.metadata or {}
+    if req.terminal is not None:
+        metadata["terminal"] = bool(req.terminal)
+    if req.pty is not None:
+        metadata["pty"] = bool(req.pty)
+    if req.terminalRuntimes is not None:
+        metadata["terminalRuntimes"] = [
+            _normalize_runtime(str(runtime or ""))
+            for runtime in req.terminalRuntimes
+            if str(runtime or "").strip()
+        ]
     requested_status = str(req.status or "online").strip().lower()
     if requested_status not in {"online", "degraded", "offline"}:
         requested_status = "online"
@@ -3979,6 +4046,171 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
             (*params, limit),
         )
         return {"ok": True, "sessions": [_agent_session_to_dict(row) for row in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+def _default_console_command(session, workspace: str) -> str:
+    agent_id = str(session["agent_id"] or "").strip()
+    handle = str(session["session_handle"] or "").strip()
+    runtime = _normalize_runtime(session["runtime"] or "")
+    if runtime == "claude-code":
+        parts = ["claude-aify", "--aify-agent", agent_id]
+    elif runtime == "pi":
+        parts = ["pi-aify", "--aify-agent", agent_id]
+    elif runtime == "codex":
+        parts = ["codex-aify", "--aify-agent", agent_id]
+    else:
+        parts = [runtime or "agent", "--aify-agent", agent_id]
+    if handle:
+        parts.extend(["--resume", handle])
+    return " ".join(part for part in parts if part)
+
+
+@router.post("/sessions/{session_id}/console/start")
+async def start_session_console(session_id: str, req: ConsoleStartRequest, request: Request):
+    db = await get_db()
+    try:
+        session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+        if not session:
+            raise HTTPException(404, f'Session "{session_id}" not found')
+        env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (session["environment_id"],))).fetchone()
+        if not env_row:
+            raise HTTPException(409, f'Environment "{session["environment_id"]}" is not available')
+        settings = await _load_settings(db)
+        environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+        if str(environment.get("status") or "").lower() != "online":
+            raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
+        if not _environment_supports_terminal(environment, session["runtime"]):
+            raise HTTPException(
+                409,
+                f'Environment "{environment.get("id")}" does not advertise terminal support for runtime "{session["runtime"]}".',
+            )
+
+        workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
+        terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        command = str(req.command or "").strip() or _default_console_command(session, workspace)
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        bridge_id = str(environment.get("bridgeId") or "").strip()
+        await db.execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                status, requested_by, created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                session_id,
+                session["agent_id"],
+                session["environment_id"],
+                bridge_id,
+                session["runtime"],
+                workspace,
+                command,
+                "starting",
+                requested_by,
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "console_start_requested",
+            json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace, "command": command}),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'console',
+                owner_bridge_id = ?,
+                terminal_id = ?,
+                terminal_status = 'starting',
+                terminal_command = ?,
+                terminal_workspace = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (bridge_id, terminal_id, command, workspace, now, session_id),
+        )
+        await db.commit()
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_started", {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"]})
+        return {
+            "ok": True,
+            "terminal": _terminal_session_to_dict(terminal),
+            "session": _agent_session_to_dict(updated_session),
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/terminals/{terminal_id}")
+async def get_terminal(terminal_id: str):
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        events = await (await db.execute(
+            "SELECT * FROM terminal_events WHERE terminal_id = ? ORDER BY id ASC LIMIT 200",
+            (terminal_id,),
+        )).fetchall()
+        return {
+            "ok": True,
+            "terminal": _terminal_session_to_dict(terminal),
+            "events": [_terminal_event_to_dict(row) for row in events],
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/terminals/{terminal_id}/stop")
+async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        now = _now()
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped', updated_at = ?, stopped_at = ?
+            WHERE id = ?
+            """,
+            (now, now, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "console_stop_requested",
+            json.dumps({"requestedBy": requested_by, "body": req.body or ""}),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'managed',
+                terminal_status = 'stopped',
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (now, terminal["session_id"]),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
+        return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
     finally:
         await db.close()
 

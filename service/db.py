@@ -301,6 +301,37 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_seen ON agent_sessions(agent_id, last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_env_status ON agent_sessions(environment_id, status, last_seen DESC);
+
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    environment_id TEXT NOT NULL,
+    bridge_id TEXT DEFAULT '',
+    runtime TEXT NOT NULL,
+    workspace TEXT DEFAULT '',
+    command TEXT DEFAULT '',
+    status TEXT DEFAULT 'starting',
+    requested_by TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    stopped_at TEXT,
+    error TEXT DEFAULT '',
+    FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS terminal_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    body TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (terminal_id) REFERENCES terminal_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session ON terminal_sessions(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
 """
 
 AGENT_MIGRATIONS = {

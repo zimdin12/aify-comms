@@ -133,6 +133,9 @@ class EnvironmentHeartbeat(BaseModel):
     bridgeVersion: Optional[str] = None
     cwdRoots: Optional[list[str]] = None
     runtimes: Optional[list[dict[str, Any]]] = None
+    terminal: Optional[bool] = None
+    pty: Optional[bool] = None
+    terminalRuntimes: Optional[list[str]] = None
     status: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
 
@@ -222,6 +225,19 @@ class SessionControlRequest(BaseModel):
     body: Optional[str] = None
     subject: Optional[str] = None
     priority: str = "normal"
+
+
+class ConsoleStartRequest(BaseModel):
+    requestedBy: Optional[str] = None
+    workspace: Optional[str] = None
+    command: Optional[str] = None
+
+
+class TerminalControlRequest(BaseModel):
+    requestedBy: Optional[str] = None
+    body: Optional[str] = None
+    cols: Optional[int] = None
+    rows: Optional[int] = None
 
 
 class AgentControlRequest(BaseModel):

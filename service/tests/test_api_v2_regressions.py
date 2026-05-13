@@ -1293,6 +1293,110 @@ class ApiV2RegressionTests(unittest.TestCase):
             "ownerBridgeId": "bridge-current",
         })
 
+    def test_environment_heartbeat_persists_terminal_capabilities(self):
+        environment = self._heartbeat_environment(
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["codex", "pi"],
+        )
+        self.assertTrue(environment["terminal"])
+        self.assertTrue(environment["pty"])
+        self.assertEqual(environment["terminalRuntimes"], ["codex", "pi"])
+
+        listed = self.client.get("/api/v1/environments")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        listed_env = listed.json()["environments"][0]
+        self.assertTrue(listed_env["terminal"])
+        self.assertTrue(listed_env["pty"])
+        self.assertEqual(listed_env["terminalRuntimes"], ["codex", "pi"])
+
+    def _create_running_session(self, *, terminal: bool = False, workspace: str = "/workspace/repo"):
+        self._heartbeat_environment(
+            terminal=terminal,
+            pty=terminal,
+            terminalRuntimes=["codex"] if terminal else [],
+        )
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "console-agent",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": workspace,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        claim = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": "thread-1"},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        return running.json()["spawnRequest"]["sessionId"]
+
+    def test_console_start_rejects_environment_without_terminal_support(self):
+        session_id = self._create_running_session(terminal=False)
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 409, started.text)
+        self.assertIn("does not advertise terminal support", started.text)
+        self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions LIMIT 1"))
+
+    def test_console_start_rejects_workspace_outside_environment_roots(self):
+        session_id = self._create_running_session(terminal=True)
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard", "workspace": "/elsewhere/repo"},
+        )
+        self.assertEqual(started.status_code, 400, started.text)
+        self.assertIn("outside the roots", started.text)
+        self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions LIMIT 1"))
+
+    def test_console_start_creates_terminal_record_and_audit_event(self):
+        session_id = self._create_running_session(terminal=True)
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard", "command": "codex-aify --aify-agent console-agent"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        payload = started.json()
+        terminal = payload["terminal"]
+        self.assertEqual(terminal["sessionId"], session_id)
+        self.assertEqual(terminal["agentId"], "console-agent")
+        self.assertEqual(terminal["runtime"], "codex")
+        self.assertEqual(terminal["status"], "starting")
+        self.assertEqual(terminal["workspace"], "/workspace/repo")
+        self.assertEqual(terminal["command"], "codex-aify --aify-agent console-agent")
+
+        session = self.client.get(f"/api/v1/sessions?agentId=console-agent").json()["sessions"][0]
+        self.assertEqual(session["ownerMode"], "console")
+        self.assertEqual(session["terminalId"], terminal["id"])
+        self.assertEqual(session["terminalStatus"], "starting")
+
+        fetched = self.client.get(f"/api/v1/terminals/{terminal['id']}")
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        self.assertEqual(fetched.json()["terminal"]["id"], terminal["id"])
+        self.assertEqual(fetched.json()["events"][0]["eventType"], "console_start_requested")
+
+        event = self._fetchone(
+            "SELECT event_type, body FROM terminal_events WHERE terminal_id = ?",
+            (terminal["id"],),
+        )
+        self.assertEqual(event["event_type"], "console_start_requested")
+        self.assertIn("dashboard", event["body"])
+
     def test_assign_agent_environment_retargets_saved_managed_config(self):
         self._heartbeat_environment(id="linux:old-host:default", bridgeId="bridge-old")
         self._heartbeat_environment(id="linux:new-host:default", bridgeId="bridge-new", cwdRoots=["/newroot"])
