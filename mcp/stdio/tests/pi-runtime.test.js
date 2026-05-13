@@ -61,13 +61,20 @@ rl.on("line", (line) => {
   }
   const message = JSON.parse(line);
   if (message.type === "prompt") {
+    if (message.message.includes("steer me now")) {
+      console.log(JSON.stringify({
+        id: message.id,
+        type: "response",
+        command: "prompt",
+        success: false,
+        error: "Agent is already processing. Use steer() or followUp() to queue messages, or wait for completion."
+      }));
+      return;
+    }
     console.log(JSON.stringify({ id: message.id, type: "response", command: "prompt", success: true, sessionId: "pi-session-fake" }));
     console.log(JSON.stringify({ type: "agent_start" }));
     if (message.message.includes("Wait for steer")) {
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "waiting" } }));
-    } else if (message.message.includes("steer me now")) {
-      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: " + steered" } }));
-      console.log(JSON.stringify({ type: "agent_end", id: "turn-steered", sessionId: "pi-session-fake" }));
     } else if (message.message.includes("Pi final fallback")) {
       const assistant = { role: "assistant", content: [{ type: "text", text: "final text from agent_end" }] };
       console.log(JSON.stringify({ type: "message_end", message: assistant }));
@@ -77,6 +84,10 @@ rl.on("line", (line) => {
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "from pi" } }));
       console.log(JSON.stringify({ type: "agent_end", id: "turn-fake", sessionId: "pi-session-fake" }));
     }
+  } else if (message.type === "steer") {
+    console.log(JSON.stringify({ id: message.id, type: "response", command: "steer", success: true, sessionId: "pi-session-fake" }));
+    console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: " + steered" } }));
+    console.log(JSON.stringify({ type: "agent_end", id: "turn-steered", sessionId: "pi-session-fake" }));
   }
 });
 `, { mode: 0o755 });
@@ -211,8 +222,10 @@ const steerResult = await steerController.promise;
 assert.equal(steerResult.status, "completed");
 assert.equal(steerResult.summary, "waiting + steered");
 const stdinLines = fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+const steerCommand = stdinLines.find((message) => message.type === "steer" && message.message === "steer me now");
+assert(steerCommand, "Pi steer should send a real OMP RPC steer command");
 const steerPrompt = stdinLines.find((message) => message.type === "prompt" && message.message === "steer me now");
-assert(steerPrompt, "Pi steer should send a follow-up prompt over OMP RPC");
+assert(!steerPrompt, "Pi steer must not send a second prompt while OMP is busy");
 
 const defaultModelController = launchRuntimeRun({
   agentId: "pi-worker",

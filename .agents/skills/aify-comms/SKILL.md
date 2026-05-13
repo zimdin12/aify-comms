@@ -47,7 +47,7 @@ For live Oh My Pi, `omp-aify --aify-agent <id> --resume <session-id>` / `pi-aify
 comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
 ```
 
-Pi managed/resident active-run steering uses a follow-up OMP RPC `prompt` when the active run is steer-capable. Use `queueIfBusy=true` when the message should wait for the next turn instead.
+Pi managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. Use `queueIfBusy=true` when the message should wait for the next turn instead.
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
 

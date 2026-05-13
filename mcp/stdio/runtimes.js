@@ -2532,7 +2532,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   let finalSnapshotText = "";
   let finalError = "";
   let requestCounter = 1;
-  const pendingPromptAcks = new Map();
+  const pendingCommandAcks = new Map();
 
   const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
   const resolvedText = () => finalText.trim() || finalSnapshotText.trim();
@@ -2542,23 +2542,23 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     proc.stdin.write(`${JSON.stringify(payload)}\n`);
   }
 
-  function rejectPendingPromptAcks(error) {
-    for (const pending of pendingPromptAcks.values()) {
+  function rejectPendingCommandAcks(error) {
+    for (const pending of pendingCommandAcks.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);
     }
-    pendingPromptAcks.clear();
+    pendingCommandAcks.clear();
   }
 
-  function sendPromptWithAck(message, prefix = "prompt") {
+  function sendCommandWithAck(payload, prefix = payload?.type || "command") {
     const id = nextRequestId(prefix);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        pendingPromptAcks.delete(id);
-        reject(new Error("Pi prompt acknowledgement timed out"));
+        pendingCommandAcks.delete(id);
+        reject(new Error(`Pi ${String(payload?.type || "command")} acknowledgement timed out`));
       }, 30000);
-      pendingPromptAcks.set(id, { resolve, reject, timer });
-      send({ id, type: "prompt", message });
+      pendingCommandAcks.set(id, { resolve, reject, timer, command: String(payload?.type || "command") });
+      send({ id, ...payload });
     });
   }
 
@@ -2582,7 +2582,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     proc.on("error", (error) => {
       settled = true;
       clearTimeout(timer);
-      rejectPendingPromptAcks(error);
+      rejectPendingCommandAcks(error);
       if (error && error.code === "ENOENT") {
         const piTarget = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "omp").trim();
         const enriched = new Error(
@@ -2629,18 +2629,18 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       }
 
       if (event.type === "response") {
-        if (event.command === "prompt") {
-          const pending = pendingPromptAcks.get(event.id);
-          if (pending) {
-            pendingPromptAcks.delete(event.id);
-            clearTimeout(pending.timer);
-            if (event.success === false) {
-              pending.reject(new Error(String(event.error || "Pi prompt failed")));
-            } else {
-              pending.resolve(event);
-            }
-            return;
+        const pending = pendingCommandAcks.get(event.id);
+        if (pending) {
+          pendingCommandAcks.delete(event.id);
+          clearTimeout(pending.timer);
+          if (event.success === false) {
+            pending.reject(new Error(String(event.error || `Pi ${pending.command} failed`)));
+          } else {
+            pending.resolve(event);
           }
+          return;
+        }
+        if (event.command === "prompt") {
           promptAcked = event.success !== false;
           if (event.success === false) finalError = String(event.error || "Pi prompt failed");
         }
@@ -2673,7 +2673,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         if (text) finalSnapshotText = text;
         settled = true;
         clearTimeout(timer);
-        rejectPendingPromptAcks(new Error("Pi run ended before steer acknowledgement"));
+        rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
         callbacks.onRuntimeState?.({ sessionId });
         callbacks.onRefs?.({ threadId: sessionId });
         resolve({
@@ -2705,7 +2705,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      rejectPendingPromptAcks(new Error(finalError || finalText.trim() || `Pi exited with code ${code}`));
+      rejectPendingCommandAcks(new Error(finalError || finalText.trim() || `Pi exited with code ${code}`));
       if (interrupted) {
         resolve({
           status: "cancelled",
@@ -2743,7 +2743,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       if (!proc || !proc.stdin?.writable || settled) {
         throw new Error("No active Pi turn to steer");
       }
-      await sendPromptWithAck(message, "steer");
+      await sendCommandWithAck({ type: "steer", message }, "steer");
       callbacks.onEvent?.("steer", "Steer sent to active Pi RPC run");
     },
     promise,

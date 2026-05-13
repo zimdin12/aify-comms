@@ -51,7 +51,7 @@ Current Pi note:
 - A blank model, or a stored model value of `default`, means no `--model` override; Oh My Pi then uses `~/.omp/agent/config.yml`.
 - Dashboard **Settings -> Runtime** can set managed Pi model and effort defaults. Pi effort is passed to OMP as `--thinking` when set.
 - When managed OMP later reports a native `sessionId`, aify stores it as the agent/session handle so the dashboard edit field and future resumes can use it.
-- Steering sends a follow-up OMP RPC `prompt` into the active Pi run. Use `queueIfBusy=true` when a message should wait for the next turn instead.
+- Steering sends OMP's native RPC `steer` command into the active Pi run. Use `queueIfBusy=true` when a message should wait for the next turn instead.
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`).
 - Set `AIFY_PI_COMMAND` or `PI_COMMAND` before starting `aify-comms` if `omp` is installed somewhere that is not on the bridge process `PATH`.
 
