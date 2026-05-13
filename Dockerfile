@@ -37,6 +37,7 @@ RUN cd mcp/stdio && npm install
 COPY service/ ./service/
 COPY mcp/ ./mcp/
 COPY config/ ./config/
+COPY .agents/ ./.agents/
 
 VOLUME /data
 

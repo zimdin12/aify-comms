@@ -3,6 +3,7 @@
 .env
 *.md
 !service/**/*.md
+!.agents/**/*.md
 node_modules
 mcp/stdio/node_modules
 data/
