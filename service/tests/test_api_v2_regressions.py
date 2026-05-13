@@ -584,9 +584,10 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
-        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-pi",))
+        agent = self._fetchone("SELECT model, runtime_config, capabilities FROM agents WHERE id = ?", ("default-pi",))
         self.assertEqual(agent["model"], "gpt-5.5")
         self.assertEqual(json.loads(agent["runtime_config"])["effort"], "high")
+        self.assertIn("steer", json.loads(agent["capabilities"]))
 
     def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")

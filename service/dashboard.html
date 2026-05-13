@@ -2670,6 +2670,9 @@ function runtimeAttachNote(session) {
   if (runtime === 'codex') {
     return 'Headless managed Codex uses the bridge app-server and managed CODEX_HOME. Resume by ID with the generated command when a resume ID is recorded.';
   }
+  if (runtime === 'pi') {
+    return 'Managed Pi uses OMP RPC. When a resume ID is recorded, open the same context with the generated omp-aify / pi-aify command; Pause for CLI first, then Restart to return dashboard control.';
+  }
   return 'This managed backing is recoverable from the dashboard, but it is not advertised as attachable in the official CLI.';
 }
 

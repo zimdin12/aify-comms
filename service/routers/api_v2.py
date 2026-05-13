@@ -552,7 +552,7 @@ def _default_capabilities_for(
         if normalized_runtime == "opencode":
             return ["managed-run", "resume", "interrupt", "spawn"]
         if normalized_runtime == "pi":
-            return ["managed-run", "resume", "interrupt", "spawn"]
+            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
         if normalized_runtime == "claude-code":
             return ["managed-run", "resume", "interrupt", "spawn"]
         return []
@@ -567,7 +567,7 @@ def _default_capabilities_for(
     if normalized_runtime == "pi":
         if not session_handle:
             return []
-        return ["resident-run", "resume", "interrupt"]
+        return ["resident-run", "resume", "interrupt", "steer"]
     if normalized_runtime == "claude-code":
         if isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True:
             return ["resident-run", "interrupt", "steer"]

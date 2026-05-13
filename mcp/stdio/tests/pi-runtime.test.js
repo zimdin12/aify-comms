@@ -22,9 +22,9 @@ assert.equal(normalizeRuntime("oh-my-pi"), "pi");
 assert.equal(normalizeRuntime("pi-agent"), "pi");
 
 assert.equal(canLaunchRuntime("pi"), true);
-assert.deepEqual(controlCapabilitiesForRuntime("pi"), { interrupt: true, steer: false });
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "resume", "interrupt", "spawn"]);
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resident-run", "resume", "interrupt"]);
+assert.deepEqual(controlCapabilitiesForRuntime("pi"), { interrupt: true, steer: true });
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "resume", "interrupt", "steer", "spawn"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resident-run", "resume", "interrupt", "steer"]);
 
 process.env.PI_SESSION_ID = "pi-session-123";
 assert.equal(defaultSessionHandleForRuntime("pi"), "pi-session-123");
@@ -36,6 +36,17 @@ assert.match(availability.message, /Pi launcher available/);
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-pi-runtime-"));
 const fakeOmp = path.join(tmpDir, "fake-omp.mjs");
 const argvCapturePath = path.join(tmpDir, "fake-omp-argv.jsonl");
+const stdinCapturePath = path.join(tmpDir, "fake-omp-stdin.jsonl");
+
+async function waitFor(predicate, label, timeoutMs = 2000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
 fs.writeFileSync(fakeOmp, `#!/usr/bin/env node
 import fs from "fs";
 import readline from "readline";
@@ -45,11 +56,19 @@ if (process.env.AIFY_PI_ARGV_CAPTURE) {
 console.log(JSON.stringify({ type: "ready", sessionId: "pi-session-fake" }));
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
+  if (process.env.AIFY_PI_STDIN_CAPTURE) {
+    fs.appendFileSync(process.env.AIFY_PI_STDIN_CAPTURE, line + "\\n");
+  }
   const message = JSON.parse(line);
   if (message.type === "prompt") {
     console.log(JSON.stringify({ id: message.id, type: "response", command: "prompt", success: true, sessionId: "pi-session-fake" }));
     console.log(JSON.stringify({ type: "agent_start" }));
-    if (message.message.includes("Pi final fallback")) {
+    if (message.message.includes("Wait for steer")) {
+      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "waiting" } }));
+    } else if (message.message.includes("steer me now")) {
+      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: " + steered" } }));
+      console.log(JSON.stringify({ type: "agent_end", id: "turn-steered", sessionId: "pi-session-fake" }));
+    } else if (message.message.includes("Pi final fallback")) {
       const assistant = { role: "assistant", content: [{ type: "text", text: "final text from agent_end" }] };
       console.log(JSON.stringify({ type: "message_end", message: assistant }));
       console.log(JSON.stringify({ type: "agent_end", id: "turn-fake", sessionId: "pi-session-fake", messages: [assistant] }));
@@ -64,6 +83,7 @@ rl.on("line", (line) => {
 
 process.env.AIFY_PI_COMMAND = fakeOmp;
 process.env.AIFY_PI_ARGV_CAPTURE = argvCapturePath;
+process.env.AIFY_PI_STDIN_CAPTURE = stdinCapturePath;
 const missingCwd = path.join(tmpDir, "missing-workspace");
 assert.match(
   launchCwdProblem(missingCwd),
@@ -157,6 +177,42 @@ const finalFallbackController = launchRuntimeRun({
 const finalFallbackResult = await finalFallbackController.promise;
 assert.equal(finalFallbackResult.status, "completed");
 assert.equal(finalFallbackResult.summary, "final text from agent_end");
+
+const steerController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi steer",
+    body: "Wait for steer",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+assert.equal(steerController.capabilities.steer, true);
+await waitFor(
+  () => fs.existsSync(stdinCapturePath) && fs.readFileSync(stdinCapturePath, "utf8").includes("Wait for steer"),
+  "initial Pi prompt before steer",
+);
+await steerController.steer("steer me now");
+const steerResult = await steerController.promise;
+assert.equal(steerResult.status, "completed");
+assert.equal(steerResult.summary, "waiting + steered");
+const stdinLines = fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+const steerPrompt = stdinLines.find((message) => message.type === "prompt" && message.message === "steer me now");
+assert(steerPrompt, "Pi steer should send a follow-up prompt over OMP RPC");
 
 const defaultModelController = launchRuntimeRun({
   agentId: "pi-worker",
