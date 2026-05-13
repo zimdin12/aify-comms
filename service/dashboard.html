@@ -468,6 +468,9 @@ a{color:var(--accent-text)}
 .chat-topbar{padding:8px 12px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:10px;background:#151d26}
 .chat-title{min-width:0}.chat-title b{display:block}.chat-title span{display:block;color:var(--muted);font-size:.78em;margin-top:2px}
 .chat-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chat-mode-switch{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.chat-mode-switch .btn{min-height:30px;padding:5px 9px}
+.chat-console-state{color:var(--muted);font-size:.76em;white-space:nowrap}
 .chat-as-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.78em}
 .chat-as-label select{min-width:150px}
 .chat-message-search{min-width:180px;max-width:240px;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:7px;font-size:.84em}
@@ -605,6 +608,7 @@ tr:hover{background:#1b1f21}
 .chat-title{flex:1 1 auto;min-width:0}
 .chat-actions{flex:0 1 auto;min-width:0;justify-content:flex-end}
 .chat-actions .btn{white-space:nowrap}
+.chat-mode-switch{padding:2px 0}
 .chat-title b{font-size:.96em}
 .chat-title span{font-size:.72em}
 .chat-timeline{padding:20px;background:linear-gradient(180deg,#121415 0%,#101112 100%)}
@@ -1259,6 +1263,11 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
           <div class="chat-title">
             <b id="chat-title">Chat</b>
             <span id="chat-subtitle">Select an agent or channel</span>
+          </div>
+          <div class="chat-mode-switch" aria-label="Chat mode">
+            <button class="btn btn-sm btn-primary" id="chat-mode-messenger" title="Use structured aify-comms messaging">Messenger</button>
+            <button class="btn btn-sm" id="chat-mode-console" title="Console mode needs a bridge-owned terminal and is not enabled in this slice" disabled>Console</button>
+            <span class="chat-console-state" id="chat-console-state">Console unavailable</span>
           </div>
           <div class="chat-actions">
             <input class="chat-message-search" id="chat-message-filter" placeholder="Search this chat" oninput="renderChat()">

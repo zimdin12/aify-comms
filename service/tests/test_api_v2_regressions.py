@@ -365,6 +365,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(">Queue</button>", dashboard.text)
         self.assertNotIn("chat-queue-if-busy", dashboard.text)
         self.assertIn("sessions-grid", dashboard.text)
+        self.assertIn("chat-mode-console", dashboard.text)
+        self.assertIn("Console unavailable", dashboard.text)
         self.assertIn("table-wrap", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
@@ -1246,6 +1248,50 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNotNone(session)
         self.assertIsNotNone(spec)
         self.assertEqual(self._fetchone("SELECT status FROM environments WHERE id = ?", ("linux:test-host:default",))["status"], "forgotten")
+
+    def test_sessions_include_console_ownership_defaults(self):
+        self._heartbeat_environment(id="linux:test-host:default")
+        created = self.client.post(
+            "/api/v1/spawn-requests",
+            json={
+                "createdBy": "dashboard",
+                "environmentId": "linux:test-host:default",
+                "agentId": "console-defaults-agent",
+                "role": "coder",
+                "runtime": "codex",
+                "workspace": "/workspace/project",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        spawn_id = created.json()["spawnRequest"]["id"]
+        claim = self.client.post(
+            "/api/v1/spawn-requests/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        running = self.client.patch(
+            f"/api/v1/spawn-requests/{spawn_id}",
+            json={"status": "running", "bridgeId": "bridge-current", "sessionHandle": "thread-1"},
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+
+        sessions = self.client.get("/api/v1/sessions?agentId=console-defaults-agent")
+        self.assertEqual(sessions.status_code, 200, sessions.text)
+        session = sessions.json()["sessions"][0]
+        self.assertEqual(session["ownerMode"], "managed")
+        self.assertEqual(session["ownerBridgeId"], "bridge-current")
+        self.assertEqual(session["terminalId"], "")
+        self.assertEqual(session["terminalStatus"], "")
+        self.assertEqual(session["terminalCommand"], "")
+        self.assertEqual(session["terminalWorkspace"], "")
+        self.assertEqual(session["terminal"], {
+            "id": "",
+            "status": "",
+            "command": "",
+            "workspace": "",
+            "ownerMode": "managed",
+            "ownerBridgeId": "bridge-current",
+        })
 
     def test_assign_agent_environment_retargets_saved_managed_config(self):
         self._heartbeat_environment(id="linux:old-host:default", bridgeId="bridge-old")

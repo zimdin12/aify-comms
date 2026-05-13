@@ -276,6 +276,12 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     runtime TEXT NOT NULL,
     workspace TEXT DEFAULT '',
     mode TEXT DEFAULT 'managed-warm',
+    owner_mode TEXT DEFAULT 'managed',
+    owner_bridge_id TEXT DEFAULT '',
+    terminal_id TEXT DEFAULT '',
+    terminal_status TEXT DEFAULT '',
+    terminal_command TEXT DEFAULT '',
+    terminal_workspace TEXT DEFAULT '',
     process_id TEXT DEFAULT '',
     session_handle TEXT DEFAULT '',
     app_server_url TEXT DEFAULT '',
@@ -329,6 +335,15 @@ ENVIRONMENT_MIGRATIONS = {
     "bridge_version": "ALTER TABLE environments ADD COLUMN bridge_version TEXT DEFAULT ''",
 }
 
+AGENT_SESSION_MIGRATIONS = {
+    "owner_mode": "ALTER TABLE agent_sessions ADD COLUMN owner_mode TEXT DEFAULT 'managed'",
+    "owner_bridge_id": "ALTER TABLE agent_sessions ADD COLUMN owner_bridge_id TEXT DEFAULT ''",
+    "terminal_id": "ALTER TABLE agent_sessions ADD COLUMN terminal_id TEXT DEFAULT ''",
+    "terminal_status": "ALTER TABLE agent_sessions ADD COLUMN terminal_status TEXT DEFAULT ''",
+    "terminal_command": "ALTER TABLE agent_sessions ADD COLUMN terminal_command TEXT DEFAULT ''",
+    "terminal_workspace": "ALTER TABLE agent_sessions ADD COLUMN terminal_workspace TEXT DEFAULT ''",
+}
+
 
 async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
@@ -370,6 +385,14 @@ async def _migrate_environments_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+async def _migrate_agent_sessions_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(agent_sessions)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in AGENT_SESSION_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def init_db(db_path: Path = None):
     global _db_path
     if db_path:
@@ -384,6 +407,7 @@ async def init_db(db_path: Path = None):
         await _migrate_messages_table(db)
         await _migrate_dispatch_controls_table(db)
         await _migrate_environments_table(db)
+        await _migrate_agent_sessions_table(db)
         await db.commit()
 
 async def get_db() -> aiosqlite.Connection:

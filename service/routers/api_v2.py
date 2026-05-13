@@ -1606,6 +1606,20 @@ def _spawn_request_to_dict(row, spec: Optional[dict[str, Any]] = None) -> dict[s
 
 
 def _agent_session_to_dict(row) -> dict[str, Any]:
+    keys = set(row.keys())
+    raw_owner_mode = str(row["owner_mode"] if "owner_mode" in keys else "").strip()
+    session_mode = str(row["mode"] or "").strip().lower()
+    if raw_owner_mode in {"resident", "console"}:
+        owner_mode = raw_owner_mode
+    elif session_mode == "resident":
+        owner_mode = "resident"
+    else:
+        owner_mode = raw_owner_mode or "managed"
+    owner_bridge_id = str(row["owner_bridge_id"] if "owner_bridge_id" in keys else "").strip()
+    terminal_id = str(row["terminal_id"] if "terminal_id" in keys else "").strip()
+    terminal_status = str(row["terminal_status"] if "terminal_status" in keys else "").strip()
+    terminal_command = str(row["terminal_command"] if "terminal_command" in keys else "").strip()
+    terminal_workspace = str(row["terminal_workspace"] if "terminal_workspace" in keys else "").strip()
     return {
         "id": row["id"],
         "agentId": row["agent_id"],
@@ -1613,6 +1627,20 @@ def _agent_session_to_dict(row) -> dict[str, Any]:
         "runtime": row["runtime"],
         "workspace": row["workspace"] or "",
         "mode": row["mode"] or "managed-warm",
+        "ownerMode": owner_mode,
+        "ownerBridgeId": owner_bridge_id,
+        "terminalId": terminal_id,
+        "terminalStatus": terminal_status,
+        "terminalCommand": terminal_command,
+        "terminalWorkspace": terminal_workspace,
+        "terminal": {
+            "id": terminal_id,
+            "status": terminal_status,
+            "command": terminal_command,
+            "workspace": terminal_workspace,
+            "ownerMode": owner_mode,
+            "ownerBridgeId": owner_bridge_id,
+        },
         "processId": row["process_id"] or "",
         "sessionHandle": row["session_handle"] or "",
         "appServerUrl": row["app_server_url"] or "",
@@ -3833,10 +3861,12 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             await db.execute(
                 """
                 INSERT OR REPLACE INTO agent_sessions (
-                    id, agent_id, environment_id, runtime, workspace, mode, process_id, session_handle,
+                    id, agent_id, environment_id, runtime, workspace, mode,
+                    owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
+                    process_id, session_handle,
                     app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
                     started_at, last_seen, ended_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     session_id,
@@ -3845,6 +3875,12 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     row["runtime"],
                     row["workspace"] or "",
                     row["mode"] or "managed-warm",
+                    "managed",
+                    req.bridgeId or row["claimed_by_bridge_id"] or "",
+                    "",
+                    "",
+                    "",
+                    "",
                     req.processId or "",
                     effective_session_handle,
                     "",
@@ -4743,10 +4779,12 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             await db.execute(
                 """
                 INSERT INTO agent_sessions (
-                    id, agent_id, environment_id, runtime, workspace, mode, process_id, session_handle,
+                    id, agent_id, environment_id, runtime, workspace, mode,
+                    owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
+                    process_id, session_handle,
                     app_server_url, spawn_spec_id, spawn_request_id, capabilities, telemetry, status,
                     started_at, last_seen, ended_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     session_id,
@@ -4755,6 +4793,12 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                     runtime,
                     workspace,
                     "managed-warm",
+                    "managed",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
                     "",
                     preserve_handle,
                     "",
