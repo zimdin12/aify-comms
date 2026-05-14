@@ -114,7 +114,7 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 
 ## Tool Map
 
-Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compact`, `comms_agents`, `comms_agent_info`, `comms_status`, `comms_describe`, `comms_remove_agent`.
+Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compact`, `comms_agents`, `comms_agent_info`, `comms_status`, `comms_describe`, `comms_remove_agent`, `comms_delete_session`.
 
 Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`.
 

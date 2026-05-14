@@ -111,6 +111,8 @@ _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
+_SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+_TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -4739,6 +4741,46 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             "cancelledSpawns": cancelled_spawns,
             "spawnRequest": _spawn_request_to_dict(spawn_request_row, _spawn_spec_to_dict(spawn_spec_row) if spawn_spec_row else None) if spawn_request_row else None,
         }
+    finally:
+        await db.close()
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))
+        session = await cursor.fetchone()
+        if not session:
+            raise HTTPException(404, f'Session "{session_id}" not found')
+
+        status = str(session["status"] or "").strip().lower()
+        if status not in _SESSION_DELETE_ALLOWED_STATUSES:
+            raise HTTPException(
+                409,
+                f'Session "{session_id}" is {status or "active"}; stop or finish it before deleting the session record.',
+            )
+
+        terminal_rows = await (await db.execute("SELECT * FROM terminal_sessions WHERE session_id = ?", (session_id,))).fetchall()
+        for terminal in terminal_rows:
+            terminal_status = str(terminal["status"] or "").strip().lower()
+            if terminal_status and terminal_status not in _TERMINAL_DELETE_ALLOWED_STATUSES:
+                raise HTTPException(
+                    409,
+                    f'Terminal "{terminal["id"]}" for session "{session_id}" is {terminal_status}; stop it before deleting the session record.',
+                )
+
+        for terminal in terminal_rows:
+            await db.execute("DELETE FROM terminal_controls WHERE terminal_id = ?", (terminal["id"],))
+            await db.execute("DELETE FROM terminal_events WHERE terminal_id = ?", (terminal["id"],))
+        await db.execute("DELETE FROM terminal_sessions WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM agent_sessions WHERE id = ?", (session_id,))
+        await db.commit()
+
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("session_deleted", {"sessionId": session_id, "agentId": session["agent_id"]})
+        return {"ok": True, "deleted": True, "sessionId": session_id, "agentId": session["agent_id"]}
     finally:
         await db.close()
 

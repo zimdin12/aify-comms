@@ -2,12 +2,12 @@
 //
 // aify-comms-mcp -- MCP server for inter-agent communication between coding-agent runtimes.
 //
-// 28 tools (all prefixed "comms_"):
+// 29 tools (all prefixed "comms_"):
 //   comms_register, comms_envs, comms_spawn, comms_compact, comms_agents, comms_status, comms_describe, comms_send, comms_dispatch, comms_contracts, comms_inbox, comms_search,
 //   comms_share, comms_read, comms_files,
 //   comms_channel_create, comms_channel_join, comms_channel_send, comms_channel_read, comms_channel_list,
 //   comms_agent_info, comms_listen, comms_unsend, comms_run_status, comms_run_interrupt,
-//   comms_remove_agent, comms_clear, comms_dashboard
+//   comms_remove_agent, comms_delete_session, comms_clear, comms_dashboard
 //
 // Modes:
 //   - Remote: set AIFY_SERVER_URL (or legacy CLAUDE_MCP_SERVER_URL) to use HTTP server
@@ -3578,7 +3578,44 @@ server.tool(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 15. comms_clear -- Clear inbox/shared/agents/all with optional age filter
+// 15. comms_delete_session -- Delete one inactive runtime session record
+// ═══════════════════════════════════════════════════════════════════════════════
+
+server.tool(
+  "comms_delete_session",
+  "Delete one inactive runtime session record. Active/running sessions must be stopped first. This does not delete the agent identity or chat messages.",
+  {
+    sessionId: z.string().describe("Runtime session ID to delete"),
+  },
+  async ({ sessionId }) => {
+    const id = String(sessionId || "").trim();
+    if (!id) {
+      return { content: [{ type: "text", text: "sessionId is required." }], isError: true };
+    }
+    if (!IS_REMOTE) {
+      return {
+        content: [{ type: "text", text: "comms_delete_session requires the HTTP-backed aify-comms service; local filesystem mode has no runtime session table." }],
+        isError: true,
+      };
+    }
+    try {
+      const r = await httpCall("DELETE", `/sessions/${encodeURIComponent(id)}`);
+      return {
+        content: [{
+          type: "text",
+          text: r.ok
+            ? `Deleted inactive session "${id}" for agent "${r.agentId || "unknown"}".`
+            : `Session "${id}" was not deleted.`,
+        }],
+      };
+    } catch (error) {
+      return { content: [{ type: "text", text: error?.message || "Failed to delete session." }], isError: true };
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 16. comms_clear -- Clear inbox/shared/agents/all with optional age filter
 // ═══════════════════════════════════════════════════════════════════════════════
 
 server.tool(

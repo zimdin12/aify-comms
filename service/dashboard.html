@@ -5191,6 +5191,7 @@ function renderChatInspector(meta, messages) {
   } else {
     if (session) {
       const sessionStatus = String(session.status || 'unknown').toLowerCase();
+      const canDeleteSession = DELETABLE_SESSION_STATUSES.has(sessionStatus);
       const envStatus = String(environment?.status || 'unknown').toLowerCase();
       const caps = session.capabilities || {};
       const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
@@ -5224,6 +5225,7 @@ function renderChatInspector(meta, messages) {
         actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)) +
         actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)) +
         actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart')) +
+        (canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '') +
         `</div>`;
     } else {
       html += '<h3>Runtime Session</h3><p class="em">No managed runtime session is recorded for this identity. It may be an open resident CLI, an inbox-only identity, or historical chat.</p>' +
@@ -5516,6 +5518,7 @@ function spawnRequestStatusLabel(req) {
 }
 
 const QUIET_SESSION_STATUSES = new Set(['ended', 'completed', 'cancelled']);
+const DELETABLE_SESSION_STATUSES = new Set(['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled']);
 
 function showEndedSessions() {
   return localStorage.getItem('aifyShowEndedSessions') === '1';
@@ -5627,6 +5630,7 @@ function renderSessions(sessions) {
       const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
       const sessionStatus = String(session.status || '').toLowerCase();
       const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
+      const canDeleteSession = DELETABLE_SESSION_STATUSES.has(sessionStatus);
       const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
       const spawnControl = pendingSpawn
         ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
@@ -5642,6 +5646,7 @@ function renderSessions(sessions) {
         actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
         actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(session.agentId)),
         canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
+        canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
       ];
       html += `<tr>` +
         `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
@@ -5919,6 +5924,25 @@ async function controlSession(sessionId, action) {
     }
   } catch (e) {
     toast(`${action} failed`, '#f85149');
+  }
+}
+
+async function deleteSessionRecord(sessionId) {
+  const session = (window._sessions || []).find(item => item.id === sessionId) || {};
+  const status = String(session.status || '').toLowerCase();
+  if (!DELETABLE_SESSION_STATUSES.has(status)) {
+    toast('Stop or finish the session before deleting it.', '#f85149');
+    return;
+  }
+  if (!confirm(`Delete session record ${sessionId}?\n\nThis removes the runtime/session row and terminal output. It does not delete the agent identity or chat messages.`)) return;
+  try {
+    const response = await apiFetch(API + `/sessions/${encodeURIComponent(sessionId)}`, {method: 'DELETE'});
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Delete session failed');
+    toast(`Deleted session ${sessionId}`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Delete session failed', '#f85149');
   }
 }
 

@@ -370,6 +370,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn('onclick="refreshSelectedConsole()', dashboard.text)
         self.assertIn('onclick="stopSelectedConsole()', dashboard.text)
         self.assertIn("Console unavailable", dashboard.text)
+        self.assertIn("deleteSessionRecord(session.id)", dashboard.text)
         self.assertIn("table-wrap", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
@@ -1588,6 +1589,44 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(claim.json()["blockedBy"]["reason"], "console_owner_active")
         run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(run["status"], "queued")
+
+    def test_delete_session_rejects_running_session(self):
+        session_id = self._create_running_session(terminal=True)
+
+        deleted = self.client.delete(f"/api/v1/sessions/{session_id}")
+
+        self.assertEqual(deleted.status_code, 409, deleted.text)
+        session = self._fetchone("SELECT id, status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertIsNotNone(session)
+        self.assertEqual(session["status"], "running")
+
+    def test_delete_session_removes_inactive_session_but_keeps_agent(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        now = "2026-05-14T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = ?, stopped_at = ?, updated_at = ? WHERE id = ?",
+            ("stopped", now, now, terminal_id),
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET status = ?, terminal_status = ?, owner_mode = ?, ended_at = ?, last_seen = ?
+            WHERE id = ?
+            """,
+            ("stopped", "stopped", "managed", now, now, session_id),
+        )
+
+        deleted = self.client.delete(f"/api/v1/sessions/{session_id}")
+
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(deleted.json()["ok"])
+        self.assertIsNone(self._fetchone("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)))
+        self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,)))
+        agent = self._fetchone("SELECT id FROM agents WHERE id = ?", ("console-agent",))
+        self.assertIsNotNone(agent)
 
     def test_assign_agent_environment_retargets_saved_managed_config(self):
         self._heartbeat_environment(id="linux:old-host:default", bridgeId="bridge-old")
