@@ -2080,6 +2080,42 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
     return None
 
 
+async def _release_stale_terminal_owner(db, row, *, reason: str):
+    terminal_id = str(row["terminal_id"] or "").strip()
+    session_id = str(row["session_id"] or "").strip()
+    if not terminal_id or not session_id:
+        return
+    now = _now()
+    await db.execute(
+        """
+        UPDATE terminal_sessions
+        SET status = 'failed',
+            updated_at = ?,
+            stopped_at = COALESCE(stopped_at, ?),
+            error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+        WHERE id = ?
+        """,
+        (now, now, reason, terminal_id),
+    )
+    await db.execute(
+        """
+        UPDATE agent_sessions
+        SET owner_mode = 'managed',
+            terminal_status = 'failed',
+            last_seen = ?
+        WHERE id = ?
+          AND terminal_id = ?
+        """,
+        (now, session_id, terminal_id),
+    )
+    await _append_terminal_event(
+        db,
+        terminal_id,
+        "terminal_owner_released",
+        json.dumps({"reason": reason}),
+    )
+
+
 async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None):
     row = await (await db.execute(
         """
@@ -2117,35 +2153,43 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
     stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
     updated_at = _iso_to_epoch(row["updated_at"] or "")
     if updated_at and (time.time() - updated_at) > stale_after:
+        await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
         return None
 
     env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (row["environment_id"],))).fetchone()
     env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
     if env_status not in {"online", "degraded"}:
+        await _release_stale_terminal_owner(db, row, reason="Released unavailable Console owner before managed PTY dispatch.")
         return None
     if str(row["bridge_id"] or "").strip() != str(env_row["bridge_id"] or "").strip():
+        await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
         return None
     return row
 
 
-async def _ensure_managed_claude_pty_for_dispatch(db, agent_id: str, *, settings: dict[str, Any], requested_by: str):
+async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str):
     active = await _active_terminal_for_agent(db, agent_id, settings=settings)
     if active:
         return active
+    normalized_runtime = _normalize_runtime(runtime or "")
+    if normalized_runtime not in {"claude-code", "codex", "opencode", "pi"}:
+        return None
 
     session = await (await db.execute(
         """
         SELECT *
         FROM agent_sessions
         WHERE agent_id = ?
-          AND runtime = 'claude-code'
+          AND runtime = ?
           AND status IN ('running', 'recovering')
         ORDER BY last_seen DESC
         LIMIT 1
         """,
-        (agent_id,),
+        (agent_id, normalized_runtime),
     )).fetchone()
     if not session:
+        return None
+    if normalized_runtime == "pi" and not str(session["session_handle"] or "").strip():
         return None
 
     env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (session["environment_id"],))).fetchone()
@@ -4390,6 +4434,8 @@ def _default_console_command(session, workspace: str) -> str:
         if handle:
             parts.extend(["--resume", handle])
         return " ".join(part for part in parts if part)
+    elif runtime == "opencode":
+        return "opencode"
     elif runtime == "pi":
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
@@ -4740,7 +4786,7 @@ async def claim_terminal_controls(req: TerminalControlClaim):
             WHERE environment_id = ?
               AND COALESCE(bridge_id, '') = ?
               AND status = 'pending'
-            ORDER BY requested_at ASC
+            ORDER BY requested_at ASC, id ASC
             LIMIT 20
             """,
             (req.environmentId, req.bridgeId),
@@ -6837,10 +6883,11 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
                 else:
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
-                    if not console_terminal and runtime == "claude-code":
-                        console_terminal = await _ensure_managed_claude_pty_for_dispatch(
+                    if not console_terminal:
+                        console_terminal = await _ensure_managed_pty_for_dispatch(
                             db,
                             recipient_id,
+                            runtime=runtime,
                             settings=settings,
                             requested_by=req.from_agent,
                         )

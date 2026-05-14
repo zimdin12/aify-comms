@@ -1352,6 +1352,7 @@ class ApiV2RegressionTests(unittest.TestCase):
     def _create_running_session(
         self,
         *,
+        agent_id: str = "console-agent",
         terminal: bool = False,
         workspace: str = "/workspace/repo",
         runtime: str = "codex",
@@ -1375,7 +1376,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "createdBy": "dashboard",
                 "environmentId": "linux:test-host:default",
-                "agentId": "console-agent",
+                "agentId": agent_id,
                 "role": "coder",
                 "runtime": runtime,
                 "workspace": workspace,
@@ -1727,6 +1728,75 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("do it without console open", controls[1]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("console-agent",)))
 
+    def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
+        cases = [
+            ("codex", "codex-aify --aify-agent {agent_id}", "resume --include-non-interactive codex-thread-1", "codex-thread-1"),
+            ("pi", "pi-aify --aify-agent {agent_id}", "--resume pi-session-1", "pi-session-1"),
+            ("opencode", "opencode", "", "opencode-session-1"),
+        ]
+        for runtime, command_prefix, command_contains, handle in cases:
+            with self.subTest(runtime=runtime):
+                agent_id = f"{runtime}-pty-agent"
+                session_id = self._create_running_session(
+                    agent_id=agent_id,
+                    terminal=True,
+                    runtime=runtime,
+                    terminal_runtimes=[runtime],
+                    session_handle=handle,
+                )
+
+                dispatched = self._dispatch(
+                    from_agent="dashboard",
+                    to=agent_id,
+                    type="request",
+                    subject="work",
+                    body=f"run through pty for {runtime}",
+                    mode="start_if_possible",
+                    createMessage=True,
+                )
+                self.assertEqual(dispatched["runs"], [])
+                self.assertEqual(dispatched["notStarted"], [])
+                self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], agent_id)
+                terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+                session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+                self.assertEqual(session["owner_mode"], "managed")
+                self.assertEqual(session["terminal_id"], terminal_id)
+                self.assertEqual(session["terminal_status"], "starting")
+                controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
+                self.assertEqual([row["action"] for row in controls], ["start", "input"])
+                self.assertTrue(controls[0]["body"].startswith(command_prefix.format(agent_id=agent_id)), controls[0]["body"])
+                if command_contains:
+                    self.assertIn(command_contains, controls[0]["body"])
+                self.assertIn(f"run through pty for {runtime}", controls[1]["body"])
+                self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", (agent_id,)))
+
+    def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="codex",
+            terminal_runtimes=["codex"],
+            session_handle="codex-thread-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="ordering check",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        self._execute("UPDATE terminal_controls SET requested_at = ? WHERE terminal_id = ?", ("2026-01-01T00:00:00Z", terminal_id))
+
+        claim = self.client.post(
+            "/api/v1/terminals/controls/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertEqual([control["action"] for control in claim.json()["controls"][:2]], ["start", "input"])
+
     def test_managed_dispatch_reclaims_session_from_stale_console_owner(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
@@ -1759,20 +1829,19 @@ class ApiV2RegressionTests(unittest.TestCase):
             mode="start_if_possible",
             createMessage=True,
         )
-        run_id = dispatched["runs"][0]["runId"]
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={"agentId": "console-agent", "machineId": "linux:test-host", "bridgeId": "bridge-replacement", "executionModes": ["managed"]},
-        )
-
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertEqual(claim.json()["run"]["id"], run_id)
-        session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(dispatched["runs"], [])
+        self.assertEqual(dispatched["notStarted"], [])
+        new_terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        self.assertNotEqual(new_terminal_id, terminal_id)
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["owner_mode"], "managed")
-        self.assertEqual(session["terminal_status"], "failed")
+        self.assertEqual(session["terminal_id"], new_terminal_id)
+        self.assertEqual(session["terminal_status"], "starting")
         terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(terminal["status"], "failed")
         self.assertIn("stale Console owner", terminal["error"])
+        controls = self._fetchall("SELECT action FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (new_terminal_id,))
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
 
     def test_delete_session_rejects_running_session(self):
         session_id = self._create_running_session(terminal=True)
