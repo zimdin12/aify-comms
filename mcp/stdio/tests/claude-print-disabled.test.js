@@ -1,0 +1,34 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+
+const { launchRuntimeRun } = await import("../runtimes.js");
+
+const controller = launchRuntimeRun({
+  agentId: "claude-managed",
+  agentInfo: {
+    agentId: "claude-managed",
+    runtime: "claude-code",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    capabilities: ["managed-run"],
+    runtimeConfig: {},
+  },
+  run: {
+    id: "run-test",
+    executionMode: "managed",
+    subject: "work",
+    body: "do work",
+  },
+  runtimeState: {},
+  callbacks: {},
+});
+
+await assert.rejects(
+  controller.promise,
+  /Claude Code managed Messenger no longer uses claude -p/,
+);
+
+assert.equal(controller.capabilities.interrupt, true);
+assert.equal(controller.capabilities.steer, false);
+
+console.log("claude-print-disabled.test.js: all assertions passed");

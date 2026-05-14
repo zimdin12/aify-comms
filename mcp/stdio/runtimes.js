@@ -1699,6 +1699,10 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
 }
 
 function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  throw new Error(
+    "Claude Code managed Messenger no longer uses claude -p. " +
+    "Start or attach a Claude PTY/channel runtime with claude-aify, then deliver Messenger work through the resident channel bridge.",
+  );
   const config = getRuntimeConfig(agentInfo);
   const availability = runtimeLaunchAvailability("claude-code");
   if (!availability.available) throw new Error(availability.message);

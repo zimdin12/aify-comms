@@ -350,11 +350,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("_dashboardUiVersion", dashboard.text)
         self.assertIn("persistentOpenDetails", dashboard.text)
         self.assertIn(".actions-menu,.chat-send-options", dashboard.text)
+        self.assertIn("xterm.min.css", dashboard.text)
+        self.assertIn("xterm.min.js", dashboard.text)
         self.assertIn(".console-head{display:grid", dashboard.text)
         self.assertIn(".console-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center", dashboard.text)
         self.assertIn(".console-input-row .btn{min-height:32px;height:32px", dashboard.text)
+        self.assertIn("const body = text.endsWith('\\r') ? text : `${text}\\r`;", dashboard.text)
+        self.assertIn("codex --no-alt-screen resume --include-non-interactive", dashboard.text)
+        self.assertNotIn("codex-aify${agentFlag} resume --include-non-interactive", dashboard.text)
         self.assertIn("stripTerminalControlSequences", dashboard.text)
-        self.assertIn("terminalDisplayText(output)", dashboard.text)
+        self.assertIn("mountConsoleTerminal(terminalId, output", dashboard.text)
+        self.assertIn("window.Terminal", dashboard.text)
         self.assertNotIn("${esc(meta.id)} Console", dashboard.text)
         self.assertIn("Advanced run control", dashboard.text)
         self.assertIn("Normal users and agents should send messages, not dispatches.", dashboard.text)
@@ -1534,9 +1540,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
-        self.assertIn("claude", command)
-        self.assertIn("--channels server:aify-comms-channel", command)
+        self.assertIn("claude --channels server:aify-comms-channel", command)
+        self.assertIn("--dangerously-skip-permissions", command)
         self.assertIn("--resume claude-session-1", command)
+        self.assertNotIn("claude-aify", command)
         self.assertNotIn("--dangerously-load-development-channels", command)
 
     def test_pi_console_requires_handle_unless_fresh_context_requested(self):
@@ -1612,6 +1619,53 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(claim.json()["blockedBy"]["reason"], "console_owner_active")
         run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(run["status"], "queued")
+
+    def test_managed_dispatch_reclaims_session_from_stale_console_owner(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        self._heartbeat_environment(bridgeId="bridge-replacement", terminal=True, pty=True)
+        self._execute(
+            """
+            UPDATE terminal_sessions
+            SET status = ?, updated_at = ?, bridge_id = ?
+            WHERE id = ?
+            """,
+            ("attached", "2026-01-01T00:00:00Z", "bridge-old", terminal_id),
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = ?, owner_bridge_id = ?, terminal_status = ?
+            WHERE id = ?
+            """,
+            ("console", "bridge-old", "attached", session_id),
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["runs"][0]["runId"]
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "console-agent", "machineId": "linux:test-host", "bridgeId": "bridge-replacement", "executionModes": ["managed"]},
+        )
+
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertEqual(claim.json()["run"]["id"], run_id)
+        session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_status"], "failed")
+        terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(terminal["status"], "failed")
+        self.assertIn("stale Console owner", terminal["error"])
 
     def test_delete_session_rejects_running_session(self):
         session_id = self._create_running_session(terminal=True)
@@ -4511,6 +4565,35 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("mode='message_only'", response.text)
         self.assertIn("comms_send", response.text)
+
+    def test_dispatch_claim_ignores_stale_embedded_message_ids_when_marking_read(self):
+        self._register("dashboard")
+        self._register("worker", runtime="codex", sessionMode="managed")
+
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="worker",
+            type="request",
+            subject="please handle these",
+            body="first message",
+            trigger=True,
+        )
+        run_id = sent["dispatchRuns"][0]["runId"]
+        source_message_id = sent["messageId"]
+        self._execute(
+            "UPDATE dispatch_runs SET body = ? WHERE id = ?",
+            ("first message\n\n--- Message 2 ---\nMessage Id: missing-message\nbody", run_id),
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "worker", "machineId": "linux:test-host", "bridgeId": "bridge-1", "executionModes": ["managed"]},
+        )
+
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertEqual(claim.json()["run"]["id"], run_id)
+        receipt_rows = self._fetchall("SELECT message_id FROM read_receipts WHERE agent_id = ? ORDER BY message_id", ("worker",))
+        self.assertEqual([row["message_id"] for row in receipt_rows], [source_message_id])
 
     def test_dispatch_rejects_create_message_false(self):
         self._register("alice", runtime="codex", sessionMode="managed")

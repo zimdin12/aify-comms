@@ -226,7 +226,11 @@ LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
 mkdir -p "$LOG_ROOT"
 LOG_FILE="$LOG_ROOT/codex-aify-app-server-$PORT.log"
 
-codex app-server --listen "$APP_SERVER_URL" >>"$LOG_FILE" 2>&1 &
+if command -v setsid >/dev/null 2>&1; then
+  setsid codex app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
+else
+  codex app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
+fi
 APP_SERVER_PID=$!
 
 # The runtime marker is written by the long-lived aify-comms MCP bridge
@@ -294,7 +298,7 @@ if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
 
-codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
+exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"

@@ -2009,6 +2009,77 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
 
 
+async def _release_stale_console_owner_for_claim(db, owner_session, req: DispatchClaimRequest) -> Optional[dict[str, Any]]:
+    terminal_id = str(owner_session["terminal_id"] or "").strip()
+    terminal_status = str(owner_session["terminal_status"] or "").strip().lower()
+    terminal = None
+    if terminal_id:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if terminal:
+            terminal_status = str(terminal["status"] or terminal_status or "").strip().lower()
+
+    settings = await _load_settings(db)
+    stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+    updated_at = _iso_to_epoch((terminal["updated_at"] if terminal else "") or "")
+    terminal_stale = bool(updated_at and (time.time() - updated_at) > stale_after)
+    terminal_bridge_id = str((terminal["bridge_id"] if terminal else "") or "").strip()
+    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (owner_session["environment_id"],))).fetchone()
+    env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
+    bridge_current = bool(
+        env_row
+        and env_status in {"online", "degraded"}
+        and terminal_bridge_id
+        and terminal_bridge_id == str(env_row["bridge_id"] or "").strip()
+    )
+    active_status = terminal_status in {"starting", "attached", "running", "active", "idle"}
+    if terminal and active_status and bridge_current and not terminal_stale:
+        return {
+            "reason": "console_owner_active",
+            "sessionId": owner_session["id"],
+            "terminalId": terminal_id,
+            "terminalStatus": terminal_status,
+            "hint": "Console owns this runtime handle. Stop or return Console to managed before claiming managed Messenger work.",
+        }
+
+    now = _now()
+    reason = "Released stale Console owner before managed dispatch claim."
+    await db.execute(
+        """
+        UPDATE agent_sessions
+        SET owner_mode = 'managed',
+            terminal_status = 'failed',
+            last_seen = ?
+        WHERE id = ?
+        """,
+        (now, owner_session["id"]),
+    )
+    if terminal:
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'failed',
+                updated_at = ?,
+                stopped_at = COALESCE(stopped_at, ?),
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, reason, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_owner_released",
+            json.dumps({
+                "reason": "stale Console owner",
+                "requestedByBridge": req.bridgeId or "",
+                "previousBridge": terminal_bridge_id,
+                "environmentBridge": str(env_row["bridge_id"] or "").strip() if env_row else "",
+                "terminalStatus": terminal_status,
+            }),
+        )
+    return None
+
+
 async def _append_dispatch_control(
     db,
     run_id: str,
@@ -2687,12 +2758,22 @@ async def _mark_dispatch_source_messages_read(db, row, agent_id: str, read_at: s
     message_ids = _dispatch_source_message_ids(row)
     if not message_ids:
         return 0
+    placeholders = ",".join("?" for _ in message_ids)
+    cursor = await db.execute(
+        f"SELECT id FROM messages WHERE id IN ({placeholders})",
+        message_ids,
+    )
+    existing_ids = {str(existing["id"]) for existing in await cursor.fetchall()}
+    if not existing_ids:
+        return 0
     for message_id in message_ids:
+        if message_id not in existing_ids:
+            continue
         await db.execute(
             "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
             (message_id, agent_id, read_at),
         )
-    return len(message_ids)
+    return len(existing_ids)
 
 
 async def _dispatch_conversation_context(db, row, *, limit: int = 8) -> list[dict[str, Any]]:
@@ -6595,7 +6676,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             await _fail_pending_controls_for_run(db, active_run["runId"], handled_at=finished_at, response_text=f'Stale run cleaned by live bridge "{req.bridgeId}".')
         owner_cursor = await db.execute(
             """
-            SELECT id, owner_mode, terminal_id, terminal_status
+            SELECT id, environment_id, owner_mode, terminal_id, terminal_status
             FROM agent_sessions
             WHERE agent_id = ?
               AND status IN ('starting','running','recovering','restarting')
@@ -6606,18 +6687,14 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         )
         owner_session = await owner_cursor.fetchone()
         if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console":
-            await db.commit()
-            return {
-                "ok": True,
-                "run": None,
-                "blockedBy": {
-                    "reason": "console_owner_active",
-                    "sessionId": owner_session["id"],
-                    "terminalId": owner_session["terminal_id"] or "",
-                    "terminalStatus": owner_session["terminal_status"] or "",
-                    "hint": "Console owns this runtime handle. Stop or return Console to managed before claiming managed Messenger work.",
-                },
-            }
+            blocked_by_console = await _release_stale_console_owner_for_claim(db, owner_session, req)
+            if blocked_by_console:
+                await db.commit()
+                return {
+                    "ok": True,
+                    "run": None,
+                    "blockedBy": blocked_by_console,
+                }
         run_cursor = await db.execute(
             """
             SELECT * FROM dispatch_runs
