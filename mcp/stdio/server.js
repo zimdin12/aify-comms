@@ -41,6 +41,7 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
+import { terminalChildEnv } from "./terminal-env.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
@@ -1112,19 +1113,7 @@ async function runTerminalControlLoop() {
             id: terminalId,
             command,
             cwd: workspace,
-            env: {
-              ...process.env,
-              AIFY_RUNTIME: runtime,
-              AIFY_AGENT_ID: terminal.agentId || "",
-              AIFY_COMMS_AGENT_ID: terminal.agentId || "",
-              AIFY_AGENT_CWD: workspace,
-              AIFY_SESSION_HANDLE: sessionHandle,
-              CLAUDE_SESSION_ID: runtime === "claude-code" ? sessionHandle : (process.env.CLAUDE_SESSION_ID || ""),
-              CODEX_THREAD_ID: runtime === "codex" ? sessionHandle : (process.env.CODEX_THREAD_ID || ""),
-              PI_SESSION_ID: runtime === "pi" ? sessionHandle : (process.env.PI_SESSION_ID || ""),
-              AIFY_ENVIRONMENT_BRIDGE: "1",
-              AIFY_TERMINAL_ID: terminalId,
-            },
+            env: terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId }),
           });
           await updateTerminalControl(control.id, {
             status: "completed",
