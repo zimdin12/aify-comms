@@ -4858,7 +4858,7 @@ async function sendConsoleInput() {
   if (!terminalId || !text.trim()) return;
   try {
     input.disabled = true;
-    const body = text.endsWith('\n') ? text : `${text}\n`;
+    const body = text.endsWith('\r') ? text : `${text}\r`;
     const response = await apiFetch(API + `/terminals/${encodeURIComponent(terminalId)}/input`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},

@@ -39,6 +39,7 @@ COPY service/ ./service/
 COPY mcp/ ./mcp/
 COPY config/ ./config/
 COPY .agents/ ./.agents/
+COPY install.sh ./install.sh
 
 VOLUME /data
 
