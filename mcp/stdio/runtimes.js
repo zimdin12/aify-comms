@@ -17,6 +17,9 @@ const RUNTIME_ALIASES = new Map([
   ["claude-code", "claude-code"],
   ["claude_code", "claude-code"],
   ["codex", "codex"],
+  ["hermes", "hermes"],
+  ["hermes-agent", "hermes"],
+  ["hermes_agent", "hermes"],
   ["oh-my-pi", "pi"],
   ["oh_my_pi", "pi"],
   ["opencode", "opencode"],
@@ -1180,6 +1183,19 @@ export function runtimeLaunchAvailability(runtime) {
           `Diagnostic: ${diagnosticsFor(launcher.command)}`,
     };
   }
+  if (normalized === "hermes") {
+    const configured = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "").trim();
+    const expected = configured || "hermes";
+    const available = hasExecutable(expected);
+    return {
+      available,
+      message: available
+        ? `Hermes launcher available (resolved to ${resolveExecutable(expected)})`
+        : `Runtime "hermes" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
+          `Install Hermes Agent for this OS/user, or set AIFY_HERMES_COMMAND to an absolute path and restart the bridge. ` +
+          `Diagnostic: ${diagnosticsFor(expected)}`,
+    };
+  }
   if (normalized === "opencode") {
     return { available: true, message: "OpenCode SDK available" };
   }
@@ -1228,13 +1244,15 @@ export function normalizeRuntime(runtime) {
 }
 
 export function canLaunchRuntime(runtime) {
-  return ["claude-code", "codex", "opencode", "pi"].includes(normalizeRuntime(runtime));
+  return ["claude-code", "codex", "hermes", "opencode", "pi"].includes(normalizeRuntime(runtime));
 }
 
 export function controlCapabilitiesForRuntime(runtime) {
   switch (normalizeRuntime(runtime)) {
     case "codex":
       return { interrupt: true, steer: true };
+    case "hermes":
+      return { interrupt: true, steer: false };
     case "opencode":
       return { interrupt: true, steer: false };
     case "pi":
@@ -1250,6 +1268,8 @@ export function defaultSessionHandleForRuntime(runtime) {
   switch (normalizeRuntime(runtime)) {
     case "codex":
       return process.env.CODEX_THREAD_ID || "";
+    case "hermes":
+      return process.env.HERMES_SESSION_ID || process.env.HERMES_SESSION || "";
     case "opencode":
       return process.env.OPENCODE_SESSION_ID || process.env.OPENCODE_SESSION || "";
     case "pi":
@@ -2834,6 +2854,7 @@ export function detectRuntime(explicitRuntime) {
   if (process.env.AIFY_AGENT_RUNTIME) return normalizeRuntime(process.env.AIFY_AGENT_RUNTIME);
   if (process.env.AIFY_RUNTIME) return normalizeRuntime(process.env.AIFY_RUNTIME);
   if (process.env.CODEX_HOME || process.env.CODEX_SANDBOX) return "codex";
+  if (process.env.HERMES_SESSION_ID || process.env.HERMES_HOME) return "hermes";
   if (process.env.OPENCODE_CLIENT || process.env.OPENCODE_CONFIG_DIR) return "opencode";
   if (process.env.PI_SESSION_ID || process.env.OMP_SESSION_ID || process.env.AIFY_PI_SESSION_ID) return "pi";
   if (process.env.CLAUDE_PROJECT_DIR || process.env.CLAUDECODE) return "claude-code";
@@ -2850,6 +2871,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
     switch (normalizedRuntime) {
       case "codex":
         return ["managed-run", "resume", "interrupt", "steer", "spawn"];
+      case "hermes":
+        return ["managed-run", "resume", "interrupt", "spawn"];
       case "opencode":
         return ["managed-run", "resume", "interrupt", "spawn"];
       case "pi":
@@ -2871,6 +2894,8 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
     case "codex":
       if (!hasCodexLiveAppServer(runtimeConfig) && !canUseDefaultResidentCodexBridge()) return [];
       return ["resident-run", "resume", "interrupt", "steer"];
+    case "hermes":
+      return ["resident-run", "resume", "interrupt"];
     case "opencode":
       return ["resident-run", "resume", "interrupt"];
     case "pi":

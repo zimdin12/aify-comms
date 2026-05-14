@@ -58,7 +58,7 @@ Mitigation:
 
 Failure mode:
 
-- Claude, Codex, OpenCode, and Oh My Pi are treated as if they have identical session models
+- Claude, Codex, Hermes, OpenCode, and Oh My Pi are treated as if they have identical session models
 - UI promises "resume" or "open in CLI" where unsupported
 - recovery breaks because native handles are missing
 

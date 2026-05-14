@@ -22,7 +22,9 @@ Wrapper auto mode:
 ## Managed Runtime Policy
 
 - Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
+- Terminal-capable managed runtimes use a bridge-owned PTY when possible. Dashboard Messenger sends start or reuse that PTY, and browser Console attaches to the same backing process instead of taking over the identity.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
+- Managed Claude Code no longer uses `claude -p`; Claude work is delivered through an interactive Claude Code PTY/channel path to avoid Agent SDK/print-mode billing.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
 - Managed Claude Code and Codex model fields are blank by default, which means runtime default/latest; both default to `high` effort/reasoning effort. Managed Claude Code uses 50 max turns by default (`runtimeConfig.maxTurns` can override). Managed Pi has optional Dashboard Runtime model/effort defaults; blank or `default` model means no `--model` override, and Pi effort is passed as OMP `--thinking` when set.
 - Managed runtimes have a 12-hour hard dispatch timeout by default. Managed Codex also has a 30-minute quiet-stall watchdog and a narrower 90-second aify-comms MCP tool-call watchdog.
@@ -46,7 +48,7 @@ Wrapper auto mode:
 - Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
 - If the saved handle is wrong and the correct native ID is known, use Dashboard **Chat details -> Runtime Session -> Set handle**, **Sessions -> Actions -> Set handle**, or the `/api/v1/agents/{id}/session-handle` endpoint. This updates the saved `sessionHandle`, runtime state, and latest session record without creating a fresh context.
 
-Browser CLI is planned, not current behavior. Until an environment advertises browser terminal/PTY attach, use the native resume command with `--aify-agent`; use Pause for CLI only when you intentionally want dashboard sends blocked while the terminal owns the session.
+Browser Console is current behavior when an environment advertises terminal/PTY support for the runtime. It is an attachment to the bridge-owned PTY, not a separate resident takeover. Messenger sends while Console is open are forwarded into the active PTY; Stop Console stops that terminal backing and returns the session to managed delivery. Use **Pause for CLI** only when you intentionally want a separate native terminal to own delivery.
 
 ## Multi-Instance Rules
 
@@ -54,6 +56,7 @@ Browser CLI is planned, not current behavior. Until an environment advertises br
 |---|---|---|
 | `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
 | `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
+| `hermes` | Prefer `hermes-aify --aify-agent <id> --resume <session-id>` when a resumable ID is known; dashboard-managed Hermes can run as a PTY-backed warm process while the PTY is alive. | OK |
 | `opencode` | OK with explicit `sessionHandle` per session. | OK |
 | `pi` | OK with explicit `sessionHandle` per session. | OK |
 
@@ -67,6 +70,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 - Analytics has range selectors and separates historical counts from live capacity.
 - Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance.
 - Chat Peek mode lets an operator watch without marking messages read.
+- Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
 - Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
 - Sessions hide ended/completed/cancelled rows by default; show ended/debug rows when investigating lifecycle history.
 

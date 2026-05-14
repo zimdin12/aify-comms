@@ -1,6 +1,6 @@
 ---
 name: aify-comms
-description: Inter-agent communication hub for Claude Code, Codex, OpenCode, and Oh My Pi — live messaging, channels, file sharing, managed agent spawn, execution audit, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
+description: Inter-agent communication hub for Claude Code, Codex, Hermes, OpenCode, and Oh My Pi — live messaging, channels, file sharing, managed agent spawn, execution audit, and dashboard. Live wake requires the local stdio bridge. Auto-activates when comms_* MCP tools are available.
 trigger: tool_available("comms_register") OR tool_available("comms_send") OR tool_available("comms_inbox")
 ---
 
@@ -29,9 +29,9 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
-When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>`, `codex-aify --aify-agent my-agent ...`, or `omp-aify --aify-agent my-agent --resume <session-id>` (`pi-aify` alias). Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID. If only the saved native handle is wrong and the operator knows the correct ID, use dashboard **Set handle** instead of re-registering unrelated fields.
+When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>`, `codex-aify --aify-agent my-agent ...`, `hermes-aify --aify-agent my-agent --resume <session-id>`, or `omp-aify --aify-agent my-agent --resume <session-id>` (`pi-aify` alias). Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID. If only the saved native handle is wrong and the operator knows the correct ID, use dashboard **Set handle** instead of re-registering unrelated fields.
 
-Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` alias) when that CLI should temporarily own the live session. Closing the resident CLI lets dashboard sends return to managed backing after the resident lease expires; reopening with `--aify-agent` switches the identity back to resident once safe.
+Managed mode is the normal persistent identity path: the operator runs an `aify-comms` environment bridge and spawns agents through the dashboard or `comms_spawn(...)`. For terminal-capable managed runtimes, dashboard sends may start or reuse a bridge-owned PTY, and browser Console attaches to that same backing process. Resident mode is a deliberate visible-terminal path: use `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, `hermes-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` alias) when that separate CLI should temporarily own the live session. Closing the resident CLI lets dashboard sends return to managed backing after the resident lease expires; reopening with `--aify-agent` switches the identity back to resident once safe.
 
 Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
 
@@ -48,6 +48,8 @@ comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$P
 ```
 
 Pi managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. Use `queueIfBusy=true` when the message should wait for the next turn instead.
+
+For live Hermes, `hermes-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session when a resumable Hermes session ID is known. Dashboard-managed Hermes uses the PTY delivery path.
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
 
@@ -85,7 +87,7 @@ Use `comms_send` for normal teamwork:
 | Continue your own lane later | `comms_send(to="<your-id>", type="request", queueIfBusy=true, subject="Continue: ...", body="...")` |
 | Force next-turn delivery instead of steer | add `queueIfBusy=true` |
 
-Ordinary sends are live-delivery gated. Offline/stale/stopped/no-wake targets fail without storing a future surprise. Busy steer-capable targets receive ordinary sends as steer into the active run; busy non-steer targets queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want the next-turn path.
+Ordinary sends are live-delivery gated. Offline/stale/stopped/no-wake targets fail without storing a future surprise. Terminal-capable managed runtimes start or reuse a managed PTY and receive ordinary sends through that PTY. Busy steer-capable targets receive ordinary sends as steer into the active run when no PTY delivery applies; busy non-steer targets queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want the next-turn path.
 
 Use `priority="high"` or `"urgent"` only for real blockers or time-sensitive coordination. Waking is not the same as urgency.
 

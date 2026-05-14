@@ -366,9 +366,11 @@ function wakeModeSummary(info = {}) {
     return "codex-live";
   }
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
+  if (sessionMode === "resident" && runtime === "hermes" && capabilities.includes("resident-run") && info.sessionHandle) return "hermes-session-resume";
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
+  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle) return "hermes-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
@@ -519,6 +521,12 @@ async function autoRegisterConfiguredAgent() {
       }
     }
     REMOTE_AGENT_STATE.set(AIFY_AGENT_ID, { info: { ...payload, runtimeState } });
+    try {
+      const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
+      fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), AIFY_AGENT_ID);
+    } catch {
+      // Best effort; notification hooks can still operate after explicit comms_register.
+    }
     ensureDispatchLoop();
     const transition = r.ownershipTransition ? ` (${r.ownershipTransition})` : "";
     console.error(`[aify] auto-registered "${AIFY_AGENT_ID}" as resident ${runtime}${sessionHandle ? ` session ${sessionHandle}` : ""}${transition}`);
@@ -536,7 +544,7 @@ function supportedExecutionModes(info = {}) {
     modes.push("managed");
   }
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex" || runtime === "opencode" || runtime === "pi") modes.push("resident");
+    if (runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi") modes.push("resident");
   }
   return modes;
 }
@@ -881,7 +889,7 @@ function runtimeCapability(runtime) {
     unavailableReason: availability.available ? "" : availability.message,
     capabilities: {
       persistent: true,
-      nativeResume: normalized === "codex" || normalized === "opencode" || normalized === "pi",
+      nativeResume: normalized === "codex" || normalized === "hermes" || normalized === "opencode" || normalized === "pi",
       bridgeResume: true,
       cliAttach: false,
       interrupt: true,
@@ -894,7 +902,7 @@ function runtimeCapability(runtime) {
 }
 
 function advertisedEnvironmentRuntimes() {
-  return ["codex", "claude-code", "opencode", "pi"]
+  return ["codex", "claude-code", "hermes", "opencode", "pi"]
     .map(runtimeCapability)
     .filter((runtime) => runtime.available);
 }
@@ -1076,6 +1084,9 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
   const readMatch = (match) => unquoteShellToken(match?.[1] || match?.[2] || match?.[3] || "");
   if (key === "codex") {
     return readMatch(text.match(new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${token}`)));
+  }
+  if (key === "hermes") {
+    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)(?:--resume|-r)(?:=|\s+)${token}`)));
   }
   if (key === "claude-code") {
     return readMatch(text.match(new RegExp(String.raw`(?:^|\s)(?:--resume|--session-id)(?:=|\s+)${token}`)));
@@ -1731,7 +1742,7 @@ server.tool(
     model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
     description: z.string().optional().describe("Team-facing short description: who you are, what project you're on, what you focus on. Visible to other agents in comms_agents. Preserved across re-register; pass \"\" to clear."),
     instructions: z.string().optional().describe("Standing instructions for when triggered"),
-    runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex', 'opencode', 'pi')"),
+    runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex', 'hermes', 'opencode', 'pi')"),
     machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
     launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
     sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
@@ -1988,6 +1999,8 @@ function internalCompactUnsupportedText(sourceSession = {}) {
       "Claude Code exposes interactive `/compact`, but aify-comms does not currently have a safe headless managed-run API for triggering that native operation.",
     codex:
       "Codex app-server/CLI currently exposes resume, turn, interrupt, and steer controls, but no native compact/context-reset API.",
+    hermes:
+      "Hermes support is PTY-backed. Use Hermes's own interactive compression/session tools in the terminal; aify-comms does not have a verified native compact adapter yet.",
     opencode:
       "OpenCode support has no verified native compact adapter yet.",
     pi:
@@ -2071,7 +2084,7 @@ server.tool(
     environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, first online environment supporting runtime is used."),
     agentId: z.string().describe("Stable agent ID to create"),
     role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
-    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, opencode, or pi"),
+    runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, hermes, opencode, or pi"),
     workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
     name: z.string().optional().describe("Friendly name"),
     model: z.string().optional().describe("Preferred model/profile value"),

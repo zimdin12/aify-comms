@@ -10,7 +10,7 @@ Initial dashboard sections:
 - **Analytics**: time-filtered communication volume, run health, spawn failures, and live capacity.
 - **Environments**: connected spawn targets.
 - **Sessions**: concrete runtime processes/threads grouped under Environments, with identity actions available from the row or Identity Directory.
-- **Browser CLI** (future): embedded terminal access to a paused/taken-over managed or resident session when an environment bridge advertises attach capability.
+- **Console**: embedded xterm-style access to the bridge-owned PTY for terminal-capable managed runtimes. Console attaches to the same backing process used by Messenger delivery; it should not turn the identity into `cli-takeover`.
 - **Runs**: execution/delivery audit table for run events, failures, steering, interrupts, and handoff state.
 - **Artifacts**: shared files and text artifacts.
 - **Help**: tabbed product concepts, setup, daily-use, session/CLI, and reference guidance. It should be readable in-dashboard without turning into a long unstructured manual.
@@ -146,7 +146,7 @@ Required fields:
 
 - agent ID or generated ID
 - role
-- runtime: Claude, Codex, OpenCode, Pi
+- runtime: Claude, Codex, Hermes, OpenCode, Pi
 - environment
 - workspace
 - mode: managed warm/live-wake

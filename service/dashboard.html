@@ -5894,7 +5894,7 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
         <textarea id="cont-packet">${esc(packet)}</textarea>
         <div class="hint">${splitIdentity ? 'Continue as intentionally creates a second agent identity.' : 'Compact keeps the same agent ID; use Continue as when you want a split/new identity.'} The packet includes session identity plus clipped recent direct messages involving the source agent and channel posts authored by it.</div>
       </div>
-      <div id="cont-internal-note" class="worker-note" style="display:none">Internal native compaction is not currently supported by the managed Claude Code, Codex, OpenCode, or Pi adapters. Use handoff compaction unless a future adapter advertises native support.</div>
+      <div id="cont-internal-note" class="worker-note" style="display:none">Internal native compaction is not currently supported by the managed Claude Code, Codex, Hermes, OpenCode, or Pi adapters. Use handoff compaction unless a future adapter advertises native support.</div>
       <div class="btn-row">
         <span class="cont-handoff-field">${actionButtonFn('Regenerate', 'Regenerate the packet from the selected message count', () => regenerateContinuePacket(sessionId))}</span>
         ${actionButtonFn(splitIdentity ? 'Continue as' : 'Compact', 'Queue the selected handoff action', () => submitContinueSessionAs(sessionId), 'btn-primary')}

@@ -13,18 +13,18 @@ The Chat page should expose two modes for an agent identity:
 - **Messenger:** structured aify-comms chat, direct/channel messages, run audit, queue/steer/interrupt, contracts, and final plain-text replies.
 - **Console:** an in-browser terminal connected to a host-side PTY owned by an environment bridge.
 
-Console mode must not be a hidden implementation detail of Messenger. It is an explicit terminal ownership mode with visible state, start/attach/stop controls, and audit events.
+Console mode must not be a hidden implementation detail of Messenger. It is an explicit terminal surface with visible state, start/attach/stop controls, and audit events.
 
 The browser is an attachment to a terminal owner, not the owner itself. If the browser disconnects, the environment bridge may still own and drive the PTY. The dashboard must make that visible, but the browser tab is not the thing that keeps work alive.
 
 ## Core Rule
 
-Dashboard Messenger sends and Console keystrokes must not drive the same active runtime handle concurrently.
+Dashboard Messenger sends and Console keystrokes must drive the same active runtime handle through one bridge-owned PTY path when a terminal-capable managed runtime is active.
 
 When Console owns an identity:
 
 - Messenger can still show chat history and incoming messages.
-- Normal Messenger sends to that identity should route through the resident/console delivery path if the runtime supports it, or queue behind Console ownership.
+- Normal Messenger sends to that identity should route into the active managed PTY when the runtime supports terminal delivery; they should not create a second managed run behind Console.
 - The UI must show that terminal ownership is active and provide a clear **Return to managed dashboard** action.
 - The dashboard Console should display the same terminal stream whether the terminal was started by dashboard Console or observed from a real resident wrapper when the runtime exposes a stream path.
 
@@ -255,7 +255,7 @@ Initial setting should be conservative: detach but show an obvious “Detached t
 - Console cannot start outside environment bridge workspace roots.
 - Console takeover cannot interrupt an active managed run unless the operator explicitly interrupts/stops that run first.
 - Stop Console must terminate the PTY process tree where the bridge can do so.
-- Messenger must not send a managed run into an identity while Console owns the same runtime handle.
+- Messenger must not create a duplicate managed run while an active managed PTY exists; it should route input into the PTY or fail visibly.
 - All terminal start/stop/attach/detach/input-control events should be audit-visible.
 - Terminal output is telemetry, not automatically a chat reply. The agent still needs explicit Messenger reply behavior for contracts, or the UI must label the message as delivered-to-terminal rather than answered.
 - If a real resident wrapper for the same session comes online, dashboard Console must not keep a second process alive against the same native handle.
@@ -263,7 +263,7 @@ Initial setting should be conservative: detach but show an obvious “Detached t
 
 ## Implementation Slices
 
-Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Real resident terminal mirroring remains a follow-up capability; dashboard-opened Console streams are implemented.
+Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Terminal-capable managed runtimes can use a managed PTY even when Console is closed; Console attaches to that same backing. Real resident terminal mirroring remains a follow-up capability.
 
 ### Slice 1: Data Model And Read-Only UI
 
@@ -306,29 +306,29 @@ Tests:
 
 ### Slice 4: Claude Console
 
-Start `claude-aify --aify-agent <id> --resume <handle>` inside the PTY and verify channel marker registration.
+Start interactive Claude Code inside the PTY with channel support and verify channel marker registration. Managed Claude Code no longer uses `claude -p`.
 
-Status: command building and ownership protection implemented. Live Claude verification was deferred because the operator reported Claude Code usage was exhausted during implementation.
+Status: implemented as PTY-first Claude Console/managed delivery.
 
 Tests:
 
-- console start creates resident/console ownership
-- Messenger send routes through channel delivery while Console owns Claude
-- managed send is blocked or queued when Console owns the runtime
+- console start keeps the identity managed while attaching a PTY
+- Messenger send routes into the active managed PTY while Console is attached
+- managed send starts a headless managed PTY when Console is closed
 - stop returns identity to managed backing after lease expiry
 - real `claude-aify --resume <handle>` takeover stops or defers dashboard Console ownership for the same handle
 
-### Slice 5: Codex And Pi Console
+### Slice 5: Codex, Hermes, OpenCode, And Pi Console
 
-Add runtime-specific command builders for `codex-aify` and `omp-aify` / `pi-aify`.
+Add runtime-specific command builders for `codex-aify`, `hermes-aify`, OpenCode, and `omp-aify` / `pi-aify`.
 
-Status: implemented. Pi requires a saved handle for context-preserving Console start unless the operator explicitly starts fresh.
+Status: implemented. Pi requires a saved handle for context-preserving Console start unless the operator explicitly starts fresh. Hermes can run as a PTY-backed warm process; resumable Hermes IDs are used when known.
 
 Tests:
 
 - Codex uses managed `CODEX_HOME` when resuming managed thread
 - Pi refuses context-preserving Console start when no session handle exists unless operator chooses fresh session
-- Messenger routing stays consistent across owner changes
+- Messenger routing stays consistent across owner changes and active PTY attachment
 
 ### Slice 6: Polish And Operations
 
@@ -349,15 +349,15 @@ Tests:
 2. Should Console mode be allowed for agents with no native session handle as a fresh terminal, or should it require explicit **Recreate/Fresh Console**?
 3. Should real resident terminal output be mirrored to dashboard when possible, or should dashboard only show status unless the terminal was opened through Console mode?
 4. Should Console output be stored long-term, short-term buffered, or only streamed live?
-5. Should Messenger sends during Console ownership be delivered immediately through runtime-specific resident channels, or should the operator choose between **Send to terminal** and **Queue for managed**?
+5. Resolved for the current implementation: Messenger sends during active managed PTY attachment are delivered into that PTY. A future UI may still add an explicit **Queue for later** affordance.
 6. Which host should get the first PTY implementation: native Windows ConPTY or WSL/Linux PTY?
 
 ## Recommended First Decision
 
-Start with an explicit **Console ownership mode** and implement WSL/Linux PTY first unless native Windows is the operator’s main target. If native Windows is first, prefer `node-pty` on the Windows bridge before adding a separate helper. Keep Messenger as the default. Let Console take ownership only after a visible operator action and never while a managed run is active.
+Start with an explicit **Console surface** and implement PTY through the environment bridge. Keep Messenger as the default. Console should attach to the same managed PTY backing rather than silently converting the identity to a resident takeover.
 
 This preserves the resident/managed line:
 
-- `managed` means dashboard sends create controlled headless runs.
+- `managed` means dashboard sends create controlled runs or managed PTY input for terminal-capable runtimes.
 - `resident` means an external terminal owns the runtime.
 - `console` means the dashboard owns a terminal through the environment bridge.

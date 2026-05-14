@@ -26,15 +26,15 @@ Agents create persistent comms-visible identities through `comms_envs(...)` and 
 Current dashboard behavior reflected by the skills:
 
 - managed mode is the default persistent-agent path: run the `aify-comms` environment bridge, spawn agents from the dashboard or `comms_spawn(...)`, and let the dashboard own lifecycle/restart/compact
-- resident mode is a deliberate visible-terminal path: start `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` alias) when the CLI should temporarily own a live session; if launched without an ID, register manually from that same session
+- resident mode is a deliberate visible-terminal path: start `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, `hermes-aify --aify-agent <id>`, or `omp-aify --aify-agent <id>` (`pi-aify` alias) when the CLI should temporarily own a live session; if launched without an ID, register manually from that same session
 - normal teamwork uses `comms_send`; `comms_dispatch` is a lower-level debug/run-control tool
 - every message is treated as a small contract: owner, expected action or answer, evidence/result needed, and whether a reply or follow-up wake is owed
 - agents and managers can use `comms_contracts(...)` to inspect computed Work Loop contracts before claiming an agent is silent, overdue, answered, or blocked by stale bookkeeping. It defaults to open direct contracts; channel, self-wake, missing-reply, failed, and answered audits are explicit filters.
 - managed turns should not end silently: stdout/logs/tool output/run summaries are telemetry, not the team-visible answer. The turn should close with a final reply to the triggering sender, explicit `comms_send` updates for other owners/dashboard, or a self-scheduled wake when later self-work is required
-- normal sends are live-delivery gated for offline/stale/stopped/no-wake targets; busy steer-capable targets receive normal sends as current-run steer, busy non-steer targets queue/merge as next-turn work, and `queueIfBusy=true` forces explicit next-turn delivery
+- normal sends are live-delivery gated for offline/stale/stopped/no-wake targets; terminal-capable managed runtimes start/reuse a bridge-owned PTY and receive sends through that PTY, busy steer-capable targets receive normal sends as current-run steer when no PTY delivery applies, busy non-steer targets queue/merge as next-turn work, and `queueIfBusy=true` forces explicit next-turn delivery
 - environment bridge roots are safety boundaries, not per-agent workspace defaults; current launchers/service builds reject or ignore flag-like roots such as `--help`
 - managed sessions have real turn boundaries, but teamwork is not lockstep: agents may exchange messages mid-turn, run independent lanes in parallel, and continue bounded work inside a turn. Final text replies do not schedule later work. For autonomous project work, agents must send the next wake before finishing when more work should happen after the current turn. If they own the next bounded chunk, they self-schedule with `comms_send(to="<own-agent-id>", type="request", queueIfBusy=true, ...)`; if another teammate owns it, they message that teammate. Vague "need confirmation" is not a stop condition when docs/team roles can answer it.
-- browser CLI is a planned dashboard ownership mode, not current behavior. Skills should not imply it works until the environment bridge advertises terminal/PTY attach. Current direct CLI access uses wrapper auto-registration (`claude-aify --aify-agent <id>` / `codex-aify --aify-agent <id>` / `omp-aify --aify-agent <id>`) or manual `comms_register(...)`. Ownership changes only between turns: active managed work defers resident takeover, stale resident leases can return to managed backing automatically, and reopening with `--aify-agent` switches ownership back to resident once safe.
+- browser Console is current behavior when an environment bridge advertises terminal/PTY support for the runtime. It attaches to the same managed PTY used for dashboard sends and should not change the identity to `cli-takeover`. Direct native CLI access still uses wrapper auto-registration (`claude-aify --aify-agent <id>` / `codex-aify --aify-agent <id>` / `hermes-aify --aify-agent <id>` / `omp-aify --aify-agent <id>`) or manual `comms_register(...)`. Ownership changes only between turns for separate resident CLIs: active managed work defers resident takeover, stale resident leases can return to managed backing automatically, and reopening with `--aify-agent` switches ownership back to resident once safe.
 - dashboard **Set handle** is the operator repair path for a known Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle. Skills should mention it for saved-handle recovery, and should not describe it as compaction or a fresh-context reset.
 - delivered dashboard-managed runs should answer the current message in final plain text; the bridge captures and stores/threads that answer into chat
 - delivered dashboard-managed runs must not call `comms_register`; managed identities are already registered by the environment bridge, and current builds reject that call to prevent accidental resident/manual downgrades
@@ -53,6 +53,12 @@ No separate dashboard skill exists. The existing `aify-comms` and `aify-comms-de
 
 ```bash
 bash install.sh --client codex http://localhost:8800 --with-hook
+```
+
+For Hermes installs, use:
+
+```bash
+bash install.sh --client hermes http://localhost:8800 --with-hook
 ```
 
 For Claude Code installs, use:

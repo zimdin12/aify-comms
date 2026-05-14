@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Keep this as a product/architecture plan until the operator explicitly asks for implementation. If implementation starts, convert the chosen slice into a task-by-task plan and use tests before runtime behavior changes.
 
+> **Status update (2026-05-14):** This plan is superseded for the current dashboard path. Managed Claude Code no longer uses `claude -p`, and Messenger delivery for terminal-capable runtimes now starts or reuses a bridge-owned PTY. Keep this document as historical analysis of the Agent SDK/print-mode option, not as the current implementation direction.
+
 ## Goal
 
 Add real Claude Code **Messenger steering** for managed/headless chat runs without abusing PTY Console as a chat transport.

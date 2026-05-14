@@ -71,7 +71,7 @@ Daily workflow target:
 - Full Minecraft integration.
 - Building a custom LLM runtime.
 - Perfect cross-runtime feature parity.
-- Replacing Claude/Codex/OpenCode/Oh My Pi auth flows.
+- Replacing Claude/Codex/Hermes/OpenCode/Oh My Pi auth flows.
 - Running native Windows processes directly from a Linux container without a Windows bridge.
 - Infinite autonomous agent loops. Budget, loop, and mention controls must exist before automatic multi-agent reply behavior becomes a default.
 - Pretending every runtime has the same native session model. The product UX should be consistent, but adapters must expose real capability flags.
@@ -86,7 +86,7 @@ Daily workflow target:
 - Headless adapters hide CLI details. The rest of the system asks for `runtime=codex`, not for raw shell flags.
 - Managed warm sessions are always backed by durable state: agent identity, spawn spec, workspace, transcript/memory, runtime handles when available, and recovery policy.
 - Native CLI attach is optional. A session can be recoverable through the dashboard even when it cannot be opened in the native runtime CLI later.
-- Browser CLI attach is a useful future extension, not a replacement for chat. It should be a first-class ownership mode over the same saved runtime handle: opening it pauses dashboard delivery for that session, and returning control resumes normal dashboard chat delivery.
+- Browser Console is an implemented terminal surface for bridge-owned PTYs. It is not a replacement for chat: Messenger remains the contract surface, and Console attaches to the same managed PTY used for terminal-capable delivery instead of pausing dashboard delivery by default.
 - Bridges are execution owners. The container coordinates; the bridge running in Windows/WSL/Linux validates paths and starts native processes.
 - Handoff compaction is not native resume. It creates a new session from a portable compaction packet so users can compact context or switch runtime/model/environment safely. It should keep the same agent ID by default unless the operator intentionally creates a separate successor identity.
 - Work contracts are computed from messages and runs. They are not a second messaging system; they expose the obligations already created by direct requests, reviews, errors, urgent/high-priority messages, self-wakes, and required handoffs.

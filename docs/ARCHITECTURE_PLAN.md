@@ -253,7 +253,7 @@ This is still useful, but it is not the default dashboard spawn path. It is for 
 
 Advanced/internal mode for short utility calls:
 
-- `claude -p "..."`
+- interactive runtime PTY, or legacy `claude -p "..."` only for explicit probes
 - `codex exec "..."`
 - `opencode run "..."`
 
@@ -273,7 +273,7 @@ The UI and scheduler must respect runtime/session capabilities:
 - `costTelemetry`: cost can be estimated
 - `contextReset`: runtime context can reset without losing agent identity
 
-Do not infer these from runtime name alone. Codex, Claude Code, OpenCode, and Oh My Pi may change behavior across versions.
+Do not infer these from runtime name alone. Codex, Claude Code, Hermes, OpenCode, and Oh My Pi may change behavior across versions.
 
 ## Workspace Model
 

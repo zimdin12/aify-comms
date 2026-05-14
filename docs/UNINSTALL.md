@@ -3,8 +3,8 @@
 This project installs three separate things:
 
 - the Docker service/dashboard and its data volume
-- host-side bridge/wrapper scripts such as `aify-comms`, `codex-aify`, `claude-aify`, `omp-aify`, and `pi-aify`
-- MCP client config and skills for Claude Code, Codex, OpenCode, or Oh My Pi
+- host-side bridge/wrapper scripts such as `aify-comms`, `codex-aify`, `claude-aify`, `hermes-aify`, `omp-aify`, and `pi-aify`
+- MCP client config and skills for Claude Code, Codex, Hermes, OpenCode, or Oh My Pi
 
 Remove only the parts you actually want gone.
 
@@ -114,6 +114,29 @@ rm -f "$HOME/.local/bin/aify-comms" "$HOME/.local/bin/aify-comms.cmd"
 rm -rf "$HOME/.local/state/aify-comms"
 ```
 
+## Remove Hermes Integration
+
+Hermes config is YAML. Remove the `mcp_servers.aify-comms` entry from:
+
+```text
+~/.hermes/config.yaml
+```
+
+If `install.sh --with-hook` was used, also remove the `hooks.post_tool_call` entry that points at:
+
+```text
+~/.hermes/agent-hooks/aify-notify.sh
+```
+
+Then remove the shared launcher/wrapper/state if you no longer use it:
+
+```bash
+rm -f "$HOME/.local/bin/aify-comms" "$HOME/.local/bin/hermes-aify"
+rm -f "$HOME/.local/bin/aify-comms.cmd" "$HOME/.local/bin/hermes-aify.cmd"
+rm -f "$HOME/.hermes/agent-hooks/aify-notify.sh"
+rm -rf "$HOME/.local/state/aify-comms"
+```
+
 ## Remove Oh My Pi Integration
 
 Oh My Pi config is JSON. Remove the `mcpServers.aify-comms` entry from:
@@ -147,6 +170,8 @@ codex-aify
 codex-aify.cmd
 claude-aify
 claude-aify.cmd
+hermes-aify
+hermes-aify.cmd
 omp-aify
 omp-aify.cmd
 pi-aify

@@ -45,4 +45,17 @@ assert.equal(claudeEnv.AIFY_MANAGED_DISPATCH, "0");
 assert.equal(claudeEnv.CLAUDE_SESSION_ID, "claude-session");
 assert.equal(claudeEnv.CODEX_HOME, undefined);
 
+const hermesEnv = terminalChildEnv({
+  baseEnv: { HERMES_SESSION_ID: "old-hermes" },
+  runtime: "hermes",
+  sessionHandle: "hermes-session",
+  workspace: "/repo",
+  terminal: { agentId: "hermes-coder" },
+});
+
+assert.equal(hermesEnv.AIFY_AGENT_ID, "hermes-coder");
+assert.equal(hermesEnv.AIFY_RUNTIME, "hermes");
+assert.equal(hermesEnv.AIFY_SESSION_HANDLE, "hermes-session");
+assert.equal(hermesEnv.HERMES_SESSION_ID, "hermes-session");
+
 console.log("terminal-env.test.js: all assertions passed");

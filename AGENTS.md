@@ -23,7 +23,7 @@ The user should be able to:
 
 - open the dashboard
 - see connected environments such as WSL, Windows, Linux host, Docker, or remote machines
-- spawn Claude/Codex/OpenCode agents into a chosen environment and workspace
+- spawn Claude/Codex/Hermes/OpenCode agents into a chosen environment and workspace
 - have spawned agents auto-register with stable identity/session metadata
 - have managed-warm agents backed by stored spawn spec, workspace, transcript/memory, runtime handles when available, and recovery policy
 - message agents in direct chats, group chats, and channels

@@ -1,10 +1,11 @@
 #!/bin/bash
-# Unified installer for aify-comms on Claude Code, Codex, OpenCode, or Oh My Pi.
+# Unified installer for aify-comms on Claude Code, Codex, Hermes, OpenCode, or Oh My Pi.
 #
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
 #   bash install.sh --client codex http://localhost:8800 --with-hook
+#   bash install.sh --client hermes http://localhost:8800 --with-hook
 #   bash install.sh --client opencode http://localhost:8800
 #   bash install.sh --client pi http://localhost:8800
 
@@ -18,12 +19,13 @@ WITH_HOOK=false
 usage() {
   cat <<EOF
 Usage:
-  bash install.sh --client <claude|codex|opencode|pi> [SERVER_URL] [--with-hook]
+  bash install.sh --client <claude|codex|hermes|opencode|pi> [SERVER_URL] [--with-hook]
 
 Examples:
   bash install.sh --client claude
   bash install.sh --client claude http://localhost:8800 --with-hook
   bash install.sh --client codex http://localhost:8800
+  bash install.sh --client hermes http://localhost:8800 --with-hook
   bash install.sh --client opencode http://localhost:8800
   bash install.sh --client pi http://localhost:8800
 EOF
@@ -55,7 +57,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "opencode" ] && [ "$CLIENT" != "pi" ]; then
+if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "hermes" ] && [ "$CLIENT" != "opencode" ] && [ "$CLIENT" != "pi" ]; then
   echo "Unsupported client: $CLIENT"
   usage
   exit 1
@@ -376,6 +378,77 @@ EOF
   install_windows_cmd_shim "omp-aify" "$wrapper_dir"
 }
 
+install_hermes_wrapper() {
+  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_path="$wrapper_dir/hermes-aify"
+  local default_server="${SERVER_URL:-http://localhost:8800}"
+  mkdir -p "$wrapper_dir"
+  cat > "$wrapper_path" <<EOF
+#!/bin/bash
+set -euo pipefail
+
+HERMES_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
+HERMES_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
+HERMES_SESSION_HANDLE="\${HERMES_SESSION_ID:-\${HERMES_SESSION:-\${AIFY_SESSION_HANDLE:-}}}"
+HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
+HERMES_ARGS=()
+PREV_ARG=""
+for ARG in "\$@"; do
+  if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
+    HERMES_AIFY_AGENT_ID="\$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "\$PREV_ARG" = "--aify-role" ]; then
+    HERMES_AIFY_ROLE="\$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  if [ "\$ARG" = "--aify-agent" ] || [ "\$ARG" = "--agent-id" ] || [ "\$ARG" = "--aify-role" ]; then
+    PREV_ARG="\$ARG"
+    continue
+  fi
+  case "\$ARG" in
+  --aify-agent=*|--agent-id=*)
+    HERMES_AIFY_AGENT_ID="\${ARG#*=}"
+    continue
+    ;;
+  --aify-role=*)
+    HERMES_AIFY_ROLE="\${ARG#*=}"
+    continue
+    ;;
+  --resume=*|--session-id=*)
+    HERMES_SESSION_HANDLE="\${ARG#*=}"
+    ;;
+  -r=*)
+    HERMES_SESSION_HANDLE="\${ARG#*=}"
+    ;;
+  esac
+  HERMES_ARGS+=("\$ARG")
+  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
+    HERMES_SESSION_HANDLE="\$ARG"
+  fi
+  PREV_ARG="\$ARG"
+done
+
+export AIFY_RUNTIME="hermes"
+export AIFY_SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
+export CLAUDE_MCP_SERVER_URL="\${CLAUDE_MCP_SERVER_URL:-\$AIFY_SERVER_URL}"
+if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
+  export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
+  export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
+fi
+if [ -n "\$HERMES_SESSION_HANDLE" ]; then
+  export HERMES_SESSION_ID="\$HERMES_SESSION_HANDLE"
+  export AIFY_SESSION_HANDLE="\$HERMES_SESSION_HANDLE"
+fi
+
+exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+EOF
+  chmod +x "$wrapper_path"
+  install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
+}
+
 install_bridge_launcher() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/aify-comms"
@@ -637,6 +710,42 @@ EOF
   " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
 }
 
+install_hermes_config() {
+  local config_root="$HOME/.hermes"
+  local config_file="$config_root/config.yaml"
+  local node_config_file=""
+  local node_server_path=""
+  mkdir -p "$config_root"
+  touch "$config_file"
+  node_config_file="$(path_for_node "$config_file")"
+  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    const serverPath = process.argv[2];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
+    if (/^[ \t]*aify-comms:[ \t]*$/m.test(text) && /^[ \t]*mcp_servers:[ \t]*$/m.test(text)) {
+      process.exit(0);
+    }
+    const entry = [
+      "  aify-comms:",
+      "    command: \"node\"",
+      "    args:",
+      `      - ${JSON.stringify(serverPath)}`,
+    ];
+    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
+    if (mcpIndex >= 0) {
+      lines.splice(mcpIndex + 1, 0, ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+    } else {
+      fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`);
+    }
+  ' "$node_config_file" "$node_server_path"
+}
+
 migrate_codex_hooks_key() {
   # Recent Codex CLI renamed [features].codex_hooks -> [features].hooks.
   # Rename the key in place if present, preserving the original value.
@@ -745,6 +854,51 @@ install_codex_hook() {
   " "$node_hooks_file" "$hook_command"
 }
 
+install_hermes_hook() {
+  local config_root="$HOME/.hermes"
+  local config_file="$config_root/config.yaml"
+  local hook_dir="$config_root/agent-hooks"
+  local hook_path="$hook_dir/aify-notify.sh"
+  local node_notify_script=""
+  mkdir -p "$hook_dir"
+  touch "$config_file"
+  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+
+  cat > "$hook_path" <<EOF
+#!/usr/bin/env bash
+node $(shell_quote "$node_notify_script")
+EOF
+  chmod +x "$hook_path"
+
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    const hookPath = process.argv[2];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
+    if (text.includes("aify-notify.sh")) process.exit(0);
+    const entry = [
+      "    - matcher: \".*\"",
+      `      command: ${JSON.stringify(hookPath)}`,
+      "      timeout: 3",
+    ];
+    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    const postIndex = lines.findIndex((line) => /^[ \t]*post_tool_call:[ \t]*$/.test(line));
+    if (postIndex >= 0) {
+      lines.splice(postIndex + 1, 0, ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
+    const hooksIndex = lines.findIndex((line) => /^[ \t]*hooks:[ \t]*$/.test(line));
+    if (hooksIndex >= 0) {
+      lines.splice(hooksIndex + 1, 0, "  post_tool_call:", ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
+    fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  post_tool_call:\n${entry.join("\n")}\n`);
+  ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
+}
+
 install_claude_hook() {
   local settings_file="$HOME/.claude/settings.json"
   local node_settings_file=""
@@ -796,6 +950,9 @@ register_stdio_server() {
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope user "$server_name" >/dev/null 2>&1 || true
+  elif [ "$cli" = "hermes" ]; then
+    install_hermes_config
+    return
   elif [ "$cli" = "opencode" ]; then
     install_opencode_config
     return
@@ -901,6 +1058,8 @@ if [ "$WITH_HOOK" = true ]; then
     install_claude_hook
   elif [ "$CLIENT" = "codex" ]; then
     install_codex_hook
+  elif [ "$CLIENT" = "hermes" ]; then
+    install_hermes_hook
   else
     echo "  Notification hook install is not implemented for $CLIENT yet; skipping."
   fi
@@ -917,6 +1076,8 @@ if [ "$CLIENT" = "claude" ]; then
   fi
 elif [ "$CLIENT" = "codex" ]; then
   install_codex_wrapper
+elif [ "$CLIENT" = "hermes" ]; then
+  install_hermes_wrapper
 elif [ "$CLIENT" = "pi" ]; then
   install_pi_wrapper
 fi
@@ -950,6 +1111,13 @@ elif [ "$CLIENT" = "codex" ]; then
   if is_git_bash_windows; then
     echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\codex-aify.cmd"
   fi
+elif [ "$CLIENT" = "hermes" ]; then
+  echo "Restart Hermes Agent for changes to take effect."
+  echo "For resident-session wakeups, start Hermes with: hermes-aify"
+  echo "  (wrapper installed at ~/.local/bin/hermes-aify)"
+  if is_git_bash_windows; then
+    echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\hermes-aify.cmd"
+  fi
 else
   if [ "$CLIENT" = "opencode" ]; then
     echo "Restart OpenCode for changes to take effect."
@@ -972,6 +1140,9 @@ elif [ "$CLIENT" = "claude" ]; then
 elif [ "$CLIENT" = "pi" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"pi\", sessionHandle=\"\$PI_SESSION_ID\")"
   echo "  # If PI_SESSION_ID is unavailable, omit sessionHandle; resident Pi will be visible but not resumable until bound."
+elif [ "$CLIENT" = "hermes" ]; then
+  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"hermes\", sessionHandle=\"\$HERMES_SESSION_ID\")"
+  echo "  # If HERMES_SESSION_ID is unavailable, omit sessionHandle; resident Hermes will be visible but not resumable until bound."
 else
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
 fi

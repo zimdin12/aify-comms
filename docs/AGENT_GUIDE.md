@@ -11,7 +11,7 @@ This guide is for coding agents working on `aify-comms`.
 - The service container stores state and exposes APIs. Host-side bridges execute runtime CLIs and claim environment spawn requests.
 - A dashboard-spawned agent must be auditable: environment, workspace, runtime, spawn spec, session handle/process handle when available, lifecycle status, and owner.
 - Manual `comms_register` remains useful for human-open resident CLI sessions, but it is not the normal dashboard spawn path.
-- Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, OpenCode, and Oh My Pi flags can change.
+- Prefer runtime adapters over hardcoded CLI assumptions. Codex, Claude Code, Hermes, OpenCode, and Oh My Pi flags can change.
 
 ## Main Surfaces
 

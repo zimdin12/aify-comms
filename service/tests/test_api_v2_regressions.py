@@ -1731,6 +1731,7 @@ class ApiV2RegressionTests(unittest.TestCase):
     def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
         cases = [
             ("codex", "codex-aify --aify-agent {agent_id}", "resume --include-non-interactive codex-thread-1", "codex-thread-1"),
+            ("hermes", "hermes-aify --aify-agent {agent_id}", "--resume hermes-session-1", "hermes-session-1"),
             ("pi", "pi-aify --aify-agent {agent_id}", "--resume pi-session-1", "pi-session-1"),
             ("opencode", "opencode", "", "opencode-session-1"),
         ]

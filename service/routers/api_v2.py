@@ -97,6 +97,9 @@ _RUNTIME_ALIASES = {
     "claude-code": "claude-code",
     "claude_code": "claude-code",
     "codex": "codex",
+    "hermes": "hermes",
+    "hermes-agent": "hermes",
+    "hermes_agent": "hermes",
     "oh-my-pi": "pi",
     "oh_my_pi": "pi",
     "opencode": "opencode",
@@ -106,7 +109,7 @@ _RUNTIME_ALIASES = {
     "pi_agent": "pi",
     "generic": "generic",
 }
-_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "opencode", "pi"}
+_LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "hermes", "opencode", "pi"}
 _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
@@ -173,6 +176,8 @@ def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
         return str(state.get("threadId") or state.get("sessionId") or "").strip()
     if normalized == "pi":
         return str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
+    if normalized == "hermes":
+        return str(state.get("sessionId") or state.get("threadId") or state.get("sessionKey") or "").strip()
     return str(state.get("sessionId") or state.get("threadId") or "").strip()
 
 
@@ -583,6 +588,8 @@ def _default_capabilities_for(
     if normalized_session_mode == "managed":
         if normalized_runtime == "codex":
             return ["managed-run", "resume", "interrupt", "steer", "spawn"]
+        if normalized_runtime == "hermes":
+            return ["managed-run", "resume", "interrupt", "spawn"]
         if normalized_runtime == "opencode":
             return ["managed-run", "resume", "interrupt", "spawn"]
         if normalized_runtime == "pi":
@@ -594,6 +601,10 @@ def _default_capabilities_for(
         if not session_handle:
             return []
         return ["resident-run", "resume", "interrupt", "steer"]
+    if normalized_runtime == "hermes":
+        if not session_handle:
+            return []
+        return ["resident-run", "resume", "interrupt"]
     if normalized_runtime == "opencode":
         if not session_handle:
             return []
@@ -636,6 +647,15 @@ def _row_capabilities(row) -> list[str]:
             for cap in ("resident-run", "resume", "interrupt", "steer"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
+    if runtime == "hermes":
+        if session_mode == "managed":
+            for cap in ("managed-run", "resume", "interrupt", "spawn"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
+        elif session_handle:
+            for cap in ("resident-run", "resume", "interrupt"):
+                if cap not in capabilities:
+                    capabilities = [*capabilities, cap]
     if runtime == "claude-code" and session_mode == "resident":
         channel_enabled = isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True
         if not channel_enabled:
@@ -669,12 +689,16 @@ def _agent_wake_mode(row) -> str:
         return "codex-live"
     if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
         return "codex-thread-resume"
+    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and session_handle:
+        return "hermes-session-resume"
     if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
         return "opencode-session-resume"
     if session_mode == "resident" and runtime == "pi" and "resident-run" in capabilities and session_handle:
         return "pi-session-resume"
     if session_mode == "resident" and runtime == "codex" and not session_handle:
         return "codex-missing-handle"
+    if session_mode == "resident" and runtime == "hermes" and not session_handle:
+        return "hermes-missing-handle"
     if session_mode == "resident" and runtime == "opencode" and not session_handle:
         return "opencode-missing-handle"
     if session_mode == "resident" and runtime == "pi" and not session_handle:
@@ -710,6 +734,11 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
         return None, (
             f'agent "{row["id"]}" is a resident OpenCode session without a bound session handle. '
             "Re-register that live session with sessionHandle explicitly or create an environment-managed session."
+        )
+    if runtime == "hermes" and not session_handle:
+        return None, (
+            f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
+            "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
         )
     if runtime == "pi" and not session_handle:
         return None, (
@@ -2172,7 +2201,7 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
     if active:
         return active
     normalized_runtime = _normalize_runtime(runtime or "")
-    if normalized_runtime not in {"claude-code", "codex", "opencode", "pi"}:
+    if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
         return None
 
     session = await (await db.execute(
@@ -4436,6 +4465,11 @@ def _default_console_command(session, workspace: str) -> str:
         return " ".join(part for part in parts if part)
     elif runtime == "opencode":
         return "opencode"
+    elif runtime == "hermes":
+        parts = ["hermes-aify", "--aify-agent", agent_id]
+        if handle:
+            parts.extend(["--resume", handle])
+        return " ".join(part for part in parts if part)
     elif runtime == "pi":
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":

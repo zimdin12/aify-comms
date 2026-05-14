@@ -145,6 +145,7 @@ Runtime model defaults and overrides:
 - managed Claude Code and Codex both default to `high` effort/reasoning effort
 - managed Oh My Pi uses its runtime defaults unless model/thinking are supplied through Dashboard Runtime settings or runtime config; blank or `default` model means no explicit `--model` override, and Pi effort maps to OMP `--thinking`
 - managed Oh My Pi supports active-run steering by sending OMP's native RPC `steer` command; explicit queueing remains available with `queueIfBusy=true`
+- managed Hermes uses the terminal-capable PTY path; resumable IDs can be stored when known, but an active managed PTY is the primary warm backing while it is alive
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
 - Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
 - Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set
@@ -159,18 +160,19 @@ Codex target model:
 
 ### Bridge-Emulated Warm
 
-The runtime is invoked repeatedly, but the bridge owns continuity.
+The bridge owns continuity when a runtime does not expose a durable native session API.
 
-Future/fallback model:
+Current/fallback model:
 
 - bridge stores the transcript and summaries
-- each turn invokes `claude -p` or another headless command with reconstructed context
+- terminal-capable runtimes start or reuse a bridge-owned PTY when possible, and browser Console can attach to that same backing
+- non-terminal fallbacks may invoke a headless command with reconstructed context
 - bridge appends the answer to transcript
 - context is compacted when needed
 
 Bridge-emulated warmth is still persistent because the bridge can recreate the agent from stored state. It may not be CLI-attachable.
 
-Current implementation note: managed Claude and managed Codex prefer native runtime handles when available. Ordinary Restart/Recover should preserve those handles and surface lock/resume failures instead of silently falling back to a contextless reconstructed prompt. Fresh backing context belongs behind the explicit **Recreate** or handoff **Compact** paths.
+Current implementation note: managed Claude, Codex, Hermes, OpenCode, and Pi prefer native runtime handles or managed PTY backing when available. Ordinary Restart/Recover should preserve those handles and surface lock/resume failures instead of silently falling back to a contextless reconstructed prompt. Fresh backing context belongs behind the explicit **Recreate** or handoff **Compact** paths.
 
 ## Resident Visible
 
@@ -178,6 +180,7 @@ Resident visible is for human-open CLI sessions:
 
 - `codex-aify`
 - `claude-aify`
+- `hermes-aify`
 - `omp-aify` / `pi-aify`
 - explicit OpenCode registration with a real session handle
 

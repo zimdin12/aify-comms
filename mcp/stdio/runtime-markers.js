@@ -10,6 +10,7 @@ function normalizeRuntime(runtime) {
   const value = String(runtime || "").trim().toLowerCase();
   if (value === "claude" || value === "claude-code") return "claude-code";
   if (value === "codex") return "codex";
+  if (value === "hermes" || value === "hermes-agent") return "hermes";
   if (value === "opencode") return "opencode";
   return value || "generic";
 }
