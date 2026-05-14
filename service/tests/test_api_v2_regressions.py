@@ -1495,6 +1495,34 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual([row["action"] for row in controls], ["start", "input", "resize", "stop"])
         self.assertEqual(controls[-1]["status"], "pending")
 
+    def test_terminal_stop_reconciles_stale_bridge_owner(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard", "command": "bash"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        self._heartbeat_environment(bridgeId="replacement-bridge", terminal=True, pty=True)
+
+        stopped = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/stop",
+            json={"requestedBy": "dashboard"},
+        )
+
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(stopped.json()["terminal"]["status"], "stopped")
+        session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_status"], "stopped")
+        control = self._fetchone(
+            "SELECT action, status, handled_at FROM terminal_controls WHERE terminal_id = ? AND action = 'stop' ORDER BY requested_at DESC LIMIT 1",
+            (terminal_id,),
+        )
+        self.assertEqual(control["action"], "stop")
+        self.assertEqual(control["status"], "completed")
+        self.assertTrue(control["handled_at"])
+
     def test_terminal_output_buffer_is_bounded(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
