@@ -351,6 +351,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("persistentOpenDetails", dashboard.text)
         self.assertIn(".actions-menu,.chat-send-options", dashboard.text)
         self.assertIn(".console-head{display:grid", dashboard.text)
+        self.assertIn("stripTerminalControlSequences", dashboard.text)
+        self.assertIn("terminalDisplayText(output)", dashboard.text)
         self.assertNotIn("${esc(meta.id)} Console", dashboard.text)
         self.assertIn("Advanced run control", dashboard.text)
         self.assertIn("Normal users and agents should send messages, not dispatches.", dashboard.text)

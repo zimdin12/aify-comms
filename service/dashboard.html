@@ -2377,6 +2377,21 @@ function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
 function jsArg(s) { return JSON.stringify(String(s || '')); }
 function cssSel(s) { return window.CSS?.escape ? CSS.escape(String(s || '')) : String(s || '').replace(/["\\]/g, '\\$&'); }
 function cssToken(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'; }
+function stripTerminalControlSequences(text) {
+  return String(text || '')
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[PX^_][\s\S]*?\x1b\\/g, '')
+    .replace(/\x1b[()][A-Za-z0-9]/g, '')
+    .replace(/\x1b[=>]/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+function terminalDisplayText(text) {
+  const cleaned = stripTerminalControlSequences(text);
+  return cleaned.replace(/\n{4,}/g, '\n\n\n');
+}
 function actionButton(label, title, onclick, classes = '') {
   const id = `act_${++window._dashboardActionSeq}`;
   rememberDashboardAction(id, async () => {
@@ -4730,6 +4745,7 @@ function renderConsoleChat(meta) {
   const command = terminal?.command || session?.terminalCommand || '';
   const workspace = terminal?.workspace || session?.terminalWorkspace || session?.workspace || '';
   const canInput = terminalId && consoleStatusAllowsInput(liveStatus);
+  const outputText = terminalDisplayText(output);
   let body = '';
   let actions = '';
   if (!session) {
@@ -4752,8 +4768,8 @@ function renderConsoleChat(meta) {
       `<button class="btn btn-sm" title="Reload terminal output and events" onclick="refreshSelectedConsole()">Refresh</button>` +
       `<button class="btn btn-sm btn-danger" title="Stop this dashboard-owned console and return the session to managed Messenger ownership" onclick="stopSelectedConsole()">Stop</button>`;
   }
-  const outputHtml = output
-    ? esc(output)
+  const outputHtml = outputText
+    ? esc(outputText)
     : (terminalId ? 'Waiting for terminal output...' : 'Console is not running.');
   const actionsKey = terminalId ? `terminal:${liveStatus}` : `start:${piNeedsFreshChoice ? 'fresh' : 'resume'}:${canConsole ? 'available' : 'blocked'}`;
   const signature = [
@@ -4781,7 +4797,7 @@ function renderConsoleChat(meta) {
           `<div class="console-actions">${actions}</div>` +
         `</div>` +
         body +
-        `<pre class="console-output${output ? '' : ' console-empty'}" id="chat-console-output" data-terminal-output>${outputHtml}</pre>` +
+        `<pre class="console-output${outputText ? '' : ' console-empty'}" id="chat-console-output" data-terminal-output>${outputHtml}</pre>` +
         `<div class="console-input-row">` +
           `<input id="chat-console-input" placeholder="${esc(canInput ? 'Type a command and press Enter' : 'Console input unavailable')}" ${canInput ? '' : 'disabled'} onkeydown="handleConsoleInputKey(event)">` +
           `<button class="btn btn-primary" title="Send this line to the terminal stdin" ${canInput ? '' : 'disabled'} onclick="sendConsoleInput()">Send</button>` +
