@@ -21,6 +21,7 @@ class AgentRegister(BaseModel):
     managedBy: Optional[str] = None
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
+    terminalId: Optional[str] = None
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
 

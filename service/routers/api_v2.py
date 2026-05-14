@@ -5021,6 +5021,130 @@ async def register_agent(req: AgentRegister, request: Request):
         if capabilities is None:
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
         bridge_id = (req.bridgeId or "").strip()
+        terminal_id = str(req.terminalId or "").strip()
+        console_terminal = None
+        if terminal_id and normalized_session_mode == "resident":
+            console_terminal = await (
+                await db.execute(
+                    """
+                    SELECT *
+                    FROM terminal_sessions
+                    WHERE id = ?
+                      AND agent_id = ?
+                      AND status IN ('starting','attached','running','active','idle')
+                    """,
+                    (terminal_id, req.agentId),
+                )
+            ).fetchone()
+        if console_terminal:
+            existing_mode = _normalize_session_mode((row["session_mode"] if row else "") or "managed")
+            existing_state = _json_loads_or((row["runtime_state"] if row else "") or "{}", {})
+            existing_capabilities = (row["capabilities"] if row and "capabilities" in row.keys() else "") or json.dumps(capabilities or [])
+            existing_runtime_config = (row["runtime_config"] if row and "runtime_config" in row.keys() else "") or json.dumps(runtime_config)
+            next_state = _runtime_state_with_handle(normalized_runtime, existing_state, session_handle)
+            next_state["consoleTerminal"] = {
+                "terminalId": terminal_id,
+                "bridgeId": bridge_id,
+                "sessionHandle": session_handle,
+                "at": now,
+            }
+            await db.execute(
+                """
+                UPDATE agents
+                SET role = ?,
+                    name = ?,
+                    cwd = ?,
+                    runtime = ?,
+                    machine_id = ?,
+                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+                    capabilities = ?,
+                    runtime_config = ?,
+                    runtime_state = ?,
+                    status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    req.role,
+                    req.name or req.agentId,
+                    resolved_cwd,
+                    normalized_runtime,
+                    req.machineId or "",
+                    session_handle,
+                    session_handle,
+                    existing_capabilities,
+                    existing_runtime_config,
+                    json.dumps(next_state),
+                    "Dashboard Console PTY attached.",
+                    now,
+                    req.agentId,
+                ),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET owner_mode = 'console',
+                    owner_bridge_id = ?,
+                    terminal_id = ?,
+                    terminal_status = ?,
+                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
+                    status = CASE WHEN status = 'cli-takeover' THEN 'running' ELSE status END,
+                    ended_at = CASE WHEN status = 'cli-takeover' THEN NULL ELSE ended_at END,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    console_terminal["bridge_id"] or "",
+                    terminal_id,
+                    console_terminal["status"] or "attached",
+                    session_handle,
+                    session_handle,
+                    now,
+                    console_terminal["session_id"],
+                ),
+            )
+            if bridge_id:
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO bridge_instances (
+                        id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        bridge_id,
+                        req.agentId,
+                        req.machineId or "",
+                        normalized_runtime,
+                        "managed",
+                        now,
+                        now,
+                        "",
+                        None,
+                    ),
+                )
+            await db.commit()
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_registered", {
+                    "agentId": req.agentId,
+                    "role": req.role,
+                    "runtime": normalized_runtime,
+                    "machineId": req.machineId or "",
+                    "sessionMode": existing_mode,
+                    "ownershipTransition": "console_terminal_attached",
+                })
+            return {
+                "ok": True,
+                "agentId": req.agentId,
+                "role": req.role,
+                "status": req.status or "idle",
+                "runtime": normalized_runtime,
+                "machineId": req.machineId or "",
+                "bridgeId": bridge_id,
+                "sessionMode": existing_mode,
+                "ownershipTransition": "console_terminal_attached",
+            }
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
         if bridge_id:
             fresh_state["bridgeInstanceId"] = bridge_id

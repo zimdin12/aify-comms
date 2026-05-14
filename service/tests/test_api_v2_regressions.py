@@ -1574,6 +1574,46 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("claude-aify", command)
         self.assertNotIn("--dangerously-load-development-channels", command)
 
+    def test_console_child_register_does_not_convert_managed_session_to_cli_takeover(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "console-agent",
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "resident",
+                "sessionHandle": "claude-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "console-channel-bridge",
+                "terminalId": terminal_id,
+                "autoRegister": True,
+                "restoreDeleted": True,
+            },
+        )
+
+        self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["sessionMode"], "managed")
+        self.assertEqual(registered.json()["ownershipTransition"], "console_terminal_attached")
+        agent = self._fetchone("SELECT session_mode, capabilities, runtime_state FROM agents WHERE id = ?", ("console-agent",))
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertIn("managed-run", json.loads(agent["capabilities"]))
+        self.assertEqual(json.loads(agent["runtime_state"])["consoleTerminal"]["terminalId"], terminal_id)
+        session = self._fetchone("SELECT status, ended_at, owner_mode, terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["status"], "running")
+        self.assertIsNone(session["ended_at"])
+        self.assertEqual(session["owner_mode"], "console")
+        self.assertEqual(session["terminal_id"], terminal_id)
+
     def test_pi_console_requires_handle_unless_fresh_context_requested(self):
         self._heartbeat_environment(
             terminal=True,

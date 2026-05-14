@@ -491,6 +491,7 @@ async function autoRegisterConfiguredAgent() {
     sessionHandle,
     capabilities,
     runtimeConfig,
+    terminalId: process.env.AIFY_TERMINAL_ID || "",
     restoreDeleted: true,
     autoRegister: true,
   };
