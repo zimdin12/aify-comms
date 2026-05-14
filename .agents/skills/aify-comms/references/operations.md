@@ -22,7 +22,7 @@ Wrapper auto mode:
 ## Managed Runtime Policy
 
 - Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
-- Terminal-capable managed runtimes use a bridge-owned PTY when possible. Dashboard Messenger sends start or reuse that PTY, and browser Console attaches to the same backing process instead of taking over the identity.
+- Terminal-capable managed runtimes use a bridge-owned PTY when possible. Dashboard Messenger sends start or reuse that PTY, browser Console attaches to the same backing process instead of taking over the identity, and each PTY-delivered request gets a delivered Work Loop contract.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed Claude Code no longer uses `claude -p`; Claude work is delivered through an interactive Claude Code PTY/channel path to avoid Agent SDK/print-mode billing.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.

@@ -253,7 +253,7 @@ This is still useful, but it is not the default dashboard spawn path. It is for 
 
 Advanced/internal mode for short utility calls:
 
-- interactive runtime PTY, or legacy `claude -p "..."` only for explicit probes
+- interactive runtime PTY
 - `codex exec "..."`
 - `opencode run "..."`
 

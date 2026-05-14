@@ -87,7 +87,7 @@ Use `comms_send` for normal teamwork:
 | Continue your own lane later | `comms_send(to="<your-id>", type="request", queueIfBusy=true, subject="Continue: ...", body="...")` |
 | Force next-turn delivery instead of steer | add `queueIfBusy=true` |
 
-Ordinary sends are live-delivery gated. Offline/stale/stopped/no-wake targets fail without storing a future surprise. Terminal-capable managed runtimes start or reuse a managed PTY and receive ordinary sends through that PTY. Busy steer-capable targets receive ordinary sends as steer into the active run when no PTY delivery applies; busy non-steer targets queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want the next-turn path.
+Ordinary sends are live-delivery gated. Offline/stale/stopped/no-wake targets fail without storing a future surprise. Terminal-capable managed runtimes start or reuse a managed PTY and receive ordinary sends through that PTY with a delivered Work Loop contract. Busy steer-capable targets receive ordinary sends as steer into the active run when no PTY delivery applies; busy non-steer targets queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want the next-turn path.
 
 Use `priority="high"` or `"urgent"` only for real blockers or time-sensitive coordination. Waking is not the same as urgency.
 

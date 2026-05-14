@@ -1689,7 +1689,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(dispatched["notStarted"], [])
         self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], "console-agent")
         self.assertEqual(dispatched["consoleDeliveries"][0]["terminalId"], terminal_id)
-        self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("console-agent",)))
+        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
+        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["dispatch_mode"], "terminal")
+        self.assertEqual(contract["require_reply"], 1)
+        self.assertEqual(dispatched["consoleDeliveries"][0]["contractRunId"], contract["id"])
         control = self._fetchone("SELECT * FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
         self.assertIsNotNone(control)
         self.assertIn("AIFY dashboard message", control["body"])
@@ -1726,7 +1730,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual([row["action"] for row in controls], ["start", "input"])
         self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
         self.assertIn("do it without console open", controls[1]["body"])
-        self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("console-agent",)))
+        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
+        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["dispatch_mode"], "terminal")
+        self.assertEqual(contract["require_reply"], 1)
+        self.assertEqual(dispatched["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
         cases = [
@@ -1769,7 +1777,94 @@ class ApiV2RegressionTests(unittest.TestCase):
                 if command_contains:
                     self.assertIn(command_contains, controls[0]["body"])
                 self.assertIn(f"run through pty for {runtime}", controls[1]["body"])
-                self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", (agent_id,)))
+                contract = self._fetchone("SELECT status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", (agent_id,))
+                self.assertEqual(contract["status"], "delivered")
+                self.assertEqual(contract["dispatch_mode"], "terminal")
+                self.assertEqual(contract["require_reply"], 1)
+
+    def test_message_send_delivers_to_active_console_pty_without_queuing_run(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "console-agent",
+                "type": "request",
+                "subject": "console chat",
+                "body": "answer through the pty",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        payload = sent.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["dispatchRuns"], [])
+        self.assertEqual(payload["notStarted"], [])
+        self.assertEqual(payload["consoleDeliveries"][0]["terminalId"], terminal_id)
+
+        controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
+        self.assertIn("answer through the pty", controls[1]["body"])
+        message = self._fetchone("SELECT dispatch_requested FROM messages WHERE id = ?", (payload["messageId"],))
+        self.assertEqual(message["dispatch_requested"], 1)
+        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
+        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["dispatch_mode"], "terminal")
+        self.assertEqual(contract["require_reply"], 1)
+        self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
+        receipt = self._fetchone("SELECT message_id FROM read_receipts WHERE message_id = ? AND agent_id = ?", (payload["messageId"], "console-agent"))
+        self.assertEqual(receipt["message_id"], payload["messageId"])
+
+    def test_message_send_starts_managed_pty_for_hermes_when_console_is_closed(self):
+        session_id = self._create_running_session(
+            agent_id="hermes-pty-agent",
+            terminal=True,
+            runtime="hermes",
+            terminal_runtimes=["hermes"],
+            session_handle="hermes-session-1",
+        )
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "hermes-pty-agent",
+                "type": "request",
+                "subject": "hermes chat",
+                "body": "run hermes through managed pty",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        payload = sent.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["dispatchRuns"], [])
+        self.assertEqual(payload["notStarted"], [])
+        terminal_id = payload["consoleDeliveries"][0]["terminalId"]
+
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_id"], terminal_id)
+        self.assertEqual(session["terminal_status"], "starting")
+        controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
+        self.assertTrue(controls[0]["body"].startswith("hermes-aify --aify-agent hermes-pty-agent"), controls[0]["body"])
+        self.assertIn("--resume hermes-session-1", controls[0]["body"])
+        self.assertIn("run hermes through managed pty", controls[1]["body"])
+        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("hermes-pty-agent",))
+        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["dispatch_mode"], "terminal")
+        self.assertEqual(contract["require_reply"], 1)
+        self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
         session_id = self._create_running_session(

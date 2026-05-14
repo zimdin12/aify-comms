@@ -1333,7 +1333,7 @@ async function runSpawnLoop() {
       runtimeState,
       capabilities: {
         persistent: true,
-        nativeResume: Boolean(requestedSessionHandle) || runtime === "codex" || runtime === "opencode" || runtime === "pi",
+        nativeResume: Boolean(requestedSessionHandle) || runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi",
         bridgeResume: true,
         cliAttach: false,
         interrupt: true,

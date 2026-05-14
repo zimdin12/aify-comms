@@ -2334,6 +2334,62 @@ async def _append_dispatch_control(
     return control_id
 
 
+async def _record_terminal_delivery_contract(
+    db,
+    *,
+    source_message_id: str,
+    from_agent: str,
+    recipient_id: str,
+    message_type: str,
+    subject: str,
+    body: str,
+    priority: str,
+    in_reply_to: Optional[str],
+    require_reply: bool,
+    terminal_id: str,
+    control_id: str,
+) -> str:
+    run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    requested_at = _now()
+    await db.execute(
+        """
+        INSERT INTO dispatch_runs (
+            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
+            message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            run_id,
+            source_message_id or None,
+            from_agent,
+            recipient_id,
+            "terminal",
+            "managed",
+            "",
+            message_type,
+            subject,
+            body,
+            priority,
+            in_reply_to,
+            "delivered",
+            1 if require_reply else 0,
+            requested_at,
+        ),
+    )
+    await _append_dispatch_event(
+        db,
+        run_id,
+        "terminal_delivered",
+        f"Delivered into terminal {terminal_id} with control {control_id}",
+    )
+    if source_message_id:
+        await db.execute(
+            "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+            (source_message_id, recipient_id, requested_at),
+        )
+    return run_id
+
+
 _PRIORITY_ORDER = {"normal": 0, "high": 1, "urgent": 2}
 _MERGED_DISPATCH_HEADER = "[AIFY PENDING DISPATCHES]"
 _MERGED_DISPATCH_FOOTER = "[/AIFY PENDING DISPATCHES]"
@@ -6385,6 +6441,7 @@ async def send_message(req: MessageSend, request: Request):
 
         launchable_recipients = []
         not_started = []
+        console_recipients = {}
         dispatch_recipients = [r for r in recipients if r != "dashboard"]
         if req.trigger:
             prefer_steer = (req.steer is not False) and not bool(req.queueIfBusy)
@@ -6414,8 +6471,34 @@ async def send_message(req: MessageSend, request: Request):
                     "recipientStatus": recipient_info,
                     "dispatchRuns": [],
                     "notStarted": not_started,
+                    "consoleDeliveries": [],
                     "warnings": warnings,
                 }
+            if not bool(req.queueIfBusy):
+                settings = await _load_settings(db)
+                for recipient_id, _execution_mode in launchable_recipients:
+                    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))).fetchone()
+                    if row:
+                        row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
+                    if not row:
+                        continue
+                    runtime = _normalize_runtime(row["runtime"] or "generic")
+                    console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                    if not console_terminal:
+                        console_terminal = await _ensure_managed_pty_for_dispatch(
+                            db,
+                            recipient_id,
+                            runtime=runtime,
+                            settings=settings,
+                            requested_by=req.from_agent,
+                        )
+                    if console_terminal:
+                        console_recipients[recipient_id] = console_terminal
+                launchable_recipients = [
+                    (recipient_id, execution_mode)
+                    for recipient_id, execution_mode in launchable_recipients
+                    if recipient_id not in console_recipients
+                ]
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
@@ -6475,6 +6558,52 @@ async def send_message(req: MessageSend, request: Request):
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
 
+        console_deliveries = []
+        if req.trigger:
+            source_message_ids = {
+                recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
+                for recipient_id in recipients
+            }
+            for recipient_id, terminal in console_recipients.items():
+                terminal_id = str(terminal["terminal_id"] or "").strip()
+                recipient_message_id = source_message_ids.get(recipient_id, msg_id)
+                control_id = await _append_terminal_control(
+                    db,
+                    terminal_id=terminal_id,
+                    environment_id=terminal["environment_id"],
+                    bridge_id=terminal["bridge_id"] or "",
+                    action="input",
+                    requested_by=req.from_agent,
+                    body=_console_dispatch_input_body(req, recipient_id=recipient_id, message_id=recipient_message_id),
+                )
+                await _append_terminal_event(
+                    db,
+                    terminal_id,
+                    "terminal_input_requested",
+                    json.dumps({"requestedBy": req.from_agent, "controlId": control_id, "source": "message_send", "messageId": recipient_message_id}),
+                )
+                contract_run_id = await _record_terminal_delivery_contract(
+                    db,
+                    source_message_id=recipient_message_id,
+                    from_agent=req.from_agent,
+                    recipient_id=recipient_id,
+                    message_type=req.type,
+                    subject=req.subject,
+                    body=req.body,
+                    priority=req.priority,
+                    in_reply_to=resolved_in_reply_to,
+                    require_reply=_dispatch_requires_reply(req.requireReply, default=req.type != "response"),
+                    terminal_id=terminal_id,
+                    control_id=control_id,
+                )
+                console_deliveries.append({
+                    "targetAgentId": recipient_id,
+                    "terminalId": terminal_id,
+                    "controlId": control_id,
+                    "contractRunId": contract_run_id,
+                    "status": "sent_to_console",
+                })
+
         # Gather recipient status info for sender context
         recipient_info = {}
         for r in recipients:
@@ -6497,6 +6626,8 @@ async def send_message(req: MessageSend, request: Request):
                 if run.get("steered"):
                     continue
                 await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
+            for delivery in console_deliveries:
+                await ws.broadcast("terminal_control_requested", {"terminalId": delivery["terminalId"], "action": "input"})
         # Wake up any listening agents
         for r in recipients:
             _wake_agent(r)
@@ -6507,6 +6638,7 @@ async def send_message(req: MessageSend, request: Request):
             "recipientStatus": recipient_info,
             "dispatchRuns": dispatch_runs,
             "notStarted": not_started,
+            "consoleDeliveries": console_deliveries,
             "warnings": warnings,
         }
     finally:
@@ -7012,10 +7144,25 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 "terminal_input_requested",
                 json.dumps({"requestedBy": req.from_agent, "controlId": control_id, "source": "dispatch", "messageId": recipient_message_id}),
             )
+            contract_run_id = await _record_terminal_delivery_contract(
+                db,
+                source_message_id=recipient_message_id,
+                from_agent=req.from_agent,
+                recipient_id=recipient_id,
+                message_type=req.type,
+                subject=req.subject,
+                body=req.body,
+                priority=req.priority,
+                in_reply_to=resolved_in_reply_to,
+                require_reply=_dispatch_requires_reply(req.requireReply, default=True),
+                terminal_id=terminal_id,
+                control_id=control_id,
+            )
             console_deliveries.append({
                 "targetAgentId": recipient_id,
                 "terminalId": terminal_id,
                 "controlId": control_id,
+                "contractRunId": contract_run_id,
                 "status": "sent_to_console",
             })
 
