@@ -351,6 +351,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("persistentOpenDetails", dashboard.text)
         self.assertIn(".actions-menu,.chat-send-options", dashboard.text)
         self.assertIn(".console-head{display:grid", dashboard.text)
+        self.assertIn(".console-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center", dashboard.text)
+        self.assertIn(".console-input-row .btn{min-height:32px;height:32px", dashboard.text)
         self.assertIn("stripTerminalControlSequences", dashboard.text)
         self.assertIn("terminalDisplayText(output)", dashboard.text)
         self.assertNotIn("${esc(meta.id)} Console", dashboard.text)
@@ -1304,6 +1306,19 @@ class ApiV2RegressionTests(unittest.TestCase):
             "ownerMode": "managed",
             "ownerBridgeId": "bridge-current",
         })
+
+    def test_pi_runtime_state_session_file_backfills_handle(self):
+        self._register("pi-file-agent", runtime="pi", sessionMode="managed")
+
+        updated = self.client.patch(
+            "/api/v1/agents/pi-file-agent/runtime-state",
+            json={"runtimeState": {"sessionFile": "C:/Users/test/.omp/agent/sessions/project/abc123_deadbeef.jsonl"}},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        agent = self.client.get("/api/v1/agents/pi-file-agent").json()["agent"]
+        self.assertEqual(agent["sessionHandle"], "C:/Users/test/.omp/agent/sessions/project/abc123_deadbeef.jsonl")
+        self.assertEqual(agent["runtimeState"]["sessionFile"], "C:/Users/test/.omp/agent/sessions/project/abc123_deadbeef.jsonl")
 
     def test_environment_heartbeat_persists_terminal_capabilities(self):
         environment = self._heartbeat_environment(

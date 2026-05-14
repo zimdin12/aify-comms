@@ -171,6 +171,8 @@ def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
     normalized = _normalize_runtime(runtime)
     if normalized == "codex":
         return str(state.get("threadId") or state.get("sessionId") or "").strip()
+    if normalized == "pi":
+        return str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
     return str(state.get("sessionId") or state.get("threadId") or "").strip()
 
 
@@ -5806,7 +5808,7 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
     state = runtime_state or {}
     spawn_request_id = str(state.get("spawnRequestId") or "").strip()
     environment_id = str(state.get("environmentId") or "").strip()
-    runtime_handle = str(state.get("sessionId") or state.get("threadId") or "").strip()
+    runtime_handle = str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
     if spawn_request_id:
         await db.execute(
             """

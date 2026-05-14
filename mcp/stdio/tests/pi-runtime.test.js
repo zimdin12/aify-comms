@@ -47,20 +47,40 @@ async function waitFor(predicate, label, timeoutMs = 2000) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
+function readStdinMessages() {
+  if (!fs.existsSync(stdinCapturePath)) return [];
+  return fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+}
+
 fs.writeFileSync(fakeOmp, `#!/usr/bin/env node
 import fs from "fs";
 import readline from "readline";
 if (process.env.AIFY_PI_ARGV_CAPTURE) {
   fs.appendFileSync(process.env.AIFY_PI_ARGV_CAPTURE, JSON.stringify(process.argv.slice(2)) + "\\n");
 }
-console.log(JSON.stringify({ type: "ready", sessionId: "pi-session-fake" }));
+const eventSessionId = Object.prototype.hasOwnProperty.call(process.env, "AIFY_PI_EVENT_SESSION_ID")
+  ? process.env.AIFY_PI_EVENT_SESSION_ID
+  : "pi-session-fake";
+const withEventSession = (event) => eventSessionId ? { ...event, sessionId: eventSessionId } : event;
+console.log(JSON.stringify(withEventSession({ type: "ready" })));
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   if (process.env.AIFY_PI_STDIN_CAPTURE) {
     fs.appendFileSync(process.env.AIFY_PI_STDIN_CAPTURE, line + "\\n");
   }
   const message = JSON.parse(line);
-  if (message.type === "prompt") {
+  if (message.type === "get_state") {
+    console.log(JSON.stringify({
+      id: message.id,
+      type: "response",
+      command: "get_state",
+      success: true,
+      data: {
+        sessionId: process.env.AIFY_PI_GET_STATE_SESSION_ID || "pi-session-fake",
+        sessionFile: "/tmp/pi-session-fake.jsonl"
+      }
+    }));
+  } else if (message.type === "prompt") {
     if (message.message.includes("steer me now")) {
       console.log(JSON.stringify({
         id: message.id,
@@ -71,23 +91,23 @@ rl.on("line", (line) => {
       }));
       return;
     }
-    console.log(JSON.stringify({ id: message.id, type: "response", command: "prompt", success: true, sessionId: "pi-session-fake" }));
+    console.log(JSON.stringify(withEventSession({ id: message.id, type: "response", command: "prompt", success: true })));
     console.log(JSON.stringify({ type: "agent_start" }));
     if (message.message.includes("Wait for steer")) {
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "waiting" } }));
     } else if (message.message.includes("Pi final fallback")) {
       const assistant = { role: "assistant", content: [{ type: "text", text: "final text from agent_end" }] };
       console.log(JSON.stringify({ type: "message_end", message: assistant }));
-      console.log(JSON.stringify({ type: "agent_end", id: "turn-fake", sessionId: "pi-session-fake", messages: [assistant] }));
+      console.log(JSON.stringify(withEventSession({ type: "agent_end", id: "turn-fake", messages: [assistant] })));
     } else {
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hello " } }));
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "from pi" } }));
-      console.log(JSON.stringify({ type: "agent_end", id: "turn-fake", sessionId: "pi-session-fake" }));
+      console.log(JSON.stringify(withEventSession({ type: "agent_end", id: "turn-fake" })));
     }
   } else if (message.type === "steer") {
-    console.log(JSON.stringify({ id: message.id, type: "response", command: "steer", success: true, sessionId: "pi-session-fake" }));
+    console.log(JSON.stringify(withEventSession({ id: message.id, type: "response", command: "steer", success: true })));
     console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: " + steered" } }));
-    console.log(JSON.stringify({ type: "agent_end", id: "turn-steered", sessionId: "pi-session-fake" }));
+    console.log(JSON.stringify(withEventSession({ type: "agent_end", id: "turn-steered" })));
   }
 });
 `, { mode: 0o755 });
@@ -161,6 +181,41 @@ assert.equal(result.summary, "hello from pi");
 assert.equal(result.runtimeState.sessionId, "pi-session-fake");
 assert(runtimeStates.some((state) => state.sessionId === "pi-session-fake"));
 assert(events.some(([type]) => type === "pi"));
+assert(
+  readStdinMessages().some((message) => message.type === "get_state"),
+  "Pi managed runs should query OMP RPC state to capture canonical sessionId",
+);
+
+process.env.AIFY_PI_GET_STATE_SESSION_ID = "pi-session-from-state";
+process.env.AIFY_PI_EVENT_SESSION_ID = "";
+const stateOnlyController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi state capture",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: (state) => runtimeStates.push(state),
+    onRefs: () => {},
+  },
+});
+const stateOnlyResult = await stateOnlyController.promise;
+assert.equal(stateOnlyResult.runtimeState.sessionId, "pi-session-from-state");
+assert(runtimeStates.some((state) => state.sessionId === "pi-session-from-state"));
+delete process.env.AIFY_PI_GET_STATE_SESSION_ID;
+delete process.env.AIFY_PI_EVENT_SESSION_ID;
 
 const finalFallbackController = launchRuntimeRun({
   agentId: "pi-worker",
@@ -221,7 +276,7 @@ await steerController.steer("steer me now");
 const steerResult = await steerController.promise;
 assert.equal(steerResult.status, "completed");
 assert.equal(steerResult.summary, "waiting + steered");
-const stdinLines = fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+const stdinLines = readStdinMessages();
 const steerCommand = stdinLines.find((message) => message.type === "steer" && message.message === "steer me now");
 assert(steerCommand, "Pi steer should send a real OMP RPC steer command");
 const steerPrompt = stdinLines.find((message) => message.type === "prompt" && message.message === "steer me now");

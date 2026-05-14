@@ -763,6 +763,34 @@ function extractPiAssistantText(value) {
   return chunks.join("\n").trim();
 }
 
+function extractPiSessionState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const data = source.data && typeof source.data === "object" ? source.data : {};
+  const session = data.session && typeof data.session === "object"
+    ? data.session
+    : (source.session && typeof source.session === "object" ? source.session : {});
+  const sessionId = String(
+    data.sessionId ||
+    data.sessionID ||
+    source.sessionId ||
+    source.sessionID ||
+    session.sessionId ||
+    session.sessionID ||
+    session.id ||
+    "",
+  ).trim();
+  const sessionFile = String(
+    data.sessionFile ||
+    data.sessionPath ||
+    source.sessionFile ||
+    source.sessionPath ||
+    session.file ||
+    session.path ||
+    "",
+  ).trim();
+  return { sessionId, sessionFile };
+}
+
 function normalizePiModelOverride(value) {
   const text = String(value || "").trim();
   return text.toLowerCase() === "default" ? "" : text;
@@ -2548,15 +2576,49 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   let finalText = "";
   let finalSnapshotText = "";
   let finalError = "";
+  let sessionFile = String(runtimeState?.sessionFile || "").trim();
+  let initialPromptSent = false;
   let requestCounter = 1;
   const pendingCommandAcks = new Map();
 
   const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
   const resolvedText = () => finalText.trim() || finalSnapshotText.trim();
+  const runtimeSessionHandle = () => sessionId || sessionFile;
+  const runtimeStateSnapshot = () => ({
+    ...(sessionId ? { sessionId } : {}),
+    ...(sessionFile ? { sessionFile } : {}),
+  });
+  const publishPiSessionState = (event) => {
+    const next = extractPiSessionState(event);
+    let changed = false;
+    if (next.sessionId && next.sessionId !== sessionId) {
+      sessionId = next.sessionId;
+      changed = true;
+    }
+    if (next.sessionFile && next.sessionFile !== sessionFile) {
+      sessionFile = next.sessionFile;
+      changed = true;
+    }
+    if (changed || next.sessionId || next.sessionFile) {
+      const handle = runtimeSessionHandle();
+      callbacks.onRuntimeState?.(runtimeStateSnapshot());
+      if (handle) callbacks.onRefs?.({ threadId: handle });
+    }
+  };
 
   function send(payload) {
     if (!proc || !proc.stdin.writable) return;
     proc.stdin.write(`${JSON.stringify(payload)}\n`);
+  }
+
+  function sendInitialPrompt() {
+    if (initialPromptSent) return;
+    initialPromptSent = true;
+    send({
+      id: nextRequestId("prompt"),
+      type: "prompt",
+      message: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}`,
+    });
   }
 
   function rejectPendingCommandAcks(error) {
@@ -2567,7 +2629,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     pendingCommandAcks.clear();
   }
 
-  function sendCommandWithAck(payload, prefix = payload?.type || "command") {
+  function sendCommandWithAck(payload, prefix = payload?.type || "command", timeoutMs = 30000) {
     const id = nextRequestId(prefix);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -2630,18 +2692,13 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         return;
       }
 
-      if (event.sessionId || event.sessionID) {
-        sessionId = String(event.sessionId || event.sessionID || "").trim() || sessionId;
-        callbacks.onRuntimeState?.({ sessionId });
-        callbacks.onRefs?.({ threadId: sessionId });
-      }
+      publishPiSessionState(event);
 
       if (event.type === "ready") {
-        send({
-          id: nextRequestId("prompt"),
-          type: "prompt",
-          message: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}`,
-        });
+        sendCommandWithAck({ type: "get_state" }, "get-state", 2500)
+          .then((stateEvent) => publishPiSessionState(stateEvent))
+          .catch((error) => callbacks.onEvent?.("pi", `Pi get_state unavailable: ${quoteForDisplay(error?.message || error)}`))
+          .finally(() => sendInitialPrompt());
         return;
       }
 
@@ -2653,6 +2710,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
           if (event.success === false) {
             pending.reject(new Error(String(event.error || `Pi ${pending.command} failed`)));
           } else {
+            publishPiSessionState(event);
             pending.resolve(event);
           }
           return;
@@ -2691,13 +2749,13 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         settled = true;
         clearTimeout(timer);
         rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
-        callbacks.onRuntimeState?.({ sessionId });
-        callbacks.onRefs?.({ threadId: sessionId });
+        callbacks.onRuntimeState?.(runtimeStateSnapshot());
+        if (runtimeSessionHandle()) callbacks.onRefs?.({ threadId: runtimeSessionHandle() });
         resolve({
           status: interrupted ? "cancelled" : "completed",
           summary: resolvedText() || "(no output)",
-          runtimeState: { sessionId },
-          externalRefs: { threadId: sessionId, turnId: String(event.id || "") },
+          runtimeState: runtimeStateSnapshot(),
+          externalRefs: { threadId: runtimeSessionHandle(), turnId: String(event.id || "") },
         });
         try {
           terminateProcessTree(proc);
@@ -2727,8 +2785,8 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         resolve({
           status: "cancelled",
           summary: resolvedText() || finalError || "Run interrupted",
-          runtimeState: { sessionId },
-          externalRefs: { threadId: sessionId },
+          runtimeState: runtimeStateSnapshot(),
+          externalRefs: { threadId: runtimeSessionHandle() },
         });
         return;
       }
@@ -2736,8 +2794,8 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         resolve({
           status: "completed",
           summary: resolvedText() || "(no output)",
-          runtimeState: { sessionId },
-          externalRefs: { threadId: sessionId },
+          runtimeState: runtimeStateSnapshot(),
+          externalRefs: { threadId: runtimeSessionHandle() },
         });
         return;
       }
