@@ -1115,6 +1115,8 @@ async function runTerminalControlLoop() {
             command,
             cwd: workspace,
             env: terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId }),
+            cols: control.cols || 100,
+            rows: control.rows || 28,
           });
           await updateTerminalControl(control.id, {
             status: "completed",

@@ -352,14 +352,20 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(".actions-menu,.chat-send-options", dashboard.text)
         self.assertIn("xterm.min.css", dashboard.text)
         self.assertIn("xterm.min.js", dashboard.text)
+        self.assertIn("addon-fit.min.js", dashboard.text)
         self.assertIn(".console-head{display:grid", dashboard.text)
-        self.assertIn(".console-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center", dashboard.text)
+        self.assertIn(".console-output{min-height:0;overflow:hidden", dashboard.text)
+        self.assertIn(".console-output .xterm{height:100%;width:100%", dashboard.text)
+        self.assertIn(".console-direct-row", dashboard.text)
         self.assertIn(".console-input-row .btn{min-height:32px;height:32px", dashboard.text)
         self.assertIn("const body = text.endsWith('\\r') ? text : `${text}\\r`;", dashboard.text)
         self.assertIn("codex --no-alt-screen resume --include-non-interactive", dashboard.text)
         self.assertNotIn("codex-aify${agentFlag} resume --include-non-interactive", dashboard.text)
         self.assertIn("stripTerminalControlSequences", dashboard.text)
         self.assertIn("mountConsoleTerminal(terminalId, output", dashboard.text)
+        self.assertIn("fitConsoleTerminal", dashboard.text)
+        self.assertIn("ResizeObserver", dashboard.text)
+        self.assertIn("/resize", dashboard.text)
         self.assertIn("window.Terminal", dashboard.text)
         self.assertNotIn("${esc(meta.id)} Console", dashboard.text)
         self.assertIn("Advanced run control", dashboard.text)
@@ -1663,10 +1669,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("pi-aify", fresh.json()["terminal"]["command"])
         self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
-    def test_managed_dispatch_does_not_claim_while_console_owns_session(self):
+    def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
 
         dispatched = self._dispatch(
             from_agent="dashboard",
@@ -1677,16 +1684,48 @@ class ApiV2RegressionTests(unittest.TestCase):
             mode="start_if_possible",
             createMessage=True,
         )
-        run_id = dispatched["runs"][0]["runId"]
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={"agentId": "console-agent", "machineId": "linux:test-host", "bridgeId": "bridge-current", "executionModes": ["managed"]},
+        self.assertEqual(dispatched["runs"], [])
+        self.assertEqual(dispatched["notStarted"], [])
+        self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], "console-agent")
+        self.assertEqual(dispatched["consoleDeliveries"][0]["terminalId"], terminal_id)
+        self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("console-agent",)))
+        control = self._fetchone("SELECT * FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
+        self.assertIsNotNone(control)
+        self.assertIn("AIFY dashboard message", control["body"])
+        self.assertIn("dashboard", control["body"])
+        self.assertIn("do it", control["body"])
+        self.assertTrue(control["body"].endswith("\r"))
+
+    def test_managed_claude_dispatch_starts_headless_pty_when_console_is_closed(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
         )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertIsNone(claim.json()["run"])
-        self.assertEqual(claim.json()["blockedBy"]["reason"], "console_owner_active")
-        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(run["status"], "queued")
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it without console open",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertEqual(dispatched["runs"], [])
+        self.assertEqual(dispatched["notStarted"], [])
+        self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], "console-agent")
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_id"], terminal_id)
+        self.assertEqual(session["terminal_status"], "starting")
+        controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC", (terminal_id,))
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
+        self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn("do it without console open", controls[1]["body"])
+        self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("console-agent",)))
 
     def test_managed_dispatch_reclaims_session_from_stale_console_owner(self):
         session_id = self._create_running_session(terminal=True)

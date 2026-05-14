@@ -2080,6 +2080,165 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
     return None
 
 
+async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None):
+    row = await (await db.execute(
+        """
+        SELECT
+            s.id AS session_id,
+            s.environment_id AS session_environment_id,
+            s.owner_mode,
+            s.terminal_status,
+            s.runtime AS session_runtime,
+            t.id AS terminal_id,
+            t.environment_id,
+            t.bridge_id,
+            t.runtime,
+            t.workspace,
+            t.command,
+            t.status,
+            t.updated_at
+        FROM agent_sessions s
+        JOIN terminal_sessions t ON t.id = s.terminal_id
+        WHERE s.agent_id = ?
+          AND COALESCE(s.terminal_id, '') != ''
+        ORDER BY s.last_seen DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not row:
+        return None
+
+    status = str(row["status"] or row["terminal_status"] or "").strip().lower()
+    if status not in {"starting", "attached", "running", "active", "idle"}:
+        return None
+
+    settings = settings or await _load_settings(db)
+    stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+    updated_at = _iso_to_epoch(row["updated_at"] or "")
+    if updated_at and (time.time() - updated_at) > stale_after:
+        return None
+
+    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (row["environment_id"],))).fetchone()
+    env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
+    if env_status not in {"online", "degraded"}:
+        return None
+    if str(row["bridge_id"] or "").strip() != str(env_row["bridge_id"] or "").strip():
+        return None
+    return row
+
+
+async def _ensure_managed_claude_pty_for_dispatch(db, agent_id: str, *, settings: dict[str, Any], requested_by: str):
+    active = await _active_terminal_for_agent(db, agent_id, settings=settings)
+    if active:
+        return active
+
+    session = await (await db.execute(
+        """
+        SELECT *
+        FROM agent_sessions
+        WHERE agent_id = ?
+          AND runtime = 'claude-code'
+          AND status IN ('running', 'recovering')
+        ORDER BY last_seen DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not session:
+        return None
+
+    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (session["environment_id"],))).fetchone()
+    if not env_row:
+        return None
+    environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+    if str(environment.get("status") or "").lower() != "online":
+        return None
+    if not _environment_supports_terminal(environment, session["runtime"]):
+        return None
+
+    workspace, _workspace_root = _workspace_for_environment(environment, None, session["workspace"] or "")
+    terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    bridge_id = str(environment.get("bridgeId") or "").strip()
+    command = _default_console_command(session, workspace)
+    now = _now()
+    await db.execute(
+        """
+        INSERT INTO terminal_sessions (
+            id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+            output, status, requested_by, created_at, updated_at, stopped_at, error
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            terminal_id,
+            session["id"],
+            agent_id,
+            session["environment_id"],
+            bridge_id,
+            session["runtime"],
+            workspace,
+            command,
+            "",
+            "starting",
+            requested_by or "dashboard",
+            now,
+            now,
+            None,
+            "",
+        ),
+    )
+    await _append_terminal_event(
+        db,
+        terminal_id,
+        "managed_pty_start_requested",
+        json.dumps({"requestedBy": requested_by or "dashboard", "sessionId": session["id"], "workspace": workspace, "command": command}),
+    )
+    await _append_terminal_control(
+        db,
+        terminal_id=terminal_id,
+        environment_id=session["environment_id"],
+        bridge_id=bridge_id,
+        action="start",
+        requested_by=requested_by or "dashboard",
+        body=command,
+    )
+    await db.execute(
+        """
+        UPDATE agent_sessions
+        SET owner_mode = 'managed',
+            owner_bridge_id = ?,
+            terminal_id = ?,
+            terminal_status = 'starting',
+            terminal_command = ?,
+            terminal_workspace = ?,
+            last_seen = ?
+        WHERE id = ?
+        """,
+        (bridge_id, terminal_id, command, workspace, now, session["id"]),
+    )
+    return await _active_terminal_for_agent(db, agent_id, settings=settings)
+
+
+def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str) -> str:
+    subject = str(req.subject or "").strip()
+    body = str(req.body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    message = "\n".join(
+        part for part in [
+            "AIFY dashboard message",
+            f"From: {req.from_agent}",
+            f"To: {recipient_id}",
+            f"Type: {req.type}",
+            f"Subject: {subject}" if subject else "",
+            f"MessageId: {message_id}",
+            "",
+            body,
+            "",
+            "Reply in the dashboard when appropriate, using the available aify-comms tools.",
+        ] if part != ""
+    )
+    return f"\x1b[200~{message}\x1b[201~\r"
+
+
 async def _append_dispatch_control(
     db,
     run_id: str,
@@ -6660,6 +6819,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
 
         not_started = []
         launchable_recipients = []
+        console_recipients = {}
         recipient_rows = {}
         settings = await _load_settings(db)
         for recipient_id in recipients:
@@ -6672,11 +6832,27 @@ async def create_dispatch(req: DispatchRequest, request: Request):
             execution_mode = None
             reason = None if row else "agent is not registered"
             if row:
-                execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
-                if not reason and execution_mode:
-                    reason = await _managed_environment_unavailable_reason(db, row)
+                runtime = _normalize_runtime(row["runtime"] or "generic")
+                if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
+                    reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
+                else:
+                    console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                    if not console_terminal and runtime == "claude-code":
+                        console_terminal = await _ensure_managed_claude_pty_for_dispatch(
+                            db,
+                            recipient_id,
+                            settings=settings,
+                            requested_by=req.from_agent,
+                        )
+                    if console_terminal:
+                        console_recipients[recipient_id] = console_terminal
+                    else:
+                        execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                        if not reason and execution_mode:
+                            reason = await _managed_environment_unavailable_reason(db, row)
             if reason or not execution_mode:
-                not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
+                if recipient_id not in console_recipients:
+                    not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
             else:
                 launchable_recipients.append((recipient_id, execution_mode))
 
@@ -6701,7 +6877,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 (
                     recipient_message_id,
                     req.from_agent, recipient_id, "direct", req.type, req.subject, req.body,
-                    req.priority, 1, resolved_in_reply_to, ts
+                    req.priority, 0 if recipient_id in console_recipients else 1, resolved_in_reply_to, ts
                 )
             )
         if resolved_in_reply_to:
@@ -6736,6 +6912,32 @@ async def create_dispatch(req: DispatchRequest, request: Request):
             )
             runs = await _finalize_dispatch_runs(db, runs, launchable_recipients, not_started)
 
+        console_deliveries = []
+        for recipient_id, terminal in console_recipients.items():
+            terminal_id = str(terminal["terminal_id"] or "").strip()
+            recipient_message_id = source_message_ids.get(recipient_id, message_id)
+            control_id = await _append_terminal_control(
+                db,
+                terminal_id=terminal_id,
+                environment_id=terminal["environment_id"],
+                bridge_id=terminal["bridge_id"] or "",
+                action="input",
+                requested_by=req.from_agent,
+                body=_console_dispatch_input_body(req, recipient_id=recipient_id, message_id=recipient_message_id),
+            )
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "terminal_input_requested",
+                json.dumps({"requestedBy": req.from_agent, "controlId": control_id, "source": "dispatch", "messageId": recipient_message_id}),
+            )
+            console_deliveries.append({
+                "targetAgentId": recipient_id,
+                "terminalId": terminal_id,
+                "controlId": control_id,
+                "status": "sent_to_console",
+            })
+
         recipient_info = {}
         for recipient_id in recipients:
             info = await _get_recipient_info(db, recipient_id)
@@ -6756,6 +6958,8 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 if run.get("steered"):
                     continue
                 await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
+            for delivery in console_deliveries:
+                await ws.broadcast("terminal_control_requested", {"terminalId": delivery["terminalId"], "action": "input"})
         for recipient_id in recipients:
             _wake_agent(recipient_id)
 
@@ -6766,6 +6970,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
             "recipientStatus": recipient_info,
             "runs": runs,
             "notStarted": not_started,
+            "consoleDeliveries": console_deliveries,
             "warnings": warnings,
         }
     finally:
