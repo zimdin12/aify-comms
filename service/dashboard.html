@@ -2582,17 +2582,18 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       if (!state.canInput) return;
       sendConsoleInputBody(id, data).catch(error => toast(error.message || 'Terminal input failed', '#f85149'));
     });
-  }
-  state.canInput = !!canInput;
-  if (!raw.startsWith(state.written)) {
-    state.term.clear();
-    state.written = '';
-  }
-  const delta = raw.slice(state.written.length);
-  if (delta) {
-    state.term.write(delta);
+    // Initial buffer paint happens exactly once, here on mount. From now on
+    // streamConsoleDelta() owns ongoing output for this live xterm.
+    if (raw) { try { term.write(raw); } catch {} }
     state.written = raw;
   }
+  state.canInput = !!canInput;
+  // Re-entry (passive renderChat) must NOT re-diff/clear against the cached
+  // buffer: once output exceeds the 64KB cap, raw is the sliding tail while
+  // the stream has written full history, so the old startsWith() check failed
+  // every render and forced term.clear()+full repaint -> flicker + scroll
+  // jump. Explicit resync is handled by loadTerminal(force) disposing the
+  // term so this block re-mounts and repaints authoritative output.
   requestAnimationFrame(() => fitConsoleTerminal(id));
 }
 function actionButton(label, title, onclick, classes = '') {
@@ -4911,6 +4912,10 @@ async function loadTerminal(terminalId, options = {}) {
     const res = await apiFetch(API + `/terminals/${encodeURIComponent(id)}`).then(r => r.json());
     if (res.ok !== false) {
       window._terminalDetails[id] = res;
+      // Forced reload = explicit resync: drop the live xterm so the next
+      // render remounts and repaints authoritative server output once,
+      // instead of the per-render diff that caused flicker.
+      if (options.force) { try { disposeConsoleTerminal(id); } catch {} }
       if (currentPage === 'chat' && chatMode() === 'console') renderChat();
       return res;
     }
