@@ -4,6 +4,7 @@ Drop-in replacement for api.py with identical endpoint signatures.
 """
 import asyncio
 import json
+import logging
 import sqlite3
 from collections import deque
 import itertools
@@ -38,6 +39,9 @@ _WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
 _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
 _CONTROL_ID_COUNTER = itertools.count()
 
+logger = logging.getLogger("aify_comms.api_v2")
+
+
 def validate_name(name: str, label: str = "name") -> None:
     if not SAFE_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
@@ -54,12 +58,21 @@ class JsonApiRoute(APIRoute):
                 raise
             except sqlite3.OperationalError as error:
                 message = str(error) or "database operation failed"
-                status_code = 503 if "locked" in message.lower() or "busy" in message.lower() else 500
+                locked = "locked" in message.lower() or "busy" in message.lower()
+                status_code = 503 if locked else 500
+                logger.warning(
+                    "DB OperationalError on %s %s: %s", request.method, request.url.path, message
+                )
                 return JSONResponse(
                     status_code=status_code,
                     content={"ok": False, "error": f"Database temporarily unavailable: {message}"},
                 )
             except Exception as error:
+                # Never silently swallow an unexpected error into a tidy 500 —
+                # that is exactly what makes production incidents undebuggable.
+                logger.exception(
+                    "Unhandled error on %s %s", request.method, request.url.path
+                )
                 return JSONResponse(
                     status_code=500,
                     content={"ok": False, "error": str(error) or error.__class__.__name__},
@@ -1452,14 +1465,12 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
 
 
 def _iso_add_seconds(value: str, seconds: int) -> str:
-    text = str(value or "").strip()
-    if not text:
+    # Compose the canonical parse/format helpers so refresh_after timestamps use
+    # the same second-precision "...Z" form as _now() (what they're compared to).
+    epoch = _iso_to_epoch(value)
+    if not epoch:
         return ""
-    try:
-        base = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return (base.astimezone(timezone.utc) + timedelta(seconds=max(0, int(seconds)))).isoformat().replace("+00:00", "Z")
-    except Exception:
-        return ""
+    return _iso_from_ms(int((epoch + max(0, int(seconds))) * 1000))
 
 
 def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, idle_minutes: int, offline_minutes: int, env_offline_seconds: int) -> str:
