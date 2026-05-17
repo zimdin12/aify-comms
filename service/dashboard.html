@@ -5026,18 +5026,37 @@ async function refreshSelectedConsole() {
 
 async function startConsoleForSelected(freshContext = false) {
   const meta = selectedChatMeta();
-  const session = meta.kind === 'dm' ? primarySessionForAgent(meta.id) : null;
+  if (meta.kind !== 'dm') {
+    toast('No session to start Console from', '#f85149');
+    return;
+  }
+  let session = primarySessionForAgent(meta.id);
   if (!session) {
     toast('No session to start Console from', '#f85149');
     return;
   }
-  try {
-    const response = await apiFetch(API + `/sessions/${encodeURIComponent(session.id)}/console/start`, {
+  const attempt = async (targetSession) => {
+    const response = await apiFetch(API + `/sessions/${encodeURIComponent(targetSession.id)}/console/start`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({requestedBy: chatIdentity(), freshContext: !!freshContext}),
     });
     const res = await response.json();
+    return {response, res};
+  };
+  try {
+    let {response, res} = await attempt(session);
+    // The client-cached session id goes stale after a container rebuild or
+    // agent re-register, so console/start 404s with "session not found".
+    // Refresh sessions and retry once against the freshly resolved session.
+    if (response.status === 404) {
+      await refreshDashboard();
+      const refreshed = primarySessionForAgent(meta.id);
+      if (refreshed && refreshed.id !== session.id) {
+        session = refreshed;
+        ({response, res} = await attempt(session));
+      }
+    }
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Console start failed');
     if (res.terminal?.id) window._terminalDetails[res.terminal.id] = {terminal: res.terminal, events: []};
     toast('Console start requested');
