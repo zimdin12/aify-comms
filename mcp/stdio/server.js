@@ -25,6 +25,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
+import { supportedExecutionModes } from "./dispatch-execution.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
@@ -554,19 +555,6 @@ async function autoRegisterConfiguredAgent() {
   }
 }
 
-function supportedExecutionModes(info = {}) {
-  const sessionMode = normalizeSessionMode(info.sessionMode);
-  const runtime = normalizeRuntime(info.runtime || "generic");
-  const capabilities = Array.isArray(info.capabilities) ? info.capabilities : [];
-  const modes = [];
-  if (sessionMode === "managed" && capabilities.includes("managed-run")) {
-    modes.push("managed");
-  }
-  if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi") modes.push("resident");
-  }
-  return modes;
-}
 
 function formatDispatchState(info = {}) {
   const state = info.dispatchState || {};
