@@ -70,19 +70,44 @@ assert.deepEqual(
   "terminal exit must flush buffered output before posting stopped/failed status",
 );
 
+const duplicateExitEvents = [];
+const duplicateExitManager = new TerminalProcessManager({
+  onExit: async () => duplicateExitEvents.push("exit"),
+});
+const duplicateExitState = { id: "dup-exit", runtime: "", outputTail: "", resolveExit: () => {} };
+await duplicateExitManager._handleExit("dup-exit", duplicateExitState, {});
+await duplicateExitManager._handleExit("dup-exit", duplicateExitState, {});
+assert.deepEqual(duplicateExitEvents, ["exit"], "duplicate child exit/error events must not emit terminal exit twice");
+
+const realPipeEvents = [];
+const realPipeManager = new TerminalProcessManager({
+  idleFlushMs: 1000,
+  maxLatencyMs: 1000,
+  onOutput: async (_id, text) => realPipeEvents.push(`output:${text}`),
+  onExit: async () => realPipeEvents.push("exit"),
+});
+await realPipeManager.startPipeProcess({
+  id: "pipe-output-order",
+  command: `node -e "process.stdout.write('PIPE_LAST_CHUNK')"`,
+  cwd: tmp,
+});
+const realPipeDeadline = Date.now() + 5000;
+while (Date.now() < realPipeDeadline && !realPipeEvents.includes("exit")) {
+  await new Promise((resolve) => setTimeout(resolve, 25));
+}
+assert.deepEqual(realPipeEvents, ["output:PIPE_LAST_CHUNK", "exit"], "pipe fallback should drain stdio before terminal exit status");
 
 const pipeStopEvents = [];
-const pipeStopManager = new TerminalProcessManager();
-pipeStopManager.terminals.set("pipe-stop", {
-  kind: "pipe",
-  proc: { stdin: { end() {} } },
-  exitPromise: new Promise((resolve) => setTimeout(() => {
-    pipeStopEvents.push("exit");
-    resolve();
-  }, 25)),
+const pipeStopManager = new TerminalProcessManager({
+  onExit: async () => pipeStopEvents.push("exit"),
+});
+await pipeStopManager.startPipeProcess({
+  id: "pipe-stop",
+  command: `node -e "setInterval(() => {}, 1000)"`,
+  cwd: tmp,
 });
 await pipeStopManager.stop("pipe-stop", "test pipe stop");
-assert.deepEqual(pipeStopEvents, ["exit"], "pipe fallback stop should wait for process exit like PTY stop");
+assert.deepEqual(pipeStopEvents, ["exit"], "pipe fallback stop should wait for real process exit like PTY stop");
 
 await manager.start({
   id: "term-test",

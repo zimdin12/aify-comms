@@ -77,6 +77,21 @@ function terminalEnvWithoutResume(runtime = "", env = {}) {
   return next;
 }
 
+async function waitForExitOrTimeout(exitPromise, timeoutMs = 1000) {
+  let timer = null;
+  try {
+    await Promise.race([
+      exitPromise,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, Math.max(1, Number(timeoutMs) || 1000));
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+
 export class TerminalProcessManager {
   constructor({
     onOutput = async () => {},
@@ -211,7 +226,7 @@ export class TerminalProcessManager {
     };
     proc.stdout?.on("data", emit);
     proc.stderr?.on("data", emit);
-    proc.on("exit", (code, signal) => {
+    proc.on("close", (code, signal) => {
       this._handleExit(id, state, { code, signal }).catch(() => {});
     });
     proc.on("error", (error) => {
@@ -272,6 +287,8 @@ export class TerminalProcessManager {
   }
 
   async _handleExit(id, state, detail = {}) {
+    if (state.finalized) return;
+    state.finalized = true;
     if (this.terminals.get(id) === state) this.terminals.delete(id);
     state.resolveExit?.(detail);
     const classification = state.classification || classifyTerminalRuntimeOutput(state.runtime, state.outputTail);
@@ -349,10 +366,7 @@ export class TerminalProcessManager {
     this.terminals.delete(id);
     if (terminal.kind === "pty") {
       terminal.term.kill();
-      await Promise.race([
-        terminal.exitPromise,
-        new Promise((resolve) => setTimeout(resolve, 1000)),
-      ]);
+      await waitForExitOrTimeout(terminal.exitPromise, 1000);
       return { stopped: true };
     }
     try {
@@ -361,10 +375,7 @@ export class TerminalProcessManager {
       // Best effort.
     }
     terminateProcessTree(terminal.proc, "SIGTERM");
-    await Promise.race([
-      terminal.exitPromise,
-      new Promise((resolve) => setTimeout(resolve, 1000)),
-    ]);
+    await waitForExitOrTimeout(terminal.exitPromise, 1000);
     return { stopped: true };
   }
 
