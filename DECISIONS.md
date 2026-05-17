@@ -217,6 +217,46 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why.** These end up in URLs (`/agents/{id}/...`), filesystem paths (shared artifacts), and shell arguments. The strict regex prevents path traversal, URL escaping issues, and shell injection without having to sanitize at every call site.
 
+## Dashboard console is a PTY the bridge owns; the service only relays
+
+**Decision.** The dashboard "Console" runs a real PTY (`node-pty`) on the connected environment's bridge, not in the container. The service stores terminal rows and relays output/input/resize/stop as control records the bridge claims. `agent_sessions.owner_mode` flips to `console` while a console is attached and reverts to `managed` when the terminal reaches a terminal state.
+
+**Why.** Operators need direct interactive CLI access to managed agents (and to bypass `claude -p` subscription locks). A PTY must run where the runtime runs — the host — so the service is deliberately a relay, never a process owner. `node-pty` is the same battle-tested substrate VS Code uses (ConPTY on Windows); the console problems were never the PTY layer, they were the relay/render plumbing.
+
+**Consequence.** Bridge changes under `mcp/stdio/` do not need a container rebuild — they take effect on bridge restart. Console-only runtimes (e.g. Hermes) expose a terminal-delivery controller that rejects bridge active-dispatch claims with an actionable message instead of looking mysteriously "unsupported".
+
+## Terminal output sequence is server-owned, monotonic, and streamed as deltas
+
+**Decision.** The service assigns a strictly monotonic `output_seq` per terminal via a coalescing write queue; the bridge never assigns seq. The dashboard streams each `terminal_output` websocket frame's delta straight into the live xterm keyed by seq, and only falls back to a full render on initial mount.
+
+**Why.** The original console flicker was a full `renderChat()` (DOM rebuild + xterm remount + full-buffer repaint) on every output chunk at ~80/sec. Monotonicity must be guaranteed in the queue, not derived from a request-time DB read — a stale `output_seq` read during an uncommitted flush could regress seq and make the dashboard silently drop fresh output. A per-terminal seq floor enforces this regardless of flush/commit timing.
+
+**Consequence.** Output POST responses intentionally omit the (up to 64KB) buffer — the bridge only needs `outputSeq`/`status`; clients read full scrollback via `GET /terminals/{id}`.
+
+## Coalescing terminal writes + `busy_timeout` keep the single SQLite writer alive
+
+**Decision.** Terminal output is batched through an idle/max-latency coalescing queue before hitting SQLite, every connection sets `PRAGMA busy_timeout` (WAL is persistent at the file level), and OperationalError surfaces as a JSON 503, never an HTML 500.
+
+**Why.** A runaway flickering console produced ~80–94 output POSTs/sec, saturating SQLite's single write lock and starving heartbeat/dispatch/spawn-claim writers — that DOS'd the control plane and produced "database is locked" 500s that the dashboard then failed to parse. Fixing the flicker removed the load source; coalescing + `busy_timeout` + a JSON error contract make the remaining contention graceful.
+
+## One live-state engine is the single source of truth for status
+
+**Decision.** `list_agents`, `get_agent`, and every write endpoint (heartbeat, register, dispatch status) derive agent status from one `_compute_live_status_cache` / live-state engine. A bridge-instance id change alone never marks a *live* session offline; `starting` counts as live; a console terminal reaching an end state falls through to active-run/heartbeat truth rather than flat "offline"; a live session with an attached console reports `working`.
+
+**Why.** "Statuses broken" had several causes: bridge restarts rotate the instance id and were collapsing running agents to offline; spawn-in-progress sessions were briefly false-offline; console-owned agents looked offline after a normal stop even though managed fallback was live; and write endpoints disagreed with the dashboard because they used a different heuristic. A single engine removes the disagreement; the bridge-instance/live-session and `starting` rules stop the false-offline cases.
+
+## Pi RPC heals dead sessions once, fails auth fast, never silently hangs
+
+**Decision.** The Pi RPC controller classifies child output: auth/provider/401 failures fail fast (no heal — re-running won't fix credentials); a missing/dead saved session heals once to a fresh session (managed only, guarded against loops); resident mode fails visibly with an actionable clear-handle message. On heal the stale handle is cleared server-side (explicit `sessionHandle:""` + cleared runtime-state), not left to be rediscovered.
+
+**Why.** A mis-routed `--model` once sent Pi to a credential-less provider and it hung ~18 min silently. Auth problems must surface immediately; dead-session problems should self-heal like Codex; resident sessions are operator-owned so the dashboard must not silently mutate them.
+
+## Startup reconcile closes runs nothing will ever close
+
+**Decision.** A bounded startup pass closes `delivered` dispatch runs that are result-linked, or stale with no required reply, or — a require_reply run that is stale **and** has no active owner (no queued/claimed/running run and no live session) to ever produce the reply.
+
+**Why.** Hundreds of `delivered` runs accumulated that no code path would ever finish, inflating "reply pending" handoff metrics and making lanes look alive forever. The orphaned-require_reply case is gated on demonstrable no-owner so a run a live session could still answer is never closed prematurely.
+
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.
