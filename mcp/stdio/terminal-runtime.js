@@ -181,6 +181,10 @@ export class TerminalProcessManager {
       windowsHide: false,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    let resolveExit = null;
+    const exitPromise = new Promise((resolve) => {
+      resolveExit = resolve;
+    });
     const state = {
       id,
       command,
@@ -197,6 +201,8 @@ export class TerminalProcessManager {
       kind: "pipe",
       outputTail: "",
       classification: null,
+      exitPromise,
+      resolveExit,
     };
     this.terminals.set(id, state);
     const emit = (chunk) => {
@@ -269,6 +275,12 @@ export class TerminalProcessManager {
     if (this.terminals.get(id) === state) this.terminals.delete(id);
     state.resolveExit?.(detail);
     const classification = state.classification || classifyTerminalRuntimeOutput(state.runtime, state.outputTail);
+    try {
+      await this._flushOutput(id);
+    } catch {
+      // Exit status is still authoritative; do not let an output backfill
+      // failure prevent the terminal from reaching stopped/failed.
+    }
     if (
       classification?.kind === "missing_session" &&
       state.sessionHandle &&
@@ -349,6 +361,10 @@ export class TerminalProcessManager {
       // Best effort.
     }
     terminateProcessTree(terminal.proc, "SIGTERM");
+    await Promise.race([
+      terminal.exitPromise,
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
     return { stopped: true };
   }
 

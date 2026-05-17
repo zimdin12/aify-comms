@@ -54,6 +54,36 @@ await sizeFlushManager.flushOutputForTest("size");
 assert.deepEqual(sizeFlushCalls, ["abcd"], "hitting maxBatchChars should flush the coalesced batch");
 
 
+
+const exitOrderEvents = [];
+const exitOrderManager = new TerminalProcessManager({
+  idleFlushMs: 1000,
+  maxLatencyMs: 1000,
+  onOutput: async (_id, text) => exitOrderEvents.push(`output:${text}`),
+  onExit: async () => exitOrderEvents.push("exit"),
+});
+await exitOrderManager.emitOutputForTest("exit-order", "last chunk");
+await exitOrderManager._handleExit("exit-order", { id: "exit-order", runtime: "", outputTail: "", resolveExit: () => {} }, {});
+assert.deepEqual(
+  exitOrderEvents,
+  ["output:last chunk", "exit"],
+  "terminal exit must flush buffered output before posting stopped/failed status",
+);
+
+
+const pipeStopEvents = [];
+const pipeStopManager = new TerminalProcessManager();
+pipeStopManager.terminals.set("pipe-stop", {
+  kind: "pipe",
+  proc: { stdin: { end() {} } },
+  exitPromise: new Promise((resolve) => setTimeout(() => {
+    pipeStopEvents.push("exit");
+    resolve();
+  }, 25)),
+});
+await pipeStopManager.stop("pipe-stop", "test pipe stop");
+assert.deepEqual(pipeStopEvents, ["exit"], "pipe fallback stop should wait for process exit like PTY stop");
+
 await manager.start({
   id: "term-test",
   command: process.platform === "win32" ? "cd && echo AIFY_TERMINAL_READY" : "sh -lc 'pwd; echo AIFY_TERMINAL_READY'",
