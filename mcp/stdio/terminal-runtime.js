@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { createRequire } from "module";
-import { normalizeRuntime, terminateProcessTree } from "./runtimes.js";
+import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
 
 const require = createRequire(import.meta.url);
 let pty = null;
@@ -65,49 +65,49 @@ export function classifyTerminalRuntimeOutput(runtime = "", text = "") {
 }
 
 export function terminalCommandWithoutResume(runtime = "", command = "") {
-  const key = normalizeRuntime(runtime);
-  let text = String(command || "").trim();
-  if (!text) return text;
-  const token = String.raw`(?:"[^"]*"|'[^']*'|\S+)`;
-  if (key === "pi" || key === "hermes" || key === "claude-code") {
-    text = text.replace(new RegExp(String.raw`(^|\s)(?:--resume|--session-id|-r)(?:=|\s+)${token}`, "g"), "$1");
-  }
-  if (key === "codex") {
-    text = text.replace(new RegExp(String.raw`(^|\s)resume(?:\s+--include-non-interactive)?\s+${token}`, "g"), "$1");
-  }
-  return text.replace(/\s+/g, " ").trim();
+  return runtimeCommandWithoutResume(runtime, command);
 }
 
 function terminalEnvWithoutResume(runtime = "", env = {}) {
-  const key = normalizeRuntime(runtime);
   const next = { ...(env || {}) };
   delete next.AIFY_SESSION_HANDLE;
-  if (key === "pi") {
-    delete next.PI_SESSION_ID;
-    delete next.OMP_SESSION_ID;
-    delete next.AIFY_PI_SESSION_ID;
-  } else if (key === "hermes") {
-    delete next.HERMES_SESSION_ID;
-    delete next.HERMES_SESSION;
-  } else if (key === "claude-code") {
-    delete next.CLAUDE_SESSION_ID;
-  } else if (key === "codex") {
-    delete next.CODEX_THREAD_ID;
+  for (const name of sessionEnvVarsForRuntime(runtime)) {
+    delete next[name];
   }
   return next;
 }
 
 export class TerminalProcessManager {
-  constructor({ onOutput = async () => {}, onExit = async () => {}, onHeal = async () => {} } = {}) {
+  constructor({
+    onOutput = async () => {},
+    onExit = async () => {},
+    onHeal = async () => {},
+    idleFlushMs = 16,
+    maxLatencyMs = 33,
+    maxBatchChars = 16 * 1024,
+  } = {}) {
     this.onOutput = onOutput;
     this.onExit = onExit;
     this.onHeal = onHeal;
+    this.idleFlushMs = Math.max(1, Number(idleFlushMs) || 16);
+    this.maxLatencyMs = Math.max(this.idleFlushMs, Number(maxLatencyMs) || 33);
+    this.maxBatchChars = Math.max(1024, Number(maxBatchChars) || 16 * 1024);
     this.terminals = new Map();
+    this.outputStates = new Map();
   }
 
   has(id) {
     return this.terminals.has(id);
   }
+
+  emitOutputForTest(id, text) {
+    return this._handleOutput(id, { runtime: "" }, text);
+  }
+
+  flushOutputForTest(id) {
+    return this._flushOutput(id);
+  }
+
 
   async start({ id, command, cwd = process.cwd(), env = process.env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
     if (!id) throw new Error("Terminal id is required");
@@ -217,14 +217,52 @@ export class TerminalProcessManager {
   async _handleOutput(id, state, text) {
     if (!text) return;
     state.outputTail = appendTail(state.outputTail, text);
-    await this.onOutput(id, text);
     const classification = classifyTerminalRuntimeOutput(state.runtime, state.outputTail);
+    await this._enqueueOutput(id, text);
     if (classification?.kind === "auth" && !state.classification) {
       state.classification = classification;
-      await this.onOutput(id, `\n[aify-comms] ${classification.message}\n`);
+      await this._enqueueOutput(id, `\n[aify-comms] ${classification.message}\n`, { flushNow: true });
       if (state.kind === "pty") state.term?.kill();
       else terminateProcessTree(state.proc, "SIGTERM");
     }
+  }
+
+  async _enqueueOutput(id, text, { flushNow = false } = {}) {
+    const chunk = String(text || "");
+    if (!id || !chunk) return;
+    let state = this.outputStates.get(id);
+    if (!state) {
+      state = { chunks: [], chars: 0, idleTimer: null, maxTimer: null, chain: Promise.resolve() };
+      this.outputStates.set(id, state);
+    }
+    state.chunks.push(chunk);
+    state.chars += chunk.length;
+    if (!state.maxTimer) {
+      state.maxTimer = setTimeout(() => {
+        this._flushOutput(id).catch(() => {});
+      }, this.maxLatencyMs);
+    }
+    if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleTimer = setTimeout(() => {
+      this._flushOutput(id).catch(() => {});
+    }, this.idleFlushMs);
+    if (flushNow || state.chars >= this.maxBatchChars) await this._flushOutput(id);
+  }
+
+  async _flushOutput(id) {
+    const state = this.outputStates.get(id);
+    if (!state || !state.chunks.length) return state?.chain || Promise.resolve();
+    if (state.idleTimer) clearTimeout(state.idleTimer);
+    if (state.maxTimer) clearTimeout(state.maxTimer);
+    const output = state.chunks.join("");
+    state.chunks = [];
+    state.chars = 0;
+    state.idleTimer = null;
+    state.maxTimer = null;
+    const deliver = state.chain.then(() => this.onOutput(id, output));
+    state.chain = deliver.catch(() => {});
+    await deliver;
+    if (!state.chunks.length && !state.idleTimer && !state.maxTimer) this.outputStates.delete(id);
   }
 
   async _handleExit(id, state, detail = {}) {
@@ -234,7 +272,8 @@ export class TerminalProcessManager {
     if (
       classification?.kind === "missing_session" &&
       state.sessionHandle &&
-      !state.healAttempted
+      !state.healAttempted &&
+      !state.stopping
     ) {
       const freshCommand = terminalCommandWithoutResume(state.runtime, state.command);
       if (freshCommand && freshCommand !== state.command) {
@@ -294,6 +333,7 @@ export class TerminalProcessManager {
   async stop(id, reason = "terminal stop requested") {
     const terminal = this.terminals.get(id);
     if (!terminal) return { stopped: false };
+    terminal.stopping = true;
     this.terminals.delete(id);
     if (terminal.kind === "pty") {
       terminal.term.kill();

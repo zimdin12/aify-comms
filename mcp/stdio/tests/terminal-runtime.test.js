@@ -22,6 +22,38 @@ const manager = new TerminalProcessManager({
   onHeal: async (_id, detail) => heals.push(detail),
 });
 
+const serializedCalls = [];
+const serializedManager = new TerminalProcessManager({
+  idleFlushMs: 10,
+  maxLatencyMs: 30,
+  maxBatchChars: 16 * 1024,
+  onOutput: async (_id, text) => {
+    serializedCalls.push(text);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  },
+});
+await Promise.all([
+  serializedManager.emitOutputForTest("serial", "A"),
+  serializedManager.emitOutputForTest("serial", "B"),
+  serializedManager.emitOutputForTest("serial", "C"),
+]);
+await serializedManager.flushOutputForTest("serial");
+assert.deepEqual(serializedCalls, ["ABC"], "terminal output chunks should be coalesced and delivered in emission order");
+
+const sizeFlushCalls = [];
+const sizeFlushManager = new TerminalProcessManager({
+  idleFlushMs: 1000,
+  maxLatencyMs: 1000,
+  maxBatchChars: 4,
+  onOutput: async (_id, text) => sizeFlushCalls.push(text),
+});
+await sizeFlushManager.emitOutputForTest("size", "ab");
+assert.deepEqual(sizeFlushCalls, [], "small chunks should wait for the flush window");
+await sizeFlushManager.emitOutputForTest("size", "cd");
+await sizeFlushManager.flushOutputForTest("size");
+assert.deepEqual(sizeFlushCalls, ["abcd"], "hitting maxBatchChars should flush the coalesced batch");
+
+
 await manager.start({
   id: "term-test",
   command: process.platform === "win32" ? "cd && echo AIFY_TERMINAL_READY" : "sh -lc 'pwd; echo AIFY_TERMINAL_READY'",
@@ -86,6 +118,22 @@ assert.match(chunks.join(""), /starting a fresh pi session without --resume/);
 assert.match(chunks.join(""), /AIFY_PI_FRESH_STARTED/);
 assert.equal(heals.at(-1)?.agentId, "pi-agent");
 assert.equal(heals.at(-1)?.previousSessionHandle, "dead-session");
+
+const stopHealChunks = [];
+const stopHealManager = new TerminalProcessManager({
+  onOutput: async (_id, text) => stopHealChunks.push(text),
+});
+await stopHealManager.start({
+  id: "stop-no-heal",
+  command: `node ${fakePiCommandPath} --resume dead-session`,
+  cwd: tmp,
+  runtime: "pi",
+  sessionHandle: "dead-session",
+});
+await stopHealManager.stop("stop-no-heal", "test stop before heal");
+await new Promise((resolve) => setTimeout(resolve, 100));
+assert(!stopHealChunks.join("").includes("starting a fresh pi session"), "intentional terminal stop must not trigger stale-handle heal");
+
 
 const fakeAuthPi = path.join(tmp, "fake-auth-pi.mjs");
 fs.writeFileSync(fakeAuthPi, `

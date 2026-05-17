@@ -58,4 +58,17 @@ assert.equal(hermesEnv.AIFY_RUNTIME, "hermes");
 assert.equal(hermesEnv.AIFY_SESSION_HANDLE, "hermes-session");
 assert.equal(hermesEnv.HERMES_SESSION_ID, "hermes-session");
 
+const piEnv = terminalChildEnv({
+  baseEnv: { PI_SESSION_ID: "old-pi", OMP_SESSION_ID: "old-omp", AIFY_PI_SESSION_ID: "old-aify-pi" },
+  runtime: "pi",
+  sessionHandle: "pi-session",
+  workspace: "/repo",
+  terminal: { agentId: "pi-coder" },
+});
+
+assert.equal(piEnv.AIFY_RUNTIME, "pi");
+assert.equal(piEnv.AIFY_SESSION_HANDLE, "pi-session");
+assert.equal(piEnv.PI_SESSION_ID, "pi-session");
+assert.equal(piEnv.OMP_SESSION_ID, "pi-session");
+assert.equal(piEnv.AIFY_PI_SESSION_ID, "pi-session");
 console.log("terminal-env.test.js: all assertions passed");

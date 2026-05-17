@@ -1,4 +1,4 @@
-import { normalizeRuntime, prepareManagedCodexHome } from "./runtimes.js";
+import { normalizeRuntime, prepareManagedCodexHome, sessionEnvVarsForRuntime } from "./runtimes.js";
 
 export function terminalChildEnv({
   baseEnv = process.env,
@@ -18,14 +18,17 @@ export function terminalChildEnv({
     AIFY_COMMS_AGENT_ID: terminal.agentId || "",
     AIFY_AGENT_CWD: workspace || "",
     AIFY_SESSION_HANDLE: handle,
-    CLAUDE_SESSION_ID: key === "claude-code" ? handle : (baseEnv.CLAUDE_SESSION_ID || ""),
-    CODEX_THREAD_ID: key === "codex" ? handle : (baseEnv.CODEX_THREAD_ID || ""),
-    HERMES_SESSION_ID: key === "hermes" ? handle : (baseEnv.HERMES_SESSION_ID || ""),
-    PI_SESSION_ID: key === "pi" ? handle : (baseEnv.PI_SESSION_ID || ""),
+    CLAUDE_SESSION_ID: baseEnv.CLAUDE_SESSION_ID || "",
+    CODEX_THREAD_ID: baseEnv.CODEX_THREAD_ID || "",
+    HERMES_SESSION_ID: baseEnv.HERMES_SESSION_ID || "",
+    PI_SESSION_ID: baseEnv.PI_SESSION_ID || "",
     AIFY_ENVIRONMENT_BRIDGE: "0",
     AIFY_MANAGED_DISPATCH: "0",
     AIFY_TERMINAL_ID: terminalId || "",
   };
+  for (const name of sessionEnvVarsForRuntime(key)) {
+    env[name] = handle;
+  }
   if (key === "codex") {
     env.CODEX_HOME = prepareCodexHome({ workspace: workspace || "" });
   }

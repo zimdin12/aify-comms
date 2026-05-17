@@ -38,6 +38,7 @@ import {
   launchRuntimeRun,
   normalizeRuntime,
   runtimeLaunchAvailability,
+  extractRuntimeSessionHandleFromCommand,
   terminateProcessTree,
 } from "./runtimes.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
@@ -1081,32 +1082,8 @@ async function updateTerminalControl(controlId, body) {
   return httpCall("PATCH", `/terminals/controls/${encodeURIComponent(controlId)}`, body);
 }
 
-function unquoteShellToken(value = "") {
-  const text = String(value || "").trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
-    return text.slice(1, -1);
-  }
-  return text;
-}
-
 function extractTerminalSessionHandle(runtime = "", command = "") {
-  const key = normalizeRuntime(runtime);
-  const text = String(command || "");
-  const token = String.raw`(?:"([^"]+)"|'([^']+)'|(\S+))`;
-  const readMatch = (match) => unquoteShellToken(match?.[1] || match?.[2] || match?.[3] || "");
-  if (key === "codex") {
-    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${token}`)));
-  }
-  if (key === "hermes") {
-    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)(?:--resume|-r)(?:=|\s+)${token}`)));
-  }
-  if (key === "claude-code") {
-    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)(?:--resume|--session-id)(?:=|\s+)${token}`)));
-  }
-  if (key === "pi") {
-    return readMatch(text.match(new RegExp(String.raw`(?:^|\s)--resume(?:=|\s+)${token}`)));
-  }
-  return "";
+  return extractRuntimeSessionHandleFromCommand(runtime, command);
 }
 
 async function runTerminalControlLoop() {

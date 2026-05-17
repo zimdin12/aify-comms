@@ -817,6 +817,57 @@ function normalizePiModelOverride(value) {
   return text.toLowerCase() === "default" ? "" : text;
 }
 
+export const RUNTIME_SESSION_ENV_VARS = Object.freeze({
+  "claude-code": ["CLAUDE_SESSION_ID"],
+  codex: ["CODEX_THREAD_ID"],
+  hermes: ["HERMES_SESSION_ID", "HERMES_SESSION"],
+  opencode: ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"],
+  pi: ["PI_SESSION_ID", "OMP_SESSION_ID", "AIFY_PI_SESSION_ID"],
+});
+
+export function sessionEnvVarsForRuntime(runtime) {
+  return RUNTIME_SESSION_ENV_VARS[normalizeRuntime(runtime)] || [];
+}
+
+const SHELL_TOKEN_PATTERN = String.raw`(?:"([^"]*)"|'([^']*)'|(\S+))`;
+
+function unquoteShellToken(value = "") {
+  const text = String(value || "").trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function shellTokenFromMatch(match) {
+  return unquoteShellToken(match?.[1] || match?.[2] || match?.[3] || "");
+}
+
+function resumeRegexForRuntime(runtime, flags = "") {
+  const key = normalizeRuntime(runtime);
+  if (key === "codex") {
+    return new RegExp(String.raw`(?:^|\s)resume(?:\s+--include-non-interactive)?\s+${SHELL_TOKEN_PATTERN}`, flags);
+  }
+  if (key === "pi" || key === "hermes" || key === "claude-code") {
+    return new RegExp(String.raw`(?:^|\s)(?:--resume|--session-id|-r)(?:=|\s+)${SHELL_TOKEN_PATTERN}`, flags);
+  }
+  return null;
+}
+
+export function extractRuntimeSessionHandleFromCommand(runtime = "", command = "") {
+  const regex = resumeRegexForRuntime(runtime);
+  if (!regex) return "";
+  return shellTokenFromMatch(String(command || "").match(regex));
+}
+
+export function runtimeCommandWithoutResume(runtime = "", command = "") {
+  const regex = resumeRegexForRuntime(runtime, "g");
+  if (!regex) return String(command || "").trim();
+  return String(command || "").trim().replace(regex, " ").replace(/\s+/g, " ").trim();
+}
+
+
+
 export function detectPiRuntimeFailure(value) {
   const message = String(value?.message || value || "").replace(/\s+/g, " ").trim();
   const lower = message.toLowerCase();
@@ -1305,20 +1356,11 @@ export function controlCapabilitiesForRuntime(runtime) {
 }
 
 export function defaultSessionHandleForRuntime(runtime) {
-  switch (normalizeRuntime(runtime)) {
-    case "codex":
-      return process.env.CODEX_THREAD_ID || "";
-    case "hermes":
-      return process.env.HERMES_SESSION_ID || process.env.HERMES_SESSION || "";
-    case "opencode":
-      return process.env.OPENCODE_SESSION_ID || process.env.OPENCODE_SESSION || "";
-    case "pi":
-      return process.env.PI_SESSION_ID || process.env.OMP_SESSION_ID || process.env.AIFY_PI_SESSION_ID || "";
-    case "claude-code":
-      return process.env.CLAUDE_SESSION_ID || "";
-    default:
-      return "";
+  for (const name of sessionEnvVarsForRuntime(runtime)) {
+    const value = String(process.env[name] || "").trim();
+    if (value) return value;
   }
+  return "";
 }
 
 function createRpcClient(proc, { onNotification, onStderr }) {
@@ -2619,7 +2661,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   let sessionId =
     executionMode === "resident"
       ? residentSessionId
-      : String(runtimeState?.sessionId || residentSessionId || "").trim();
+      : String(runtimeState?.sessionId || runtimeState?.sessionFile || residentSessionId || "").trim();
 
   if (executionMode === "resident" && !sessionId) {
     throw new Error(
