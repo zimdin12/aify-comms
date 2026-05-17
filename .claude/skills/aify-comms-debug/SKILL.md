@@ -9,6 +9,17 @@ Use this skill whenever something in aify-comms is not behaving the way the main
 
 Before digging in, always call `comms_agent_info(agentId="target")` on the agent in question and read `wakeMode`, `sessionMode`, `machineId`, `sessionHandle`, and `dispatchState`. Most of these fixes are just "something in that record is stale or wrong".
 
+## Contents
+
+- Codex `AbsolutePathBuf` / `thread/resume` failures, hard reset
+- Claude wake-mode and `Session ID already in use`
+- Oh My Pi: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
+- Spawn/workspace path errors, `ENOENT`, machine ID
+- Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
+- Environment presence, re-register semantics, install.sh on Windows
+- Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
+- General escalation
+
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 
 **Symptom.** Dispatches to a Codex agent fail with this Rust error. Dashboard may also show `Codex WebSocket app-server connection closed (1006)`.
@@ -435,6 +446,26 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 ```
 
 If Claude is installed but `claude.cmd` is missing, the wrapper falls back to `claude` when available. Prefer the native Windows Claude Code install when possible, then restart Claude/Codex after reinstalling aify-comms.
+
+## Dashboard console-mode: lock storm, flicker, statuses, parsing, env-not-found
+
+This cluster was hardened on the `feature/dashboard-console-mode` branch. All fixes are in current builds; symptoms below mean the running container or host bridge predates them — rebuild the service (`docker compose up -d --build`) and/or restart the host bridge.
+
+**`Database temporarily unavailable: database is locked` (503 in dashboard).** Cause: a runaway/flickering console terminal POSTs output many times per second; SQLite's single writer is starved, so heartbeat/dispatch/spawn-claim writers time out. Fix shipped: `service/db.py` sets `PRAGMA busy_timeout`, `synchronous=NORMAL` per connection (WAL is set once at init — it is a persistent file-level setting); `api_v2.py` has a coalescing terminal-output write queue and returns a JSON 503 instead of an HTML 500. If you still see HTML 500s or crashes, the container predates the fix — rebuild.
+
+**Console text scrambled / flickering / "can't see what's happening".** Cause: the dashboard rebuilt the whole console DOM on every `terminal_output` websocket frame, disposing and repainting the xterm per chunk; the 64KB buffer cap also forced full `term.clear()`. Fix: the websocket path streams each delta straight into the live xterm, deduped/ordered by a monotonic `outputSeq`, and skips a full refresh for output of non-visible terminals. Contract: the service is the sole source of `outputSeq` (bridge sends none); any new output path must route through `TERMINAL_OUTPUT_WRITES` so the sequence stays monotonic, or the dashboard will silently drop frames via its `seq <= lastSeq` dedupe.
+
+**Broken agent statuses (everything "active", or live agents shown "offline").** Cause: status was derived in multiple places that disagreed, and a bridge-instance id change marked live sessions offline. Fix: all status flows through one live-state engine (`_compute_live_status_cache`/`_refresh_agent_live_state`); a bridge-id mismatch only forces offline when the session is not live and has no active run; `starting` counts as a live session (no false-offline mid-spawn); a console-owned session whose terminal reached an end state falls back to managed instead of flat offline; a live session with an attached console reports `working`. If statuses look wrong, rebuild the service so the unified engine is deployed.
+
+**`Dashboard parsing error` / `Unexpected token <`.** Cause: a non-JSON error body (proxy 502, gateway, unwrapped 5xx) was fed to `response.json()`. Fix: `apiFetch` degrades any non-JSON body to a structured `{ok:false,error}` toast. Persisting means stale dashboard HTML — rebuild.
+
+**Continue/Compact says `environment does not exist`, no dropdowns, Regenerate does nothing.** Cause: free-text environment/runtime inputs and a Regenerate that rebuilt from the stale original session. Fix: Environment and Runtime are dropdowns scoped to live environments (source env kept as a flagged option if offline), workspace has a datalist, and Regenerate rebuilds from the current form selections. Stale dashboard HTML means rebuild.
+
+**Open terminal for a managed/Pi agent: `session does not exist`.** Cause: the dashboard held a client-cached session id that went stale after a rebuild/re-register, so `/sessions/{id}/console/start` 404'd before any bridge code ran. Fix: console start refreshes sessions and retries once against the freshly resolved session; the bridge separately heals dead Pi/Hermes handles (see Pi sections above).
+
+**Pi managed run hangs forever on missing/expired auth.** Cause: the Pi RPC adapter waited silently when Oh My Pi could not authenticate. Fix: Pi RPC classifies auth/provider failures and startup silence and fails fast with an actionable message (run `omp` manually in that environment to re-auth); dead saved Pi session IDs heal to a fresh session and the stale server `sessionHandle` is cleared via `PATCH /agents/{id}/session-handle`. Resident Pi does not auto-heal — it fails with a clear "clear the saved handle / start fresh" message by design.
+
+**Operational note: never rebuild while service files are mid-edit.** The Docker image COPYs the working tree, not git HEAD. Running `docker compose up -d --build` while `service/` has an uncommitted syntax error bakes a broken image and the container crash-loops on `SyntaxError`. Before any rebuild: AST-check (`python -c "import ast; ast.parse(open('service/routers/api_v2.py').read())"`), run `python -m unittest service.tests.test_api_v2_regressions`, and commit. Recover by rebuilding from a known-green commit.
 
 ## General escalation
 
