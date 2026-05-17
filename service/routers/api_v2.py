@@ -8264,6 +8264,61 @@ async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hour
     return closed
 
 
+async def _prune_terminal_history(
+    db,
+    *,
+    terminal_event_ttl_hours: int = 24,
+    dispatch_event_ttl_hours: int = 72,
+    ended_output_ttl_hours: int = 24,
+    chunk: int = 5000,
+    max_chunks: int = 200,
+) -> dict[str, int]:
+    """Bounded history retention so the DB does not grow forever.
+
+    The live console scrollback is the (already 64KB-capped)
+    terminal_sessions.output column — that is what the dashboard reads and is
+    NOT touched for active sessions. This only trims redundant audit history:
+    per-chunk terminal_events past a TTL, dispatch_events past a TTL, and the
+    output blob of long-ended terminals. Chunked deletes keep each statement
+    short so a live control plane is never locked for long.
+    """
+    counts = {"terminal_events": 0, "dispatch_events": 0, "ended_output_cleared": 0}
+
+    async def _chunked_delete(sql: str, params: tuple) -> int:
+        removed = 0
+        for _ in range(max_chunks):
+            cur = await db.execute(sql, params)
+            await db.commit()
+            n = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+            removed += n
+            if n < chunk:
+                break
+        return removed
+
+    counts["terminal_events"] = await _chunked_delete(
+        f"DELETE FROM terminal_events WHERE id IN ("
+        f"SELECT id FROM terminal_events WHERE created_at < datetime('now', ?) "
+        f"ORDER BY id ASC LIMIT {int(chunk)})",
+        (f"-{max(1, int(terminal_event_ttl_hours))} hours",),
+    )
+    counts["dispatch_events"] = await _chunked_delete(
+        f"DELETE FROM dispatch_events WHERE id IN ("
+        f"SELECT id FROM dispatch_events WHERE created_at < datetime('now', ?) "
+        f"ORDER BY id ASC LIMIT {int(chunk)})",
+        (f"-{max(1, int(dispatch_event_ttl_hours))} hours",),
+    )
+    cur = await db.execute(
+        "UPDATE terminal_sessions SET output = '' "
+        "WHERE status IN ('stopped', 'failed', 'ended', 'cancelled') "
+        "AND COALESCE(output, '') != '' "
+        "AND updated_at < datetime('now', ?)",
+        (f"-{max(1, int(ended_output_ttl_hours))} hours",),
+    )
+    await db.commit()
+    counts["ended_output_cleared"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    return counts
+
+
 @router.post("/dispatch/handoffs/repair")
 async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=1, le=500)):
     db = await get_db()

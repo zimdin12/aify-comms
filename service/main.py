@@ -96,10 +96,17 @@ async def lifespan(app: FastAPI):
                     break
             if total_closed:
                 logger.info(f"Startup reconcile: closed {total_closed} stale delivered dispatch run(s)")
+            # Bounded history retention: trim redundant audit history so the
+            # DB stops growing without bound. Live scrollback (the 64KB
+            # output column of active terminals) is untouched.
+            from service.routers.api_v2 import _prune_terminal_history
+            pruned = await _prune_terminal_history(_recon_db)
+            if any(pruned.values()):
+                logger.info(f"Startup history prune: {pruned}")
         finally:
             await _recon_db.close()
     except Exception as e:
-        logger.error(f"Startup dispatch reconcile skipped: {e}")
+        logger.error(f"Startup dispatch reconcile/prune skipped: {e}")
 
     # WebSocket manager
     app.state.ws_manager = ConnectionManager()
