@@ -8282,7 +8282,8 @@ async def _prune_terminal_history(
     output blob of long-ended terminals. Chunked deletes keep each statement
     short so a live control plane is never locked for long.
     """
-    counts = {"terminal_events": 0, "dispatch_events": 0, "ended_output_cleared": 0}
+    counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0}
+    keep_events_per_terminal = 200
 
     async def _chunked_delete(sql: str, params: tuple) -> int:
         removed = 0
@@ -8307,6 +8308,36 @@ async def _prune_terminal_history(
         f"ORDER BY id ASC LIMIT {int(chunk)})",
         (f"-{max(1, int(dispatch_event_ttl_hours))} hours",),
     )
+    # Per-terminal cap: chatty long-lived consoles produce hundreds of
+    # thousands of event rows *within* the TTL window, so age alone cannot
+    # bound them. Keep only the most recent N per terminal. Per-terminal
+    # indexed deletes (idx_terminal_events_terminal on terminal_id,id) stay
+    # fast and short even on a large table.
+    term_ids = [
+        r["terminal_id"]
+        for r in await (await db.execute("SELECT DISTINCT terminal_id FROM terminal_events")).fetchall()
+    ]
+    for tid in term_ids:
+        cutoff_row = await (await db.execute(
+            "SELECT id FROM terminal_events WHERE terminal_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?",
+            (tid, keep_events_per_terminal),
+        )).fetchone()
+        if not cutoff_row:
+            continue
+        cutoff_id = cutoff_row["id"]
+        for _ in range(max_chunks):
+            cur = await db.execute(
+                f"DELETE FROM terminal_events WHERE id IN ("
+                f"SELECT id FROM terminal_events WHERE terminal_id = ? AND id <= ? "
+                f"ORDER BY id ASC LIMIT {int(chunk)})",
+                (tid, cutoff_id),
+            )
+            await db.commit()
+            n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            counts["terminal_events_capped"] += n
+            if n < chunk:
+                break
+
     cur = await db.execute(
         "UPDATE terminal_sessions SET output = '' "
         "WHERE status IN ('stopped', 'failed', 'ended', 'cancelled') "
