@@ -233,6 +233,8 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Consequence.** Output POST responses intentionally omit the (up to 64KB) buffer — the bridge only needs `outputSeq`/`status`; clients read full scrollback via `GET /terminals/{id}`.
 
+**Broadcast ordering.** The live `terminal_output` websocket frame is emitted by the coalescing queue's flush (post-commit, one ordered batch per flush), NOT per-POST. Per-POST broadcasts ran in concurrent request coroutines, so their order did not match the seq assigned at enqueue; the dashboard's `seq <= lastSeq` dedupe then discarded an out-of-order frame, leaving a hole in the byte stream that desynced the terminal's ANSI state ("scrambled text when working"). Flushes are serialized per terminal, so flush-time broadcast is ordered and gap-free, and the dedupe is now correct (it only guards mount-overlap/replays). This also cuts websocket message volume.
+
 ## Coalescing terminal writes + `busy_timeout` keep the single SQLite writer alive
 
 **Decision.** Terminal output is batched through an idle/max-latency coalescing queue before hitting SQLite, every connection sets `PRAGMA busy_timeout` (WAL is persistent at the file level), and OperationalError surfaces as a JSON 503, never an HTML 500.
@@ -241,7 +243,7 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 ## One live-state engine is the single source of truth for status
 
-**Decision.** `list_agents`, `get_agent`, and every write endpoint (heartbeat, register, dispatch status) derive agent status from one `_compute_live_status_cache` / live-state engine. A bridge-instance id change alone never marks a *live* session offline; `starting` counts as live; a console terminal reaching an end state falls through to active-run/heartbeat truth rather than flat "offline"; a live session with an attached console reports `working`.
+**Decision.** `list_agents`, `get_agent`, and every write endpoint (heartbeat, register, dispatch status) derive agent status from one `_compute_live_status_cache` / live-state engine. A bridge-instance id change alone never marks a *live* session offline; `starting` counts as live; a console terminal reaching an end state falls through to active-run/heartbeat truth rather than flat "offline". An attached console reports `working` only while it is *actively producing output* (terminal `updated_at` within `console_active_seconds`, default 90s); an attached-but-quiet console is `active` (reachable, idle), not `working`. The live terminal status is also mirrored onto `agent_sessions.terminal_status` on every output so it advances past `starting` — otherwise the engine reports a permanent transitioning "working" for an idle console.
 
 **Why.** "Statuses broken" had several causes: bridge restarts rotate the instance id and were collapsing running agents to offline; spawn-in-progress sessions were briefly false-offline; console-owned agents looked offline after a normal stop even though managed fallback was live; and write endpoints disagreed with the dashboard because they used a different heuristic. A single engine removes the disagreement; the bridge-instance/live-session and `starting` rules stop the false-offline cases.
 
