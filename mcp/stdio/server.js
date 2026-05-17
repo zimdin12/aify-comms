@@ -42,6 +42,7 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
+import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
@@ -1148,11 +1149,10 @@ async function runTerminalControlLoop() {
           throw new Error(`Unsupported terminal control action: ${control.action}`);
         }
       } catch (error) {
-        await updateTerminalControl(control.id, {
-          status: "failed",
-          terminalStatus: "failed",
-          error: error?.message || String(error),
-        }).catch(() => {});
+        await updateTerminalControl(
+          control.id,
+          terminalControlFailurePatch(control.action, error),
+        ).catch(() => {});
       }
     }
   } catch (error) {
