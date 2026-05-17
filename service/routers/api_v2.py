@@ -1578,33 +1578,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     elif active_run:
         effective_status = "working"
         reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
-    elif session_status in {"starting", "recovering", "restarting"} or terminal_status in {"starting", "stopping"}:
+    elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
         effective_status = "working"
-        reason = terminal_status or session_status or "Session is transitioning."
-    elif live_session and terminal_status in {"attached", "running", "live"}:
-        # An attached console is "working" only while it is actively producing
-        # output. A console sitting idle at a prompt is reachable but NOT
-        # working — reporting "working" then is the "shows working while only
-        # waiting" bug. The output write queue bumps terminal_sessions
-        # .updated_at on every flush, so recent updated_at == live console
-        # activity; a stale one == idle. (B1 fix)
-        console_active_seconds = max(30, int(settings.get("console_active_seconds", 90) or 90))
-        term_age = None
-        if terminal_id:
-            trow = await (await db.execute(
-                "SELECT updated_at FROM terminal_sessions WHERE id = ?",
-                (terminal_id,),
-            )).fetchone()
-            term_updated = str((trow["updated_at"] if trow else "") or "").strip()
-            term_epoch = _iso_to_epoch(term_updated) if term_updated else 0
-            if term_epoch:
-                term_age = datetime.now(timezone.utc).timestamp() - term_epoch
-        if term_age is not None and term_age <= console_active_seconds:
-            effective_status = "working"
-            reason = "Console session active."
-        else:
-            effective_status = "active"
-            reason = "Console attached (idle)."
+        reason = session_status or terminal_status or "Session is transitioning."
+    # NOTE: "working" deliberately requires a tracked active run/turn (or a
+    # genuine recover/restart transition) — NOT console attachment or console
+    # byte activity. Long-lived managed consoles emit ambient output (prompt
+    # redraws, keepalives) while the agent is idle; treating that as "working"
+    # made idle agents show working forever. An attached-but-runless console
+    # is reachable, so it falls through to the heartbeat branch as "active",
+    # never "working". (Supersedes the B1 / console-activity heuristics.)
     else:
         idle_minutes = int(settings.get("idle_minutes", 5) or 5)
         offline_minutes = int(settings.get("offline_minutes", 30) or 30)

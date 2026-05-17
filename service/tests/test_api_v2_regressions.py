@@ -1416,11 +1416,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(terminal["status"], "stopped")
         self.assertIn("still active", terminal["output"])
 
-    def test_live_console_session_reports_working_not_active(self):
-        # B1 regression: an agent with a running session + attached PTY console
-        # is doing real work and must report "working", not "active". The
-        # engine previously derived "working" only from claimed/running
-        # dispatch runs, so console/managed-steered agents always looked idle.
+    def test_attached_console_without_active_run_reports_active_not_working(self):
+        # Corrected semantic (supersedes B1): an attached console with NO
+        # tracked active run is reachable but NOT "working". Long-lived
+        # managed consoles emit ambient output even while idle, so console
+        # attachment/byte-activity must never by itself mean "working" —
+        # otherwise idle agents show "working" forever. It must be "active".
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(
             f"/api/v1/sessions/{session_id}/console/start",
@@ -1437,7 +1438,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "working")
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
 
     def test_idle_attached_console_reports_active_not_working(self):
         # Post-B1 regression the operator caught: an attached console with no
