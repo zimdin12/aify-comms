@@ -5121,7 +5121,10 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
         await db.close()
 
 
-def _default_console_command(session, workspace: str) -> str:
+def _default_console_command(session, workspace: str, *, interactive: bool = False) -> str:
+    # interactive=True is the human-opened browser Console (must be a usable
+    # interactive session). interactive=False (default) is managed headless
+    # PTY dispatch, which keeps native session resume for agent continuity.
     agent_id = str(session["agent_id"] or "").strip()
     handle = str(session["session_handle"] or "").strip()
     runtime = _normalize_runtime(session["runtime"] or "")
@@ -5138,6 +5141,16 @@ def _default_console_command(session, workspace: str) -> str:
             parts.extend(["--resume", handle])
         return " ".join(part for part in parts if part)
     elif runtime == "pi":
+        if interactive:
+            # Human Console: fresh INTERACTIVE OMP session (no --mode, no
+            # --resume). Falling through to the shared `--resume <handle>`
+            # tail dragged the managed RPC session id into the PTY, so the
+            # console emitted machine/title control-sequence noise instead
+            # of a usable terminal ("026H and nothing else"). An explicit
+            # "resume saved Pi context" console action can be added later,
+            # but it must never be the default.
+            return f"pi-aify --aify-agent {agent_id}"
+        # Managed headless PTY dispatch keeps native resume for continuity.
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
         parts = ["codex-aify", "--aify-agent", agent_id]
@@ -5196,7 +5209,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
         terminal_id = f"term_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         now = _now()
-        command = str(req.command or "").strip() or _default_console_command(session, workspace)
+        command = str(req.command or "").strip() or _default_console_command(session, workspace, interactive=True)
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         bridge_id = str(environment.get("bridgeId") or "").strip()
         await db.execute(
