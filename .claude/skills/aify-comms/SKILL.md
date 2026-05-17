@@ -47,6 +47,8 @@ For live Oh My Pi, `omp-aify --aify-agent <id> --resume <session-id>` / `pi-aify
 comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
 ```
 
+Pi managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. Use `queueIfBusy=true` when the message should wait for the next turn instead.
+
 For live Hermes, `hermes-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session when a resumable Hermes session ID is known. Dashboard-managed Hermes uses the PTY delivery path.
 
 Dashboard-managed delivered runs are already registered by the bridge. Do not call `comms_register` inside those runs.
@@ -114,7 +116,7 @@ Dashboard is a special store-only recipient for human-visible updates. Use `comm
 
 ## Tool Map
 
-Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compact`, `comms_agents`, `comms_agent_info`, `comms_status`, `comms_describe`, `comms_remove_agent`.
+Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compact`, `comms_agents`, `comms_agent_info`, `comms_status`, `comms_describe`, `comms_remove_agent`, `comms_delete_session`.
 
 Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`.
 

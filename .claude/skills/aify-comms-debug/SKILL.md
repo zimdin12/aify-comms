@@ -158,6 +158,30 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 
+## Managed Oh My Pi reply is `(no output)`
+
+**Symptom.** A dashboard-managed Pi run reaches `agent_end`, but the dashboard stores `(no output)` as the human-visible reply.
+
+**Cause.** Older Pi RPC adapters only captured streaming `text_delta` events. Oh My Pi can also provide the final assistant text on completion events such as `message_end`, `turn_end`, or `agent_end`.
+
+**Fix.** Pull current `aify-comms` and restart the affected `aify-comms` / `omp-aify` / `pi-aify` bridge process. Current builds capture streamed deltas and final completion-event text before deciding that a managed run produced no reply. Verify the bridge checkout with `npm test` from `mcp/stdio/`.
+
+## Managed Oh My Pi fails with Cursor API key when model is `default`
+
+**Symptom.** A managed Pi run is cancelled before a chat reply and reports `No API key found for cursor`, even though `~/.omp/agent/agent.db` exists.
+
+**Cause.** Older adapters treated stored `model: "default"` as a concrete model and launched `omp --mode rpc --model default`. Oh My Pi resolves that literal model name through the Cursor provider, which requires Cursor credentials.
+
+**Fix.** Current Pi runtime handling treats blank model values and case-insensitive `default` as no explicit override, so the bridge launches `omp --mode rpc` and lets Oh My Pi use `~/.omp/agent/config.yml`. Pull current `aify-comms`, restart the host-side bridge/wrapper, and retry the managed run.
+
+## Managed spawned agent workspace is stored as `\home\dev\...`
+
+**Symptom.** A Linux/WSL managed spawn shows a workspace like `\home\dev\projects\repo` instead of `/home/dev/projects/repo`.
+
+**Cause.** Older service builds normalized slash style for root validation but persisted the original requested workspace string into spawn/session records.
+
+**Fix.** Current service builds normalize workspace paths for the selected environment before persisting spawn requests and runtime specs. Non-Windows environments store POSIX slashes; Windows environments keep Windows path style. Update/restart the service, then retry or repair the affected spawn/session workspace.
+
 ## Claude/Pi managed run fails: `spawn "/path/to/claude-or-omp" ENOENT`
 
 **Symptom.** A managed Claude Code or Oh My Pi run fails before the agent replies with an error like `spawn "/home/dev/.local/bin/claude" ENOENT` or `spawn "/home/dev/.local/bin/omp" ENOENT`, even though the diagnostic says `command -v` resolved the launcher.
