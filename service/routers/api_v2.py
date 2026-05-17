@@ -8163,11 +8163,33 @@ async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hour
               require_reply = 0
               AND datetime(requested_at) <= datetime('now', ?)
             )
+            OR (
+              -- #20: a require_reply run that is stale AND has no active owner
+              -- to ever produce the reply is orphaned — nothing will close it
+              -- otherwise, so it lingers as a false "reply pending" forever.
+              require_reply = 1
+              AND datetime(requested_at) <= datetime('now', ?)
+              AND NOT EXISTS (
+                SELECT 1 FROM dispatch_runs r2
+                WHERE r2.target_agent = dispatch_runs.target_agent
+                  AND r2.id != dispatch_runs.id
+                  AND r2.status IN ('queued', 'claimed', 'running')
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_sessions s
+                WHERE s.agent_id = dispatch_runs.target_agent
+                  AND s.status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover')
+              )
+            )
           )
         ORDER BY requested_at ASC
         LIMIT ?
         """,
-        (f"-{max(1, int(stale_hours or 24))} hours", limit),
+        (
+            f"-{max(1, int(stale_hours or 24))} hours",
+            f"-{max(1, int(stale_hours or 24))} hours",
+            limit,
+        ),
     )
     rows = await cursor.fetchall()
     now = _now()
@@ -8177,8 +8199,16 @@ async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hour
         if not run_id:
             continue
         has_result = bool(str(row["result_message_id"] or "").strip())
-        reason = "result_linked" if has_result else "stale_delivery_no_reply_required"
-        summary = "Closed delivered run after result reply was linked." if has_result else "Closed stale delivered run that did not require a reply."
+        needs_reply = bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0))
+        if has_result:
+            reason = "result_linked"
+            summary = "Closed delivered run after result reply was linked."
+        elif needs_reply:
+            reason = "stale_delivery_orphaned_no_owner"
+            summary = "Closed stale delivered run requiring a reply: no active owner remains to ever produce it."
+        else:
+            reason = "stale_delivery_no_reply_required"
+            summary = "Closed stale delivered run that did not require a reply."
         await db.execute(
             """
             UPDATE dispatch_runs
