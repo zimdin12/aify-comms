@@ -817,6 +817,28 @@ function normalizePiModelOverride(value) {
   return text.toLowerCase() === "default" ? "" : text;
 }
 
+export function detectPiRuntimeFailure(value) {
+  const message = String(value?.message || value || "").replace(/\s+/g, " ").trim();
+  const lower = message.toLowerCase();
+  if (!lower) return { shouldHeal: false, authFailure: false, missingSession: false, healReason: null, message };
+  const authFailure =
+    /no api key/.test(lower) ||
+    /api key (?:not found|missing|required)/.test(lower) ||
+    /not authenticated|authentication (?:failed|required)|unauthori[sz]ed|\b401\b/.test(lower) ||
+    ((/amazon-bedrock|bedrock/.test(lower)) && /login|auth|credential|api key/.test(lower));
+  if (authFailure) {
+    return { shouldHeal: false, authFailure: true, missingSession: false, healReason: null, message };
+  }
+  const missingSession =
+    /session\s+["']?[^"'\s]+["']?\s+(?:not found|does not exist|missing)/i.test(message) ||
+    /no such session/i.test(message);
+  if (missingSession) {
+    return { shouldHeal: true, authFailure: false, missingSession: true, healReason: "missing_session", message };
+  }
+  return { shouldHeal: false, authFailure: false, missingSession: false, healReason: null, message };
+}
+
+
 function requireOpenCodeData(response, fallbackMessage) {
   if (response?.data) return response.data;
   const errorMessage =
@@ -2606,21 +2628,22 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     );
   }
 
-  const args = [...launcher.args, "--mode", "rpc"];
-  if (sessionId) args.push("--resume", sessionId);
-  if (model) args.push("--model", model);
-  if (thinking) args.push("--thinking", thinking);
+  const startupTimeoutMs = Number(config.startupTimeoutMs || process.env.AIFY_PI_STARTUP_TIMEOUT_MS || 15000);
 
   let interrupted = false;
   let settled = false;
   let proc = null;
+  let attemptTimer = null;
+  let startupTimer = null;
   let promptAcked = false;
   let finalText = "";
   let finalSnapshotText = "";
   let finalError = "";
+  let stderrText = "";
   let sessionFile = String(runtimeState?.sessionFile || "").trim();
   let initialPromptSent = false;
   let requestCounter = 1;
+  let healAttempted = false;
   const pendingCommandAcks = new Map();
 
   const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
@@ -2630,6 +2653,29 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     ...(sessionId ? { sessionId } : {}),
     ...(sessionFile ? { sessionFile } : {}),
   });
+  const failureText = () => [finalError, finalText, stderrText].filter(Boolean).join("\n").trim();
+  const buildArgs = () => {
+    const nextArgs = [...launcher.args, "--mode", "rpc"];
+    if (sessionId) nextArgs.push("--resume", sessionId);
+    if (model) nextArgs.push("--model", model);
+    if (thinking) nextArgs.push("--thinking", thinking);
+    return nextArgs;
+  };
+  const clearAttemptTimers = () => {
+    if (attemptTimer) clearTimeout(attemptTimer);
+    if (startupTimer) clearTimeout(startupTimer);
+    attemptTimer = null;
+    startupTimer = null;
+  };
+  const resetAttemptState = () => {
+    promptAcked = false;
+    finalText = "";
+    finalSnapshotText = "";
+    finalError = "";
+    stderrText = "";
+    initialPromptSent = false;
+    rejectPendingCommandAcks(new Error("Pi runtime restarting with a fresh session"));
+  };
   const publishPiSessionState = (event) => {
     const next = extractPiSessionState(event);
     let changed = false;
@@ -2649,8 +2695,13 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   };
 
   function send(payload) {
-    if (!proc || !proc.stdin.writable) return;
-    proc.stdin.write(`${JSON.stringify(payload)}\n`);
+    if (!proc || !proc.stdin?.writable || proc.stdin.destroyed) return false;
+    try {
+      proc.stdin.write(`${JSON.stringify(payload)}\n`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function sendInitialPrompt() {
@@ -2677,172 +2728,240 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       const timer = setTimeout(() => {
         pendingCommandAcks.delete(id);
         reject(new Error(`Pi ${String(payload?.type || "command")} acknowledgement timed out`));
-      }, 30000);
+      }, timeoutMs);
       pendingCommandAcks.set(id, { resolve, reject, timer, command: String(payload?.type || "command") });
-      send({ id, ...payload });
+      if (!send({ id, ...payload })) {
+        clearTimeout(timer);
+        pendingCommandAcks.delete(id);
+        reject(new Error(`Pi ${String(payload?.type || "command")} could not be sent because the runtime stdin is closed`));
+      }
     });
   }
 
   const promise = new Promise((resolve, reject) => {
-    proc = spawnProcess(launcher.command, args, { cwd });
-    callbacks.onEvent?.("thread", `Started ${executionMode} Pi RPC runtime${sessionId ? ` for session ${sessionId}` : ""}`);
-
-    const timer = setTimeout(() => {
-      if (!settled) {
-        interrupted = true;
-        try {
-          send({ id: nextRequestId("abort"), type: "abort" });
-        } catch {
-          // best effort
-        }
-        terminateProcessTree(proc);
-        reject(new Error(`Pi run timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-
-    proc.on("error", (error) => {
+    const fail = (error) => {
+      if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearAttemptTimers();
       rejectPendingCommandAcks(error);
-      if (error && error.code === "ENOENT") {
-        const piTarget = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "omp").trim();
-        const enriched = new Error(
-          `spawn "${launcher.command}" ENOENT — this bridge resolved Oh My Pi to "${launcher.command}" ` +
-          `but Node could not execute it. Common causes: missing exec bit, broken shebang interpreter ` +
-          `(e.g., the script's #!/usr/bin/env node points at a node that isn't on the bridge's PATH), ` +
-          `or a stale symlink. Also verify the runtime cwd exists: "${cwd}". ` +
-          `Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
-          `restart aify-comms. Diagnostic: ${diagnosticsFor(piTarget)}`,
-        );
-        enriched.code = error.code;
-        enriched.originalError = error.message;
-        reject(enriched);
-        return;
+      try {
+        terminateProcessTree(proc);
+      } catch {
+        // best effort
       }
       reject(error);
-    });
+    };
 
-    const stdout = readline.createInterface({ input: proc.stdout });
-    stdout.on("line", (line) => {
-      const text = String(line || "").trim();
-      if (!text) return;
-      let event;
-      try {
-        event = JSON.parse(text);
-      } catch {
-        finalText += `${text}\n`;
-        return;
-      }
+    const maybeHealMissingSession = () => {
+      const detected = detectPiRuntimeFailure(failureText());
+      if (!detected.shouldHeal || !sessionId || healAttempted || executionMode === "resident") return false;
+      const previous = sessionId;
+      healAttempted = true;
+      callbacks.onEvent?.("thread", `Pi session "${previous}" is not resumable (${detected.message}); starting fresh.`);
+      clearAttemptTimers();
+      sessionId = "";
+      sessionFile = "";
+      callbacks.onRuntimeState?.({});
+      callbacks.onSessionHandleChange?.("", { reason: detected.healReason, previous });
+      resetAttemptState();
+      startAttempt();
+      return true;
+    };
 
-      publishPiSessionState(event);
+    const startAttempt = () => {
+      const args = buildArgs();
+      proc = spawnProcess(launcher.command, args, { cwd });
+      proc.stdin?.on?.("error", () => {});
+      callbacks.onEvent?.("thread", `Started ${executionMode} Pi RPC runtime${sessionId ? ` for session ${sessionId}` : ""}`);
 
-      if (event.type === "ready") {
-        sendCommandWithAck({ type: "get_state" }, "get-state", 2500)
-          .then((stateEvent) => publishPiSessionState(stateEvent))
-          .catch((error) => callbacks.onEvent?.("pi", `Pi get_state unavailable: ${quoteForDisplay(error?.message || error)}`))
-          .finally(() => sendInitialPrompt());
-        return;
-      }
+      attemptTimer = setTimeout(() => {
+        if (!settled) {
+          interrupted = true;
+          try {
+            send({ id: nextRequestId("abort"), type: "abort" });
+          } catch {
+            // best effort
+          }
+          terminateProcessTree(proc);
+          fail(new Error(`Pi run timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
 
-      if (event.type === "response") {
-        const pending = pendingCommandAcks.get(event.id);
-        if (pending) {
-          pendingCommandAcks.delete(event.id);
-          clearTimeout(pending.timer);
-          if (event.success === false) {
-            pending.reject(new Error(String(event.error || `Pi ${pending.command} failed`)));
-          } else {
-            publishPiSessionState(event);
-            pending.resolve(event);
+      startupTimer = setTimeout(() => {
+        if (settled || initialPromptSent) return;
+        const detected = detectPiRuntimeFailure(failureText());
+        if (detected.authFailure) {
+          fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+          return;
+        }
+        fail(new Error(`Pi did not become ready within ${startupTimeoutMs}ms. Check Oh My Pi authentication/provider configuration and run "omp" manually in this environment.`));
+      }, Math.max(250, startupTimeoutMs));
+
+      proc.on("error", (error) => {
+        clearAttemptTimers();
+        rejectPendingCommandAcks(error);
+        if (error && error.code === "ENOENT") {
+          const piTarget = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "omp").trim();
+          const enriched = new Error(
+            `spawn "${launcher.command}" ENOENT — this bridge resolved Oh My Pi to "${launcher.command}" ` +
+            `but Node could not execute it. Common causes: missing exec bit, broken shebang interpreter ` +
+            `(e.g., the script's #!/usr/bin/env node points at a node that isn't on the bridge's PATH), ` +
+            `or a stale symlink. Also verify the runtime cwd exists: "${cwd}". ` +
+            `Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
+            `restart aify-comms. Diagnostic: ${diagnosticsFor(piTarget)}`,
+          );
+          enriched.code = error.code;
+          enriched.originalError = error.message;
+          fail(enriched);
+          return;
+        }
+        fail(error);
+      });
+
+      const stdout = readline.createInterface({ input: proc.stdout });
+      stdout.on("line", (line) => {
+        const text = String(line || "").trim();
+        if (!text) return;
+        let event;
+        try {
+          event = JSON.parse(text);
+        } catch {
+          finalText += `${text}\n`;
+          const detected = detectPiRuntimeFailure(text);
+          if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+          return;
+        }
+
+        publishPiSessionState(event);
+
+        if (event.type === "ready") {
+          if (startupTimer) clearTimeout(startupTimer);
+          startupTimer = null;
+          sendCommandWithAck({ type: "get_state" }, "get-state", 2500)
+            .then((stateEvent) => publishPiSessionState(stateEvent))
+            .catch((error) => callbacks.onEvent?.("pi", `Pi get_state unavailable: ${quoteForDisplay(error?.message || error)}`))
+            .finally(() => sendInitialPrompt());
+          return;
+        }
+
+        if (event.type === "response") {
+          const pending = pendingCommandAcks.get(event.id);
+          if (pending) {
+            pendingCommandAcks.delete(event.id);
+            clearTimeout(pending.timer);
+            if (event.success === false) {
+              pending.reject(new Error(String(event.error || `Pi ${pending.command} failed`)));
+            } else {
+              publishPiSessionState(event);
+              pending.resolve(event);
+            }
+            return;
+          }
+          if (event.command === "prompt") {
+            promptAcked = event.success !== false;
+            if (event.success === false) {
+              finalError = String(event.error || "Pi prompt failed");
+              const detected = detectPiRuntimeFailure(finalError);
+              if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+            }
           }
           return;
         }
-        if (event.command === "prompt") {
-          promptAcked = event.success !== false;
-          if (event.success === false) finalError = String(event.error || "Pi prompt failed");
+
+        if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+          finalText += String(event.assistantMessageEvent.delta || "");
+          return;
         }
-        return;
-      }
 
-      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-        finalText += String(event.assistantMessageEvent.delta || "");
-        return;
-      }
+        if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_end") {
+          finalSnapshotText = String(event.assistantMessageEvent.content || finalSnapshotText || "");
+          return;
+        }
 
-      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_end") {
-        finalSnapshotText = String(event.assistantMessageEvent.content || finalSnapshotText || "");
-        return;
-      }
+        if (event.type === "message_end" || event.type === "turn_end") {
+          const text = extractPiAssistantText(event.message);
+          if (text) finalSnapshotText = text;
+          return;
+        }
 
-      if (event.type === "message_end" || event.type === "turn_end") {
-        const text = extractPiAssistantText(event.message);
-        if (text) finalSnapshotText = text;
-        return;
-      }
+        if (event.type === "agent_start") {
+          callbacks.onEvent?.("pi", "Started Pi agent turn");
+          return;
+        }
 
-      if (event.type === "agent_start") {
-        callbacks.onEvent?.("pi", "Started Pi agent turn");
-        return;
-      }
+        if (event.type === "agent_end") {
+          const text = extractPiAssistantText(event.messages);
+          if (text) finalSnapshotText = text;
+          settled = true;
+          clearAttemptTimers();
+          rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
+          callbacks.onRuntimeState?.(runtimeStateSnapshot());
+          if (runtimeSessionHandle()) callbacks.onRefs?.({ threadId: runtimeSessionHandle() });
+          resolve({
+            status: interrupted ? "cancelled" : "completed",
+            summary: resolvedText() || "(no output)",
+            runtimeState: runtimeStateSnapshot(),
+            externalRefs: { threadId: runtimeSessionHandle(), turnId: String(event.id || "") },
+          });
+          try {
+            terminateProcessTree(proc);
+          } catch {
+            // ignore shutdown errors
+          }
+          return;
+        }
 
-      if (event.type === "agent_end") {
-        const text = extractPiAssistantText(event.messages);
-        if (text) finalSnapshotText = text;
+        if (event.type === "error") {
+          finalError = String(event.error || event.message || "Pi runtime error");
+          const detected = detectPiRuntimeFailure(finalError);
+          if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+        }
+      });
+
+      const stderr = readline.createInterface({ input: proc.stderr });
+      stderr.on("line", (line) => {
+        const text = quoteForDisplay(line);
+        if (!text) return;
+        stderrText += `${text}\n`;
+        callbacks.onEvent?.("stderr", text);
+        const detected = detectPiRuntimeFailure(text);
+        if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+      });
+
+      proc.on("close", (code) => {
+        if (settled) return;
+        if (maybeHealMissingSession()) return;
         settled = true;
-        clearTimeout(timer);
-        rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
-        callbacks.onRuntimeState?.(runtimeStateSnapshot());
-        if (runtimeSessionHandle()) callbacks.onRefs?.({ threadId: runtimeSessionHandle() });
-        resolve({
-          status: interrupted ? "cancelled" : "completed",
-          summary: resolvedText() || "(no output)",
-          runtimeState: runtimeStateSnapshot(),
-          externalRefs: { threadId: runtimeSessionHandle(), turnId: String(event.id || "") },
-        });
-        try {
-          terminateProcessTree(proc);
-        } catch {
-          // ignore shutdown errors
+        clearAttemptTimers();
+        rejectPendingCommandAcks(new Error(finalError || finalText.trim() || stderrText.trim() || `Pi exited with code ${code}`));
+        if (interrupted) {
+          resolve({
+            status: "cancelled",
+            summary: resolvedText() || finalError || "Run interrupted",
+            runtimeState: runtimeStateSnapshot(),
+            externalRefs: { threadId: runtimeSessionHandle() },
+          });
+          return;
         }
-        return;
-      }
+        if (code === 0 && promptAcked && !finalError) {
+          resolve({
+            status: "completed",
+            summary: resolvedText() || "(no output)",
+            runtimeState: runtimeStateSnapshot(),
+            externalRefs: { threadId: runtimeSessionHandle() },
+          });
+          return;
+        }
+        const detected = detectPiRuntimeFailure(failureText());
+        if (detected.authFailure) {
+          reject(new Error(`Pi authentication failed fast: ${detected.message}`));
+          return;
+        }
+        reject(new Error(finalError || finalText.trim() || stderrText.trim() || `Pi exited with code ${code}`));
+      });
+    };
 
-      if (event.type === "error") {
-        finalError = String(event.error || event.message || "Pi runtime error");
-      }
-    });
-
-    const stderr = readline.createInterface({ input: proc.stderr });
-    stderr.on("line", (line) => {
-      const text = quoteForDisplay(line);
-      if (text) callbacks.onEvent?.("stderr", text);
-    });
-
-    proc.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      rejectPendingCommandAcks(new Error(finalError || finalText.trim() || `Pi exited with code ${code}`));
-      if (interrupted) {
-        resolve({
-          status: "cancelled",
-          summary: resolvedText() || finalError || "Run interrupted",
-          runtimeState: runtimeStateSnapshot(),
-          externalRefs: { threadId: runtimeSessionHandle() },
-        });
-        return;
-      }
-      if (code === 0 && promptAcked && !finalError) {
-        resolve({
-          status: "completed",
-          summary: resolvedText() || "(no output)",
-          runtimeState: runtimeStateSnapshot(),
-          externalRefs: { threadId: runtimeSessionHandle() },
-        });
-        return;
-      }
-      reject(new Error(finalError || finalText.trim() || `Pi exited with code ${code}`));
-    });
+    startAttempt();
   });
 
   return {

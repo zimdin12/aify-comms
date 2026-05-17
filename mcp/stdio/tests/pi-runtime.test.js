@@ -10,6 +10,7 @@ const {
   controlCapabilitiesForRuntime,
   defaultCapabilitiesForRuntime,
   defaultSessionHandleForRuntime,
+  detectPiRuntimeFailure,
   launchCwdProblem,
   launchRuntimeRun,
   normalizeRuntime,
@@ -51,12 +52,23 @@ function readStdinMessages() {
   if (!fs.existsSync(stdinCapturePath)) return [];
   return fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
+assert.equal(detectPiRuntimeFailure('No API key found for amazon-bedrock. Use /login.').authFailure, true);
+assert.equal(detectPiRuntimeFailure('Session "dead-session" not found').shouldHeal, true);
+
 
 fs.writeFileSync(fakeOmp, `#!/usr/bin/env node
 import fs from "fs";
 import readline from "readline";
 if (process.env.AIFY_PI_ARGV_CAPTURE) {
   fs.appendFileSync(process.env.AIFY_PI_ARGV_CAPTURE, JSON.stringify(process.argv.slice(2)) + "\\n");
+}
+if (process.env.AIFY_PI_AUTH_FAIL === "1") {
+  console.error("No API key found for amazon-bedrock. Use /login.");
+  setInterval(() => {}, 1000);
+}
+if (process.argv.includes("--resume") && process.argv[process.argv.indexOf("--resume") + 1] === "dead-session") {
+  console.error('Session "dead-session" not found');
+  process.exit(1);
 }
 const eventSessionId = Object.prototype.hasOwnProperty.call(process.env, "AIFY_PI_EVENT_SESSION_ID")
   ? process.env.AIFY_PI_EVENT_SESSION_ID
@@ -216,6 +228,71 @@ assert.equal(stateOnlyResult.runtimeState.sessionId, "pi-session-from-state");
 assert(runtimeStates.some((state) => state.sessionId === "pi-session-from-state"));
 delete process.env.AIFY_PI_GET_STATE_SESSION_ID;
 delete process.env.AIFY_PI_EVENT_SESSION_ID;
+
+process.env.AIFY_PI_AUTH_FAIL = "1";
+const authFailController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi auth fail",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  authFailController.promise,
+  /Pi authentication failed fast: .*No API key found for amazon-bedrock/,
+  "Pi auth/provider failures should fail fast instead of waiting for the full run timeout",
+);
+delete process.env.AIFY_PI_AUTH_FAIL;
+
+const healEvents = [];
+const healedController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi dead resume",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: { sessionId: "dead-session" },
+  callbacks: {
+    onEvent: (type, text) => healEvents.push([type, text]),
+    onRuntimeState: (state) => runtimeStates.push(state),
+    onRefs: () => {},
+    onSessionHandleChange: () => {},
+  },
+});
+const healedResult = await healedController.promise;
+assert.equal(healedResult.status, "completed");
+assert.equal(healedResult.runtimeState.sessionId, "pi-session-fake");
+assert(healEvents.some(([, text]) => /starting fresh/.test(text)), "dead Pi session handles should heal to fresh context");
+const healedArgvLines = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+assert(healedArgvLines.some((argv) => argv.includes("--resume") && argv.includes("dead-session")), "first Pi launch should attempt the saved handle");
+assert(!healedArgvLines.at(-1).includes("--resume"), "healed Pi relaunch should omit the dead --resume handle");
+
 
 const finalFallbackController = launchRuntimeRun({
   agentId: "pi-worker",

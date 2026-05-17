@@ -210,6 +210,18 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
       status: error ? "failed" : "stopped",
     });
   },
+  onHeal: async (_terminalId, detail = {}) => {
+    const agentId = String(detail.agentId || "").trim();
+    if (!agentId || !detail.previousSessionHandle) return;
+    try {
+      await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/session-handle`, {
+        sessionHandle: "",
+        requestedBy: "terminal-runtime-heal",
+      });
+    } catch (error) {
+      console.error(`[aify] failed to clear stale ${detail.runtime || "runtime"} session handle for "${agentId}":`, error?.message || error);
+    }
+  },
 });
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
@@ -1128,6 +1140,9 @@ async function runTerminalControlLoop() {
             env: terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId }),
             cols: control.cols || 100,
             rows: control.rows || 28,
+            runtime,
+            sessionHandle,
+            agentId: terminal.agentId || "",
           });
           await updateTerminalControl(control.id, {
             status: "completed",
