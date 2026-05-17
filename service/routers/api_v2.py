@@ -150,6 +150,13 @@ _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# A session whose spawn/run is in flight or live. "starting" is included so a
+# spawn-in-progress is not marked offline merely because the environment bridge
+# instance id rotated (same rationale as a running session surviving a bridge
+# restart); genuine staleness is still caught by env-offline/heartbeat checks.
+_LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cli-takeover"}
+# Terminal reached an end state (distinct from the transient "stopping").
+_TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -1541,7 +1548,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # itself mark a running session offline -- only genuine env-down or
     # heartbeat staleness should. Stale "running" rows are still caught by
     # the env-offline branch below and the heartbeat-freshness else-branch.
-    live_session = session_status in {"running", "recovering", "restarting", "cli-takeover"}
+    live_session = session_status in _LIVE_SESSION_STATUSES
     effective_status = "active"
     reason = ""
     if environment_id and env_status and env_status not in {"online", "degraded"}:
@@ -1556,9 +1563,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
-    elif terminal_status in {"failed", "stopped", "cancelled", "completed", "ended", "lost"} and session_row and str(session_row["owner_mode"] or "") == "console":
-        effective_status = "offline"
-        reason = f"Console terminal is {terminal_status}."
+    # A console terminal reaching an end state returns ownership to managed (the
+    # runtime contract reverts owner_mode to managed on stop/fail). So it is a
+    # fallback-to-managed candidate, not final unavailability: fall through to
+    # active-run / heartbeat-freshness, which is the real source of truth.
     elif active_run:
         effective_status = "working"
         reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
@@ -2509,7 +2517,10 @@ class TerminalOutputWriteQueue:
     async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         db = await get_db()
         try:
-            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            terminal = await (await db.execute(
+                "SELECT id, session_id, output, status, output_seq FROM terminal_sessions WHERE id = ?",
+                (terminal_id,),
+            )).fetchone()
             if not terminal:
                 return
             await _append_terminal_output(db, terminal, output, status=status, seq=seq or int(terminal["output_seq"] or 0))
@@ -5169,7 +5180,18 @@ async def get_terminal(terminal_id: str):
 async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, request: Request):
     db = await get_db()
     try:
-        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        # Deliberately omit the (up to 64KB) `output` blob: this is the
+        # high-frequency ingest path and never needs the existing buffer. The
+        # queue flush re-reads only what it concatenates.
+        terminal = await (await db.execute(
+            """
+            SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
+                   workspace, command, output_seq, status, requested_by,
+                   created_at, updated_at, stopped_at, error
+            FROM terminal_sessions WHERE id = ?
+            """,
+            (terminal_id,),
+        )).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
         if req.bridgeId and str(req.bridgeId).strip() != str(terminal["bridge_id"] or "").strip():
@@ -5208,9 +5230,10 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": status or terminal["status"] or "", "output": req.output or "", "seq": next_seq})
+        # Ingest ack only — the response intentionally carries no output buffer
+        # (clients read full output via GET /terminals/{id}). The sole caller
+        # is the bridge, which uses outputSeq/status and ignores the rest.
         terminal_payload = _terminal_session_to_dict(terminal)
-        if req.output:
-            terminal_payload["output"] = _trim_terminal_output(f"{terminal_payload.get('output') or ''}{req.output or ''}")
         terminal_payload["outputSeq"] = next_seq
         if status:
             terminal_payload["status"] = status

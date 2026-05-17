@@ -9,9 +9,14 @@ SQLITE_BUSY_TIMEOUT_MS = 5000
 
 
 async def _apply_connection_pragmas(db: aiosqlite.Connection) -> None:
-    await db.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-    await db.execute("PRAGMA synchronous=NORMAL")
-    await db.execute("PRAGMA foreign_keys=ON")
+    # One round-trip: get_db() runs this on every per-request connection, so on
+    # the high-frequency terminal-output path three separate execute() calls
+    # were three extra round-trips per chunk.
+    await db.executescript(
+        f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};"
+        "PRAGMA synchronous=NORMAL;"
+        "PRAGMA foreign_keys=ON;"
+    )
 
 _db_path: Path = None
 
