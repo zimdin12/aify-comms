@@ -168,6 +168,11 @@ async function shutdownWithStatus(code) {
   shutdownStarted = true;
   await interruptActiveRuns("Bridge shutting down");
   try { await reportEnvironmentOffline(); } catch { /* best effort */ }
+  // R9: await stopAll so each terminal flushes a final stopped/failed POST
+  // before we exit. cleanupOnExit() (and the sync process.on('exit') path)
+  // still fire stopAll best-effort for the non-graceful case; that second
+  // call is a no-op for terminals already stopped here.
+  try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   cleanupOnExit();
   process.exit(code);
 }
@@ -772,6 +777,10 @@ async function reregisterAgentFromState(agentId, state) {
     managedBy: info.managedBy || "",
     capabilities: info.capabilities || [],
     runtimeConfig: info.runtimeConfig || {},
+    // R8: mirror the initial /agents register so a 404 auto-re-register does
+    // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
+    // stable for the bridge process lifetime; fall back to cached info.
+    terminalId: process.env.AIFY_TERMINAL_ID || info.terminalId || "",
     autoRegister: true,
   };
   try {
