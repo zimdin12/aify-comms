@@ -2551,7 +2551,10 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       try { term.loadAddon(fitAddon); } catch {}
     }
     term.open(el);
-    state = {term, fitAddon, written: '', canInput: !!canInput, cols: 0, rows: 0, resizeTimer: 0, resizeObserver: null, resizeListener: null};
+    // Seed lastSeq from the cached terminal so a WS frame already covered by
+    // the initial buffer paint is deduped instead of double-written.
+    const seededSeq = window._terminalDetails?.[id]?.terminal?.outputSeq;
+    state = {term, fitAddon, written: '', canInput: !!canInput, cols: 0, rows: 0, resizeTimer: 0, resizeObserver: null, resizeListener: null, lastSeq: (typeof seededSeq === 'number' ? seededSeq : undefined)};
     window._consoleTerms[id] = state;
     el.dataset.xtermTerminalId = id;
     el.tabIndex = 0;
