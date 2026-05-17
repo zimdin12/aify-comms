@@ -2447,6 +2447,11 @@ class TerminalOutputWriteQueue:
         # (otherwise seq could regress and the dashboard's seq-dedupe would
         # silently drop fresh output).
         self._seq_floor: dict[str, int] = {}
+        # Set by the output endpoint so the queue can emit ONE ordered,
+        # gap-free terminal_output broadcast per flush. Per-POST broadcast
+        # reordered vs seq under concurrency, causing the dashboard's
+        # seq-dedupe to drop frames -> ANSI desync -> scrambled console.
+        self.ws_manager = None
         self._lock = asyncio.Lock()
 
     async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", base_seq: int = 0, autoschedule: bool = True) -> int:
@@ -2618,6 +2623,21 @@ class TerminalOutputWriteQueue:
             await db.commit()
         finally:
             await db.close()
+        # Ordered, post-commit, coalesced broadcast — the single source of
+        # live terminal output for the dashboard. Best-effort.
+        if self.ws_manager is not None and (output or norm_status):
+            try:
+                await self.ws_manager.broadcast(
+                    "terminal_output",
+                    {
+                        "terminalId": terminal_id,
+                        "status": norm_status,
+                        "output": output or "",
+                        "seq": seq or int(terminal["output_seq"] or 0),
+                    },
+                )
+            except BaseException:
+                pass
 
     async def flush_all(self) -> None:
         while True:
@@ -5318,9 +5338,13 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                 (status, now, terminal["session_id"]),
             )
             await db.commit()
+        # Do NOT broadcast per-POST here: concurrent POSTs reorder vs seq and
+        # the dashboard's seq-dedupe then drops frames (scrambled console).
+        # Hand the ws manager to the write queue, which emits one ordered,
+        # coalesced, post-commit broadcast per flush instead.
         ws = await _get_ws(request)
-        if ws:
-            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": status or terminal["status"] or "", "output": req.output or "", "seq": next_seq})
+        if ws is not None:
+            TERMINAL_OUTPUT_WRITES.ws_manager = ws
         # Ingest ack only — the response intentionally carries no output buffer
         # (clients read full output via GET /terminals/{id}). The sole caller
         # is the bridge, which uses outputSeq/status and ignores the rest.
