@@ -1845,6 +1845,10 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
 
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<!-- WebGL renderer: the default DOM renderer is the main source of console
+     sluggishness/jank under heavy output. Optional; falls back to DOM if it
+     fails to load or the GPU context is unavailable. -->
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js" onerror="window._xtermWebglUnavailable=true"></script>
 <script>
 const API = '/api/v1';
 let refreshInterval;
@@ -2558,6 +2562,16 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       try { term.loadAddon(fitAddon); } catch {}
     }
     term.open(el);
+    // Activate the WebGL renderer after open() (needs the DOM/GL context).
+    // Big responsiveness win under heavy output vs the default DOM renderer;
+    // silently falls back to DOM if unavailable or the context is lost.
+    if (!window._xtermWebglUnavailable && window.WebglAddon?.WebglAddon) {
+      try {
+        const webgl = new window.WebglAddon.WebglAddon();
+        webgl.onContextLoss?.(() => { try { webgl.dispose(); } catch {} });
+        term.loadAddon(webgl);
+      } catch {}
+    }
     // Seed lastSeq from the cached terminal so a WS frame already covered by
     // the initial buffer paint is deduped instead of double-written.
     const seededSeq = window._terminalDetails?.[id]?.terminal?.outputSeq;

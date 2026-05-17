@@ -2428,8 +2428,8 @@ class TerminalOutputWriteQueue:
     def __init__(
         self,
         *,
-        idle_flush_ms: int = 8,
-        max_latency_ms: int = 33,
+        idle_flush_ms: int = 4,
+        max_latency_ms: int = 24,
         max_batch_chars: int = 16 * 1024,
         max_pending_chars: int = 256 * 1024,
     ):
