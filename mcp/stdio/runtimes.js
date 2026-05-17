@@ -829,6 +829,19 @@ export function sessionEnvVarsForRuntime(runtime) {
   return RUNTIME_SESSION_ENV_VARS[normalizeRuntime(runtime)] || [];
 }
 
+export function runtimeStateWithoutSessionHandle(runtime, runtimeState = {}) {
+  const next = { ...(runtimeState || {}) };
+  const key = normalizeRuntime(runtime);
+  if (key === "codex") {
+    delete next.threadId;
+    return next;
+  }
+  delete next.sessionId;
+  if (key === "pi") delete next.sessionFile;
+  return next;
+}
+
+
 const SHELL_TOKEN_PATTERN = String.raw`(?:"([^"]*)"|'([^']*)'|(\S+))`;
 
 function unquoteShellToken(value = "") {

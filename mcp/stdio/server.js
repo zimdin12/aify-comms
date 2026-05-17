@@ -39,6 +39,7 @@ import {
   normalizeRuntime,
   runtimeLaunchAvailability,
   extractRuntimeSessionHandleFromCommand,
+  runtimeStateWithoutSessionHandle,
   terminateProcessTree,
 } from "./runtimes.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
@@ -1591,9 +1592,16 @@ async function runDispatchLoop() {
             try {
               if (!nextHandle && meta?.reason) {
                 state.info.sessionHandle = "";
+                state.info.runtimeState = runtimeStateWithoutSessionHandle(
+                  state.info.runtime || "",
+                  state.info.runtimeState || {},
+                );
                 await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/session-handle`, {
                   sessionHandle: "",
                   requestedBy: "pi-rpc-heal",
+                });
+                await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/runtime-state`, {
+                  runtimeState: state.info.runtimeState,
                 });
                 console.error(`[aify] cleared stale sessionHandle for "${agentId}"${metaLabel}`);
                 return;
