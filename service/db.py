@@ -39,6 +39,20 @@ CREATE TABLE IF NOT EXISTS agents (
     last_seen TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_live_state (
+    agent_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'offline',
+    reason TEXT DEFAULT '',
+    environment_id TEXT DEFAULT '',
+    session_id TEXT DEFAULT '',
+    terminal_id TEXT DEFAULT '',
+    active_run_id TEXT DEFAULT '',
+    refresh_after TEXT DEFAULT '',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_live_state_refresh_after ON agent_live_state(refresh_after, updated_at);
+
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     from_agent TEXT NOT NULL,
@@ -320,6 +334,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     workspace TEXT DEFAULT '',
     command TEXT DEFAULT '',
     output TEXT DEFAULT '',
+    output_seq INTEGER DEFAULT 0,
     status TEXT DEFAULT 'starting',
     requested_by TEXT DEFAULT '',
     created_at TEXT NOT NULL,
@@ -406,6 +421,7 @@ AGENT_SESSION_MIGRATIONS = {
 
 TERMINAL_SESSION_MIGRATIONS = {
     "output": "ALTER TABLE terminal_sessions ADD COLUMN output TEXT DEFAULT ''",
+    "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
 }
 
 

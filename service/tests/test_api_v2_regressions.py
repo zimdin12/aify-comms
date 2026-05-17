@@ -1415,6 +1415,67 @@ class ApiV2RegressionTests(unittest.TestCase):
         terminal = self._fetchone("SELECT status, output FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(terminal["status"], "stopped")
         self.assertIn("still active", terminal["output"])
+
+    def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
+        self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            ("cached-agent", "offline", "cached for read path", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
+        )
+
+        with patch.object(api_v2, "_compute_agent_status", side_effect=AssertionError("read path should use cached live status")):
+            listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["agents"]["cached-agent"]["status"], "offline")
+
+    def test_agents_list_refreshes_expired_cached_status_from_environment(self):
+        session_id = self._create_running_session(agent_id="expiring-agent")
+        self.assertTrue(session_id)
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after, environment_id, session_id)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            (
+                "expiring-agent",
+                "active",
+                "stale cache",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+                "linux:test-host:default",
+                session_id,
+            ),
+        )
+        self._execute(
+            "UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?",
+            ("linux:test-host:default",),
+        )
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["agents"]["expiring-agent"]["status"], "offline")
+
+    def test_terminal_output_responses_expose_monotonic_output_sequence(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        first = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "a", "status": "attached"},
+        )
+        second = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "b", "status": "attached"},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["terminal"]["outputSeq"], 1)
+        self.assertEqual(second.json()["terminal"]["outputSeq"], 2)
     def test_environment_heartbeat_persists_terminal_capabilities(self):
         environment = self._heartbeat_environment(
             terminal=True,

@@ -912,6 +912,52 @@ async def _get_dispatch_state_for_agent(db, agent_id: str) -> dict[str, Any]:
     return _format_dispatch_state(active_row, queued_count)
 
 
+async def _get_dispatch_state_map(db, agent_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not agent_ids:
+        return {}
+    placeholders = ",".join("?" for _ in agent_ids)
+    active_cursor = await db.execute(
+        f"""
+        SELECT id, target_agent, from_agent, subject, status, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
+        FROM dispatch_runs
+        WHERE target_agent IN ({placeholders}) AND status IN ('claimed', 'running')
+        ORDER BY target_agent ASC, COALESCE(started_at, claimed_at, requested_at) ASC
+        """,
+        tuple(agent_ids),
+    )
+    active_rows = await active_cursor.fetchall()
+    queued_cursor = await db.execute(
+        f"SELECT target_agent, COUNT(*) AS queued_count FROM dispatch_runs WHERE target_agent IN ({placeholders}) AND status = 'queued' GROUP BY target_agent",
+        tuple(agent_ids),
+    )
+    queued_rows = await queued_cursor.fetchall()
+    queued_counts = {row["target_agent"]: int(row["queued_count"] or 0) for row in queued_rows}
+    active_by_agent: dict[str, Any] = {}
+    for row in active_rows:
+        active_by_agent.setdefault(row["target_agent"], row)
+    return {
+        agent_id: _format_dispatch_state(active_by_agent.get(agent_id), queued_counts.get(agent_id, 0))
+        for agent_id in agent_ids
+    }
+
+
+async def _get_unread_count_map(db, agent_ids: list[str]) -> dict[str, int]:
+    if not agent_ids:
+        return {}
+    placeholders = ",".join("?" for _ in agent_ids)
+    cursor = await db.execute(
+        f"""
+        SELECT m.to_agent AS agent_id, COUNT(*) AS unread_count
+        FROM messages m
+        LEFT JOIN read_receipts rr ON m.id = rr.message_id AND rr.agent_id = m.to_agent
+        WHERE m.to_agent IN ({placeholders}) AND rr.message_id IS NULL
+        GROUP BY m.to_agent
+        """,
+        tuple(agent_ids),
+    )
+    rows = await cursor.fetchall()
+    return {row["agent_id"]: int(row["unread_count"] or 0) for row in rows}
+
 async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") -> Optional[dict[str, Any]]:
     state = await _get_dispatch_state_for_agent(db, agent_id)
     active = state.get("activeRun")
@@ -1324,8 +1370,9 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
-    status_note = _row_status_note(row)
-    effective_status = _status_with_dispatch(status, dispatch_state)
+    status_note = str((row["live_reason"] if "live_reason" in row.keys() else "") or _row_status_note(row) or "").strip()
+    base_status = str((row["live_status"] if "live_status" in row.keys() else "") or status or row["status"] or "idle").strip()
+    effective_status = _status_with_dispatch(base_status, dispatch_state)
     return {
         "role": row["role"],
         "name": row["name"],
@@ -1396,6 +1443,205 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         "registeredAt": row["registered_at"] or "",
         "lastSeen": row["last_seen"] or "",
     }
+
+
+def _iso_add_seconds(value: str, seconds: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        from datetime import datetime, timezone, timedelta
+
+        base = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return (base.astimezone(timezone.utc) + timedelta(seconds=max(0, int(seconds)))).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return ""
+
+
+def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, idle_minutes: int, offline_minutes: int, env_offline_seconds: int) -> str:
+    candidates = [
+        _iso_add_seconds(agent_last_seen, int(idle_minutes or 0) * 60),
+        _iso_add_seconds(agent_last_seen, int(offline_minutes or 0) * 60),
+        _iso_add_seconds(env_last_seen, int(env_offline_seconds or 0)),
+    ]
+    candidates = [value for value in candidates if value]
+    return min(candidates) if candidates else ""
+
+
+async def _current_agent_session_row(db, agent_id: str):
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM agent_sessions
+        WHERE agent_id = ?
+          AND status NOT IN ('ended', 'completed', 'cancelled')
+        ORDER BY
+          CASE WHEN status IN ('running', 'recovering', 'restarting', 'cli-takeover') THEN 0 ELSE 1 END,
+          last_seen DESC,
+          started_at DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def _current_active_run_row(db, agent_id: str):
+    cursor = await db.execute(
+        """
+        SELECT id, status, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
+        FROM dispatch_runs
+        WHERE target_agent = ? AND status IN ('claimed', 'running')
+        ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )
+    return await cursor.fetchone()
+
+
+async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None) -> dict[str, Any]:
+    settings = settings or await _load_settings(db)
+    now = now or _now()
+    manual_status = str(agent_row["status"] or "").strip().lower()
+    if manual_status in _MANUAL_STATUSES:
+        return {
+            "status": manual_status,
+            "reason": _row_status_note(agent_row),
+            "environment_id": "",
+            "session_id": "",
+            "terminal_id": "",
+            "active_run_id": "",
+            "refresh_after": "9999-12-31T23:59:59Z",
+            "updated_at": now,
+        }
+    session_row = await _current_agent_session_row(db, agent_row["id"])
+    active_run = await _current_active_run_row(db, agent_row["id"])
+    runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+    environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
+    env_row = None
+    env_status = ""
+    env_bridge_id = ""
+    env_last_seen = ""
+    if environment_id:
+        env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+        env_last_seen = str((env_row["last_seen"] if env_row else "") or "").strip()
+        env_status = _environment_effective_status(env_row, offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90))) if env_row else "offline"
+        env_bridge_id = str((env_row["bridge_id"] if env_row else "") or "").strip()
+    session_id = str((session_row["id"] if session_row else "") or "").strip()
+    terminal_id = str((session_row["terminal_id"] if session_row and "terminal_id" in session_row.keys() else "") or "").strip()
+    session_status = str((session_row["status"] if session_row else "") or "").strip().lower()
+    terminal_status = str((session_row["terminal_status"] if session_row and "terminal_status" in session_row.keys() else "") or "").strip().lower()
+    session_bridge_id = str((session_row["owner_bridge_id"] if session_row and "owner_bridge_id" in session_row.keys() else "") or "").strip()
+    agent_last_seen = str(agent_row["last_seen"] or "").strip()
+    effective_status = "active"
+    reason = ""
+    if environment_id and env_status and env_status not in {"online", "degraded"}:
+        effective_status = "offline"
+        reason = f'Environment "{environment_id}" is {env_status}.'
+    elif session_bridge_id and env_bridge_id and session_bridge_id != env_bridge_id:
+        effective_status = "offline"
+        reason = "Current environment bridge no longer owns the active session."
+    elif terminal_status in {"failed", "stopped", "cancelled", "completed", "ended", "lost"} and session_row and str(session_row["owner_mode"] or "") == "console":
+        effective_status = "offline"
+        reason = f"Console terminal is {terminal_status}."
+    elif active_run:
+        effective_status = "working"
+        reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
+    elif session_status in {"starting", "recovering", "restarting"} or terminal_status in {"starting", "stopping"}:
+        effective_status = "working"
+        reason = terminal_status or session_status or "Session is transitioning."
+    else:
+        idle_minutes = int(settings.get("idle_minutes", 5) or 5)
+        offline_minutes = int(settings.get("offline_minutes", 30) or 30)
+        freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
+        try:
+            from datetime import datetime, timezone, timedelta
+            age = datetime.now(timezone.utc).timestamp() - freshness if freshness else 0
+            if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
+                effective_status = "offline"
+                reason = "Agent heartbeat is stale."
+            elif freshness and age > timedelta(minutes=idle_minutes).total_seconds():
+                effective_status = "idle"
+                reason = "Agent is idle."
+        except Exception:
+            pass
+    return {
+        "status": effective_status,
+        "reason": reason,
+        "environment_id": environment_id,
+        "session_id": session_id,
+        "terminal_id": terminal_id,
+        "active_run_id": str((active_run["id"] if active_run else "") or "").strip(),
+        "refresh_after": _status_refresh_after(
+            agent_last_seen,
+            env_last_seen,
+            idle_minutes=int(settings.get("idle_minutes", 5) or 5),
+            offline_minutes=int(settings.get("offline_minutes", 30) or 30),
+            env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
+        ),
+        "updated_at": now,
+    }
+
+
+async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None):
+    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if not row:
+        return None
+    cache = await _compute_live_status_cache(db, row, settings=settings, now=now)
+    await db.execute(
+        """
+        INSERT INTO agent_live_state (
+            agent_id, status, reason, environment_id, session_id, terminal_id, active_run_id, refresh_after, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(agent_id) DO UPDATE SET
+            status = excluded.status,
+            reason = excluded.reason,
+            environment_id = excluded.environment_id,
+            session_id = excluded.session_id,
+            terminal_id = excluded.terminal_id,
+            active_run_id = excluded.active_run_id,
+            refresh_after = excluded.refresh_after,
+            updated_at = excluded.updated_at
+        """,
+        (
+            agent_id,
+            cache["status"],
+            cache["reason"],
+            cache["environment_id"],
+            cache["session_id"],
+            cache["terminal_id"],
+            cache["active_run_id"],
+            cache["refresh_after"],
+            cache["updated_at"],
+        ),
+    )
+    return cache
+
+
+async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> None:
+    settings = settings or await _load_settings(db)
+    now = _now()
+    where = ""
+    params: list[Any] = []
+    if agent_ids:
+        placeholders = ",".join("?" for _ in agent_ids)
+        where = f"WHERE a.id IN ({placeholders})"
+        params.extend(agent_ids)
+    cursor = await db.execute(
+        f"""
+        SELECT a.id, ls.refresh_after
+        FROM agents a
+        LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
+        {where}
+        """,
+        tuple(params),
+    )
+    rows = await cursor.fetchall()
+    for row in rows:
+        refresh_after = str((row["refresh_after"] if "refresh_after" in row.keys() else "") or "").strip()
+        if not refresh_after or refresh_after <= now:
+            await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
 
 
 async def _managed_environment_status(db, row) -> tuple[str, str, str]:
@@ -1755,6 +2001,7 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         "workspace": row["workspace"] or "",
         "command": row["command"] or "",
         "output": (row["output"] if "output" in keys else "") or "",
+        "outputSeq": int((row["output_seq"] if "output_seq" in keys else 0) or 0),
         "status": row["status"] or "",
         "requestedBy": row["requested_by"] or "",
         "createdAt": row["created_at"] or "",
@@ -1886,19 +2133,23 @@ async def _get_recipient_info(db, recipient_id: str):
             "runtime": "dashboard",
             "machineId": "dashboard",
         }
-    c = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
+    settings = await _load_settings(db)
+    await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[recipient_id])
+    c = await db.execute(
+        """
+        SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
+        FROM agents a
+        LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
+        WHERE a.id = ?
+        """,
+        (recipient_id,),
+    )
     row = await c.fetchone()
     if not row:
         return None
-    settings = await _load_settings(db)
-    status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
-    uc = await db.execute(
-        "SELECT COUNT(*) FROM messages m LEFT JOIN read_receipts rr ON m.id = rr.message_id AND rr.agent_id = ? WHERE m.to_agent = ? AND rr.message_id IS NULL",
-        (recipient_id, recipient_id)
-    )
-    unread = (await uc.fetchone())[0]
-    dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-    return _agent_record_to_dict(row, status, unread, dispatch_state)
+    unread_map = await _get_unread_count_map(db, [recipient_id])
+    dispatch_state = await _get_dispatch_state_map(db, [recipient_id])
+    return _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(recipient_id, 0), dispatch_state.get(recipient_id))
 
 
 async def _preflight_live_send_recipients(
@@ -2059,7 +2310,7 @@ def _terminal_status_transition(current_status: str, next_status: str) -> str:
     return next_value
 
 
-async def _append_terminal_output(db, terminal, output: str, *, status: str = ""):
+async def _append_terminal_output(db, terminal, output: str, *, status: str = "", seq: Optional[int] = None):
     chunk = str(output or "")
     if not chunk and not status:
         return
@@ -2067,6 +2318,9 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     next_output = _trim_terminal_output(f"{current or ''}{chunk}")
     updates = ["output = ?", "updated_at = ?"]
     params: list[Any] = [next_output, _now()]
+    if seq is not None:
+        updates.append("output_seq = ?")
+        params.append(int(seq))
     next_status = _terminal_status_transition(terminal["status"] if "status" in terminal.keys() else "", status)
     if next_status:
         updates.append("status = ?")
@@ -2103,19 +2357,20 @@ class TerminalOutputWriteQueue:
         self._flush_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
 
-    async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", autoschedule: bool = True) -> None:
+    async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", base_seq: int = 0, autoschedule: bool = True) -> int:
         chunk = str(output or "")
         terminal_status = str(status or "").strip()
         if not terminal_id or (not chunk and not terminal_status):
-            return
+            return 0
         flush_now = False
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0}
+                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": int(base_seq or 0)}
                 self._pending[terminal_id] = state
                 if autoschedule:
                     self._schedule_max_flush_locked(terminal_id)
+            state["last_seq"] = int(state.get("last_seq") or 0) + 1
             if chunk:
                 state["chunks"].append(chunk)
                 state["chars"] += len(chunk)
@@ -2129,6 +2384,7 @@ class TerminalOutputWriteQueue:
                 self._schedule_flush_locked(terminal_id, delay=0)
             else:
                 self._schedule_idle_flush_locked(terminal_id)
+            return int(state["last_seq"])
 
     def _bound_pending_locked(self, state: dict[str, Any]) -> None:
         chunks = state["chunks"]
@@ -2204,19 +2460,20 @@ class TerminalOutputWriteQueue:
             prefix = f"[aify-comms dropped {state['dropped']} chars from terminal output backlog]\n"
         output = prefix + "".join(state["chunks"])
         status = state["status"]
+        seq = int(state.get("last_seq") or 0)
         try:
-            await self._write_terminal_output(terminal_id, output, status=status)
+            await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
         except BaseException:
-            await self._requeue_front(terminal_id, output, status=status)
+            await self._requeue_front(terminal_id, output, status=status, seq=seq)
             raise
 
-    async def _requeue_front(self, terminal_id: str, output: str, *, status: str = "") -> None:
+    async def _requeue_front(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         if not output and not status:
             return
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0}
+                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": int(seq or 0)}
                 self._pending[terminal_id] = state
             if output:
                 state["chunks"].appendleft(output)
@@ -2224,14 +2481,16 @@ class TerminalOutputWriteQueue:
                 self._bound_pending_locked(state)
             if status:
                 state["status"] = status
+            if seq:
+                state["last_seq"] = max(int(state.get("last_seq") or 0), int(seq))
 
-    async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "") -> None:
+    async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         db = await get_db()
         try:
             terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
             if not terminal:
                 return
-            await _append_terminal_output(db, terminal, output, status=status)
+            await _append_terminal_output(db, terminal, output, status=status, seq=seq or int(terminal["output_seq"] or 0))
             if status in {"stopped", "failed"}:
                 await db.execute(
                     """
@@ -4894,7 +5153,13 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         if req.bridgeId and str(req.bridgeId).strip() != str(terminal["bridge_id"] or "").strip():
             raise HTTPException(409, "Terminal is owned by a different bridge")
         status = str(req.status or "").strip()
-        await TERMINAL_OUTPUT_WRITES.enqueue(terminal_id, req.output or "", status=status, autoschedule=not bool(getattr(request.app.state, "testing", False)))
+        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
+            terminal_id,
+            req.output or "",
+            status=status,
+            base_seq=int(terminal["output_seq"] or 0),
+            autoschedule=not bool(getattr(request.app.state, "testing", False)),
+        )
         if status in {"stopped", "failed"}:
             now = _now()
             await db.execute(
@@ -4920,10 +5185,11 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": status or terminal["status"] or "", "output": req.output or ""})
+            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": status or terminal["status"] or "", "output": req.output or "", "seq": next_seq})
         terminal_payload = _terminal_session_to_dict(terminal)
         if req.output:
             terminal_payload["output"] = _trim_terminal_output(f"{terminal_payload.get('output') or ''}{req.output or ''}")
+        terminal_payload["outputSeq"] = next_seq
         if status:
             terminal_payload["status"] = status
         return {"ok": True, "terminal": terminal_payload}
@@ -5477,25 +5743,25 @@ async def list_agents(request: Request):
     db = await get_db()
     try:
         repaired_active_runs = await _repair_unusable_active_runs(db)
+        settings = await _load_settings(db)
+        await _refresh_expired_agent_live_states(db, settings=settings)
         if repaired_active_runs:
             await db.commit()
-        settings = await _load_settings(db)
-        idle_minutes = settings.get("idle_minutes", 5)
-        offline_minutes = settings.get("offline_minutes", 30)
-
-        cursor = await db.execute("SELECT * FROM agents")
+        cursor = await db.execute(
+            """
+            SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
+            FROM agents a
+            LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
+            """
+        )
         agents = await cursor.fetchall()
+        agent_ids = [row["id"] for row in agents]
+        unread_map = await _get_unread_count_map(db, agent_ids)
+        dispatch_map = await _get_dispatch_state_map(db, agent_ids)
         result = {}
-        for a in agents:
-            aid = a["id"]
-            c = await db.execute(
-                "SELECT COUNT(*) FROM messages m LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? WHERE m.to_agent = ? AND r.message_id IS NULL",
-                (aid, aid)
-            )
-            unread = (await c.fetchone())[0]
-            status = await _compute_agent_status(a, idle_minutes, offline_minutes, db)
-            dispatch_state = await _get_dispatch_state_for_agent(db, aid)
-            result[aid] = _agent_record_to_dict(a, status, unread, dispatch_state)
+        for row in agents:
+            aid = row["id"]
+            result[aid] = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
         return {"agents": result}
     finally:
         await db.close()
@@ -5920,21 +6186,25 @@ async def get_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
         settings = await _load_settings(db)
-        cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[agent_id])
+        cursor = await db.execute(
+            """
+            SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
+            FROM agents a
+            LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
+            WHERE a.id = ?
+            """,
+            (agent_id,),
+        )
         row = await cursor.fetchone()
         if not row:
             tombstone = await _agent_tombstone(db, agent_id)
             if tombstone:
                 raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        uc = await db.execute(
-            "SELECT COUNT(*) FROM messages m LEFT JOIN read_receipts rr ON m.id = rr.message_id AND rr.agent_id = ? WHERE m.to_agent = ? AND rr.message_id IS NULL",
-            (agent_id, agent_id)
-        )
-        unread = (await uc.fetchone())[0]
-        status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
-        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, status, unread, dispatch_state)}
+        unread_map = await _get_unread_count_map(db, [agent_id])
+        dispatch_map = await _get_dispatch_state_map(db, [agent_id])
+        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))}
     finally:
         await db.close()
 
