@@ -1534,12 +1534,26 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     terminal_status = str((session_row["terminal_status"] if session_row and "terminal_status" in session_row.keys() else "") or "").strip().lower()
     session_bridge_id = str((session_row["owner_bridge_id"] if session_row and "owner_bridge_id" in session_row.keys() else "") or "").strip()
     agent_last_seen = str(agent_row["last_seen"] or "").strip()
+    # A live session stays reachable across bridge restarts: a new bridge
+    # instance for the same environment re-adopts it on the next dispatch
+    # claim, and dispatch routing safety is enforced separately by the
+    # superseded-bridge checks. So a bridge-instance id change must NOT by
+    # itself mark a running session offline -- only genuine env-down or
+    # heartbeat staleness should. Stale "running" rows are still caught by
+    # the env-offline branch below and the heartbeat-freshness else-branch.
+    live_session = session_status in {"running", "recovering", "restarting", "cli-takeover"}
     effective_status = "active"
     reason = ""
     if environment_id and env_status and env_status not in {"online", "degraded"}:
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
-    elif session_bridge_id and env_bridge_id and session_bridge_id != env_bridge_id:
+    elif (
+        session_bridge_id
+        and env_bridge_id
+        and session_bridge_id != env_bridge_id
+        and not live_session
+        and not active_run
+    ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
     elif terminal_status in {"failed", "stopped", "cancelled", "completed", "ended", "lost"} and session_row and str(session_row["owner_mode"] or "") == "console":
