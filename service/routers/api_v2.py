@@ -4,6 +4,9 @@ Drop-in replacement for api.py with identical endpoint signatures.
 """
 import asyncio
 import json
+import sqlite3
+from collections import deque
+import itertools
 import re
 import time
 import uuid
@@ -12,7 +15,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.routing import APIRoute
+from fastapi.exceptions import RequestValidationError
 
 # Per-agent wake-up events for comms_listen
 _listen_events: dict[str, asyncio.Event] = {}
@@ -31,12 +36,39 @@ from service.models import (
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
 _WINDOWS_DRIVE_CWD_RE = re.compile(r"^[a-zA-Z]:/")
 _WSL_DRIVE_CWD_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
+_CONTROL_ID_COUNTER = itertools.count()
 
 def validate_name(name: str, label: str = "name") -> None:
     if not SAFE_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
 
-router = APIRouter(tags=["api"])
+
+class JsonApiRoute(APIRoute):
+    def get_route_handler(self):
+        original_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request):
+            try:
+                return await original_handler(request)
+            except (HTTPException, RequestValidationError):
+                raise
+            except sqlite3.OperationalError as error:
+                message = str(error) or "database operation failed"
+                status_code = 503 if "locked" in message.lower() or "busy" in message.lower() else 500
+                return JSONResponse(
+                    status_code=status_code,
+                    content={"ok": False, "error": f"Database temporarily unavailable: {message}"},
+                )
+            except Exception as error:
+                return JSONResponse(
+                    status_code=500,
+                    content={"ok": False, "error": str(error) or error.__class__.__name__},
+                )
+
+        return custom_route_handler
+
+
+router = APIRouter(tags=["api"], route_class=JsonApiRoute)
 
 def _now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -91,6 +123,8 @@ DEFAULT_SETTINGS = {
     "dashboard_secondary_color": "",
     "dashboard_tertiary_color": "",
 }
+_TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
+_TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
 
 _RUNTIME_ALIASES = {
     "claude": "claude-code",
@@ -1991,7 +2025,7 @@ async def _append_terminal_control(
     cols: int = 0,
     rows: int = 0,
 ) -> str:
-    control_id = f"termctl_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    control_id = f"termctl_{int(time.time() * 1000)}_{next(_CONTROL_ID_COUNTER):06d}_{uuid.uuid4().hex[:8]}"
     await db.execute(
         """
         INSERT INTO terminal_controls (
@@ -2015,6 +2049,16 @@ async def _append_terminal_control(
     return control_id
 
 
+def _terminal_status_transition(current_status: str, next_status: str) -> str:
+    current = str(current_status or "").strip().lower()
+    next_value = str(next_status or "").strip().lower()
+    if not next_value:
+        return ""
+    if current in _TERMINAL_MONOTONIC_STATUSES and next_value in _TERMINAL_ACTIVE_STATUSES:
+        return ""
+    return next_value
+
+
 async def _append_terminal_output(db, terminal, output: str, *, status: str = ""):
     chunk = str(output or "")
     if not chunk and not status:
@@ -2023,10 +2067,11 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     next_output = _trim_terminal_output(f"{current or ''}{chunk}")
     updates = ["output = ?", "updated_at = ?"]
     params: list[Any] = [next_output, _now()]
-    if status:
+    next_status = _terminal_status_transition(terminal["status"] if "status" in terminal.keys() else "", status)
+    if next_status:
         updates.append("status = ?")
-        params.append(status)
-        if status in {"stopped", "failed"}:
+        params.append(next_status)
+        if next_status in {"stopped", "failed"}:
             updates.append("stopped_at = COALESCE(stopped_at, ?)")
             params.append(_now())
     params.append(terminal["id"])
@@ -2037,6 +2082,186 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     if chunk:
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
 
+
+
+class TerminalOutputWriteQueue:
+    def __init__(
+        self,
+        *,
+        idle_flush_ms: int = 8,
+        max_latency_ms: int = 33,
+        max_batch_chars: int = 16 * 1024,
+        max_pending_chars: int = 256 * 1024,
+    ):
+        self.idle_flush_seconds = max(0.001, idle_flush_ms / 1000)
+        self.max_latency_seconds = max(self.idle_flush_seconds, max_latency_ms / 1000)
+        self.max_batch_chars = max(1024, int(max_batch_chars))
+        self.max_pending_chars = max(self.max_batch_chars, int(max_pending_chars))
+        self._pending: dict[str, dict[str, Any]] = {}
+        self._idle_handles: dict[str, asyncio.Handle] = {}
+        self._max_handles: dict[str, asyncio.Handle] = {}
+        self._flush_tasks: dict[str, asyncio.Task] = {}
+        self._lock = asyncio.Lock()
+
+    async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", autoschedule: bool = True) -> None:
+        chunk = str(output or "")
+        terminal_status = str(status or "").strip()
+        if not terminal_id or (not chunk and not terminal_status):
+            return
+        flush_now = False
+        async with self._lock:
+            state = self._pending.get(terminal_id)
+            if not state:
+                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0}
+                self._pending[terminal_id] = state
+                if autoschedule:
+                    self._schedule_max_flush_locked(terminal_id)
+            if chunk:
+                state["chunks"].append(chunk)
+                state["chars"] += len(chunk)
+                self._bound_pending_locked(state)
+            if terminal_status:
+                state["status"] = terminal_status
+            if not autoschedule:
+                return
+            flush_now = state["chars"] >= self.max_batch_chars or terminal_status in {"stopped", "failed"}
+            if flush_now:
+                self._schedule_flush_locked(terminal_id, delay=0)
+            else:
+                self._schedule_idle_flush_locked(terminal_id)
+
+    def _bound_pending_locked(self, state: dict[str, Any]) -> None:
+        chunks = state["chunks"]
+        while state["chars"] > self.max_pending_chars and chunks:
+            removed = chunks.popleft()
+            removed_len = len(removed)
+            state["chars"] -= removed_len
+            state["dropped"] += removed_len
+
+    def _schedule_idle_flush_locked(self, terminal_id: str) -> None:
+        handle = self._idle_handles.pop(terminal_id, None)
+        if handle:
+            handle.cancel()
+        self._idle_handles[terminal_id] = asyncio.get_running_loop().call_later(
+            self.idle_flush_seconds,
+            self._schedule_flush_from_timer,
+            terminal_id,
+        )
+
+    def _schedule_max_flush_locked(self, terminal_id: str) -> None:
+        handle = self._max_handles.pop(terminal_id, None)
+        if handle:
+            handle.cancel()
+        self._max_handles[terminal_id] = asyncio.get_running_loop().call_later(
+            self.max_latency_seconds,
+            self._schedule_flush_from_timer,
+            terminal_id,
+        )
+
+    def _track_flush_task(self, terminal_id: str, task: asyncio.Task) -> None:
+        self._flush_tasks[terminal_id] = task
+        task.add_done_callback(lambda done, key=terminal_id: self._on_flush_done(key, done))
+
+    def _on_flush_done(self, terminal_id: str, task: asyncio.Task) -> None:
+        self._flush_tasks.pop(terminal_id, None)
+        try:
+            task.result()
+        except BaseException:
+            if terminal_id in self._pending:
+                try:
+                    asyncio.get_running_loop().call_later(0.1, self._schedule_flush_from_timer, terminal_id)
+                except RuntimeError:
+                    pass
+
+    def _schedule_flush_from_timer(self, terminal_id: str) -> None:
+        try:
+            self._track_flush_task(terminal_id, asyncio.create_task(self.flush_terminal(terminal_id)))
+        except RuntimeError:
+            # No active loop; the next explicit flush will persist the backlog.
+            return
+
+    def _schedule_flush_locked(self, terminal_id: str, *, delay: float) -> None:
+        next_delay = delay if delay > 0 else 0.001
+        asyncio.get_running_loop().call_later(next_delay, self._schedule_flush_from_timer, terminal_id)
+
+    async def flush_terminal(self, terminal_id: str) -> None:
+        existing = self._flush_tasks.get(terminal_id)
+        if existing and existing is not asyncio.current_task():
+            await asyncio.shield(existing)
+            return
+        async with self._lock:
+            state = self._pending.pop(terminal_id, None)
+            idle_handle = self._idle_handles.pop(terminal_id, None)
+            max_handle = self._max_handles.pop(terminal_id, None)
+            if idle_handle:
+                idle_handle.cancel()
+            if max_handle:
+                max_handle.cancel()
+        if not state:
+            return
+        prefix = ""
+        if state["dropped"]:
+            prefix = f"[aify-comms dropped {state['dropped']} chars from terminal output backlog]\n"
+        output = prefix + "".join(state["chunks"])
+        status = state["status"]
+        try:
+            await self._write_terminal_output(terminal_id, output, status=status)
+        except BaseException:
+            await self._requeue_front(terminal_id, output, status=status)
+            raise
+
+    async def _requeue_front(self, terminal_id: str, output: str, *, status: str = "") -> None:
+        if not output and not status:
+            return
+        async with self._lock:
+            state = self._pending.get(terminal_id)
+            if not state:
+                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0}
+                self._pending[terminal_id] = state
+            if output:
+                state["chunks"].appendleft(output)
+                state["chars"] += len(output)
+                self._bound_pending_locked(state)
+            if status:
+                state["status"] = status
+
+    async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "") -> None:
+        db = await get_db()
+        try:
+            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            if not terminal:
+                return
+            await _append_terminal_output(db, terminal, output, status=status)
+            if status in {"stopped", "failed"}:
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_status = ?,
+                        owner_mode = 'managed',
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (status, _now(), terminal["session_id"]),
+                )
+            await db.commit()
+        finally:
+            await db.close()
+
+    async def flush_all(self) -> None:
+        while True:
+            async with self._lock:
+                ids = list(self._pending.keys())
+            if not ids:
+                return
+            for terminal_id in ids:
+                await self.flush_terminal(terminal_id)
+
+
+TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
+
+
+async def flush_terminal_output_writes_for_tests() -> None:
+    await TERMINAL_OUTPUT_WRITES.flush_all()
 
 async def _release_stale_console_owner_for_claim(db, owner_session, req: DispatchClaimRequest) -> Optional[dict[str, Any]]:
     terminal_id = str(owner_session["terminal_id"] or "").strip()
@@ -4640,6 +4865,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
 
 @router.get("/terminals/{terminal_id}")
 async def get_terminal(terminal_id: str):
+    await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id)
     db = await get_db()
     try:
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
@@ -4668,8 +4894,19 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         if req.bridgeId and str(req.bridgeId).strip() != str(terminal["bridge_id"] or "").strip():
             raise HTTPException(409, "Terminal is owned by a different bridge")
         status = str(req.status or "").strip()
-        await _append_terminal_output(db, terminal, req.output or "", status=status)
+        await TERMINAL_OUTPUT_WRITES.enqueue(terminal_id, req.output or "", status=status, autoschedule=not bool(getattr(request.app.state, "testing", False)))
         if status in {"stopped", "failed"}:
+            now = _now()
+            await db.execute(
+                """
+                UPDATE terminal_sessions
+                SET status = ?,
+                    updated_at = ?,
+                    stopped_at = COALESCE(stopped_at, ?)
+                WHERE id = ?
+                """,
+                (status, now, now, terminal_id),
+            )
             await db.execute(
                 """
                 UPDATE agent_sessions
@@ -4678,14 +4915,18 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                     last_seen = ?
                 WHERE id = ?
                 """,
-                (status, _now(), terminal["session_id"]),
+                (status, now, terminal["session_id"]),
             )
-        await db.commit()
-        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            await db.commit()
         ws = await _get_ws(request)
         if ws:
-            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": updated["status"] or "", "output": req.output or ""})
-        return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
+            await ws.broadcast("terminal_output", {"terminalId": terminal_id, "status": status or terminal["status"] or "", "output": req.output or ""})
+        terminal_payload = _terminal_session_to_dict(terminal)
+        if req.output:
+            terminal_payload["output"] = _trim_terminal_output(f"{terminal_payload.get('output') or ''}{req.output or ''}")
+        if status:
+            terminal_payload["status"] = status
+        return {"ok": True, "terminal": terminal_payload}
     finally:
         await db.close()
 

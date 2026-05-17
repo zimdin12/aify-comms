@@ -44,8 +44,11 @@ export class TerminalProcessManager {
     const shell = windows
       ? (process.env.COMSPEC || "cmd.exe")
       : (process.env.SHELL || "bash");
+    const trimmedCommand = String(command || "").trim();
+    const lowerCommand = trimmedCommand.toLowerCase();
+    const shellName = shell.split(/[\\/]/).pop().toLowerCase();
     const args = windows
-      ? ["/d", "/s", "/c", command]
+      ? (lowerCommand === "cmd" || lowerCommand === "cmd.exe" || lowerCommand === shellName ? [] : ["/d", "/s", "/c", trimmedCommand])
       : ["-lc", command];
     const term = pty.spawn(shell, args, {
       name: "xterm-256color",
@@ -54,13 +57,18 @@ export class TerminalProcessManager {
       cwd: cwd || process.cwd(),
       env,
     });
-    const state = { id, command, cwd, term, status: "attached", kind: "pty" };
+    let resolveExit = null;
+    const exitPromise = new Promise((resolve) => {
+      resolveExit = resolve;
+    });
+    const state = { id, command, cwd, term, status: "attached", kind: "pty", exitPromise };
     this.terminals.set(id, state);
     term.onData((text) => {
       if (text) this.onOutput(id, text).catch(() => {});
     });
     term.onExit(({ exitCode, signal }) => {
       this.terminals.delete(id);
+      resolveExit?.({ code: exitCode, signal });
       this.onExit(id, { code: exitCode, signal }).catch(() => {});
     });
     return { pid: term.pid, status: "attached", pty: true };
@@ -118,6 +126,10 @@ export class TerminalProcessManager {
     this.terminals.delete(id);
     if (terminal.kind === "pty") {
       terminal.term.kill();
+      await Promise.race([
+        terminal.exitPromise,
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
       return { stopped: true };
     }
     try {

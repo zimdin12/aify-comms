@@ -33,10 +33,16 @@ assert.match(script, /ParentProcessId/);
 assert.match(script, /marker/);
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
+const originalHomeForTranscript = process.env.HOME;
+const cleanHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-session-clean-"));
+process.env.HOME = cleanHome;
 const cwd = "C:\\Users\\Administrator\\sand_castle";
 const transcriptPath = claudeSessionTranscriptPath(sessionId, cwd);
 assert.match(transcriptPath.replace(/\\/g, "/"), /\.claude\/projects\/C--Users-Administrator-sand-castle\/11111111-2222-4333-8444-555555555555\.jsonl$/);
 assert.equal(claudeSessionTranscriptExists(sessionId, cwd), false);
+if (originalHomeForTranscript === undefined) delete process.env.HOME;
+else process.env.HOME = originalHomeForTranscript;
+fs.rmSync(cleanHome, { recursive: true, force: true });
 
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-session-"));
 const originalHome = process.env.HOME;

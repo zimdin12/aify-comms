@@ -17,7 +17,7 @@ const manager = new TerminalProcessManager({
 
 await manager.start({
   id: "term-test",
-  command: process.platform === "win32" ? "cmd /d /s /c \"cd && echo AIFY_TERMINAL_READY\"" : "sh -lc 'pwd; echo AIFY_TERMINAL_READY'",
+  command: process.platform === "win32" ? "cd && echo AIFY_TERMINAL_READY" : "sh -lc 'pwd; echo AIFY_TERMINAL_READY'",
   cwd: tmp,
 });
 
@@ -29,6 +29,10 @@ while (Date.now() < deadline && !chunks.join("").includes("AIFY_TERMINAL_READY")
 const output = chunks.join("");
 assert.match(output.replace(/\\/g, "/"), new RegExp(tmp.replace(/\\/g, "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 assert.match(output, /AIFY_TERMINAL_READY/);
+const termExitDeadline = Date.now() + 5000;
+while (Date.now() < termExitDeadline && manager.has("term-test")) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
 
 await manager.start({
   id: "interactive",
@@ -43,8 +47,13 @@ while (Date.now() < inputDeadline && !chunks.join("").includes("AIFY_INPUT_OK"))
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
 assert.match(chunks.join(""), /AIFY_INPUT_OK/);
+const interactiveExitDeadline = Date.now() + 5000;
+while (Date.now() < interactiveExitDeadline && manager.has("interactive")) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
 
 await manager.stopAll("test cleanup");
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log("terminal-runtime.test.js: all assertions passed");
+process.exit(0);

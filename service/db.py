@@ -5,6 +5,14 @@ Single database file replaces all JSON file storage.
 import aiosqlite
 from pathlib import Path
 
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
+async def _apply_connection_pragmas(db: aiosqlite.Connection) -> None:
+    await db.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    await db.execute("PRAGMA synchronous=NORMAL")
+    await db.execute("PRAGMA foreign_keys=ON")
+
 _db_path: Path = None
 
 SCHEMA = """
@@ -464,7 +472,7 @@ async def init_db(db_path: Path = None):
     _db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(_db_path) as db:
         await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute("PRAGMA foreign_keys=ON")
+        await _apply_connection_pragmas(db)
         await db.executescript(SCHEMA)
         await _migrate_agents_table(db)
         await _migrate_dispatch_runs_table(db)
@@ -478,5 +486,9 @@ async def init_db(db_path: Path = None):
 async def get_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(_db_path)
     db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys=ON")
+    try:
+        await _apply_connection_pragmas(db)
+    except BaseException:
+        await db.close()
+        raise
     return db

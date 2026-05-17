@@ -11,6 +11,10 @@ import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
+function userHomeDir() {
+  return process.env.HOME || os.homedir();
+}
+
 
 const RUNTIME_ALIASES = new Map([
   ["claude", "claude-code"],
@@ -30,17 +34,31 @@ const RUNTIME_ALIASES = new Map([
   ["generic", "generic"],
 ]);
 
-function spawnProcess(command, args, options = {}) {
-  const cwd = options.cwd || process.cwd();
-  assertLaunchCwd(cwd);
-  const proc = spawn(command, args, {
-    cwd,
+
+function isWindowsNodeScript(command) {
+  if (process.platform !== "win32") return false;
+  const ext = path.extname(String(command || "")).toLowerCase();
+  return [".js", ".mjs", ".cjs"].includes(ext);
+}
+
+function spawnRawProcess(command, args, options = {}, { forceNode = false } = {}) {
+  const executable = forceNode ? process.execPath : command;
+  const finalArgs = forceNode ? [command, ...args] : args;
+  return spawn(executable, finalArgs, {
+    cwd: options.cwd || process.cwd(),
     env: runtimeChildEnv(options.env || {}),
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
-    detached: process.platform !== "win32",
+    detached: !forceNode && process.platform !== "win32",
     windowsHide: true,
   });
+}
+
+function spawnProcess(command, args, options = {}) {
+  const cwd = options.cwd || process.cwd();
+  assertLaunchCwd(cwd);
+  const useNode = isWindowsNodeScript(command);
+  const proc = spawnRawProcess(command, args, { ...options, cwd }, { forceNode: useNode });
   // ChildProcess emits "error" when the executable is missing or cannot be
   // started. Keep a listener attached at creation time so a runtime adapter
   // bug cannot crash the bridge process before the adapter wires rejection.
@@ -188,7 +206,7 @@ function claudeProjectNameForCwd(cwd) {
 export function claudeSessionTranscriptPath(sessionId, cwd = process.cwd()) {
   const normalized = String(sessionId || "").trim();
   if (!normalized) return "";
-  return path.join(os.homedir(), ".claude", "projects", claudeProjectNameForCwd(cwd), `${normalized}.jsonl`);
+  return path.join(userHomeDir(), ".claude", "projects", claudeProjectNameForCwd(cwd), `${normalized}.jsonl`);
 }
 
 export function claudeSessionTranscriptExists(sessionId, cwd = process.cwd()) {
@@ -314,7 +332,7 @@ function copyIfExists(source, target) {
 }
 
 function defaultCodexHomePath() {
-  return path.join(os.homedir(), ".codex");
+  return path.join(userHomeDir(), ".codex");
 }
 
 function resolvedPath(value) {
@@ -502,7 +520,7 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
 
 export function prepareManagedCodexHome({ workspace = "", model = "", effort = "" } = {}) {
   const sourceHome = process.env.CODEX_HOME || defaultCodexHomePath();
-  const targetHome = path.join(os.homedir(), ".local", "state", "aify-comms", "managed-codex-home");
+  const targetHome = path.join(userHomeDir(), ".local", "state", "aify-comms", "managed-codex-home");
   fs.mkdirSync(targetHome, { recursive: true });
   for (const name of ["auth.json", "installation_id", "version.json"]) {
     copyIfExists(path.join(sourceHome, name), path.join(targetHome, name));

@@ -2,13 +2,16 @@ import asyncio
 import json
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
+from service.routers import api_v2
 from service.routers.api_v2 import router
 
 
@@ -36,6 +39,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.ws = _DummyWS()
         app.state.ws_manager = self.ws
         app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
+        app.state.testing = True
         app.include_router(router, prefix="/api/v1")
         self.client = TestClient(app)
 
@@ -1332,6 +1336,85 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["sessionHandle"], "C:/Users/test/.omp/agent/sessions/project/abc123_deadbeef.jsonl")
         self.assertEqual(agent["runtimeState"]["sessionFile"], "C:/Users/test/.omp/agent/sessions/project/abc123_deadbeef.jsonl")
 
+
+    def test_get_db_applies_sqlite_contention_pragmas_per_connection(self):
+        async def _read_pragmas():
+            db = await get_db()
+            try:
+                busy_timeout = (await (await db.execute("PRAGMA busy_timeout")).fetchone())[0]
+                synchronous = (await (await db.execute("PRAGMA synchronous")).fetchone())[0]
+                return busy_timeout, synchronous
+            finally:
+                await db.close()
+
+        busy_timeout, synchronous = asyncio.run(_read_pragmas())
+
+        self.assertGreaterEqual(busy_timeout, 5000)
+        self.assertEqual(synchronous, 1)
+
+    def test_api_database_lock_errors_return_json_not_html_500(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        with patch.object(api_v2, "get_db", side_effect=sqlite3.OperationalError("database is locked")):
+            response = self.client.post(
+                f"/api/v1/terminals/{terminal_id}/output",
+                json={"bridgeId": "bridge-current", "output": "x", "status": "attached"},
+            )
+
+        self.assertEqual(response.headers["content-type"].split(";")[0], "application/json")
+        self.assertIn(response.status_code, {500, 503})
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        self.assertIn("database", payload["error"].lower())
+
+    def test_terminal_output_posts_are_coalesced_into_one_audit_write(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        for chunk in ["a", "b", "c"]:
+            response = self.client.post(
+                f"/api/v1/terminals/{terminal_id}/output",
+                json={"bridgeId": "bridge-current", "output": chunk, "status": "attached"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        fetched = self.client.get(f"/api/v1/terminals/{terminal_id}")
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        self.assertEqual(fetched.json()["terminal"]["output"], "abc")
+        output_events = self._fetchall(
+            "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = 'terminal_output'",
+            (terminal_id,),
+        )
+        self.assertEqual([row["body"] for row in output_events], ["abc"])
+
+    def test_buffered_active_status_does_not_overwrite_stopped_terminal(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        active = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "still active", "status": "attached"},
+        )
+        self.assertEqual(active.status_code, 200, active.text)
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", terminal_id),
+        )
+
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        terminal = self._fetchone("SELECT status, output FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(terminal["status"], "stopped")
+        self.assertIn("still active", terminal["output"])
     def test_environment_heartbeat_persists_terminal_capabilities(self):
         environment = self._heartbeat_environment(
             terminal=True,
