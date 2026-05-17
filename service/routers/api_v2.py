@@ -1581,6 +1581,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     elif session_status in {"starting", "recovering", "restarting"} or terminal_status in {"starting", "stopping"}:
         effective_status = "working"
         reason = terminal_status or session_status or "Session is transitioning."
+    elif live_session and terminal_status in {"attached", "running", "live"}:
+        # A live session with an attached PTY/console IS active work. Without
+        # this, console- and managed-driven agents only ever showed "active"
+        # because the engine derived "working" solely from claimed/running
+        # dispatch runs (managed/steered turns are "delivered"). (B1)
+        effective_status = "working"
+        reason = "Console session attached."
     else:
         idle_minutes = int(settings.get("idle_minutes", 5) or 5)
         offline_minutes = int(settings.get("offline_minutes", 30) or 30)

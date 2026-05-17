@@ -1416,6 +1416,29 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(terminal["status"], "stopped")
         self.assertIn("still active", terminal["output"])
 
+    def test_live_console_session_reports_working_not_active(self):
+        # B1 regression: an agent with a running session + attached PTY console
+        # is doing real work and must report "working", not "active". The
+        # engine previously derived "working" only from claimed/running
+        # dispatch runs, so console/managed-steered agents always looked idle.
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        attached = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
+        )
+        self.assertEqual(attached.status_code, 200, attached.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "working")
+
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
         self._execute(

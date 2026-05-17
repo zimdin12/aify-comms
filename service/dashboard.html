@@ -4912,10 +4912,11 @@ async function loadTerminal(terminalId, options = {}) {
     const res = await apiFetch(API + `/terminals/${encodeURIComponent(id)}`).then(r => r.json());
     if (res.ok !== false) {
       window._terminalDetails[id] = res;
-      // Forced reload = explicit resync: drop the live xterm so the next
-      // render remounts and repaints authoritative server output once,
-      // instead of the per-render diff that caused flicker.
-      if (options.force) { try { disposeConsoleTerminal(id); } catch {} }
+      // NOTE: do NOT dispose the xterm here. loadTerminal(force) is also
+      // called after every console input; disposing on each call remounts
+      // the terminal and flickers while typing. Explicit resync (the Refresh
+      // button) disposes deliberately in refreshSelectedConsole().
+      if (options.resync) { try { disposeConsoleTerminal(id); } catch {} }
       if (currentPage === 'chat' && chatMode() === 'console') renderChat();
       return res;
     }
@@ -5036,7 +5037,9 @@ async function refreshSelectedConsole() {
     toast('No Console terminal to refresh', '#f85149');
     return;
   }
-  await loadTerminal(terminalId, {force: true});
+  // Explicit user resync: drop+remount so authoritative server output is
+  // repainted once (the per-render repaint that flickered is gone).
+  await loadTerminal(terminalId, {force: true, resync: true});
 }
 
 async function startConsoleForSelected(freshContext = false) {
