@@ -1903,9 +1903,31 @@ const DASHBOARD_THEMES = {
   indigo: {label: 'Indigo', accent: '#8ea7ff', secondary: '#dd90bd', tertiary: '#66c889'},
 };
 
-function apiFetch(url, opts = {}) {
+async function apiFetch(url, opts = {}) {
   opts.headers = {..._authHeaders, ...(opts.headers || {})};
-  return fetch(url, opts);
+  const response = await fetch(url, opts);
+  // Every caller does response.json(). If the server (or a proxy/gateway)
+  // returns a non-JSON body (HTML error page, 502, crash), raw .json() throws
+  // "Unexpected token <" — the "Dashboard parsing error". Degrade to a
+  // structured error so callers show a clean toast instead of breaking.
+  const originalJson = response.json.bind(response);
+  response.json = async () => {
+    try {
+      return await originalJson();
+    } catch {
+      let text = '';
+      try { text = (await response.clone().text()).trim(); } catch {}
+      if (response.ok) {
+        return {ok: false, error: 'Malformed server response (expected JSON).'};
+      }
+      const snippet = text ? ` ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}` : '';
+      return {
+        ok: false,
+        error: `Server error ${response.status}${response.statusText ? ' ' + response.statusText : ''}.${snippet}`,
+      };
+    }
+  };
+  return response;
 }
 
 function pageUrl(name) {
