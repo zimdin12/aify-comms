@@ -1602,7 +1602,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={"requestedBy": "dashboard"},
         )
         self.assertEqual(started.status_code, 409, started.text)
-        self.assertIn("does not advertise terminal support", started.text)
+        self.assertIn("no PTY/terminal capability", started.text)
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions LIMIT 1"))
 
     def test_console_start_rejects_workspace_outside_environment_roots(self):

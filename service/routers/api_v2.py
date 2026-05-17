@@ -5166,10 +5166,29 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
         if not _environment_supports_terminal(environment, session["runtime"]):
-            raise HTTPException(
-                409,
-                f'Environment "{environment.get("id")}" does not advertise terminal support for runtime "{session["runtime"]}".',
-            )
+            env_id = environment.get("id")
+            if not bool(environment.get("terminal")) or not bool(environment.get("pty")):
+                # Whole-environment PTY capability is off — not a per-runtime
+                # issue. The bridge on that host reports no terminal/pty
+                # (usually node-pty is not installed/built there).
+                detail = (
+                    f'Environment "{env_id}" has no PTY/terminal capability — its bridge reports '
+                    f'terminal={bool(environment.get("terminal"))}, pty={bool(environment.get("pty"))}. '
+                    f'This blocks the Console for ALL runtimes there (not just "{session["runtime"]}"). '
+                    f'Fix: install/build node-pty for the aify-comms bridge on that host '
+                    f'(reinstall via install.sh and restart the bridge), then retry. '
+                    f'Use an environment that advertises terminal support in the meantime.'
+                )
+            else:
+                advertised = ", ".join(
+                    str(r) for r in (environment.get("terminalRuntimes") or [])
+                ) or "none"
+                detail = (
+                    f'Environment "{env_id}" supports the Console but not for runtime '
+                    f'"{session["runtime"]}". It advertises terminal runtimes: {advertised}. '
+                    f'Spawn/select a supported runtime, or update that bridge.'
+                )
+            raise HTTPException(409, detail)
         runtime = _normalize_runtime(session["runtime"] or "")
         if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
             raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
