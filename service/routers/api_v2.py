@@ -2392,7 +2392,7 @@ class TerminalOutputWriteQueue:
             if terminal_status:
                 state["status"] = terminal_status
             if not autoschedule:
-                return
+                return int(state["last_seq"])
             flush_now = state["chars"] >= self.max_batch_chars or terminal_status in {"stopped", "failed"}
             if flush_now:
                 self._schedule_flush_locked(terminal_id, delay=0)
