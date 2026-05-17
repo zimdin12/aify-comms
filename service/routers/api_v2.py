@@ -1582,12 +1582,29 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "working"
         reason = terminal_status or session_status or "Session is transitioning."
     elif live_session and terminal_status in {"attached", "running", "live"}:
-        # A live session with an attached PTY/console IS active work. Without
-        # this, console- and managed-driven agents only ever showed "active"
-        # because the engine derived "working" solely from claimed/running
-        # dispatch runs (managed/steered turns are "delivered"). (B1)
-        effective_status = "working"
-        reason = "Console session attached."
+        # An attached console is "working" only while it is actively producing
+        # output. A console sitting idle at a prompt is reachable but NOT
+        # working — reporting "working" then is the "shows working while only
+        # waiting" bug. The output write queue bumps terminal_sessions
+        # .updated_at on every flush, so recent updated_at == live console
+        # activity; a stale one == idle. (B1 fix)
+        console_active_seconds = max(30, int(settings.get("console_active_seconds", 90) or 90))
+        term_age = None
+        if terminal_id:
+            trow = await (await db.execute(
+                "SELECT updated_at FROM terminal_sessions WHERE id = ?",
+                (terminal_id,),
+            )).fetchone()
+            term_updated = str((trow["updated_at"] if trow else "") or "").strip()
+            term_epoch = _iso_to_epoch(term_updated) if term_updated else 0
+            if term_epoch:
+                term_age = datetime.now(timezone.utc).timestamp() - term_epoch
+        if term_age is not None and term_age <= console_active_seconds:
+            effective_status = "working"
+            reason = "Console session active."
+        else:
+            effective_status = "active"
+            reason = "Console attached (idle)."
     else:
         idle_minutes = int(settings.get("idle_minutes", 5) or 5)
         offline_minutes = int(settings.get("offline_minutes", 30) or 30)
@@ -2571,7 +2588,8 @@ class TerminalOutputWriteQueue:
             if not terminal:
                 return
             await _append_terminal_output(db, terminal, output, status=status, seq=seq or int(terminal["output_seq"] or 0))
-            if status in {"stopped", "failed"}:
+            norm_status = str(status or "").strip().lower()
+            if norm_status in {"stopped", "failed"}:
                 await db.execute(
                     """
                     UPDATE agent_sessions
@@ -2580,7 +2598,22 @@ class TerminalOutputWriteQueue:
                         last_seen = ?
                     WHERE id = ?
                     """,
-                    (status, _now(), terminal["session_id"]),
+                    (norm_status, _now(), terminal["session_id"]),
+                )
+            elif norm_status in {"attached", "running", "live", "idle", "starting", "stopping"}:
+                # Mirror the live terminal status onto the session so the
+                # status engine sees the console advance past "starting".
+                # Without this agent_sessions.terminal_status stays "starting"
+                # forever and the engine reports a permanent transitioning
+                # "working" even for an idle console.
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_status = ?,
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (norm_status, _now(), terminal["session_id"]),
                 )
             await db.commit()
         finally:

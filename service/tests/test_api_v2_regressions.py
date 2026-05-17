@@ -1439,6 +1439,36 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "working")
 
+    def test_idle_attached_console_reports_active_not_working(self):
+        # Post-B1 regression the operator caught: an attached console with no
+        # recent output is reachable but NOT working. "working" must require
+        # recent console activity, not mere attachment.
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        attached = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
+        )
+        self.assertEqual(attached.status_code, 200, attached.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        # Backdate console activity past the console-active window and expire
+        # any cached live status so the read path recomputes.
+        self._execute(
+            "UPDATE terminal_sessions SET updated_at = ? WHERE id = ?",
+            ("2020-01-01T00:00:00Z", terminal_id),
+        )
+        # Force a clean recompute (drop any cached live-state row).
+        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
+
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
         self._execute(
