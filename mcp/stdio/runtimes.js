@@ -3121,6 +3121,14 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
     if (runtime === "claude-code") {
       return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
     }
+    if (runtime === "hermes") {
+      // Hermes is a first-class SPAWN + dashboard-console (PTY) runtime — the
+      // shared Pi/Hermes terminal substrate handles it. It is intentionally
+      // not a bridge active-dispatch controller. Fail fast with an actionable
+      // message instead of the generic "does not support active dispatch"
+      // reject, which previously made a claimed Hermes run look broken (R4).
+      return createTerminalDeliveryController("hermes");
+    }
   } catch (error) {
     return failedRuntimeController(runtime, error);
   }
@@ -3131,6 +3139,25 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       throw new Error(`Runtime "${runtime}" does not support active dispatch`);
     },
     promise: Promise.reject(new Error(`Runtime "${runtime}" does not support active dispatch`)),
+  };
+}
+
+function createTerminalDeliveryController(runtime) {
+  // Runtimes whose only execution surface is the dashboard console/terminal
+  // PTY (not bridge active-dispatch). Returns a controller that rejects an
+  // active-dispatch claim with a clear, actionable message so the run does
+  // not look mysteriously "unsupported".
+  const message =
+    `Runtime "${runtime}" runs via the dashboard Console (terminal/PTY), not bridge active dispatch. ` +
+    `Spawn it from a connected environment and drive it through its Console; ` +
+    `it will not be claimed for managed/resident active-dispatch turns.`;
+  return {
+    capabilities: controlCapabilitiesForRuntime(runtime),
+    interrupt: () => {},
+    steer: async () => {
+      throw new Error(message);
+    },
+    promise: Promise.reject(new Error(message)),
   };
 }
 
