@@ -76,14 +76,14 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 
 ## Status Meanings
 
-`active` means connected/heartbeating; it does not mean working. Use `comms_agent_info` for actual state.
+Status is computed by a single live-state engine (the same one the dashboard, `comms_agents`, and write paths use), not a self-reported field. `active` means connected/heartbeating; it does not mean working. Use `comms_agent_info` for actual state.
 
 | Status | Meaning |
 |---|---|
-| `active` | Bridge alive; may be busy or idle. |
-| `working` | A tracked run is executing. |
-| `idle` | No recent heartbeat; session may be paused. |
-| `offline` | No heartbeat for the offline threshold. |
+| `active` | Bridge alive and fresh, but no open turn — connected/idle-capable, not currently doing work. |
+| `working` | An open turn: a tracked run is claimed/running, **or** a live session has an attached console/PTY. A bridge-instance id change alone does not drop a live/`starting` session to offline. |
+| `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
+| `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
 | `blocked` | Agent-reported note state, not necessarily unreachable. |
 | `stopped` | Wake/dispatch disabled until restart or re-register. |
 
