@@ -77,6 +77,30 @@ async def lifespan(app: FastAPI):
     await init_db(db_path)
     logger.info(f"Database: {db_path}")
 
+    # Bounded startup reconcile: drain delivered dispatch runs that never got
+    # a terminal state (reply-linked, or stale and not requiring a reply) so
+    # the open-run ledger does not accumulate forever. Conservative — never
+    # closes runs still legitimately awaiting a required reply. Failure here
+    # must never block startup.
+    try:
+        from service.db import get_db as _get_db
+        from service.routers.api_v2 import _close_reconcilable_delivered_runs
+        _recon_db = await _get_db()
+        try:
+            total_closed = 0
+            for _ in range(50):  # hard cap: <= 50 * 500 = 25k runs per boot
+                batch = await _close_reconcilable_delivered_runs(_recon_db, limit=500)
+                await _recon_db.commit()
+                total_closed += len(batch)
+                if len(batch) < 500:
+                    break
+            if total_closed:
+                logger.info(f"Startup reconcile: closed {total_closed} stale delivered dispatch run(s)")
+        finally:
+            await _recon_db.close()
+    except Exception as e:
+        logger.error(f"Startup dispatch reconcile skipped: {e}")
+
     # WebSocket manager
     app.state.ws_manager = ConnectionManager()
 
