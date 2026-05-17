@@ -2369,6 +2369,12 @@ class TerminalOutputWriteQueue:
         self._idle_handles: dict[str, asyncio.Handle] = {}
         self._max_handles: dict[str, asyncio.Handle] = {}
         self._flush_tasks: dict[str, asyncio.Task] = {}
+        # Highest seq ever issued per terminal. Guarantees strict monotonicity
+        # across pending-state recreation even if a concurrent request reads a
+        # stale output_seq from the DB while a prior flush hasn't committed yet
+        # (otherwise seq could regress and the dashboard's seq-dedupe would
+        # silently drop fresh output).
+        self._seq_floor: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     async def enqueue(self, terminal_id: str, output: str = "", *, status: str = "", base_seq: int = 0, autoschedule: bool = True) -> int:
@@ -2380,11 +2386,13 @@ class TerminalOutputWriteQueue:
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": int(base_seq or 0)}
+                seq_start = max(int(base_seq or 0), int(self._seq_floor.get(terminal_id, 0)))
+                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": seq_start}
                 self._pending[terminal_id] = state
                 if autoschedule:
                     self._schedule_max_flush_locked(terminal_id)
             state["last_seq"] = int(state.get("last_seq") or 0) + 1
+            self._seq_floor[terminal_id] = state["last_seq"]
             if chunk:
                 state["chunks"].append(chunk)
                 state["chars"] += len(chunk)
