@@ -6,6 +6,7 @@ import path from "path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadSettingsEnv } from "./load-env.js";
+import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 
@@ -65,8 +66,8 @@ function readBoundAgentId() {
   ];
   for (const candidate of candidates) {
     try {
-      const value = fs.readFileSync(candidate, "utf-8").trim();
-      if (value) return value;
+      const binding = readAgentBindingFile({ pid: process.ppid || process.pid, dir: TMP_DIR });
+      if (binding.agentId) return binding.agentId;
     } catch {
       // keep looking
     }

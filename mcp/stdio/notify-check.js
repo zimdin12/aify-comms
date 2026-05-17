@@ -9,7 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { loadSettingsEnv } from "./load-env.js";
-
+import { readAgentBindingFile } from "./binding-file.js";
 loadSettingsEnv();
 
 const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
@@ -64,8 +64,8 @@ let agentId = "";
 let heartbeatAllowed = false;
 const SESSION_FILE = path.join(tmpDir, `aify-agent-${process.ppid || ""}`);
 try {
-  const value = fs.readFileSync(SESSION_FILE, "utf-8").trim();
-  if (value) { agentId = value; heartbeatAllowed = true; }
+  const binding = readAgentBindingFile({ pid: process.ppid || "", dir: tmpDir });
+  if (binding.agentId) { agentId = binding.agentId; heartbeatAllowed = true; }
 } catch { /* file not written yet — agent hasn't registered */ }
 if (!agentId) process.exit(0);
 

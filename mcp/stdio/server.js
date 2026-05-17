@@ -24,6 +24,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
+import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
@@ -162,8 +163,7 @@ function cleanupOnExit() {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
   }
   // Remove agent binding temp file
-  const bindingFile = path.join(process.env.TEMP || process.env.TMP || "/tmp", `aify-agent-${process.ppid || process.pid}`);
-  try { fs.unlinkSync(bindingFile); } catch { /* best effort */ }
+  removeAgentBindingFile({ pid: process.ppid || process.pid, bridgeId: BRIDGE_INSTANCE_ID });
 }
 async function shutdownWithStatus(code) {
   if (shutdownStarted) process.exit(code);
@@ -542,8 +542,7 @@ async function autoRegisterConfiguredAgent() {
     }
     REMOTE_AGENT_STATE.set(AIFY_AGENT_ID, { info: { ...payload, runtimeState } });
     try {
-      const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
-      fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), AIFY_AGENT_ID);
+      writeAgentBindingFile({ pid: process.ppid || process.pid, agentId: AIFY_AGENT_ID, bridgeId: BRIDGE_INSTANCE_ID });
     } catch {
       // Best effort; notification hooks can still operate after explicit comms_register.
     }
@@ -1851,8 +1850,7 @@ server.tool(
     // wrong agentId, causing cross-talk.
     if (resolvedSessionMode === "resident") {
       try {
-        const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
-        fs.writeFileSync(path.join(tmpDir, `aify-agent-${process.ppid || process.pid}`), agentId);
+        writeAgentBindingFile({ pid: process.ppid || process.pid, agentId, bridgeId: BRIDGE_INSTANCE_ID });
       } catch { /* best effort */ }
     }
 
