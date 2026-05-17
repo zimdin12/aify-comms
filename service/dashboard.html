@@ -5915,9 +5915,9 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
         <div class="form-group cont-handoff-field"><label>Recent messages</label><input id="cont-count" type="number" min="0" max="80" value="12" onchange="regenerateContinuePacket(${jsArg(sessionId)})"></div>
       </div>
       <div class="send-row cont-handoff-field">
-        <div class="form-group"><label>Environment</label><input id="cont-env" value="${esc(session.environmentId || '')}"></div>
-        <div class="form-group"><label>Runtime</label><input id="cont-runtime" value="${esc(session.runtime || '')}"></div>
-        <div class="form-group"><label>Workspace</label><input id="cont-workspace" value="${esc(session.workspace || '')}" style="width:420px"></div>
+        <div class="form-group"><label>Environment</label><select id="cont-env" onchange="syncContinueEnvControls(${jsArg(sessionId)})"></select></div>
+        <div class="form-group"><label>Runtime</label><select id="cont-runtime" onchange="regenerateContinuePacket(${jsArg(sessionId)})"></select></div>
+        <div class="form-group"><label>Workspace</label><input id="cont-workspace" list="cont-workspace-list" value="${esc(session.workspace || '')}" style="width:420px" onchange="regenerateContinuePacket(${jsArg(sessionId)})"><datalist id="cont-workspace-list"></datalist></div>
       </div>
       <div class="form-group cont-handoff-field">
         <label>Editable starting packet</label>
@@ -5932,6 +5932,54 @@ async function continueSessionAs(sessionId, splitIdentity = false) {
     </div>
   `);
   updateCompactModeUi();
+  populateContinueEnvControls(sessionId);
+}
+
+// Populate the continue/compact Environment + Runtime dropdowns from the live
+// environment list. Free-text inputs were the cause of "environment does not
+// exist" — you can only pick a real environment now. The original session env
+// is preserved as a selectable (flagged) option even if it has gone offline.
+function populateContinueEnvControls(sessionId) {
+  const session = (window._sessions || []).find(item => item.id === sessionId);
+  const envSelect = document.getElementById('cont-env');
+  if (!session || !envSelect) return;
+  const environments = window._environments || [];
+  const sourceEnv = session.environmentId || '';
+  const known = environments.some(env => env.id === sourceEnv);
+  const options = environments.map(env =>
+    `<option value="${esc(env.id)}">${esc(env.label || env.id)} (${esc(env.status || 'unknown')})</option>`);
+  if (sourceEnv && !known) {
+    options.unshift(`<option value="${esc(sourceEnv)}">${esc(sourceEnv)} (source · not currently connected)</option>`);
+  }
+  envSelect.innerHTML = options.join('') || '<option value="">No environments connected</option>';
+  envSelect.value = sourceEnv || environments[0]?.id || '';
+  syncContinueEnvControls(sessionId);
+}
+
+// On environment change: repopulate runtimes for that environment, refresh the
+// workspace datalist, default the workspace if empty, then regenerate the packet
+// so the editable text always reflects the current selections.
+function syncContinueEnvControls(sessionId) {
+  const session = (window._sessions || []).find(item => item.id === sessionId);
+  const envSelect = document.getElementById('cont-env');
+  const runtimeSelect = document.getElementById('cont-runtime');
+  const workspaceInput = document.getElementById('cont-workspace');
+  const workspaceList = document.getElementById('cont-workspace-list');
+  if (!session || !envSelect || !runtimeSelect) return;
+  const env = (window._environments || []).find(item => item.id === envSelect.value);
+  const runtimes = (env?.runtimes || []).map(item => item.runtime).filter(Boolean);
+  const desired = runtimeSelect.value || session.runtime || '';
+  const choices = runtimes.length ? runtimes : (desired ? [desired] : []);
+  runtimeSelect.innerHTML = choices.length
+    ? choices.map(rt => `<option value="${esc(rt)}">${esc(rt)}</option>`).join('')
+    : '<option value="">No runtimes advertised</option>';
+  runtimeSelect.value = choices.includes(desired) ? desired : (choices[0] || '');
+  if (workspaceList) {
+    const roots = (env?.cwdRoots || []).filter(Boolean);
+    workspaceList.innerHTML = roots.map(root => `<option value="${esc(root)}"></option>`).join('');
+  }
+  if (workspaceInput && !workspaceInput.value && env?.cwdRoots?.[0]) workspaceInput.value = env.cwdRoots[0];
+  regenerateContinuePacket(sessionId);
 }
 
 function compactionHistoryRows(agentId) {
@@ -6022,7 +6070,7 @@ function recentContextForAgent(agentId, count) {
     .reverse();
 }
 
-function continuePacketForSession(session, count) {
+function continuePacketForSession(session, count, overrides = {}) {
   const messages = recentContextForAgent(session.agentId, count);
   const messageBlock = messages.length
     ? messages.map((message, index) =>
@@ -6030,11 +6078,11 @@ function continuePacketForSession(session, count) {
       ).join('\n\n')
     : 'No recent message context selected.';
   return `Continue from previous session
-Source agent: ${session.agentId}
+Source agent: ${overrides.agentId || session.agentId}
 Source session: ${session.id}
-Runtime: ${session.runtime || ''}
-Environment: ${session.environmentId || ''}
-Workspace: ${session.workspace || ''}
+Runtime: ${overrides.runtime ?? session.runtime ?? ''}
+Environment: ${overrides.environmentId ?? session.environmentId ?? ''}
+Workspace: ${overrides.workspace ?? session.workspace ?? ''}
 
 Role:
 Continue the same work unless the manager edits this packet.
@@ -6055,7 +6103,15 @@ function regenerateContinuePacket(sessionId) {
   const textarea = document.getElementById('cont-packet');
   const count = Number(document.getElementById('cont-count')?.value || 0);
   if (!session || !textarea) return;
-  textarea.value = continuePacketForSession(session, count);
+  // Build from the CURRENT form selections so editing env/runtime/workspace/ID
+  // and pressing Regenerate actually changes the packet (was stale before).
+  const overrides = {
+    agentId: document.getElementById('cont-agent-id')?.value.trim() || '',
+    environmentId: document.getElementById('cont-env')?.value ?? '',
+    runtime: document.getElementById('cont-runtime')?.value ?? '',
+    workspace: document.getElementById('cont-workspace')?.value ?? '',
+  };
+  textarea.value = continuePacketForSession(session, count, overrides);
 }
 
 async function submitContinueSessionAs(sessionId) {
