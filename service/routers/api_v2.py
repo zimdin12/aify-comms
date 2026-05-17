@@ -10,7 +10,7 @@ import itertools
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -1411,7 +1411,6 @@ def _environment_effective_status(row, *, offline_seconds: int = 90) -> str:
     status = str(row["status"] or "online")
     if status == "online":
         try:
-            from datetime import datetime, timezone, timedelta
             last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
             if datetime.now(timezone.utc) - last > timedelta(seconds=max(15, int(offline_seconds or 90))):
                 status = "offline"
@@ -1457,8 +1456,6 @@ def _iso_add_seconds(value: str, seconds: int) -> str:
     if not text:
         return ""
     try:
-        from datetime import datetime, timezone, timedelta
-
         base = datetime.fromisoformat(text.replace("Z", "+00:00"))
         return (base.astimezone(timezone.utc) + timedelta(seconds=max(0, int(seconds)))).isoformat().replace("+00:00", "Z")
     except Exception:
@@ -1578,7 +1575,6 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         offline_minutes = int(settings.get("offline_minutes", 30) or 30)
         freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
         try:
-            from datetime import datetime, timezone, timedelta
             age = datetime.now(timezone.utc).timestamp() - freshness if freshness else 0
             if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
                 effective_status = "offline"
@@ -2070,15 +2066,21 @@ def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
 
 
 async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db=None):
+    # Single source of truth: delegate to the live-state engine that
+    # list_agents/get_agent already use, so write endpoints (heartbeat,
+    # register, dispatch status) never disagree with the dashboard about
+    # whether an agent is active/idle/offline. The db-less fallback below is
+    # only the minimal heartbeat heuristic for callers without a connection.
     status = row["status"]
-    if db is not None and status not in _MANUAL_STATUSES:
-        _environment_id, env_status, _env_bridge = await _managed_environment_status(db, row)
-        if env_status and env_status not in {"online", "degraded"}:
-            return "offline"
-    if status not in _MANUAL_STATUSES and status != "stale":
+    if status in _MANUAL_STATUSES:
+        return status
+    if db is not None:
+        cache = await _refresh_agent_live_state(db, row["id"])
+        if cache:
+            return cache["status"]
+    if status != "stale":
         try:
-            from datetime import datetime, timezone, timedelta
-            last = datetime.fromisoformat(row["last_seen"].replace("Z", "+00:00"))
+            last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
             age = datetime.now(timezone.utc) - last
             if age > timedelta(minutes=offline_minutes):
                 status = "offline"
