@@ -2384,6 +2384,7 @@ function connectDashboardSocket() {
       const data = payload.data || {};
       if (payload.event === 'terminal_output' && data.terminalId) {
         const cached = window._terminalDetails[data.terminalId];
+        const prevStatus = cached?.terminal?.status || '';
         if (cached?.terminal) {
           cached.terminal.status = data.status || cached.terminal.status || '';
           cached.terminal.output = `${cached.terminal.output || ''}${data.output || ''}`.slice(-65536);
@@ -2392,11 +2393,17 @@ function connectDashboardSocket() {
         // Fast path: stream the delta straight into the already-mounted xterm
         // instead of rebuilding the whole chat DOM (which would dispose/remount
         // the terminal and repaint the entire buffer on every chunk -> flicker).
-        if (currentPage === 'chat' && chatMode() === 'console'
-            && streamConsoleDelta(data.terminalId, data.output || '', data.status || '', data.seq)) {
+        const consoleVisible = currentPage === 'chat' && chatMode() === 'console';
+        if (consoleVisible && streamConsoleDelta(data.terminalId, data.output || '', data.status || '', data.seq)) {
+          // A lifecycle status change still needs a list/state refresh.
+          if (data.status && data.status !== prevStatus) scheduleRealtimeRefresh();
           return;
         }
-        if (cached?.terminal && currentPage === 'chat' && chatMode() === 'console') renderChat();
+        if (cached?.terminal && consoleVisible) renderChat();
+        // High-frequency output for a terminal that isn't visibly mounted must
+        // NOT drive a full dashboard refetch on every chunk — the buffer is
+        // already cached. Only refresh on a lifecycle status transition.
+        if (!data.status || data.status === prevStatus) return;
       }
     } catch {}
     scheduleRealtimeRefresh();

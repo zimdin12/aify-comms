@@ -2279,11 +2279,38 @@ async def _append_dispatch_event(db, run_id: str, event_type: str, body: str = "
     )
 
 
+_TERMINAL_EVENT_CAP = 500
+_TERMINAL_EVENT_PRUNE_EVERY = 200
+_terminal_event_counts: dict[str, int] = {}
+
+
 async def _append_terminal_event(db, terminal_id: str, event_type: str, body: str = ""):
     await db.execute(
         "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) VALUES (?,?,?,?)",
         (terminal_id, event_type, body or "", _now()),
     )
+    # terminal_events gets a row per flushed output chunk and is only ever read
+    # back LIMIT ~200; without pruning it grows unbounded per terminal for the
+    # life of the DB. Amortize the prune (every Nth insert) to keep it bounded
+    # without paying a DELETE on every chunk.
+    count = _terminal_event_counts.get(terminal_id, 0) + 1
+    if count >= _TERMINAL_EVENT_PRUNE_EVERY:
+        _terminal_event_counts[terminal_id] = 0
+        await db.execute(
+            """
+            DELETE FROM terminal_events
+            WHERE terminal_id = ?
+              AND id NOT IN (
+                SELECT id FROM terminal_events
+                WHERE terminal_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+              )
+            """,
+            (terminal_id, terminal_id, _TERMINAL_EVENT_CAP),
+        )
+    else:
+        _terminal_event_counts[terminal_id] = count
 
 
 async def _append_terminal_control(
