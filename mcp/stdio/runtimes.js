@@ -2957,6 +2957,10 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
           reject(new Error(`Pi authentication failed fast: ${detected.message}`));
           return;
         }
+        if (detected.missingSession && executionMode === "resident") {
+          reject(new Error(`Resident Pi session "${sessionId}" is not resumable: ${detected.message}. Clear the saved session handle or start a fresh managed Pi session.`));
+          return;
+        }
         reject(new Error(finalError || finalText.trim() || stderrText.trim() || `Pi exited with code ${code}`));
       });
     };

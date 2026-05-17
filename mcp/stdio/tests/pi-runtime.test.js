@@ -261,6 +261,7 @@ await assert.rejects(
 delete process.env.AIFY_PI_AUTH_FAIL;
 
 const healEvents = [];
+const handleChanges = [];
 const healedController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -282,7 +283,7 @@ const healedController = launchRuntimeRun({
     onEvent: (type, text) => healEvents.push([type, text]),
     onRuntimeState: (state) => runtimeStates.push(state),
     onRefs: () => {},
-    onSessionHandleChange: () => {},
+    onSessionHandleChange: (newHandle, meta) => handleChanges.push({ newHandle, meta }),
   },
 });
 const healedResult = await healedController.promise;
@@ -292,6 +293,39 @@ assert(healEvents.some(([, text]) => /starting fresh/.test(text)), "dead Pi sess
 const healedArgvLines = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 assert(healedArgvLines.some((argv) => argv.includes("--resume") && argv.includes("dead-session")), "first Pi launch should attempt the saved handle");
 assert(!healedArgvLines.at(-1).includes("--resume"), "healed Pi relaunch should omit the dead --resume handle");
+assert.deepEqual(handleChanges.at(-1), { newHandle: "", meta: { reason: "missing_session", previous: "dead-session" } });
+
+const residentDeadHandleController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "resident",
+    sessionHandle: "dead-session",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi resident dead resume",
+    body: "Say hello",
+    executionMode: "resident",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+    onSessionHandleChange: (newHandle, meta) => handleChanges.push({ newHandle, meta }),
+  },
+});
+await assert.rejects(
+  residentDeadHandleController.promise,
+  /Resident Pi session "dead-session" is not resumable: .*Clear the saved session handle or start a fresh managed Pi session/,
+  "resident Pi dead handles should fail with an actionable message instead of auto-healing",
+);
+
 
 
 const finalFallbackController = launchRuntimeRun({

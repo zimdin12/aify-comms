@@ -1595,17 +1595,27 @@ async function runDispatchLoop() {
             }
           },
           // Fired when the runtime controller had to discard an unloadable
-          // thread (corrupt rollout / no rollout) and start a fresh one.
-          // Update the cached state and push the new sessionHandle back to
-          // the server so future dispatches bind to the healed thread
-          // instead of repeatedly hitting the same poisoned one.
+          // thread/session and start a fresh one. Non-empty handles are
+          // persisted through re-registration; explicit clears use the
+          // lightweight session-handle endpoint so a poisoned handle is gone
+          // even if the fresh run fails before discovering its replacement.
           onSessionHandleChange: async (newHandle, meta = {}) => {
-            if (!newHandle) return;
+            const nextHandle = String(newHandle || "").trim();
+            const metaLabel = meta?.reason ? ` (reason: ${meta.reason}, previous: ${meta.previous || ""})` : "";
             try {
-              state.info.sessionHandle = newHandle;
+              if (!nextHandle && meta?.reason) {
+                state.info.sessionHandle = "";
+                await httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/session-handle`, {
+                  sessionHandle: "",
+                  requestedBy: "pi-rpc-heal",
+                });
+                console.error(`[aify] cleared stale sessionHandle for "${agentId}"${metaLabel}`);
+                return;
+              }
+              if (!nextHandle) return;
+              state.info.sessionHandle = nextHandle;
               await reregisterAgentFromState(agentId, state);
-              const metaLabel = meta?.reason ? ` (reason: ${meta.reason}, previous: ${meta.previous || ""})` : "";
-              console.error(`[aify] healed sessionHandle for "${agentId}" → ${newHandle}${metaLabel}`);
+              console.error(`[aify] healed sessionHandle for "${agentId}" → ${nextHandle}${metaLabel}`);
             } catch (error) {
               console.error(`[aify] failed to persist healed sessionHandle for "${agentId}": ${error?.message || error}`);
             }
