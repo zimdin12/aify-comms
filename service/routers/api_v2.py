@@ -3707,6 +3707,26 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 _HANDOFF_REPLY_TYPES = {"response", "review", "error", "approval"}
 
 
+async def _mark_dispatch_run_answered(db, run_id: str, reply_message_id: str, current_status: str = ""):
+    status = str(current_status or "").strip().lower()
+    if status == "delivered":
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET result_message_id = ?,
+                status = 'completed',
+                finished_at = COALESCE(finished_at, ?)
+            WHERE id = ?
+            """,
+            (reply_message_id, _now(), run_id),
+        )
+        return
+    await db.execute(
+        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
+        (reply_message_id, run_id),
+    )
+
+
 async def _link_reply_message_to_dispatch_run(
     db,
     *,
@@ -3738,10 +3758,7 @@ async def _link_reply_message_to_dispatch_run(
             return False
 
     current_status = str(replied_run["status"] or "").strip().lower()
-    await db.execute(
-        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-        (reply_message_id, replied_run["id"]),
-    )
+    await _mark_dispatch_run_answered(db, replied_run["id"], reply_message_id, current_status)
     await db.execute(
         """
         INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at)
@@ -3806,10 +3823,7 @@ async def _close_steered_contracts_for_parent_run(
     rows = await cursor.fetchall()
     closed = 0
     for row in rows:
-        await db.execute(
-            "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-            (result_message_id, row["id"]),
-        )
+        await _mark_dispatch_run_answered(db, row["id"], result_message_id, "delivered")
         await _append_dispatch_event(
             db,
             row["id"],
@@ -3867,10 +3881,7 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         if not _is_replaceable_auto_handoff_message(existing_message, replied_run):
             return False
 
-    await db.execute(
-        "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
-        (reply_message_id, replied_run["id"]),
-    )
+    await _mark_dispatch_run_answered(db, replied_run["id"], reply_message_id, str(replied_run["status"] or ""))
     await _append_dispatch_event(
         db,
         replied_run["id"],
@@ -8132,10 +8143,55 @@ async def get_dispatch_run(run_id: str, request: Request):
         await db.close()
 
 
+async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hours: int = 24) -> list[dict[str, str]]:
+    cursor = await db.execute(
+        """
+        SELECT id, result_message_id, require_reply, requested_at
+        FROM dispatch_runs
+        WHERE status = 'delivered'
+          AND COALESCE(finished_at, '') = ''
+          AND (
+            COALESCE(result_message_id, '') != ''
+            OR (
+              require_reply = 0
+              AND datetime(requested_at) <= datetime('now', ?)
+            )
+          )
+        ORDER BY requested_at ASC
+        LIMIT ?
+        """,
+        (f"-{max(1, int(stale_hours or 24))} hours", limit),
+    )
+    rows = await cursor.fetchall()
+    now = _now()
+    closed: list[dict[str, str]] = []
+    for row in rows:
+        run_id = str(row["id"] or "").strip()
+        if not run_id:
+            continue
+        has_result = bool(str(row["result_message_id"] or "").strip())
+        reason = "result_linked" if has_result else "stale_delivery_no_reply_required"
+        summary = "Closed delivered run after result reply was linked." if has_result else "Closed stale delivered run that did not require a reply."
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'completed',
+                summary = CASE WHEN COALESCE(summary, '') = '' THEN ? ELSE summary END,
+                finished_at = COALESCE(finished_at, ?)
+            WHERE id = ? AND status = 'delivered'
+            """,
+            (summary, now, run_id),
+        )
+        await _append_dispatch_event(db, run_id, "reconciled", summary)
+        closed.append({"runId": run_id, "reason": reason})
+    return closed
+
+
 @router.post("/dispatch/handoffs/repair")
 async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=1, le=500)):
     db = await get_db()
     try:
+        closed_delivered = await _close_reconcilable_delivered_runs(db, limit=limit)
         cursor = await db.execute(
             """
             SELECT *
@@ -8146,7 +8202,7 @@ async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=
             ORDER BY requested_at ASC
             LIMIT ?
             """,
-            (limit,),
+            (max(1, limit - len(closed_delivered)),),
         )
         rows = await cursor.fetchall()
         mirrored = []
@@ -8183,19 +8239,21 @@ async def repair_dispatch_handoffs(request: Request, limit: int = Query(100, ge=
 
         await db.commit()
         ws = await _get_ws(request)
-        if ws and (mirrored or dashboard_reports):
+        if ws and (mirrored or dashboard_reports or closed_delivered):
             await ws.broadcast(
                 "dispatch_handoffs_repaired",
-                {"mirrored": len(mirrored), "dashboardReports": len(dashboard_reports)},
+                {"mirrored": len(mirrored), "dashboardReports": len(dashboard_reports), "closedDelivered": len(closed_delivered)},
             )
         return {
             "ok": True,
             "mirrored": len(mirrored),
             "dashboardReports": len(dashboard_reports),
+            "closedDelivered": len(closed_delivered),
             "skippedDeliveryOnly": skipped_delivery_only,
             "skipped": skipped,
             "runs": mirrored,
             "reports": dashboard_reports,
+            "closed": closed_delivered,
         }
     finally:
         await db.close()

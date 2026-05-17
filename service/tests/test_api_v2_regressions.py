@@ -1968,6 +1968,24 @@ class ApiV2RegressionTests(unittest.TestCase):
         receipt = self._fetchone("SELECT message_id FROM read_receipts WHERE message_id = ? AND agent_id = ?", (payload["messageId"], "console-agent"))
         self.assertEqual(receipt["message_id"], payload["messageId"])
 
+        reply = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "console-agent",
+                "to": "dashboard",
+                "type": "response",
+                "subject": "Re: console chat",
+                "body": "answered from console",
+                "inReplyTo": payload["messageId"],
+                "trigger": False,
+            },
+        )
+        self.assertEqual(reply.status_code, 200, reply.text)
+        closed_contract = self._fetchone("SELECT status, result_message_id, finished_at FROM dispatch_runs WHERE id = ?", (contract["id"],))
+        self.assertEqual(closed_contract["status"], "completed")
+        self.assertTrue(closed_contract["result_message_id"])
+        self.assertTrue(closed_contract["finished_at"])
+
     def test_message_send_starts_managed_pty_for_hermes_when_console_is_closed(self):
         session_id = self._create_running_session(
             agent_id="hermes-pty-agent",
@@ -5064,6 +5082,44 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(inbox.status_code, 200, inbox.text)
         message = inbox.json()["messages"][0]
         self.assertEqual(message["body"], "ready for review")
+
+
+    def test_repair_handoffs_closes_delivered_runs_with_results_and_stale_no_reply_contracts(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO messages (
+                id, from_agent, to_agent, source, type, subject, body, priority,
+                dispatch_requested, in_reply_to, timestamp
+            ) VALUES
+                ('source-msg', 'lead', 'coder', 'direct', 'request', 'work', 'do it', 'normal', 1, NULL, 1000),
+                ('result-msg', 'coder', 'lead', 'direct', 'response', 'done', 'done', 'normal', 0, 'source-msg', 2000)
+            """
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply,
+                requested_at, result_message_id
+            ) VALUES
+                ('delivered-with-result', 'source-msg', 'lead', 'coder', 'terminal', 'managed',
+                 'request', 'work', 'do it', 'normal', 'delivered', 1, '2026-01-01T00:00:00Z', 'result-msg'),
+                ('stale-no-reply-needed', NULL, 'lead', 'coder', 'steer', 'managed',
+                 'info', 'note', 'FYI', 'normal', 'delivered', 0, '2026-01-01T00:00:00Z', '')
+            """
+        )
+
+        repair = self.client.post("/api/v1/dispatch/handoffs/repair")
+        self.assertEqual(repair.status_code, 200, repair.text)
+        self.assertEqual(repair.json()["closedDelivered"], 2)
+
+        rows = self._fetchall(
+            "SELECT id, status, finished_at FROM dispatch_runs WHERE id IN ('delivered-with-result','stale-no-reply-needed') ORDER BY id"
+        )
+        self.assertEqual([row["status"] for row in rows], ["completed", "completed"])
+        self.assertTrue(all(row["finished_at"] for row in rows))
 
     def test_claude_delivery_only_runs_do_not_count_as_pending_handoffs(self):
         self._register("lead", runtime="codex", sessionMode="managed")
