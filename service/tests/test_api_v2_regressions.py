@@ -1556,6 +1556,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         runtime: str = "codex",
         terminal_runtimes: list[str] | None = None,
         session_handle: str = "thread-1",
+        role: str = "coder",
     ):
         self._heartbeat_environment(
             terminal=terminal,
@@ -1575,7 +1576,7 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "createdBy": "dashboard",
                 "environmentId": "linux:test-host:default",
                 "agentId": agent_id,
-                "role": "coder",
+                "role": role,
                 "runtime": runtime,
                 "workspace": workspace,
             },
@@ -1959,7 +1960,7 @@ class ApiV2RegressionTests(unittest.TestCase):
                 self.assertIsNone(injected)
 
     def test_managed_claude_dispatch_uses_channel_not_headless_pty(self):
-        self._create_running_session(
+        session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
             terminal_runtimes=["claude-code"],
@@ -1987,6 +1988,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(contract["dispatch_mode"], "start_if_possible")
         self.assertEqual(contract["execution_mode"], "channel")
         self.assertEqual(contract["require_reply"], 1)
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertTrue(session["terminal_id"])
+        self.assertEqual(session["terminal_status"], "starting")
+        controls = self._fetchall(
+            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
+            (session["terminal_id"],),
+        )
+        self.assertEqual([row["action"] for row in controls], ["start"])
+        self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn("--resume claude-session-1", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
     def test_managed_claude_channel_claim_sets_runtime_and_execution_mode(self):
@@ -2214,6 +2226,50 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(contract["require_reply"], 1)
         injected = self._fetchone("SELECT id FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
         self.assertIsNone(injected)
+
+    def test_message_send_to_managed_claude_starts_channel_pty_without_terminal_input(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "console-agent",
+                "type": "request",
+                "subject": "claude chat",
+                "body": "answer through channel",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        payload = sent.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["consoleDeliveries"], [])
+        self.assertTrue(payload["dispatchRuns"], payload)
+        run_id = payload["dispatchRuns"][0]["runId"]
+        contract = self._fetchone(
+            "SELECT status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
+            (run_id,),
+        )
+        self.assertEqual(contract["status"], "queued")
+        self.assertEqual(contract["dispatch_mode"], "start_if_possible")
+        self.assertEqual(contract["execution_mode"], "channel")
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertTrue(session["terminal_id"])
+        self.assertEqual(session["terminal_status"], "starting")
+        controls = self._fetchall(
+            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
+            (session["terminal_id"],),
+        )
+        self.assertEqual([row["action"] for row in controls], ["start"])
+        self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
     def test_reply_to_running_channel_run_completes_it(self):
         self._create_running_session(
@@ -2652,7 +2708,13 @@ class ApiV2RegressionTests(unittest.TestCase):
 
     def test_dispatch_claim_includes_scoped_direct_conversation_context(self):
         self._register("dashboard", role="manager")
-        self._register("worker", runtime="claude-code", sessionMode="managed", launchMode="managed")
+        self._create_running_session(
+            agent_id="worker",
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
         self._register("other", role="coder")
 
         self._send_message(
@@ -2690,7 +2752,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         claim = self.client.post(
             "/api/v1/dispatch/claim",
-            json={"agentId": "worker", "bridgeId": "channel-win32:test-host", "machineId": "win32:test-host", "executionModes": ["channel"]},
+            json={"agentId": "worker", "bridgeId": "channel-linux:test-host", "machineId": "linux:test-host", "executionModes": ["channel"]},
         )
         self.assertEqual(claim.status_code, 200, claim.text)
         run = claim.json()["run"]
@@ -3968,7 +4030,14 @@ class ApiV2RegressionTests(unittest.TestCase):
 
     def test_unsending_queued_message_cancels_attached_dispatch_run(self):
         self._register("lead", runtime="codex", sessionMode="managed")
-        self._register("manager", role="manager", runtime="claude-code", sessionMode="managed")
+        self._create_running_session(
+            agent_id="manager",
+            role="manager",
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
 
         active = self._dispatch(
             from_agent="dashboard",
@@ -4559,7 +4628,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("dashboard",)))
 
     def test_async_manager_summary_is_reported_to_dashboard_chat(self):
-        self._register("manager", role="manager", runtime="claude-code", sessionMode="managed")
+        self._create_running_session(
+            agent_id="manager",
+            role="manager",
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
         self._register("coder", runtime="codex", sessionMode="managed")
 
         sent = self._send_message(
@@ -4604,7 +4680,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(count["c"], 1)
 
     def test_async_manager_summary_does_not_duplicate_explicit_dashboard_reply(self):
-        self._register("manager", role="manager", runtime="claude-code", sessionMode="managed")
+        self._create_running_session(
+            agent_id="manager",
+            role="manager",
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
         self._register("coder", runtime="codex", sessionMode="managed")
 
         sent = self._send_message(
@@ -4711,7 +4794,14 @@ class ApiV2RegressionTests(unittest.TestCase):
     def test_normal_send_to_busy_non_steerable_target_queues_as_fallback(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("qa", runtime="codex", sessionMode="managed")
-        self._register("manager", role="manager", runtime="claude-code", sessionMode="managed")
+        self._create_running_session(
+            agent_id="manager",
+            role="manager",
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
 
         active = self._dispatch(
             from_agent="dashboard",

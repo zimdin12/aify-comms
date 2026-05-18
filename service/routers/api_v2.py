@@ -7255,6 +7255,7 @@ async def send_message(req: MessageSend, request: Request):
                 }
             if not bool(req.queueIfBusy):
                 settings = await _load_settings(db)
+                channel_backing_failed = set()
                 for recipient_id, _execution_mode in launchable_recipients:
                     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))).fetchone()
                     if row:
@@ -7262,12 +7263,31 @@ async def send_message(req: MessageSend, request: Request):
                     if not row:
                         continue
                     runtime = _normalize_runtime(row["runtime"] or "generic")
-                    # Native-managed and channel-managed runtimes deliver via
-                    # a plain dispatch_run — never divert them into a managed
-                    # PTY / terminal-input, even when a Console is explicitly
-                    # open. Console is a view/manual input surface, not the
-                    # normal message delivery path.
-                    if runtime in _NATIVE_MANAGED_RUNTIMES or runtime in _CHANNEL_MANAGED_RUNTIMES:
+                    # Native-managed runtimes deliver via the bridge's native
+                    # adapter from a plain dispatch_run.
+                    if runtime in _NATIVE_MANAGED_RUNTIMES:
+                        continue
+                    # Claude managed delivery is also a plain dispatch_run,
+                    # but it needs a live Claude PTY/channel backing so the
+                    # channel sidecar can claim it. Start/reuse that PTY
+                    # WITHOUT injecting the message as terminal input.
+                    if runtime in _CHANNEL_MANAGED_RUNTIMES and _execution_mode == "channel":
+                        channel_terminal = await _ensure_managed_pty_for_dispatch(
+                            db,
+                            recipient_id,
+                            runtime=runtime,
+                            settings=settings,
+                            requested_by=req.from_agent,
+                        )
+                        if not channel_terminal:
+                            not_started.append(
+                                _dispatch_fix_hint(
+                                    recipient_id,
+                                    row,
+                                    "Claude channel backing PTY is unavailable; restart the environment bridge or recover the session.",
+                                )
+                            )
+                            channel_backing_failed.add(recipient_id)
                         continue
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
@@ -7283,8 +7303,30 @@ async def send_message(req: MessageSend, request: Request):
                 launchable_recipients = [
                     (recipient_id, execution_mode)
                     for recipient_id, execution_mode in launchable_recipients
-                    if recipient_id not in console_recipients
+                    if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
                 ]
+                if not_started:
+                    recipient_info = {}
+                    for r in recipients:
+                        info = await _get_recipient_info(db, r)
+                        if info:
+                            recipient_info[r] = {
+                                "status": info["status"],
+                                "unread": info["unread"],
+                                "runtime": info["runtime"],
+                                "machineId": info["machineId"],
+                            }
+                    await db.commit()
+                    return {
+                        "ok": False,
+                        "error": "Message was not sent because one or more recipients cannot start live work now.",
+                        "recipients": recipients,
+                        "recipientStatus": recipient_info,
+                        "dispatchRuns": [],
+                        "notStarted": not_started,
+                        "consoleDeliveries": [],
+                        "warnings": warnings,
+                    }
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
@@ -7869,15 +7911,29 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 runtime = _normalize_runtime(row["runtime"] or "generic")
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
-                elif runtime in _NATIVE_MANAGED_RUNTIMES or runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    # Native-managed and channel-managed runtimes deliver via
-                    # a plain dispatch_run; never divert to a managed PTY /
-                    # terminal-input. Still enforce the managed-environment
-                    # gate: channel/native delivery cannot reach an offline
-                    # environment any more than a PTY can.
+                elif runtime in _NATIVE_MANAGED_RUNTIMES:
+                    # Native-managed runtimes deliver via a plain dispatch_run
+                    # claimed by the bridge's native adapter.
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode:
                         reason = await _managed_environment_unavailable_reason(db, row)
+                elif runtime in _CHANNEL_MANAGED_RUNTIMES:
+                    # Claude managed delivery is channel-based, not terminal
+                    # input. It still needs the managed Claude PTY/channel
+                    # backing alive so the channel bridge can claim the run.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                    if not reason and execution_mode:
+                        reason = await _managed_environment_unavailable_reason(db, row)
+                    if not reason and execution_mode == "channel":
+                        channel_terminal = await _ensure_managed_pty_for_dispatch(
+                            db,
+                            recipient_id,
+                            runtime=runtime,
+                            settings=settings,
+                            requested_by=req.from_agent,
+                        )
+                        if not channel_terminal:
+                            reason = "Claude channel backing PTY is unavailable; restart the environment bridge or recover the session."
                 else:
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
