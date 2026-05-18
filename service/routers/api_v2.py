@@ -2963,6 +2963,22 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
         requested_by=requested_by or "dashboard",
         body=command,
     )
+    if normalized_runtime == "claude-code":
+        await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=session["environment_id"],
+            bridge_id=bridge_id,
+            action="input",
+            requested_by=requested_by or "dashboard",
+            body="\r",
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "managed_pty_channel_prompt_confirm_requested",
+            json.dumps({"requestedBy": requested_by or "dashboard", "reason": "confirm Claude development channel prompt"}),
+        )
     await db.execute(
         """
         UPDATE agent_sessions
@@ -2980,7 +2996,7 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
     return await _active_terminal_for_agent(db, agent_id, settings=settings)
 
 
-def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str) -> str:
+def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str, bracketed_paste: bool = True) -> str:
     subject = str(req.subject or "").strip()
     body = str(req.body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     message = "\n".join(
@@ -2997,7 +3013,9 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
             "Reply in the dashboard when appropriate, using the available aify-comms tools.",
         ] if part != ""
     )
-    return f"\x1b[200~{message}\x1b[201~\r"
+    if bracketed_paste:
+        return f"\x1b[200~{message}\x1b[201~\r"
+    return f"{message}\r"
 
 
 async def _append_dispatch_control(
@@ -3036,15 +3054,16 @@ async def _record_terminal_delivery_contract(
     require_reply: bool,
     terminal_id: str,
     control_id: str,
+    runtime: str = "",
 ) -> str:
     run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     requested_at = _now()
     await db.execute(
         """
         INSERT INTO dispatch_runs (
-            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime,
+            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime, runtime,
             message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             run_id,
@@ -3054,6 +3073,7 @@ async def _record_terminal_delivery_contract(
             "terminal",
             "managed",
             "",
+            _normalize_runtime(runtime or ""),
             message_type,
             subject,
             body,
@@ -7310,27 +7330,37 @@ async def send_message(req: MessageSend, request: Request):
                     # adapter from a plain dispatch_run.
                     if runtime in _NATIVE_MANAGED_RUNTIMES:
                         continue
-                    # Claude managed delivery is also a plain dispatch_run,
-                    # but it needs a live Claude PTY/channel backing so the
-                    # channel sidecar can claim it. Start/reuse that PTY
-                    # WITHOUT injecting the message as terminal input.
+                    # Claude channel notifications are visible in Claude Code,
+                    # but do not create a reliable model turn. Managed Claude
+                    # dashboard chat therefore uses the claude-aify PTY backing
+                    # as the single visible session and injects the formatted
+                    # dashboard message there.
                     if runtime in _CHANNEL_MANAGED_RUNTIMES and _execution_mode == "channel":
-                        channel_terminal = await _ensure_managed_pty_for_dispatch(
-                            db,
-                            recipient_id,
-                            runtime=runtime,
-                            settings=settings,
-                            requested_by=req.from_agent,
-                        )
-                        if not channel_terminal:
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        if console_terminal:
+                            console_recipients[recipient_id] = console_terminal
+                        else:
                             not_started.append(
                                 _dispatch_fix_hint(
                                     recipient_id,
                                     row,
-                                    "Claude channel backing PTY is unavailable; restart the environment bridge or recover the session.",
+                                    "Claude claude-aify backing PTY is unavailable; restart the environment bridge or recover the session.",
                                 )
                             )
                             channel_backing_failed.add(recipient_id)
+                        continue
+                    if runtime in _CHANNEL_MANAGED_RUNTIMES:
+                        # Resident Claude channel sessions are still claimed
+                        # by the Claude channel bridge; only managed Claude
+                        # dashboard sends need the PTY turn path above.
                         continue
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
@@ -7438,6 +7468,7 @@ async def send_message(req: MessageSend, request: Request):
             for recipient_id, terminal in console_recipients.items():
                 terminal_id = str(terminal["terminal_id"] or "").strip()
                 recipient_message_id = source_message_ids.get(recipient_id, msg_id)
+                terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
                 control_id = await _append_terminal_control(
                     db,
                     terminal_id=terminal_id,
@@ -7445,13 +7476,35 @@ async def send_message(req: MessageSend, request: Request):
                     bridge_id=terminal["bridge_id"] or "",
                     action="input",
                     requested_by=req.from_agent,
-                    body=_console_dispatch_input_body(req, recipient_id=recipient_id, message_id=recipient_message_id),
+                    body=_console_dispatch_input_body(
+                        req,
+                        recipient_id=recipient_id,
+                        message_id=recipient_message_id,
+                        bracketed_paste=terminal_runtime != "claude-code",
+                    ),
                 )
+                submit_control_id = ""
+                if terminal_runtime == "claude-code":
+                    submit_control_id = await _append_terminal_control(
+                        db,
+                        terminal_id=terminal_id,
+                        environment_id=terminal["environment_id"],
+                        bridge_id=terminal["bridge_id"] or "",
+                        action="input",
+                        requested_by=req.from_agent,
+                        body="\r",
+                    )
                 await _append_terminal_event(
                     db,
                     terminal_id,
                     "terminal_input_requested",
-                    json.dumps({"requestedBy": req.from_agent, "controlId": control_id, "source": "message_send", "messageId": recipient_message_id}),
+                    json.dumps({
+                        "requestedBy": req.from_agent,
+                        "controlId": control_id,
+                        "submitControlId": submit_control_id,
+                        "source": "message_send",
+                        "messageId": recipient_message_id,
+                    }),
                 )
                 contract_run_id = await _record_terminal_delivery_contract(
                     db,
@@ -7466,6 +7519,7 @@ async def send_message(req: MessageSend, request: Request):
                     require_reply=_dispatch_requires_reply(req.requireReply, default=req.type != "response"),
                     terminal_id=terminal_id,
                     control_id=control_id,
+                    runtime=terminal["runtime"] or "",
                 )
                 console_deliveries.append({
                     "targetAgentId": recipient_id,
@@ -7961,22 +8015,26 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     if not reason and execution_mode:
                         reason = await _managed_environment_unavailable_reason(db, row)
                 elif runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    # Claude managed delivery is channel-based, not terminal
-                    # input. It still needs the managed Claude PTY/channel
-                    # backing alive so the channel bridge can claim the run.
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
-                    if not reason and execution_mode:
+                    if not reason and execution_mode == "channel":
                         reason = await _managed_environment_unavailable_reason(db, row)
                     if not reason and execution_mode == "channel":
-                        channel_terminal = await _ensure_managed_pty_for_dispatch(
-                            db,
-                            recipient_id,
-                            runtime=runtime,
-                            settings=settings,
-                            requested_by=req.from_agent,
-                        )
-                        if not channel_terminal:
-                            reason = "Claude channel backing PTY is unavailable; restart the environment bridge or recover the session."
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        if console_terminal:
+                            console_recipients[recipient_id] = console_terminal
+                            execution_mode = None
+                        else:
+                            reason = "Claude claude-aify backing PTY is unavailable; restart the environment bridge or recover the session."
+                    elif reason:
+                        execution_mode = None
                 else:
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
@@ -8059,6 +8117,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
         for recipient_id, terminal in console_recipients.items():
             terminal_id = str(terminal["terminal_id"] or "").strip()
             recipient_message_id = source_message_ids.get(recipient_id, message_id)
+            terminal_runtime = _normalize_runtime(terminal["runtime"] or "")
             control_id = await _append_terminal_control(
                 db,
                 terminal_id=terminal_id,
@@ -8066,13 +8125,35 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 bridge_id=terminal["bridge_id"] or "",
                 action="input",
                 requested_by=req.from_agent,
-                body=_console_dispatch_input_body(req, recipient_id=recipient_id, message_id=recipient_message_id),
+                body=_console_dispatch_input_body(
+                    req,
+                    recipient_id=recipient_id,
+                    message_id=recipient_message_id,
+                    bracketed_paste=terminal_runtime != "claude-code",
+                ),
             )
+            submit_control_id = ""
+            if terminal_runtime == "claude-code":
+                submit_control_id = await _append_terminal_control(
+                    db,
+                    terminal_id=terminal_id,
+                    environment_id=terminal["environment_id"],
+                    bridge_id=terminal["bridge_id"] or "",
+                    action="input",
+                    requested_by=req.from_agent,
+                    body="\r",
+                )
             await _append_terminal_event(
                 db,
                 terminal_id,
                 "terminal_input_requested",
-                json.dumps({"requestedBy": req.from_agent, "controlId": control_id, "source": "dispatch", "messageId": recipient_message_id}),
+                json.dumps({
+                    "requestedBy": req.from_agent,
+                    "controlId": control_id,
+                    "submitControlId": submit_control_id,
+                    "source": "dispatch",
+                    "messageId": recipient_message_id,
+                }),
             )
             contract_run_id = await _record_terminal_delivery_contract(
                 db,
@@ -8087,6 +8168,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 require_reply=_dispatch_requires_reply(req.requireReply, default=True),
                 terminal_id=terminal_id,
                 control_id=control_id,
+                runtime=terminal["runtime"] or "",
             )
             console_deliveries.append({
                 "targetAgentId": recipient_id,

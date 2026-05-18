@@ -1141,6 +1141,40 @@ async function updateTerminalControl(controlId, body) {
   return httpCall("PATCH", `/terminals/controls/${encodeURIComponent(controlId)}`, body);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function looksLikeClaudeDevelopmentChannelPrompt(text = "") {
+  const compact = String(text || "").replace(/\s+/g, " ").toLowerCase();
+  return compact.includes("loading development channels") || compact.includes("enter to confirm");
+}
+
+async function waitForTerminalOutput(terminalId, predicate, { timeoutMs = 8000, intervalMs = 100 } = {}) {
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 8000);
+  while (Date.now() < deadline) {
+    const state = TERMINAL_MANAGER.stateFor(terminalId);
+    if (!state) return false;
+    if (predicate(state.outputTail || "")) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
+async function prepareClaudeTerminalInput(terminalId, rawBody) {
+  const state = TERMINAL_MANAGER.stateFor(terminalId);
+  if (normalizeRuntime(state?.runtime || "") !== "claude-code") return;
+  const body = String(rawBody || "");
+  if (body === "\r" || body === "\n") {
+    await waitForTerminalOutput(terminalId, looksLikeClaudeDevelopmentChannelPrompt);
+    return;
+  }
+  if (looksLikeClaudeDevelopmentChannelPrompt(state?.outputTail || "")) {
+    TERMINAL_MANAGER.input(terminalId, "\r");
+    await sleep(2500);
+  }
+}
+
 function extractTerminalSessionHandle(runtime = "", command = "") {
   return extractRuntimeSessionHandleFromCommand(runtime, command);
 }
@@ -1193,8 +1227,12 @@ async function runTerminalControlLoop() {
           // raw-console path already appends \r, so only add one when the
           // body is non-empty and not already \r/\n-terminated.
           const rawBody = String(control.body || "");
+          await prepareClaudeTerminalInput(terminalId, rawBody);
           const submitBody = (rawBody && !/[\r\n]$/.test(rawBody)) ? `${rawBody}\r` : rawBody;
           TERMINAL_MANAGER.input(terminalId, submitBody);
+          if (normalizeRuntime(TERMINAL_MANAGER.stateFor(terminalId)?.runtime || "") === "claude-code" && (rawBody === "\r" || rawBody === "\n")) {
+            await sleep(2500);
+          }
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
         } else if (control.action === "resize") {
           TERMINAL_MANAGER.resize(terminalId, control.cols || 0, control.rows || 0);

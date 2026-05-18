@@ -119,6 +119,18 @@ export class TerminalProcessManager {
     return this.terminals.has(id);
   }
 
+  stateFor(id) {
+    const state = this.terminals.get(id);
+    if (!state) return null;
+    return {
+      id: state.id,
+      runtime: state.runtime,
+      status: state.status,
+      command: state.command,
+      outputTail: state.outputTail || "",
+    };
+  }
+
   emitOutputForTest(id, text) {
     return this._handleOutput(id, { runtime: "" }, text);
   }
