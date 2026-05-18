@@ -5215,8 +5215,9 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
         # it (this is the decouple principle, not raw PTY). Resume for context.
         parts = [
             "claude",
-            "--dangerously-load-development-channels",
             "--channels",
+            "server:aify-comms-channel",
+            "--dangerously-load-development-channels",
             "server:aify-comms-channel",
             "--dangerously-skip-permissions",
         ]

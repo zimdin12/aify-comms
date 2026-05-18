@@ -158,7 +158,7 @@ if [ "\$CLAUDE_AUTO" = true ]; then
   CLAUDE_PERMISSION_FLAGS+=(--dangerously-skip-permissions)
 fi
 
-claude --dangerously-load-development-channels --channels server:aify-comms-channel "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
+claude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?
 exit "\$STATUS"
 EOF

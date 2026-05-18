@@ -2008,7 +2008,10 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn("claude --dangerously-load-development-channels --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn(
+            "claude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel",
+            controls[0]["body"],
+        )
         self.assertIn("--resume claude-session-1", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
@@ -2279,7 +2282,10 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn("claude --dangerously-load-development-channels --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn(
+            "claude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel",
+            controls[0]["body"],
+        )
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
     def test_reply_to_delivered_channel_run_completes_it_without_working_status(self):
