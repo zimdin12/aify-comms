@@ -23,7 +23,7 @@ This guide is for coding agents working on `aify-comms`.
 | Stdio bridge | `mcp/stdio/server.js` | MCP tools, resident wake, environment-backed managed sessions, environment heartbeat/control loops |
 | Runtime adapters | `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt behavior |
 | Skills | `.agents/skills`, `.claude/skills` | Agent-facing instructions for Codex and Claude Code |
-| Install docs | `install.codex.md`, `install.claude.md`, `install.opencode.md` | Runtime-specific setup |
+| Install docs | `install.codex.md`, `install.claude.md`, `install.hermes.md`, `install.opencode.md`, `install.pi.md` | Runtime-specific setup |
 
 ## Development Loop
 

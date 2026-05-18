@@ -677,13 +677,21 @@ tr:hover{background:#1b1f21}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
 .table-wrap{width:100%;max-width:100%;overflow:visible}
 .sessions-grid{table-layout:fixed}
-.sessions-grid th:nth-child(1),.sessions-grid td:nth-child(1){width:19%}
-.sessions-grid th:nth-child(2),.sessions-grid td:nth-child(2){width:13%}
-.sessions-grid th:nth-child(3),.sessions-grid td:nth-child(3){width:29%}
-.sessions-grid th:nth-child(4),.sessions-grid td:nth-child(4){width:10%}
-.sessions-grid th:nth-child(5),.sessions-grid td:nth-child(5){width:17%}
-.sessions-grid th:nth-child(6),.sessions-grid td:nth-child(6){width:12%}
-.sessions-grid th:nth-child(7),.sessions-grid td:nth-child(7){width:118px}
+.sessions-grid th:nth-child(1),.sessions-grid td:nth-child(1){width:38px}
+.sessions-grid th:nth-child(2),.sessions-grid td:nth-child(2){width:18%}
+.sessions-grid th:nth-child(3),.sessions-grid td:nth-child(3){width:12%}
+.sessions-grid th:nth-child(4),.sessions-grid td:nth-child(4){width:27%}
+.sessions-grid th:nth-child(5),.sessions-grid td:nth-child(5){width:10%}
+.sessions-grid th:nth-child(6),.sessions-grid td:nth-child(6){width:16%}
+.sessions-grid th:nth-child(7),.sessions-grid td:nth-child(7){width:12%}
+.sessions-grid th:nth-child(8),.sessions-grid td:nth-child(8){width:118px}
+.session-select-col{text-align:center;padding-left:8px!important;padding-right:8px!important}
+.session-select-col input{width:16px;height:16px;accent-color:var(--secondary);cursor:pointer}
+.session-batch-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px #00000018}
+.session-batch-main,.session-batch-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.session-batch-count{color:var(--muted);font-size:.82em}
+.small-check{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.82em;white-space:nowrap}
+.small-check input{accent-color:var(--secondary)}
 .compact-table{table-layout:fixed}
 .compact-table td,.compact-table th{overflow:hidden}
 @media (max-width:1100px){.analytics-layout{grid-template-columns:1fr}.analytics-wide{grid-column:auto}}
@@ -5991,9 +5999,114 @@ function renderSessionStats(sessions, visibleSessions = sessions) {
     `<div class="sc"><div class="n">${runtimes.size}</div><div class="l">Runtimes</div></div>`;
 }
 
+function selectedSessionSet() {
+  if (!window._selectedSessionIds) window._selectedSessionIds = new Set();
+  return window._selectedSessionIds;
+}
+
+function sessionCanStop(session) {
+  const status = String(session?.status || '').toLowerCase();
+  return !!session?.id && !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
+}
+
+function sessionCanDelete(session) {
+  const status = String(session?.status || '').toLowerCase();
+  return !!session?.id && DELETABLE_SESSION_STATUSES.has(status);
+}
+
+function pruneSelectedSessions(sessions) {
+  const liveIds = new Set((sessions || []).map(session => session.id).filter(Boolean));
+  for (const sessionId of selectedSessionSet()) {
+    if (!liveIds.has(sessionId)) selectedSessionSet().delete(sessionId);
+  }
+}
+
+function currentVisibleSessions() {
+  const sessions = window._sessions || [];
+  return sessionDisplayOrder(showEndedSessions() ? sessions : sessions.filter(session => !isQuietSession(session)));
+}
+
+function visibleSelectedSessions(sessions = currentVisibleSessions()) {
+  const selected = selectedSessionSet();
+  return (sessions || []).filter(session => selected.has(session.id));
+}
+
+function setSessionSelected(sessionId, checked) {
+  if (!sessionId) return;
+  const selected = selectedSessionSet();
+  if (checked) selected.add(sessionId);
+  else selected.delete(sessionId);
+  renderSessions(window._sessions || []);
+}
+
+function clearSessionSelection() {
+  selectedSessionSet().clear();
+  renderSessions(window._sessions || []);
+}
+
+function selectSessionsByPredicate(predicate) {
+  const visibleSessions = currentVisibleSessions();
+  const selected = selectedSessionSet();
+  selected.clear();
+  visibleSessions.filter(predicate).forEach(session => selected.add(session.id));
+  renderSessions(window._sessions || []);
+}
+
+function selectStoppableSessions() {
+  selectSessionsByPredicate(sessionCanStop);
+}
+
+function selectDeletableSessions() {
+  selectSessionsByPredicate(sessionCanDelete);
+}
+
+function toggleVisibleSessionSelection(checked) {
+  const visibleSessions = currentVisibleSessions();
+  const selected = selectedSessionSet();
+  visibleSessions.forEach(session => {
+    if (checked) selected.add(session.id);
+    else selected.delete(session.id);
+  });
+  renderSessions(window._sessions || []);
+}
+
+function toggleSessionGroupSelection(environmentId, checked) {
+  const selected = selectedSessionSet();
+  const visibleSessions = currentVisibleSessions();
+  visibleSessions
+    .filter(session => (session.environmentId || 'unassigned') === environmentId)
+    .forEach(session => {
+      if (checked) selected.add(session.id);
+      else selected.delete(session.id);
+    });
+  renderSessions(window._sessions || []);
+}
+
+function sessionBatchToolbar(visibleSessions) {
+  const selectedSessions = visibleSelectedSessions(visibleSessions);
+  const selectedCount = selectedSessions.length;
+  const stoppableCount = selectedSessions.filter(sessionCanStop).length;
+  const deletableCount = selectedSessions.filter(sessionCanDelete).length;
+  const allVisibleSelected = visibleSessions.length > 0 && visibleSessions.every(session => selectedSessionSet().has(session.id));
+  return `<div class="session-batch-bar">` +
+    `<div class="session-batch-main">` +
+      `<label class="small-check"><input type="checkbox" ${allVisibleSelected ? 'checked' : ''} onchange="toggleVisibleSessionSelection(this.checked)"> Select visible</label>` +
+      `<span class="session-batch-count">${selectedCount} selected</span>` +
+      actionButtonFn('Select live', 'Select all visible sessions that can currently be stopped', () => selectStoppableSessions()) +
+      actionButtonFn('Select deletable', 'Select all visible inactive session records that can be deleted', () => selectDeletableSessions()) +
+      actionButtonFn('Clear', 'Clear selected sessions', () => clearSessionSelection()) +
+    `</div>` +
+    `<div class="session-batch-actions">` +
+      (stoppableCount ? actionButtonFn(`Stop selected (${stoppableCount})`, 'Stop selected live sessions using the normal per-session control API', () => batchStopSelectedSessions(), 'btn-danger') : disabledActionButton('Stop selected', 'Select at least one live session to stop', 'btn-danger')) +
+      (deletableCount ? actionButtonFn(`Delete selected (${deletableCount})`, 'Delete selected inactive session records using the normal per-session delete API', () => batchDeleteSelectedSessions(), 'btn-danger') : disabledActionButton('Delete selected', 'Select stopped, failed, lost, ended, completed, or cancelled sessions to delete', 'btn-danger')) +
+    `</div>` +
+  `</div>`;
+}
+
 function renderSessions(sessions) {
   const container = document.getElementById('sessions-table');
   if (!container) return;
+  pruneSelectedSessions(sessions);
   const showEnded = showEndedSessions();
   const toggle = document.getElementById('show-ended-sessions');
   if (toggle) toggle.checked = showEnded;
@@ -6025,16 +6138,17 @@ function renderSessions(sessions) {
     if (labelCmp) return labelCmp;
     return bSessions.length - aSessions.length;
   });
-  let html = '';
+  let html = sessionBatchToolbar(visibleSessions);
   for (const [environmentId, groupSessions] of orderedGroups) {
     const env = envMap.get(environmentId) || {};
     const envStatus = env.status || (environmentId === 'unassigned' ? 'unassigned' : 'unknown');
     const runningCount = groupSessions.filter(session => ['running', 'claimed', 'starting', 'recovering'].includes(String(session.status || '').toLowerCase())).length;
     const issueCount = groupSessions.filter(session => ['failed', 'lost', 'stopped'].includes(String(session.status || '').toLowerCase())).length;
+    const groupSelected = groupSessions.length > 0 && groupSessions.every(session => selectedSessionSet().has(session.id));
     html += `<section class="session-group">` +
       `<div class="session-group-head"><div class="session-group-title"><b class="clip-1"${titleAttr(env.label || environmentId)}>${esc(env.label || environmentId)}</b><span class="clip-1"${titleAttr(environmentId)}>${esc(environmentId)}</span></div>` +
       `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupSessions.length} session${groupSessions.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}</div></div>` +
-      `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
+      `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th class="session-select-col"><input type="checkbox" ${groupSelected ? 'checked' : ''} onchange="toggleSessionGroupSelection(${jsArg(environmentId)}, this.checked)"></th><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
     for (const session of groupSessions) {
       const caps = session.capabilities || {};
       const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
@@ -6044,8 +6158,8 @@ function renderSessions(sessions) {
       const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
       const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
       const sessionStatus = String(session.status || '').toLowerCase();
-      const canStopSession = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(sessionStatus);
-      const canDeleteSession = DELETABLE_SESSION_STATUSES.has(sessionStatus);
+      const canStopSession = sessionCanStop(session);
+      const canDeleteSession = sessionCanDelete(session);
       const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
       const spawnControl = pendingSpawn
         ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
@@ -6064,6 +6178,7 @@ function renderSessions(sessions) {
         canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
       ];
       html += `<tr>` +
+        `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''} onchange="setSessionSelected(${jsArg(session.id)}, this.checked)"></td>` +
         `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
         `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
         `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
@@ -6398,6 +6513,23 @@ async function controlSession(sessionId, action) {
   }
 }
 
+async function requestSessionControl(session, action, body, subject) {
+  const sessionId = session?.id || '';
+  const response = await apiFetch(API + `/sessions/${encodeURIComponent(sessionId)}/control`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action,
+      from_agent: 'dashboard',
+      subject: subject || `${action} ${session?.agentId || sessionId}`,
+      body: body || '',
+    }),
+  });
+  const res = await response.json();
+  if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || `${action} failed`);
+  return res;
+}
+
 async function deleteSessionRecord(sessionId) {
   const session = (window._sessions || []).find(item => item.id === sessionId) || {};
   const status = String(session.status || '').toLowerCase();
@@ -6415,6 +6547,67 @@ async function deleteSessionRecord(sessionId) {
   } catch (e) {
     toast(e.message || 'Delete session failed', '#f85149');
   }
+}
+
+async function requestDeleteSessionRecord(session) {
+  const sessionId = session?.id || '';
+  const response = await apiFetch(API + `/sessions/${encodeURIComponent(sessionId)}`, {method: 'DELETE'});
+  const res = await response.json();
+  if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Delete session failed');
+  return res;
+}
+
+async function batchStopSelectedSessions() {
+  const sessions = visibleSelectedSessions().filter(sessionCanStop);
+  if (!sessions.length) {
+    toast('Select at least one live session to stop.', '#f85149');
+    return;
+  }
+  const skipped = visibleSelectedSessions().length - sessions.length;
+  const suffix = skipped > 0 ? `\n\n${skipped} selected inactive session${skipped === 1 ? '' : 's'} will be skipped.` : '';
+  if (!confirm(`Stop ${sessions.length} selected session${sessions.length === 1 ? '' : 's'}?${suffix}`)) return;
+  let stopped = 0;
+  const failures = [];
+  for (const session of sessions) {
+    try {
+      await requestSessionControl(
+        session,
+        'stop',
+        'Batch stop requested from the dashboard Sessions view.',
+        `batch stop ${session.agentId || session.id}`,
+      );
+      stopped += 1;
+    } catch (error) {
+      failures.push(`${session.agentId || session.id}: ${error?.message || 'failed'}`);
+    }
+  }
+  sessions.forEach(session => selectedSessionSet().delete(session.id));
+  toast(failures.length ? `Stopped ${stopped}; ${failures.length} failed` : `Stop requested for ${stopped} session${stopped === 1 ? '' : 's'}`, failures.length ? '#f0b429' : undefined);
+  await refreshDashboard();
+}
+
+async function batchDeleteSelectedSessions() {
+  const sessions = visibleSelectedSessions().filter(sessionCanDelete);
+  if (!sessions.length) {
+    toast('Select stopped, failed, lost, ended, completed, or cancelled sessions to delete.', '#f85149');
+    return;
+  }
+  const skipped = visibleSelectedSessions().length - sessions.length;
+  const suffix = skipped > 0 ? `\n\n${skipped} selected live session${skipped === 1 ? '' : 's'} will be skipped.` : '';
+  if (!confirm(`Delete ${sessions.length} selected inactive session record${sessions.length === 1 ? '' : 's'}?\n\nThis removes session rows and terminal output. Agent identities and chat messages stay.${suffix}`)) return;
+  let deleted = 0;
+  const failures = [];
+  for (const session of sessions) {
+    try {
+      await requestDeleteSessionRecord(session);
+      deleted += 1;
+    } catch (error) {
+      failures.push(`${session.agentId || session.id}: ${error?.message || 'failed'}`);
+    }
+  }
+  sessions.forEach(session => selectedSessionSet().delete(session.id));
+  toast(failures.length ? `Deleted ${deleted}; ${failures.length} failed` : `Deleted ${deleted} session record${deleted === 1 ? '' : 's'}`, failures.length ? '#f0b429' : undefined);
+  await refreshDashboard();
 }
 
 // ─── Dashboard ──────────────────────────────
