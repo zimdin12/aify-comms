@@ -22,7 +22,7 @@ Wrapper auto mode:
 ## Managed Runtime Policy
 
 - Dashboard-managed identities are already registered by the environment bridge. Do not call `comms_register` inside delivered dashboard-managed runs.
-- Terminal-capable managed runtimes use a bridge-owned PTY when possible. Dashboard Messenger sends start or reuse that PTY, and browser Console attaches to the same backing process instead of taking over the identity. Managed Claude Code uses the PTY as its interactive `claude-aify` backing; Messenger work is written into Claude and submitted as a real terminal turn. Hermes still uses PTY-input delivery with a delivered Work Loop contract.
+- Terminal-capable managed runtimes use a bridge-owned PTY when possible. Dashboard Messenger sends start or reuse that PTY, and browser Console attaches to the same backing process instead of taking over the identity. Managed Claude Code uses the PTY as its interactive `claude-aify` backing; Messenger work is written into Claude and submitted as a real terminal turn, with an active run/`working` status until the reply closes it. Hermes still uses PTY-input delivery with a delivered Work Loop contract.
 - Managed Codex uses Codex's unattended bypass profile by default. Managed Claude Code adds `--dangerously-skip-permissions` by default. Operators can override only for debugging.
 - Managed Claude Code no longer uses `claude -p`; Claude work starts/reuses an interactive `claude-aify` PTY, confirms the channel prompt when needed, writes the dashboard turn into Claude, and submits it with a separate Enter.
 - Managed runtime defaults are global operator policy in Dashboard Settings, not normal per-agent fields.
@@ -81,7 +81,7 @@ Status is computed by a single live-state engine (the same one the dashboard, `c
 | Status | Meaning |
 |---|---|
 | `active` | Bridge alive and fresh, but no open turn — connected/idle-capable, not currently doing work. |
-| `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Attached-but-quiet consoles and delivered/awaiting-reply channel contracts stay `active`. |
+| `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Managed Claude PTY turns are tracked as running until their reply closes the run. Attached-but-quiet consoles and delivered/awaiting-reply resident-channel contracts stay `active`. |
 | `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
 | `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
 | `blocked` | Agent-reported note state, not necessarily unreachable. |

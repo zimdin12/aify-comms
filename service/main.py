@@ -2,6 +2,7 @@
 aify-comms — Main FastAPI Application (v2 SQLite)
 """
 
+import asyncio
 import hmac
 import json
 import logging
@@ -55,6 +56,48 @@ def _setup_logging(config):
 logger = logging.getLogger(__name__)
 
 
+async def _run_dispatch_reconcile_once() -> dict[str, int]:
+    from service.db import get_db as _get_db
+    from service.routers.api_v2 import (
+        _close_reconcilable_delivered_runs,
+        _prune_terminal_history,
+        _repair_unusable_active_runs,
+    )
+
+    db = await _get_db()
+    try:
+        repaired_active = await _repair_unusable_active_runs(db, limit=500)
+        closed_delivered_total = 0
+        for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass
+            batch = await _close_reconcilable_delivered_runs(db, limit=500)
+            closed_delivered_total += len(batch)
+            if len(batch) < 500:
+                break
+        pruned = await _prune_terminal_history(db)
+        await db.commit()
+        return {
+            "repaired_active": repaired_active,
+            "closed_delivered": closed_delivered_total,
+            **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
+        }
+    finally:
+        await db.close()
+
+
+async def _periodic_dispatch_reconcile() -> None:
+    while True:
+        await asyncio.sleep(60)
+        try:
+            result = await _run_dispatch_reconcile_once()
+            visible = {key: value for key, value in result.items() if value}
+            if visible:
+                logger.info(f"Periodic dispatch reconcile: {visible}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Periodic dispatch reconcile skipped: {e}")
+
+
 async def _authorize_websocket(ws: WebSocket, api_key: str) -> bool:
     provided_key = (
         ws.headers.get("X-API-Key")
@@ -83,30 +126,14 @@ async def lifespan(app: FastAPI):
     # closes runs still legitimately awaiting a required reply. Failure here
     # must never block startup.
     try:
-        from service.db import get_db as _get_db
-        from service.routers.api_v2 import _close_reconcilable_delivered_runs
-        _recon_db = await _get_db()
-        try:
-            total_closed = 0
-            for _ in range(50):  # hard cap: <= 50 * 500 = 25k runs per boot
-                batch = await _close_reconcilable_delivered_runs(_recon_db, limit=500)
-                await _recon_db.commit()
-                total_closed += len(batch)
-                if len(batch) < 500:
-                    break
-            if total_closed:
-                logger.info(f"Startup reconcile: closed {total_closed} stale delivered dispatch run(s)")
-            # Bounded history retention: trim redundant audit history so the
-            # DB stops growing without bound. Live scrollback (the 64KB
-            # output column of active terminals) is untouched.
-            from service.routers.api_v2 import _prune_terminal_history
-            pruned = await _prune_terminal_history(_recon_db)
-            if any(pruned.values()):
-                logger.info(f"Startup history prune: {pruned}")
-        finally:
-            await _recon_db.close()
+        result = await _run_dispatch_reconcile_once()
+        visible = {key: value for key, value in result.items() if value}
+        if visible:
+            logger.info(f"Startup dispatch reconcile/prune: {visible}")
     except Exception as e:
         logger.error(f"Startup dispatch reconcile/prune skipped: {e}")
+
+    reconcile_task = asyncio.create_task(_periodic_dispatch_reconcile())
 
     # WebSocket manager
     app.state.ws_manager = ConnectionManager()
@@ -149,7 +176,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.info(f"MCP SSE server not available: {e}")
 
-    yield
+    try:
+        yield
+    finally:
+        reconcile_task.cancel()
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            pass
 
     # --- SHUTDOWN ---
     if container_manager:

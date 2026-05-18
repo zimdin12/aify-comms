@@ -2009,10 +2009,13 @@ class ApiV2RegressionTests(unittest.TestCase):
             "SELECT id, status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
             (run_id,),
         )
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["execution_mode"], "managed")
         self.assertEqual(contract["require_reply"], 1)
+        listed_working = self.client.get("/api/v1/agents")
+        self.assertEqual(listed_working.status_code, 200, listed_working.text)
+        self.assertEqual(listed_working.json()["agents"]["console-agent"]["status"], "working")
         session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["owner_mode"], "managed")
         self.assertTrue(session["terminal_id"])
@@ -2061,7 +2064,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(skipped_channel.json()["run"])
 
         stored = self._fetchone("SELECT status, runtime, execution_mode, dispatch_mode FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(stored["status"], "delivered")
+        self.assertEqual(stored["status"], "running")
         self.assertEqual(stored["runtime"], "claude-code")
         self.assertEqual(stored["execution_mode"], "managed")
         self.assertEqual(stored["dispatch_mode"], "terminal")
@@ -2246,7 +2249,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             "SELECT status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
             (run_id,),
         )
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["execution_mode"], "managed")
         self.assertEqual(contract["require_reply"], 1)
@@ -2288,7 +2291,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             "SELECT status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
             (run_id,),
         )
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["execution_mode"], "managed")
         session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
@@ -2310,6 +2313,40 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("\x1b[201~", controls[2]["body"])
         self.assertTrue(controls[2]["body"].endswith("\r"))
         self.assertEqual(controls[3]["body"], "\r")
+
+    def test_stale_unowned_claude_terminal_run_is_repaired(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="claude chat",
+            body="answer through terminal",
+            trigger=True,
+        )
+        run_id = sent["consoleDeliveries"][0]["contractRunId"]
+        self._execute(
+            """
+            UPDATE dispatch_runs
+            SET requested_at = '2026-01-01T00:00:00Z',
+                started_at = '2026-01-01T00:00:00Z'
+            WHERE id = ?
+            """,
+            (run_id,),
+        )
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        repaired = self._fetchone("SELECT status, summary, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(repaired["status"], "failed")
+        self.assertIn("no bridge owner", repaired["summary"])
+        self.assertTrue(repaired["finished_at"])
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
 
     def test_message_send_to_managed_claude_replaces_legacy_raw_channel_terminal(self):
         session_id = self._create_running_session(

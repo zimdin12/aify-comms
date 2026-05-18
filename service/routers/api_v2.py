@@ -123,6 +123,7 @@ DEFAULT_SETTINGS = {
     "reply_reminder_repeat_minutes": 6,
     "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
+    "active_run_stale_minutes": 30,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     "managed_codex_model": "",
@@ -914,6 +915,7 @@ def _format_dispatch_state(active_row, queued_count: int) -> dict[str, Any]:
             "status": active_row["status"],
             "subject": active_row["subject"],
             "from": active_row["from_agent"],
+            "dispatchMode": active_row["dispatch_mode"] or "",
             "executionMode": active_row["execution_mode"] or "managed",
             "runtime": active_row["runtime"] or "",
             "claimBridgeId": active_row["claim_bridge_id"] or "",
@@ -930,7 +932,7 @@ def _format_dispatch_state(active_row, queued_count: int) -> dict[str, Any]:
 async def _get_dispatch_state_for_agent(db, agent_id: str) -> dict[str, Any]:
     active_cursor = await db.execute(
         """
-        SELECT id, from_agent, subject, status, execution_mode, runtime, requested_at, claimed_at, started_at
+        SELECT id, from_agent, subject, status, dispatch_mode, execution_mode, runtime, requested_at, claimed_at, started_at
              , claim_bridge_id
         FROM dispatch_runs
         WHERE target_agent = ? AND status IN ('claimed', 'running')
@@ -954,7 +956,7 @@ async def _get_dispatch_state_map(db, agent_ids: list[str]) -> dict[str, dict[st
     placeholders = ",".join("?" for _ in agent_ids)
     active_cursor = await db.execute(
         f"""
-        SELECT id, target_agent, from_agent, subject, status, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
+        SELECT id, target_agent, from_agent, subject, status, dispatch_mode, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
         FROM dispatch_runs
         WHERE target_agent IN ({placeholders}) AND status IN ('claimed', 'running')
         ORDER BY target_agent ASC, COALESCE(started_at, claimed_at, requested_at) ASC
@@ -1527,7 +1529,7 @@ async def _current_active_run_row(db, agent_id: str):
     # separately; do not re-add a delivered-run heuristic here.
     cursor = await db.execute(
         """
-        SELECT id, status, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
+        SELECT id, status, subject, from_agent, dispatch_mode, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
         FROM dispatch_runs
         WHERE target_agent = ? AND status IN ('claimed', 'running')
         ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
@@ -3058,12 +3060,15 @@ async def _record_terminal_delivery_contract(
 ) -> str:
     run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     requested_at = _now()
+    normalized_runtime = _normalize_runtime(runtime or "")
+    tracks_active_turn = normalized_runtime == "claude-code" and require_reply
+    status = "running" if tracks_active_turn else "delivered"
     await db.execute(
         """
         INSERT INTO dispatch_runs (
             id, message_id, from_agent, target_agent, dispatch_mode, execution_mode, requested_runtime, runtime,
-            message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            message_type, subject, body, priority, in_reply_to, status, require_reply, requested_at, started_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             run_id,
@@ -3073,15 +3078,16 @@ async def _record_terminal_delivery_contract(
             "terminal",
             "managed",
             "",
-            _normalize_runtime(runtime or ""),
+            normalized_runtime,
             message_type,
             subject,
             body,
             priority,
             in_reply_to,
-            "delivered",
+            status,
             1 if require_reply else 0,
             requested_at,
+            requested_at if tracks_active_turn else None,
         ),
     )
     await _append_dispatch_event(
@@ -3090,11 +3096,19 @@ async def _record_terminal_delivery_contract(
         "terminal_delivered",
         f"Delivered into terminal {terminal_id} with control {control_id}",
     )
+    if tracks_active_turn:
+        await _append_dispatch_event(
+            db,
+            run_id,
+            "running",
+            "Awaiting explicit reply from Claude PTY turn",
+        )
     if source_message_id:
         await db.execute(
             "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
             (source_message_id, recipient_id, requested_at),
         )
+    await _invalidate_agent_live_state(db, recipient_id)
     return run_id
 
 
@@ -3330,6 +3344,9 @@ async def _fail_stale_active_run(
     run_id = str(active_run.get("runId") or "").strip()
     if not run_id:
         return False
+    target_cursor = await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (run_id,))
+    target_row = await target_cursor.fetchone()
+    target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()
     finished_at = _now()
     await db.execute(
         "UPDATE dispatch_runs SET status = 'failed', summary = ?, error_text = ?, finished_at = ? WHERE id = ?",
@@ -3342,6 +3359,8 @@ async def _fail_stale_active_run(
         handled_at=finished_at,
         response_text=reason,
     )
+    if target_agent:
+        await _invalidate_agent_live_state(db, target_agent)
     return True
 
 
@@ -3355,7 +3374,23 @@ async def _discard_unclaimable_active_run(db, recipient_id: str, active_run: dic
     """
     owner_bridge_id = str(active_run.get("claimBridgeId") or "").strip()
     if not owner_bridge_id:
-        return False
+        if str(active_run.get("dispatchMode") or "").strip().lower() != "terminal":
+            return False
+        started_at = str(active_run.get("startedAt") or active_run.get("requestedAt") or "").strip()
+        started_epoch = _iso_to_epoch(started_at)
+        if not started_epoch:
+            return False
+        settings = await _load_settings(db)
+        stale_seconds = max(300, int(settings.get("active_run_stale_minutes", 30) or 30) * 60)
+        if time.time() - started_epoch <= stale_seconds:
+            return False
+        return await _fail_stale_active_run(
+            db,
+            active_run,
+            reason=f"Active run has no owning bridge and has exceeded {stale_seconds}s.",
+            summary="Active run failed because no bridge owner was recorded and no reply completed before the stale-run timeout.",
+            event_body="Stale unowned active run cleaned by periodic repair.",
+        )
     execution_mode = str(active_run.get("executionMode") or "").strip().lower()
     channel_owned = execution_mode == "channel"
 
@@ -3869,10 +3904,15 @@ async def _mark_dispatch_run_answered(
 ):
     status = str(current_status or "").strip().lower()
     mode = str(execution_mode or "").strip().lower()
-    target_cursor = await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (run_id,))
+    target_cursor = await db.execute("SELECT target_agent, dispatch_mode FROM dispatch_runs WHERE id = ?", (run_id,))
     target_row = await target_cursor.fetchone()
     target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()
-    if status == "delivered" or (mode == "channel" and status in {"claimed", "running"}):
+    dispatch_mode = str((target_row["dispatch_mode"] if target_row and "dispatch_mode" in target_row.keys() else "") or "").strip().lower()
+    if (
+        status == "delivered"
+        or (mode == "channel" and status in {"claimed", "running"})
+        or (dispatch_mode == "terminal" and status in {"claimed", "running"})
+    ):
         await db.execute(
             """
             UPDATE dispatch_runs
@@ -8282,8 +8322,15 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 await db.commit()
                 return {"ok": True, "run": None, "blockedBy": active_run}
             active_since = _iso_to_epoch(active_run.get("startedAt") or active_run.get("requestedAt"))
-            active_age = time.time() - active_since if active_since else ACTIVE_RUN_BRIDGE_STALE_SECONDS + 1
-            if active_age < ACTIVE_RUN_BRIDGE_STALE_SECONDS:
+            if owner:
+                stale_seconds = ACTIVE_RUN_BRIDGE_STALE_SECONDS
+                wait_hint = "A previous bridge claimed this run recently. Waiting avoids killing a run that may still complete."
+            else:
+                settings = await _load_settings(db)
+                stale_seconds = max(300, int(settings.get("active_run_stale_minutes", 30) or 30) * 60)
+                wait_hint = "An unowned terminal turn is still within its stale timeout. Waiting avoids interrupting a visible PTY turn."
+            active_age = time.time() - active_since if active_since else stale_seconds + 1
+            if active_age < stale_seconds:
                 await db.commit()
                 return {
                     "ok": True,
@@ -8293,8 +8340,8 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                         "reason": "active_run_owned_by_previous_bridge",
                         "ownerBridgeId": owner or "",
                         "currentBridgeId": req.bridgeId or "",
-                        "retryAfterSeconds": max(1, int(ACTIVE_RUN_BRIDGE_STALE_SECONDS - active_age)),
-                        "hint": "A previous bridge claimed this run recently. Waiting avoids killing a run that may still complete.",
+                        "retryAfterSeconds": max(1, int(stale_seconds - active_age)),
+                        "hint": wait_hint,
                     },
                 }
             finished_at = _now()
