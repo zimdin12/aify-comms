@@ -1873,7 +1873,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
     def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
-        session_id = self._create_running_session(terminal=True)
+        # PTY-forward on an explicitly-open console is the contract only for
+        # runtimes WITHOUT a native managed adapter (claude-code/hermes).
+        # Native runtimes (codex/pi/opencode) deliver via native dispatch even
+        # with a console open — see
+        # test_managed_dispatch_native_runtime_ignores_active_console.
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         terminal_id = started.json()["terminal"]["id"]
@@ -1902,6 +1912,51 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("dashboard", control["body"])
         self.assertIn("do it", control["body"])
         self.assertTrue(control["body"].endswith("\r"))
+
+    def test_managed_dispatch_native_runtime_ignores_active_console_and_dispatches(self):
+        # THE decouple contract (operator's #1 demand): a native-managed
+        # runtime (codex/pi/opencode) delivers via a native dispatch_run and
+        # NEVER injects into a PTY — even when a console is explicitly open.
+        # Messaging must not depend on the console.
+        for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
+            with self.subTest(runtime=runtime):
+                agent_id = f"{runtime}-native-agent"
+                session_id = self._create_running_session(
+                    agent_id=agent_id,
+                    terminal=True,
+                    runtime=runtime,
+                    terminal_runtimes=[runtime],
+                    session_handle=handle,
+                )
+                started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+                self.assertEqual(started.status_code, 200, started.text)
+                terminal_id = started.json()["terminal"]["id"]
+
+                dispatched = self._dispatch(
+                    from_agent="dashboard",
+                    to=agent_id,
+                    type="request",
+                    subject="work",
+                    body=f"native dispatch for {runtime}",
+                    mode="start_if_possible",
+                    createMessage=True,
+                )
+                # Native dispatch_run created; NOT diverted to a console.
+                self.assertEqual(dispatched.get("consoleDeliveries", []), [])
+                self.assertEqual(dispatched["notStarted"], [])
+                self.assertTrue(dispatched["runs"], dispatched)
+                contract = self._fetchone(
+                    "SELECT status, dispatch_mode FROM dispatch_runs WHERE target_agent = ?",
+                    (agent_id,),
+                )
+                self.assertIsNotNone(contract)
+                self.assertNotEqual(contract["dispatch_mode"], "terminal")
+                # No terminal input was ever injected into the open console.
+                injected = self._fetchone(
+                    "SELECT id FROM terminal_controls WHERE terminal_id = ? AND action = 'input'",
+                    (terminal_id,),
+                )
+                self.assertIsNone(injected)
 
     def test_managed_claude_dispatch_starts_headless_pty_when_console_is_closed(self):
         session_id = self._create_running_session(
@@ -1939,11 +1994,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(dispatched["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
+        # Only runtimes WITHOUT a native managed adapter still start a headless
+        # managed PTY for dispatch. codex/pi/opencode now deliver natively —
+        # see test_managed_dispatch_native_runtime_ignores_active_console.
         cases = [
-            ("codex", "codex-aify --aify-agent {agent_id}", "resume --include-non-interactive codex-thread-1", "codex-thread-1"),
             ("hermes", "hermes-aify --aify-agent {agent_id}", "--resume hermes-session-1", "hermes-session-1"),
-            ("pi", "pi-aify --aify-agent {agent_id}", "--resume pi-session-1", "pi-session-1"),
-            ("opencode", "opencode", "", "opencode-session-1"),
         ]
         for runtime, command_prefix, command_contains, handle in cases:
             with self.subTest(runtime=runtime):
@@ -2087,11 +2142,13 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
+        # Ordering is a PTY-path concern; exercise it on a runtime that still
+        # produces start+input controls (claude-code has no native adapter).
         session_id = self._create_running_session(
             terminal=True,
-            runtime="codex",
-            terminal_runtimes=["codex"],
-            session_handle="codex-thread-1",
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
         )
 
         dispatched = self._dispatch(
@@ -2114,7 +2171,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual([control["action"] for control in claim.json()["controls"][:2]], ["start", "input"])
 
     def test_managed_dispatch_reclaims_session_from_stale_console_owner(self):
-        session_id = self._create_running_session(terminal=True)
+        # Stale-console-owner reclaim is a PTY-path concern — exercise it on a
+        # runtime that still uses the managed PTY (claude-code, no native adapter).
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         terminal_id = started.json()["terminal"]["id"]

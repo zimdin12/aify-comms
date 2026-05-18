@@ -174,6 +174,14 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # window; the bridge re-sends true on every per-agent heartbeat during long
 # turns (keep its cadence well under this).
 TURN_BUSY_STALE_SECONDS = 120
+# Runtimes the bridge can drive through a native managed integration
+# (codex app-server, pi --mode rpc, opencode SDK). For these, a plain
+# managed dispatch_run is delivered natively by the bridge — they must
+# NEVER be diverted into a managed PTY / terminal-input. That diversion
+# is the root cause of "console starts on send / message not delivered
+# until console opened / lost messages". claude-code and hermes have no
+# native managed adapter yet, so they stay on the existing PTY path.
+_NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode"}
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -7218,6 +7226,13 @@ async def send_message(req: MessageSend, request: Request):
                     if not row:
                         continue
                     runtime = _normalize_runtime(row["runtime"] or "generic")
+                    # Native-managed runtimes deliver via the bridge's native
+                    # path from the plain dispatch_run we already queued —
+                    # never divert them into a managed PTY / terminal-input,
+                    # even when a console is explicitly open (console is a
+                    # view, not a delivery path). This is THE decouple fix.
+                    if runtime in _NATIVE_MANAGED_RUNTIMES:
+                        continue
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
                         console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -7818,6 +7833,17 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 runtime = _normalize_runtime(row["runtime"] or "generic")
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
+                elif runtime in _NATIVE_MANAGED_RUNTIMES:
+                    # Native-managed runtime: deliver via the bridge native
+                    # path from a plain dispatch_run; never divert to a managed
+                    # PTY / terminal-input (root cause of the delivery bugs),
+                    # even when a console is explicitly open. Still enforce the
+                    # managed-environment-offline gate the console branch
+                    # applies — native delivery cannot reach an offline
+                    # environment any more than a PTY can.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                    if not reason and execution_mode:
+                        reason = await _managed_environment_unavailable_reason(db, row)
                 else:
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
