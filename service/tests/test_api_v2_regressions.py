@@ -1997,7 +1997,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn("claude --dangerously-load-development-channels --channels server:aify-comms-channel", controls[0]["body"])
         self.assertIn("--resume claude-session-1", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
@@ -2268,10 +2268,10 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn("claude --channels server:aify-comms-channel", controls[0]["body"])
+        self.assertIn("claude --dangerously-load-development-channels --channels server:aify-comms-channel", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
-    def test_reply_to_running_channel_run_completes_it(self):
+    def test_reply_to_delivered_channel_run_completes_it_without_working_status(self):
         self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -2299,14 +2299,19 @@ class ApiV2RegressionTests(unittest.TestCase):
             """,
             ("console-agent", "active", "stale cached status", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
         )
-        running = self.client.patch(
+        delivered = self.client.patch(
             f"/api/v1/dispatch/runs/{run_id}",
-            json={"status": "running", "runtime": "claude-code", "agentStatus": "working"},
+            json={
+                "status": "delivered",
+                "runtime": "claude-code",
+                "agentStatus": "active",
+                "summary": "Delivered to Claude channel session; awaiting explicit reply",
+            },
         )
-        self.assertEqual(running.status_code, 200, running.text)
-        listed_working = self.client.get("/api/v1/agents")
-        self.assertEqual(listed_working.status_code, 200, listed_working.text)
-        self.assertEqual(listed_working.json()["agents"]["console-agent"]["status"], "working")
+        self.assertEqual(delivered.status_code, 200, delivered.text)
+        listed_active_after_delivery = self.client.get("/api/v1/agents")
+        self.assertEqual(listed_active_after_delivery.status_code, 200, listed_active_after_delivery.text)
+        self.assertEqual(listed_active_after_delivery.json()["agents"]["console-agent"]["status"], "active")
         self._execute(
             """
             INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)

@@ -192,13 +192,14 @@ async function markDispatchDelivered(run) {
   const channelRun = isChannelRun(run);
   const requireReply = !!run?.requireReply;
   const runId = String(run?.id || "");
+  const awaitingReply = channelRun && requireReply;
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: channelRun && requireReply ? "running" : "completed",
+    status: awaitingReply ? "delivered" : "completed",
     summary: channelRun
       ? "Delivered to Claude channel session; awaiting explicit reply"
       : "Delivered to Claude resident session; awaiting explicit reply",
     runtime: "claude-code",
-    agentStatus: channelRun && requireReply ? "working" : "active",
+    agentStatus: "active",
     appendEvent: channelRun
       ? "Delivered to Claude channel bridge"
       : "Delivered and completed by channel bridge",

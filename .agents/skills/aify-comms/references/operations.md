@@ -81,7 +81,7 @@ Status is computed by a single live-state engine (the same one the dashboard, `c
 | Status | Meaning |
 |---|---|
 | `active` | Bridge alive and fresh, but no open turn — connected/idle-capable, not currently doing work. |
-| `working` | An open turn: a tracked run is claimed/running, **or** a live session has an attached console/PTY. A bridge-instance id change alone does not drop a live/`starting` session to offline. |
+| `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Attached-but-quiet consoles and delivered/awaiting-reply channel contracts stay `active`. |
 | `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
 | `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
 | `blocked` | Agent-reported note state, not necessarily unreachable. |
