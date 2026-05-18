@@ -2508,6 +2508,32 @@ function fitConsoleTerminal(terminalId, options = {}) {
 // Incrementally stream a single output chunk into an already-mounted xterm.
 // Returns true if the chunk was applied in place (no DOM rebuild needed),
 // false if the terminal is not mounted yet so the caller should full-render.
+// Best-effort (NOT guaranteed) heuristic: does the console tail look like it
+// is waiting for the operator? Conservative patterns to limit false positives.
+function consoleAwaitingInputHint(text) {
+  const clean = stripTerminalControlSequences(String(text || '')).replace(/\s+$/, '');
+  if (!clean) return '';
+  const tail = clean.slice(-600);
+  const lastLine = (tail.split('\n').pop() || '').trim();
+  if (/(\(y\/n\)|\[y\/n\]|\by\/n\b|yes\/no|press\s+enter|continue\?|overwrite\?|proceed\?|are you sure|\bpassword\s*:|passphrase\s*:)/i.test(tail)) return 'confirm/answer?';
+  if (/(select|choose|use arrows|↑|↓|◯|◉)/i.test(tail) && /(^|\n)\s*[❯>*▶]\s+\S/.test(tail)) return 'selection?';
+  if (lastLine && lastLine.length <= 140 && /[?:]\s*$/.test(lastLine)) return 'input?';
+  if (lastLine && lastLine.length <= 140 && /[\$#%>»]\s*$/.test(lastLine)) return 'prompt';
+  return '';
+}
+function updateConsoleAwaitInput() {
+  const pill = document.getElementById('console-await-pill');
+  if (!pill) return;
+  const el = document.getElementById('chat-console-output');
+  const xId = el?.dataset?.xtermTerminalId || '';
+  const tId = document.getElementById('chat-timeline')?.dataset?.terminalId || '';
+  const buf = (window._consoleTerms?.[xId]?.written)
+    || (window._terminalDetails?.[tId]?.terminal?.output)
+    || '';
+  const hint = consoleAwaitingInputHint(buf);
+  if (hint) { pill.textContent = `⌛ ${hint}`; pill.style.display = ''; }
+  else { pill.style.display = 'none'; }
+}
 function streamConsoleDelta(terminalId, chunk, status, seq) {
   const id = String(terminalId || '').trim();
   if (!id || !xtermAvailable()) return false;
@@ -2525,6 +2551,7 @@ function streamConsoleDelta(terminalId, chunk, status, seq) {
     state.term.write(text);
     state.written = `${state.written || ''}${text}`;
   }
+  updateConsoleAwaitInput();
   return true;
 }
 function mountConsoleTerminal(terminalId, output, canInput) {
@@ -5035,6 +5062,7 @@ function renderConsoleChat(meta) {
               `<span class="env-pill">${esc(runtime || 'runtime')}</span>` +
               `<span class="env-pill">${esc(liveStatus)}</span>` +
               `<span class="env-pill clip-1"${titleAttr(workspace || '')}>${esc(workspace || 'workspace unknown')}</span>` +
+              `<span class="env-pill" id="console-await-pill" title="Best-effort heuristic — the console output looks like it may be waiting for input. Not guaranteed." style="display:none;background:#3a2f12;border-color:#6b5424"></span>` +
             `</div>` +
           `</div>` +
           `<div class="console-actions">${actions}</div>` +
@@ -5048,6 +5076,7 @@ function renderConsoleChat(meta) {
   timeline.dataset.chatKey = window._chatSelected || '';
   timeline.dataset.terminalId = terminalId;
   mountConsoleTerminal(terminalId, output, canInput);
+  updateConsoleAwaitInput();
   const outputEl = document.getElementById('chat-console-output');
   if (outputEl && (previousTerminalId !== terminalId || atBottomBeforeRender)) outputEl.scrollTop = outputEl.scrollHeight;
   updateChatScrollButton();
