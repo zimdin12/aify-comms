@@ -1723,6 +1723,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(started.status_code, 200, started.text)
         terminal_id = started.json()["terminal"]["id"]
+        self._execute(
+            "UPDATE agents SET status_note = ?, runtime_state = ? WHERE id = ?",
+            (
+                "Dashboard Console PTY attached.",
+                json.dumps({"consoleTerminal": {"terminalId": terminal_id, "bridgeId": "bridge-current"}}),
+                "console-agent",
+            ),
+        )
         self._heartbeat_environment(bridgeId="replacement-bridge", terminal=True, pty=True)
 
         stopped = self.client.post(
@@ -1735,6 +1743,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["owner_mode"], "managed")
         self.assertEqual(session["terminal_status"], "stopped")
+        agent = self._fetchone("SELECT status_note, runtime_state FROM agents WHERE id = ?", ("console-agent",))
+        self.assertEqual(agent["status_note"], "")
+        self.assertNotIn("consoleTerminal", json.loads(agent["runtime_state"]))
         control = self._fetchone(
             "SELECT action, status, handled_at FROM terminal_controls WHERE terminal_id = ? AND action = 'stop' ORDER BY requested_at DESC LIMIT 1",
             (terminal_id,),

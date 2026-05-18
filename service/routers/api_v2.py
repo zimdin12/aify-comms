@@ -2383,6 +2383,35 @@ async def _append_terminal_event(db, terminal_id: str, event_type: str, body: st
         _terminal_event_counts[terminal_id] = count
 
 
+async def _clear_console_terminal_binding(db, agent_id: str, terminal_id: str, *, now: Optional[str] = None) -> None:
+    agent_id = str(agent_id or "").strip()
+    terminal_id = str(terminal_id or "").strip()
+    if not agent_id or not terminal_id:
+        return
+    row = await (await db.execute("SELECT runtime_state, status_note FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if not row:
+        return
+    runtime_state = _json_loads_or(row["runtime_state"], {})
+    console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
+    if not isinstance(console_terminal, dict) or str(console_terminal.get("terminalId") or "").strip() != terminal_id:
+        return
+    runtime_state.pop("consoleTerminal", None)
+    status_note = str(row["status_note"] or "").strip()
+    if status_note == "Dashboard Console PTY attached.":
+        status_note = ""
+    await db.execute(
+        """
+        UPDATE agents
+        SET runtime_state = ?,
+            status_note = ?,
+            last_seen = ?
+        WHERE id = ?
+        """,
+        (json.dumps(runtime_state), status_note, now or _now(), agent_id),
+    )
+    await _invalidate_agent_live_state(db, agent_id)
+
+
 async def _append_terminal_control(
     db,
     *,
@@ -5605,6 +5634,7 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
                 """,
                 (now, terminal["session_id"]),
             )
+            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
             await _append_terminal_event(
                 db,
                 terminal_id,
@@ -5733,6 +5763,8 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 """,
                 (terminal_status, terminal_status, now, terminal["session_id"]),
             )
+            if terminal_status in {"stopped", "failed"}:
+                await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
