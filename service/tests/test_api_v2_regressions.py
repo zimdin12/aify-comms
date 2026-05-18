@@ -1776,10 +1776,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
-        self.assertIn("claude --channels server:aify-comms-channel", command)
-        self.assertIn("--dangerously-skip-permissions", command)
-        self.assertIn("--resume claude-session-1", command)
-        self.assertNotIn("claude-aify", command)
+        # Human Console = fresh interactive claude-aify (consistent with
+        # codex/pi), NOT raw `claude --resume <handle>` (the 026H-class trap).
+        self.assertIn("claude-aify", command)
+        self.assertIn("--aify-agent console-agent", command)
+        self.assertNotIn("--resume", command)
         self.assertNotIn("--dangerously-load-development-channels", command)
 
     def test_console_child_register_does_not_convert_managed_session_to_cli_takeover(self):

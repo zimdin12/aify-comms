@@ -5161,6 +5161,14 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
     handle = str(session["session_handle"] or "").strip()
     runtime = _normalize_runtime(session["runtime"] or "")
     if runtime == "claude-code":
+        if interactive:
+            # Human Console: consistent with codex/pi/hermes — the interactive
+            # wrapper, fresh, no --resume (resuming an arbitrary/odd handle
+            # like "65" into the console is the 026H-class trap). claude-aify
+            # sets up the channel binding itself.
+            return f"claude-aify --aify-agent {agent_id}"
+        # Managed headless: native channel IS the reliable delivery path; keep
+        # it (this is the decouple principle, not raw PTY). Resume for context.
         parts = ["claude", "--channels", "server:aify-comms-channel", "--dangerously-skip-permissions"]
         if handle:
             parts.extend(["--resume", handle])
