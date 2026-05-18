@@ -62,7 +62,7 @@ Suggested session fields:
 
 ### Claude Code
 
-Console should start the wrapper, not raw Claude. Human Console uses `claude-aify --aify-agent <id>` inside the PTY; managed Claude message delivery starts/reuses `claude-aify --aify-agent <id> --auto --resume <session-id>` when a session handle exists, then delivers Messenger content through Claude Channels rather than typing it into the terminal.
+Console should start the wrapper, not raw Claude. Human Console uses `claude-aify --aify-agent <id>` inside the PTY; managed Claude message delivery starts/reuses `claude-aify --aify-agent <id> --auto --resume <session-id>` when a session handle exists, confirms the channel prompt when needed, writes the formatted Messenger turn into the Claude prompt, and sends a separate submit Enter.
 
 Benefits:
 
@@ -263,7 +263,7 @@ Initial setting should be conservative: detach but show an obvious “Detached t
 
 ## Implementation Slices
 
-Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Runtime delivery is symmetric at the dashboard contract but adapter-specific underneath: Codex/OpenCode/Pi use native managed/steer paths where available, Claude Code uses a `claude-aify` PTY/channel backing, and Hermes uses PTY-input delivery. Console attaches to the backing PTY where one exists. Real resident terminal mirroring remains a follow-up capability.
+Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Runtime delivery is symmetric at the dashboard contract but adapter-specific underneath: Codex/OpenCode/Pi use native managed/steer paths where available, Claude Code uses a `claude-aify` PTY backing and submits dashboard turns into it, and Hermes uses PTY-input delivery. Console attaches to the backing PTY where one exists. Real resident terminal mirroring remains a follow-up capability.
 
 ### Slice 1: Data Model And Read-Only UI
 

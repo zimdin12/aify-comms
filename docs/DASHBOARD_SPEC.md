@@ -267,7 +267,7 @@ Ended/completed/cancelled sessions are debug history. The normal Sessions page s
 
 Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
-Current browser Console mode attaches to a bridge-owned PTY through xterm. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. For terminal-input runtimes such as Hermes, dashboard sends may start/reuse the same managed PTY. Claude Code uses that PTY as its channel host and receives Messenger content through Claude Channels, not raw terminal input. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
+Current browser Console mode attaches to a bridge-owned PTY through xterm. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. For terminal-input runtimes such as Hermes, dashboard sends may start/reuse the same managed PTY. Managed Claude Code starts/reuses `claude-aify`, uses the PTY as the visible backing session, confirms the development-channel prompt when needed, writes the dashboard turn into Claude, and sends a separate submit Enter. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
 
 ## Continue From Session Flow
 
