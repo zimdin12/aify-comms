@@ -8,13 +8,17 @@ assert.deepEqual(
   "managed Claude should not be claimed by the bridge for active dispatch",
 );
 
-
 assert.deepEqual(
   supportedExecutionModes({ sessionMode: "managed", runtime: "codex", capabilities: ["managed-run"] }),
-  [],
-  "managed Codex should not be claimed unless native-managed-run is advertised",
+  ["managed"],
+  "managed Codex with stale pre-native capability should still be claimed by runtime adapter support",
 );
 
+assert.deepEqual(
+  supportedExecutionModes({ sessionMode: "managed", runtime: "pi", capabilities: [] }),
+  ["managed"],
+  "managed Pi should claim by runtime adapter support even if persisted capabilities are stale/missing",
+);
 assert.deepEqual(
   supportedExecutionModes({ sessionMode: "managed", runtime: "codex", capabilities: ["native-managed-run", "managed-run"] }),
   ["managed"],
