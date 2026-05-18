@@ -27,6 +27,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
 import { supportedExecutionModes } from "./dispatch-execution.js";
 import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
+import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
@@ -40,7 +41,6 @@ import {
   hasCodexLiveAppServer,
   launchRuntimeRun,
   normalizeRuntime,
-  runtimeLaunchAvailability,
   extractRuntimeSessionHandleFromCommand,
   runtimeStateWithoutSessionHandle,
   terminateProcessTree,
@@ -891,33 +891,6 @@ function cwdRootsForEnvironment() {
   return dedupePreserveOrder([DEFAULT_CWD]);
 }
 
-function runtimeCapability(runtime) {
-  const normalized = normalizeRuntime(runtime);
-  const availability = runtimeLaunchAvailability(normalized);
-  return {
-    runtime: normalized,
-    modes: ["managed-warm"],
-    available: availability.available,
-    unavailableReason: availability.available ? "" : availability.message,
-    capabilities: {
-      persistent: true,
-      nativeResume: normalized === "codex" || normalized === "hermes" || normalized === "opencode" || normalized === "pi",
-      bridgeResume: true,
-      cliAttach: false,
-      interrupt: true,
-      streaming: true,
-      tokenTelemetry: false,
-      costTelemetry: false,
-      contextReset: true,
-    },
-  };
-}
-
-function advertisedEnvironmentRuntimes() {
-  return ["codex", "claude-code", "hermes", "opencode", "pi"]
-    .map(runtimeCapability)
-    .filter((runtime) => runtime.available);
-}
 
 function environmentHeartbeatPayload() {
   const hostname = (() => {
@@ -937,7 +910,7 @@ function environmentHeartbeatPayload() {
     runtimes: advertisedEnvironmentRuntimes(),
     terminal: bridgeTerminalSupported(),
     pty: bridgeTerminalSupported(),
-    terminalRuntimes: advertisedEnvironmentRuntimes().map((runtime) => runtime.runtime),
+    terminalRuntimes: advertisedTerminalRuntimes(),
     metadata: {
       pid: process.pid,
       platform: process.platform,
