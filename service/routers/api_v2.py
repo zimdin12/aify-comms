@@ -170,6 +170,10 @@ _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "comp
 _LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cli-takeover"}
 # Terminal reached an end state (distinct from the transient "stopping").
 _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+# A bridge-pushed turn_busy=1 is "working" only if refreshed within this
+# window; the bridge re-sends true on every per-agent heartbeat during long
+# turns (keep its cadence well under this).
+TURN_BUSY_STALE_SECONDS = 120
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -1539,6 +1543,24 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         }
     session_row = await _current_agent_session_row(db, agent_row["id"])
     active_run = await _current_active_run_row(db, agent_row["id"])
+    # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
+    # turn_busy=1 means the runtime is executing a turn right now → working,
+    # even when the dispatch row is delivered/ambiguous. Stale (no refresh
+    # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
+    turn_busy = False
+    turn_runtime = ""
+    try:
+        _tb = await (await db.execute(
+            "SELECT turn_busy, turn_runtime, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            (agent_row["id"],),
+        )).fetchone()
+        if _tb and int(_tb["turn_busy"] or 0) == 1:
+            _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+            if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
+                turn_busy = True
+                turn_runtime = str(_tb["turn_runtime"] or "").strip()
+    except Exception:
+        turn_busy = False
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
     environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
     env_row = None
@@ -1585,6 +1607,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     elif active_run:
         effective_status = "working"
         reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
+    elif turn_busy:
+        effective_status = "working"
+        reason = f"Executing turn ({turn_runtime})." if turn_runtime else "Executing turn."
     elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
         effective_status = "working"
         reason = session_status or terminal_status or "Session is transitioning."
@@ -7595,6 +7620,42 @@ async def agent_heartbeat(agent_id: str, request: Request):
                 "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
                 (now, bridge_id, agent_id),
             )
+        # Authoritative turn-busy signal (contract with the bridge). Missing
+        # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
+        # bridge wins. turnBusy=false: only the owning bridge+run may clear,
+        # so a stale false from a superseded bridge/run cannot wipe a newer
+        # active turn.
+        if "turnBusy" in body:
+            turn_busy = bool(body.get("turnBusy"))
+            turn_run_id = str(body.get("turnRunId", "") or "").strip()
+            turn_runtime = str(body.get("turnRuntime", "") or "").strip()
+            if turn_busy:
+                await db.execute(
+                    """
+                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+                    VALUES (?, 1, ?, ?, ?, ?)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                        turn_busy = 1,
+                        turn_run_id = excluded.turn_run_id,
+                        turn_bridge_id = excluded.turn_bridge_id,
+                        turn_runtime = excluded.turn_runtime,
+                        turn_updated_at = excluded.turn_updated_at
+                    """,
+                    (agent_id, turn_run_id, bridge_id, turn_runtime, now),
+                )
+            else:
+                cur = await (await db.execute(
+                    "SELECT turn_bridge_id, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
+                    (agent_id,),
+                )).fetchone()
+                if cur:
+                    stored_bridge = str(cur["turn_bridge_id"] or "").strip()
+                    stored_run = str(cur["turn_run_id"] or "").strip()
+                    if stored_bridge == bridge_id and (not stored_run or stored_run == turn_run_id):
+                        await db.execute(
+                            "UPDATE agent_turn_state SET turn_busy = 0, turn_updated_at = ? WHERE agent_id = ?",
+                            (now, agent_id),
+                        )
         await db.commit()
         return {"ok": True}
     finally:

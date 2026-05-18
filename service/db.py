@@ -381,6 +381,16 @@ CREATE TABLE IF NOT EXISTS terminal_controls (
 CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session ON terminal_sessions(session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_terminal_events_terminal ON terminal_events(terminal_id, id);
 CREATE INDEX IF NOT EXISTS idx_terminal_controls_env_status ON terminal_controls(environment_id, status, requested_at);
+
+CREATE TABLE IF NOT EXISTS agent_turn_state (
+    agent_id TEXT PRIMARY KEY,
+    turn_busy INTEGER NOT NULL DEFAULT 0,
+    turn_run_id TEXT DEFAULT '',
+    turn_bridge_id TEXT DEFAULT '',
+    turn_runtime TEXT DEFAULT '',
+    turn_updated_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
 """
 
 AGENT_MIGRATIONS = {
