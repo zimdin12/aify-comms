@@ -2522,10 +2522,11 @@ function consoleAwaitingInputHint(text) {
   if (!clean) return '';
   const tail = clean.slice(-600);
   const lastLine = (tail.split('\n').pop() || '').trim();
-  if (/(\(y\/n\)|\[y\/n\]|\by\/n\b|yes\/no|press\s+enter|continue\?|overwrite\?|proceed\?|are you sure|\bpassword\s*:|passphrase\s*:)/i.test(tail)) return 'confirm/answer?';
-  if (/(select|choose|use arrows|↑|↓|◯|◉)/i.test(tail) && /(^|\n)\s*[❯>*▶]\s+\S/.test(tail)) return 'selection?';
-  if (lastLine && lastLine.length <= 140 && /[?:]\s*$/.test(lastLine)) return 'input?';
-  if (lastLine && lastLine.length <= 140 && /[\$#%>»]\s*$/.test(lastLine)) return 'prompt';
+  // High-precision only. The old generic "last line ends with ?/:/$/>"
+  // rules fired constantly on normal agent narration (the "I see the
+  // sandclock commonly" noise). Only flag an explicit interactive prompt.
+  if (/(\(y\/n\)|\[y\/n\]|\by\/n\b|\[y\/N\]|\[Y\/n\]|yes\/no|press\s+(enter|any key)|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)/i.test(tail)) return 'confirm/answer?';
+  if (/(use arrows|↑\/↓|press enter to (select|confirm)|\(use arrow keys\))/i.test(tail) && /(^|\n)\s*[❯▶]\s+\S/.test(tail)) return 'selection?';
   return '';
 }
 function updateConsoleAwaitInput() {
