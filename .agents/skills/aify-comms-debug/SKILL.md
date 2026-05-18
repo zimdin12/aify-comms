@@ -13,7 +13,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 
 - Codex `AbsolutePathBuf` / `thread/resume` failures, hard reset
 - Claude wake-mode and `Session ID already in use`
-- Oh My Pi: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
+- Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
@@ -169,21 +169,21 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Resident caveat.** Resident Claude sessions are not silently swapped, because their session ID is the visible CLI binding. If a resident session hits this, close the duplicate Claude tab/process, restart with `claude-aify`, and re-register from the live session.
 
-## Managed Oh My Pi reply is `(no output)`
+## Managed Oh My Pi / OMP reply is `(no output)`
 
-**Symptom.** A dashboard-managed Pi run reaches `agent_end`, but the dashboard stores `(no output)` as the human-visible reply.
+**Symptom.** A dashboard-managed OMP (`runtime="pi"`) run reaches `agent_end`, but the dashboard stores `(no output)` as the human-visible reply.
 
-**Cause.** Older Pi RPC adapters only captured streaming `text_delta` events. Oh My Pi can also provide the final assistant text on completion events such as `message_end`, `turn_end`, or `agent_end`.
+**Cause.** Older OMP RPC adapters only captured streaming `text_delta` events. OMP can also provide the final assistant text on completion events such as `message_end`, `turn_end`, or `agent_end`.
 
-**Fix.** Pull current `aify-comms` and restart the affected `aify-comms` / `omp-aify` / `pi-aify` bridge process. Current builds capture streamed deltas and final completion-event text before deciding that a managed run produced no reply. Verify the bridge checkout with `npm test` from `mcp/stdio/`.
+**Fix.** Pull current `aify-comms` and restart the affected `aify-comms` / `omp-aify` bridge process (`pi-aify` is an alias). Current builds capture streamed deltas and final completion-event text before deciding that a managed run produced no reply. Verify the bridge checkout with `npm test` from `mcp/stdio/`.
 
-## Managed Oh My Pi fails with Cursor API key when model is `default`
+## Managed Oh My Pi / OMP fails with Cursor API key when model is `default`
 
-**Symptom.** A managed Pi run is cancelled before a chat reply and reports `No API key found for cursor`, even though `~/.omp/agent/agent.db` exists.
+**Symptom.** A managed OMP run is cancelled before a chat reply and reports `No API key found for cursor`, even though `~/.omp/agent/agent.db` exists.
 
-**Cause.** Older adapters treated stored `model: "default"` as a concrete model and launched `omp --mode rpc --model default`. Oh My Pi resolves that literal model name through the Cursor provider, which requires Cursor credentials.
+**Cause.** Older adapters treated stored `model: "default"` as a concrete model and launched `omp --mode rpc --model default`. OMP resolves that literal model name through the Cursor provider, which requires Cursor credentials.
 
-**Fix.** Current Pi runtime handling treats blank model values and case-insensitive `default` as no explicit override, so the bridge launches `omp --mode rpc` and lets Oh My Pi use `~/.omp/agent/config.yml`. Pull current `aify-comms`, restart the host-side bridge/wrapper, and retry the managed run.
+**Fix.** Current OMP runtime handling treats blank model values and case-insensitive `default` as no explicit override, so the bridge launches `omp --mode rpc` and lets OMP use `~/.omp/agent/config.yml`. Pull current `aify-comms`, restart the host-side bridge/wrapper, and retry the managed run.
 
 ## Managed spawned agent workspace is stored as `\home\dev\...`
 
@@ -455,7 +455,7 @@ This cluster was hardened on the `feature/dashboard-console-mode` branch. All fi
 
 **Console text scrambled / flickering / "can't see what's happening".** Causes + fixes (all in current builds; symptom means stale container/bridge — rebuild): (1) the dashboard rebuilt the whole console DOM per `terminal_output` frame — fixed by streaming each delta into the live xterm, deduped/ordered by monotonic `outputSeq`, skipping full refresh for non-visible terminals; (2) the live broadcast was per-POST and reordered vs seq under concurrency, so the `seq <= lastSeq` dedupe dropped a frame → ANSI desync → scrambled — fixed by emitting one ordered, coalesced, post-commit broadcast from the write-queue flush (flushes are serialized per terminal); (3) the default xterm DOM renderer janks under heavy output — current builds load the WebGL renderer with DOM fallback. Contract: the service is the sole source of `outputSeq` (bridge sends none); any new output path must route through `TERMINAL_OUTPUT_WRITES` so the sequence stays monotonic and the single ordered broadcast is preserved.
 
-**Broken agent statuses (everything "active", or live agents shown "offline").** Cause: status was derived in multiple places that disagreed, and a bridge-instance id change marked live sessions offline. Fix: all status flows through one live-state engine (`_compute_live_status_cache`/`_refresh_agent_live_state`); a bridge-id mismatch only forces offline when the session is not live and has no active run; `starting` counts as a live session (no false-offline mid-spawn); a console-owned session whose terminal reached an end state falls back to managed instead of flat offline. An attached console reports `working` ONLY while actively producing output (terminal `updated_at` within `console_active_seconds`, default 90s); an idle/quiet attached console is `active`, not `working` — and the live terminal status is mirrored onto `agent_sessions.terminal_status` so it advances past `starting` (otherwise an idle console showed a permanent "working"). If an idle agent still shows "working" or statuses look wrong, the container predates these fixes — rebuild.
+**Broken agent statuses (everything "active", idle consoles shown "working", or live agents shown "offline").** Cause: status was derived in multiple places that disagreed, and a bridge-instance id change marked live sessions offline. Fix: all status flows through one live-state engine (`_compute_live_status_cache`/`_refresh_agent_live_state`); a bridge-id mismatch only forces offline when the session is not live and has no active run; `starting` counts as a live session; a console-owned session whose terminal reached an end state falls back to managed instead of flat offline. Current builds classify `working` from a real active run or a fresh bridge-reported `turnBusy` heartbeat, not from attached console bytes or stale delivered runs. An attached-but-runless console is reachable/`active`, not `working`. If an idle agent still shows `working` or statuses look wrong, the container or host bridge predates these fixes — rebuild the service and restart the host bridge.
 
 **`Dashboard parsing error` / `Unexpected token <`.** Cause: a non-JSON error body (proxy 502, gateway, unwrapped 5xx) was fed to `response.json()`. Fix: `apiFetch` degrades any non-JSON body to a structured `{ok:false,error}` toast. Persisting means stale dashboard HTML — rebuild.
 

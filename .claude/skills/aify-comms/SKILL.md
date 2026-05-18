@@ -41,13 +41,13 @@ For live Codex, prefer exact binding from the same `codex-aify` session:
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
 
-For live Oh My Pi, `omp-aify --aify-agent <id> --resume <session-id>` / `pi-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session. When registering manually, bind the real resumable session handle from that same wrapper session:
+For live Oh My Pi (OMP), use `omp-aify --aify-agent <id> --resume <session-id>`; `pi-aify` is only a compatibility alias for the same wrapper. When registering manually, bind the real resumable session handle from that same wrapper session:
 
 ```text
 comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
 ```
 
-Pi managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. Use `queueIfBusy=true` when the message should wait for the next turn instead.
+OMP managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. The aify runtime key remains `pi`; use `omp-aify` in operator-facing commands and mention `pi-aify` only as an alias. Use `queueIfBusy=true` when the message should wait for the next turn instead.
 
 For live Hermes, `hermes-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session when a resumable Hermes session ID is known. Dashboard-managed Hermes uses the PTY delivery path.
 
