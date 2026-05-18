@@ -457,6 +457,7 @@ a{color:var(--accent-text)}
 .chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
+.chat-await-badge{flex:0 0 auto;font-size:.85em;opacity:.9;filter:saturate(1.4)}
 .chat-unread{background:#238636;color:#fff;border-radius:999px;min-width:18px;height:18px;padding:0 5px;font-size:.72em;display:inline-flex;align-items:center;justify-content:center}
 .chat-shell.chat-compact{grid-template-columns:248px minmax(0,1fr) 280px}
 .chat-shell.chat-compact.inspector-hidden{grid-template-columns:248px minmax(0,1fr) 0}
@@ -4763,13 +4764,28 @@ function chatEmptyDmText() {
   return 'No agents yet.';
 }
 
+// Best-effort (hedged, like the console pill): does this agent's cached
+// console output tail look like it's prompting the user? Only lights for
+// agents whose terminal output is cached (viewed/loaded); no false noise
+// otherwise.
+function agentAwaitingInputBadge(agentId) {
+  try {
+    const session = primarySessionForAgent(agentId);
+    const tid = String(session?.terminalId || '').trim();
+    if (!tid) return '';
+    const buf = window._terminalDetails?.[tid]?.terminal?.output || '';
+    const hint = consoleAwaitingInputHint(buf);
+    return hint ? ` <span class="chat-await-badge" title="Best-effort: console output looks like it is waiting for input — not guaranteed">⌛</span>` : '';
+  } catch { return ''; }
+}
 function renderChatRailItem(item) {
   const active = window._chatSelected === item.key ? ' active' : '';
   const presence = item.kind === 'dm' && item.presence
     ? `<span class="chat-status-dot ${esc(item.presence.kind)}"${titleAttr(item.presence.label)}></span>`
     : '';
+  const awaiting = item.kind === 'dm' ? agentAwaitingInputBadge(item.id || (item.key || '').slice(3)) : '';
   return `<div class="chat-item${active}" data-chat-key="${esc(item.key)}">` +
-    `<div><div class="chat-item-title">${presence}<span class="chat-item-title-text">${esc(item.title)}</span></div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
+    `<div><div class="chat-item-title">${presence}<span class="chat-item-title-text">${esc(item.title)}</span>${awaiting}</div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
     `${item.unread ? `<span class="chat-unread">${item.unread}</span>` : ''}` +
     `</div>`;
 }
