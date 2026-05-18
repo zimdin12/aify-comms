@@ -179,9 +179,11 @@ TURN_BUSY_STALE_SECONDS = 120
 # managed dispatch_run is delivered natively by the bridge — they must
 # NEVER be diverted into a managed PTY / terminal-input. That diversion
 # is the root cause of "console starts on send / message not delivered
-# until console opened / lost messages". claude-code and hermes have no
-# native managed adapter yet, so they stay on the existing PTY path.
+# until console opened / lost messages".
 _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode"}
+# Managed Claude uses a live Claude Code channel bridge. It is not a native
+# managed runtime adapter and must not be claimed by the generic managed loop.
+_CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -788,6 +790,8 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
             return None, "launch mode is disabled"
         if capabilities and "managed-run" not in capabilities:
             return None, 'agent capabilities do not include "managed-run"'
+        if runtime in _CHANNEL_MANAGED_RUNTIMES:
+            return "channel", None
         return "managed", None
     if "resident-run" not in capabilities:
         return None, 'agent capabilities do not include "resident-run"'
@@ -1693,6 +1697,12 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
         ),
     )
     return cache
+
+
+async def _invalidate_agent_live_state(db, agent_id: str) -> None:
+    agent_id = str(agent_id or "").strip()
+    if agent_id:
+        await db.execute("DELETE FROM agent_live_state WHERE agent_id = ?", (agent_id,))
 
 
 async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> None:
@@ -3288,6 +3298,8 @@ async def _discard_unclaimable_active_run(db, recipient_id: str, active_run: dic
     owner_bridge_id = str(active_run.get("claimBridgeId") or "").strip()
     if not owner_bridge_id:
         return False
+    execution_mode = str(active_run.get("executionMode") or "").strip().lower()
+    channel_owned = execution_mode == "channel"
 
     agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
     agent = await agent_cursor.fetchone()
@@ -3326,7 +3338,7 @@ async def _discard_unclaimable_active_run(db, recipient_id: str, active_run: dic
                     summary=f'Active run failed because environment "{environment_id}" is {env_status}. Restart the environment bridge and retry.',
                     event_body=f"Stale active run cleaned before send: environment {environment_id} is {env_status}",
                 )
-            if env_bridge and env_bridge != owner_bridge_id:
+            if env_bridge and env_bridge != owner_bridge_id and not channel_owned:
                 return await _fail_stale_active_run(
                     db,
                     active_run,
@@ -3335,7 +3347,7 @@ async def _discard_unclaimable_active_run(db, recipient_id: str, active_run: dic
                     event_body=f"Stale active run cleaned before send: {owner_bridge_id} -> {env_bridge}",
                 )
 
-    if current_agent_bridge and current_agent_bridge != owner_bridge_id:
+    if current_agent_bridge and current_agent_bridge != owner_bridge_id and not channel_owned:
         return await _fail_stale_active_run(
             db,
             active_run,
@@ -3790,9 +3802,19 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 _HANDOFF_REPLY_TYPES = {"response", "review", "error", "approval"}
 
 
-async def _mark_dispatch_run_answered(db, run_id: str, reply_message_id: str, current_status: str = ""):
+async def _mark_dispatch_run_answered(
+    db,
+    run_id: str,
+    reply_message_id: str,
+    current_status: str = "",
+    execution_mode: str = "",
+):
     status = str(current_status or "").strip().lower()
-    if status == "delivered":
+    mode = str(execution_mode or "").strip().lower()
+    target_cursor = await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (run_id,))
+    target_row = await target_cursor.fetchone()
+    target_agent = str((target_row["target_agent"] if target_row else "") or "").strip()
+    if status == "delivered" or (mode == "channel" and status in {"claimed", "running"}):
         await db.execute(
             """
             UPDATE dispatch_runs
@@ -3803,11 +3825,13 @@ async def _mark_dispatch_run_answered(db, run_id: str, reply_message_id: str, cu
             """,
             (reply_message_id, _now(), run_id),
         )
+        await _invalidate_agent_live_state(db, target_agent)
         return
     await db.execute(
         "UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?",
         (reply_message_id, run_id),
     )
+    await _invalidate_agent_live_state(db, target_agent)
 
 
 async def _link_reply_message_to_dispatch_run(
@@ -3841,7 +3865,13 @@ async def _link_reply_message_to_dispatch_run(
             return False
 
     current_status = str(replied_run["status"] or "").strip().lower()
-    await _mark_dispatch_run_answered(db, replied_run["id"], reply_message_id, current_status)
+    await _mark_dispatch_run_answered(
+        db,
+        replied_run["id"],
+        reply_message_id,
+        current_status,
+        str(replied_run["execution_mode"] or ""),
+    )
     await db.execute(
         """
         INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at)
@@ -3964,7 +3994,13 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         if not _is_replaceable_auto_handoff_message(existing_message, replied_run):
             return False
 
-    await _mark_dispatch_run_answered(db, replied_run["id"], reply_message_id, str(replied_run["status"] or ""))
+    await _mark_dispatch_run_answered(
+        db,
+        replied_run["id"],
+        reply_message_id,
+        str(replied_run["status"] or ""),
+        str(replied_run["execution_mode"] or ""),
+    )
     await _append_dispatch_event(
         db,
         replied_run["id"],
@@ -7226,12 +7262,12 @@ async def send_message(req: MessageSend, request: Request):
                     if not row:
                         continue
                     runtime = _normalize_runtime(row["runtime"] or "generic")
-                    # Native-managed runtimes deliver via the bridge's native
-                    # path from the plain dispatch_run we already queued —
-                    # never divert them into a managed PTY / terminal-input,
-                    # even when a console is explicitly open (console is a
-                    # view, not a delivery path). This is THE decouple fix.
-                    if runtime in _NATIVE_MANAGED_RUNTIMES:
+                    # Native-managed and channel-managed runtimes deliver via
+                    # a plain dispatch_run — never divert them into a managed
+                    # PTY / terminal-input, even when a Console is explicitly
+                    # open. Console is a view/manual input surface, not the
+                    # normal message delivery path.
+                    if runtime in _NATIVE_MANAGED_RUNTIMES or runtime in _CHANNEL_MANAGED_RUNTIMES:
                         continue
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
@@ -7833,13 +7869,11 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 runtime = _normalize_runtime(row["runtime"] or "generic")
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
-                elif runtime in _NATIVE_MANAGED_RUNTIMES:
-                    # Native-managed runtime: deliver via the bridge native
-                    # path from a plain dispatch_run; never divert to a managed
-                    # PTY / terminal-input (root cause of the delivery bugs),
-                    # even when a console is explicitly open. Still enforce the
-                    # managed-environment-offline gate the console branch
-                    # applies — native delivery cannot reach an offline
+                elif runtime in _NATIVE_MANAGED_RUNTIMES or runtime in _CHANNEL_MANAGED_RUNTIMES:
+                    # Native-managed and channel-managed runtimes deliver via
+                    # a plain dispatch_run; never divert to a managed PTY /
+                    # terminal-input. Still enforce the managed-environment
+                    # gate: channel/native delivery cannot reach an offline
                     # environment any more than a PTY can.
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode:
@@ -8106,7 +8140,9 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             (req.agentId,),
         )
         owner_session = await owner_cursor.fetchone()
-        if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console":
+        supported_modes = {str(mode or "").strip().lower() for mode in (req.executionModes or []) if str(mode or "").strip()}
+        channel_claim = agent_runtime in _CHANNEL_MANAGED_RUNTIMES and "channel" in supported_modes
+        if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console" and not channel_claim:
             blocked_by_console = await _release_stale_console_owner_for_claim(db, owner_session, req)
             if blocked_by_console:
                 await db.commit()
@@ -8126,7 +8162,6 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         )
         runs = await run_cursor.fetchall()
         selected_run = None
-        supported_modes = {str(mode or "").strip().lower() for mode in (req.executionModes or []) if str(mode or "").strip()}
         for run in runs:
             run_execution_mode = (run["execution_mode"] or "managed").strip().lower()
             if supported_modes and run_execution_mode not in supported_modes:
@@ -8176,6 +8211,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, claim_bridge_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", req.bridgeId or "", agent_runtime, selected_run["id"])
         )
+        await _invalidate_agent_live_state(db, req.agentId)
         await _touch_current_agent_session(
             db,
             req.agentId,
@@ -8207,6 +8243,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 "status": "claimed",
                 "mode": selected_run["dispatch_mode"],
                 "executionMode": selected_run["execution_mode"] or "managed",
+                "runtime": agent_runtime,
                 "requireReply": _row_require_reply(selected_run),
                 "conversationContext": await _dispatch_conversation_context(db, selected_run),
                 "claimBridgeId": req.bridgeId or "",
@@ -8931,6 +8968,7 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         if updates:
             params.append(run_id)
             await db.execute(f"UPDATE dispatch_runs SET {', '.join(updates)} WHERE id = ?", params)
+            await _invalidate_agent_live_state(db, row["target_agent"])
             if req.status in ("completed", "failed", "cancelled"):
                 await _fail_pending_controls_for_run(
                     db,

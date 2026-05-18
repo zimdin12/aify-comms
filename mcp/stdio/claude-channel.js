@@ -15,6 +15,7 @@ loadSettingsEnv();
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const MACHINE_ID = defaultMachineId();
+const CHANNEL_BRIDGE_ID = `channel-${MACHINE_ID}`;
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
@@ -174,13 +175,33 @@ async function emitChannel(content, meta = {}) {
   });
 }
 
-async function markDispatchDelivered(runId) {
+function isChannelRun(run) {
+  return String(run?.executionMode || "").trim().toLowerCase() === "channel";
+}
+
+async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
+  await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
+    bridgeId: CHANNEL_BRIDGE_ID,
+    turnBusy: !!busy,
+    turnRunId: runId,
+    turnRuntime: "claude-code",
+  });
+}
+
+async function markDispatchDelivered(run) {
+  const channelRun = isChannelRun(run);
+  const requireReply = !!run?.requireReply;
+  const runId = String(run?.id || "");
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "completed",
-    summary: "Delivered to Claude resident session; awaiting explicit reply",
+    status: channelRun && requireReply ? "running" : "completed",
+    summary: channelRun
+      ? "Delivered to Claude channel session; awaiting explicit reply"
+      : "Delivered to Claude resident session; awaiting explicit reply",
     runtime: "claude-code",
-    agentStatus: "active",
-    appendEvent: "Delivered and completed by channel bridge",
+    agentStatus: channelRun && requireReply ? "working" : "active",
+    appendEvent: channelRun
+      ? "Delivered to Claude channel bridge"
+      : "Delivered and completed by channel bridge",
     eventType: "delivered",
   });
 }
@@ -217,28 +238,36 @@ async function pollLoop() {
         const claim = await httpCall("POST", "/dispatch/claim", {
           agentId,
           machineId: MACHINE_ID,
-          bridgeId: `channel-${MACHINE_ID}`,
-          executionModes: ["resident"],
+          bridgeId: CHANNEL_BRIDGE_ID,
+          executionModes: ["channel", "resident"],
         });
-        if (!claim?.run || claim.run.executionMode !== "resident") break;
+        const executionMode = String(claim?.run?.executionMode || "").trim().toLowerCase();
+        if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
       }
       if (batch.length === 1) {
+        const run = batch[0];
+        const busy = isChannelRun(run);
+        if (busy) await reportTurnBusy(agentId, { busy: true, runId: run.id });
         try {
-          await emitChannel(dispatchContent(agentId, batch[0]), {
+          await emitChannel(dispatchContent(agentId, run), {
             event_type: "dispatch",
             agent_id: agentId,
-            run_id: batch[0].id,
-            from_agent: batch[0].from || "",
-            message_id: batch[0].messageId || "",
-            priority: batch[0].priority || "normal",
+            run_id: run.id,
+            from_agent: run.from || "",
+            message_id: run.messageId || "",
+            priority: run.priority || "normal",
           });
-          await markDispatchDelivered(batch[0].id);
+          await markDispatchDelivered(run);
         } catch (error) {
-          await markDispatchDeliveryFailed(batch[0].id, error);
+          await markDispatchDeliveryFailed(run.id, error);
           throw error;
+        } finally {
+          if (busy) await reportTurnBusy(agentId, { busy: false, runId: run.id }).catch(() => {});
         }
       } else if (batch.length > 1) {
+        const busyRun = batch.find(isChannelRun);
+        if (busyRun) await reportTurnBusy(agentId, { busy: true, runId: busyRun.id });
         const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
         const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";
         try {
@@ -249,13 +278,15 @@ async function pollLoop() {
             priority: highestPriority,
           });
           for (const run of batch) {
-            await markDispatchDelivered(run.id);
+            await markDispatchDelivered(run);
           }
         } catch (error) {
           for (const run of batch) {
             await markDispatchDeliveryFailed(run.id, error);
           }
           throw error;
+        } finally {
+          if (busyRun) await reportTurnBusy(agentId, { busy: false, runId: busyRun.id }).catch(() => {});
         }
       }
 
