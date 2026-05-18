@@ -4,6 +4,9 @@
 // (not just "not on PATH") so the dashboard failure event is debuggable.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const originalClaudeCmd = process.env.AIFY_CLAUDE_COMMAND;
 const originalPath = process.env.PATH;
@@ -39,6 +42,23 @@ try {
     result.message,
     /bridge PATH/,
     "diagnostic should include the bridge's PATH so users can see what the bridge actually sees",
+  );
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claude-wrapper-"));
+  const staleWrapper = path.join(tmp, "claude-aify");
+  fs.writeFileSync(
+    staleWrapper,
+    "#!/bin/sh\nclaude --dangerously-load-development-channels --channels server:aify-comms-channel \"$@\"\n",
+  );
+  fs.chmodSync(staleWrapper, 0o755);
+  process.env.AIFY_CLAUDE_COMMAND = staleWrapper;
+  mod = await import(`../runtimes.js?cacheBust=${Date.now()}-stale-wrapper`);
+  result = mod.runtimeLaunchAvailability("claude-code");
+  assert.equal(result.available, false, "stale Claude wrapper should not advertise terminal support");
+  assert.match(
+    result.message,
+    /stale Claude channel flag ordering|rerun install\.sh/i,
+    "stale wrapper diagnostic should tell the operator to reinstall the wrapper",
   );
 
   // describeExecutableResolution should expose structured attempts for tools

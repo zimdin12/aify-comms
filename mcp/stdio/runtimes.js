@@ -1214,6 +1214,29 @@ function hasExecutable(command) {
   return resolveExecutable(command) !== null;
 }
 
+function staleClaudeAifyWrapperReason(resolved) {
+  const value = String(resolved || "").trim();
+  if (!value) return "";
+  const candidates = [value];
+  if (value.toLowerCase().endsWith(".cmd")) {
+    candidates.push(value.slice(0, -4));
+  }
+  for (const candidate of candidates) {
+    try {
+      if (!candidate || !fs.existsSync(candidate)) continue;
+      const stat = fs.statSync(candidate);
+      if (!stat.isFile() || stat.size > 1024 * 1024) continue;
+      const body = fs.readFileSync(candidate, "utf-8");
+      if (body.includes("--dangerously-load-development-channels --channels")) {
+        return `resolved wrapper "${candidate}" has stale Claude channel flag ordering; rerun install.sh for Claude support`;
+      }
+    } catch {
+      // Best-effort validation. Launch itself will surface unreadable files.
+    }
+  }
+  return "";
+}
+
 function pathSummary() {
   const value = String(process.env.PATH || "").trim();
   if (!value) return "(empty)";
@@ -1266,12 +1289,14 @@ export function runtimeLaunchAvailability(runtime) {
   if (normalized === "claude-code") {
     const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
     const expected = configured || "claude-aify";
-    const available = hasExecutable(expected);
+    const resolved = resolveExecutable(expected);
+    const staleReason = staleClaudeAifyWrapperReason(resolved);
+    const available = Boolean(resolved) && !staleReason;
     return {
       available,
       message: available
-        ? `Claude Code aify wrapper available (resolved to ${resolveExecutable(expected)})`
-        : `Runtime "claude-code" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
+        ? `Claude Code aify wrapper available (resolved to ${resolved})`
+        : `Runtime "claude-code" is not launchable from this bridge because "${expected}" ${staleReason ? `is stale: ${staleReason}.` : "could not be resolved to a real executable."} ` +
           `Install/update the aify Claude wrapper with install.sh, ensure raw Claude Code is installed for this OS/user, ` +
           `or set AIFY_CLAUDE_COMMAND to an absolute claude-aify-compatible wrapper path and restart the bridge. ` +
           `Diagnostic: ${diagnosticsFor(expected)}`,
