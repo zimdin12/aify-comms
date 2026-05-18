@@ -2593,7 +2593,17 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       try { term.focus(); } catch {}
     });
     term.onData(data => {
-      if (!state.canInput) return;
+      if (!state.canInput) {
+        // Do NOT silently swallow typed input — that lost operator messages
+        // (text typed while the console was blocked vanished with no signal).
+        // Make it loud + actionable; debounce so a typed line is one toast.
+        const now = Date.now();
+        if (!state._blockedNoticeAt || now - state._blockedNoticeAt > 4000) {
+          state._blockedNoticeAt = now;
+          toast('Console input is blocked here — your text was NOT sent. Switch to Messenger to message the agent.', '#f0b429');
+        }
+        return;
+      }
       sendConsoleInputBody(id, data).catch(error => toast(error.message || 'Terminal input failed', '#f85149'));
     });
     // Initial buffer paint happens exactly once, here on mount. From now on
