@@ -1753,15 +1753,18 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(session["ownerMode"], "managed")
         self.assertEqual(session["terminalStatus"], "stopped")
 
-    def test_console_start_builds_codex_resume_command(self):
+    def test_console_start_builds_fresh_interactive_codex_command(self):
+        # Human Console must launch a FRESH interactive codex, NOT
+        # `resume --include-non-interactive <handle>` (that opens a
+        # managed/headless thread → machine output, the "026H" bug).
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
         self.assertIn("codex-aify", command)
         self.assertIn("--aify-agent console-agent", command)
-        self.assertIn("resume --include-non-interactive thread-1", command)
-        self.assertNotIn("--resume", command)
+        self.assertNotIn("resume", command)
+        self.assertNotIn("--include-non-interactive", command)
 
     def test_console_start_builds_claude_channels_command_without_dev_prompt(self):
         session_id = self._create_running_session(

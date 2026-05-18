@@ -5172,6 +5172,15 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
         # Managed headless PTY dispatch keeps native resume for continuity.
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
+        if interactive:
+            # Human Console: fresh INTERACTIVE codex (codex-aify already execs
+            # `codex --remote ...` interactive). `resume --include-non-
+            # interactive <handle>` opens a managed/headless thread through the
+            # console path → machine/RPC output, not a usable REPL ("026H and
+            # nothing else"). Same fix shape as pi. Explicit "resume saved
+            # Codex context" can be a future opt-in action.
+            return f"codex-aify --aify-agent {agent_id}"
+        # Managed headless PTY dispatch keeps native resume for continuity.
         parts = ["codex-aify", "--aify-agent", agent_id]
         if handle:
             parts.extend(["resume", "--include-non-interactive", handle])
