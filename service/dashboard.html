@@ -2828,6 +2828,48 @@ document.addEventListener('change', event => {
   if (agentEnvSelect) syncAgentEditorEnvironment(agentEnvSelect.value);
 });
 
+// Image paste: Ctrl+V an image into the chat composer or the console-mode
+// message input → upload it as a shared artifact and drop a viewable link
+// into the message, so the agent can open it via the dashboard URL or fetch
+// the artifact (cross-runtime, no filesystem assumptions).
+async function uploadPastedImage(blob, targetEl) {
+  try {
+    const ext = (blob.type && blob.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png';
+    const name = `img-${Date.now()}.${ext}`;
+    const fd = new FormData();
+    fd.append('from_agent', chatIdentity() || 'dashboard');
+    fd.append('name', name);
+    fd.append('description', 'Pasted image from dashboard');
+    fd.append('file', blob, name);
+    toast('Uploading image…');
+    const response = await apiFetch(API + '/shared', {method: 'POST', body: fd});
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Image upload failed');
+    const link = `${window.location.origin}${API}/shared/${encodeURIComponent(name)}`;
+    const ref = `[image: ${name}] ${link}`;
+    if (targetEl) {
+      const cur = targetEl.value || '';
+      targetEl.value = cur ? `${cur}${cur.endsWith('\n') ? '' : '\n'}${ref}` : ref;
+      targetEl.dispatchEvent(new Event('input', {bubbles: true}));
+      targetEl.focus();
+    }
+    toast(`Image attached (${name}) — link added to message`);
+  } catch (e) {
+    toast(e.message || 'Image upload failed', '#f85149');
+  }
+}
+document.addEventListener('paste', event => {
+  const el = event.target;
+  if (!el || (el.id !== 'chat-body' && el.id !== 'chat-console-input')) return;
+  const items = event.clipboardData && event.clipboardData.items ? [...event.clipboardData.items] : [];
+  const imageItem = items.find(it => it.kind === 'file' && (it.type || '').startsWith('image/'));
+  if (!imageItem) return;
+  const blob = imageItem.getAsFile();
+  if (!blob) return;
+  event.preventDefault();
+  uploadPastedImage(blob, el);
+});
+
 document.addEventListener('scroll', event => {
   if (event.target?.id === 'chat-timeline') {
     markChatTimelineInteraction();
