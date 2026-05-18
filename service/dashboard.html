@@ -3331,13 +3331,14 @@ function openAgentEditor(agentId) {
   const environments = (window._environments || []).filter(env => env.status === 'online');
   const currentEnvId = session.environmentId || '';
   const selectedEnv = environments.find(env => env.id === currentEnvId) || environments[0] || {};
-  const runtimeOptions = (selectedEnv.runtimes || []).map(item => item.runtime).filter(Boolean);
-  const runtimeValue = session.runtime || agent.runtime || runtimeOptions[0] || '';
+  const availRuntimes = (selectedEnv.runtimes || []).filter(i => i && i.runtime && i.available !== false).map(i => i.runtime);
+  const runtimeValue = session.runtime || agent.runtime || availRuntimes[0] || '';
   const envOptions = environments.map(env => `<option value="${esc(env.id)}"${env.id === currentEnvId ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(env.id)})</option>`).join('');
+  const built = runtimeOptionsFromEnv(selectedEnv, runtimeValue, {selectedValue: runtimeValue});
   const runtimeSelect = `<select id="agent-edit-runtime">${
-    runtimeOptions.length
-      ? runtimeOptions.map(runtime => `<option value="${esc(runtime)}"${runtime === runtimeValue ? ' selected' : ''}>${esc(runtime)}</option>`).join('')
-      : `<option value="${esc(runtimeValue)}">${esc(runtimeValue || 'No runtimes advertised')}</option>`
+    built.html === '<option value="">No runtimes advertised</option>'
+      ? `<option value="${esc(runtimeValue)}">${esc(runtimeValue || 'No runtimes advertised')}</option>`
+      : built.html
   }</select>`;
   const workspace = session.workspace || agent.cwd || selectedEnv.cwdRoots?.[0] || '';
   const sessionHandle = sessionRuntimeHandle(session, agent);
@@ -3365,13 +3366,11 @@ function syncAgentEditorEnvironment(environmentId) {
   const runtimeControl = document.getElementById('agent-edit-runtime');
   const workspaceInput = document.getElementById('agent-edit-workspace');
   if (!env || !runtimeControl) return;
-  const runtimeOptions = (env.runtimes || []).map(item => item.runtime).filter(Boolean);
   const currentRuntime = runtimeControl.value;
   if (runtimeControl.tagName === 'SELECT') {
-    runtimeControl.innerHTML = runtimeOptions.length
-      ? runtimeOptions.map(runtime => `<option value="${esc(runtime)}">${esc(runtime)}</option>`).join('')
-      : '<option value="">No runtimes advertised</option>';
-    runtimeControl.value = runtimeOptions.includes(currentRuntime) ? currentRuntime : (runtimeOptions[0] || '');
+    const built = runtimeOptionsFromEnv(env, currentRuntime);
+    runtimeControl.innerHTML = built.html;
+    runtimeControl.value = built.value;
   }
   if (workspaceInput && env.cwdRoots?.[0]) {
     const current = workspaceInput.value || '';
@@ -3453,15 +3452,36 @@ function syncSpawnControls(environments) {
   syncSpawnFormFromEnvironment();
 }
 
+// Build runtime <option>s from env.runtimes. Entries with available===false
+// (bridge now advertises unavailable runtimes too) render disabled with the
+// reason as tooltip + an "(unavailable)" suffix, and are excluded from
+// auto-selection. Forward-compatible: an entry with no `available` key (older
+// bridge) is treated as available.
+function runtimeOptionsFromEnv(env, currentValue, {includeBlank = false, blankLabel = 'Runtime', selectedValue = null} = {}) {
+  const list = (env?.runtimes || []).filter(item => item && item.runtime);
+  const isAvail = item => item.available !== false;
+  const available = list.filter(isAvail).map(item => item.runtime);
+  const sel = selectedValue == null ? null : String(selectedValue);
+  const opts = list.map(item => {
+    const rt = item.runtime;
+    const selAttr = sel != null && rt === sel ? ' selected' : '';
+    if (isAvail(item)) return `<option value="${esc(rt)}"${selAttr}>${esc(rt)}</option>`;
+    const reason = String(item.unavailableReason || 'not available on this environment');
+    return `<option value="${esc(rt)}" disabled${titleAttr(reason)}>${esc(rt)} (unavailable)</option>`;
+  }).join('');
+  const html = (includeBlank ? `<option value="">${esc(blankLabel)}</option>` : '') + (opts || `<option value="">No runtimes advertised</option>`);
+  const value = available.includes(currentValue) ? currentValue : (available[0] || '');
+  return {html, value, available};
+}
 function syncSpawnFormFromEnvironment() {
   const envId = document.getElementById('env-spawn-environment')?.value || '';
   const env = (window._environments || []).find(item => item.id === envId);
   const runtimeSelect = document.getElementById('env-spawn-runtime');
   if (!runtimeSelect) return;
   const currentRuntime = runtimeSelect.value;
-  const runtimes = (env?.runtimes || []).map(item => item.runtime).filter(Boolean);
-  runtimeSelect.innerHTML = '<option value="">Runtime</option>' + runtimes.map(runtime => `<option value="${esc(runtime)}">${esc(runtime)}</option>`).join('');
-  runtimeSelect.value = runtimes.includes(currentRuntime) ? currentRuntime : (runtimes[0] || '');
+  const built = runtimeOptionsFromEnv(env, currentRuntime, {includeBlank: true, blankLabel: 'Runtime'});
+  runtimeSelect.innerHTML = built.html;
+  runtimeSelect.value = built.value;
   const workspaceInput = document.getElementById('env-spawn-workspace');
   if (workspaceInput && !workspaceInput.value && env?.cwdRoots?.[0]) workspaceInput.value = env.cwdRoots[0];
 }
