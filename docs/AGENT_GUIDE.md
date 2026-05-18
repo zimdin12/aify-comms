@@ -30,7 +30,7 @@ This guide is for coding agents working on `aify-comms`.
 ```bash
 git status --short
 docker compose up -d --build
-curl http://localhost:8800/health
+curl http://192.168.100.10:8800/health
 ```
 
 Backend changes under `service/`, `mcp/sse_server.py`, and `config/` require a container rebuild or hot-copy/restart during local iteration. Host-side bridge changes under `mcp/stdio/` require reinstalling/restarting the relevant wrapper/bridge process; the running service container does not reload host-side bridge code.

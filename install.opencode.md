@@ -7,7 +7,7 @@ Use aify-comms when you want dashboard-driven coordination for coding agents: li
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client opencode http://localhost:8800
+bash install.sh --client opencode http://192.168.100.10:8800
 ```
 
 If you are using local-only mode with no shared server:
@@ -27,7 +27,7 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures OpenCode's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
+On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures OpenCode's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
 
 After every update:
 

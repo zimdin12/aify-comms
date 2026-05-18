@@ -4,10 +4,10 @@
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
-#   bash install.sh --client codex http://localhost:8800 --with-hook
-#   bash install.sh --client hermes http://localhost:8800 --with-hook
-#   bash install.sh --client opencode http://localhost:8800
-#   bash install.sh --client pi http://localhost:8800
+#   bash install.sh --client codex http://192.168.100.10:8800 --with-hook
+#   bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+#   bash install.sh --client opencode http://192.168.100.10:8800
+#   bash install.sh --client pi http://192.168.100.10:8800
 
 set -euo pipefail
 
@@ -15,6 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
+DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
 
 usage() {
   cat <<EOF
@@ -23,11 +24,11 @@ Usage:
 
 Examples:
   bash install.sh --client claude
-  bash install.sh --client claude http://localhost:8800 --with-hook
-  bash install.sh --client codex http://localhost:8800
-  bash install.sh --client hermes http://localhost:8800 --with-hook
-  bash install.sh --client opencode http://localhost:8800
-  bash install.sh --client pi http://localhost:8800
+  bash install.sh --client claude http://192.168.100.10:8800 --with-hook
+  bash install.sh --client codex http://192.168.100.10:8800
+  bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+  bash install.sh --client opencode http://192.168.100.10:8800
+  bash install.sh --client pi http://192.168.100.10:8800
 EOF
 }
 
@@ -381,7 +382,7 @@ EOF
 install_hermes_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/hermes-aify"
-  local default_server="${SERVER_URL:-http://localhost:8800}"
+  local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -452,7 +453,7 @@ EOF
 install_bridge_launcher() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/aify-comms"
-  local default_server="${SERVER_URL:-http://localhost:8800}"
+  local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
   mkdir -p "$wrapper_dir"
 cat > "$wrapper_path" <<EOF
 #!/bin/bash

@@ -9,7 +9,7 @@ Install Oh My Pi first so the `omp` command is available in the same shell/user 
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client pi http://localhost:8800
+bash install.sh --client pi http://192.168.100.10:8800
 ```
 
 Restart Oh My Pi after install.
@@ -21,7 +21,7 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The installer configures OMP's user MCP file at `~/.omp/agent/mcp.json`, installs the `aify-comms` bridge launcher, and installs resident wrappers: `omp-aify` and its `pi-aify` alias.
+On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The installer configures OMP's user MCP file at `~/.omp/agent/mcp.json`, installs the `aify-comms` bridge launcher, and installs resident wrappers: `omp-aify` and its `pi-aify` alias.
 
 ## Resident Pi
 

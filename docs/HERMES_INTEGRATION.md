@@ -56,7 +56,7 @@ hermes config check
 From the aify-comms repo:
 
 ```bash
-bash install.sh --client hermes http://localhost:8800 --with-hook
+bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
 ```
 
 The installer:
@@ -74,13 +74,13 @@ Start the bridge from a directory that should be allowed as a dashboard workspac
 
 ```bash
 cd /path/to/workspace-or-parent
-aify-comms http://localhost:8800
+aify-comms http://192.168.100.10:8800
 ```
 
 You can advertise additional roots:
 
 ```bash
-aify-comms http://localhost:8800 /path/to/extra/root
+aify-comms http://192.168.100.10:8800 /path/to/extra/root
 ```
 
 The dashboard can spawn Hermes only in workspaces under the bridge's advertised roots.

@@ -84,7 +84,7 @@ Important starting docs:
 ```bash
 bash setup.sh
 docker compose up -d --build
-curl http://localhost:8800/health
+curl http://192.168.100.10:8800/health
 ```
 
 The default port is `8800`. Change `.env` only if another service already uses that port.
@@ -92,11 +92,11 @@ The default port is `8800`. Change `.env` only if another service already uses t
 Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, `hermes-aify`, or `omp-aify`/`pi-aify`. Pick the client you use on that host:
 
 ```bash
-bash install.sh --client codex http://localhost:8800 --with-hook
-bash install.sh --client claude http://localhost:8800 --with-hook
-bash install.sh --client hermes http://localhost:8800 --with-hook
-bash install.sh --client opencode http://localhost:8800
-bash install.sh --client pi http://localhost:8800
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook
+bash install.sh --client claude http://192.168.100.10:8800 --with-hook
+bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
+bash install.sh --client opencode http://192.168.100.10:8800
+bash install.sh --client pi http://192.168.100.10:8800
 ```
 
 After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills.
@@ -122,7 +122,7 @@ cd C:\path\to\workspace-or-workspace-parent
 aify-comms.cmd
 ```
 
-The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
+The service URL defaults to `http://192.168.100.10:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
 Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
 

@@ -57,6 +57,32 @@ loadSettingsEnv();
 const DEFAULT_CWD = process.cwd();
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
 const IS_REMOTE = !!SERVER_URL;
+function splitServerUrls(value) {
+  return String(value || "")
+    .split(/[,\s]+/)
+    .map(item => item.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+function uniqueServerUrls(urls) {
+  const seen = new Set();
+  const result = [];
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+  }
+  return result;
+}
+function defaultFallbackServerUrls(primary) {
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
+  return ["http://host.docker.internal:8800", "http://192.168.100.10:8800"];
+}
+const SERVER_URLS = uniqueServerUrls([
+  SERVER_URL,
+  ...splitServerUrls(process.env.CLAUDE_MCP_FALLBACK_URLS || process.env.AIFY_SERVER_FALLBACK_URLS || ""),
+  ...defaultFallbackServerUrls(SERVER_URL),
+]);
+let ACTIVE_SERVER_URL = SERVER_URLS[0] || "";
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const IS_MANAGED_DISPATCH =
   ["1", "true", "yes"].includes(String(process.env.AIFY_MANAGED_DISPATCH || "").toLowerCase());
@@ -311,8 +337,16 @@ function isTransientHttpError(error) {
   return false;
 }
 
+function logTransientOrError(prefix, error) {
+  if (isTransientHttpError(error)) {
+    const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
+    console.error(`${prefix}: transient HTTP error against ${target}: ${error?.message || String(error)}; will retry on next poll`);
+    return;
+  }
+  console.error(`${prefix}:`, error);
+}
+
 async function httpCall(method, endpoint, body = null) {
-  const url = `${SERVER_URL}/api/v1${endpoint}`;
   const baseOptions = { method, headers: {} };
   if (API_KEY) baseOptions.headers["X-API-Key"] = API_KEY;
   if (body) {
@@ -323,40 +357,46 @@ async function httpCall(method, endpoint, body = null) {
   const maxAttempts = retriable ? HTTP_RETRY_ATTEMPTS : 1;
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
-    try {
-      const options = { ...baseOptions, headers: { ...baseOptions.headers }, signal: controller.signal };
-      const res = await fetch(url, options);
-      if (!res.ok) {
-        const text = await res.text();
-        const err = new Error(`HTTP ${res.status}: ${text}`);
-        err.status = res.status;
-        // 5xx is retriable as a transient server blip, but only on safe
-        // methods. 4xx is a real error — never retry.
-        if (retriable && res.status >= 500 && res.status < 600 && attempt < maxAttempts) {
+    const urls = uniqueServerUrls([ACTIVE_SERVER_URL, ...SERVER_URLS]);
+    for (const baseUrl of urls) {
+      const url = `${baseUrl}/api/v1${endpoint}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+      try {
+        const options = { ...baseOptions, headers: { ...baseOptions.headers }, signal: controller.signal };
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const text = await res.text();
+          const err = new Error(`HTTP ${res.status}: ${text}`);
+          err.status = res.status;
+          err.serverUrl = baseUrl;
+          // 5xx is retriable as a transient server blip, but only on safe
+          // methods. 4xx is a real error — never retry.
+          if (!(retriable && res.status >= 500 && res.status < 600 && attempt < maxAttempts)) {
+            throw err;
+          }
           lastError = err;
-          await new Promise((r) => setTimeout(r, HTTP_RETRY_BASE_MS * 2 ** (attempt - 1)));
           continue;
         }
-        throw err;
+        ACTIVE_SERVER_URL = baseUrl;
+        return res.json();
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          const timeoutError = new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
+          timeoutError.name = "TimeoutError";
+          timeoutError.serverUrl = baseUrl;
+          lastError = timeoutError;
+        } else {
+          error.serverUrl = error.serverUrl || baseUrl;
+          lastError = error;
+        }
+        if (!isTransientHttpError(error) || !retriable) throw lastError;
+      } finally {
+        clearTimeout(timeout);
       }
-      return res.json();
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        const timeoutError = new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
-        timeoutError.name = "TimeoutError";
-        lastError = timeoutError;
-      } else {
-        lastError = error;
-      }
-      if (attempt >= maxAttempts || !isTransientHttpError(error) || !retriable) {
-        throw lastError;
-      }
-      await new Promise((r) => setTimeout(r, HTTP_RETRY_BASE_MS * 2 ** (attempt - 1)));
-    } finally {
-      clearTimeout(timeout);
     }
+    if (attempt >= maxAttempts) throw lastError;
+    await new Promise((r) => setTimeout(r, HTTP_RETRY_BASE_MS * 2 ** (attempt - 1)));
   }
   throw lastError || new Error("httpCall exhausted retries without error");
 }
@@ -1073,7 +1113,7 @@ async function runEnvironmentControlLoop() {
     });
   } catch (error) {
     if (error?.status !== 404) {
-      console.error("[aify] environment control claim failed:", error?.message || error);
+      logTransientOrError("[aify] environment control claim failed", error);
     }
   } finally {
     environmentControlBusy = false;
@@ -1173,7 +1213,7 @@ async function runTerminalControlLoop() {
     }
   } catch (error) {
     if (error?.status !== 404) {
-      console.error("[aify] terminal control claim failed:", error?.message || error);
+      logTransientOrError("[aify] terminal control claim failed", error);
     }
   } finally {
     terminalControlBusy = false;
@@ -1186,8 +1226,10 @@ function noteSpawnClaimFailure(error) {
   if (spawnClaimFailureCount === 1 || now - spawnClaimLastLogAt > 30000) {
     spawnClaimLastLogAt = now;
     const detail = error?.message || String(error || "unknown error");
+    const target = error?.serverUrl || ACTIVE_SERVER_URL || SERVER_URL;
+    const fallbacks = SERVER_URLS.length > 1 ? `; configured URLs: ${SERVER_URLS.join(", ")}` : "";
     console.error(
-      `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${SERVER_URL}: ${detail}. ` +
+      `[aify] spawn claim failed (${spawnClaimFailureCount} consecutive) against ${target}: ${detail}${fallbacks}. ` +
       "The bridge will keep retrying; check that the service is running and reachable from this shell.",
     );
   }
@@ -1412,7 +1454,7 @@ async function runDispatchLoop() {
         // Heartbeat while an active run is genuinely owned by this process.
         reportAgentHeartbeat(agentId, state, active).catch(() => {});
         await processRunControls(agentId, active).catch((error) => {
-          console.error("[aify] control processing error:", error);
+          logTransientOrError("[aify] control processing error", error);
         });
         continue;
       }

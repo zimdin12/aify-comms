@@ -52,19 +52,19 @@ Current dashboard behavior reflected by the skills:
 No separate dashboard skill exists. The existing `aify-comms` and `aify-comms-debug` skills are the current agent-facing guidance and can be reinstalled into Codex with:
 
 ```bash
-bash install.sh --client codex http://localhost:8800 --with-hook
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 ```
 
 For Hermes installs, use:
 
 ```bash
-bash install.sh --client hermes http://localhost:8800 --with-hook
+bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
 ```
 
 For Claude Code installs, use:
 
 ```bash
-bash install.sh --client claude http://localhost:8800 --with-hook
+bash install.sh --client claude http://192.168.100.10:8800 --with-hook
 ```
 
 After either install/update, restart the relevant CLI wrapper/client and any long-running `aify-comms` environment bridge so both resident sessions and managed environment spawns load the updated skills and bridge code.

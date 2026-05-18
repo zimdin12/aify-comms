@@ -18,7 +18,7 @@ Only the `aify-comms` launcher should advertise an environment. Normal Claude/Co
 
 ```bash
 docker compose up -d --build
-curl http://localhost:8800/health
+curl http://192.168.100.10:8800/health
 ```
 
 If another service already owns port `8800`, change the published port in Compose or use an override. Bridges must use the externally reachable service URL, not the container-internal URL.
@@ -41,7 +41,7 @@ aify-comms /path/to/extra/root /another/root
 aify-comms http://host:8800 /path/to/extra/root
 ```
 
-If no server URL is passed, the launcher uses `AIFY_SERVER_URL` or falls back to the URL provided during install, then `http://localhost:8800`. The current directory is always included in `AIFY_CWD_ROOTS`; `AIFY_CWD_ROOTS` and extra command-line roots add more allowed workspace boundaries. Unknown option-looking arguments fail fast instead of becoming roots, and the service also ignores flag-like roots from stale launchers.
+If no server URL is passed, the launcher uses `AIFY_SERVER_URL` or falls back to the URL provided during install, then `http://192.168.100.10:8800`. The current directory is always included in `AIFY_CWD_ROOTS`; `AIFY_CWD_ROOTS` and extra command-line roots add more allowed workspace boundaries. Unknown option-looking arguments fail fast instead of becoming roots, and the service also ignores flag-like roots from stale launchers.
 
 The launcher passes `--environment-bridge` to the stdio server. That process argument is what turns the stdio server into a dashboard spawn target. Do not set the legacy `AIFY_ENVIRONMENT_BRIDGE=1` flag for ordinary MCP client sessions unless you intentionally want that process to claim dashboard spawn requests.
 
@@ -71,7 +71,7 @@ Use this when the runtime CLIs and target workspaces live in Linux or WSL.
 
 ```bash
 cd /path/to/aify-comms
-bash install.sh --client codex http://localhost:8800 --with-hook
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 npm --prefix mcp/stdio install
 
 cd /path/to/workspace-or-workspace-parent
@@ -99,7 +99,7 @@ Install from Git Bash so the shell wrappers and `.cmd` shims are created in the 
 
 ```bash
 cd ~/aify-comms
-bash install.sh --client codex http://localhost:8800 --with-hook
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 ```
 
 Then open a new PowerShell window and verify:
@@ -139,8 +139,8 @@ aify-comms.cmd C:\Docker C:\Users\$env:USERNAME\work
 
 ## Service URL Rules
 
-- Same host Linux/WSL/browser to service: usually `http://localhost:8800`.
-- Native Windows bridge to a service running in Windows Docker Desktop: usually `http://localhost:8800`.
+- Same host Linux/WSL/browser to service: usually `http://192.168.100.10:8800`.
+- Native Windows bridge to a service running in Windows Docker Desktop: usually `http://192.168.100.10:8800`.
 - Bridge in a container reaching a host service: often `http://host.docker.internal:8800`.
 - Remote machine bridge: use the LAN/VPN URL for the service, for example `http://10.0.0.20:8800`.
 
@@ -244,7 +244,7 @@ Turn lifecycle is explicit, but it is not lockstep. Agents may exchange messages
 
 ## Verify
 
-1. Open `http://localhost:8800/api/v1/dashboard`.
+1. Open `http://192.168.100.10:8800/api/v1/dashboard`.
 2. Go to **Environments**.
 3. Confirm the bridge is `online`, has the expected roots, and advertises the runtime you want.
 4. Spawn an agent into a workspace under one of those roots.

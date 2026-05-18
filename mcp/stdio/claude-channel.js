@@ -13,6 +13,32 @@ import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 loadSettingsEnv();
 
 const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
+function splitServerUrls(value) {
+  return String(value || "")
+    .split(/[,\s]+/)
+    .map(item => item.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+function uniqueServerUrls(urls) {
+  const seen = new Set();
+  const result = [];
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+  }
+  return result;
+}
+function defaultFallbackServerUrls(primary) {
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
+  return ["http://host.docker.internal:8800", "http://192.168.100.10:8800"];
+}
+const SERVER_URLS = uniqueServerUrls([
+  SERVER_URL,
+  ...splitServerUrls(process.env.CLAUDE_MCP_FALLBACK_URLS || process.env.AIFY_SERVER_FALLBACK_URLS || ""),
+  ...defaultFallbackServerUrls(SERVER_URL),
+]);
+let ACTIVE_SERVER_URL = SERVER_URLS[0] || "";
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const MACHINE_ID = defaultMachineId();
 const CHANNEL_BRIDGE_ID = `channel-${MACHINE_ID}`;
@@ -47,11 +73,9 @@ process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
 process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
 
 // No activeRunId tracking. The channel bridge claims a dispatch, delivers
-// it to the Claude session via MCP notification, and immediately marks the
-// run as completed in the same tick. Previously the bridge left runs in
-// "running" state indefinitely — it has no way to track whether Claude
-// actually processed the work, so runs hung until the 2-hour timeout and
-// blocked all subsequent dispatches for the agent.
+// it to the Claude session via MCP notification, and marks the run delivered
+// in the same tick. It cannot track whether Claude actually processed the
+// work, so it must not keep channel deliveries in "running" state.
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,30 +102,46 @@ function readBoundAgentId() {
 
 async function httpCall(method, endpoint, body = null) {
   if (!SERVER_URL) return null;
-  const url = `${SERVER_URL}/api/v1${endpoint}`;
   const options = { method, headers: {} };
   if (API_KEY) options.headers["X-API-Key"] = API_KEY;
   if (body) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`HTTP ${res.status}: ${text}`);
+  let lastError;
+  for (const baseUrl of uniqueServerUrls([ACTIVE_SERVER_URL, ...SERVER_URLS])) {
+    const url = `${baseUrl}/api/v1${endpoint}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      if (!res.ok) {
+        const text = await res.text();
+        const error = new Error(`HTTP ${res.status}: ${text}`);
+        error.status = res.status;
+        error.serverUrl = baseUrl;
+        throw error;
+      }
+      ACTIVE_SERVER_URL = baseUrl;
+      return res.json();
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        lastError = new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
+        lastError.name = "TimeoutError";
+        lastError.serverUrl = baseUrl;
+      } else {
+        error.serverUrl = error.serverUrl || baseUrl;
+        lastError = error;
+      }
+      const code = String(error?.code || "");
+      const message = String(error?.message || "");
+      const transient = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|fetch failed|network/i.test(code + " " + message);
+      if (!transient) throw lastError;
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`HTTP ${method} ${endpoint} timed out after ${HTTP_TIMEOUT_MS}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
   }
+  throw lastError || new Error(`HTTP ${method} ${endpoint} failed`);
 }
 
 function dispatchContent(agentId, run) {

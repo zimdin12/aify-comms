@@ -480,7 +480,7 @@ a{color:var(--accent-text)}
 .chat-timeline{height:100%;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
 .chat-main.console-mode{grid-template-rows:auto minmax(0,1fr)}
 .chat-main.console-mode .chat-composer{display:none}
-.console-panel{height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:10px;min-height:0;min-width:0}
+.console-panel{height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:10px;min-height:0;min-width:0}
 .console-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:flex-start;gap:12px;border:1px solid var(--line);border-radius:8px;background:#0a0f15;padding:10px 12px;min-width:0;overflow:hidden}
 .console-title{min-width:0;overflow:hidden}.console-title span{display:block;color:var(--muted);font-size:.78em}
 .console-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;max-width:100%;min-width:0}
@@ -488,11 +488,6 @@ a{color:var(--accent-text)}
 .console-output .xterm{height:100%;width:100%;min-height:0;padding:8px;box-sizing:border-box}.console-output .xterm-viewport{border-radius:6px}
 .console-output-fallback{height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:8px}
 .console-empty{display:flex;align-items:center;justify-content:center;color:var(--subtle);font-style:italic}
-.console-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px}
-.console-input-row input{min-width:0;height:32px;background:#070808;border:1px solid #2e3336;color:var(--text);border-radius:7px;padding:6px 9px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace}
-.console-input-row .btn{min-height:32px;height:32px;padding:5px 9px}
-.console-input-row input:focus{outline:none;border-color:var(--secondary);box-shadow:0 0 0 3px color-mix(in srgb,var(--secondary) 22%,transparent)}
-.console-direct-row{grid-template-columns:minmax(0,1fr) auto;color:var(--muted);font-size:.78em}
 .console-status-line{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
 .console-status-line .env-pill{font-size:.72em}
 .chat-scroll-bottom{position:absolute;right:18px;bottom:18px;z-index:18;border-radius:999px;padding:8px 12px;background:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 72%,#fff);color:var(--accent-contrast);font-weight:750;box-shadow:0 14px 36px #0009;transition:opacity .15s ease,transform .15s ease,visibility .15s ease}
@@ -1514,26 +1509,26 @@ Agent session in a specific workspace</div>
         <div class="guide-card">
           <h4>Claude Code</h4>
           <pre>cd /path/to/aify-comms
-bash install.sh --client claude http://localhost:8800 --with-hook</pre>
+bash install.sh --client claude http://192.168.100.10:8800 --with-hook</pre>
         </div>
         <div class="guide-card">
           <h4>Codex</h4>
           <pre>cd /path/to/aify-comms
-bash install.sh --client codex http://localhost:8800 --with-hook</pre>
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook</pre>
         </div>
         <div class="guide-card">
           <h4>OpenCode</h4>
           <pre>cd /path/to/aify-comms
-bash install.sh --client opencode http://localhost:8800</pre>
+bash install.sh --client opencode http://192.168.100.10:8800</pre>
       <p><b>Oh My Pi / Pi:</b></p>
-      <pre>bash install.sh --client pi http://localhost:8800</pre>
+      <pre>bash install.sh --client pi http://192.168.100.10:8800</pre>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
       <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or the <b>Sessions</b> header.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
-      <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://localhost:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
+      <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://192.168.100.10:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
       <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
       <h3>Run Resident Mode</h3>
       <p>Resident mode is for a real terminal session you want to watch or drive directly. Start the runtime through the wrapper and bind it to an agent ID. The wrapper auto-registers that live owner; if you omit <code>--aify-agent</code>, register manually from inside the session.</p>
@@ -1612,9 +1607,9 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <h3>Daily Use</h3>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
-      <p><b>Console vs messaging (current model):</b> the Console is a live <i>view</i> of an agent's PTY that you can also drive by hand. Messaging an agent is <b>always</b> a reliable aify-comms message (dispatch/steer/channel) — even in console mode, <b>Send message</b> uses that path, never raw terminal keystrokes. Raw PTY input is a separate, explicitly-labelled action (the <code>⌨ Raw</code> button, or clicking into the xterm). Blocked console input is never silently swallowed.</p>
+      <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY surface. Click into it to drive the CLI directly with normal terminal keys, paste, selection, and copy. Messaging an agent stays in <b>Messenger</b> mode and uses the reliable aify-comms message path (dispatch/steer/channel), never raw terminal keystrokes. Blocked console input is never silently swallowed.</p>
       <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). An attached but quiet console or merely-queued work is <b>active</b> (reachable, idle), not working. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
-      <p><b>Images:</b> paste (Ctrl+V) an image into the composer or console message input — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
+      <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
       <p><b>Spawn/respawn:</b> spawning starts a <b>fresh</b> session — prior context is not resumed. Re-spawning an existing agent replaces its backing (no native handle until its first run completes). To preserve an agent's context use <b>Compact</b>/<b>Continue</b>, not re-spawn.</p>
       <p><b>Bridge changes need a host bridge restart:</b> runtime/console/status fixes that live in the host <code>aify-comms</code> bridge (interactive console, accurate turn-busy status, runtime advertisement) only take effect after you restart that bridge — a container rebuild alone does not apply them.</p>
       <p><b>Peek mode:</b> turn it on in Chat when you want to watch a conversation without automatically marking incoming messages read. <b>Mark read</b> acknowledges a direct message or the selected channel for the selected <b>Viewing as</b> identity.</p>
@@ -2641,6 +2636,23 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       }
       sendConsoleInputBody(id, data).catch(error => toast(error.message || 'Terminal input failed', '#f85149'));
     });
+    term.attachCustomKeyEventHandler?.(event => {
+      const key = String(event.key || '').toLowerCase();
+      const copyShortcut = (event.ctrlKey || event.metaKey) && event.shiftKey && key === 'c';
+      if (!copyShortcut || event.type !== 'keydown') return true;
+      const selection = term.getSelection?.() || '';
+      if (!selection) return true;
+      const copied = navigator.clipboard?.writeText?.(selection);
+      if (copied && typeof copied.then === 'function') {
+        copied.then(
+          () => toast('Console selection copied'),
+          () => toast('Use browser copy/menu for this selection', '#f0b429'),
+        );
+      } else {
+        toast('Use browser copy/menu for this selection', '#f0b429');
+      }
+      return false;
+    });
     // Initial buffer paint happens exactly once, here on mount. From now on
     // streamConsoleDelta() owns ongoing output for this live xterm.
     if (raw) { try { term.write(raw); } catch {} }
@@ -2866,7 +2878,7 @@ async function uploadPastedImage(blob, targetEl) {
 }
 document.addEventListener('paste', event => {
   const el = event.target;
-  if (!el || (el.id !== 'chat-body' && el.id !== 'chat-console-input')) return;
+  if (!el || el.id !== 'chat-body') return;
   const items = event.clipboardData && event.clipboardData.items ? [...event.clipboardData.items] : [];
   const imageItem = items.find(it => it.kind === 'file' && (it.type || '').startsWith('image/'));
   if (!imageItem) return;
@@ -5137,20 +5149,6 @@ function renderConsoleChat(meta) {
     actionsKey,
   ].join('\u001f');
   if (timeline._chatSignature !== signature) {
-    const msgPlaceholder = `Message ${meta.id || 'agent'} — delivered via aify-comms (reliable)`;
-    const inputRow = xtermAvailable()
-      ? `<div class="console-input-row">` +
-          `<input id="chat-console-input" placeholder="${esc(msgPlaceholder)}" onkeydown="handleConsoleMsgKey(event)">` +
-          `<button class="btn btn-primary" title="Deliver as a reliable aify-comms message (dispatch/steer/channel) — NOT raw terminal input" onclick="sendConsoleAsMessage()">Send message</button>` +
-        `</div>` +
-        `<div class="console-input-row console-direct-row">` +
-          `<span>Raw terminal: click the console above and type directly into the PTY (advanced — only to drive the CLI by hand).</span>` +
-        `</div>`
-      : `<div class="console-input-row">` +
-          `<input id="chat-console-input" placeholder="${esc(msgPlaceholder)}" onkeydown="handleConsoleMsgKey(event)">` +
-          `<button class="btn btn-primary" title="Deliver as a reliable aify-comms message (dispatch/steer/channel)" onclick="sendConsoleAsMessage()">Send message</button>` +
-          `<button class="btn" title="Advanced: send this text as RAW keystrokes to the terminal PTY instead of as a message" ${canInput ? '' : 'disabled'} onclick="sendConsoleInput()">⌨ Raw</button>` +
-        `</div>`;
     timeline.innerHTML =
       `<section class="console-panel" data-terminal-id="${esc(terminalId)}">` +
         `<div class="console-head">` +
@@ -5167,7 +5165,6 @@ function renderConsoleChat(meta) {
         `</div>` +
         body +
         `<div class="console-output${(output || terminalId) ? '' : ' console-empty'}" id="chat-console-output" data-terminal-output>${outputHtml}</div>` +
-        inputRow +
       `</section>`;
     timeline._chatSignature = signature;
   }
@@ -5236,71 +5233,6 @@ async function startConsoleForSelected(freshContext = false) {
   }
 }
 
-async function sendConsoleInput() {
-  const meta = selectedChatMeta();
-  const session = meta.kind === 'dm' ? primarySessionForAgent(meta.id) : null;
-  const terminalId = String(session?.terminalId || '').trim();
-  const input = document.getElementById('chat-console-input');
-  const text = input?.value || '';
-  if (!terminalId || !text.trim()) return;
-  try {
-    input.disabled = true;
-    const body = text.endsWith('\r') ? text : `${text}\r`;
-    await sendConsoleInputBody(terminalId, body);
-    input.value = '';
-    await loadTerminal(terminalId, {force: true});
-  } catch (e) {
-    toast(e.message || 'Terminal input failed', '#f85149');
-  } finally {
-    if (input) input.disabled = false;
-    input?.focus();
-  }
-}
-
-function handleConsoleInputKey(event) {
-  if (event.key !== 'Enter') return;
-  event.preventDefault();
-  sendConsoleInput();
-}
-function handleConsoleMsgKey(event) {
-  if (event.key !== 'Enter' || event.shiftKey) return;
-  event.preventDefault();
-  sendConsoleAsMessage();
-}
-// Decoupled: in console mode the primary input sends a real aify-comms
-// message via the SAME reliable path the messenger composer uses
-// (dispatch/steer/channel) — never raw PTY. Raw PTY is an explicit,
-// separately-labelled action. Text is preserved on failure (no silent loss).
-async function sendConsoleAsMessage() {
-  const meta = selectedChatMeta();
-  const input = document.getElementById('chat-console-input');
-  const text = (input?.value || '').trim();
-  if (meta.kind !== 'dm' || !meta.id) { toast('Select an agent conversation first', '#f85149'); return; }
-  if (!text) { toast('Write a message first', '#f85149'); return; }
-  if (chatSendInFlight()) { toast('A send is still in progress — try again in a moment', '#f0b429'); return; }
-  beginChatSend();
-  try {
-    if (input) input.disabled = true;
-    const from = document.getElementById('chat-from')?.value || chatIdentity() || 'dashboard';
-    const subject = text.split(/\s+/).slice(0, 10).join(' ');
-    const payload = {from_agent: from, to: meta.id, type: 'info', subject, body: text,
-      priority: 'normal', steer: true, queueIfBusy: false, trigger: true, requireReply: true};
-    const response = await apiFetch(API + '/messages/send', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(18000),
-    });
-    const res = await response.json();
-    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Send failed');
-    if (input) input.value = '';
-    toast(`Sent to ${meta.id}`);
-    await refreshDashboard();
-  } catch (e) {
-    toast(e.message || 'Send failed — your text was kept', '#f85149');
-  } finally {
-    endChatSend();
-    if (input) { input.disabled = false; input.focus(); }
-  }
-}
 // Shared send guard with a STALE timeout so a hung send fetch (service under
 // load) can never permanently wedge sending. Without this a never-resolving
 // request left window._chatSending=true forever and every later send silently
