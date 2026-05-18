@@ -1501,32 +1501,20 @@ async def _current_agent_session_row(db, agent_id: str):
     return await cursor.fetchone()
 
 
-# A delivered terminal-delivery turn never goes claimed/running — it sits
-# 'delivered' until the agent finishes and it reconciles to 'completed'. So an
-# unfinished, RECENT delivered run means the agent is actively handling that
-# turn right now ("working"). Recency-bounded so a stale/orphaned delivered
-# run (the old idle-shows-working class; B2 reconcile also closes those) does
-# NOT keep an idle agent pinned to "working".
-_DELIVERED_WORKING_WINDOW_MIN = 30
-
-
 async def _current_active_run_row(db, agent_id: str):
+    # Only a genuinely claimed/running dispatch run counts as "working".
+    # NOTE: terminal-delivery runs sit 'delivered'+unfinished as their
+    # normal lingering state long after the agent finished (they reconcile
+    # lazily), so 'delivered' is NOT a reliable working signal — treating it
+    # as one pins idle agents to "working" (worse failure mode). Accurate
+    # mid-turn detection needs a bridge-reported turn-busy signal, tracked
+    # separately; do not re-add a delivered-run heuristic here.
     cursor = await db.execute(
-        f"""
+        """
         SELECT id, status, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at, claim_bridge_id
         FROM dispatch_runs
-        WHERE target_agent = ?
-          AND (
-            status IN ('claimed', 'running')
-            OR (
-              status = 'delivered'
-              AND COALESCE(finished_at, '') = ''
-              AND datetime(requested_at) >= datetime('now', '-{int(_DELIVERED_WORKING_WINDOW_MIN)} minutes')
-            )
-          )
-        ORDER BY
-          CASE WHEN status IN ('claimed', 'running') THEN 0 ELSE 1 END,
-          COALESCE(started_at, claimed_at, requested_at) DESC
+        WHERE target_agent = ? AND status IN ('claimed', 'running')
+        ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
         LIMIT 1
         """,
         (agent_id,),
