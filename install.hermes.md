@@ -42,6 +42,23 @@ On native Windows from PowerShell/cmd use `aify-comms.cmd`. The current
 directory is always an allowed workspace root; extra root arguments are optional
 safety boundaries, not the per-agent project choice.
 
+If the dashboard says Hermes is unavailable even though `hermes-aify` exists,
+check the underlying runtime command from the same Windows user/shell that runs
+the bridge:
+
+```powershell
+Get-Command hermes
+Get-Command hermes-aify.cmd
+```
+
+`hermes-aify` is only the aify wrapper; the environment bridge still needs the
+real `hermes` executable. If Hermes is installed under another path, set it and
+restart the bridge:
+
+```powershell
+[Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
+```
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.

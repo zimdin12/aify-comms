@@ -10,7 +10,7 @@ Add real Claude Code **Messenger steering** for managed/headless chat runs witho
 
 ## Current State
 
-Managed Claude currently runs through `claude -p --output-format text`, writes one prompt to stdin, closes stdin, and waits for process exit. That is reliable for one managed turn, but it cannot accept mid-run chat steering because there is no live input stream left open.
+Historical baseline: managed Claude previously ran through `claude -p --output-format text`, wrote one prompt to stdin, closed stdin, and waited for process exit. Current dashboard-managed Claude no longer uses this path; it starts/reuses `claude-aify` in a bridge-owned PTY and submits Messenger content as an interactive terminal turn.
 
 Resident Claude through `claude-aify` is different: an interactive Claude Code process is alive and the aify channel sidecar can deliver live notifications. That path is good for real CMD and dashboard Console ownership, but it does not solve headless managed Messenger steering.
 
@@ -46,7 +46,7 @@ Keep Claude Code Channels for resident/Console Claude only:
 
 Add a second managed Claude adapter mode:
 
-- `managed-claude-print`: current `claude -p` one-shot behavior.
+- `managed-claude-print`: historical `claude -p` one-shot behavior.
 - `managed-claude-stream`: long-lived SDK/streaming-input behavior with active steer.
 
 Start behind a feature flag/runtime config:

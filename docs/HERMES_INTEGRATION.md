@@ -68,6 +68,19 @@ The installer:
 
 Restart any running Hermes terminals and any long-running `aify-comms` bridge after updating.
 
+`hermes-aify` is a wrapper around the real Hermes Agent executable. The bridge
+advertises Hermes as available only when it can resolve `hermes` from its own
+PATH, or when `AIFY_HERMES_COMMAND` / `HERMES_COMMAND` points at a real
+executable. On Windows, verify from the bridge user:
+
+```powershell
+Get-Command hermes
+Get-Command hermes-aify.cmd
+```
+
+If only `hermes-aify.cmd` exists, set `AIFY_HERMES_COMMAND` to the absolute
+Hermes executable path and restart the bridge.
+
 ## Start The Environment Bridge
 
 Start the bridge from a directory that should be allowed as a dashboard workspace root:
