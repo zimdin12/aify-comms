@@ -2,6 +2,7 @@
 SQLite database layer for aify-comms v2.
 Single database file replaces all JSON file storage.
 """
+import json
 import aiosqlite
 from pathlib import Path
 
@@ -496,6 +497,51 @@ async def _migrate_terminal_sessions_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+# Runtimes the bridge can drive through a native managed integration.
+# Kept in sync with mcp/stdio/runtimes.js defaultCapabilitiesForRuntime and
+# service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES.
+_NATIVE_MANAGED_RUNTIMES = ("codex", "pi", "opencode")
+
+
+async def _backfill_native_managed_capability(db: aiosqlite.Connection):
+    """Durable fix for the native-dispatch deadlock.
+
+    The bridge derives its claim executionModes from the server's stored
+    agent capabilities (server.js: supportedExecutionModes(state.info)).
+    Managed codex/pi/opencode agents registered before the bridge advertised
+    `native-managed-run` carry stale capabilities, so the post-upgrade bridge
+    refuses to claim their `managed` dispatch runs and they queue forever.
+
+    Backfill `native-managed-run` (right after `managed-run`) for any managed
+    codex/pi/opencode agent missing it. Idempotent, runtime-scoped, matches
+    defaultCapabilitiesForRuntime intent. claude-code/hermes are untouched
+    (no native managed adapter). Belt-and-braces with the bridge self-heal.
+    """
+    cursor = await db.execute(
+        "SELECT id, runtime, capabilities FROM agents WHERE session_mode = 'managed'"
+    )
+    for agent_id, runtime, capabilities in await cursor.fetchall():
+        if str(runtime or "").strip().lower() not in _NATIVE_MANAGED_RUNTIMES:
+            continue
+        try:
+            caps = json.loads(capabilities or "[]")
+        except (ValueError, TypeError):
+            caps = []
+        if not isinstance(caps, list) or "native-managed-run" in caps:
+            continue
+        new_caps = []
+        for cap in caps:
+            new_caps.append(cap)
+            if cap == "managed-run":
+                new_caps.append("native-managed-run")
+        if "native-managed-run" not in new_caps:
+            new_caps.insert(0, "native-managed-run")
+        await db.execute(
+            "UPDATE agents SET capabilities = ? WHERE id = ?",
+            (json.dumps(new_caps), agent_id),
+        )
+
+
 async def init_db(db_path: Path = None):
     global _db_path
     if db_path:
@@ -512,6 +558,7 @@ async def init_db(db_path: Path = None):
         await _migrate_environments_table(db)
         await _migrate_agent_sessions_table(db)
         await _migrate_terminal_sessions_table(db)
+        await _backfill_native_managed_capability(db)
         await db.commit()
 
 async def get_db() -> aiosqlite.Connection:
