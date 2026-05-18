@@ -3061,6 +3061,45 @@ async def _record_terminal_delivery_contract(
     run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     requested_at = _now()
     normalized_runtime = _normalize_runtime(runtime or "")
+    existing_active_turn = None
+    if normalized_runtime == "claude-code" and require_reply:
+        active_cursor = await db.execute(
+            """
+            SELECT id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND dispatch_mode = 'terminal'
+              AND execution_mode = 'managed'
+              AND runtime = 'claude-code'
+              AND status IN ('claimed', 'running')
+            ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
+            LIMIT 1
+            """,
+            (recipient_id,),
+        )
+        existing_active_turn = await active_cursor.fetchone()
+    if existing_active_turn:
+        parent_run_id = str(existing_active_turn["id"] or "").strip()
+        await _append_dispatch_event(
+            db,
+            parent_run_id,
+            "terminal_delivered",
+            f"Additional dashboard input delivered into terminal {terminal_id} with control {control_id}",
+        )
+        await _append_dispatch_event(
+            db,
+            parent_run_id,
+            "terminal_coalesced",
+            f"Coalesced message {source_message_id or 'unknown'} into active Claude PTY turn",
+        )
+        if source_message_id:
+            await db.execute(
+                "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
+                (source_message_id, recipient_id, requested_at),
+            )
+        await _invalidate_agent_live_state(db, recipient_id)
+        return parent_run_id
+
     tracks_active_turn = normalized_runtime == "claude-code" and require_reply
     status = "running" if tracks_active_turn else "delivered"
     await db.execute(

@@ -2314,6 +2314,53 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(controls[2]["body"].endswith("\r"))
         self.assertEqual(controls[3]["body"], "\r")
 
+    def test_managed_claude_followup_input_reuses_active_terminal_turn_contract(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        first = self._send_message(
+            from_agent="dashboard",
+            to="console-agent",
+            type="info",
+            subject="hello",
+            body="hello",
+            trigger=True,
+        )
+        first_run_id = first["consoleDeliveries"][0]["contractRunId"]
+        second = self._send_message(
+            from_agent="dashboard",
+            to="console-agent",
+            type="info",
+            subject="state",
+            body="what is the current state",
+            trigger=True,
+        )
+
+        self.assertEqual(second["consoleDeliveries"][0]["contractRunId"], first_run_id)
+        runs = self._fetchall(
+            "SELECT id, status, subject FROM dispatch_runs WHERE target_agent = ? ORDER BY requested_at, id",
+            ("console-agent",),
+        )
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["id"], first_run_id)
+        self.assertEqual(runs[0]["status"], "running")
+
+        events = self._fetchall(
+            "SELECT event_type, body FROM dispatch_events WHERE run_id = ? ORDER BY id",
+            (first_run_id,),
+        )
+        self.assertIn("terminal_coalesced", [row["event_type"] for row in events])
+        self.assertTrue(any(second["messageId"] in row["body"] for row in events))
+        receipt = self._fetchone(
+            "SELECT message_id FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+            (second["messageId"], "console-agent"),
+        )
+        self.assertEqual(receipt["message_id"], second["messageId"])
+
     def test_stale_unowned_claude_terminal_run_is_repaired(self):
         self._create_running_session(
             terminal=True,
