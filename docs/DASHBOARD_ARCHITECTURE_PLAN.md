@@ -20,6 +20,22 @@ This is a genuine architecture problem. It is **not** a reason to discard the
 HTTP API or MCP layer, which are stable, tested (142 python + 28 stdio files),
 and the contract everything depends on.
 
+### Known issues the rebuild must explicitly solve
+
+- **Multi-tab / multi-PC state desync.** Two dashboards open → one tab acts,
+  the other shows stale state (e.g. a stopped terminal still showing cached
+  output next to a "Start console" button). The monolith refreshes per-tab on
+  a timer/ws fallthrough with no shared client state model. The componentized
+  rebuild must use **websocket-driven shared state** as the single client
+  source of truth so all tabs converge without manual refresh, and derive
+  console actions/body from one consistent state object (no "console + Start"
+  contradiction).
+- **Status/label/dot consistency** must be structural: one canonical status
+  value drives the text, the dot, and any badges (we just had to hand-fix the
+  dot disagreeing with the status — a class of bug componentization prevents).
+- **Bulk actions** (multi-select agents/sessions/runs) — a first-class feature
+  of the new component model, not bolted onto the monolith.
+
 ## 2. Options
 
 **A. Big-bang React rewrite (rebuild dashboard from scratch).**
