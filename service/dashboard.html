@@ -5063,15 +5063,19 @@ function renderConsoleChat(meta) {
     actionsKey,
   ].join('\u001f');
   if (timeline._chatSignature !== signature) {
+    const msgPlaceholder = `Message ${meta.id || 'agent'} — delivered via aify-comms (reliable)`;
     const inputRow = xtermAvailable()
-      ? `<div class="console-input-row console-direct-row">` +
-          `<span>Click the terminal to type directly. Arrow keys, paste, and shortcuts are sent to the PTY.</span>` +
-          `<button class="btn" title="Use the normal chat composer instead" onclick="setChatMode('messenger')">Messenger</button>` +
+      ? `<div class="console-input-row">` +
+          `<input id="chat-console-input" placeholder="${esc(msgPlaceholder)}" onkeydown="handleConsoleMsgKey(event)">` +
+          `<button class="btn btn-primary" title="Deliver as a reliable aify-comms message (dispatch/steer/channel) — NOT raw terminal input" onclick="sendConsoleAsMessage()">Send message</button>` +
+        `</div>` +
+        `<div class="console-input-row console-direct-row">` +
+          `<span>Raw terminal: click the console above and type directly into the PTY (advanced — only to drive the CLI by hand).</span>` +
         `</div>`
       : `<div class="console-input-row">` +
-          `<input id="chat-console-input" placeholder="${esc(canInput ? 'Type a command and press Enter' : 'Console input unavailable')}" ${canInput ? '' : 'disabled'} onkeydown="handleConsoleInputKey(event)">` +
-          `<button class="btn btn-primary" title="Send this line to the terminal stdin" ${canInput ? '' : 'disabled'} onclick="sendConsoleInput()">Send</button>` +
-          `<button class="btn" title="Use the normal chat composer instead" onclick="setChatMode('messenger')">Messenger</button>` +
+          `<input id="chat-console-input" placeholder="${esc(msgPlaceholder)}" onkeydown="handleConsoleMsgKey(event)">` +
+          `<button class="btn btn-primary" title="Deliver as a reliable aify-comms message (dispatch/steer/channel)" onclick="sendConsoleAsMessage()">Send message</button>` +
+          `<button class="btn" title="Advanced: send this text as RAW keystrokes to the terminal PTY instead of as a message" ${canInput ? '' : 'disabled'} onclick="sendConsoleInput()">⌨ Raw</button>` +
         `</div>`;
     timeline.innerHTML =
       `<section class="console-panel" data-terminal-id="${esc(terminalId)}">` +
@@ -5183,6 +5187,44 @@ function handleConsoleInputKey(event) {
   if (event.key !== 'Enter') return;
   event.preventDefault();
   sendConsoleInput();
+}
+function handleConsoleMsgKey(event) {
+  if (event.key !== 'Enter' || event.shiftKey) return;
+  event.preventDefault();
+  sendConsoleAsMessage();
+}
+// Decoupled: in console mode the primary input sends a real aify-comms
+// message via the SAME reliable path the messenger composer uses
+// (dispatch/steer/channel) — never raw PTY. Raw PTY is an explicit,
+// separately-labelled action. Text is preserved on failure (no silent loss).
+async function sendConsoleAsMessage() {
+  const meta = selectedChatMeta();
+  const input = document.getElementById('chat-console-input');
+  const text = (input?.value || '').trim();
+  if (meta.kind !== 'dm' || !meta.id) { toast('Select an agent conversation first', '#f85149'); return; }
+  if (!text) { toast('Write a message first', '#f85149'); return; }
+  if (window._chatSending) return;
+  window._chatSending = true;
+  try {
+    if (input) input.disabled = true;
+    const from = document.getElementById('chat-from')?.value || chatIdentity() || 'dashboard';
+    const subject = text.split(/\s+/).slice(0, 10).join(' ');
+    const payload = {from_agent: from, to: meta.id, type: 'info', subject, body: text,
+      priority: 'normal', steer: true, queueIfBusy: false, trigger: true, requireReply: true};
+    const response = await apiFetch(API + '/messages/send', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Send failed');
+    if (input) input.value = '';
+    toast(`Sent to ${meta.id}`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Send failed — your text was kept', '#f85149');
+  } finally {
+    window._chatSending = false;
+    if (input) { input.disabled = false; input.focus(); }
+  }
 }
 
 async function stopSelectedConsole() {
