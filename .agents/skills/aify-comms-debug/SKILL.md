@@ -177,6 +177,14 @@ After opening the native CLI, re-register from that same session with the same `
 
 **Fix.** Pull current `aify-comms` and restart the affected `aify-comms` / `omp-aify` bridge process (`pi-aify` is an alias). Current builds capture streamed deltas and final completion-event text before deciding that a managed run produced no reply. Verify the bridge checkout with `npm test` from `mcp/stdio/`.
 
+## Managed Oh My Pi / OMP fails: `Session ... is in another project`
+
+**Symptom.** A managed Pi run fails immediately with an OMP error like `Session "..." is in another project (C:\tmp)`.
+
+**Cause.** The saved OMP/Pi `sessionHandle` belongs to a different project directory than the workspace where the bridge is trying to resume it. This can happen after workspace changes, resident-to-managed lease expiry, or an old session record being reused across projects.
+
+**Fix.** Current bridge builds treat this as a stale managed handle: they clear the saved Pi handle and retry once with a fresh managed session. Resident Pi sessions still fail loudly because auto-swapping a visible CLI session would hide native memory changes. Pull current `aify-comms`, restart the affected bridge, and retry. If it still fails, use Dashboard **Sessions -> Actions -> Recreate** for that Pi agent.
+
 ## Managed Oh My Pi / OMP fails with Cursor API key when model is `default`
 
 **Symptom.** A managed OMP run is cancelled before a chat reply and reports `No API key found for cursor`, even though `~/.omp/agent/agent.db` exists.

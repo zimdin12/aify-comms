@@ -54,6 +54,13 @@ function readStdinMessages() {
 }
 assert.equal(detectPiRuntimeFailure('No API key found for amazon-bedrock. Use /login.').authFailure, true);
 assert.equal(detectPiRuntimeFailure('Session "dead-session" not found').shouldHeal, true);
+assert.deepEqual(
+  {
+    shouldHeal: detectPiRuntimeFailure('Error: Session "wrong-project" is in another project (C:\\tmp).').shouldHeal,
+    healReason: detectPiRuntimeFailure('Error: Session "wrong-project" is in another project (C:\\tmp).').healReason,
+  },
+  { shouldHeal: true, healReason: "project_mismatch" },
+);
 
 
 fs.writeFileSync(fakeOmp, `#!/usr/bin/env node
@@ -68,6 +75,10 @@ if (process.env.AIFY_PI_AUTH_FAIL === "1") {
 }
 if (process.argv.includes("--resume") && process.argv[process.argv.indexOf("--resume") + 1] === "dead-session") {
   console.error('Session "dead-session" not found');
+  process.exit(1);
+}
+if (process.argv.includes("--resume") && process.argv[process.argv.indexOf("--resume") + 1] === "wrong-project") {
+  console.error('Error: Session "wrong-project" is in another project (C:\\tmp).');
   process.exit(1);
 }
 const eventSessionId = Object.prototype.hasOwnProperty.call(process.env, "AIFY_PI_EVENT_SESSION_ID")
@@ -294,6 +305,36 @@ const healedArgvLines = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\
 assert(healedArgvLines.some((argv) => argv.includes("--resume") && argv.includes("dead-session")), "first Pi launch should attempt the saved handle");
 assert(!healedArgvLines.at(-1).includes("--resume"), "healed Pi relaunch should omit the dead --resume handle");
 assert.deepEqual(handleChanges.at(-1), { newHandle: "", meta: { reason: "missing_session", previous: "dead-session" } });
+
+const wrongProjectHandleChanges = [];
+const wrongProjectController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi wrong-project resume",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: { sessionId: "wrong-project" },
+  callbacks: {
+    onEvent: (type, text) => healEvents.push([type, text]),
+    onRuntimeState: (state) => runtimeStates.push(state),
+    onRefs: () => {},
+    onSessionHandleChange: (newHandle, meta) => wrongProjectHandleChanges.push({ newHandle, meta }),
+  },
+});
+const wrongProjectResult = await wrongProjectController.promise;
+assert.equal(wrongProjectResult.status, "completed");
+assert.equal(wrongProjectResult.runtimeState.sessionId, "pi-session-fake");
+assert.deepEqual(wrongProjectHandleChanges.at(-1), { newHandle: "", meta: { reason: "project_mismatch", previous: "wrong-project" } });
 
 const residentDeadHandleController = launchRuntimeRun({
   agentId: "pi-worker",

@@ -899,6 +899,11 @@ export function detectPiRuntimeFailure(value) {
   if (missingSession) {
     return { shouldHeal: true, authFailure: false, missingSession: true, healReason: "missing_session", message };
   }
+  const projectMismatch =
+    /session\s+["']?[^"'\s]+["']?\s+is in another project/i.test(message);
+  if (projectMismatch) {
+    return { shouldHeal: true, authFailure: false, missingSession: true, healReason: "project_mismatch", message };
+  }
   return { shouldHeal: false, authFailure: false, missingSession: false, healReason: null, message };
 }
 
