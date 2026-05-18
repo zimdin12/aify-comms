@@ -2516,7 +2516,13 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     );
   }
 
-  const startupTimeoutMs = Number(config.startupTimeoutMs || process.env.AIFY_PI_STARTUP_TIMEOUT_MS || 15000);
+  // 45s default: omp cold-start under the bridge regularly exceeds 15s and
+  // false-failed (operator confirmed `omp` works fine manually). Real auth/
+  // provider errors still fail IMMEDIATELY via the stdout/stderr classifier
+  // (detected.authFailure on the output handler) regardless of this window —
+  // raising it only extends the "no readiness signal yet" slow-start case.
+  // Override with AIFY_PI_STARTUP_TIMEOUT_MS / config.startupTimeoutMs.
+  const startupTimeoutMs = Number(config.startupTimeoutMs || process.env.AIFY_PI_STARTUP_TIMEOUT_MS || 45000);
 
   let interrupted = false;
   let settled = false;
