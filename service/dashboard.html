@@ -5277,8 +5277,8 @@ async function sendConsoleAsMessage() {
   const text = (input?.value || '').trim();
   if (meta.kind !== 'dm' || !meta.id) { toast('Select an agent conversation first', '#f85149'); return; }
   if (!text) { toast('Write a message first', '#f85149'); return; }
-  if (window._chatSending) return;
-  window._chatSending = true;
+  if (chatSendInFlight()) { toast('A send is still in progress — try again in a moment', '#f0b429'); return; }
+  beginChatSend();
   try {
     if (input) input.disabled = true;
     const from = document.getElementById('chat-from')?.value || chatIdentity() || 'dashboard';
@@ -5287,6 +5287,7 @@ async function sendConsoleAsMessage() {
       priority: 'normal', steer: true, queueIfBusy: false, trigger: true, requireReply: true};
     const response = await apiFetch(API + '/messages/send', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(18000),
     });
     const res = await response.json();
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Send failed');
@@ -5296,10 +5297,22 @@ async function sendConsoleAsMessage() {
   } catch (e) {
     toast(e.message || 'Send failed — your text was kept', '#f85149');
   } finally {
-    window._chatSending = false;
+    endChatSend();
     if (input) { input.disabled = false; input.focus(); }
   }
 }
+// Shared send guard with a STALE timeout so a hung send fetch (service under
+// load) can never permanently wedge sending. Without this a never-resolving
+// request left window._chatSending=true forever and every later send silently
+// no-op'd ("it waits; only sends when I open console" = the stuck promise
+// finally resolving / a re-render coinciding).
+function chatSendInFlight() {
+  if (!window._chatSending) return false;
+  if (Date.now() - (window._chatSendingAt || 0) > 20000) { window._chatSending = false; return false; }
+  return true;
+}
+function beginChatSend() { window._chatSending = true; window._chatSendingAt = Date.now(); }
+function endChatSend() { window._chatSending = false; window._chatSendingAt = 0; }
 
 async function stopSelectedConsole() {
   const meta = selectedChatMeta();
@@ -6802,7 +6815,7 @@ async function runRotation() {
 }
 
 async function sendChatMessage(options = {}) {
-  if (window._chatSending) return;
+  if (chatSendInFlight()) { toast('A send is still in progress — try again in a moment', '#f0b429'); return; }
   const meta = selectedChatMeta();
   const from = document.getElementById('chat-from').value || 'dashboard';
   const type = document.getElementById('chat-type').value;
@@ -6814,7 +6827,7 @@ async function sendChatMessage(options = {}) {
   if (!meta.kind) { toast('Select a conversation', '#f85149'); return; }
   if (!body) { toast('Write a message first', '#f85149'); return; }
   const subject = subjectInput || body.split(/\s+/).slice(0, 10).join(' ');
-  window._chatSending = true;
+  beginChatSend();
   setChatSending(true, queueIfBusy);
   try {
     if (meta.kind === 'channel') {
@@ -6876,7 +6889,7 @@ async function sendChatMessage(options = {}) {
     if (subjectEl && subjectInput && !subjectEl.value.trim()) subjectEl.value = subjectInput;
     toast(e.message || 'Send failed', '#f85149');
   } finally {
-    window._chatSending = false;
+    endChatSend();
     setChatSending(false);
   }
 }
