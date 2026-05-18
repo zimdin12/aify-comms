@@ -230,9 +230,9 @@ pkill -f 'claude-aify'
 pkill -f 'omp-aify'
 cd /home/dev/aify-comms
 git pull
-bash install.sh --client codex http://localhost:8800 --with-hook
-bash install.sh --client claude http://localhost:8800 --with-hook
-bash install.sh --client pi http://localhost:8800
+bash install.sh --client codex http://192.168.100.10:8800 --with-hook
+bash install.sh --client claude http://192.168.100.10:8800 --with-hook
+bash install.sh --client pi http://192.168.100.10:8800
 aify-comms /path/to/workspace-root
 ```
 
@@ -403,6 +403,8 @@ Look for these lines on stderr:
 **Fix when auto-recovery fails.** If you see the auto-re-register log followed by `auto-re-register failed for "foo"`, the server itself is unreachable or rejecting the payload. Check:
 1. `curl http://localhost:8800/health` — is the server even up?
 2. The bridge's cached state may be missing a required field (role, runtime) if the agent was never fully registered in the first place. Manual `comms_register(...)` with complete fields is the definitive recovery.
+
+**`terminal control claim failed: transient HTTP error against http://localhost:8800: fetch failed`.** One or two of these during `docker compose up -d --build`, bridge restart, or service restart are expected: the bridge poll hit the API while the TCP connection was being reset, and current code retries on the next poll. If it repeats while `/health` is healthy, the bridge is probably still using an old `localhost`-only URL from another shell/checkout. Restart the host bridge from the latest checkout and prefer `http://192.168.100.10:8800` for Windows/WSL installs; current bridge builds also try fallback URLs for stale `localhost` configs.
 
 **Removing one bad ID.** Use:
 
