@@ -187,6 +187,14 @@ const REMOTE_AGENT_STATE = new Map();
 const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();
 const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
+// Terminal-control loop polls separately and much tighter: console input is
+// latency-sensitive (operator typing), and the terminal_controls query is
+// small + indexed, so a sub-second cadence is perf-safe. Dispatch/spawn
+// polling stays at the heavier DISPATCH_POLL_MS.
+const TERMINAL_CONTROL_POLL_MS = Math.max(
+  200,
+  Number(process.env.AIFY_TERMINAL_CONTROL_POLL_MS || 800),
+);
 let dispatchLoopTimer = null;
 let dispatchLoopBusy = false;
 let environmentHeartbeatTimer = null;
@@ -1085,7 +1093,7 @@ function ensureTerminalControlLoop() {
   runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
   terminalControlTimer = setInterval(() => {
     runTerminalControlLoop().catch((error) => console.error("[aify] terminal control loop error:", error));
-  }, DISPATCH_POLL_MS);
+  }, TERMINAL_CONTROL_POLL_MS);
 }
 
 async function updateTerminalControl(controlId, body) {
@@ -1137,7 +1145,15 @@ async function runTerminalControlLoop() {
             output: `[terminal attached pid=${started.pid}]\n`,
           });
         } else if (control.action === "input") {
-          TERMINAL_MANAGER.input(terminalId, control.body || "");
+          // Submit the line. Message/dispatch-delivered input arrives WITHOUT
+          // a trailing newline, so writing it verbatim left the text sitting
+          // unsubmitted in the runtime's input until the next input flushed
+          // it (messages delivered batched / one-behind — the core bug). The
+          // raw-console path already appends \r, so only add one when the
+          // body is non-empty and not already \r/\n-terminated.
+          const rawBody = String(control.body || "");
+          const submitBody = (rawBody && !/[\r\n]$/.test(rawBody)) ? `${rawBody}\r` : rawBody;
+          TERMINAL_MANAGER.input(terminalId, submitBody);
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
         } else if (control.action === "resize") {
           TERMINAL_MANAGER.resize(terminalId, control.cols || 0, control.rows || 0);
