@@ -5131,6 +5131,8 @@ function renderConsoleChat(meta) {
       ? 'No backing environment is recorded.'
       : String(environment.status || '').toLowerCase() !== 'online'
         ? `Environment ${environment.label || environment.id} is ${environment.status || 'offline'}.`
+        : (!environment.terminal || !environment.pty)
+          ? `Environment ${environment.label || environment.id} reports no PTY/terminal support. Rebuild node-pty for that bridge host and restart the bridge.`
         : `Environment ${environment.label || environment.id} does not advertise terminal support for ${session.runtime}.`;
     body = `<div class="banner"><div class="banner-row"><span>${esc(reason)}</span></div></div>`;
   } else if (!terminalId || ['stopped', 'failed'].includes(String(liveStatus || '').toLowerCase())) {

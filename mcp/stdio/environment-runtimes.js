@@ -29,6 +29,7 @@ export function advertisedEnvironmentRuntimes(options = {}) {
 }
 
 export function advertisedTerminalRuntimes(options = {}) {
+  if (options.terminalSupported === false) return [];
   return advertisedEnvironmentRuntimes(options)
     .filter((runtime) => runtime.available)
     .map((runtime) => runtime.runtime);

@@ -342,6 +342,7 @@ Tests:
 - terminal lease expiry
 - output truncation
 - dashboard scroll/layout does not jump during terminal streaming
+- Sessions page batch selection can stop live sessions and delete inactive session records created during test-spawn churn.
 
 ## Open Decisions
 
@@ -349,7 +350,7 @@ Tests:
 2. Should Console mode be allowed for agents with no native session handle as a fresh terminal, or should it require explicit **Recreate/Fresh Console**?
 3. Should real resident terminal output be mirrored to dashboard when possible, or should dashboard only show status unless the terminal was opened through Console mode?
 4. Should Console output be stored long-term, short-term buffered, or only streamed live?
-5. Resolved for the current implementation: Messenger sends during active managed PTY attachment are delivered into that PTY. A future UI may still add an explicit **Queue for later** affordance.
+5. Resolved for the current implementation: Messenger sends during active managed PTY attachment use the runtime's current managed delivery path: Claude channel delivery, Hermes PTY input, Codex app-server/native managed, and Pi OMP RPC when available.
 6. Which host should get the first PTY implementation: native Windows ConPTY or WSL/Linux PTY?
 
 ## Recommended First Decision

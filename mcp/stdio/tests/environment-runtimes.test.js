@@ -21,5 +21,10 @@ assert.deepEqual(
   ["codex", "claude-code", "opencode", "pi"],
   "terminal runtimes must remain available-only",
 );
+assert.deepEqual(
+  advertisedTerminalRuntimes({ availabilityFor, terminalSupported: false }),
+  [],
+  "terminal runtimes must be empty when the bridge cannot load PTY support",
+);
 
 console.log("environment-runtimes.test.js: all assertions passed");

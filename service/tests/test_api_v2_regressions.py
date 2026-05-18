@@ -401,6 +401,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("batchStopSelectedSessions()", dashboard.text)
         self.assertIn("batchDeleteSelectedSessions()", dashboard.text)
         self.assertIn("sessionCanStop(session)", dashboard.text)
+        self.assertIn("reports no PTY/terminal support", dashboard.text)
         self.assertIn("chat-mode-console", dashboard.text)
         self.assertIn('onclick="startConsoleForSelected', dashboard.text)
         self.assertIn('onclick="refreshSelectedConsole()', dashboard.text)

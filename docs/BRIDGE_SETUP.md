@@ -73,10 +73,22 @@ Use this when the runtime CLIs and target workspaces live in Linux or WSL.
 cd /path/to/aify-comms
 bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 npm --prefix mcp/stdio install
+npm --prefix mcp/stdio rebuild node-pty
 
 cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
+
+If the dashboard says the WSL/Linux bridge has no PTY/terminal support, verify
+and repair the native PTY module in that same checkout:
+
+```bash
+node -e "import('./mcp/stdio/terminal-runtime.js').then(m=>console.log(m.bridgeTerminalSupported()))"
+npm --prefix mcp/stdio rebuild node-pty
+```
+
+Restart the `aify-comms` bridge after the rebuild. A bridge can advertise Codex
+as available while Console is still disabled if `node-pty` cannot load.
 
 For WSL, run this from the WSL distro that owns the runtime CLI and workspace paths. Use Linux paths such as `/mnt/c/Docker/project`, not `C:/Docker/project`. Add extra roots only when you want one bridge command to cover multiple workspace trees:
 

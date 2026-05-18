@@ -946,6 +946,7 @@ function environmentHeartbeatPayload() {
   })();
   const kind = environmentKind();
   const id = String(process.env.AIFY_ENVIRONMENT_ID || `${kind}:${hostname}:default`).trim();
+  const terminalSupported = bridgeTerminalSupported();
   return {
     id,
     label: environmentLabel(kind, hostname),
@@ -956,9 +957,9 @@ function environmentHeartbeatPayload() {
     bridgeVersion: BRIDGE_VERSION,
     cwdRoots: cwdRootsForEnvironment(),
     runtimes: advertisedEnvironmentRuntimes(),
-    terminal: bridgeTerminalSupported(),
-    pty: bridgeTerminalSupported(),
-    terminalRuntimes: advertisedTerminalRuntimes(),
+    terminal: terminalSupported,
+    pty: terminalSupported,
+    terminalRuntimes: advertisedTerminalRuntimes({ terminalSupported }),
     metadata: {
       pid: process.pid,
       platform: process.platform,
