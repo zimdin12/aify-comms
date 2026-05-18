@@ -5,7 +5,7 @@ export function supportedExecutionModes(info = {}) {
   const runtime = normalizeRuntime(info.runtime || "generic");
   const capabilities = Array.isArray(info.capabilities) ? info.capabilities : [];
   const modes = [];
-  if (sessionMode === "managed" && capabilities.includes("managed-run") && runtime !== "claude-code") {
+  if (sessionMode === "managed" && capabilities.includes("native-managed-run")) {
     modes.push("managed");
   }
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {

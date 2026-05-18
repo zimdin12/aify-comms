@@ -2905,15 +2905,15 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
   if (normalizedMode === "managed") {
     switch (normalizedRuntime) {
       case "codex":
-        return ["managed-run", "resume", "interrupt", "steer", "spawn"];
-      case "hermes":
-        return ["managed-run", "resume", "interrupt", "spawn"];
+        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
       case "opencode":
-        return ["managed-run", "resume", "interrupt", "spawn"];
+        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
       case "pi":
-        return ["managed-run", "resume", "interrupt", "steer", "spawn"];
+        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
+      case "hermes":
+        return ["resume", "interrupt", "spawn"];
       case "claude-code":
-        return ["managed-run", "resume", "interrupt", "spawn"];
+        return ["resume", "interrupt", "spawn"];
       default:
         return [];
     }

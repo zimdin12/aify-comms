@@ -24,7 +24,7 @@ assert.equal(normalizeRuntime("pi-agent"), "pi");
 
 assert.equal(canLaunchRuntime("pi"), true);
 assert.deepEqual(controlCapabilitiesForRuntime("pi"), { interrupt: true, steer: true });
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "resume", "interrupt", "steer", "spawn"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"]);
 assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resident-run", "resume", "interrupt", "steer"]);
 
 process.env.PI_SESSION_ID = "pi-session-123";

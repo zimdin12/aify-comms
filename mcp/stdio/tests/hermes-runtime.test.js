@@ -19,7 +19,7 @@ assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
 assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: false });
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "managed"), ["managed-run", "resume", "interrupt", "spawn"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "managed"), ["resume", "interrupt", "spawn"]);
 assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resident-run", "resume", "interrupt"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
 
