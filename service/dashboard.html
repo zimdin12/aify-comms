@@ -4544,18 +4544,27 @@ function isOnlineChatAgent(info) {
 }
 
 function chatPresenceForAgent(info = {}) {
+  // The dot MUST agree with the canonical status text (single source of
+  // truth = the unified live-state engine value). Dispatch state only
+  // enriches the LABEL — it must never override the dot kind, or the dot
+  // says "working" (yellow) while the status says "active" (a merely
+  // queued run is not working; that disagreement is the reported bug).
+  const raw = String(info.statusRaw || info.status || '').toLowerCase();
   const activeRun = info.dispatchState?.activeRun;
   const queuedRuns = Number(info.dispatchState?.queuedRuns || 0);
-  const raw = String(info.statusRaw || info.status || '').toLowerCase();
   const issue = liveIssueForAgent('', info);
-  if (activeRun) return {kind: 'working', label: `working: ${activeRun.subject || activeRun.runId || 'active run'}`};
-  if (queuedRuns > 0) return {kind: 'working', label: `${queuedRuns} queued run${queuedRuns === 1 ? '' : 's'}`};
-  if (issue) return {kind: ['offline', 'stale', 'stopped'].includes(raw) ? raw : 'unreachable', label: issue};
-  if (raw === 'active') return {kind: 'online', label: 'online'};
-  if (raw === 'working') return {kind: 'working', label: 'working'};
-  if (raw === 'idle') return {kind: 'idle', label: 'idle online'};
-  if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: raw};
-  return {kind: 'online', label: 'online'};
+  const queued = queuedRuns > 0 ? ` (+${queuedRuns} queued)` : '';
+  if (issue) {
+    return {kind: ['offline', 'stale', 'stopped'].includes(raw) ? raw : 'unreachable', label: issue};
+  }
+  if (raw === 'working') {
+    return {kind: 'working', label: activeRun ? `working: ${activeRun.subject || activeRun.runId || 'run'}${queued}` : `working${queued}`};
+  }
+  if (raw === 'active') return {kind: 'online', label: `online${queued}`};
+  if (raw === 'idle') return {kind: 'idle', label: `idle online${queued}`};
+  if (['offline', 'stale', 'stopped'].includes(raw)) return {kind: raw, label: raw};
+  if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: `${raw}${queued}`};
+  return {kind: 'online', label: `online${queued}`};
 }
 
 function chatConversations() {
