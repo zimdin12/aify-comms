@@ -5,6 +5,53 @@ build happens on a dedicated next branch after approval. Co-authored:
 `comms-tech-lead` (service/dashboard) + `comms-senior-dev-pi` (bridge/runtime/MCP
 — see §6, its independent critique).
 
+## 0. Architecture (as-is) — canonical mental model
+
+```
+            Operator
+               │  (browser; chat = convenience over the reliable path)
+               ▼
+   ┌─────────────────────────────┐        aify-comms container
+   │  Dashboard UI (dashboard.html)│  ───┐
+   └─────────────────────────────┘      │  FastAPI + SQLite (control plane,
+               │  HTTP/WS  /api/v1       │  the contract: agents, runs,
+               ▼                         │  sessions, artifacts, status)
+   ┌─────────────────────────────┐  ◀───┘
+   │  Service (service/, MCP SSE)│
+   └─────────────────────────────┘
+               ▲  spawn-requests / heartbeats / dispatch / turn-busy
+               │  (HTTP)
+   ┌─────────────────────────────┐   host(s): Windows / WSL / Linux
+   │  Bridge  mcp/stdio/server.js │   (the `aify-comms` process you run)
+   └─────────────────────────────┘
+        │                         │
+        │ (1) Managed dispatch    │ (2) Dashboard Console (optional)
+        │     NATIVE integration  │     interactive `*-aify` wrapper
+        ▼                         ▼     in a node-pty PTY, streamed to UI
+   codex app-server /        codex-aify / pi-aify /
+   pi --mode rpc /           hermes-aify / claude-aify
+   Claude channel / hermes        │
+        │                         └── human watches / drives the CLI
+        ▼
+   the agent runtime does the work; result flows back over the
+   native path → service → dashboard. Messaging NEVER depends on the PTY.
+```
+
+**Two execution paths (the critical distinction):**
+1. **Managed dispatch** — primary. Bridge drives the runtime via its native
+   API/RPC (codex app-server, `pi --mode rpc`, Claude channel, hermes). All
+   chat/`comms_send` traffic and results flow here. Reliable, runtime-correct.
+2. **Console (PTY)** — optional, separate. Bridge launches the interactive
+   `*-aify` wrapper in a real PTY and streams it to the browser for
+   watch/hand-drive only. Not a data path; messaging is decoupled from it.
+
+**Resident vs managed:** running `*-aify --aify-agent <id>` by hand registers
+that live CLI as the *resident owner* of the identity (messages route to the
+visible session); managed = the bridge owns lifecycle. Same identity record.
+
+**Stable contracts (do not rebuild):** the HTTP API, MCP layer, and the
+bridge↔service protocol. The rebuild is the **UI layer only**.
+
 ## 1. Problem (evidence, not vibes)
 
 `service/dashboard.html` is a single ~7k-line file with all JavaScript and CSS
