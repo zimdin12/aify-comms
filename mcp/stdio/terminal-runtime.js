@@ -79,15 +79,19 @@ function terminalEnvWithoutResume(runtime = "", env = {}) {
 
 async function waitForExitOrTimeout(exitPromise, timeoutMs = 1000) {
   let timer = null;
+  let timedOut = false;
   try {
-    await Promise.race([
-      exitPromise,
+    return await Promise.race([
+      Promise.resolve(exitPromise).then(() => true),
       new Promise((resolve) => {
-        timer = setTimeout(resolve, Math.max(1, Number(timeoutMs) || 1000));
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve(false);
+        }, Math.max(1, Number(timeoutMs) || 1000));
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (!timedOut && timer) clearTimeout(timer);
   }
 }
 
@@ -375,7 +379,10 @@ export class TerminalProcessManager {
       // Best effort.
     }
     terminateProcessTree(terminal.proc, "SIGTERM");
-    await waitForExitOrTimeout(terminal.exitPromise, 1000);
+    const exited = await waitForExitOrTimeout(terminal.exitPromise, 3000);
+    if (!exited) {
+      await this._handleExit(id, terminal, { signal: "SIGTERM" });
+    }
     return { stopped: true };
   }
 

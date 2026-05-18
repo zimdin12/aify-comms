@@ -103,7 +103,7 @@ const pipeStopManager = new TerminalProcessManager({
 });
 await pipeStopManager.startPipeProcess({
   id: "pipe-stop",
-  command: `node -e "setInterval(() => {}, 1000)"`,
+  command: `node -e "process.stdin.resume(); process.stdin.on('end', () => process.exit(0));"`,
   cwd: tmp,
 });
 await pipeStopManager.stop("pipe-stop", "test pipe stop");
