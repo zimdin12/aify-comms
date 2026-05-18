@@ -1265,14 +1265,15 @@ export function runtimeLaunchAvailability(runtime) {
   const normalized = normalizeRuntime(runtime);
   if (normalized === "claude-code") {
     const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
-    const expected = configured || "claude";
+    const expected = configured || "claude-aify";
     const available = hasExecutable(expected);
     return {
       available,
       message: available
-        ? `Claude Code launcher available (resolved to ${resolveExecutable(expected)})`
+        ? `Claude Code aify wrapper available (resolved to ${resolveExecutable(expected)})`
         : `Runtime "claude-code" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
-          `Install Claude Code for this OS/user, or set AIFY_CLAUDE_COMMAND to an absolute path and restart the bridge. ` +
+          `Install/update the aify Claude wrapper with install.sh, ensure raw Claude Code is installed for this OS/user, ` +
+          `or set AIFY_CLAUDE_COMMAND to an absolute claude-aify-compatible wrapper path and restart the bridge. ` +
           `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }

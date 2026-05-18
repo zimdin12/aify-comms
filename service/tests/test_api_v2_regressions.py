@@ -353,7 +353,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("closeTransientDetails", dashboard.text)
         self.assertIn("_dashboardUiVersion", dashboard.text)
         self.assertIn("persistentOpenDetails", dashboard.text)
-        self.assertIn(".actions-menu,.chat-send-options", dashboard.text)
+        self.assertIn("SESSION_SELECTION_STORAGE_KEY", dashboard.text)
+        self.assertIn("persistSelectedSessions", dashboard.text)
+        self.assertIn("data-session-select", dashboard.text)
+        self.assertIn(".filter(el => !el.matches('.chat-send-options'))", dashboard.text)
         self.assertIn("xterm.min.css", dashboard.text)
         self.assertIn("xterm.min.js", dashboard.text)
         self.assertIn("addon-fit.min.js", dashboard.text)
@@ -2008,11 +2011,9 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn(
-            "claude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel",
-            controls[0]["body"],
-        )
+        self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
         self.assertIn("--resume claude-session-1", controls[0]["body"])
+        self.assertNotIn("claude --channels", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
 
     def test_managed_claude_channel_claim_sets_runtime_and_execution_mode(self):
@@ -2282,11 +2283,56 @@ class ApiV2RegressionTests(unittest.TestCase):
             (session["terminal_id"],),
         )
         self.assertEqual([row["action"] for row in controls], ["start"])
-        self.assertIn(
-            "claude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel",
-            controls[0]["body"],
-        )
+        self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
+        self.assertIn("--resume claude-session-1", controls[0]["body"])
+        self.assertNotIn("claude --channels", controls[0]["body"])
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_controls WHERE action = 'input'"))
+
+    def test_message_send_to_managed_claude_replaces_legacy_raw_channel_terminal(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        legacy_terminal_id = started.json()["terminal"]["id"]
+        legacy_command = (
+            "claude --channels server:aify-comms-channel "
+            "--dangerously-load-development-channels server:aify-comms-channel "
+            "--dangerously-skip-permissions --resume claude-session-1"
+        )
+        self._execute(
+            "UPDATE terminal_sessions SET command = ?, status = 'attached' WHERE id = ?",
+            (legacy_command, legacy_terminal_id),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET owner_mode = 'managed', terminal_status = 'attached', terminal_command = ? WHERE id = ?",
+            (legacy_command, session_id),
+        )
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "console-agent",
+                "type": "request",
+                "subject": "claude chat",
+                "body": "answer through wrapper channel",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+
+        legacy = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (legacy_terminal_id,))
+        self.assertEqual(legacy["status"], "failed")
+        self.assertIn("legacy raw Claude", legacy["error"])
+        session = self._fetchone("SELECT terminal_id, terminal_command, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertNotEqual(session["terminal_id"], legacy_terminal_id)
+        self.assertEqual(session["terminal_status"], "starting")
+        self.assertIn("claude-aify --aify-agent console-agent --auto", session["terminal_command"])
+        self.assertNotIn("claude --channels", session["terminal_command"])
 
     def test_reply_to_delivered_channel_run_completes_it_without_working_status(self):
         self._create_running_session(

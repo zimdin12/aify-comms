@@ -2208,6 +2208,7 @@ window._dashboardScrollVersion = window._dashboardScrollVersion || 0;
 window._dashboardUiVersion = window._dashboardUiVersion || 0;
 window._dashboardRestoringScroll = false;
 window._dashboardRestoringDetails = false;
+const SESSION_SELECTION_STORAGE_KEY = 'aifySelectedSessionIds';
 
 document.addEventListener('scroll', () => {
   if (!window._dashboardRestoringScroll) window._dashboardScrollVersion += 1;
@@ -2219,7 +2220,7 @@ function markDashboardUiInteraction() {
 
 function persistentOpenDetails() {
   return [...document.querySelectorAll('details[open][data-stable-key]')]
-    .filter(el => !el.matches('.actions-menu,.chat-send-options'))
+    .filter(el => !el.matches('.chat-send-options'))
     .map(el => el.getAttribute('data-stable-key'))
     .filter(Boolean);
 }
@@ -2842,6 +2843,11 @@ window.addEventListener('resize', () => {
   updateChatInspectorVisibility();
 });
 document.addEventListener('change', event => {
+  const sessionSelect = event.target.closest('[data-session-select]');
+  if (sessionSelect) {
+    setSessionSelected(sessionSelect.getAttribute('data-session-select') || '', sessionSelect.checked);
+    return;
+  }
   const target = event.target.closest('[data-channel-member-select]');
   if (target) {
     const channelName = target.getAttribute('data-channel-member-select') || '';
@@ -6002,8 +6008,24 @@ function renderSessionStats(sessions, visibleSessions = sessions) {
 }
 
 function selectedSessionSet() {
-  if (!window._selectedSessionIds) window._selectedSessionIds = new Set();
+  if (!window._selectedSessionIds) {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(SESSION_SELECTION_STORAGE_KEY) || '[]');
+      window._selectedSessionIds = new Set((Array.isArray(stored) ? stored : []).map(String).filter(Boolean));
+    } catch {
+      window._selectedSessionIds = new Set();
+    }
+  }
   return window._selectedSessionIds;
+}
+
+function persistSelectedSessions() {
+  try {
+    sessionStorage.setItem(SESSION_SELECTION_STORAGE_KEY, JSON.stringify([...selectedSessionSet()]));
+  } catch {
+    // Browser storage can be unavailable in private/embedded contexts. The
+    // in-memory Set still preserves selection during this page lifetime.
+  }
 }
 
 function sessionCanStop(session) {
@@ -6018,9 +6040,14 @@ function sessionCanDelete(session) {
 
 function pruneSelectedSessions(sessions) {
   const liveIds = new Set((sessions || []).map(session => session.id).filter(Boolean));
+  let changed = false;
   for (const sessionId of selectedSessionSet()) {
-    if (!liveIds.has(sessionId)) selectedSessionSet().delete(sessionId);
+    if (!liveIds.has(sessionId)) {
+      selectedSessionSet().delete(sessionId);
+      changed = true;
+    }
   }
+  if (changed) persistSelectedSessions();
 }
 
 function currentVisibleSessions() {
@@ -6038,11 +6065,13 @@ function setSessionSelected(sessionId, checked) {
   const selected = selectedSessionSet();
   if (checked) selected.add(sessionId);
   else selected.delete(sessionId);
+  persistSelectedSessions();
   renderSessions(window._sessions || []);
 }
 
 function clearSessionSelection() {
   selectedSessionSet().clear();
+  persistSelectedSessions();
   renderSessions(window._sessions || []);
 }
 
@@ -6051,6 +6080,7 @@ function selectSessionsByPredicate(predicate) {
   const selected = selectedSessionSet();
   selected.clear();
   visibleSessions.filter(predicate).forEach(session => selected.add(session.id));
+  persistSelectedSessions();
   renderSessions(window._sessions || []);
 }
 
@@ -6069,6 +6099,7 @@ function toggleVisibleSessionSelection(checked) {
     if (checked) selected.add(session.id);
     else selected.delete(session.id);
   });
+  persistSelectedSessions();
   renderSessions(window._sessions || []);
 }
 
@@ -6081,6 +6112,7 @@ function toggleSessionGroupSelection(environmentId, checked) {
       if (checked) selected.add(session.id);
       else selected.delete(session.id);
     });
+  persistSelectedSessions();
   renderSessions(window._sessions || []);
 }
 
@@ -6180,7 +6212,7 @@ function renderSessions(sessions) {
         canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
       ];
       html += `<tr>` +
-        `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''} onchange="setSessionSelected(${jsArg(session.id)}, this.checked)"></td>` +
+        `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''}></td>` +
         `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
         `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
         `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
@@ -6584,6 +6616,7 @@ async function batchStopSelectedSessions() {
     }
   }
   sessions.forEach(session => selectedSessionSet().delete(session.id));
+  persistSelectedSessions();
   toast(failures.length ? `Stopped ${stopped}; ${failures.length} failed` : `Stop requested for ${stopped} session${stopped === 1 ? '' : 's'}`, failures.length ? '#f0b429' : undefined);
   await refreshDashboard();
 }
@@ -6608,6 +6641,7 @@ async function batchDeleteSelectedSessions() {
     }
   }
   sessions.forEach(session => selectedSessionSet().delete(session.id));
+  persistSelectedSessions();
   toast(failures.length ? `Deleted ${deleted}; ${failures.length} failed` : `Deleted ${deleted} session record${deleted === 1 ? '' : 's'}`, failures.length ? '#f0b429' : undefined);
   await refreshDashboard();
 }

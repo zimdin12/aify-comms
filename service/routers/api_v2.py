@@ -2827,6 +2827,15 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
     status = str(row["status"] or row["terminal_status"] or "").strip().lower()
     if status not in {"starting", "attached", "running", "active", "idle"}:
         return None
+    runtime = _normalize_runtime(row["runtime"] or row["session_runtime"] or "")
+    command = str(row["command"] or "").strip()
+    if runtime == "claude-code" and command and "claude-aify" not in command:
+        await _release_stale_terminal_owner(
+            db,
+            row,
+            reason="Released legacy raw Claude terminal before managed channel dispatch; Claude backing must start through claude-aify.",
+        )
+        return None
 
     settings = settings or await _load_settings(db)
     stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
@@ -5211,16 +5220,11 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
             # like "65" into the console is the 026H-class trap). claude-aify
             # sets up the channel binding itself.
             return f"claude-aify --aify-agent {agent_id}"
-        # Managed headless: native channel IS the reliable delivery path; keep
-        # it (this is the decouple principle, not raw PTY). Resume for context.
-        parts = [
-            "claude",
-            "--channels",
-            "server:aify-comms-channel",
-            "--dangerously-load-development-channels",
-            "server:aify-comms-channel",
-            "--dangerously-skip-permissions",
-        ]
+        # Managed backing uses the same wrapper path as human Console/CLI. The
+        # wrapper owns the Claude channel setup, AIFY_AGENT_ID binding, and any
+        # platform-specific shim behavior; service code should not recreate a
+        # parallel raw `claude --channels ...` launch form.
+        parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]
         if handle:
             parts.extend(["--resume", handle])
         return " ".join(part for part in parts if part)
