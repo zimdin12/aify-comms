@@ -26,6 +26,7 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
 import { supportedExecutionModes } from "./dispatch-execution.js";
+import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
 import {
   canLaunchRuntime,
@@ -949,6 +950,44 @@ function environmentHeartbeatPayload() {
   };
 }
 
+function baseAgentHeartbeatFields(state = {}) {
+  return {
+    bridgeId: BRIDGE_INSTANCE_ID,
+    machineId: state?.info?.machineId || MACHINE_ID,
+  };
+}
+
+function currentTurnHeartbeatFields(state = {}, activeRun = null) {
+  const base = baseAgentHeartbeatFields(state);
+  if (!activeRun) return agentHeartbeatPayload(base);
+  return activeTurnHeartbeatPayload({
+    ...base,
+    activeRun,
+  });
+}
+
+async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
+  return httpCall(
+    "POST",
+    `/agents/${encodeURIComponent(agentId)}/heartbeat`,
+    currentTurnHeartbeatFields(state, activeRun),
+  );
+}
+
+async function reportTurnBusy(agentId, state = {}, { busy, runId = "", runtime = "" } = {}) {
+  return httpCall(
+    "POST",
+    `/agents/${encodeURIComponent(agentId)}/heartbeat`,
+    agentHeartbeatPayload({
+      ...baseAgentHeartbeatFields(state),
+      turnBusy: !!busy,
+      turnRunId: runId,
+      turnRuntime: runtime,
+    }),
+  );
+}
+
+
 function effectiveEnvironmentPayload() {
   const payload = environmentHeartbeatPayload();
   if (remoteEffectiveCwdRoots && remoteEffectiveCwdRoots.length) {
@@ -1382,10 +1421,7 @@ async function runDispatchLoop() {
       const active = ACTIVE_RUNS.get(agentId);
       if (active) {
         // Heartbeat while an active run is genuinely owned by this process.
-        httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-          bridgeId: BRIDGE_INSTANCE_ID,
-          machineId: state.info.machineId || MACHINE_ID,
-        }).catch(() => {});
+        reportAgentHeartbeat(agentId, state, active).catch(() => {});
         await processRunControls(agentId, active).catch((error) => {
           console.error("[aify] control processing error:", error);
         });
@@ -1445,10 +1481,7 @@ async function runDispatchLoop() {
 
       // Heartbeat after validating resident runtime reachability. This avoids
       // orphaned MCP child processes keeping a closed resident CLI "active".
-      httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        machineId: state.info.machineId || MACHINE_ID,
-      }).catch(() => {});
+      reportAgentHeartbeat(agentId, state).catch(() => {});
 
       const executionModes = supportedExecutionModes(state.info);
       if (!executionModes.length) continue;
@@ -1522,13 +1555,32 @@ async function runDispatchLoop() {
         continue;
       }
       const runtimeState = state.info.runtimeState || {};
-      await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-        status: "running",
+      let turnBusyStarted = false;
+      await reportTurnBusy(agentId, state, {
+        busy: true,
+        runId: run.id,
         runtime,
-        agentStatus: "working",
-        appendEvent: `Starting ${runtime} run for "${run.subject}"`,
-        eventType: "runtime",
-      });
+      }).then(() => {
+        turnBusyStarted = true;
+      }).catch(() => {});
+      try {
+        await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
+          status: "running",
+          runtime,
+          agentStatus: "working",
+          appendEvent: `Starting ${runtime} run for "${run.subject}"`,
+          eventType: "runtime",
+        });
+      } catch (error) {
+        if (turnBusyStarted) {
+          await reportTurnBusy(agentId, state, {
+            busy: false,
+            runId: run.id,
+            runtime,
+          }).catch(() => {});
+        }
+        throw error;
+      }
 
       const controller = launchRuntimeRun({
         agentId,
@@ -1604,7 +1656,17 @@ async function runDispatchLoop() {
         },
       });
 
-      ACTIVE_RUNS.set(agentId, { runId: run.id, controller });
+      ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
+      let turnBusyCleared = false;
+      const clearTurnBusy = async () => {
+        if (turnBusyCleared) return;
+        turnBusyCleared = true;
+        await reportTurnBusy(agentId, state, {
+          busy: false,
+          runId: run.id,
+          runtime,
+        }).catch(() => {});
+      };
 
       controller.promise
         .then(async (result) => {
@@ -1620,6 +1682,7 @@ async function runDispatchLoop() {
                 : "Run completed successfully.",
             eventType: terminalStatus,
           });
+          await clearTurnBusy();
           await ensureRequiredReplyHandoff(agentId, run, terminalStatus, summary);
           if (result.runtimeState) {
             state.info.runtimeState = { ...(state.info.runtimeState || {}), ...result.runtimeState };
@@ -1638,12 +1701,14 @@ async function runDispatchLoop() {
               appendEvent: message,
               eventType: "failed",
             });
+            await clearTurnBusy();
             await ensureRequiredReplyHandoff(agentId, run, "failed", message);
           } catch (inner) {
             console.error("[aify] failed to report dispatch failure:", inner);
           }
         })
-        .finally(() => {
+        .finally(async () => {
+          await clearTurnBusy();
           ACTIVE_RUNS.delete(agentId);
         });
     }
