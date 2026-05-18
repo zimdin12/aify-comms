@@ -1360,6 +1360,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         <input id="env-spawn-prompt" placeholder="Initial task (optional)">
         <button class="btn btn-primary" title="Queue a managed-warm spawn request for the selected environment bridge" onclick="createSpawnRequest()">Spawn</button>
       </div>
+      <p class="hint" id="env-spawn-respawn-hint">Spawn starts a <b>fresh session</b> — prior context is NOT resumed. Re-spawning an existing agent ID replaces its backing with a new session (no native handle until its first run completes). To keep an agent's existing work/context, use <b>Compact</b> / <b>Continue</b> on its session instead of re-spawning.</p>
     </div>
     <div id="environments-list"></div>
     <div class="fb">
