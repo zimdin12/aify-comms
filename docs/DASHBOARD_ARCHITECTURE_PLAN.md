@@ -82,6 +82,16 @@ and the contract everything depends on.
   dot disagreeing with the status — a class of bug componentization prevents).
 - **Bulk actions** (multi-select agents/sessions/runs) — a first-class feature
   of the new component model, not bolted onto the monolith.
+- **Resident-session working detection.** Turn-busy status is bridge-driven
+  (managed only). Resident sessions (operator-run `*-aify`) have no bridge
+  turn; accurate "working" there needs the resident wrapper to emit its own
+  busy signal (start/end of turn) into the same turn-busy contract. Follow-up,
+  not a heuristic — captured so it isn't hot-patched.
+- **Session-id normalization / wording.** All runtimes have a native session
+  concept but it becomes known at different times (codex/claude/opencode/
+  hermes ~at register/handle; pi/omp at first completed run). Surface this as
+  "session pending — captured on first run" rather than "no handle", and
+  normalize how each runtime's id is displayed/repaired.
 
 ## 2. Options
 
