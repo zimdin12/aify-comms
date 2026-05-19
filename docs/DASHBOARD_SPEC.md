@@ -49,7 +49,7 @@ Work Loop is the operations view over chat obligations. It should not introduce 
 It should show:
 
 - open/overdue/working/queued/missing-reply counts
-- route, subject, age, target read state, reminder count, and latest answer preview
+- route, subject, age, target read state, reminder count, last reminder time, and latest answer preview
 - filters for state, category (`direct`, `channel`, `self-wake`), and free text; the daily default should be open direct contracts, with historical failures, answered items, channel fan-out, and self-wake audits opt-in
 - one-click run detail, chat jump, single-contract reminder, batch due-reminder actions, and operator close/bulk-close for reviewed stale contracts
 - local hide/restore for noisy historical contracts without deleting the source run or chat audit trail
@@ -57,7 +57,7 @@ It should show:
 
 `delivered` means the bridge delivered/read the source message into the target's live or managed context. It is not a completed work contract by itself. A delivered contract remains open or overdue until a linked reply/result is recorded.
 
-Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a blocked terminal turn that is already waiting for operator input. Reminders should be explicit automated messages, not hidden state changes, and reminder messages must not create new reply debt. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder. Maximum reminder count is an anti-spam cap, not resolution; unresolved contracts stay visible until answered, closed by the operator, or filtered into audit views.
+Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a blocked terminal turn that is already waiting for operator input. Reminders should be explicit automated messages, not hidden state changes, and reminder messages must not create new reply debt. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder. Maximum reminder count is an anti-spam cap, not resolution; Work Loop should show both count and last reminder time, and unresolved contracts stay visible until answered, closed by the operator, or filtered into audit views.
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
@@ -268,7 +268,7 @@ Ended/completed/cancelled sessions are debug history. The normal Sessions page s
 
 Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
-Current browser Console mode attaches to a bridge-owned PTY through xterm. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. For terminal-input runtimes such as Hermes, dashboard sends may start/reuse the same managed PTY. Managed Claude Code starts/reuses `claude-aify`, uses the PTY as the visible backing session, confirms the development-channel prompt when needed, writes the dashboard turn into Claude, sends a separate submit Enter, and keeps a tracked active run while waiting for the reply. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
+Current browser Console mode attaches to a bridge-owned PTY through xterm. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. For terminal-input runtimes such as Hermes, dashboard sends may start/reuse the same managed PTY. Managed Claude Code starts/reuses `claude-aify`, uses the PTY as the visible backing session, confirms the development-channel prompt when needed, writes the dashboard turn into Claude, sends a separate submit Enter, and keeps a tracked active run while waiting for the reply. Queueing waits behind real active/queued work; if an idle managed Claude/Hermes agent has no pending run, Queue still uses live PTY delivery rather than a channel-only queued row. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
 
 ## Continue From Session Flow
 

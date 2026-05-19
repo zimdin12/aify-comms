@@ -7893,52 +7893,32 @@ async def send_message(req: MessageSend, request: Request):
                     "consoleDeliveries": [],
                     "warnings": warnings,
                 }
-            if not bool(req.queueIfBusy):
-                settings = await _load_settings(db)
-                channel_backing_failed = set()
-                for recipient_id, _execution_mode in launchable_recipients:
-                    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))).fetchone()
-                    if row:
-                        row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
-                    if not row:
+            settings = await _load_settings(db)
+            channel_backing_failed = set()
+            for recipient_id, _execution_mode in launchable_recipients:
+                row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))).fetchone()
+                if row:
+                    row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
+                if not row:
+                    continue
+                runtime = _normalize_runtime(row["runtime"] or "generic")
+                # Queue only waits behind real active/queued work. For an idle
+                # terminal-backed target, it should still use the normal live
+                # delivery path instead of creating an orphan dispatch queue.
+                if bool(req.queueIfBusy):
+                    dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
+                    if dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0:
                         continue
-                    runtime = _normalize_runtime(row["runtime"] or "generic")
-                    # Native-managed runtimes deliver via the bridge's native
-                    # adapter from a plain dispatch_run.
-                    if runtime in _NATIVE_MANAGED_RUNTIMES:
-                        continue
-                    # Claude channel notifications are visible in Claude Code,
-                    # but do not create a reliable model turn. Managed Claude
-                    # dashboard chat therefore uses the claude-aify PTY backing
-                    # as the single visible session and injects the formatted
-                    # dashboard message there.
-                    if runtime in _CHANNEL_MANAGED_RUNTIMES and _execution_mode == "channel":
-                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
-                        if not console_terminal:
-                            console_terminal = await _ensure_managed_pty_for_dispatch(
-                                db,
-                                recipient_id,
-                                runtime=runtime,
-                                settings=settings,
-                                requested_by=req.from_agent,
-                            )
-                        if console_terminal:
-                            console_recipients[recipient_id] = console_terminal
-                        else:
-                            not_started.append(
-                                _dispatch_fix_hint(
-                                    recipient_id,
-                                    row,
-                                    "Claude claude-aify backing PTY is unavailable; restart the environment bridge or recover the session.",
-                                )
-                            )
-                            channel_backing_failed.add(recipient_id)
-                        continue
-                    if runtime in _CHANNEL_MANAGED_RUNTIMES:
-                        # Resident Claude channel sessions are still claimed
-                        # by the Claude channel bridge; only managed Claude
-                        # dashboard sends need the PTY turn path above.
-                        continue
+                # Native-managed runtimes deliver via the bridge's native
+                # adapter from a plain dispatch_run.
+                if runtime in _NATIVE_MANAGED_RUNTIMES:
+                    continue
+                # Claude channel notifications are visible in Claude Code,
+                # but do not create a reliable model turn. Managed Claude
+                # dashboard chat therefore uses the claude-aify PTY backing
+                # as the single visible session and injects the formatted
+                # dashboard message there.
+                if runtime in _CHANNEL_MANAGED_RUNTIMES and _execution_mode == "channel":
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
                         console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -7950,33 +7930,59 @@ async def send_message(req: MessageSend, request: Request):
                         )
                     if console_terminal:
                         console_recipients[recipient_id] = console_terminal
-                launchable_recipients = [
-                    (recipient_id, execution_mode)
-                    for recipient_id, execution_mode in launchable_recipients
-                    if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
-                ]
-                if not_started:
-                    recipient_info = {}
-                    for r in recipients:
-                        info = await _get_recipient_info(db, r)
-                        if info:
-                            recipient_info[r] = {
-                                "status": info["status"],
-                                "unread": info["unread"],
-                                "runtime": info["runtime"],
-                                "machineId": info["machineId"],
-                            }
-                    await db.commit()
-                    return {
-                        "ok": False,
-                        "error": "Message was not sent because one or more recipients cannot start live work now.",
-                        "recipients": recipients,
-                        "recipientStatus": recipient_info,
-                        "dispatchRuns": [],
-                        "notStarted": not_started,
-                        "consoleDeliveries": [],
-                        "warnings": warnings,
-                    }
+                    else:
+                        not_started.append(
+                            _dispatch_fix_hint(
+                                recipient_id,
+                                row,
+                                "Claude claude-aify backing PTY is unavailable; restart the environment bridge or recover the session.",
+                            )
+                        )
+                        channel_backing_failed.add(recipient_id)
+                    continue
+                if runtime in _CHANNEL_MANAGED_RUNTIMES:
+                    # Resident Claude channel sessions are still claimed
+                    # by the Claude channel bridge; only managed Claude
+                    # dashboard sends need the PTY turn path above.
+                    continue
+                console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                if not console_terminal:
+                    console_terminal = await _ensure_managed_pty_for_dispatch(
+                        db,
+                        recipient_id,
+                        runtime=runtime,
+                        settings=settings,
+                        requested_by=req.from_agent,
+                    )
+                if console_terminal:
+                    console_recipients[recipient_id] = console_terminal
+            launchable_recipients = [
+                (recipient_id, execution_mode)
+                for recipient_id, execution_mode in launchable_recipients
+                if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
+            ]
+            if not_started:
+                recipient_info = {}
+                for r in recipients:
+                    info = await _get_recipient_info(db, r)
+                    if info:
+                        recipient_info[r] = {
+                            "status": info["status"],
+                            "unread": info["unread"],
+                            "runtime": info["runtime"],
+                            "machineId": info["machineId"],
+                        }
+                await db.commit()
+                return {
+                    "ok": False,
+                    "error": "Message was not sent because one or more recipients cannot start live work now.",
+                    "recipients": recipients,
+                    "recipientStatus": recipient_info,
+                    "dispatchRuns": [],
+                    "notStarted": not_started,
+                    "consoleDeliveries": [],
+                    "warnings": warnings,
+                }
 
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 

@@ -407,6 +407,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("chatDraftKey", dashboard.text)
         self.assertIn("window._selectedContracts", dashboard.text)
         self.assertIn("closeSelectedContracts()", dashboard.text)
+        self.assertIn("last reminded", dashboard.text)
         self.assertIn("['request', 'review', 'error'].includes", dashboard.text)
         self.assertIn(">Queue</button>", dashboard.text)
         self.assertNotIn("chat-queue-if-busy", dashboard.text)
@@ -2083,6 +2084,42 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(stored["runtime"], "claude-code")
         self.assertEqual(stored["execution_mode"], "managed")
         self.assertEqual(stored["dispatch_mode"], "terminal")
+
+    def test_queue_if_busy_to_idle_managed_claude_uses_terminal_turn(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="queued smoke",
+            body="answer when online",
+            trigger=True,
+            queueIfBusy=True,
+        )
+
+        self.assertTrue(sent["ok"], sent)
+        self.assertEqual(sent["dispatchRuns"], [])
+        self.assertEqual(len(sent["consoleDeliveries"]), 1)
+        run_id = sent["consoleDeliveries"][0]["contractRunId"]
+        contract = self._fetchone(
+            "SELECT status, dispatch_mode, execution_mode, body FROM dispatch_runs WHERE id = ?",
+            (run_id,),
+        )
+        self.assertEqual(contract["status"], "running")
+        self.assertEqual(contract["dispatch_mode"], "terminal")
+        self.assertEqual(contract["execution_mode"], "managed")
+        self.assertIn("answer when online", contract["body"])
+        orphan_channel = self._fetchone(
+            "SELECT id FROM dispatch_runs WHERE target_agent = ? AND execution_mode = 'channel' AND status = 'queued'",
+            ("console-agent",),
+        )
+        self.assertIsNone(orphan_channel)
 
     def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
         # Only runtimes WITHOUT a native managed adapter still start a headless

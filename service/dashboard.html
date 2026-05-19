@@ -4026,7 +4026,10 @@ function contractCard(contract) {
   const read = contract.sourceReadAt ? `target read ${fmtTime(Date.parse(contract.sourceReadAt) || 0)}` : 'target unread';
   const maxReminders = Number(window._contractSettings?.replyReminderMaxCount ?? window._contractSettings?.reply_reminder_max_count ?? 3);
   const reminderCount = Number(contract.reminderCount || 0);
-  const reminder = maxReminders > 0 ? `${reminderCount}/${maxReminders} reminders` : `${reminderCount} reminders`;
+  const reminderLimit = maxReminders > 0 ? `${reminderCount}/${maxReminders} reminders` : `${reminderCount} reminders`;
+  const reminder = maxReminders > 0 && reminderCount >= maxReminders ? `${reminderLimit} (max)` : reminderLimit;
+  const lastReminderAt = timeValue(contract.lastReminderAt || '');
+  const lastReminder = lastReminderAt ? `last reminded ${fmtShortTime(lastReminderAt)}` : 'not reminded yet';
   const age = Number(contract.ageMinutes || 0);
   const ageText = age >= 60 ? `${Math.round(age / 6) / 10}h old` : `${Math.round(age)}m old`;
   const result = contract.resultPreview ? `<div class="contract-preview"><b>Answer:</b> ${esc(contract.resultPreview)}</div>` : '';
@@ -4047,6 +4050,7 @@ function contractCard(contract) {
       `<span class="contract-pill">${esc(read)}</span>` +
       `<span class="contract-pill">${esc(ageText)}</span>` +
       `<span class="contract-pill">${esc(reminder)}</span>` +
+      `<span class="contract-pill">${esc(lastReminder)}</span>` +
     `</div>` +
     `<div class="contract-actions">` +
       actionButtonFn('View run', 'Open run details, events, controls, and result', () => viewRun(contract.id)) +
