@@ -28,6 +28,7 @@
         <button class="nav-item" data-page="runs">Runs</button>
         <p>Insight</p>
         <button class="nav-item" data-page="analytics">Analytics</button>
+        <button class="nav-item" data-page="settings">Settings</button>
       </nav>
       <div class="nav-footer">
         <span id="api-status" class="status-chip muted">connecting</span>
@@ -55,7 +56,11 @@
         <section class="band">
           <div class="section-head">
             <h2>Needs Attention</h2>
-          <button class="ghost" data-page-jump="work-loop" title="Open Work Loop">Open Work Loop</button>
+            <div class="button-row">
+              <button class="ghost" data-page-jump="work-loop" title="Open Work Loop">Open Work Loop</button>
+              <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
+              <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
+            </div>
           </div>
           <div id="attention-list" class="item-list"></div>
         </section>
@@ -91,6 +96,17 @@
           </div>
           <div id="conversation-messages" class="timeline"></div>
           <form id="composer" class="composer">
+            <div class="composer-options">
+              <select id="composer-type" title="Message type">
+                <option value="info">Info</option>
+                <option value="request">Request</option>
+                <option value="review">Review</option>
+              </select>
+              <label class="check-row">
+                <input id="composer-queue" type="checkbox" checked>
+                <span>Queue if busy</span>
+              </label>
+            </div>
             <textarea id="composer-body" placeholder="Select an agent conversation to send a message"></textarea>
             <button type="submit" class="primary">Send</button>
           </form>
@@ -146,6 +162,16 @@
             <h2>Run Status Mix</h2>
           </div>
           <div id="run-status-mix" class="bar-stack"></div>
+        </section>
+      </section>
+
+      <section id="page-settings" class="page">
+        <section class="band">
+          <div class="section-head">
+            <h2>Settings</h2>
+            <button class="primary" id="open-classic-settings" title="Open classic dashboard settings">Open Classic Settings</button>
+          </div>
+          <p class="preview">Settings parity is gated by the 8801 parity contract. Use the classic dashboard until this flow is enabled.</p>
         </section>
       </section>
     </main>

@@ -60,6 +60,43 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("dispatch_runs_by_status", script)
         self.assertIsNone(re.search(r"/contracts/[^'\"]+/(close|cancel|delete)", script))
 
+    def test_parity_foundations_are_declared_and_reused(self):
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+
+        self.assertIn("const flowGates", script)
+        self.assertIn("function resolveStatus", script)
+        self.assertIn("const STATUS_KINDS", script)
+        self.assertIn("function renderStatusChip", script)
+        self.assertIn("function connectRealtimeSocket", script)
+        self.assertIn("function applyRealtimeEvent", script)
+        self.assertIn("terminalOwners", script)
+        self.assertIn("data.agentId !== owner", script)
+        self.assertNotRegex(script, r"class=\\\"status-chip \\$\\{[^}]*\\.status")
+
+    def test_next_slice_exposes_safe_parity_controls(self):
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+
+        self.assertIn('id="composer-type"', html)
+        self.assertIn('id="composer-queue"', html)
+        self.assertIn("sendMessageWithTimeout", script)
+        self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}", script)
+        self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}/control", script)
+        self.assertIn("closeWorkContract", script)
+        self.assertIn("remindWorkContract", script)
+        self.assertIn("Closed from Work Loop by dashboard operator.", script)
+        self.assertIn('data-page-jump="environments"', html)
+        self.assertIn('data-page-jump="settings"', html)
+        self.assertIn("openClassic", script)
+
+    def test_mobile_contract_has_touch_and_single_column_controls(self):
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+
+        self.assertIn("@media (max-width: 414px)", styles)
+        self.assertRegex(styles, r"button,\s*input,\s*select,\s*textarea\s*\{[^}]*min-height:\s*44px")
+        self.assertIn(".contract-actions { grid-template-columns: 1fr; }", styles)
+        self.assertIn(".run-actions { grid-template-columns: 1fr; }", styles)
+
 
 if __name__ == "__main__":
     unittest.main()
