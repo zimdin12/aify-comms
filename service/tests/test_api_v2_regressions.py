@@ -5025,6 +5025,41 @@ class ApiV2RegressionTests(unittest.TestCase):
         message = inbox.json()["messages"][0]
         self.assertEqual(message["body"], "hi back")
 
+    def test_dashboard_info_run_summary_is_persisted_to_chat(self):
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        created = self._dispatch(
+            from_agent="dashboard",
+            to="coder",
+            type="info",
+            subject="state check",
+            body="what is current state?",
+            mode="start_if_possible",
+            createMessage=True,
+            requireReply=False,
+        )
+        run_id = created["runs"][0]["runId"]
+
+        completed = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "completed", "summary": "current state is clean"},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
+        self.assertEqual(final.status_code, 200, final.text)
+        result_message_id = final.json()["run"]["resultMessageId"]
+        self.assertTrue(result_message_id)
+        self.assertEqual(final.json()["run"]["replyState"], "sent")
+
+        inbox = self.client.get(f"/api/v1/messages/inbox/dashboard?messageId={result_message_id}")
+        self.assertEqual(inbox.status_code, 200, inbox.text)
+        message = inbox.json()["messages"][0]
+        self.assertEqual(message["from"], "coder")
+        self.assertEqual(message["type"], "response")
+        self.assertEqual(message["body"], "current state is clean")
+        self.assertEqual(message["inReplyTo"], created["messageId"])
+
     def test_completed_run_late_reply_links_result_message_id(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
@@ -6307,6 +6342,124 @@ class ApiV2RegressionTests(unittest.TestCase):
         missing = self.client.get("/api/v1/contracts?limit=50&state=missing_reply")
         self.assertEqual(missing.status_code, 200, missing.text)
         self.assertFalse(any(item["id"] == reminder_run_id for item in missing.json()["contracts"]))
+
+    def test_contract_reminders_are_unlimited_by_default(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="keep nudging",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
+        for idx in range(3):
+            self._execute(
+                "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+                (run_id, "reply_reminder", f"old reminder {idx}", api_v2._iso_from_ms(int((time.time() - (90 - idx)) * 1000))),
+            )
+
+        response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()["reminded"]), 1)
+
+    def test_contract_reminders_wait_for_busy_agent_then_fire_on_completion(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
+
+        open_contract = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="pending answer",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        contract_run_id = open_contract["runs"][0]["runId"]
+        active_work = self._dispatch(
+            from_agent="dashboard",
+            to="coder",
+            type="info",
+            subject="current task",
+            body="keep working",
+            mode="start_if_possible",
+            createMessage=True,
+            requireReply=False,
+        )
+        active_run_id = active_work["runs"][0]["runId"]
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
+
+        periodic = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(periodic["reply_reminders"], 0)
+        skipped = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder_skipped'", (contract_run_id,))
+        self.assertIsNotNone(skipped)
+        self.assertIn("target is busy", skipped["body"])
+
+        completed = self.client.patch(
+            f"/api/v1/dispatch/runs/{active_run_id}",
+            json={"status": "completed", "summary": "current task done"},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder' ORDER BY created_at DESC LIMIT 1", (contract_run_id,))
+        self.assertIsNotNone(event)
+        self.assertIn("Sent reminder message", event["body"])
+
+    def test_contract_reminders_skip_dashboard_target_contracts(self):
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        message_id = "msg-dashboard-contract"
+        run_id = "run-dashboard-contract"
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute(
+            """
+            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, timestamp)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (message_id, "coder", "dashboard", "direct", "request", "operator decision", "please decide", "normal", 1, int(time.time() * 1000)),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id,
+                message_id,
+                "coder",
+                "dashboard",
+                "start_if_possible",
+                "managed",
+                "request",
+                "operator decision",
+                "please decide",
+                "normal",
+                "delivered",
+                1,
+                overdue_at,
+            ),
+        )
+
+        response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["reminded"], [])
+
+        event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
+        self.assertIsNone(event)
 
     def test_contracts_default_view_hides_operator_closed_and_failures(self):
         self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})

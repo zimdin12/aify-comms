@@ -121,7 +121,7 @@ DEFAULT_SETTINGS = {
     "reply_contracts_enabled": True,
     "reply_reminder_minutes": 6,
     "reply_reminder_repeat_minutes": 6,
-    "reply_reminder_max_count": 3,
+    "reply_reminder_max_count": 0,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     "managed_claude_model": "",
@@ -322,10 +322,10 @@ def _is_delivery_only_claude_run(row) -> bool:
 
 
 def _dispatch_reply_state(row) -> str:
-    if not _row_require_reply(row):
-        return "not_required"
     if str((row["result_message_id"] if row else "") or "").strip():
         return "sent"
+    if not _row_require_reply(row):
+        return "not_required"
     if _is_delivery_only_claude_run(row):
         return "awaiting"
     status = str((row["status"] if row else "") or "").strip().lower()
@@ -4757,6 +4757,101 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             "handoff",
             f"Mirrored handoff stored for {to_agent}; live delivery not queued: {reasons}",
         )
+    return message_id
+
+
+async def _mirror_dashboard_run_summary_to_chat(db, row) -> Optional[str]:
+    """Persist dashboard-started managed run final text as a chat reply.
+
+    Work Loop reply debt and operator-visible chat delivery are separate
+    concerns. Routine dashboard `info` asks should not become contracts, but
+    their managed runtime final text still needs to land in dashboard chat.
+    """
+    if not row:
+        return None
+    if str((row["from_agent"] if "from_agent" in row.keys() else "") or "").strip() != "dashboard":
+        return None
+    if str((row["status"] if "status" in row.keys() else "") or "").strip().lower() != "completed":
+        return None
+    if str((row["result_message_id"] if "result_message_id" in row.keys() else "") or "").strip():
+        return None
+    if _is_delivery_only_claude_run(row):
+        return None
+    current_cursor = await db.execute("SELECT result_message_id FROM dispatch_runs WHERE id = ?", (row["id"],))
+    current_row = await current_cursor.fetchone()
+    if str((current_row["result_message_id"] if current_row else "") or "").strip():
+        return None
+
+    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
+    target_agent = str((row["target_agent"] if "target_agent" in row.keys() else "") or "").strip()
+    if not summary or not target_agent:
+        return None
+
+    start_ms = int(
+        _iso_to_epoch(
+            (row["started_at"] if "started_at" in row.keys() else "")
+            or (row["claimed_at"] if "claimed_at" in row.keys() else "")
+            or (row["requested_at"] if "requested_at" in row.keys() else "")
+        )
+        * 1000
+    )
+    source_message_id = str((row["message_id"] if "message_id" in row.keys() else "") or "").strip()
+    explicit_cursor = await db.execute(
+        """
+        SELECT id
+        FROM messages
+        WHERE from_agent = ?
+          AND to_agent = 'dashboard'
+          AND source = 'direct'
+          AND timestamp >= ?
+        ORDER BY timestamp ASC, id ASC
+        LIMIT 1
+        """,
+        (target_agent, max(0, start_ms)),
+    )
+    explicit = await explicit_cursor.fetchone()
+    if explicit:
+        message_id = str(explicit["id"] or "").strip()
+        await db.execute("UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?", (message_id, row["id"]))
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "handoff",
+            f"Linked existing dashboard reply {message_id}",
+        )
+        return message_id
+
+    ts = int(time.time() * 1000)
+    message_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+    subject = _auto_handoff_subject_for_run(row)
+    await db.execute(
+        """
+        INSERT INTO messages (
+            id, from_agent, to_agent, source, type, subject, body, priority,
+            dispatch_requested, in_reply_to, timestamp
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            message_id,
+            target_agent,
+            "dashboard",
+            "direct",
+            "response",
+            subject,
+            summary,
+            row["priority"] or "normal",
+            0,
+            source_message_id or None,
+            ts,
+        ),
+    )
+    await db.execute("UPDATE dispatch_runs SET result_message_id = ? WHERE id = ?", (message_id, row["id"]))
+    await _append_dispatch_event(
+        db,
+        row["id"],
+        "handoff",
+        f"Stored dashboard-visible final reply as {message_id}",
+    )
     return message_id
 
 
@@ -9508,24 +9603,30 @@ async def list_work_contracts(
             "replyContractsEnabled": bool(settings.get("reply_contracts_enabled", True)),
             "replyReminderMinutes": int(settings.get("reply_reminder_minutes", 6) or 6),
             "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", 6) or 6),
-            "replyReminderMaxCount": int(settings.get("reply_reminder_max_count", 3) or 3),
+            "replyReminderMaxCount": max(0, int(settings.get("reply_reminder_max_count", 0) or 0)),
             "contractStaleHours": int(settings.get("contract_stale_hours", 24) or 24),
         }}
     finally:
         await db.close()
 
 
-def _contract_reminder_due(row, *, settings: dict[str, Any], now_s: Optional[float] = None) -> tuple[bool, str]:
+def _contract_reminder_due(
+    row,
+    *,
+    settings: dict[str, Any],
+    now_s: Optional[float] = None,
+    ignore_repeat: bool = False,
+) -> tuple[bool, str]:
     if not settings.get("reply_contracts_enabled", True):
         return False, "reply contract reminders are disabled"
     state = _contract_state(row, settings=settings, now_s=now_s)
     if not state["overdue"]:
         return False, f'contract state is {state["state"]}'
-    max_count = max(0, int(settings.get("reply_reminder_max_count", 3) or 3))
+    max_count = max(0, int(settings.get("reply_reminder_max_count", 0) or 0))
     if max_count and state["reminderCount"] >= max_count:
         return False, f"max reminders reached ({state['reminderCount']}/{max_count})"
     last_reminder_at = str((row["last_reminder_at"] if row and "last_reminder_at" in row.keys() else "") or "").strip()
-    if last_reminder_at:
+    if last_reminder_at and not ignore_repeat:
         repeat_minutes = max(1, int(settings.get("reply_reminder_repeat_minutes", 6) or 6))
         last_s = _iso_to_epoch(last_reminder_at)
         if last_s and ((now_s or time.time()) - last_s) < repeat_minutes * 60:
@@ -9573,18 +9674,24 @@ async def _run_contract_reminders_once(
     limit: int = 50,
     now_s: Optional[float] = None,
     recent_only: bool = False,
+    target_agent_id: Optional[str] = None,
+    ignore_repeat: bool = False,
 ) -> dict[str, Any]:
     settings = await _load_settings(db)
     where = [
         "AND COALESCE(r.result_message_id, '') = ''",
         "AND r.status NOT IN ('completed','failed','cancelled')",
         "AND r.from_agent != r.target_agent",
+        "AND r.target_agent != 'dashboard'",
     ]
     params: list[Any] = []
     if run_id:
         where.append("AND r.id = ?")
         params.append(run_id)
-    elif recent_only:
+    if target_agent_id:
+        where.append("AND r.target_agent = ?")
+        params.append(str(target_agent_id).strip())
+    if recent_only:
         stale_hours = max(1, int(settings.get("contract_stale_hours", 24) or 24))
         where.append("AND datetime(r.requested_at) >= datetime('now', ?)")
         params.append(f"-{stale_hours} hours")
@@ -9595,7 +9702,7 @@ async def _run_contract_reminders_once(
     skipped = []
     now_s = now_s or time.time()
     for row in candidates:
-        due, reason = _contract_reminder_due(row, settings=settings, now_s=now_s)
+        due, reason = _contract_reminder_due(row, settings=settings, now_s=now_s, ignore_repeat=ignore_repeat)
         if not due:
             skipped.append({"runId": row["id"], "reason": reason})
             continue
@@ -9611,6 +9718,13 @@ async def _run_contract_reminders_once(
                 skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
                 await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
                 continue
+
+        active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
+        if active_state.get("hasActiveRun"):
+            reason = "target is busy; reminder will be retried when the agent is idle"
+            skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
+            await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
+            continue
 
         subject = f"Reminder: reply overdue - {str(row['subject'] or row['id'])[:96]}"
         body = _contract_reminder_body(row)
@@ -9786,7 +9900,8 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                 refreshed_cursor = await db.execute("SELECT * FROM dispatch_runs WHERE id = ?", (run_id,))
                 refreshed_row = await refreshed_cursor.fetchone()
                 mirrored_message_id = await _mirror_missing_dispatch_handoff(db, refreshed_row)
-                result_message_id = str((refreshed_row["result_message_id"] if refreshed_row else "") or mirrored_message_id or "").strip()
+                dashboard_message_id = await _mirror_dashboard_run_summary_to_chat(db, refreshed_row)
+                result_message_id = str((refreshed_row["result_message_id"] if refreshed_row else "") or mirrored_message_id or dashboard_message_id or "").strip()
                 await _close_steered_contracts_for_parent_run(
                     db,
                     refreshed_row,
@@ -9795,6 +9910,15 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                 await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row)
                 if refreshed_row:
                     await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
+                    if req.status == "completed":
+                        await _run_contract_reminders_once(
+                            db,
+                            request=request,
+                            target_agent_id=refreshed_row["target_agent"],
+                            limit=25,
+                            recent_only=True,
+                            ignore_repeat=True,
+                        )
 
         if req.agentStatus:
             await db.execute(
