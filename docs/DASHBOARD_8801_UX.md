@@ -7,18 +7,37 @@ roadmap below sits on top of the parity foundations (F1–F3).
 ## 0. What it IS (and isn't)
 
 The dashboard is the operator's **human-in-the-loop control plane** for a
-multi-runtime agent fleet. Its job, in order:
+service that **unifies multiple agent harnesses behind one interface and
+lets those agents talk to each other**. Operator framing (verbatim):
+*"this service allows us to use different harnesses via same interface +
+we provide methods for them to communicate with each other."*
 
-1. **Awareness** — at a glance, what's working, what needs my attention,
-   what's broken.
-2. **Conversation** — send work to an agent and see the answer threaded
-   in context.
-3. **Inspection** — for any run/message/session, the audit trail and
-   what to do about it.
-4. **Operation** — spawn, stop, steer, retry, route — without dropping to
-   CLI.
-5. **Trust** — be the source of truth (the status whack-a-mole eroded
-   this; F1/F2 in the parity contract is how it gets earned back).
+**Mental model — the hierarchy is environments → sessions → chat+console:**
+
+- **Environments** — hosts/machines that can run agent sessions.
+- **Sessions** (per environment) — a registered agent identity, on one
+  runtime (Claude / Codex / Pi / Hermes / OpenCode), in one execution
+  mode (managed / resident). The session IS the agent from the
+  operator's perspective.
+- **Each session has two views: chat + console.** Direct messages ARE
+  the chat for that session. Console is the optional terminal view.
+
+**Diagnostics tier (not primary surface):** Work loops and runs are
+*mostly diagnostics* — when something needs investigating, when a
+contract is stuck, when a run failed and you need the timeline. They
+belong in an inspector/drawer, not the front door.
+
+**Five jobs in priority order:**
+
+1. **Awareness** — what's working, what needs me, what's broken.
+2. **Conversation** — send work to a session and see the answer in
+   thread; switch between sessions fast.
+3. **Operation + editing** — spawn, stop, steer, retry, edit session
+   config, bulk-act across sessions — without dropping to CLI.
+4. **Diagnostics** — runs/work-loop/audit when a chat doesn't tell the
+   whole story.
+5. **Trust** — be the source of truth (F1/F2 in the parity contract is
+   how it's earned back).
 
 It is **not**: a code editor, a metrics/observability dashboard
 (Grafana's job), or a multi-user collab surface. Single operator,
@@ -27,16 +46,29 @@ operations focus.
 ## 1. Principles
 
 - **Awareness first, inventory second.** Lead with what's HAPPENING and
-  what NEEDS ME; large static tables (every agent, every run) are
-  on-demand, not the landing.
+  what NEEDS ME; large static tables are on-demand, not the landing.
+- **Sessions are the workspace.** The primary unit of the UI is the
+  session (chat + console as two views of one thing). Everything else
+  orbits the session.
+- **Multi-harness parity is structural.** Claude / Codex / Pi / Hermes /
+  OpenCode are peers in the same layout — runtime is a small badge, not
+  a separate page or palette. If a runtime-specific affordance is needed
+  it appears inline in the session view, not in a parallel UI tree.
 - **One canonical truth.** Status text + dot + badge always agree (F2);
   multi-tab/PC converge without manual refresh (F1); console is a view,
   never a delivery path.
-- **Threaded conversations are the primary surface.** Operator → agent
-  → reply, in one threaded view — not a flat inbox.
-- **Intervention without leaving the row.** From any active run: steer,
-  interrupt, queue-after, retry, open console, see audit — inline drawer,
-  not page navigation.
+- **Threaded conversations are the primary surface.** A direct message
+  to a session IS the chat for that session; reply threads inline.
+- **Diagnostics are a drawer, not a page.** Runs, work-loop, audit
+  belong in an inspector that opens FROM a session/message, with a
+  global diagnostics view as an explicit destination — not as the
+  default landing.
+- **Bulk + edit are baseline, not a roadmap item.** Multi-select with
+  bulk actions and inline editing apply everywhere they make sense
+  (sessions, messages, runs, contracts, environments); a slice that
+  ships a list without considering bulk-select and edit is incomplete.
+- **Intervention without leaving the row.** From any active session/run:
+  steer, interrupt, queue-after, retry, open console, see audit — inline.
 - **Truncation honesty.** "N most recent matching" everywhere a list is
   bounded; never let truncation read as "only N exist".
 - **Explainability on every status.** Tap/hover a status chip → WHY (run
@@ -46,81 +78,128 @@ operations focus.
 
 ## 2. Information architecture
 
+The IA is **environments → sessions → session view (chat + console)**.
+Diagnostics (runs, work-loop, audit) is a drawer that opens from a
+session/message context, with a separate global "Diagnostics" destination
+for cross-session investigation.
+
+**Top-level destinations** (the only first-class navigation entries):
+
+- **Sessions** — the workspace; default landing.
+- **Environments** — where sessions live; spawn-from-here flows; bulk
+  environment edits.
+- **Diagnostics** — runs, work-loop, audit (cross-session view); also
+  reachable inline from any session/message.
+- **Settings** — service config; runtime defaults; reachable as a sheet.
+
+A persistent **Needs-Attention** strip (overdue / blocked / failed /
+working-no-progress) appears above every destination so awareness isn't
+gated on which view is open.
+
 **Desktop (≥1024px) — three-pane responsive shell:**
 
 ```
-┌──────────────┬────────────────────────────┬────────────────┐
-│  Rail        │  Center                    │  Side          │
-│  agents +    │  threaded chat /           │  details /     │
-│  attention + │  console / run inspector   │  audit /       │
-│  activity    │  (one at a time)           │  controls      │
-└──────────────┴────────────────────────────┴────────────────┘
+┌──────────────┬──────────────────────────────┬───────────────┐
+│  Rail        │  Center: SESSION VIEW        │  Side         │
+│  envs +      │  ┌─ Chat ─┬─ Console ─┐      │  details /    │
+│  sessions +  │  │ thread │ pty view  │      │  diagnostics  │
+│  attention   │  └────────┴───────────┘      │  drawer /     │
+│  + activity  │  composer (bottom)           │  bulk-edit    │
+└──────────────┴──────────────────────────────┴───────────────┘
 ```
 
-- Rail: pinned "Needs Attention" group (overdue, blocked, failed,
-  working-no-progress) on top; then agents grouped by role; then activity
-  feed below.
-- Center: the workspace — chat with one agent / their console / a run
-  inspector / spawn form. Tabs within, not page-level navigation.
-- Side: contextual details for whatever is selected in Center; collapses
-  to overlay on smaller widths.
+- **Rail:** Environments grouped; under each, its sessions (collapsible)
+  with status chip + runtime badge. Pinned Needs-Attention on top; a
+  thin Activity feed underneath. Multi-select with checkbox toggling
+  enables a bulk-action toolbar that floats over the rail.
+- **Center:** the SESSION VIEW. Two tabs: **Chat** (threaded
+  conversation — the primary surface) and **Console** (PTY watch, opt-in
+  input). Composer anchored at bottom of Chat. Runtime is a tiny badge
+  in the header; the layout is identical regardless of harness.
+- **Side:** contextual — message details, run inspector drawer for the
+  currently inspected message/run, bulk-edit panel when multi-select is
+  active, audit timeline for the session.
 
 **Mobile (≤414px) — single-pane + bottom tab bar:**
 
 ```
 ┌─────────────────────────────┐
-│  Header (status, search)    │
+│  Header (env→session, ⚠ N)  │
 ├─────────────────────────────┤
 │                             │
 │  Active pane (full width)   │
+│  Sessions / Session view /  │
+│  Diagnostics / Settings     │
 │                             │
 ├─────────────────────────────┤
-│ [Comms] [Activity]          │
-│ [Inspector] [Settings]      │
+│ [Sessions][Diagnostics]     │
+│ [Activity][Settings]        │
 └─────────────────────────────┘
 ```
 
-- Bottom tab bar = top-level navigation. Swipe between agent chats.
-- Run inspector opens as a fullscreen sheet from any row.
-- Side pane (details) becomes a slide-up drawer, not a column.
-- Pull-to-refresh on lists; long-press for bulk-select.
+- Bottom tab bar = top-level navigation matches the four destinations.
+- Session view occupies the screen; Chat ↔ Console swap via a segmented
+  control inside the session header. Swipe horizontally between sessions
+  within the same env.
+- Diagnostics opens as a fullscreen sheet from any row; bulk-select via
+  long-press; bulk-actions appear in a contextual bar at the bottom
+  (replacing the tab bar while selection is active).
+- Side pane (details) becomes a slide-up drawer.
+- Pull-to-refresh; offline indicator in the header.
 
-**Tablet (414–1024px):** two-pane (Rail + Center), Side collapses to
-drawer; thresholds chosen to match real device widths.
+**Tablet (414–1024px):** two-pane (Rail + Center), Side collapses to a
+slide-over drawer; thresholds chosen for real device widths.
 
 ## 3. Per-flow UX recommendations
 
-- **Awareness landing** — "Needs Attention" pinned section is the first
-  thing visible: overdue contracts, blocked agents, failed runs,
-  working-no-progress. One-tap to inspector for each.
-- **Chat (threaded conversations)** — primary surface. Each thread shows
-  operator message → agent activity (status pulses) → reply, with
-  inline run inspector drawer. Compose anchored at the bottom; image
-  paste already supported (preserve).
-- **Run inspector (universal drawer)** — opens from any row (chat, runs
-  list, attention). Shows: timeline of events, current status with
-  explainer, controls (steer / interrupt / queue / retry / close / open
-  console), conversation context, related messages. Drawer on desktop,
-  fullscreen sheet on mobile.
-- **Console** — read-only watch by default; explicit "send input" toggle.
-  Decoupled from delivery (parity contract). Mobile: readable, scrollable,
-  monospaced, expand/collapse long output.
-- **Sessions** — list with bulk-select (multi-stop, multi-delete). Per
-  row: status, last activity, owner mode, jump-to-chat.
-- **Spawn** — form with dynamic runtime/env dropdowns (already shipping),
-  fresh-context warning, template picker. Mobile: stepper, not all fields
-  visible at once.
-- **Settings** — grouped, searchable, per-runtime collapsibles. Mobile:
-  drawer/sheet, never full-page navigation.
-- **Work Loop / reply contracts** — list of open contracts with state
-  chips; close/remind use existing audited endpoints. Bulk-cancel for
-  superseded contracts (operator-requested — addresses the
-  "answered-elsewhere can't cleanly close" gap I flagged).
+**Primary (session-centric)**
+
+- **Sessions rail** — grouped by environment; collapsible env headers
+  with session counts; per row: status chip + runtime badge + last
+  activity. Multi-select via checkbox/long-press → bulk toolbar
+  (multi-stop / multi-restart / multi-delete / bulk-edit). Drag/drop
+  ordering optional; keyboard j/k to move.
+- **Session view — Chat tab (primary surface)** — threaded view of the
+  conversation with this session: operator message → agent activity
+  (status pulses, run id) → reply, with an inline run-inspector affordance
+  on each turn. Composer at bottom (type/priority/queue-if-busy, image
+  paste preserved). Multi-select messages → bulk re-route, copy, delete.
+- **Session view — Console tab** — opt-in input toggle; decoupled from
+  delivery (parity contract). Readable/scrollable on mobile. Audit
+  affordance to show input contract events that landed in this terminal.
+- **Awareness strip** — pinned above all destinations: counts +
+  one-click filter for overdue / blocked / failed / working-no-progress.
+- **Spawn (from environment)** — within an Environments destination,
+  inline "new session here" form: dynamic runtime/env dropdowns
+  (existing), fresh-context warning (existing), template picker. Mobile:
+  stepper. Bulk-spawn across environments where appropriate.
+- **Environments** — list with status, bridge identity, runtimes
+  available, cwd roots. Editable inline (cwd roots, label, defaults).
+  Multi-select → bulk re-register, mute, restart-aware actions.
+
+**Diagnostics (drawer + global view)**
+
+- **Run inspector (universal drawer)** — opens from any row (message in
+  chat, runs list, attention strip). Shows: bounded timeline of events,
+  current status with the canonical "why", controls (steer / interrupt /
+  queue / retry / close), conversation context, links to the source
+  message and the resulting reply. Drawer on desktop, fullscreen sheet
+  on mobile.
+- **Diagnostics destination** — cross-session list of runs and
+  work-loop contracts with state chips + filters. Server-filtered (parity
+  must-have). Multi-select → bulk-close / bulk-remind / bulk-cancel
+  (addresses the "answered-elsewhere can't cleanly close" gap I flagged).
 - **Activity feed** — human-readable stream of dispatch events / status
-  transitions / completions / failures across the fleet. Filterable.
-- **Search / Cmd-K palette** — across agents / messages / runs /
-  artifacts. Highest-value power-user feature; mobile keeps a simple
-  search bar in the header.
+  transitions / completions / failures across sessions. Filterable by
+  env / runtime / session / kind.
+
+**Cross-cutting**
+
+- **Settings** — grouped, searchable, per-runtime collapsibles. Inline
+  edit; Mobile: drawer/sheet, never full-page. Bulk apply where it makes
+  sense (e.g., set default model across a runtime's sessions).
+- **Search / Cmd-K palette** — across environments / sessions /
+  messages / runs / artifacts. Mobile keeps a header search bar.
 
 ## 4. Mobile primary subset (what mobile is FOR)
 
@@ -170,21 +249,32 @@ traps, mobile-safe preview (long bodies expand, never break layout).
 
 ## 7. Slice roadmap (recommended sequencing, post-foundations)
 
-After F1/F2/F3 and the current parity slice land, this is the suggested
-order — each slice gated by the parity contract:
+After F1/F2/F3 and the current polish slice, this is the suggested
+order. Each slice gated by the parity contract; bulk-select + inline
+edit are BASELINE in every list slice (not a separate slice). Old 8800
+remains authoritative until the replacement gate is met.
 
-1. **Threaded chat surface** (replace flat inbox emphasis). Highest
-   day-to-day value.
-2. **Universal run inspector drawer** (works on mobile via sheet).
-3. **Status "why" explainer** on every chip (tiny, high-trust impact).
-4. **Activity feed** (the audit stream).
-5. **Cmd-K / search palette** (power-user multiplier).
-6. **Bulk actions toolbar** on multi-select (already a parity item;
-   ship its real surface here).
-7. **Mobile responsive shell** — bottom tab bar, sheets, drawers.
-8. **Keyboard shortcuts + density toggle**.
-9. **Settings reorg as a sheet, not a page**.
+1. **Session-centric IA** — env→session rail with collapsible env
+   groups; runtime badge; multi-select toggling a bulk-action toolbar.
+   This re-roots the navigation around the operator's mental model.
+2. **Session view (Chat + Console tabs)** — threaded chat as the primary
+   surface, composer with type/priority/queue-if-busy, image paste; the
+   Console tab is the existing terminal view inside the session shell.
+3. **Universal run-inspector drawer** — opens from any chat turn or
+   row; works as a fullscreen sheet on mobile; bounded event timeline +
+   controls (steer/interrupt/queue/retry/close).
+4. **Status "why" explainer** on every chip — tiny, very high trust win.
+5. **Diagnostics destination** (cross-session runs + work-loop) — with
+   server-side filtering, bulk-close / bulk-remind / bulk-cancel.
+6. **Environments destination + inline spawn** — env list with inline
+   edit, "new session here" stepper, bulk re-register.
+7. **Activity feed** — filterable cross-session audit stream.
+8. **Cmd-K / search palette** — across all entities.
+9. **Mobile responsive shell** — bottom tab bar (4 destinations),
+   sheets, drawers, swipe-between-sessions, long-press bulk-select.
+10. **Keyboard shortcuts + density toggle**.
+11. **Settings as a sheet** (not a page), bulk-apply where applicable.
 
-Each slice: behavioral assertion attached, mobile viewport in the
-assertion, old dashboard authoritative until the slice's flow flag is
-green.
+Each slice: behavioral assertion attached (desktop AND mobile viewport),
+old dashboard authoritative until the slice's flow flag is green, F1–F3
+foundational invariants enforced.
