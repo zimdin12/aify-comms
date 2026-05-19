@@ -62,6 +62,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_reconcilable_delivered_runs,
         _prune_terminal_history,
         _repair_unusable_active_runs,
+        _run_contract_reminders_once,
     )
 
     db = await _get_db()
@@ -74,10 +75,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             if len(batch) < 500:
                 break
         pruned = await _prune_terminal_history(db)
+        reminders = await _run_contract_reminders_once(db, limit=50, recent_only=True)
         await db.commit()
         return {
             "repaired_active": repaired_active,
             "closed_delivered": closed_delivered_total,
+            "reply_reminders": len(reminders.get("reminded", [])),
+            "reply_reminder_skipped": len(reminders.get("skipped", [])),
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:

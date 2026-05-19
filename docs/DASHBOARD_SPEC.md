@@ -57,7 +57,7 @@ It should show:
 
 `delivered` means the bridge delivered/read the source message into the target's live or managed context. It is not a completed work contract by itself. A delivered contract remains open or overdue until a linked reply/result is recorded.
 
-Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Reminders should be explicit automated messages, not hidden state changes. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder.
+Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a blocked terminal turn that is already waiting for operator input. Reminders should be explicit automated messages, not hidden state changes. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder.
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
@@ -123,7 +123,7 @@ Message states:
 - `delivered`: bridge/session received it
 - `read`: target consumed it
 - `running`: message has an active run
-- `blocked`: run/session needs user intervention
+- `blocked`: run/session needs user intervention or a decision; ordinary prompt/footer chrome alone is not enough
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 

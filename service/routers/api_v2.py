@@ -160,6 +160,7 @@ _RUNTIME_ALIASES = {
 _LAUNCHABLE_RUNTIMES = {"claude-code", "codex", "hermes", "opencode", "pi"}
 _SESSION_MODES = {"resident", "managed"}
 _DISPATCH_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+_TERMINAL_END_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 _DISPATCH_ACTIVE_STATUSES = {"queued", "claimed", "running"}
 _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
@@ -1564,7 +1565,17 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     # Do not match the normal Claude footer ("bypass permissions on",
     # "shift+tab", "for agents") by itself; that footer is present at idle
     # prompts after successful work too.
-    if re.search(r"(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option))", tail, re.I):
+    decision_prompt = re.search(
+        r"(tell me which|need (?:a )?decision|which (option|one)|choose (one|an option)|say the word)",
+        tail,
+        re.I,
+    )
+    your_call_prompt = re.search(r"your call\s*(?:[:\u2014-]|\n|$)", tail, re.I) and re.search(
+        r"(decision|option|choose|execute|continue|switch|revert|debug|drive|say the word)",
+        tail,
+        re.I,
+    )
+    if decision_prompt or your_call_prompt:
         return "Awaiting console input."
     return ""
 
@@ -1748,6 +1759,79 @@ async def _invalidate_agent_live_state(db, agent_id: str) -> None:
     agent_id = str(agent_id or "").strip()
     if agent_id:
         await db.execute("DELETE FROM agent_live_state WHERE agent_id = ?", (agent_id,))
+
+
+async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: str, response_text: str) -> int:
+    cursor = await db.execute(
+        """
+        SELECT id
+        FROM terminal_controls
+        WHERE terminal_id = ?
+          AND status IN ('pending', 'claimed')
+        """,
+        (terminal_id,),
+    )
+    rows = await cursor.fetchall()
+    control_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]
+    if not control_ids:
+        return 0
+    await db.executemany(
+        """
+        UPDATE terminal_controls
+        SET status = 'failed',
+            handled_at = COALESCE(handled_at, ?),
+            error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+        WHERE id = ?
+        """,
+        [(handled_at, response_text, control_id) for control_id in control_ids],
+    )
+    return len(control_ids)
+
+
+async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status: str, *, now: Optional[str] = None, reason: str = "") -> int:
+    if not terminal:
+        return 0
+    status = str(terminal_status or "").strip().lower()
+    if status not in _TERMINAL_END_STATUSES:
+        return 0
+    terminal_id = str(terminal["id"] or "")
+    agent_id = str(terminal["agent_id"] or "")
+    if not terminal_id or not agent_id:
+        return 0
+    now = now or _now()
+    terminal_label = status or "ended"
+    run_status = "cancelled" if status in {"stopped", "cancelled"} else "failed"
+    summary = reason or f"Terminal {terminal_label} before an explicit reply was recorded."
+    cursor = await db.execute(
+        """
+        SELECT id
+        FROM dispatch_runs
+        WHERE target_agent = ?
+          AND dispatch_mode = 'terminal'
+          AND status IN ('claimed', 'running')
+        """,
+        (agent_id,),
+    )
+    rows = await cursor.fetchall()
+    run_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]
+    for run_id in run_ids:
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = ?,
+                summary = CASE WHEN COALESCE(summary, '') = '' THEN ? ELSE summary END,
+                error_text = CASE WHEN ? = 'failed' AND COALESCE(error_text, '') = '' THEN ? ELSE error_text END,
+                finished_at = COALESCE(finished_at, ?)
+            WHERE id = ?
+              AND status IN ('claimed', 'running')
+            """,
+            (run_status, summary, run_status, summary, now, run_id),
+        )
+        await _append_dispatch_event(db, run_id, "terminal_closed", f"{summary} terminalId={terminal_id}")
+    if run_ids:
+        await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
+        await _invalidate_agent_live_state(db, agent_id)
+    return len(run_ids)
 
 
 async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> None:
@@ -5855,8 +5939,10 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             base_seq=int(terminal["output_seq"] or 0),
             autoschedule=not bool(getattr(request.app.state, "testing", False)),
         )
-        if status in {"stopped", "failed"}:
+        if status in _TERMINAL_END_STATUSES:
             now = _now()
+            summary = f"Terminal {status} before an explicit reply was recorded."
+            await _close_active_terminal_runs_for_terminal(db, terminal, status, now=now, reason=summary)
             await db.execute(
                 """
                 UPDATE terminal_sessions
@@ -5877,6 +5963,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                 """,
                 (status, now, terminal["session_id"]),
             )
+            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
             await db.commit()
         # Do NOT broadcast per-POST here: concurrent POSTs reorder vs seq and
         # the dashboard's seq-dedupe then drops frames (scrambled console).
@@ -6136,6 +6223,15 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
         if control["action"] == "stop" and status == "completed":
             terminal_status = terminal_status or "stopped"
         if terminal_status:
+            terminal_status_norm = terminal_status.strip().lower()
+            if terminal_status_norm in _TERMINAL_END_STATUSES:
+                await _close_active_terminal_runs_for_terminal(
+                    db,
+                    terminal,
+                    terminal_status_norm,
+                    now=now,
+                    reason=f"Terminal {terminal_status_norm} before an explicit reply was recorded.",
+                )
             await db.execute(
                 """
                 UPDATE terminal_sessions
@@ -6155,8 +6251,10 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 """,
                 (terminal_status, terminal_status, now, terminal["session_id"]),
             )
-            if terminal_status in {"stopped", "failed"}:
-                await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
+        if terminal_status in {"stopped", "failed"}:
+            await _clear_console_terminal_binding(db, terminal["agent_id"], terminal["id"], now=now)
+        if terminal_status.strip().lower() in _TERMINAL_END_STATUSES:
+            await _invalidate_agent_live_state(db, terminal["agent_id"])
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
@@ -9352,6 +9450,124 @@ def _contract_reminder_body(row) -> str:
     )
 
 
+async def _run_contract_reminders_once(
+    db,
+    *,
+    request: Optional[Request] = None,
+    run_id: Optional[str] = None,
+    dry_run: bool = False,
+    limit: int = 50,
+    now_s: Optional[float] = None,
+    recent_only: bool = False,
+) -> dict[str, Any]:
+    settings = await _load_settings(db)
+    where = [
+        "AND COALESCE(r.result_message_id, '') = ''",
+        "AND r.status NOT IN ('completed','failed','cancelled')",
+        "AND r.from_agent != r.target_agent",
+    ]
+    params: list[Any] = []
+    if run_id:
+        where.append("AND r.id = ?")
+        params.append(run_id)
+    elif recent_only:
+        stale_hours = max(1, int(settings.get("contract_stale_hours", 24) or 24))
+        where.append("AND datetime(r.requested_at) >= datetime('now', ?)")
+        params.append(f"-{stale_hours} hours")
+    params.append(limit)
+    cursor = await db.execute(_contract_list_query(where_sql="\n".join(where), order_sql="ORDER BY r.requested_at ASC"), params)
+    candidates = await cursor.fetchall()
+    reminded = []
+    skipped = []
+    now_s = now_s or time.time()
+    for row in candidates:
+        due, reason = _contract_reminder_due(row, settings=settings, now_s=now_s)
+        if not due:
+            skipped.append({"runId": row["id"], "reason": reason})
+            continue
+
+        if (
+            str(row["dispatch_mode"] or "").strip().lower() == "terminal"
+            and str(row["status"] or "").strip().lower() in {"claimed", "running"}
+        ):
+            agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
+            live_state = await _compute_live_status_cache(db, agent_row, settings=settings) if agent_row else {}
+            if str(live_state.get("status") or "").strip().lower() == "blocked":
+                reason = "target is blocked awaiting operator input"
+                skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
+                await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
+                continue
+
+        subject = f"Reminder: reply overdue - {str(row['subject'] or row['id'])[:96]}"
+        body = _contract_reminder_body(row)
+        if dry_run:
+            reminded.append({"runId": row["id"], "targetAgentId": row["target_agent"], "subject": subject, "dryRun": True})
+            continue
+
+        launchable, not_started = await _preflight_live_send_recipients(
+            db,
+            [row["target_agent"]],
+            allow_steer=True,
+            allow_queue_busy=True,
+        )
+        if not launchable:
+            skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": "target cannot receive live reminder", "notStarted": not_started})
+            await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", json.dumps(not_started))
+            continue
+
+        message_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+        timestamp_ms = int(time.time() * 1000)
+        await db.execute(
+            """
+            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                message_id,
+                "dashboard",
+                row["target_agent"],
+                "direct",
+                "info",
+                subject,
+                body,
+                "high" if str(row["priority"] or "").lower() == "urgent" else "normal",
+                1,
+                row["message_id"] or None,
+                timestamp_ms,
+            ),
+        )
+        runs = await _create_dispatch_runs(
+            db,
+            [target for target, _ in launchable],
+            from_agent="dashboard",
+            message_type="info",
+            subject=subject,
+            body=body,
+            priority="high" if str(row["priority"] or "").lower() == "urgent" else "normal",
+            in_reply_to=row["message_id"] or None,
+            dispatch_mode="start_if_possible",
+            execution_mode="managed",
+            requested_runtime=None,
+            message_id=message_id,
+            source_message_ids={row["target_agent"]: message_id},
+            steer=True,
+            require_reply=False,
+        )
+        finalized = await _finalize_dispatch_runs(db, runs, launchable, not_started)
+        await _append_dispatch_event(db, row["id"], "reply_reminder", f"Sent reminder message {message_id}")
+        reminded.append({
+            "runId": row["id"],
+            "targetAgentId": row["target_agent"],
+            "messageId": message_id,
+            "dispatchRuns": finalized,
+        })
+
+    ws = await _get_ws(request) if request else None
+    if ws and reminded and not dry_run:
+        await ws.broadcast("contract_reminders_sent", {"count": len(reminded)})
+    return {"ok": True, "dryRun": dry_run, "reminded": reminded, "skipped": skipped}
+
+
 @router.post("/contracts/reminders/run")
 async def run_contract_reminders(
     request: Request,
@@ -9361,97 +9577,9 @@ async def run_contract_reminders(
 ):
     db = await get_db()
     try:
-        settings = await _load_settings(db)
-        where = [
-            "AND COALESCE(r.result_message_id, '') = ''",
-            "AND r.status NOT IN ('completed','failed','cancelled')",
-            "AND r.from_agent != r.target_agent",
-        ]
-        params: list[Any] = []
-        if runId:
-            where.append("AND r.id = ?")
-            params.append(runId)
-        params.append(limit)
-        cursor = await db.execute(_contract_list_query(where_sql="\n".join(where), order_sql="ORDER BY r.requested_at ASC"), params)
-        now_s = time.time()
-        candidates = await cursor.fetchall()
-        reminded = []
-        skipped = []
-        for row in candidates:
-            due, reason = _contract_reminder_due(row, settings=settings, now_s=now_s)
-            if not due:
-                skipped.append({"runId": row["id"], "reason": reason})
-                continue
-
-            subject = f"Reminder: reply overdue - {str(row['subject'] or row['id'])[:96]}"
-            body = _contract_reminder_body(row)
-            if dryRun:
-                reminded.append({"runId": row["id"], "targetAgentId": row["target_agent"], "subject": subject, "dryRun": True})
-                continue
-
-            launchable, not_started = await _preflight_live_send_recipients(
-                db,
-                [row["target_agent"]],
-                allow_steer=True,
-                allow_queue_busy=True,
-            )
-            if not launchable:
-                skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": "target cannot receive live reminder", "notStarted": not_started})
-                await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", json.dumps(not_started))
-                continue
-
-            message_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
-            timestamp_ms = int(time.time() * 1000)
-            await db.execute(
-                """
-                INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    message_id,
-                    "dashboard",
-                    row["target_agent"],
-                    "direct",
-                    "info",
-                    subject,
-                    body,
-                    "high" if str(row["priority"] or "").lower() == "urgent" else "normal",
-                    1,
-                    row["message_id"] or None,
-                    timestamp_ms,
-                ),
-            )
-            runs = await _create_dispatch_runs(
-                db,
-                [target for target, _ in launchable],
-                from_agent="dashboard",
-                message_type="info",
-                subject=subject,
-                body=body,
-                priority="high" if str(row["priority"] or "").lower() == "urgent" else "normal",
-                in_reply_to=row["message_id"] or None,
-                dispatch_mode="start_if_possible",
-                execution_mode="managed",
-                requested_runtime=None,
-                message_id=message_id,
-                source_message_ids={row["target_agent"]: message_id},
-                steer=True,
-                require_reply=False,
-            )
-            finalized = await _finalize_dispatch_runs(db, runs, launchable, not_started)
-            await _append_dispatch_event(db, row["id"], "reply_reminder", f"Sent reminder message {message_id}")
-            reminded.append({
-                "runId": row["id"],
-                "targetAgentId": row["target_agent"],
-                "messageId": message_id,
-                "dispatchRuns": finalized,
-            })
-
+        payload = await _run_contract_reminders_once(db, request=request, run_id=runId, dry_run=dryRun, limit=limit)
         await db.commit()
-        ws = await _get_ws(request)
-        if ws and reminded and not dryRun:
-            await ws.broadcast("contract_reminders_sent", {"count": len(reminded)})
-        return {"ok": True, "dryRun": dryRun, "reminded": reminded, "skipped": skipped}
+        return payload
     finally:
         await db.close()
 

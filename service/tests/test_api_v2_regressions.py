@@ -1,6 +1,7 @@
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 import sqlite3
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
+from service import main as service_main
 from service.routers import api_v2
 from service.routers.api_v2 import router
 
@@ -2346,7 +2348,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "bridgeId": "bridge-current",
                 "status": "attached",
-                "output": "I found two options.\nYour call: (a) continue, (b) switch runtime. Tell me which and I'll execute.",
+                "output": "Your call — I need a decision:\n1. I drive hands-on.\n2. Revert runtime.\n3. Debug pi.\nSay the word and I execute.",
             },
         )
         self.assertEqual(output.status_code, 200, output.text)
@@ -2394,6 +2396,79 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = listed.json()["agents"]["console-agent"]
         self.assertEqual(agent["status"], "working")
         self.assertNotIn("Awaiting console input", agent["statusNote"])
+
+    def test_claude_done_narration_with_your_call_does_not_report_blocked(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="check",
+            body="check this",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": "Done. Your call was right; verified and pushed.\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "working")
+        self.assertNotIn("Awaiting console input", agent["statusNote"])
+
+    def test_terminal_end_closes_active_claude_terminal_run(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="info",
+            subject="hello",
+            body="hello",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "stopped",
+                "output": "Process exited.",
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(run["status"], "cancelled")
+        self.assertTrue(run["finished_at"])
+        agent = self.client.get("/api/v1/agents").json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "active")
+        self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_unthreaded_completion_info_links_active_claude_terminal_run(self):
         self._create_running_session(
@@ -6017,6 +6092,90 @@ class ApiV2RegressionTests(unittest.TestCase):
         event = self._fetchone("SELECT event_type, body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
         self.assertIsNotNone(event)
         self.assertIn(reminder_message_id, event["body"])
+
+    def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="answer me",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(result["reply_reminders"], 1)
+
+        event = self._fetchone("SELECT event_type FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
+        self.assertIsNotNone(event)
+
+    def test_periodic_dispatch_reconcile_skips_historical_contract_reminders(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "contract_stale_hours": 24})
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="old request",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(result["reply_reminders"], 0)
+        event = self._fetchone("SELECT event_type FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
+        self.assertIsNone(event)
+
+    def test_periodic_dispatch_reconcile_skips_blocked_terminal_contract_reminders(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="decision",
+            body="what next",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": "Your call — I need a decision:\n1. Continue\n2. Stop\nSay the word and I execute.",
+            },
+        )
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(result["reply_reminders"], 0)
+        event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder_skipped'", (run_id,))
+        self.assertIsNotNone(event)
+        self.assertIn("operator input", event["body"])
 
     def test_contracts_do_not_treat_high_priority_responses_as_missing_replies(self):
         self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
