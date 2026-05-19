@@ -369,8 +369,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(".chat-status-dot.working.terminal-active", dashboard.text)
         self.assertIn(".chat-status-dot.blocked", dashboard.text)
         self.assertIn(".status-dot.blocked", dashboard.text)
-        self.assertIn("markTerminalActivity(data.terminalId)", dashboard.text)
+        self.assertIn("markTerminalActivity(data.terminalId, data.agentId)", dashboard.text)
+        self.assertIn("state.sessionFile", dashboard.text)
         self.assertIn("terminalActivityClassForAgent", dashboard.text)
+        self.assertIn("fetchRunsForCurrentFilters()", dashboard.text)
+        self.assertIn("loadDashboardRuns()", dashboard.text)
         self.assertIn("console appears to need input", dashboard.text)
         self.assertIn("input needed", dashboard.text)
         self.assertNotIn("chat-console-input", dashboard.text)
@@ -1422,6 +1425,28 @@ class ApiV2RegressionTests(unittest.TestCase):
             (terminal_id,),
         )
         self.assertEqual([row["body"] for row in output_events], ["abc"])
+
+    def test_terminal_output_broadcast_includes_agent_id(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+
+        response = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "x", "status": "attached"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        terminal_output_events = [
+            args[1]
+            for args, _kwargs in self.ws.broadcasts
+            if args and args[0] == "terminal_output"
+        ]
+        self.assertTrue(terminal_output_events)
+        self.assertEqual(terminal_output_events[-1]["terminalId"], terminal_id)
+        self.assertEqual(terminal_output_events[-1]["agentId"], "console-agent")
 
     def test_buffered_active_status_does_not_overwrite_stopped_terminal(self):
         session_id = self._create_running_session(terminal=True)

@@ -55,6 +55,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("Needs Attention", html)
         self.assertIn('id="inspector"', html)
         self.assertIn("lastReminderAt", script)
+        self.assertIn('id="run-status-filter"', html)
+        self.assertIn("loadRunsForStatus", script)
+        self.assertIn("dispatch_runs_by_status", script)
         self.assertIsNone(re.search(r"/contracts/[^'\"]+/(close|cancel|delete)", script))
 
 

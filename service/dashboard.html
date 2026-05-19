@@ -1901,6 +1901,8 @@ window._terminalDetails = {};
 window._terminalLoading = new Set();
 window._terminalActivityByAgent = {};
 window._terminalActivityTimers = {};
+window._runServerFilterSignature = '';
+window._runFilterTimer = null;
 const TERMINAL_ACTIVITY_MS = 2200;
 window._chatInspectorHidden = localStorage.getItem('aifyChatInspectorHidden') === '1';
 if (window.matchMedia?.('(max-width:860px)').matches && localStorage.getItem('aifyChatInspectorHidden') === null) {
@@ -2010,7 +2012,7 @@ function showPage(name, updateHistory = true) {
   if (name === 'analytics') renderAnalytics(window._analytics || {});
   if (name === 'dispatches') {
     renderDispatchStats(window._dashboardStats || {});
-    applyRunFiltersAndRender();
+    fetchRunsForCurrentFilters();
   }
   if (name === 'dashboard') renderHomeFromState();
   if (name === 'work') renderWorkLoop();
@@ -2412,10 +2414,15 @@ function connectDashboardSocket() {
       const payload = JSON.parse(event.data || '{}');
       const data = payload.data || {};
       if (payload.event === 'terminal_output' && data.terminalId) {
-        if (data.output || data.status) markTerminalActivity(data.terminalId);
+        if (data.output || data.status) markTerminalActivity(data.terminalId, data.agentId);
         const cached = window._terminalDetails[data.terminalId];
+        if (cached?.terminal && data.agentId && cached.terminal.agentId && String(cached.terminal.agentId) !== String(data.agentId)) {
+          delete window._terminalDetails[data.terminalId];
+          return scheduleRealtimeRefresh();
+        }
         const prevStatus = cached?.terminal?.status || '';
         if (cached?.terminal) {
+          if (data.agentId) cached.terminal.agentId = data.agentId;
           cached.terminal.status = data.status || cached.terminal.status || '';
           cached.terminal.output = `${cached.terminal.output || ''}${data.output || ''}`.slice(-65536);
           if (typeof data.seq === 'number') cached.terminal.outputSeq = data.seq;
@@ -2450,7 +2457,9 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s || 
 function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
 function jsArg(s) { return JSON.stringify(String(s || '')); }
 function cssSel(s) { return window.CSS?.escape ? CSS.escape(String(s || '')) : String(s || '').replace(/["\\]/g, '\\$&'); }
-function agentIdForTerminal(terminalId) {
+function agentIdForTerminal(terminalId, explicitAgentId = '') {
+  const explicit = String(explicitAgentId || '').trim();
+  if (explicit) return explicit;
   const id = String(terminalId || '').trim();
   if (!id) return '';
   const session = (window._sessions || []).find(item => String(item?.terminalId || item?.terminal?.id || '').trim() === id);
@@ -2468,8 +2477,8 @@ function setAgentTerminalActivityClass(agentId, active) {
     dot.classList.toggle('terminal-active', !!active);
   });
 }
-function markTerminalActivity(terminalId) {
-  const agentId = agentIdForTerminal(terminalId);
+function markTerminalActivity(terminalId, agentIdHint = '') {
+  const agentId = agentIdForTerminal(terminalId, agentIdHint);
   if (!agentId) return;
   window._terminalActivityByAgent[agentId] = Date.now();
   setAgentTerminalActivityClass(agentId, true);
@@ -2481,6 +2490,22 @@ function markTerminalActivity(terminalId) {
     delete window._terminalActivityTimers[agentId];
     setAgentTerminalActivityClass(agentId, false);
   }, TERMINAL_ACTIVITY_MS);
+}
+
+function reconcileTerminalCacheWithSessions(sessions = []) {
+  const owners = new Map();
+  (sessions || []).forEach(session => {
+    const terminalId = String(session?.terminalId || session?.terminal?.id || '').trim();
+    const agentId = String(session?.agentId || session?.agent_id || '').trim();
+    if (terminalId && agentId) owners.set(terminalId, agentId);
+  });
+  Object.entries(window._terminalDetails || {}).forEach(([terminalId, detail]) => {
+    const freshAgentId = owners.get(String(terminalId));
+    const cachedAgentId = String(detail?.terminal?.agentId || '').trim();
+    if (freshAgentId && cachedAgentId && freshAgentId !== cachedAgentId) {
+      delete window._terminalDetails[terminalId];
+    }
+  });
 }
 function cssToken(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'; }
 function stripTerminalControlSequences(text) {
@@ -3145,7 +3170,7 @@ function sessionPriorityScore(session, agentInfo = {}) {
   let score = terminal ? 0 : 1000;
   if (session.spawnRequestId && session.spawnRequestId === state.spawnRequestId) score += 5000;
   if (session.environmentId && session.environmentId === state.environmentId) score += 800;
-  if (session.sessionHandle && [state.sessionId, state.threadId, agentInfo.sessionHandle].includes(session.sessionHandle)) score += 700;
+  if (session.sessionHandle && [state.sessionId, state.threadId, state.sessionFile, agentInfo.sessionHandle].includes(session.sessionHandle)) score += 700;
   if (status === 'running') score += 300;
   if (status === 'starting' || status === 'recovering' || status === 'restarting') score += 200;
   const env = (window._environments || []).find(item => item.id === session.environmentId);
@@ -4385,7 +4410,7 @@ function sessionRuntimeHandle(session, agentInfo = {}) {
   if (runtime === 'claude-code') return String(state.sessionId || agentInfo.sessionHandle || '');
   if (runtime === 'codex') return String(state.threadId || agentInfo.sessionHandle || '');
   if (runtime === 'opencode') return String(state.sessionId || agentInfo.sessionHandle || '');
-  if (runtime === 'pi') return String(state.sessionId || agentInfo.sessionHandle || '');
+  if (runtime === 'pi') return String(state.sessionId || state.sessionFile || agentInfo.sessionHandle || '');
   return String(agentInfo.sessionHandle || '');
 }
 
@@ -6859,10 +6884,11 @@ async function refreshDashboard() {
     const contractCategory = document.getElementById('contract-category')?.value || '';
     if (contractState) contractParams.set('state', contractState);
     if (contractCategory) contractParams.set('category', contractCategory);
+    const runParams = runServerFilterParams();
     const [statsRes, agentsRes, runsRes, envRes, spawnRes, sessionsRes, channelsRes, recentRes, contractsRes] = await Promise.all([
       apiFetch(API + '/stats').then(r => r.json()),
       apiFetch(API + '/agents').then(r => r.json()),
-      apiFetch(API + '/dispatch/runs?limit=200').then(r => r.json()),
+      apiFetch(API + `/dispatch/runs?${runParams.toString()}`).then(r => r.json()),
       apiFetch(API + '/environments').then(r => r.json()),
       apiFetch(API + '/spawn-requests?limit=500').then(r => r.json()),
       apiFetch(API + '/sessions?limit=100').then(r => r.json()),
@@ -6881,8 +6907,10 @@ async function refreshDashboard() {
     window._environments = environments;
     window._spawnRequests = spawnRequests;
     window._sessions = sessions;
+    reconcileTerminalCacheWithSessions(sessions);
     window._channels = channels;
     window._allRuns = runs;
+    window._runServerFilterSignature = runParams.toString();
     window._recentMessages = recentMessages;
     window._analytics = analyticsRes;
     window._dashboardStats = statsRes;
@@ -7103,7 +7131,48 @@ function applyRunFiltersAndRender() {
   renderRuns(filtered, 'dispatch-runs-table');
 }
 
-function filterRuns() { applyRunFiltersAndRender(); }
+function runServerFilterParams() {
+  const params = new URLSearchParams({limit: '200'});
+  const status = document.getElementById('run-status')?.value || '';
+  const fromAgent = document.getElementById('run-from')?.value || '';
+  const toAgent = document.getElementById('run-to')?.value || '';
+  if (status) params.set('status', status);
+  if (fromAgent) params.set('fromAgent', fromAgent);
+  if (toAgent) params.set('agentId', toAgent);
+  return params;
+}
+
+function runServerFilterSignature() {
+  return runServerFilterParams().toString();
+}
+
+async function loadDashboardRuns({render = true} = {}) {
+  const params = runServerFilterParams();
+  const res = await apiFetch(API + `/dispatch/runs?${params.toString()}`).then(r => r.json());
+  window._allRuns = res.runs || [];
+  window._runServerFilterSignature = params.toString();
+  if (render) applyRunFiltersAndRender();
+  return window._allRuns;
+}
+
+function fetchRunsForCurrentFilters() {
+  if (window._runFilterTimer) clearTimeout(window._runFilterTimer);
+  window._runFilterTimer = setTimeout(async () => {
+    try {
+      await loadDashboardRuns();
+    } catch (e) {
+      toast(e.message || 'Run filter failed', '#f85149');
+    }
+  }, 120);
+}
+
+function filterRuns() {
+  if (runServerFilterSignature() !== window._runServerFilterSignature) {
+    fetchRunsForCurrentFilters();
+    return;
+  }
+  applyRunFiltersAndRender();
+}
 
 // ─── Files ──────────────────────────────
 

@@ -177,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_reply ON messages(in_reply_to);
 CREATE INDEX IF NOT EXISTS idx_read_receipts_agent ON read_receipts(agent_id);
 CREATE INDEX IF NOT EXISTS idx_read_receipts_msg ON read_receipts(message_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_status_requested ON dispatch_runs(status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_target_status ON dispatch_runs(target_agent, status, requested_at);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_from ON dispatch_runs(from_agent, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id, id);

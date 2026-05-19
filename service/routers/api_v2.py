@@ -3098,6 +3098,7 @@ class TerminalOutputWriteQueue:
                     "terminal_output",
                     {
                         "terminalId": terminal_id,
+                        "agentId": str(terminal["agent_id"] or ""),
                         "status": norm_status,
                         "output": output or "",
                         "seq": seq or int(terminal["output_seq"] or 0),

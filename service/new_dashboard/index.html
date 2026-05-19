@@ -121,6 +121,21 @@
       </section>
 
       <section id="page-runs" class="page">
+        <div class="toolbar">
+          <label>
+            <span class="subtle">Status</span>
+            <select id="run-status-filter">
+              <option value="">All statuses</option>
+              <option value="queued">Queued</option>
+              <option value="claimed">Claimed</option>
+              <option value="running">Running</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <span id="run-result-note" class="subtle">Showing most recent runs.</span>
+        </div>
         <div id="run-list" class="run-list"></div>
       </section>
 

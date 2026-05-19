@@ -24,6 +24,7 @@ const state = {
   stats: {},
   selectedConversation: 'dashboard',
   filter: '',
+  runStatusFilter: '',
 };
 
 const pages = {
@@ -65,6 +66,23 @@ async function api(path, options = {}) {
   return data;
 }
 
+function runQueryPath(status = state.runStatusFilter) {
+  const params = new URLSearchParams({ limit: '80' });
+  if (status) params.set('status', status);
+  return `/dispatch/runs?${params.toString()}`;
+}
+
+async function loadRunsForStatus(status = state.runStatusFilter, render = true) {
+  state.runStatusFilter = status || '';
+  const runs = await api(runQueryPath(state.runStatusFilter));
+  state.runs = runs.runs || [];
+  if (render) {
+    renderRuns();
+    renderAnalytics();
+  }
+  return state.runs;
+}
+
 function asAgentArray(payload) {
   if (Array.isArray(payload.agents)) return payload.agents;
   return Object.entries(payload.agents || {}).map(([id, value]) => ({ id, ...value }));
@@ -85,7 +103,7 @@ async function refresh() {
       api('/agents'),
       api('/contracts?limit=80'),
       api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),
-      api('/dispatch/runs?limit=80'),
+      api(runQueryPath()),
       api('/sessions?limit=80'),
       api('/environments'),
       api('/stats'),
@@ -241,6 +259,11 @@ function renderRuntime() {
 
 function renderRuns() {
   const runs = filtered(state.runs, ['id', 'subject', 'targetAgentId', 'from', 'summary']).slice(0, 80);
+  const note = byId('run-result-note');
+  if (note) {
+    const status = state.runStatusFilter ? `${state.runStatusFilter} ` : '';
+    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.`;
+  }
   byId('run-list').innerHTML = runs.map((run) => `
     <article class="run-row" data-kind="run" data-id="${esc(run.id)}">
       <span class="status-chip ${['failed', 'cancelled'].includes(run.status) ? 'bad' : run.status === 'completed' ? 'ok' : 'warn'}">${esc(run.status)}</span>
@@ -258,7 +281,7 @@ function renderAnalytics() {
     metric('Unread messages', state.stats.unread_messages || 0),
     metric('Online environments', state.environments.filter((e) => e.status === 'online').length),
   ].join('');
-  const counts = state.runs.reduce((acc, run) => {
+  const counts = state.stats.dispatch_runs_by_status || state.runs.reduce((acc, run) => {
     acc[run.status || 'unknown'] = (acc[run.status || 'unknown'] || 0) + 1;
     return acc;
   }, {});
@@ -276,6 +299,7 @@ function inspect(kind, payload) {
     ? lookup(kind, payload)
     : payload;
   byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
+  byId('inspector')?.classList.add('open');
 }
 
 function lookup(kind, id) {
@@ -323,6 +347,19 @@ byId('global-filter').addEventListener('input', (event) => {
   renderAll();
 });
 byId('contract-state').addEventListener('change', renderContracts);
+byId('run-status-filter').addEventListener('change', async (event) => {
+  byId('api-status').textContent = 'filtering';
+  byId('api-status').className = 'status-chip muted';
+  try {
+    await loadRunsForStatus(event.target.value);
+    byId('api-status').textContent = 'live';
+    byId('api-status').className = 'status-chip ok';
+  } catch (error) {
+    byId('api-status').textContent = 'API error';
+    byId('api-status').className = 'status-chip bad';
+    inspect('API error', { message: error.message });
+  }
+});
 byId('send-reminders').addEventListener('click', async () => {
   const result = await api('/contracts/reminders/run', { method: 'POST' });
   inspect('reminders', result);
@@ -349,6 +386,7 @@ byId('composer').addEventListener('submit', async (event) => {
 });
 byId('mark-read').addEventListener('click', () => inspect('mark-read', { note: 'Mark-read is planned for the next slice.' }));
 byId('close-inspector').addEventListener('click', () => {
+  byId('inspector')?.classList.remove('open');
   byId('inspector-content').textContent = 'Select an item to inspect details.';
 });
 
