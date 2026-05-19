@@ -2572,7 +2572,7 @@ function consoleAwaitingInputHint(text) {
   // sandclock commonly" noise). Only flag an explicit interactive prompt.
   if (/(\(y\/n\)|\[y\/n\]|\by\/n\b|\[y\/N\]|\[Y\/n\]|yes\/no|press\s+(enter|any key)|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)/i.test(tail)) return 'confirm/answer?';
   if (/(use arrows|↑\/↓|press enter to (select|confirm)|\(use arrow keys\))/i.test(tail) && /(^|\n)\s*[❯▶]\s+\S/.test(tail)) return 'selection?';
-  if (/(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option)|bypass permissions on|shift\+tab to cycle|for agents)/i.test(tail)) return 'input needed';
+  if (/(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option))/i.test(tail)) return 'input needed';
   return '';
 }
 function updateConsoleAwaitInput() {

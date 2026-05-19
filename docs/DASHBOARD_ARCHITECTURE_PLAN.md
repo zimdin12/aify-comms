@@ -91,14 +91,17 @@ and the contract everything depends on.
   `active` / `idle` / `offline` now comes from the live-state engine: a real
   active run or fresh turn-busy heartbeat means `working`; if that active
   terminal tail clearly asks for operator input, the status is `blocked`;
+  normal Claude prompt chrome/permission footer alone is not a blocked signal;
   attached-but-runless Console is `active`; stopped/failed Console terminals
-  are cleared as current bindings and remain historical only. A working
-  agent's dot briefly pulses orange when its terminal emits output; this is a
-  visual activity hint, not a separate status. The blocked contract is
-  deliberately explicit-prompt based, not a silence timer: a fixed 10s console
-  silence threshold is too aggressive (agents legitimately reason / tool-call /
-  wait on I/O for far longer with no console output → false `blocked`, same
-  class as the reverted heuristics).
+  are cleared as current bindings and remain historical only. Completion-style
+  `info` messages can satisfy active terminal runs during send/reconcile so
+  finished work does not remain open only because the agent forgot
+  `inReplyTo`. A working agent's dot briefly pulses orange when its terminal
+  emits output; this is a visual activity hint, not a separate status. The
+  blocked contract is deliberately explicit-prompt based, not a silence timer:
+  a fixed 10s console silence threshold is too aggressive (agents legitimately
+  reason / tool-call / wait on I/O for far longer with no console output →
+  false `blocked`, same class as the reverted heuristics).
 - **Session-id normalization / wording.** All runtimes have a native session
   concept but it becomes known at different times (codex/claude/opencode/
   hermes ~at register/handle; pi/omp at first completed run). Surface this as

@@ -1561,7 +1561,10 @@ def _terminal_awaiting_input_hint(output: str) -> str:
         return "Awaiting console selection."
     # Claude Code can stop at an interactive prompt without emitting a formal
     # dashboard reply. This keeps the run active but no useful work is moving.
-    if re.search(r"(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option)|bypass permissions on|shift\+tab to cycle|for agents)", tail, re.I):
+    # Do not match the normal Claude footer ("bypass permissions on",
+    # "shift+tab", "for agents") by itself; that footer is present at idle
+    # prompts after successful work too.
+    if re.search(r"(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option))", tail, re.I):
         return "Awaiting console input."
     return ""
 
@@ -3741,7 +3744,7 @@ async def _discard_unusable_active_run(db, recipient_id: str, active_run: dict[s
 async def _repair_unusable_active_runs(db, *, limit: int = 100) -> int:
     cursor = await db.execute(
         """
-        SELECT id, target_agent
+        SELECT *
         FROM dispatch_runs
         WHERE status IN ('claimed', 'running')
         ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
@@ -3754,6 +3757,9 @@ async def _repair_unusable_active_runs(db, *, limit: int = 100) -> int:
         state = await _get_dispatch_state_for_agent(db, row["target_agent"])
         active = state.get("activeRun")
         if not active or active.get("runId") != row["id"]:
+            continue
+        if await _link_unthreaded_completion_message_for_run(db, row):
+            repaired += 1
             continue
         if await _discard_unusable_active_run(db, row["target_agent"], active):
             repaired += 1
@@ -4158,6 +4164,19 @@ def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
 
 
 _HANDOFF_REPLY_TYPES = {"response", "review", "error", "approval"}
+_COMPLETION_INFO_RE = re.compile(
+    r"\b(done|complete(?:d)?|finished|fixed|pushed|committed|shipped|merged|resolved|verified|ready|answered)\b",
+    re.I,
+)
+
+
+def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: str = "") -> bool:
+    msg_type = str(reply_type or "").strip().lower()
+    if msg_type in _HANDOFF_REPLY_TYPES:
+        return True
+    if msg_type == "info" and _COMPLETION_INFO_RE.search(f"{subject or ''}\n{body or ''}"):
+        return True
+    return False
 
 
 async def _mark_dispatch_run_answered(
@@ -4206,7 +4225,7 @@ async def _link_reply_message_to_dispatch_run(
     reply_type: str,
     reply_body: str,
 ) -> bool:
-    if str(reply_type or "").strip().lower() not in _HANDOFF_REPLY_TYPES:
+    if not _message_satisfies_reply_contract(reply_type, body=reply_body):
         return False
     run_cursor = await db.execute(
         """
@@ -4257,7 +4276,6 @@ async def _link_reply_message_to_dispatch_run(
     return True
 
 
-_UNTHREADED_HANDOFF_TYPES = _HANDOFF_REPLY_TYPES
 _UNTHREADED_HANDOFF_WINDOW_MS = 24 * 60 * 60 * 1000
 
 
@@ -4324,9 +4342,11 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
     to_agent: str,
     reply_message_id: str,
     reply_type: str,
+    reply_subject: str = "",
+    reply_body: str = "",
     reply_timestamp_ms: int,
 ) -> bool:
-    if str(reply_type or "").strip().lower() not in _UNTHREADED_HANDOFF_TYPES:
+    if not _message_satisfies_reply_contract(reply_type, subject=reply_subject, body=reply_body):
         return False
     if not from_agent or not to_agent or not reply_message_id:
         return False
@@ -4371,6 +4391,52 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         f"Unthreaded result reply linked from {from_agent}",
     )
     return True
+
+
+async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
+    if not row or not bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0)):
+        return False
+    if str((row["result_message_id"] if "result_message_id" in row.keys() else "") or "").strip():
+        return False
+    from_agent = str(row["from_agent"] or "").strip()
+    target_agent = str(row["target_agent"] or "").strip()
+    if not from_agent or not target_agent:
+        return False
+    requested_ms = int(_iso_to_epoch(str(row["requested_at"] or "")) * 1000)
+    if not requested_ms:
+        return False
+    cursor = await db.execute(
+        """
+        SELECT id, type, subject, body, timestamp
+        FROM messages
+        WHERE from_agent = ?
+          AND to_agent = ?
+          AND source = 'direct'
+          AND COALESCE(in_reply_to, '') = ''
+          AND timestamp >= ?
+        ORDER BY timestamp ASC, id ASC
+        LIMIT 50
+        """,
+        (target_agent, from_agent, requested_ms),
+    )
+    for message in await cursor.fetchall():
+        if not _message_satisfies_reply_contract(message["type"], subject=message["subject"], body=message["body"]):
+            continue
+        await _mark_dispatch_run_answered(
+            db,
+            row["id"],
+            message["id"],
+            str(row["status"] or ""),
+            str(row["execution_mode"] or ""),
+        )
+        await _append_dispatch_event(
+            db,
+            row["id"],
+            "handoff",
+            f"Unthreaded completion message {message['id']} linked during reconcile",
+        )
+        return True
+    return False
 
 
 def _auto_handoff_subject_for_run(row) -> str:
@@ -7736,6 +7802,8 @@ async def send_message(req: MessageSend, request: Request):
                     to_agent=r,
                     reply_message_id=recipient_message_id,
                     reply_type=req.type,
+                    reply_subject=req.subject,
+                    reply_body=req.body,
                     reply_timestamp_ms=ts,
                 )
 
