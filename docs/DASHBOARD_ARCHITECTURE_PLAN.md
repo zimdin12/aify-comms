@@ -87,17 +87,19 @@ and the contract everything depends on.
   turn; accurate "working" there needs the resident wrapper to emit its own
   busy signal (start/end of turn) into the same turn-busy contract. Follow-up,
   not a heuristic — captured so it isn't hot-patched.
-- **Status taxonomy as a designed contract.** working / active / idle /
-  offline + proposed `blocked` and console-activity pulse must be defined as
-  ONE explicit contract (when each is true, precedence, the authoritative
-  signal) before implementing — the status whack-a-mole and the ⌛ noise both
-  came from bolting heuristics on without a contract. Specifically `blocked`
-  (operator idea: working but terminal quiescent): a fixed 10s console-silence
-  threshold is too aggressive (agents legitimately reason / tool-call / wait on
-  I/O for far longer with no console output → false "blocked", same class as
-  the reverted heuristics). If added, base it on the authoritative turn-busy
-  signal + a generous, configurable quiescence window, defined in the contract
-  — not a hardcoded 10s on the monolith.
+- **Status taxonomy as a designed contract.** `working` / `active` / `idle` /
+  `offline` now comes from the live-state engine: a real active run or fresh
+  turn-busy heartbeat means `working`; attached-but-runless Console is
+  `active`; stopped/failed Console terminals are cleared as current bindings
+  and remain historical only. A working agent's dot briefly pulses orange when
+  its terminal emits output; this is a visual activity hint, not a separate
+  status. A future `blocked` state still needs a real contract before
+  implementation. Specifically, a fixed 10s console-silence threshold is too
+  aggressive (agents legitimately reason / tool-call / wait on I/O for far
+  longer with no console output → false "blocked", same class as the reverted
+  heuristics). If added, base it on the authoritative turn-busy signal + a
+  generous, configurable quiescence window, defined in the contract — not a
+  hardcoded 10s on the monolith.
 - **Session-id normalization / wording.** All runtimes have a native session
   concept but it becomes known at different times (codex/claude/opencode/
   hermes ~at register/handle; pi/omp at first completed run). Surface this as
