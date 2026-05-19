@@ -65,7 +65,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 ## Dashboard Semantics
 
 - Home/Control is a live operations queue, not a full audit log.
-- Work Loop shows reply/work contracts derived from messages and runs. Hidden contracts are dashboard-local and do not delete audit history.
+- Work Loop shows reply/work contracts derived from messages and runs. Requests, reviews, and errors are contracts by default; routine `info` is not unless `requireReply` is explicitly set. Hidden contracts are dashboard-local and do not delete audit history; operator close/bulk-close marks selected contracts reviewed while keeping run/chat history.
 - Muted live/session/handoff notices stay yellow but stop counting as active red issues.
 - Analytics has range selectors and separates historical counts from live capacity.
 - Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance.

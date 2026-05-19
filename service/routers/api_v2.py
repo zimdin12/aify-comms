@@ -338,13 +338,27 @@ def _dispatch_reply_pending(row) -> bool:
     return _dispatch_reply_state(row) == "pending"
 
 
+def _is_operator_closed_contract(row) -> bool:
+    if not row:
+        return False
+    status = str((row["status"] if "status" in row.keys() else "") or "").strip().lower()
+    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
+    return (
+        status == "completed"
+        and not _row_require_reply(row)
+        and summary.startswith("Closed from Work Loop by dashboard operator.")
+    )
+
+
 def _contract_reply_expected(row) -> bool:
     if not row:
+        return False
+    if _is_operator_closed_contract(row):
         return False
     if _row_require_reply(row):
         return True
     message_type = str((row["message_type"] if "message_type" in row.keys() else "") or "").strip().lower()
-    if message_type in {"response", "approval"}:
+    if message_type in {"info", "response", "approval"}:
         return False
     priority = str((row["priority"] if "priority" in row.keys() else "") or "").strip().lower()
     return message_type in {"request", "review", "error"} or priority in {"high", "urgent"}
@@ -3451,7 +3465,7 @@ async def _record_terminal_delivery_contract(
     requested_at = _now()
     normalized_runtime = _normalize_runtime(runtime or "")
     existing_active_turn = None
-    if normalized_runtime == "claude-code" and require_reply:
+    if normalized_runtime == "claude-code":
         active_cursor = await db.execute(
             """
             SELECT id
@@ -3489,7 +3503,7 @@ async def _record_terminal_delivery_contract(
         await _invalidate_agent_live_state(db, recipient_id)
         return parent_run_id
 
-    tracks_active_turn = normalized_runtime == "claude-code" and require_reply
+    tracks_active_turn = normalized_runtime == "claude-code"
     status = "running" if tracks_active_turn else "delivered"
     await db.execute(
         """
@@ -4521,10 +4535,17 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         SELECT * FROM dispatch_runs
         WHERE target_agent = ?
           AND from_agent = ?
-          AND require_reply = 1
           AND status IN ('delivered', 'claimed', 'running', 'completed', 'failed', 'cancelled')
           AND requested_at >= ?
           AND requested_at <= ?
+          AND (
+            require_reply = 1
+            OR (
+              dispatch_mode = 'terminal'
+              AND runtime = 'claude-code'
+              AND status IN ('claimed', 'running')
+            )
+          )
         ORDER BY requested_at DESC
         LIMIT 1
         """,
@@ -4557,7 +4578,14 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
 
 
 async def _link_unthreaded_completion_message_for_run(db, row) -> bool:
-    if not row or not bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0)):
+    if not row:
+        return False
+    is_active_claude_terminal_turn = (
+        str((row["dispatch_mode"] if "dispatch_mode" in row.keys() else "") or "").strip().lower() == "terminal"
+        and _normalize_runtime(str((row["runtime"] if "runtime" in row.keys() else "") or "")) == "claude-code"
+        and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() in {"claimed", "running"}
+    )
+    if not bool(int((row["require_reply"] if "require_reply" in row.keys() else 0) or 0)) and not is_active_claude_terminal_turn:
         return False
     if str((row["result_message_id"] if "result_message_id" in row.keys() else "") or "").strip():
         return False
@@ -7986,7 +8014,7 @@ async def send_message(req: MessageSend, request: Request):
 
         dispatch_runs = []
         if req.trigger:
-            require_reply = _dispatch_requires_reply(req.requireReply, default=req.type != "response")
+            require_reply = _dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))
             source_message_ids = {
                 recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
                 for recipient_id in recipients
@@ -8067,7 +8095,7 @@ async def send_message(req: MessageSend, request: Request):
                     body=req.body,
                     priority=req.priority,
                     in_reply_to=resolved_in_reply_to,
-                    require_reply=_dispatch_requires_reply(req.requireReply, default=req.type != "response"),
+                    require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
                     terminal_id=terminal_id,
                     control_id=control_id,
                     runtime=terminal["runtime"] or "",
@@ -8644,7 +8672,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
 
         runs = []
         if launchable_recipients:
-            require_reply = _dispatch_requires_reply(req.requireReply, default=True)
+            require_reply = _dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type))
             runs = await _create_dispatch_runs(
                 db,
                 [recipient_id for recipient_id, _ in launchable_recipients],
@@ -8716,7 +8744,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 body=req.body,
                 priority=req.priority,
                 in_reply_to=resolved_in_reply_to,
-                require_reply=_dispatch_requires_reply(req.requireReply, default=True),
+                require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
                 terminal_id=terminal_id,
                 control_id=control_id,
                 runtime=terminal["runtime"] or "",
@@ -9371,7 +9399,7 @@ def _contract_list_query(
         WHERE (
             r.require_reply = 1
             OR r.message_type IN ('request','review','error')
-            OR (r.priority IN ('high','urgent') AND r.message_type NOT IN ('response','approval'))
+            OR (r.priority IN ('high','urgent') AND r.message_type NOT IN ('info','response','approval'))
         )
         {where_sql}
         {order_sql}
@@ -9431,7 +9459,7 @@ async def list_work_contracts(
         elif normalized_state == "sent":
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('queued','claimed','running','completed','failed','cancelled') AND COALESCE(rr.read_at, '') = ''")
 
-        closed_state_requested = normalized_state in {"answered", "closed"}
+        closed_state_requested = normalized_state in {"answered", "closed", "missing_reply", "failed"}
         if includeClosed or closed_state_requested:
             where.append(
                 """
@@ -9447,6 +9475,7 @@ async def list_work_contracts(
             where.append(
                 """
                 AND COALESCE(r.result_message_id, '') = ''
+                AND r.status NOT IN ('completed','failed','cancelled')
                 """
             )
         params.append(limit)
@@ -9733,6 +9762,9 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
         if req.runtime is not None:
             updates.append("runtime = ?")
             params.append(req.runtime)
+        if req.requireReply is not None:
+            updates.append("require_reply = ?")
+            params.append(1 if req.requireReply else 0)
 
         if updates:
             params.append(run_id)

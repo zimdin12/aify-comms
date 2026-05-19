@@ -51,13 +51,13 @@ It should show:
 - open/overdue/working/queued/missing-reply counts
 - route, subject, age, target read state, reminder count, and latest answer preview
 - filters for state, category (`direct`, `channel`, `self-wake`), and free text; the daily default should be open direct contracts, with historical failures, answered items, channel fan-out, and self-wake audits opt-in
-- one-click run detail, chat jump, single-contract reminder, and batch due-reminder actions
+- one-click run detail, chat jump, single-contract reminder, batch due-reminder actions, and operator close/bulk-close for reviewed stale contracts
 - local hide/restore for noisy historical contracts without deleting the source run or chat audit trail
 - hygiene indicators for old unread fan-out, answered-but-unread source messages, self-wakes, and pending fallback handoffs
 
 `delivered` means the bridge delivered/read the source message into the target's live or managed context. It is not a completed work contract by itself. A delivered contract remains open or overdue until a linked reply/result is recorded.
 
-Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a blocked terminal turn that is already waiting for operator input. Reminders should be explicit automated messages, not hidden state changes. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder.
+Reminder policy belongs in Settings: enabled/disabled, first overdue threshold, repeat interval, maximum reminders, and history window. Recent due reminders are sent by the periodic service loop and can also be previewed or sent manually from Work Loop. Automatic reminders should not inject text into a blocked terminal turn that is already waiting for operator input. Reminders should be explicit automated messages, not hidden state changes, and reminder messages must not create new reply debt. A reminder should tell the target which original message/run to open and should instruct the agent to close the original contract rather than merely acknowledging the reminder. Maximum reminder count is an anti-spam cap, not resolution; unresolved contracts stay visible until answered, closed by the operator, or filtered into audit views.
 
 Agents can inspect the same view through `comms_contracts(...)` when they need to audit outstanding work. The dashboard remains the primary place for batch repair actions.
 
@@ -107,7 +107,7 @@ Chat should feel like a real team messenger:
 - peek mode: watch a selected conversation without automatically marking incoming messages read; explicit Mark read remains available for direct messages and selected channels
 - channel details: show current members and allow adding/removing known agents from the right-side Members panel; the current viewing identity uses a clear **Leave** action and can be re-added later; add selection must be stable across realtime refreshes
 - artifact uploads store bytes in the aify-comms shared artifact service and inserted chat text should tell agents to use `comms_read(name="...")`
-- reply expectations are inferred from message type: requests/reviews should get explicit replies; routine info does not need a special toggle
+- reply expectations are inferred from message type: requests/reviews/errors should get explicit replies; routine info is non-contractual unless `requireReply` is explicitly set
 - normal dashboard chat has one send path; strict dispatch remains an advanced API/debug path, not a primary composer option
 - conversation context should stay focused: managed prompts should include only compact recent direct context, tell agents not to revive unrelated topics, and require evidence checks before status/history claims
 - dashboard-origin direct messages are human/operator chat: managed agents answer the current delivered run in final plain text, and the bridge stores that final answer in dashboard chat

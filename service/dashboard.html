@@ -1183,6 +1183,9 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
       <button class="btn" title="Preview which overdue contracts would receive reminders" onclick="runContractReminders(true)">Preview Reminders</button>
       <button class="btn" title="Mark old dispatched source messages read when a run already claimed/handled them" onclick="repairContractReadReceipts()">Repair Delivered Reads</button>
       <button class="btn" title="Create fallback replies for terminal runs that never recorded a handoff" onclick="repairPendingHandoffs()">Repair Handoffs</button>
+      <button class="btn" title="Select every visible Work Loop contract for bulk close" onclick="selectVisibleContracts()">Select Visible</button>
+      <button class="btn" title="Clear the current Work Loop selection" onclick="clearSelectedContracts()">Clear Selection</button>
+      <button class="btn btn-danger" title="Close selected Work Loop contracts as operator-reviewed. Audit history remains in Runs and Chat." onclick="closeSelectedContracts()">Close Selected</button>
       <button class="btn" title="Unhide every Work Loop contract hidden in this browser. Audit history remains untouched either way." onclick="clearDismissedContracts()">Clear Hidden</button>
     </div>
     <div class="fb">
@@ -1620,6 +1623,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <h3>Daily Use</h3>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
+      <p><b>Work Loop:</b> requests, reviews, and errors are tracked reply contracts by default. Routine info messages are notes unless they explicitly require a reply. Reminder messages are nudges, not new obligations; their max count limits reminder chatter, not whether the original work still needs resolution. Use <b>Close</b> or <b>Close Selected</b> when an operator has reviewed stale/audit-only contracts.</p>
       <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY surface. Click into it to drive the CLI directly with normal terminal keys, paste, selection, and copy. Messaging an agent stays in <b>Messenger</b> mode and creates tracked run/message contracts. Native-managed runtimes use their managed/steer adapters; managed Claude Code and Hermes may start or reuse a bridge-owned PTY, but those inputs are still tracked as Messenger work rather than hidden human console typing. Blocked console input is never silently swallowed.</p>
       <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed Claude PTY turns stay working until the reply closes the run; if Claude visibly returns to an idle prompt after output without sending an explicit chat reply, reconcile closes that turn as completed-without-reply so it becomes Work Loop audit debt, not live work. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
       <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
@@ -1637,7 +1641,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; blocked terminal turns are skipped so reminders do not inject text into an agent that is waiting for a human decision. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; blocked terminal turns are skipped so reminders do not inject text into an agent that is waiting for a human decision, and reminder notices do not create new reply debt. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1840,7 +1844,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <div class="form-group">
         <label>Max Reminders Per Contract</label>
         <input type="number" id="s-reply-max" min="0" max="20">
-        <div class="hint">Set 0 for unlimited reminders. Default: 3</div>
+        <div class="hint">Maximum reminder nudges per original contract. Set 0 for unlimited nudges; the contract remains visible until answered, closed, or filtered. Default: 3</div>
       </div>
       <div class="form-group">
         <label>Contract History Window (hours)</label>
@@ -1891,6 +1895,7 @@ window._mobileChatRailOpen = false;
 window._chatChannelMessages = {};
 window._chatReadMarking = new Set();
 window._chatDrafts = {};
+window._selectedContracts = new Set();
 window._chatMode = localStorage.getItem('aifyChatMode') === 'console' ? 'console' : 'messenger';
 window._terminalDetails = {};
 window._terminalLoading = new Set();
@@ -3286,6 +3291,81 @@ function clearDismissedContracts() {
   renderWorkLoop();
 }
 
+function contractSelection() {
+  if (!(window._selectedContracts instanceof Set)) window._selectedContracts = new Set();
+  return window._selectedContracts;
+}
+
+function isContractSelected(contractId) {
+  return contractSelection().has(String(contractId || ''));
+}
+
+function toggleContractSelected(contractId, selected) {
+  const id = String(contractId || '').trim();
+  if (!id) return;
+  const selectedContracts = contractSelection();
+  if (selected) selectedContracts.add(id);
+  else selectedContracts.delete(id);
+  renderWorkLoop();
+}
+
+function closeableContract(contract) {
+  return !!contract?.id && !['answered', 'closed'].includes(String(contract.state || '').toLowerCase());
+}
+
+function selectVisibleContracts() {
+  const selectedContracts = contractSelection();
+  filteredContracts().filter(closeableContract).forEach(contract => selectedContracts.add(String(contract.id)));
+  toast(`Selected ${selectedContracts.size} Work Loop contract(s)`);
+  renderWorkLoop();
+}
+
+function clearSelectedContracts() {
+  contractSelection().clear();
+  renderWorkLoop();
+}
+
+async function patchContractRun(runId, payload) {
+  return apiFetch(API + `/dispatch/runs/${encodeURIComponent(runId)}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+}
+
+async function closeWorkContract(runId, quiet = false) {
+  const id = String(runId || '').trim();
+  if (!id) return false;
+  if (!quiet && !confirm('Close this Work Loop contract as operator-reviewed? Chat and run history remain available.')) return false;
+  const res = await patchContractRun(id, {
+    status: 'completed',
+    requireReply: false,
+    summary: 'Closed from Work Loop by dashboard operator.',
+    appendEvent: 'Closed from Work Loop by dashboard operator.',
+    eventType: 'operator_closed',
+  });
+  if (!res.ok) throw new Error(res.detail || res.error || 'Close failed');
+  contractSelection().delete(id);
+  return true;
+}
+
+async function closeSelectedContracts() {
+  const ids = [...contractSelection()].filter(Boolean);
+  if (!ids.length) { toast('Select Work Loop contracts first', '#f0b429'); return; }
+  if (!confirm(`Close ${ids.length} selected Work Loop contract(s) as operator-reviewed?`)) return;
+  let closed = 0;
+  try {
+    for (const id of ids) {
+      if (await closeWorkContract(id, true)) closed += 1;
+    }
+    toast(`Closed ${closed} Work Loop contract(s)`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Close selected failed', '#f85149');
+    await refreshDashboard();
+  }
+}
+
 function setShowHiddenContracts(show) {
   window._showHiddenContracts = !!show;
   localStorage.setItem('aifyShowHiddenContracts', window._showHiddenContracts ? '1' : '0');
@@ -3942,6 +4022,7 @@ function contractCard(contract) {
   const state = contract.state || 'sent';
   const category = contract.category || 'direct';
   const dismissed = isContractDismissed(contract.id);
+  const selected = isContractSelected(contract.id);
   const read = contract.sourceReadAt ? `target read ${fmtTime(Date.parse(contract.sourceReadAt) || 0)}` : 'target unread';
   const maxReminders = Number(window._contractSettings?.replyReminderMaxCount ?? window._contractSettings?.reply_reminder_max_count ?? 3);
   const reminderCount = Number(contract.reminderCount || 0);
@@ -3952,7 +4033,7 @@ function contractCard(contract) {
   const delivery = contractDeliveryNote(contract);
   return `<article class="contract-card ${esc(state)}${dismissed ? ' dismissed' : ''}" data-run-id="${esc(contract.id)}">` +
     `<div class="contract-head">` +
-      `<div class="contract-route">${esc(contractRoute(contract))}</div>` +
+      `<label class="switch-row compact" title="Select this Work Loop contract for bulk actions"><input type="checkbox" ${selected ? 'checked' : ''} onchange="toggleContractSelected('${esc(contract.id)}', this.checked)"><span>${esc(contractRoute(contract))}</span></label>` +
       `<span class="contract-pill ${esc(state)}">${esc(workContractStatusText(contract))}</span>` +
     `</div>` +
     `<div class="contract-subject">${esc(contract.subject || contract.id)}</div>` +
@@ -3971,6 +4052,7 @@ function contractCard(contract) {
       actionButtonFn('View run', 'Open run details, events, controls, and result', () => viewRun(contract.id)) +
       actionButtonFn('Chat', 'Open direct chat with the target agent', () => openAgentChat(contract.targetAgentId)) +
       (contract.overdue ? actionButtonFn('Remind', 'Send a single overdue-reply reminder for this contract', () => runContractReminders(false, contract.id), 'btn-primary') : '') +
+      (closeableContract(contract) ? actionButtonFn('Close', 'Mark this Work Loop contract operator-reviewed and remove it from active Work Loop views', () => closeWorkContract(contract.id).then(done => { if (done) refreshDashboard(); }), 'btn-danger') : '') +
       (dismissed
         ? actionButtonFn('Restore', 'Show this contract in the normal Work Loop again', () => restoreContract(contract.id))
         : actionButtonFn('Hide', 'Hide this contract from Work Loop without deleting run or chat audit history', () => dismissContract(contract.id))) +
@@ -4016,6 +4098,7 @@ function renderWorkLoop() {
     missingReply: contracts.filter(contract => contract.state === 'missing_reply').length,
     selfWake: contracts.filter(contract => contract.category === 'self_wake').length,
   };
+  const selectedCount = contractSelection().size;
   const statsEl = document.getElementById('work-stats');
   if (statsEl) {
     statsEl.innerHTML =
@@ -4026,6 +4109,8 @@ function renderWorkLoop() {
       `<div class="sc${stats.missingReply ? ' warn' : ''}"><div class="n">${stats.missingReply || 0}</div><div class="l">Missing Reply</div></div>` +
       `<div class="sc${hiddenCount ? ' warn' : ''}"><div class="n">${hiddenCount}</div><div class="l">Hidden</div><div class="s">local browser</div></div>`;
   }
+  const selectedCloseButton = document.querySelector('button[onclick="closeSelectedContracts()"]');
+  if (selectedCloseButton) selectedCloseButton.textContent = selectedCount ? `Close Selected (${selectedCount})` : 'Close Selected';
   const contractsEl = document.getElementById('work-contracts');
   if (contractsEl) {
     contractsEl.innerHTML = contracts.length
@@ -4040,7 +4125,7 @@ function renderWorkLoop() {
     ['Channel unread', window._dashboardStats?.channel_unread_messages || 0, 'Channel fan-out unread should not be treated the same as direct work contracts.'],
     ['Self-wakes', stats.selfWake || 0, 'Self-scheduled reminders should be operational loop items, not normal human chat.'],
     ['Answered but unread', answeredUnread, 'Contracts that have a result but whose source message still lacks a read receipt. Use Repair Delivered Reads.'],
-    ['Reminder policy', settings.replyContractsEnabled === false ? 'off' : `${settings.replyReminderMinutes || 6}m`, `Repeat ${settings.replyReminderRepeatMinutes || 6}m, max ${settings.replyReminderMaxCount || 3}. Configure in Settings.`],
+    ['Reminder policy', settings.replyContractsEnabled === false ? 'off' : `${settings.replyReminderMinutes || 6}m`, `Repeat ${settings.replyReminderRepeatMinutes || 6}m, max ${settings.replyReminderMaxCount ?? 3}. Limits only reminder nudges; contracts stay visible until answered, closed, or filtered.`],
   ];
   const hygieneEl = document.getElementById('work-hygiene');
   if (hygieneEl) {
@@ -7092,7 +7177,7 @@ async function sendChatMessage(options = {}) {
   const subjectInput = document.getElementById('chat-subject-input').value.trim();
   const body = document.getElementById('chat-body').value.trim();
   const queueIfBusy = !!options.queueIfBusy;
-  const expectReply = true;
+  const expectReply = ['request', 'review', 'error'].includes(String(type || '').toLowerCase());
   if (!meta.kind) { toast('Select a conversation', '#f85149'); return; }
   if (!body) { toast('Write a message first', '#f85149'); return; }
   const subject = subjectInput || body.split(/\s+/).slice(0, 10).join(' ');

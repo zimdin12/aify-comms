@@ -99,6 +99,7 @@ class DispatchRunUpdate(BaseModel):
     summary: Optional[str] = None
     error: Optional[str] = None
     resultMessageId: Optional[str] = None
+    requireReply: Optional[bool] = None
     externalThreadId: Optional[str] = None
     externalTurnId: Optional[str] = None
     runtime: Optional[str] = None

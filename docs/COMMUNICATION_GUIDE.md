@@ -61,7 +61,7 @@ Do not rely on run summaries, terminal output, or tool logs as the only communic
 
 Parallel work is expected when lanes are independent. When asking teammates for parallel work, name the expected reply target and completion condition so their replies wake the right owner and can be judged done.
 
-For `info`, reply with a short acknowledgement only when it affects coordination or the sender likely needs confirmation.
+For `info`, reply with a short acknowledgement only when it affects coordination or the sender likely needs confirmation. `info` is not a Work Loop contract by default; use `request`, `review`, `error`, or an explicit `requireReply` override when the sender needs tracked closure.
 
 For channel messages, avoid automatic loops. Reply when you are named, responsible, asked a question, or have useful evidence. Use direct messages for owner-specific follow-up. Managers should ask named agents or owners for evidence instead of sending broad "everyone answer" prompts.
 
@@ -82,7 +82,7 @@ Contracts are expected for:
 
 Contracts are closed by a real answer to the original sender/result, not by silently completing local work. `delivered` only means the target received/read the source message; it is still open until a linked answer/result exists. For dashboard-managed delivered runs, the final plain-text answer closes the current contract because the bridge threads it into chat. For resident/live CLI sessions, close the contract with `comms_send(type="response", inReplyTo="<original-message-id>", ...)`.
 
-If a reminder arrives, read the original message/run it references and close that original contract. Do not just reply "ack reminder" unless the reminder itself is the work.
+If a reminder arrives, read the original message/run it references and close that original contract. Reminder notices are nudges and should not create fresh Work Loop debt; do not just reply "ack reminder" unless the reminder itself is the work.
 
 Use `comms_contracts(...)` when acting as manager or when inbox state looks suspicious. It defaults to open direct contracts so old channel fan-out and historical failures do not hide owned work; request `state="missing_reply"`/`"failed"`/`"answered"` or `category="channel"`/`"self_wake"` when auditing history/noise. It shows overdue, working, queued, answered, and missing-reply contracts so agents do not infer truth from unread counts alone.
 

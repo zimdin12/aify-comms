@@ -404,6 +404,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("chat-send-btn", dashboard.text)
         self.assertIn("sendChatMessage({queueIfBusy:true})", dashboard.text)
         self.assertIn("setChatSending(true, queueIfBusy)", dashboard.text)
+        self.assertIn("chatDraftKey", dashboard.text)
+        self.assertIn("window._selectedContracts", dashboard.text)
+        self.assertIn("closeSelectedContracts()", dashboard.text)
+        self.assertIn("['request', 'review', 'error'].includes", dashboard.text)
         self.assertIn(">Queue</button>", dashboard.text)
         self.assertNotIn("chat-queue-if-busy", dashboard.text)
         self.assertIn("sessions-grid", dashboard.text)
@@ -5163,7 +5167,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         closed = self._fetchone("SELECT result_message_id FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(closed["result_message_id"], answer["messageId"])
 
-    def test_triggered_info_send_requires_reply_by_default(self):
+    def test_triggered_info_send_does_not_require_reply_by_default(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
 
@@ -5174,6 +5178,21 @@ class ApiV2RegressionTests(unittest.TestCase):
             subject="heads up",
             body="ack this",
             trigger=True,
+        )
+        self.assertFalse(sent["dispatchRuns"][0]["requireReply"])
+
+    def test_triggered_info_send_can_explicitly_require_reply(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register("coder", runtime="codex", sessionMode="managed")
+
+        sent = self._send_message(
+            from_agent="lead",
+            to="coder",
+            type="info",
+            subject="please confirm",
+            body="ack this one",
+            trigger=True,
+            requireReply=True,
         )
         self.assertTrue(sent["dispatchRuns"][0]["requireReply"])
 
@@ -6221,6 +6240,64 @@ class ApiV2RegressionTests(unittest.TestCase):
         event = self._fetchone("SELECT event_type, body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
         self.assertIsNotNone(event)
         self.assertIn(reminder_message_id, event["body"])
+
+    def test_contract_reminder_notice_does_not_become_reply_debt(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="urgent answer",
+            body="please answer",
+            priority="urgent",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        self._execute("UPDATE dispatch_runs SET requested_at = '2000-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+
+        response = self.client.post(f"/api/v1/contracts/reminders/run?runId={run_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        reminder_run_id = response.json()["reminded"][0]["dispatchRuns"][0]["runId"]
+        self.client.patch(
+            f"/api/v1/dispatch/runs/{reminder_run_id}",
+            json={"status": "completed", "summary": "reminder delivered"},
+        )
+
+        missing = self.client.get("/api/v1/contracts?limit=50&state=missing_reply")
+        self.assertEqual(missing.status_code, 200, missing.text)
+        self.assertFalse(any(item["id"] == reminder_run_id for item in missing.json()["contracts"]))
+
+    def test_contracts_default_view_hides_operator_closed_and_failures(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="close me",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        closed = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "completed", "requireReply": False, "summary": "Closed from Work Loop by dashboard operator."},
+        )
+        self.assertEqual(closed.status_code, 200, closed.text)
+
+        open_view = self.client.get("/api/v1/contracts?limit=20")
+        self.assertEqual(open_view.status_code, 200, open_view.text)
+        self.assertFalse(any(item["id"] == run_id for item in open_view.json()["contracts"]))
+
+        closed_view = self.client.get("/api/v1/contracts?limit=20&state=closed")
+        self.assertEqual(closed_view.status_code, 200, closed_view.text)
+        self.assertTrue(any(item["id"] == run_id and item["state"] == "closed" for item in closed_view.json()["contracts"]))
 
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
         self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
