@@ -1883,6 +1883,142 @@ async def _repair_current_session_freshness(db) -> int:
     return repaired
 
 
+async def _repair_terminal_session_consistency(db) -> int:
+    now = _now()
+    active_statuses = ("starting", "attached", "running", "active", "idle")
+    repaired = 0
+
+    legacy_cursor = await db.execute(
+        f"""
+        SELECT id, agent_id
+        FROM terminal_sessions
+        WHERE runtime = 'claude-code'
+          AND status IN ({",".join("?" for _ in active_statuses)})
+          AND COALESCE(command, '') != ''
+          AND command NOT LIKE '%claude-aify%'
+        """,
+        active_statuses,
+    )
+    legacy_rows = await legacy_cursor.fetchall()
+    for row in legacy_rows:
+        terminal_id = str(row["id"] or "").strip()
+        agent_id = str(row["agent_id"] or "").strip()
+        if not terminal_id:
+            continue
+        reason = "Released legacy raw Claude terminal during session reconciliation; Claude backing must start through claude-aify."
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'failed',
+                updated_at = ?,
+                stopped_at = COALESCE(stopped_at, ?),
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, reason, terminal_id),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'managed',
+                terminal_status = 'failed',
+                last_seen = ?
+            WHERE terminal_id = ?
+            """,
+            (now, terminal_id),
+        )
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
+        repaired += 1
+
+    mismatch_cursor = await db.execute(
+        f"""
+        SELECT t.id, t.agent_id, s.terminal_status
+        FROM terminal_sessions t
+        JOIN agent_sessions s ON s.terminal_id = t.id
+        WHERE t.status IN ({",".join("?" for _ in active_statuses)})
+          AND s.terminal_status IN ('stopped', 'failed')
+        """,
+        active_statuses,
+    )
+    mismatch_rows = await mismatch_cursor.fetchall()
+    for row in mismatch_rows:
+        terminal_id = str(row["id"] or "").strip()
+        agent_id = str(row["agent_id"] or "").strip()
+        terminal_status = str(row["terminal_status"] or "").strip().lower()
+        if not terminal_id or terminal_status not in {"stopped", "failed"}:
+            continue
+        reason = f"Terminal reconciled because owner session is {terminal_status}."
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = ?,
+                updated_at = ?,
+                stopped_at = COALESCE(stopped_at, ?),
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (terminal_status, now, now, reason, terminal_id),
+        )
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
+        repaired += 1
+
+    orphan_cursor = await db.execute(
+        f"""
+        SELECT t.id, t.agent_id
+        FROM terminal_sessions t
+        LEFT JOIN agent_sessions s ON s.terminal_id = t.id
+        WHERE t.status IN ({",".join("?" for _ in active_statuses)})
+          AND s.id IS NULL
+        """,
+        active_statuses,
+    )
+    orphan_rows = await orphan_cursor.fetchall()
+    for row in orphan_rows:
+        terminal_id = str(row["id"] or "").strip()
+        agent_id = str(row["agent_id"] or "").strip()
+        if not terminal_id:
+            continue
+        reason = "Terminal reconciled because it is not referenced by any current session."
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                updated_at = ?,
+                stopped_at = COALESCE(stopped_at, ?),
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, reason, terminal_id),
+        )
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
+        repaired += 1
+
+    if repaired:
+        await db.commit()
+    return repaired
+
+
 def _runtime_capability_for_environment(environment: dict[str, Any], runtime: str) -> Optional[dict[str, Any]]:
     normalized = _normalize_runtime(runtime)
     for item in environment.get("runtimes") or []:
@@ -5316,6 +5452,7 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
     try:
         await _repair_superseded_recovering_sessions(db)
         await _repair_current_session_freshness(db)
+        await _repair_terminal_session_consistency(db)
         where = []
         params: list[Any] = []
         if agentId:

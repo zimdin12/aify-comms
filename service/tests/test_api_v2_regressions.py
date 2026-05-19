@@ -2441,6 +2441,107 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("claude-aify --aify-agent console-agent --auto", session["terminal_command"])
         self.assertNotIn("claude --channels", session["terminal_command"])
 
+    def test_sessions_list_reconciles_legacy_raw_claude_terminal_state(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        legacy_command = (
+            "claude --channels server:aify-comms-channel "
+            "--dangerously-skip-permissions --resume claude-session-1"
+        )
+        self._execute(
+            "UPDATE terminal_sessions SET command = ?, status = 'attached', error = '' WHERE id = ?",
+            (legacy_command, terminal_id),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET owner_mode = 'managed', terminal_status = 'attached', terminal_command = ? WHERE id = ?",
+            (legacy_command, session_id),
+        )
+
+        listed = self.client.get("/api/v1/sessions?agentId=console-agent")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(terminal["status"], "failed")
+        self.assertIn("legacy raw Claude", terminal["error"])
+        session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_status"], "failed")
+
+    def test_sessions_list_reconciles_orphan_attached_terminal_state(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="codex",
+            terminal_runtimes=["codex"],
+            session_handle="codex-thread-1",
+        )
+        now = "2026-01-01T00:00:00Z"
+        terminal_id = "term_orphan_attached"
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace,
+                command, output, output_seq, status, requested_by, created_at, updated_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                session_id,
+                "console-agent",
+                "linux:test-host:default",
+                "bridge-old",
+                "codex",
+                "/workspace/repo",
+                "codex-aify --aify-agent console-agent resume codex-thread-1",
+                "",
+                0,
+                "attached",
+                "dashboard",
+                now,
+                now,
+                "",
+            ),
+        )
+
+        listed = self.client.get("/api/v1/sessions?agentId=console-agent")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(terminal["status"], "stopped")
+        self.assertIn("not referenced by any current session", terminal["error"])
+
+    def test_sessions_list_reconciles_terminal_status_from_owner_session(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="codex",
+            terminal_runtimes=["codex"],
+            session_handle="codex-thread-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'attached', error = '' WHERE id = ?",
+            (terminal_id,),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET terminal_status = 'stopped' WHERE id = ?",
+            (session_id,),
+        )
+
+        listed = self.client.get("/api/v1/sessions?agentId=console-agent")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(terminal["status"], "stopped")
+        self.assertIn("owner session is stopped", terminal["error"])
+
     def test_reply_to_delivered_channel_run_completes_it_without_working_status(self):
         self._create_running_session(
             terminal=True,
