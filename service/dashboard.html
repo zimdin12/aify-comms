@@ -150,7 +150,7 @@ tr:hover{background:#19212a}
 .t-review{background:#a371f733;color:#b997ff}.t-approval{background:#55c47524;color:var(--state-online)}
 .t-channel{background:#e2b04424;color:var(--state-working)}
 .st-active{color:var(--state-online)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--state-error)}
-.st-blocked{color:var(--state-error)}.st-completed{color:var(--state-online)}.st-stale{color:var(--state-error)}.st-offline{color:var(--subtle)}
+.st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--state-error)}.st-offline{color:var(--subtle)}
 .st-queued{color:var(--muted)}.st-claimed{color:var(--state-working)}.st-running{color:var(--state-info)}.st-failed{color:var(--state-error)}.st-cancelled{color:var(--state-working)}.st-cli-takeover{color:var(--state-info)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -454,6 +454,7 @@ a{color:var(--accent-text)}
 .chat-status-dot{display:inline-flex;width:8px;height:8px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;flex:0 0 auto}
 .chat-status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}
 .chat-status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
+.chat-status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
 .chat-status-dot.active,.chat-status-dot.online{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
 .chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
@@ -639,6 +640,7 @@ tr:hover{background:#1b1f21}
 .status-dot{display:inline-flex;width:9px;height:9px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;margin-right:6px;vertical-align:middle}
 .status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15620}
 .status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
+.status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
 .status-dot.active,.status-dot.online{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
 .status-dot.idle,.status-dot.recovering,.status-dot.starting{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
@@ -1619,7 +1621,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY surface. Click into it to drive the CLI directly with normal terminal keys, paste, selection, and copy. Messaging an agent stays in <b>Messenger</b> mode and creates tracked run/message contracts. Native-managed runtimes use their managed/steer adapters; managed Claude Code and Hermes may start or reuse a bridge-owned PTY, but those inputs are still tracked as Messenger work rather than hidden human console typing. Blocked console input is never silently swallowed.</p>
-      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed Claude PTY turns stay working until the reply closes the run. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
+      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed Claude PTY turns stay working until the reply closes the run. If the active terminal output clearly asks for operator input, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
       <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
       <p><b>Spawn/respawn:</b> spawning starts a <b>fresh</b> session — prior context is not resumed. Re-spawning an existing agent replaces its backing (no native handle until its first run completes). To preserve an agent's context use <b>Compact</b>/<b>Continue</b>, not re-spawn.</p>
       <p><b>Bridge changes need a host bridge restart:</b> runtime/console/status fixes that live in the host <code>aify-comms</code> bridge (interactive console, accurate turn-busy status, runtime advertisement) only take effect after you restart that bridge — a container rebuild alone does not apply them.</p>
@@ -2570,6 +2572,7 @@ function consoleAwaitingInputHint(text) {
   // sandclock commonly" noise). Only flag an explicit interactive prompt.
   if (/(\(y\/n\)|\[y\/n\]|\by\/n\b|\[y\/N\]|\[Y\/n\]|yes\/no|press\s+(enter|any key)|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)/i.test(tail)) return 'confirm/answer?';
   if (/(use arrows|↑\/↓|press enter to (select|confirm)|\(use arrow keys\))/i.test(tail) && /(^|\n)\s*[❯▶]\s+\S/.test(tail)) return 'selection?';
+  if (/(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option)|bypass permissions on|shift\+tab to cycle|for agents)/i.test(tail)) return 'input needed';
   return '';
 }
 function updateConsoleAwaitInput() {
@@ -3755,7 +3758,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
   const pendingSpawns = spawnRequests.filter(req => ['queued', 'claimed', 'starting'].includes(req.status));
   const liveIssues = agents
     .map(([id, info]) => ({id, issue: liveIssueForAgent(id, info), info}))
-    .filter(item => item.issue && (item.info.unread || item.info.dispatchState?.activeRun || item.info.dispatchState?.queuedRuns || ['active', 'working'].includes(String(item.info.statusRaw || item.info.status || '').toLowerCase())))
+    .filter(item => item.issue && (item.info.unread || item.info.dispatchState?.activeRun || item.info.dispatchState?.queuedRuns || ['active', 'working', 'blocked'].includes(String(item.info.statusRaw || item.info.status || '').toLowerCase())))
     .map(item => ({...item, key: `live:${item.id}`}))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   const activeLiveIssues = liveIssues.filter(item => !isIssueMuted(item.key));
@@ -3824,7 +3827,7 @@ function renderHomeControlRoom(stats, agents, managedAgents, residentAgents, env
     })
     .slice(0, 12)
     .map(([id, info]) => {
-      const state = info.dispatchState?.hasActiveRun ? 'working' : String(info.statusRaw || info.status || 'active').toLowerCase();
+      const state = String(info.statusRaw || info.status || (info.dispatchState?.hasActiveRun ? 'working' : 'active')).toLowerCase();
       const meta = `${info.role || 'agent'} · ${agentRuntimeLabel(info) || info.wakeMode || 'not live-bound'}`;
       const actionId = `team_${++window._dashboardActionSeq}`;
       rememberDashboardAction(actionId, () => openAgentChat(id));
@@ -4626,6 +4629,9 @@ function chatPresenceForAgent(info = {}) {
   if (raw === 'working') {
     return {kind: 'working', label: activeRun ? `working: ${activeRun.subject || activeRun.runId || 'run'}${queued}; orange pulse means terminal output is arriving` : `working${queued}; orange pulse means terminal output is arriving`};
   }
+  if (raw === 'blocked') {
+    return {kind: 'blocked', label: activeRun ? `blocked: ${activeRun.subject || activeRun.runId || 'run'}${queued}; console appears to need input` : `blocked${queued}; console appears to need input`};
+  }
   if (raw === 'active') return {kind: 'online', label: `online${queued}`};
   if (raw === 'idle') return {kind: 'idle', label: `idle online${queued}`};
   if (['offline', 'stale', 'stopped'].includes(raw)) return {kind: raw, label: raw};
@@ -4639,7 +4645,7 @@ function chatConversations() {
   const openOnly = chatOpenOnly();
   const onlineOnly = chatOnlineOnly();
   const sortMode = chatSortMode();
-  const statusRank = item => ({working: 4, active: 3, online: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
+  const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
     if (sortMode === 'name') return a.title.localeCompare(b.title);
     if (sortMode === 'activity') {

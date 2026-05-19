@@ -1400,7 +1400,7 @@ async def _fail_pending_controls_for_run(
 def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]]) -> str:
     if not dispatch_state:
         return status
-    if dispatch_state.get("hasActiveRun") and status not in _MANUAL_STATUSES and status not in {"stale", "offline"}:
+    if dispatch_state.get("hasActiveRun") and status not in _MANUAL_STATUSES and status not in {"stale", "offline", "blocked"}:
         return "working"
     return status
 
@@ -1540,6 +1540,32 @@ async def _current_active_run_row(db, agent_id: str):
     return await cursor.fetchone()
 
 
+_ANSI_RE = re.compile(
+    r"\x1b\][\s\S]*?(?:\x07|\x1b\\)|"
+    r"\x1b\[[0-?]*[ -/]*[@-~]|"
+    r"\x1b[PX^_][\s\S]*?\x1b\\|"
+    r"\x1b[()][A-Za-z0-9]|"
+    r"\x1b[=>]"
+)
+
+
+def _terminal_awaiting_input_hint(output: str) -> str:
+    clean = _ANSI_RE.sub("", str(output or ""))
+    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+    tail = clean[-2000:].strip()
+    if not tail:
+        return ""
+    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", tail, re.I):
+        return "Awaiting console confirmation."
+    if re.search(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))", tail, re.I):
+        return "Awaiting console selection."
+    # Claude Code can stop at an interactive prompt without emitting a formal
+    # dashboard reply. This keeps the run active but no useful work is moving.
+    if re.search(r"(tell me which|your call:\s*\([a-z0-9]\)|which (option|one)|choose (one|an option)|bypass permissions on|shift\+tab to cycle|for agents)", tail, re.I):
+        return "Awaiting console input."
+    return ""
+
+
 async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None) -> dict[str, Any]:
     settings = settings or await _load_settings(db)
     now = now or _now()
@@ -1602,6 +1628,17 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     live_session = session_status in _LIVE_SESSION_STATUSES
     effective_status = "active"
     reason = ""
+    terminal_input_hint = ""
+    if active_run and terminal_id:
+        try:
+            terminal_row = await (await db.execute(
+                "SELECT output FROM terminal_sessions WHERE id = ?",
+                (terminal_id,),
+            )).fetchone()
+            terminal_input_hint = _terminal_awaiting_input_hint(terminal_row["output"] if terminal_row else "")
+        except Exception:
+            terminal_input_hint = ""
+
     if environment_id and env_status and env_status not in {"online", "degraded"}:
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
@@ -1618,6 +1655,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # runtime contract reverts owner_mode to managed on stop/fail). So it is a
     # fallback-to-managed candidate, not final unavailability: fall through to
     # active-run / heartbeat-freshness, which is the real source of truth.
+    elif active_run and terminal_input_hint:
+        effective_status = "blocked"
+        reason = f'{terminal_input_hint} Active run: {active_run["subject"] or active_run["id"]}.'
     elif active_run:
         effective_status = "working"
         reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
@@ -2836,7 +2876,7 @@ class TerminalOutputWriteQueue:
         db = await get_db()
         try:
             terminal = await (await db.execute(
-                "SELECT id, session_id, output, status, output_seq FROM terminal_sessions WHERE id = ?",
+                "SELECT id, session_id, agent_id, output, status, output_seq FROM terminal_sessions WHERE id = ?",
                 (terminal_id,),
             )).fetchone()
             if not terminal:
@@ -2869,6 +2909,7 @@ class TerminalOutputWriteQueue:
                     """,
                     (norm_status, _now(), terminal["session_id"]),
                 )
+            await _invalidate_agent_live_state(db, terminal["agent_id"])
             await db.commit()
         finally:
             await db.close()

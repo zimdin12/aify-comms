@@ -365,8 +365,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(".console-output .xterm{height:100%;width:100%", dashboard.text)
         self.assertIn("@keyframes terminalActivityPulse", dashboard.text)
         self.assertIn(".chat-status-dot.working.terminal-active", dashboard.text)
+        self.assertIn(".chat-status-dot.blocked", dashboard.text)
+        self.assertIn(".status-dot.blocked", dashboard.text)
         self.assertIn("markTerminalActivity(data.terminalId)", dashboard.text)
         self.assertIn("terminalActivityClassForAgent", dashboard.text)
+        self.assertIn("console appears to need input", dashboard.text)
+        self.assertIn("input needed", dashboard.text)
         self.assertNotIn("chat-console-input", dashboard.text)
         self.assertNotIn("sendConsoleAsMessage", dashboard.text)
         self.assertNotIn("sendConsoleInput()", dashboard.text)
@@ -2318,6 +2322,43 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("\x1b[201~", controls[2]["body"])
         self.assertTrue(controls[2]["body"].endswith("\r"))
         self.assertEqual(controls[3]["body"], "\r")
+
+    def test_managed_claude_terminal_prompt_reports_blocked_not_working(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="state",
+            body="what is the current state",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": "I found two options.\nYour call: (a) continue, (b) switch runtime. Tell me which and I'll execute.",
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "blocked")
+        self.assertEqual(agent["statusRaw"], "blocked")
+        self.assertIn("Awaiting console input", agent["statusNote"])
+        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], dispatched["consoleDeliveries"][0]["contractRunId"])
 
     def test_managed_claude_followup_input_reuses_active_terminal_turn_contract(self):
         self._create_running_session(
