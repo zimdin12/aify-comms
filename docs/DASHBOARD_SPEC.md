@@ -22,6 +22,8 @@ Current implementation note: dashboard-spawned managed identities are managed pr
 
 Product mode note: the dashboard UX is live-wake-only. Non-live/message-only compatibility can remain in MCP/API paths for older clients and migration, but normal dashboard views should hide it.
 
+Implementation note: the legacy dashboard remains served by the main API service on `8800`. The replacement dashboard is introduced as a separate preview surface on `8801`; it must use the existing message, run, session, environment, and Work Loop APIs rather than creating forked frontend state or duplicate concepts. Early `8801` slices should prioritize Needs Attention, live status, Work Loop visibility, Chat, Runtime views, and an inspector drawer while keeping destructive controls limited to already-audited endpoints.
+
 ## Home
 
 The home page should show:

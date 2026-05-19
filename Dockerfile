@@ -47,7 +47,7 @@ VOLUME /data
 # docker-compose.yml maps this automatically
 VOLUME /home/service/.claude
 
-EXPOSE 8800
+EXPOSE 8800 8801
 
 USER service
 

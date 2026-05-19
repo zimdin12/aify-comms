@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" data-default-api-port="8800">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIFY Comms Dashboard Next</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="nav" aria-label="Primary">
+      <div class="brand">
+        <span class="brand-mark">A</span>
+        <div>
+          <strong>AIFY Comms</strong>
+          <small>Dashboard Next</small>
+        </div>
+      </div>
+      <nav>
+        <p>Work</p>
+        <button class="nav-item active" data-page="control">Control</button>
+        <button class="nav-item" data-page="chat">Chat</button>
+        <button class="nav-item" data-page="work-loop">Work Loop</button>
+        <p>Runtime</p>
+        <button class="nav-item" data-page="sessions">Sessions</button>
+        <button class="nav-item" data-page="environments">Environments</button>
+        <button class="nav-item" data-page="runs">Runs</button>
+        <p>Insight</p>
+        <button class="nav-item" data-page="analytics">Analytics</button>
+      </nav>
+      <div class="nav-footer">
+        <span id="api-status" class="status-chip muted">connecting</span>
+        <a id="legacy-dashboard-link" href="/api/v1/dashboard" target="_blank" rel="noreferrer">Old dashboard</a>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Control</h1>
+          <p id="page-subtitle">Who is available, what is moving, and what needs attention.</p>
+        </div>
+        <div class="top-actions">
+          <label class="search">
+            <span>Find</span>
+            <input id="global-filter" type="search" placeholder="Agents, runs, subjects">
+          </label>
+      <button id="refresh" class="primary" title="Refresh dashboard data">Refresh</button>
+        </div>
+      </header>
+
+      <section id="page-control" class="page active">
+        <div class="metric-grid" id="metrics"></div>
+        <section class="band">
+          <div class="section-head">
+            <h2>Needs Attention</h2>
+          <button class="ghost" data-page-jump="work-loop" title="Open Work Loop">Open Work Loop</button>
+          </div>
+          <div id="attention-list" class="item-list"></div>
+        </section>
+        <section class="split">
+          <div class="band">
+            <div class="section-head">
+              <h2>Visible Agents</h2>
+              <button class="ghost" data-page-jump="chat" title="Open Chat">Open Chat</button>
+            </div>
+            <div id="agent-list" class="agent-list"></div>
+          </div>
+          <div class="band">
+            <div class="section-head">
+              <h2>Recent Dashboard Messages</h2>
+            </div>
+            <div id="message-list" class="item-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="page-chat" class="page two-pane">
+        <aside class="context-rail">
+          <div class="section-head">
+            <h2>Conversations</h2>
+            <span id="conversation-count" class="subtle"></span>
+          </div>
+          <div id="conversation-list" class="rail-list"></div>
+        </aside>
+        <section class="pane">
+          <div class="section-head">
+            <h2 id="conversation-title">Dashboard Inbox</h2>
+            <button class="primary" id="mark-read" title="Mark-read lands in a later slice">Mark Visible Read</button>
+          </div>
+          <div id="conversation-messages" class="timeline"></div>
+          <form id="composer" class="composer">
+            <textarea id="composer-body" placeholder="Select an agent conversation to send a message"></textarea>
+            <button type="submit" class="primary">Send</button>
+          </form>
+        </section>
+      </section>
+
+      <section id="page-work-loop" class="page">
+        <div class="toolbar">
+          <select id="contract-state">
+            <option value="open">Open</option>
+            <option value="overdue">Overdue</option>
+            <option value="working">Working</option>
+            <option value="queued">Queued</option>
+            <option value="answered">Answered</option>
+            <option value="failed">Failed</option>
+          </select>
+          <button id="send-reminders" class="primary" title="Runs existing due-reminder endpoint">Send Due Reminders</button>
+        </div>
+        <div id="contract-list" class="contract-list"></div>
+      </section>
+
+      <section id="page-sessions" class="page">
+        <div id="session-groups" class="runtime-grid"></div>
+      </section>
+
+      <section id="page-environments" class="page">
+        <div id="environment-list" class="runtime-grid"></div>
+      </section>
+
+      <section id="page-runs" class="page">
+        <div id="run-list" class="run-list"></div>
+      </section>
+
+      <section id="page-analytics" class="page">
+        <div id="analytics-grid" class="metric-grid"></div>
+        <section class="band">
+          <div class="section-head">
+            <h2>Run Status Mix</h2>
+          </div>
+          <div id="run-status-mix" class="bar-stack"></div>
+        </section>
+      </section>
+    </main>
+
+    <aside id="inspector" class="inspector" aria-label="Inspector">
+      <div class="section-head">
+        <h2>Inspector</h2>
+        <button id="close-inspector" class="ghost">Close</button>
+      </div>
+      <div id="inspector-content" class="inspector-content">Select an item to inspect details.</div>
+    </aside>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

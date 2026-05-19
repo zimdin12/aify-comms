@@ -49,6 +49,8 @@ The inspector drawer prevents primary tables from growing too many columns. Tabl
 
 Dense workflow pages should expose compact modes and collapsible secondary tools instead of stacking every control above the primary content. Chat in particular should keep the message timeline and composer dominant, with search, filters, sort, channel creation, and advanced send options tucked into tabs or collapsible panels.
 
+Current migration path: keep the old dashboard available on `8800` while building the replacement as a separate `8801` app. The `8801` app should be a frontend boundary over the existing API: configurable API origin, no duplicated data model, no copied message/run/session semantics, and no destructive first-slice controls without existing endpoints, confirmation, and visible audit context.
+
 ## UX Principles
 
 - **Default to action.** If an agent is offline but recoverable, show Restart. If a bridge is online, show Spawn Here.

@@ -69,6 +69,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 - Muted live/session/handoff notices stay yellow but stop counting as active red issues.
 - Analytics has range selectors and separates historical counts from live capacity.
 - Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance.
+- The stable dashboard/API stays on `8800`. The replacement dashboard preview, when enabled by compose, is on `8801` and must read/write through the existing `8800` API rather than inventing duplicate message, run, session, or Work Loop state.
 - Chat Peek mode lets an operator watch without marking messages read.
 - Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
 - Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
