@@ -124,6 +124,7 @@ Message states:
 - `read`: target consumed it
 - `running`: message has an active run
 - `blocked`: run/session needs user intervention or a decision; ordinary prompt/footer chrome alone is not enough
+- `missing reply`: a run finished or returned to an idle terminal prompt without a threaded chat reply; it is audit debt, not `working`
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 

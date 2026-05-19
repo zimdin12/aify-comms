@@ -1580,6 +1580,26 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     return ""
 
 
+def _terminal_idle_prompt_hint(output: str) -> str:
+    clean = _ANSI_RE.sub("", str(output or ""))
+    clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
+    tail = clean[-3000:].strip()
+    if not tail or _terminal_awaiting_input_hint(tail):
+        return ""
+    marker_positions = [
+        tail.lower().rfind("bypass permissions"),
+        tail.lower().rfind("for agents"),
+        tail.rfind("❯"),
+    ]
+    marker_at = max(marker_positions)
+    if marker_at < 0:
+        return ""
+    suffix = tail[marker_at:]
+    if re.search(r"(calling|cogitat|honking|thinking|running|press\s+esc|esc\s+to\s+interrupt)", suffix, re.I):
+        return ""
+    return "Claude PTY returned to an idle prompt without an explicit reply."
+
+
 async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None) -> dict[str, Any]:
     settings = settings or await _load_settings(db)
     now = now or _now()
@@ -1832,6 +1852,62 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
         await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
         await _invalidate_agent_live_state(db, agent_id)
     return len(run_ids)
+
+
+async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_seconds: int = 8) -> bool:
+    if not row:
+        return False
+    if str(row["dispatch_mode"] or "").strip().lower() != "terminal":
+        return False
+    if str(row["result_message_id"] or "").strip():
+        return False
+    agent_id = str(row["target_agent"] or "").strip()
+    if not agent_id:
+        return False
+    session = await _current_agent_session_row(db, agent_id)
+    runtime = str(row["runtime"] or "").strip()
+    if not runtime and session and "runtime" in session.keys():
+        runtime = str(session["runtime"] or "").strip()
+    if _normalize_runtime(runtime) != "claude-code":
+        return False
+    terminal_id = str((session["terminal_id"] if session and "terminal_id" in session.keys() else "") or "").strip()
+    if not terminal_id:
+        return False
+    terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+    if not terminal:
+        return False
+    terminal_status = str(terminal["status"] or "").strip().lower()
+    if terminal_status not in _TERMINAL_ACTIVE_STATUSES:
+        return False
+    hint = _terminal_idle_prompt_hint(terminal["output"] or "")
+    if not hint:
+        return False
+    updated_epoch = _iso_to_epoch(str(terminal["updated_at"] or "").strip())
+    run_epoch = max(
+        _iso_to_epoch(row["started_at"] if "started_at" in row.keys() else ""),
+        _iso_to_epoch(row["claimed_at"] if "claimed_at" in row.keys() else ""),
+        _iso_to_epoch(row["requested_at"] if "requested_at" in row.keys() else ""),
+    )
+    if updated_epoch and run_epoch and updated_epoch < run_epoch:
+        return False
+    if updated_epoch and time.time() - updated_epoch < max(0, int(quiet_seconds or 0)):
+        return False
+    now = _now()
+    await db.execute(
+        """
+        UPDATE dispatch_runs
+        SET status = 'completed',
+            summary = CASE WHEN COALESCE(summary, '') = '' THEN ? ELSE summary END,
+            finished_at = COALESCE(finished_at, ?)
+        WHERE id = ?
+          AND status IN ('claimed', 'running')
+          AND COALESCE(result_message_id, '') = ''
+        """,
+        (hint, now, row["id"]),
+    )
+    await _append_dispatch_event(db, row["id"], "terminal_idle_reconciled", f"{hint} terminalId={terminal_id}")
+    await _invalidate_agent_live_state(db, agent_id)
+    return True
 
 
 async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> None:
@@ -3843,6 +3919,9 @@ async def _repair_unusable_active_runs(db, *, limit: int = 100) -> int:
         if not active or active.get("runId") != row["id"]:
             continue
         if await _link_unthreaded_completion_message_for_run(db, row):
+            repaired += 1
+            continue
+        if await _close_idle_claude_terminal_run_without_reply(db, row):
             repaired += 1
             continue
         if await _discard_unusable_active_run(db, row["target_agent"], active):

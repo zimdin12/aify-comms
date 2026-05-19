@@ -2353,7 +2353,6 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(output.status_code, 200, output.text)
         asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
         agent = listed.json()["agents"]["console-agent"]
@@ -2390,12 +2389,142 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(output.status_code, 200, output.text)
         asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
         agent = listed.json()["agents"]["console-agent"]
         self.assertEqual(agent["status"], "working")
         self.assertNotIn("Awaiting console input", agent["statusNote"])
+
+    def test_idle_claude_prompt_closes_terminal_run_without_explicit_reply(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="state",
+            body="what is the current state",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": (
+                    "Current state: verified and waiting for the next lane.\n"
+                    "No blockers.\n"
+                    "✻ Worked for 42s\n"
+                    "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"
+                ),
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        self._execute(
+            "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", run_id),
+        )
+        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:20Z", terminal_id))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        run = self._fetchone("SELECT status, summary, result_message_id, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["result_message_id"], "")
+        self.assertIn("returned to an idle prompt", run["summary"])
+        self.assertTrue(run["finished_at"])
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "active")
+        self.assertFalse(agent["dispatchState"]["hasActiveRun"])
+
+    def test_busy_claude_terminal_output_does_not_close_running_turn(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="state",
+            body="what is the current state",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": "● Calling aify-comms\n✻ Cogitating…",
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(run["status"], "running")
+        self.assertFalse(run["finished_at"])
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "working")
+
+    def test_old_idle_claude_prompt_does_not_close_new_terminal_turn(self):
+        self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="state",
+            body="what is the current state",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+        output = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={
+                "bridgeId": "bridge-current",
+                "status": "attached",
+                "output": "Previous prompt\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+            },
+        )
+        self.assertEqual(output.status_code, 200, output.text)
+        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
+        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:00Z", terminal_id))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+
+        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(run["status"], "running")
+        self.assertFalse(run["finished_at"])
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["status"], "working")
 
     def test_claude_done_narration_with_your_call_does_not_report_blocked(self):
         self._create_running_session(

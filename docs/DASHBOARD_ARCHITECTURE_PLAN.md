@@ -92,6 +92,9 @@ and the contract everything depends on.
   active run or fresh turn-busy heartbeat means `working`; if that active
   terminal tail clearly asks for operator input, the status is `blocked`;
   normal Claude prompt chrome/permission footer alone is not a blocked signal;
+  when Claude visibly answers in the PTY and returns to an idle prompt without
+  an explicit chat reply, reconcile closes the active terminal run as
+  completed-without-reply so it does not pin `working`;
   attached-but-runless Console is `active`; stopped/failed Console terminals
   are cleared as current bindings and remain historical only. Completion-style
   `info` messages can satisfy active terminal runs during send/reconcile so

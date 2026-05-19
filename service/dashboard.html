@@ -1621,7 +1621,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <p><b>Live send:</b> messages still fail instead of being stored when the target is offline, stale, stopped, or lacks a live wake path. If the target is busy and steer-capable, normal sends steer into the active run between tool calls. If the target is busy but cannot steer, normal sends queue or merge for the next turn.</p>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY surface. Click into it to drive the CLI directly with normal terminal keys, paste, selection, and copy. Messaging an agent stays in <b>Messenger</b> mode and creates tracked run/message contracts. Native-managed runtimes use their managed/steer adapters; managed Claude Code and Hermes may start or reuse a bridge-owned PTY, but those inputs are still tracked as Messenger work rather than hidden human console typing. Blocked console input is never silently swallowed.</p>
-      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed Claude PTY turns stay working until the reply closes the run. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
+      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed Claude PTY turns stay working until the reply closes the run; if Claude visibly returns to an idle prompt after output without sending an explicit chat reply, reconcile closes that turn as completed-without-reply so it becomes Work Loop audit debt, not live work. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
       <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
       <p><b>Spawn/respawn:</b> spawning starts a <b>fresh</b> session — prior context is not resumed. Re-spawning an existing agent replaces its backing (no native handle until its first run completes). To preserve an agent's context use <b>Compact</b>/<b>Continue</b>, not re-spawn.</p>
       <p><b>Bridge changes need a host bridge restart:</b> runtime/console/status fixes that live in the host <code>aify-comms</code> bridge (interactive console, accurate turn-busy status, runtime advertisement) only take effect after you restart that bridge — a container rebuild alone does not apply them.</p>
@@ -1890,6 +1890,7 @@ window._chatSelected = null;
 window._mobileChatRailOpen = false;
 window._chatChannelMessages = {};
 window._chatReadMarking = new Set();
+window._chatDrafts = {};
 window._chatMode = localStorage.getItem('aifyChatMode') === 'console' ? 'console' : 'messenger';
 window._terminalDetails = {};
 window._terminalLoading = new Set();
@@ -4514,9 +4515,60 @@ function chatIdentity() {
   return document.getElementById('chat-from')?.value || localStorage.getItem('aifyChatIdentity') || 'dashboard';
 }
 
+function chatDraftKey(key = window._chatSelected, identity = chatIdentity()) {
+  const selected = String(key || '').trim();
+  return selected ? `${identity || 'dashboard'}\u001f${selected}` : '';
+}
+
+function currentChatDraft() {
+  const key = chatDraftKey();
+  return key ? (window._chatDrafts[key] || null) : null;
+}
+
+function saveCurrentChatDraft() {
+  const key = chatDraftKey();
+  if (!key) return;
+  const body = document.getElementById('chat-body');
+  const subject = document.getElementById('chat-subject-input');
+  const type = document.getElementById('chat-type');
+  const priority = document.getElementById('chat-priority');
+  const draft = {
+    body: body?.value || '',
+    subject: subject?.value || '',
+    type: type?.value || 'info',
+    priority: priority?.value || 'normal',
+    replyTo: window._chatReplyTo || null,
+  };
+  if (!draft.body && !draft.subject && !draft.replyTo && draft.type === 'info' && draft.priority === 'normal') {
+    delete window._chatDrafts[key];
+  } else {
+    window._chatDrafts[key] = draft;
+  }
+}
+
+function loadCurrentChatDraft() {
+  const draft = currentChatDraft() || {};
+  const body = document.getElementById('chat-body');
+  const subject = document.getElementById('chat-subject-input');
+  const type = document.getElementById('chat-type');
+  const priority = document.getElementById('chat-priority');
+  if (body) body.value = draft.body || '';
+  if (subject) subject.value = draft.subject || '';
+  if (type) type.value = draft.type || 'info';
+  if (priority) priority.value = draft.priority || 'normal';
+  window._chatReplyTo = draft.replyTo || null;
+}
+
+function clearCurrentChatDraft() {
+  const key = chatDraftKey();
+  if (key) delete window._chatDrafts[key];
+}
+
 function changeChatIdentity() {
+  saveCurrentChatDraft();
   localStorage.setItem('aifyChatIdentity', chatIdentity());
   window._chatChannelMessages = {};
+  loadCurrentChatDraft();
   renderChat();
   refreshDashboard();
 }
@@ -4923,10 +4975,12 @@ function renderChatRailItem(item) {
 }
 
 async function selectChatConversation(key) {
+  saveCurrentChatDraft();
   window._chatSelected = key;
   window._chatFollowBottom = true;
   if (isMobileDashboard()) window._mobileChatRailOpen = false;
   if (key?.startsWith('channel:')) await refreshSelectedChannelMessages();
+  loadCurrentChatDraft();
   renderChat();
 }
 
@@ -5497,10 +5551,11 @@ function updateChatReplyContext(meta) {
     `<button class="btn btn-sm" title="Cancel reply context" onclick="clearChatReplyContext()">Cancel</button>`;
 }
 
-function clearChatReplyContext() {
+function clearChatReplyContext(saveDraft = true) {
   const body = document.getElementById('chat-body');
   if (body) body.value = stripLegacyFollowupPrefix(body.value);
   window._chatReplyTo = null;
+  if (saveDraft) saveCurrentChatDraft();
   updateChatReplyContext(selectedChatMeta());
 }
 
@@ -5788,7 +5843,10 @@ async function removeChannelMember(channelName, agentId) {
 
 function setChatReplyContext(mode, target, messageId, subject, preview) {
   if (!target || target === '_system') return;
+  saveCurrentChatDraft();
   window._chatSelected = `dm:${target}`;
+  window._chatReplyTo = {mode, target, id: messageId, subject: subject || '', preview: preview || ''};
+  loadCurrentChatDraft();
   window._chatReplyTo = {mode, target, id: messageId, subject: subject || '', preview: preview || ''};
   renderChat();
   updateChatReplyContext(selectedChatMeta());
@@ -5818,7 +5876,9 @@ function followUpChatMessage(from, messageId, subject, preview) {
 }
 
 function openAgentChat(agentId) {
+  saveCurrentChatDraft();
   window._chatSelected = `dm:${agentId}`;
+  loadCurrentChatDraft();
   showPage('chat');
   renderChat();
   document.getElementById('chat-body').focus();
@@ -7065,8 +7125,10 @@ async function sendChatMessage(options = {}) {
       }
       const res = await response.json();
       if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Channel send failed');
+      clearCurrentChatDraft();
       document.getElementById('chat-body').value = '';
       document.getElementById('chat-subject-input').value = '';
+      loadCurrentChatDraft();
       toast(queueIfBusy ? `Queued to #${meta.id}` : `Posted to #${meta.id}`);
       await refreshDashboard();
       await selectChatConversation(`channel:${meta.id}`);
@@ -7086,9 +7148,11 @@ async function sendChatMessage(options = {}) {
     });
     const res = await response.json();
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Send failed');
+    clearCurrentChatDraft();
     document.getElementById('chat-body').value = '';
     document.getElementById('chat-subject-input').value = '';
-    clearChatReplyContext();
+    clearChatReplyContext(false);
+    loadCurrentChatDraft();
     toast(queueIfBusy ? `Queued for ${meta.id}` : `Sent to ${meta.id}`);
     await refreshDashboard();
   } catch (e) {
@@ -7096,6 +7160,7 @@ async function sendChatMessage(options = {}) {
     const subjectEl = document.getElementById('chat-subject-input');
     if (bodyEl && !bodyEl.value.trim()) bodyEl.value = body;
     if (subjectEl && subjectInput && !subjectEl.value.trim()) subjectEl.value = subjectInput;
+    saveCurrentChatDraft();
     toast(e.message || 'Send failed', '#f85149');
   } finally {
     endChatSend();
@@ -7126,9 +7191,19 @@ function setupChatKeyboard() {
     event.preventDefault();
     sendChatMessage();
   });
+  body.addEventListener('input', saveCurrentChatDraft);
+  ['chat-subject-input', 'chat-type', 'chat-priority'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.dataset.draftbound !== '1') {
+      el.dataset.draftbound = '1';
+      el.addEventListener('input', saveCurrentChatDraft);
+      el.addEventListener('change', saveCurrentChatDraft);
+    }
+  });
 }
 
 async function createChatChannel() {
+  saveCurrentChatDraft();
   const input = document.getElementById('chat-new-channel');
   const name = input.value.trim();
   if (!name) { toast('Channel name required', '#f85149'); return; }
@@ -7142,6 +7217,7 @@ async function createChatChannel() {
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Create channel failed');
     input.value = '';
     window._chatSelected = `channel:${name}`;
+    loadCurrentChatDraft();
     toast(`#${name} created`);
     await refreshDashboard();
     await selectChatConversation(`channel:${name}`);
@@ -7151,10 +7227,13 @@ async function createChatChannel() {
 }
 
 function prefillWorkerMessage(agentId, mode) {
+  saveCurrentChatDraft();
   showPage('chat');
   window._chatSelected = `dm:${agentId}`;
+  loadCurrentChatDraft();
   renderChat();
   document.getElementById('chat-type').value = mode === 'request' ? 'request' : 'info';
+  saveCurrentChatDraft();
   document.getElementById('chat-body').focus();
   toast(`${mode === 'request' ? 'Request' : 'Message'} composer opened for ${agentId}`);
 }
