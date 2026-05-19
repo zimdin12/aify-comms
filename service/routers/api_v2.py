@@ -2014,6 +2014,55 @@ async def _repair_terminal_session_consistency(db) -> int:
         )
         repaired += 1
 
+    inactive_binding_cursor = await db.execute(
+        """
+        SELECT s.id AS session_id,
+               s.agent_id AS agent_id,
+               s.terminal_id AS terminal_id,
+               s.terminal_status AS session_terminal_status,
+               t.status AS terminal_status
+        FROM agent_sessions s
+        JOIN terminal_sessions t ON t.id = s.terminal_id
+        WHERE COALESCE(s.terminal_id, '') != ''
+          AND (
+            LOWER(COALESCE(s.terminal_status, '')) IN ('stopped', 'failed')
+            OR LOWER(COALESCE(t.status, '')) IN ('stopped', 'failed')
+          )
+        """
+    )
+    inactive_binding_rows = await inactive_binding_cursor.fetchall()
+    for row in inactive_binding_rows:
+        session_id = str(row["session_id"] or "").strip()
+        agent_id = str(row["agent_id"] or "").strip()
+        terminal_id = str(row["terminal_id"] or "").strip()
+        if not session_id or not terminal_id:
+            continue
+        reason = "Cleared stopped Console terminal as current session binding."
+        if agent_id:
+            await _clear_console_terminal_binding(db, agent_id, terminal_id, now=now)
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'managed',
+                owner_bridge_id = '',
+                terminal_id = '',
+                terminal_status = '',
+                terminal_command = '',
+                terminal_workspace = '',
+                last_seen = ?
+            WHERE id = ?
+              AND terminal_id = ?
+            """,
+            (now, session_id, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_consistency_repaired",
+            json.dumps({"reason": reason}),
+        )
+        repaired += 1
+
     if repaired:
         await db.commit()
     return repaired

@@ -1781,7 +1781,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(stopped.status_code, 200, stopped.text)
         session = self.client.get("/api/v1/sessions?agentId=console-agent").json()["sessions"][0]
         self.assertEqual(session["ownerMode"], "managed")
-        self.assertEqual(session["terminalStatus"], "stopped")
+        self.assertEqual(session["terminalId"], "")
+        self.assertEqual(session["terminalStatus"], "")
 
     def test_console_start_builds_fresh_interactive_codex_command(self):
         # Human Console must launch a FRESH interactive codex, NOT
@@ -2474,9 +2475,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(terminal["status"], "failed")
         self.assertIn("legacy raw Claude", terminal["error"])
-        session = self._fetchone("SELECT owner_mode, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["owner_mode"], "managed")
-        self.assertEqual(session["terminal_status"], "failed")
+        self.assertEqual(session["terminal_id"], "")
+        self.assertEqual(session["terminal_status"], "")
 
     def test_sessions_list_reconciles_orphan_attached_terminal_state(self):
         session_id = self._create_running_session(
@@ -2545,6 +2547,57 @@ class ApiV2RegressionTests(unittest.TestCase):
         terminal = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(terminal["status"], "stopped")
         self.assertIn("owner session is stopped", terminal["error"])
+
+    def test_sessions_list_clears_stopped_terminal_as_current_console_binding(self):
+        session_id = self._create_running_session(
+            agent_id="pi-agent",
+            terminal=True,
+            runtime="pi",
+            terminal_runtimes=["pi"],
+            session_handle="pi-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", terminal_id),
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'managed',
+                terminal_status = 'stopped',
+                terminal_command = 'pi-aify --aify-agent pi-agent --resume pi-session-1'
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+        self._execute(
+            """
+            UPDATE agents
+            SET runtime_state = ?,
+                status_note = 'Dashboard Console PTY attached.'
+            WHERE id = 'pi-agent'
+            """,
+            (json.dumps({"consoleTerminal": {"terminalId": terminal_id, "bridgeId": "bridge-current"}}),),
+        )
+
+        listed = self.client.get("/api/v1/sessions?agentId=pi-agent")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        listed_session = listed.json()["sessions"][0]
+        self.assertEqual(listed_session["terminalId"], "")
+        self.assertEqual(listed_session["terminalStatus"], "")
+        self.assertEqual(listed_session["terminalCommand"], "")
+
+        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status, terminal_command FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["owner_mode"], "managed")
+        self.assertEqual(session["terminal_id"], "")
+        self.assertEqual(session["terminal_status"], "")
+        self.assertEqual(session["terminal_command"], "")
+        agent = self._fetchone("SELECT runtime_state, status_note FROM agents WHERE id = 'pi-agent'")
+        self.assertNotIn("consoleTerminal", json.loads(agent["runtime_state"]))
+        self.assertEqual(agent["status_note"], "")
 
     def test_reply_to_delivered_channel_run_completes_it_without_working_status(self):
         self._create_running_session(
