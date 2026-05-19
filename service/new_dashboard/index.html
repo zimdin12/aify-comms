@@ -8,27 +8,28 @@
   <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div id="app-shell" class="app-shell">
     <aside class="nav" aria-label="Primary">
       <div class="brand">
         <span class="brand-mark">A</span>
-        <div>
+        <div class="brand-copy">
           <strong>AIFY Comms</strong>
           <small>Dashboard Next</small>
         </div>
+        <button id="toggle-nav" class="icon-button" type="button" title="Collapse sidebar">Nav</button>
       </div>
       <nav>
         <p>Work</p>
-        <button class="nav-item active" data-page="control">Control</button>
-        <button class="nav-item" data-page="chat">Chat</button>
-        <button class="nav-item" data-page="work-loop">Work Loop</button>
+        <button class="nav-item active" data-page="control" data-short="C">Control</button>
+        <button class="nav-item" data-page="chat" data-short="M">Chat</button>
+        <button class="nav-item" data-page="work-loop" data-short="W">Work Loop</button>
         <p>Runtime</p>
-        <button class="nav-item" data-page="sessions">Sessions</button>
-        <button class="nav-item" data-page="environments">Environments</button>
-        <button class="nav-item" data-page="runs">Runs</button>
+        <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
+        <button class="nav-item" data-page="environments" data-short="E">Environments</button>
+        <button class="nav-item" data-page="runs" data-short="R">Runs</button>
         <p>Insight</p>
-        <button class="nav-item" data-page="analytics">Analytics</button>
-        <button class="nav-item" data-page="settings">Settings</button>
+        <button class="nav-item" data-page="analytics" data-short="A">Analytics</button>
+        <button class="nav-item" data-page="settings" data-short="G">Settings</button>
       </nav>
       <div class="nav-footer">
         <span id="api-status" class="status-chip muted">connecting</span>
@@ -53,7 +54,7 @@
 
       <section id="page-control" class="page active">
         <div class="metric-grid" id="metrics"></div>
-        <section class="band">
+        <section class="band compact">
           <div class="section-head">
             <h2>Needs Attention</h2>
             <div class="button-row">
@@ -62,21 +63,21 @@
               <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
             </div>
           </div>
-          <div id="attention-list" class="item-list"></div>
+          <div id="attention-list" class="item-list scroll-region"></div>
         </section>
         <section class="split">
-          <div class="band">
+          <div class="band compact">
             <div class="section-head">
               <h2>Visible Agents</h2>
               <button class="ghost" data-page-jump="chat" title="Open Chat">Open Chat</button>
             </div>
-            <div id="agent-list" class="agent-list"></div>
+            <div id="agent-list" class="agent-list scroll-region"></div>
           </div>
-          <div class="band">
+          <div class="band compact">
             <div class="section-head">
               <h2>Recent Dashboard Messages</h2>
             </div>
-            <div id="message-list" class="item-list"></div>
+            <div id="message-list" class="item-list scroll-region"></div>
           </div>
         </section>
       </section>

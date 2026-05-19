@@ -64,6 +64,7 @@ const pages = {
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   runs: ['Runs', 'Execution audit without making operators read raw logs first.'],
   analytics: ['Analytics', 'Recent volume, health, and capacity signals.'],
+  settings: ['Settings', 'Configuration stays on the classic dashboard until this flow reaches parity.'],
 };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -85,12 +86,12 @@ function resolveStatus(rawStatus, context = {}) {
 function renderStatusChip(rawStatus, context = {}) {
   const status = resolveStatus(rawStatus, context);
   const badges = status.badges.length ? ` <small>${esc(status.badges.join(' · '))}</small>` : '';
-  return `<span class="status-chip ${esc(status.tone)}" data-status-kind="${esc(status.kind)}">${esc(status.label)}${badges}</span>`;
+  return `<span class="status-chip ${esc(status.tone)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
 }
 
 function renderStatusDot(rawStatus) {
   const status = resolveStatus(rawStatus);
-  return `<span class="dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}"></span>`;
+  return `<span class="status-dot dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}"></span>`;
 }
 
 function evaluateFlowGates() {
@@ -268,8 +269,8 @@ function renderAll() {
   renderAnalytics();
 }
 
-function metric(label, value, tone = '') {
-  return `<div class="metric"><b>${esc(value)}</b><span>${esc(label)}</span>${tone ? `<small>${esc(tone)}</small>` : ''}</div>`;
+function metric(label, value, tone = 'neutral') {
+  return `<div class="metric" data-tone="${esc(tone)}"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
 }
 
 function renderMetrics() {
@@ -279,11 +280,11 @@ function renderMetrics() {
   const overdue = state.contracts.filter((c) => c.overdue).length;
   const queued = state.contracts.filter((c) => c.state === 'queued').length;
   byId('metrics').innerHTML = [
-    metric('Active agents', active),
-    metric('Working now', working),
-    metric('Blocked agents', blocked),
-    metric('Overdue work', overdue),
-    metric('Queued contracts', queued),
+    metric('Active agents', active, 'ok'),
+    metric('Working now', working, working ? 'working' : 'neutral'),
+    metric('Blocked agents', blocked, blocked ? 'bad' : 'neutral'),
+    metric('Overdue work', overdue, overdue ? 'warn' : 'neutral'),
+    metric('Queued contracts', queued, queued ? 'queued' : 'neutral'),
   ].join('');
 }
 
@@ -383,12 +384,22 @@ function renderRuntime() {
       <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>
       <small>${esc((env.runtimes || env.runtimeCapabilities || []).map((r) => r.runtime || r).join(', '))}</small>
     </article>`).join('') || '<div class="item">No environments loaded.</div>';
-  byId('session-groups').innerHTML = state.sessions.map((session) => `
-    <article class="runtime-card" data-kind="session" data-id="${esc(session.id)}">
-      <div class="item-title"><strong>${esc(session.agentId || session.agent_id || session.id)}</strong>${renderStatusChip(session.status)}</div>
+  byId('session-groups').innerHTML = state.sessions.map((session) => {
+    const sessionId = session.id || session.sessionId;
+    const status = String(session.status || '').toLowerCase();
+    const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
+    return `
+    <article class="runtime-card" data-kind="session" data-id="${esc(sessionId)}">
+      <div class="item-title"><strong>${esc(session.agentId || session.agent_id || sessionId)}</strong>${renderStatusChip(session.status)}</div>
       <p class="preview">${esc(session.runtime || '')} · ${esc(session.environmentId || session.environment_id || '')}</p>
       <small>${esc(session.workspace || session.cwd || '')}</small>
-    </article>`).join('') || '<div class="item">No sessions loaded.</div>';
+      <div class="contract-actions">
+        <button class="ghost" data-session-control="restart" data-session-id="${esc(sessionId)}">Restart</button>
+        <button class="ghost" data-session-control="recover" data-session-id="${esc(sessionId)}">Recover</button>
+        ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(sessionId)}">Stop</button>` : ''}
+      </div>
+    </article>`;
+  }).join('') || '<div class="item">No sessions loaded.</div>';
 }
 
 function renderRuns() {
@@ -459,7 +470,30 @@ async function inspect(kind, payload) {
   byId('inspector-content').innerHTML = kind === 'run' && data
     ? renderRunInspection(data)
     : `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
+  openInspector();
+}
+
+function openInspector() {
   byId('inspector')?.classList.add('open');
+}
+
+function closeInspector() {
+  byId('inspector')?.classList.remove('open');
+  byId('inspector-content').textContent = 'Select an item to inspect details.';
+}
+
+function setNavCollapsed(collapsed) {
+  const shell = byId('app-shell');
+  shell?.classList.toggle('nav-collapsed', Boolean(collapsed));
+  byId('toggle-nav')?.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+  byId('toggle-nav')?.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  localStorage.setItem('aify.next.navCollapsed', collapsed ? '1' : '0');
+}
+
+function preferredNavCollapsed() {
+  const stored = localStorage.getItem('aify.next.navCollapsed');
+  if (stored) return stored === '1';
+  return window.matchMedia('(max-width: 760px)').matches;
 }
 
 async function requestRunControl(runId) {
@@ -470,6 +504,25 @@ async function requestRunControl(runId) {
     body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
   });
   await inspect('run', runId);
+}
+
+async function requestSessionControl(sessionId, action) {
+  const labels = {
+    stop: 'stop this session',
+    restart: 'restart this session using its saved backing',
+    recover: 'recover this session using its saved backing',
+  };
+  if (!sessionId || !action) return;
+  if (!confirm(`Really ${labels[action] || action}?`)) return;
+  await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
+    method: 'POST',
+    body: JSON.stringify({
+      action,
+      from_agent: 'dashboard',
+      body: `Session ${action} requested from Dashboard Next.`,
+    }),
+  });
+  await refresh();
 }
 
 async function patchRun(runId, payload) {
@@ -556,6 +609,11 @@ document.addEventListener('click', (event) => {
   if (remindContractButton) { remindWorkContract(remindContractButton.dataset.remindContract); return; }
   const steerRunButton = event.target.closest('[data-steer-run]');
   if (steerRunButton) { requestRunControl(steerRunButton.dataset.steerRun); return; }
+  const sessionControlButton = event.target.closest('[data-session-control]');
+  if (sessionControlButton) {
+    requestSessionControl(sessionControlButton.dataset.sessionId, sessionControlButton.dataset.sessionControl);
+    return;
+  }
   const inspectItem = event.target.closest('[data-kind]');
   if (inspectItem && !inspectButton) inspect(inspectItem.dataset.kind, inspectItem.dataset.id);
 });
@@ -609,12 +667,13 @@ byId('composer').addEventListener('submit', async (event) => {
   }
 });
 byId('mark-read').addEventListener('click', () => inspect('mark-read', { note: 'Mark-read is planned for the next slice.' }));
-byId('close-inspector').addEventListener('click', () => {
-  byId('inspector')?.classList.remove('open');
-  byId('inspector-content').textContent = 'Select an item to inspect details.';
+byId('close-inspector').addEventListener('click', closeInspector);
+byId('toggle-nav').addEventListener('click', () => {
+  setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));
 });
 
 updateStaticLinks();
+setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();
 refresh();
 setInterval(refresh, 15000);
