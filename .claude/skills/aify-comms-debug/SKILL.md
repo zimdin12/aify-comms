@@ -541,6 +541,22 @@ c.commit()
 
 **Fix.** Already fixed in `fd00c85` — the endpoint now checks the existing terminal_id first and returns `{reused:true, terminal:{...}}` without spawning a sibling. Audit event `console_attach_reused_existing` confirms it in the audit log. If you still see it, container needs rebuild to pick up the api_v2.py change.
 
+## Managed claude dispatch cancelled with "capabilities do not include managed-run"
+
+**Symptom.** Send to a managed claude-code agent with `claude_managed_channel_only=true`. The dispatch_event row reads `agent capabilities do not include "managed-run"` and the run is cancelled before delivery. The agent's capabilities show `["resume", "interrupt", "spawn"]` (no `managed-run`) and `runtime_config.channelEnabled=true`.
+
+**Cause.** Default capabilities for managed claude omit `managed-run` by design (claude has no headless managed-run API). Pre-`a4498a6`, `_agent_execution_mode` rejected dispatches on the missing cap before the channel branch could fire.
+
+**Fix.** Already fixed in `a4498a6` — the cap-check is skipped when runtime is `_CHANNEL_MANAGED_RUNTIMES` AND `runtime_config.channelEnabled=true`. Container needs rebuild to pick up the api_v2.py change. If you're on a build that pre-dates this fix and can't rebuild immediately, you can patch the live agent: `UPDATE agents SET capabilities=json_insert(capabilities,'$[#]','managed-run') WHERE id='YOUR-AGENT-ID'` — the dispatch will then enter the channel branch correctly.
+
+## Spawn-time initial message to managed claude sits queued forever
+
+**Symptom.** `comms_spawn(runtime="claude-code")` registers the agent + spawns wrapper PTY successfully, but the spawn's `initialMessage` dispatch_run has `status='queued'` and `execution_mode='managed'` — never claimed by `claude-channel.js`. With `claude_managed_channel_only=true`, the run should have `execution_mode='channel'`.
+
+**Cause.** Pre-`a4498a6`, `update_spawn_request`'s running-transition handler called `_create_dispatch_runs(...)` to create the initial-message run, but did NOT call `_apply_channel_only_to_claude_runs(...)` afterward. The run stayed `execution_mode='managed'` even with the channel-only setting on. The same gap existed in the auto-mirrored handoff path at line 4912.
+
+**Fix.** Already fixed in `a4498a6` — both call sites now apply channel-only post-create. For runs created BEFORE the fix that are stuck queued, you can manually flip: `UPDATE dispatch_runs SET execution_mode='channel' WHERE id='YOUR-RUN-ID' AND status='queued'` — `claude-channel.js` will pick it up on the next poll cycle (~5s).
+
 ## General escalation
 
 If none of the fixes above resolve the issue:

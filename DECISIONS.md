@@ -299,6 +299,18 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why.** Pi's `omp --mode rpc` child accidentally launches a nested `mcp/stdio/server.js` that would register as a sibling bridge for the same agent and supersede the resident bridge while its run is in flight. The flag tells server.js to exit cleanly at startup. An earlier attempt set this default in `runtimeChildEnv` and broke claude-code's MCP chain because claude-aify legitimately needs the aify env to function. Per-spawn declaration in `createPiController` is the targeted fix.
 
+## Channel-eligible managed claude bypasses the managed-run cap check
+
+**Decision.** In `_agent_execution_mode`, the "managed-run cap required" check at line 871 is SKIPPED when the runtime is `_CHANNEL_MANAGED_RUNTIMES` AND the agent's `runtime_config.channelEnabled=true`. Dispatch flows through `execution_mode='channel'` instead. The inverse (no `channelEnabled` and no `managed-run`) is still rejected.
+
+**Why.** Managed claude default capabilities deliberately omit `managed-run` because claude has no headless managed-run API — there's no `claude --print` style RPC for arbitrary turns. The actual delivery path for managed claude under `claude_managed_channel_only=true` is the wrapper-PTY's `claude-channel.js` which polls `/dispatch/claim` and emits channel notifications. The cap-check was rejecting these dispatches before the channel branch could fire. Deep-test on `e2e-test-claude` caught it: spawn worked, wrapper PTY attached, but initial-message dispatch was cancelled with `agent capabilities do not include "managed-run"`. The skip lets channel-eligible managed claude dispatches reach `execution_mode='channel'` and get claimed by the in-PTY subscriber.
+
+## Channel-only routing applies at every dispatch-create site
+
+**Decision.** All three `_create_dispatch_runs` call sites that create runs for managed claude — `send_message` line 8425, `update_spawn_request` running-transition line 6029, and auto-mirrored handoff line 4912 — now call `_apply_channel_only_to_claude_runs(...)` after creation. Without the helper at a given site, runs stay `execution_mode='managed'` even when `claude_managed_channel_only=true`, and (because no managed-claude path exists end-to-end) sit queued forever.
+
+**Why.** Initially only `send_message` applied channel-only. Spawn-time initial messages and auto-mirrored handoffs bypassed it. The deep e2e test exposed this — spawned `e2e-test-claude` got an initial-message run with `execution_mode='managed'` that no subscriber could claim. Centralizing the post-create helper at every create site is the durable fix; per-call sites add one line each.
+
 ## Same-logical-owner supersession scope
 
 **Decision.** `bridge_instances` supersession is scoped to `(agent_id, machine_id, runtime, session_mode, session_handle)`. A new bridge that re-registers an agent with the SAME tuple supersedes prior bridge instances for that tuple only — it does NOT supersede bridges for the same agent with a different session_mode (resident vs managed) or a different session_handle.
