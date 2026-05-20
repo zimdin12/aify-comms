@@ -6237,6 +6237,29 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             requested_by=requested_by,
             body=command,
         )
+        # Mirror _ensure_managed_pty_for_dispatch: when the operator has
+        # opted into auto-confirming the Claude dev-channel "WARNING:
+        # Loading development channels" prompt, enqueue the startup Enter
+        # for the manually-started console too. Without this, manual
+        # console starts hit the prompt and require the operator to
+        # actually press Enter — which the per-keystroke path makes
+        # awkward (the prompt is a TUI menu, not a plain line).
+        if runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
+            await _append_terminal_control(
+                db,
+                terminal_id=terminal_id,
+                environment_id=session["environment_id"],
+                bridge_id=bridge_id,
+                action="input",
+                requested_by=requested_by,
+                body="\r",
+            )
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "console_channel_prompt_auto_confirm_requested",
+                json.dumps({"requestedBy": requested_by, "reason": "confirm Claude development channel prompt on manual console start"}),
+            )
         await db.execute(
             """
             UPDATE agent_sessions
