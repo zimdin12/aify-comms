@@ -48,7 +48,7 @@ try {
   const staleWrapper = path.join(tmp, "claude-aify");
   fs.writeFileSync(
     staleWrapper,
-    "#!/bin/sh\nclaude --dangerously-load-development-channels --channels server:aify-comms-channel \"$@\"\n",
+    "#!/bin/sh\nclaude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel \"$@\"\n",
   );
   fs.chmodSync(staleWrapper, 0o755);
   process.env.AIFY_CLAUDE_COMMAND = staleWrapper;

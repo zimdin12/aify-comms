@@ -122,6 +122,54 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_dispatch_run_events_are_bounded_and_cursor_paginated(self):
+        run_id = "run_events_page"
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id,
+                None,
+                "dashboard",
+                "worker",
+                "start_if_possible",
+                "managed",
+                "request",
+                "bounded events",
+                "please inspect",
+                "normal",
+                "running",
+                1,
+                "2026-05-20T00:00:00Z",
+            ),
+        )
+        for index in range(75):
+            self._execute(
+                "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+                (run_id, f"event_{index:02d}", f"body {index}", f"2026-05-20T00:{index:02d}:00Z"),
+            )
+
+        first = self.client.get(f"/api/v1/dispatch/runs/{run_id}/events?limit=500")
+        self.assertEqual(first.status_code, 200, first.text)
+        first_data = first.json()
+        self.assertEqual(len(first_data["events"]), 50)
+        self.assertTrue(first_data["hasMore"])
+        self.assertTrue(first_data["nextBefore"])
+        first_ids = [event["id"] for event in first_data["events"]]
+        self.assertEqual(first_ids, sorted(first_ids, reverse=True))
+
+        second = self.client.get(f"/api/v1/dispatch/runs/{run_id}/events?limit=50&before={first_data['nextBefore']}")
+        self.assertEqual(second.status_code, 200, second.text)
+        second_data = second.json()
+        second_ids = [event["id"] for event in second_data["events"]]
+        self.assertTrue(second_ids)
+        self.assertFalse(set(first_ids) & set(second_ids))
+        self.assertTrue(all(int(event_id) < int(first_data["nextBefore"]) for event_id in second_ids))
+
     def test_channel_history_excludes_inbox_fanout_rows(self):
         self._register("alice")
         self._register("bob")
@@ -482,6 +530,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.json()["dashboard_theme"], "default")
         self.assertEqual(settings.json()["dashboard_primary_color"], "")
         self.assertEqual(settings.json()["dashboard_secondary_color"], "")
+        self.assertFalse(settings.json()["console_auto_confirm_claude_dev_channels"])
+        self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
+        self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
 
         updated = self.client.put(
@@ -2065,17 +2116,109 @@ class ApiV2RegressionTests(unittest.TestCase):
             "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
             (session["terminal_id"],),
         )
-        self.assertEqual([row["action"] for row in controls], ["start", "input", "input", "input"])
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
         self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
         self.assertIn("--resume claude-session-1", controls[0]["body"])
         self.assertNotIn("claude --channels", controls[0]["body"])
+        self.assertIn("do it without console open", controls[1]["body"])
+        self.assertIn("\x1b[200~", controls[1]["body"])
+        self.assertIn("\x1b[201~", controls[1]["body"])
+        self.assertTrue(controls[1]["body"].endswith("\r"))
+
+    def test_managed_claude_auto_confirm_dev_channel_prompt_is_operator_toggle(self):
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it without console open",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertEqual(len(dispatched["consoleDeliveries"]), 1)
+        session = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
+        controls = self._fetchall(
+            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
+            (session["terminal_id"],),
+        )
+        self.assertEqual([row["action"] for row in controls], ["start", "input", "input"])
         self.assertEqual(controls[1]["body"], "\r")
         self.assertNotIn("do it without console open", controls[1]["body"])
         self.assertIn("do it without console open", controls[2]["body"])
-        self.assertNotIn("\x1b[200~", controls[2]["body"])
-        self.assertNotIn("\x1b[201~", controls[2]["body"])
-        self.assertTrue(controls[2]["body"].endswith("\r"))
-        self.assertEqual(controls[3]["body"], "\r")
+
+    def test_managed_claude_active_run_without_terminal_backing_reports_blocked(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it without console open",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
+            (session_id,),
+        )
+        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
+        self.assertEqual(agent["status"], "blocked")
+        self.assertIn("terminal", agent["statusNote"].lower())
+
+    def test_managed_claude_active_run_with_ended_terminal_backing_reports_blocked(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="work",
+            body="do it without console open",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        session = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (session["terminal_id"],),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET terminal_status = 'stopped' WHERE id = ?",
+            (session_id,),
+        )
+        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
+        self.assertEqual(agent["status"], "blocked")
+        self.assertIn("terminal", agent["statusNote"].lower())
+
 
     def test_managed_claude_dispatch_does_not_create_channel_only_run(self):
         self._create_running_session(
@@ -2333,11 +2476,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         injected = self._fetchone("SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
         self.assertIsNotNone(injected)
         self.assertIn("answer through channel", injected["body"])
-        self.assertNotIn("\x1b[200~", injected["body"])
-        self.assertNotIn("\x1b[201~", injected["body"])
+        self.assertIn("\x1b[200~", injected["body"])
+        self.assertIn("\x1b[201~", injected["body"])
         self.assertTrue(injected["body"].endswith("\r"))
         submit = self._fetchall("SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input' ORDER BY requested_at ASC, id ASC", (terminal_id,))
-        self.assertEqual(submit[-1]["body"], "\r")
+        self.assertEqual(len(submit), 1)
 
     def test_message_send_to_managed_claude_starts_claude_aify_and_inputs_dashboard_message(self):
         session_id = self._create_running_session(
@@ -2379,17 +2522,14 @@ class ApiV2RegressionTests(unittest.TestCase):
             "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
             (session["terminal_id"],),
         )
-        self.assertEqual([row["action"] for row in controls], ["start", "input", "input", "input"])
+        self.assertEqual([row["action"] for row in controls], ["start", "input"])
         self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
         self.assertIn("--resume claude-session-1", controls[0]["body"])
         self.assertNotIn("claude --channels", controls[0]["body"])
-        self.assertEqual(controls[1]["body"], "\r")
-        self.assertNotIn("answer through channel", controls[1]["body"])
-        self.assertIn("answer through channel", controls[2]["body"])
-        self.assertNotIn("\x1b[200~", controls[2]["body"])
-        self.assertNotIn("\x1b[201~", controls[2]["body"])
-        self.assertTrue(controls[2]["body"].endswith("\r"))
-        self.assertEqual(controls[3]["body"], "\r")
+        self.assertIn("answer through channel", controls[1]["body"])
+        self.assertIn("\x1b[200~", controls[1]["body"])
+        self.assertIn("\x1b[201~", controls[1]["body"])
+        self.assertTrue(controls[1]["body"].endswith("\r"))
 
     def test_managed_claude_terminal_prompt_reports_blocked_not_working(self):
         self._create_running_session(
@@ -6543,6 +6683,51 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertIn("Sent reminder message", event["body"])
 
+    def test_completion_triggered_reminder_respects_repeat_interval(self):
+        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
+        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
+
+        open_contract = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="pending answer",
+            body="please answer",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        contract_run_id = open_contract["runs"][0]["runId"]
+        active_work = self._dispatch(
+            from_agent="dashboard",
+            to="coder",
+            type="info",
+            subject="current task",
+            body="keep working",
+            mode="start_if_possible",
+            createMessage=True,
+            requireReply=False,
+        )
+        active_run_id = active_work["runs"][0]["runId"]
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        recent_reminder_at = api_v2._iso_from_ms(int((time.time() - 30) * 1000))
+        self._execute("UPDATE dispatch_runs SET status = 'delivered', requested_at = ? WHERE id = ?", (overdue_at, contract_run_id))
+        self._execute("UPDATE dispatch_runs SET status = 'running', started_at = ? WHERE id = ?", (api_v2._now(), active_run_id))
+        self._execute(
+            "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+            (contract_run_id, "reply_reminder", "recent reminder", recent_reminder_at),
+        )
+
+        completed = self.client.patch(
+            f"/api/v1/dispatch/runs/{active_run_id}",
+            json={"status": "completed", "summary": "current task done"},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+
+        reminders = self._fetchall("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (contract_run_id,))
+        self.assertEqual([row["body"] for row in reminders], ["recent reminder"])
+
+
     def test_contract_reminders_skip_dashboard_target_contracts(self):
         self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
@@ -6699,6 +6884,40 @@ class ApiV2RegressionTests(unittest.TestCase):
         event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder_skipped'", (run_id,))
         self.assertIsNotNone(event)
         self.assertIn("operator input", event["body"])
+
+
+    def test_terminal_contract_with_lost_backing_still_gets_reminder(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
+
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="lost backing",
+            body="please finish",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
+            (session_id,),
+        )
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
+        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(result["reply_reminders"], 1)
+        event = self._fetchone("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder' ORDER BY created_at DESC LIMIT 1", (run_id,))
+        self.assertIsNotNone(event)
+        self.assertIn("Sent reminder message", event["body"])
 
     def test_contracts_do_not_treat_high_priority_responses_as_missing_replies(self):
         self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})

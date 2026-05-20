@@ -1804,6 +1804,11 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="hint">Default Claude Code effort for managed runs. Repo fallback: high.</div>
       </div>
       <div class="form-group">
+        <label>Claude dev-channel auto-confirm</label>
+        <select id="s-claude-auto-confirm"><option value="false">Off — operator confirms in Console</option><option value="true">On — send Enter automatically</option></select>
+        <div class="hint">Controls the one startup Enter used to accept Claude Code development-channel prompts for managed Claude PTY turns. Leave off to prevent surprise Console input.</div>
+      </div>
+      <div class="form-group">
         <label>Managed Codex Model</label>
         <input id="s-codex-model" placeholder="latest / CLI default">
         <div class="hint">Optional global override. Leave blank to let Codex use its installed default/latest model. Effort still defaults to high.</div>
@@ -1834,12 +1839,12 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <div class="form-group">
         <label>Reply Reminder After (minutes)</label>
         <input type="number" id="s-reply-minutes" min="1" max="240">
-        <div class="hint">How long a required reply may sit without an answer before becoming overdue. Default: 6</div>
+        <div class="hint">How long a required reply may sit without an answer before becoming overdue. Default: 10</div>
       </div>
       <div class="form-group">
         <label>Reminder Repeat (minutes)</label>
         <input type="number" id="s-reply-repeat" min="1" max="1440">
-        <div class="hint">Minimum delay between repeated reminders for the same original run. Default: 6</div>
+        <div class="hint">Minimum delay between repeated reminders for the same original run. Default: 10</div>
       </div>
       <div class="form-group">
         <label>Max Reminders Per Contract</label>
@@ -4154,7 +4159,7 @@ function renderWorkLoop() {
     ['Channel unread', window._dashboardStats?.channel_unread_messages || 0, 'Channel fan-out unread should not be treated the same as direct work contracts.'],
     ['Self-wakes', stats.selfWake || 0, 'Self-scheduled reminders should be operational loop items, not normal human chat.'],
     ['Answered but unread', answeredUnread, 'Contracts that have a result but whose source message still lacks a read receipt. Use Repair Delivered Reads.'],
-    ['Reminder policy', settings.replyContractsEnabled === false ? 'off' : `${settings.replyReminderMinutes || 6}m`, `Repeat ${settings.replyReminderRepeatMinutes || 6}m, max ${settings.replyReminderMaxCount ?? 0}. Zero means keep nudging until answered or operator-closed.`],
+    ['Reminder policy', settings.replyContractsEnabled === false ? 'off' : `${settings.replyReminderMinutes || 10}m`, `Repeat ${settings.replyReminderRepeatMinutes || 10}m, max ${settings.replyReminderMaxCount ?? 0}. Zero means keep nudging until answered or operator-closed.`],
   ];
   const hygieneEl = document.getElementById('work-hygiene');
   if (hygieneEl) {
@@ -7502,6 +7507,7 @@ async function loadSettings() {
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
   document.getElementById('s-claude-model').value = s.managed_claude_model || '';
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
+  document.getElementById('s-claude-auto-confirm').value = String(!!s.console_auto_confirm_claude_dev_channels);
   document.getElementById('s-codex-model').value = s.managed_codex_model || '';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
@@ -7538,6 +7544,7 @@ async function saveSettings(e) {
       rotation_enabled: document.getElementById('s-rotation').value === 'true',
       managed_claude_model: document.getElementById('s-claude-model').value.trim(),
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
+      console_auto_confirm_claude_dev_channels: document.getElementById('s-claude-auto-confirm').value === 'true',
       managed_codex_model: document.getElementById('s-codex-model').value.trim(),
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),

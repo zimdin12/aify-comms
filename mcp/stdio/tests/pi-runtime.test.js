@@ -53,6 +53,7 @@ function readStdinMessages() {
   return fs.readFileSync(stdinCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
 assert.equal(detectPiRuntimeFailure('No API key found for amazon-bedrock. Use /login.').authFailure, true);
+assert.equal(detectPiRuntimeFailure('FATAL ERROR: Committing semi space failed. Allocation failed - JavaScript heap out of memory').fatalRuntime, true);
 assert.equal(detectPiRuntimeFailure('Session "dead-session" not found').shouldHeal, true);
 assert.deepEqual(
   {
@@ -72,6 +73,11 @@ if (process.env.AIFY_PI_ARGV_CAPTURE) {
 if (process.env.AIFY_PI_AUTH_FAIL === "1") {
   console.error("No API key found for amazon-bedrock. Use /login.");
   setInterval(() => {}, 1000);
+}
+if (process.env.AIFY_PI_OOM_FAIL === "1") {
+  console.error("FATAL ERROR: Committing semi space failed. Allocation failed - JavaScript heap out of memory");
+  console.error("at notify (B:/~BUN/root/omp-windows-x64.exe:370144:30)");
+  process.exit(134);
 }
 if (process.argv.includes("--resume") && process.argv[process.argv.indexOf("--resume") + 1] === "dead-session") {
   console.error('Session "dead-session" not found');
@@ -118,6 +124,13 @@ rl.on("line", (line) => {
     console.log(JSON.stringify({ type: "agent_start" }));
     if (message.message.includes("Wait for steer")) {
       console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "waiting" } }));
+    } else if (message.message.includes("Pi assistant mentions EPIPE")) {
+      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "This assistant reply discusses EPIPE without indicating a runtime crash." } }));
+      process.exit(1);
+    } else if (message.message.includes("Pi long structured reply")) {
+      const trailer = JSON.stringify({ status: "ok", id: "long-structured-reply" });
+      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "BEGIN-REPORT\\n" + "x".repeat(300_000) + "\\n" + trailer } }));
+      console.log(JSON.stringify(withEventSession({ type: "agent_end", id: "turn-long" })));
     } else if (message.message.includes("Pi final fallback")) {
       const assistant = { role: "assistant", content: [{ type: "text", text: "final text from agent_end" }] };
       console.log(JSON.stringify({ type: "message_end", message: assistant }));
@@ -270,6 +283,99 @@ await assert.rejects(
   "Pi auth/provider failures should fail fast instead of waiting for the full run timeout",
 );
 delete process.env.AIFY_PI_AUTH_FAIL;
+
+process.env.AIFY_PI_OOM_FAIL = "1";
+const oomFailController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi oom fail",
+    body: "Say hello",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  oomFailController.promise,
+  /Pi runtime crashed: .*JavaScript heap out of memory/,
+  "Pi runtime fatal/OOM failures should fail clearly instead of surfacing raw EPIPE/noisy stack text",
+);
+delete process.env.AIFY_PI_OOM_FAIL;
+
+const assistantEpipeController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi assistant mentions EPIPE",
+    body: "Pi assistant mentions EPIPE",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  assistantEpipeController.promise,
+  (error) => {
+    assert(!/Pi runtime crashed/i.test(String(error?.message || error)), "assistant text must not be classified as a runtime crash");
+    assert.match(String(error?.message || error), /EPIPE/i);
+    return true;
+  },
+);
+
+const longReplyController = launchRuntimeRun({
+  agentId: "pi-worker",
+  agentInfo: {
+    agentId: "pi-worker",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "managed",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi long structured reply",
+    body: "Pi long structured reply",
+    executionMode: "managed",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+const longReplyResult = await longReplyController.promise;
+assert.equal(longReplyResult.status, "completed");
+assert(longReplyResult.summary.includes("BEGIN-REPORT"), "long Pi replies should preserve the beginning for context");
+assert(longReplyResult.summary.includes("long-structured-reply"), "long Pi replies should preserve terminal structured content");
+assert(longReplyResult.summary.includes("truncated"), "long Pi replies should mark omitted middle content");
+
 
 const healEvents = [];
 const handleChanges = [];

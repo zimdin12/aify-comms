@@ -884,27 +884,35 @@ export function runtimeCommandWithoutResume(runtime = "", command = "") {
 export function detectPiRuntimeFailure(value) {
   const message = String(value?.message || value || "").replace(/\s+/g, " ").trim();
   const lower = message.toLowerCase();
-  if (!lower) return { shouldHeal: false, authFailure: false, missingSession: false, healReason: null, message };
+  if (!lower) return { shouldHeal: false, authFailure: false, fatalRuntime: false, missingSession: false, healReason: null, message };
+  const fatalRuntime =
+    /fatal error/.test(lower) ||
+    /javascript heap out of memory/.test(lower) ||
+    /allocation failed/.test(lower) ||
+    /\bepipe\b/.test(lower);
+  if (fatalRuntime) {
+    return { shouldHeal: false, authFailure: false, fatalRuntime: true, missingSession: false, healReason: null, message };
+  }
   const authFailure =
     /no api key/.test(lower) ||
     /api key (?:not found|missing|required)/.test(lower) ||
     /not authenticated|authentication (?:failed|required)|unauthori[sz]ed|\b401\b/.test(lower) ||
     ((/amazon-bedrock|bedrock/.test(lower)) && /login|auth|credential|api key/.test(lower));
   if (authFailure) {
-    return { shouldHeal: false, authFailure: true, missingSession: false, healReason: null, message };
+    return { shouldHeal: false, authFailure: true, fatalRuntime: false, missingSession: false, healReason: null, message };
   }
   const missingSession =
     /session\s+["']?[^"'\s]+["']?\s+(?:not found|does not exist|missing)/i.test(message) ||
     /no such session/i.test(message);
   if (missingSession) {
-    return { shouldHeal: true, authFailure: false, missingSession: true, healReason: "missing_session", message };
+    return { shouldHeal: true, authFailure: false, fatalRuntime: false, missingSession: true, healReason: "missing_session", message };
   }
   const projectMismatch =
     /session\s+["']?[^"'\s]+["']?\s+is in another project/i.test(message);
   if (projectMismatch) {
-    return { shouldHeal: true, authFailure: false, missingSession: true, healReason: "project_mismatch", message };
+    return { shouldHeal: true, authFailure: false, fatalRuntime: false, missingSession: true, healReason: "project_mismatch", message };
   }
-  return { shouldHeal: false, authFailure: false, missingSession: false, healReason: null, message };
+  return { shouldHeal: false, authFailure: false, fatalRuntime: false, missingSession: false, healReason: null, message };
 }
 
 
@@ -1232,7 +1240,7 @@ function staleClaudeAifyWrapperReason(resolved) {
       const stat = fs.statSync(candidate);
       if (!stat.isFile() || stat.size > 1024 * 1024) continue;
       const body = fs.readFileSync(candidate, "utf-8");
-      if (body.includes("--dangerously-load-development-channels --channels")) {
+      if (body.includes("--channels server:aify-comms-channel --dangerously-load-development-channels")) {
         return `resolved wrapper "${candidate}" has stale Claude channel flag ordering; rerun install.sh for Claude support`;
       }
     } catch {
@@ -2570,6 +2578,23 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
   let requestCounter = 1;
   let healAttempted = false;
   const pendingCommandAcks = new Map();
+  const MAX_PI_ASSISTANT_CAPTURE_CHARS = 262144;
+  const MAX_PI_ERROR_CAPTURE_CHARS = 65536;
+  const PI_TRUNCATION_MARKER = "\n...[aify truncated middle output]...\n";
+  const boundText = (value, limit, { preserveEdges = false } = {}) => {
+    const text = String(value || "");
+    if (text.length <= limit) return text;
+    if (!preserveEdges) return text.slice(text.length - limit);
+    const marker = PI_TRUNCATION_MARKER;
+    const payloadLimit = Math.max(0, limit - marker.length);
+    const headLength = Math.ceil(payloadLimit / 2);
+    const tailLength = Math.floor(payloadLimit / 2);
+    return `${text.slice(0, headLength)}${marker}${text.slice(text.length - tailLength)}`;
+  };
+  const appendBounded = (current, chunk, options = {}) => {
+    const limit = options.limit || MAX_PI_ERROR_CAPTURE_CHARS;
+    return boundText(`${String(current || "")}${String(chunk || "")}`, limit, options);
+  };
 
   const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
   const resolvedText = () => finalText.trim() || finalSnapshotText.trim();
@@ -2579,6 +2604,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     ...(sessionFile ? { sessionFile } : {}),
   });
   const failureText = () => [finalError, finalText, stderrText].filter(Boolean).join("\n").trim();
+  const runtimeFailureText = () => [finalError, stderrText].filter(Boolean).join("\n").trim();
   const buildArgs = () => {
     const nextArgs = [...launcher.args, "--mode", "rpc"];
     if (sessionId) nextArgs.push("--resume", sessionId);
@@ -2678,7 +2704,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     };
 
     const maybeHealMissingSession = () => {
-      const detected = detectPiRuntimeFailure(failureText());
+      const detected = detectPiRuntimeFailure(runtimeFailureText());
       if (!detected.shouldHeal || !sessionId || healAttempted || executionMode === "resident") return false;
       const previous = sessionId;
       healAttempted = true;
@@ -2714,7 +2740,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
 
       startupTimer = setTimeout(() => {
         if (settled || initialPromptSent) return;
-        const detected = detectPiRuntimeFailure(failureText());
+        const detected = detectPiRuntimeFailure(runtimeFailureText());
         if (detected.authFailure) {
           fail(new Error(`Pi authentication failed fast: ${detected.message}`));
           return;
@@ -2751,7 +2777,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         try {
           event = JSON.parse(text);
         } catch {
-          finalText += `${text}\n`;
+          finalText = appendBounded(finalText, `${text}\n`, { limit: MAX_PI_ASSISTANT_CAPTURE_CHARS, preserveEdges: true });
           const detected = detectPiRuntimeFailure(text);
           if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
           return;
@@ -2785,27 +2811,28 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
           if (event.command === "prompt") {
             promptAcked = event.success !== false;
             if (event.success === false) {
-              finalError = String(event.error || "Pi prompt failed");
+              finalError = appendBounded("", String(event.error || "Pi prompt failed"));
               const detected = detectPiRuntimeFailure(finalError);
               if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+              if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
             }
           }
           return;
         }
 
         if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-          finalText += String(event.assistantMessageEvent.delta || "");
+          finalText = appendBounded(finalText, String(event.assistantMessageEvent.delta || ""), { limit: MAX_PI_ASSISTANT_CAPTURE_CHARS, preserveEdges: true });
           return;
         }
 
         if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_end") {
-          finalSnapshotText = String(event.assistantMessageEvent.content || finalSnapshotText || "");
+          finalSnapshotText = boundText(String(event.assistantMessageEvent.content || finalSnapshotText || ""), MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
           return;
         }
 
         if (event.type === "message_end" || event.type === "turn_end") {
           const text = extractPiAssistantText(event.message);
-          if (text) finalSnapshotText = text;
+          if (text) finalSnapshotText = boundText(text, MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
           return;
         }
 
@@ -2816,7 +2843,7 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
 
         if (event.type === "agent_end") {
           const text = extractPiAssistantText(event.messages);
-          if (text) finalSnapshotText = text;
+          if (text) finalSnapshotText = boundText(text, MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
           settled = true;
           clearAttemptTimers();
           rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
@@ -2837,9 +2864,10 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
         }
 
         if (event.type === "error") {
-          finalError = String(event.error || event.message || "Pi runtime error");
+          finalError = appendBounded("", String(event.error || event.message || "Pi runtime error"));
           const detected = detectPiRuntimeFailure(finalError);
           if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+          if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
         }
       });
 
@@ -2847,10 +2875,11 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
       stderr.on("line", (line) => {
         const text = quoteForDisplay(line);
         if (!text) return;
-        stderrText += `${text}\n`;
+        stderrText = appendBounded(stderrText, `${text}\n`);
         callbacks.onEvent?.("stderr", text);
         const detected = detectPiRuntimeFailure(text);
         if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
+        if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
       });
 
       proc.on("close", (code) => {
@@ -2877,9 +2906,13 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
           });
           return;
         }
-        const detected = detectPiRuntimeFailure(failureText());
+        const detected = detectPiRuntimeFailure(runtimeFailureText());
         if (detected.authFailure) {
           reject(new Error(`Pi authentication failed fast: ${detected.message}`));
+          return;
+        }
+        if (detected.fatalRuntime) {
+          reject(new Error(`Pi runtime crashed: ${detected.message}`));
           return;
         }
         if (detected.missingSession && executionMode === "resident") {

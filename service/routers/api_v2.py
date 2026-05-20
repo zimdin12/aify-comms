@@ -119,13 +119,14 @@ DEFAULT_SETTINGS = {
     "offline_minutes": 30,
     "environment_offline_seconds": 90,
     "reply_contracts_enabled": True,
-    "reply_reminder_minutes": 6,
-    "reply_reminder_repeat_minutes": 6,
+    "reply_reminder_minutes": 10,
+    "reply_reminder_repeat_minutes": 10,
     "reply_reminder_max_count": 0,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
+    "console_auto_confirm_claude_dev_channels": False,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
@@ -371,7 +372,7 @@ def _contract_state(row, *, settings: dict[str, Any], now_s: Optional[float] = N
     status = str((row["status"] if row and "status" in row.keys() else "") or "").strip().lower()
     result_message_id = str((row["result_message_id"] if row and "result_message_id" in row.keys() else "") or "").strip()
     reply_expected = _contract_reply_expected(row)
-    reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", 6) or 6))
+    reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
     reminder_count = int((row["reminder_count"] if row and "reminder_count" in row.keys() else 0) or 0)
     source_read_at = str((row["source_read_at"] if row and "source_read_at" in row.keys() else "") or "").strip()
     same_agent = str((row["from_agent"] if row else "") or "") == str((row["target_agent"] if row else "") or "")
@@ -1686,8 +1687,18 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             terminal_input_hint = _terminal_awaiting_input_hint(terminal_row["output"] if terminal_row else "")
         except Exception:
             terminal_input_hint = ""
-
-    if environment_id and env_status and env_status not in {"online", "degraded"}:
+    active_run_runtime = _normalize_runtime(str(active_run["runtime"] or "")) if active_run else ""
+    active_run_mode = str(active_run["dispatch_mode"] or "").strip().lower() if active_run else ""
+    active_run_terminal_missing = (
+        active_run
+        and active_run_runtime == "claude-code"
+        and active_run_mode == "terminal"
+        and (not terminal_id or terminal_status not in _TERMINAL_ACTIVE_STATUSES)
+    )
+    if active_run_terminal_missing:
+        effective_status = "blocked"
+        reason = f'Managed Claude active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
+    elif environment_id and env_status and env_status not in {"online", "degraded"}:
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
     elif (
@@ -3369,7 +3380,7 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
         requested_by=requested_by or "dashboard",
         body=command,
     )
-    if normalized_runtime == "claude-code":
+    if normalized_runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
         await _append_terminal_control(
             db,
             terminal_id=terminal_id,
@@ -8161,20 +8172,10 @@ async def send_message(req: MessageSend, request: Request):
                         req,
                         recipient_id=recipient_id,
                         message_id=recipient_message_id,
-                        bracketed_paste=terminal_runtime != "claude-code",
+                        bracketed_paste=True,
                     ),
                 )
                 submit_control_id = ""
-                if terminal_runtime == "claude-code":
-                    submit_control_id = await _append_terminal_control(
-                        db,
-                        terminal_id=terminal_id,
-                        environment_id=terminal["environment_id"],
-                        bridge_id=terminal["bridge_id"] or "",
-                        action="input",
-                        requested_by=req.from_agent,
-                        body="\r",
-                    )
                 await _append_terminal_event(
                     db,
                     terminal_id,
@@ -8810,20 +8811,10 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     req,
                     recipient_id=recipient_id,
                     message_id=recipient_message_id,
-                    bracketed_paste=terminal_runtime != "claude-code",
+                    bracketed_paste=True,
                 ),
             )
             submit_control_id = ""
-            if terminal_runtime == "claude-code":
-                submit_control_id = await _append_terminal_control(
-                    db,
-                    terminal_id=terminal_id,
-                    environment_id=terminal["environment_id"],
-                    bridge_id=terminal["bridge_id"] or "",
-                    action="input",
-                    requested_by=req.from_agent,
-                    body="\r",
-                )
             await _append_terminal_event(
                 db,
                 terminal_id,
@@ -9181,6 +9172,61 @@ async def list_dispatch_runs(
                 payload["sourceControls"] = source_controls
             runs.append(payload)
         return {"runs": runs}
+    finally:
+        await db.close()
+
+
+@router.get("/dispatch/runs/{run_id}/events")
+async def list_dispatch_run_events(
+    run_id: str,
+    limit: int = Query(50, ge=1),
+    before: Optional[int] = Query(None, ge=1),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+):
+    db = await get_db()
+    try:
+        run_cursor = await db.execute("SELECT 1 FROM dispatch_runs WHERE id = ?", (run_id,))
+        if not await run_cursor.fetchone():
+            raise HTTPException(404, f"Run '{run_id}' not found")
+
+        bounded_limit = min(limit, 50)
+        params: list[Any] = [run_id]
+        cursor_clause = ""
+        direction = "DESC" if order == "desc" else "ASC"
+        if before is not None:
+            cursor_clause = "AND id < ?" if order == "desc" else "AND id > ?"
+            params.append(before)
+        params.append(bounded_limit + 1)
+        events_cursor = await db.execute(
+            f"""
+            SELECT id, event_type, body, created_at
+            FROM dispatch_events
+            WHERE run_id = ? {cursor_clause}
+            ORDER BY id {direction}
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        rows = await events_cursor.fetchall()
+        page = rows[:bounded_limit]
+        return {
+            "ok": True,
+            "runId": run_id,
+            "events": [
+                {
+                    "id": str(event["id"]),
+                    "type": event["event_type"],
+                    "eventType": event["event_type"],
+                    "body": event["body"] or "",
+                    "createdAt": event["created_at"],
+                }
+                for event in page
+            ],
+            "hasMore": len(rows) > bounded_limit,
+            "nextBefore": str(page[-1]["id"]) if len(rows) > bounded_limit and page else "",
+            "order": order,
+            "limit": bounded_limit,
+        }
     finally:
         await db.close()
 
@@ -9553,7 +9599,7 @@ async def list_work_contracts(
         elif normalized_state == "queued":
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status = 'queued'")
         elif normalized_state == "overdue":
-            reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", 6) or 6))
+            reminder_minutes = max(1, int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]))
             where.append("AND COALESCE(r.result_message_id, '') = '' AND r.status NOT IN ('completed','failed','cancelled') AND datetime(r.requested_at) <= datetime('now', ?)")
             params.append(f"-{reminder_minutes} minutes")
         elif normalized_state == "seen":
@@ -9602,8 +9648,8 @@ async def list_work_contracts(
         }
         return {"ok": True, "summary": summary, "contracts": rows, "settings": {
             "replyContractsEnabled": bool(settings.get("reply_contracts_enabled", True)),
-            "replyReminderMinutes": int(settings.get("reply_reminder_minutes", 6) or 6),
-            "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", 6) or 6),
+            "replyReminderMinutes": int(settings.get("reply_reminder_minutes", DEFAULT_SETTINGS["reply_reminder_minutes"]) or DEFAULT_SETTINGS["reply_reminder_minutes"]),
+            "replyReminderRepeatMinutes": int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]),
             "replyReminderMaxCount": max(0, int(settings.get("reply_reminder_max_count", 0) or 0)),
             "contractStaleHours": int(settings.get("contract_stale_hours", 24) or 24),
         }}
@@ -9628,7 +9674,7 @@ def _contract_reminder_due(
         return False, f"max reminders reached ({state['reminderCount']}/{max_count})"
     last_reminder_at = str((row["last_reminder_at"] if row and "last_reminder_at" in row.keys() else "") or "").strip()
     if last_reminder_at and not ignore_repeat:
-        repeat_minutes = max(1, int(settings.get("reply_reminder_repeat_minutes", 6) or 6))
+        repeat_minutes = max(1, int(settings.get("reply_reminder_repeat_minutes", DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]) or DEFAULT_SETTINGS["reply_reminder_repeat_minutes"]))
         last_s = _iso_to_epoch(last_reminder_at)
         if last_s and ((now_s or time.time()) - last_s) < repeat_minutes * 60:
             return False, f"last reminder was less than {repeat_minutes} minutes ago"
@@ -9708,6 +9754,7 @@ async def _run_contract_reminders_once(
             skipped.append({"runId": row["id"], "reason": reason})
             continue
 
+        terminal_blocked_without_live_backing = False
         if (
             str(row["dispatch_mode"] or "").strip().lower() == "terminal"
             and str(row["status"] or "").strip().lower() in {"claimed", "running"}
@@ -9715,13 +9762,17 @@ async def _run_contract_reminders_once(
             agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["target_agent"],))).fetchone()
             live_state = await _compute_live_status_cache(db, agent_row, settings=settings) if agent_row else {}
             if str(live_state.get("status") or "").strip().lower() == "blocked":
-                reason = "target is blocked awaiting operator input"
-                skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
-                await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
-                continue
+                live_reason = str(live_state.get("reason") or "").strip().lower()
+                if live_reason.startswith("awaiting console"):
+                    reason = "target is blocked awaiting operator input"
+                    skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
+                    await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
+                    continue
+                if "no live terminal backing" in live_reason:
+                    terminal_blocked_without_live_backing = True
 
         active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
-        if active_state.get("hasActiveRun"):
+        if active_state.get("hasActiveRun") and not terminal_blocked_without_live_backing:
             reason = "target is busy; reminder will be retried when the agent is idle"
             skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
             await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
@@ -9918,7 +9969,6 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                             target_agent_id=refreshed_row["target_agent"],
                             limit=25,
                             recent_only=True,
-                            ignore_repeat=True,
                         )
 
         if req.agentStatus:

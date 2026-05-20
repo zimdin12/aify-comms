@@ -62,7 +62,7 @@ Suggested session fields:
 
 ### Claude Code
 
-Console should start the wrapper, not raw Claude. Human Console uses `claude-aify --aify-agent <id>` inside the PTY; managed Claude message delivery starts/reuses `claude-aify --aify-agent <id> --auto --resume <session-id>` when a session handle exists, confirms the channel prompt when needed, writes the formatted Messenger turn into the Claude prompt, and sends a separate submit Enter.
+Console should start the wrapper, not raw Claude. Human Console uses `claude-aify --aify-agent <id>` inside the PTY; managed Claude message delivery starts/reuses `claude-aify --aify-agent <id> --auto --resume <session-id>` when a session handle exists, leaves development-channel auto-confirm off unless the operator enables it, and submits the formatted Messenger turn as one bracketed paste+submit control.
 
 Benefits:
 

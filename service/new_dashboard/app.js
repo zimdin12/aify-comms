@@ -13,6 +13,7 @@ function resolveApiOrigin() {
 
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
+const RUN_INSPECTOR_EVENT_LIMIT = 50;
 
 const state = {
   agents: [],
@@ -28,6 +29,7 @@ const state = {
   selectedSessionId: '',
   selectedSessionTab: 'chat',
   selectedSessionIds: new Set(),
+  inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
   filter: '',
   runStatusFilter: '',
 };
@@ -52,6 +54,7 @@ const flowAssertions = {
   sessions: () => Boolean(byId('session-rail') && byId('session-chat-thread') && typeof renderSessionWorkspace === 'function'),
   runs: () => Boolean(state.stats.dispatch_runs_by_status !== undefined || byId('run-status-filter')),
   workLoop: () => Boolean(byId('send-reminders') && typeof closeWorkContract === 'function'),
+  runInspector: () => Boolean(state.inspector.kind === 'run' && state.inspector.runId && byId('run-inspector-events') && byId('run-inspector-controls') && typeof resolveStatus === 'function'),
 };
 
 const flowGates = {
@@ -59,6 +62,7 @@ const flowGates = {
   sessions: { enabled: false, assertion: flowAssertions.sessions },
   runs: { enabled: false, assertion: flowAssertions.runs },
   workLoop: { enabled: false, assertion: flowAssertions.workLoop },
+  runInspector: { enabled: false, assertion: flowAssertions.runInspector },
 };
 
 const pages = {
@@ -301,7 +305,7 @@ function contractCard(contract) {
         </div>
       </div>
       <div class="contract-actions">
-        <button class="ghost" data-inspect="contract" data-id="${esc(contract.id)}">Inspect</button>
+        <button class="ghost" data-run-inspector="${esc(contract.id)}" data-run-source="work">Inspect</button>
         ${actionable ? `<button class="ghost" data-remind-contract="${esc(contract.id)}">Remind</button><button class="ghost danger" data-close-contract="${esc(contract.id)}">Close</button>` : ''}
       </div>
     </article>`;
@@ -389,6 +393,32 @@ function messagesForSession(session) {
     .slice(0, 50);
 }
 
+function messageId(message) {
+  return String(message?.id || message?.messageId || message?.message_id || '');
+}
+
+function messageRunId(message) {
+  return String(message?.dispatchRunId || message?.dispatch_run_id || message?.runId || message?.run_id || message?.contractRunId || message?.contract_run_id || '');
+}
+
+function runTargetAgent(run) {
+  return String(run?.targetAgentId || run?.target_agent || run?.agentId || run?.agent_id || '');
+}
+
+function sessionForAgent(agentId) {
+  return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
+}
+
+function sessionForRun(run) {
+  return sessionForAgent(runTargetAgent(run));
+}
+
+function runSourceMessage(run) {
+  const id = String(run?.messageId || run?.message_id || state.inspector.sourceMessageId || '').trim();
+  if (!id) return null;
+  return state.messages.find((message) => messageId(message) === id) || null;
+}
+
 function renderSessionBulkToolbar() {
   const toolbar = byId('session-bulk-toolbar');
   const ids = selectedSessionIds();
@@ -431,15 +461,22 @@ function renderSessionRail() {
 
 function renderSessionChat(session) {
   const messages = messagesForSession(session);
-  byId('session-chat-thread').innerHTML = messages.length ? messages.map((message) => `
-    <article class="message" data-kind="message" data-id="${esc(message.id || message.messageId)}">
+  byId('session-chat-thread').innerHTML = messages.length ? messages.map((message) => {
+    const runId = messageRunId(message);
+    const id = messageId(message);
+    return `
+    <article class="message" data-kind="message" data-id="${esc(id)}" id="message-${esc(id)}">
       <div class="item-title">
         <strong>${esc(message.from || 'unknown')}</strong>
-        ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')) })}
+        <span class="button-row">
+          ${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-run-source="chat" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}
+          ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')) })}
+        </span>
       </div>
       <h3>${esc(message.subject || '(no subject)')}</h3>
       <p class="preview">${esc(message.body || message.preview || '')}</p>
-    </article>`).join('') : '<div class="message">No loaded messages for this session yet.</div>';
+    </article>`;
+  }).join('') : '<div class="message">No loaded messages for this session yet.</div>';
 }
 
 function renderSessionConsole(session) {
@@ -560,7 +597,7 @@ function renderRuns() {
       <span>${esc(run.targetAgentId || run.target_agent || '')}</span>
       <div><strong class="clip">${esc(run.subject || run.id)}</strong><p class="preview">${esc(run.summary || run.error || '')}</p></div>
       <div class="run-actions">
-        <button class="ghost" data-inspect="run" data-id="${esc(run.id)}">Inspect</button>
+        <button class="ghost" data-run-inspector="${esc(run.id)}" data-run-source="runs">Inspect</button>
         ${['claimed', 'running'].includes(resolveStatus(run.status).kind) ? `<button class="ghost" data-steer-run="${esc(run.id)}">Steer</button>` : ''}
       </div>
     </article>`).join('') || '<div class="item">No runs loaded.</div>';
@@ -592,39 +629,181 @@ async function loadRunDetails(runId) {
   return result.run || result;
 }
 
-function renderRunInspection(run) {
-  const events = Array.isArray(run.events) ? run.events.slice(0, 200) : [];
-  const controls = Array.isArray(run.controls) ? run.controls.slice(0, 200) : [];
+async function loadRunEvents(runId, { before = '', order = state.inspector.eventOrder || 'desc', limit = RUN_INSPECTOR_EVENT_LIMIT } = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)));
+  params.set('order', order === 'asc' ? 'asc' : 'desc');
+  if (before) params.set('before', before);
+  return api(`/dispatch/runs/${encodeURIComponent(runId)}/events?${params.toString()}`);
+}
+
+function runStatusContext(run) {
+  const blockerReason = String(run?.blockedByActiveRun || run?.blockedBy || run?.error || '').trim();
+  return {
+    label: run?.status || 'unknown',
+    blockerReason,
+    badges: blockerReason && resolveStatus(run?.status).kind === 'blocked' ? ['blocked'] : [],
+  };
+}
+
+function runInspectorCapabilities(run, session = sessionForRun(run)) {
+  const statusKind = resolveStatus(run?.status).kind;
+  const active = ['claimed', 'running'].includes(statusKind);
+  const terminal = ['completed', 'failed', 'cancelled'].includes(statusKind);
+  const target = runTargetAgent(run);
+  return {
+    steer: Boolean(active),
+    interrupt: Boolean(active),
+    queueAfter: Boolean(target),
+    retry: Boolean(target),
+    close: Boolean(run?.id && !terminal),
+    openConsole: Boolean(session),
+  };
+}
+
+function runPendingControlCount(run) {
+  return (run?.controls || []).filter((control) => ['pending', 'claimed'].includes(String(control.status || '').toLowerCase())).length;
+}
+
+function renderEventBody(event) {
+  const body = String(event?.body || '');
+  if (!body) return '<p class="preview">No event body.</p>';
+  if (body.length > 160) {
+    return `<details><summary>Body</summary><p class="preview">${esc(body)}</p></details>`;
+  }
+  return `<p class="preview">${esc(body)}</p>`;
+}
+
+function renderRunEvent(event) {
+  const iso = event.createdAt || event.created_at || '';
   return `
-    <div class="inspector-summary">
-      <h3>${esc(run.subject || run.id)}</h3>
-      <p class="preview">${esc(run.targetAgentId || '')} · ${esc(run.from || '')}</p>
-      ${renderStatusChip(run.status)}
-    </div>
-    <pre>${esc(JSON.stringify(run, null, 2))}</pre>
-    <h3>Events (${events.length} most recent loaded)</h3>
-    <pre>${esc(JSON.stringify(events, null, 2))}</pre>
-    <h3>Controls (${controls.length} most recent loaded)</h3>
-    <pre>${esc(JSON.stringify(controls, null, 2))}</pre>`;
+    <article class="run-event">
+      <div class="item-title">
+        <time title="${esc(iso)}">${esc(relTime(iso) || 'now')}</time>
+        <span class="event-chip">${esc(event.eventType || event.type || 'event')}</span>
+      </div>
+      ${renderEventBody(event)}
+    </article>`;
+}
+
+function renderRunInspectorControls(run) {
+  const session = sessionForRun(run);
+  const capabilities = runInspectorCapabilities(run, session);
+  const disabled = (enabled) => enabled ? '' : ' disabled';
+  return `
+    <div id="run-inspector-controls" class="run-inspector-controls">
+      <button class="ghost" data-run-control="steer"${disabled(capabilities.steer)} title="Steer">Steer</button>
+      <button class="ghost danger" data-run-control="interrupt"${disabled(capabilities.interrupt)} title="Interrupt">Interrupt</button>
+      <button class="ghost" data-run-control="queue-after"${disabled(capabilities.queueAfter)} title="Queue-after">Queue-after</button>
+      <button class="ghost danger" data-run-control="retry"${disabled(capabilities.retry)} title="Retry">Retry</button>
+      <button class="ghost danger" data-run-control="close"${disabled(capabilities.close)} title="Close">Close</button>
+      <button class="primary" data-run-control="open-console"${disabled(capabilities.openConsole)} title="Open Console">Open Console</button>
+    </div>`;
+}
+
+function renderRunInspector() {
+  const run = state.inspector.run;
+  if (!run) {
+    byId('inspector-content').innerHTML = '<div class="run-inspector-loading">Loading run inspector...</div>';
+    return;
+  }
+  const statusContext = runStatusContext(run);
+  const sourceMessage = runSourceMessage(run);
+  const sourceSubject = sourceMessage?.subject || run.subject || '(no subject)';
+  const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';
+  const events = state.inspector.events || [];
+  const startedAt = run.startedAt || run.claimedAt || run.requestedAt;
+  const duration = startedAt ? `${relTime(startedAt)} elapsed` : 'duration unknown';
+  byId('inspector-content').innerHTML = `
+    <section class="run-inspector">
+      <header class="run-inspector-header">
+        <div>
+          <small>Run</small>
+          <h3 class="clip">${esc(run.id)}</h3>
+        </div>
+        <button class="ghost" data-copy-run-id="${esc(run.id)}">Copy ID</button>
+        <span>${esc(runTargetAgent(run) || 'unassigned')}</span>
+        <span class="session-runtime-badge">${esc(run.runtime || run.requestedRuntime || 'runtime')}</span>
+        ${renderStatusChip(run.status, statusContext)}
+      </header>
+      <div class="run-why-line">
+        <span>${esc(run.from || 'unknown')} triggered</span>
+        <span>${esc(startedAt || 'not started')}</span>
+        <span>${esc(duration)}</span>
+        ${statusContext.blockerReason ? `<span>${esc(statusContext.blockerReason)}</span>` : ''}
+      </div>
+      <section class="run-source-context">
+        <div>
+          <strong class="clip">${esc(sourceSubject)}</strong>
+          <p class="preview">${esc(sourceBody).slice(0, 180)}</p>
+        </div>
+        ${sourceMessage ? `<button class="ghost" data-open-thread-message="${esc(messageId(sourceMessage))}">Open in thread</button>` : ''}
+      </section>
+      <div class="section-head">
+        <h3>Event timeline</h3>
+        <button class="ghost" id="run-inspector-order-toggle">${state.inspector.eventOrder === 'desc' ? 'Newest first' : 'Oldest first'}</button>
+      </div>
+      <div id="run-inspector-events" class="run-event-list">
+        ${events.length ? events.map(renderRunEvent).join('') : '<div class="item">No events for this run yet.</div>'}
+      </div>
+      <div class="run-inspector-footer">
+        <span>Showing ${events.length} most recent${state.inspector.hasMore ? ' — load more' : ''}</span>
+        ${state.inspector.hasMore ? '<button class="ghost" id="run-inspector-load-more">Load more</button>' : ''}
+      </div>
+      ${renderRunInspectorControls(run)}
+    </section>`;
+  evaluateFlowGates();
+}
+
+async function openRunInspector({ runId, source = 'programmatic', sourceMessageId = '' } = {}) {
+  if (!runId) return;
+  state.inspector = { kind: 'run', runId: String(runId), source, run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId };
+  openInspector({ kind: 'run', runId, source });
+  renderRunInspector();
+  try {
+    const [run, eventPage] = await Promise.all([
+      loadRunDetails(runId),
+      loadRunEvents(runId, { limit: RUN_INSPECTOR_EVENT_LIMIT }),
+    ]);
+    state.inspector.run = run;
+    state.inspector.events = eventPage.events || [];
+    state.inspector.hasMore = Boolean(eventPage.hasMore);
+    renderRunInspector();
+  } catch (error) {
+    byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;
+  }
 }
 
 async function inspect(kind, payload) {
+  if (kind === 'run') {
+    await openRunInspector({ runId: payload, source: 'generic' });
+    return;
+  }
   const data = typeof payload === 'string'
-    ? (kind === 'run' ? await loadRunDetails(payload) : lookup(kind, payload))
+    ? lookup(kind, payload)
     : payload;
-  byId('inspector-content').innerHTML = kind === 'run' && data
-    ? renderRunInspection(data)
-    : `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
+  state.inspector = { kind, runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
+  byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
   openInspector();
 }
 
-function openInspector() {
-  byId('inspector')?.classList.add('open');
+function openInspector(request) {
+  if (request && request.kind === 'run' && request.runId && state.inspector.runId !== String(request.runId)) {
+    openRunInspector(request);
+    return;
+  }
+  const inspector = byId('inspector');
+  inspector?.classList.add('open');
+  inspector?.classList.toggle('run-inspector-sheet', state.inspector.kind === 'run' || request?.kind === 'run');
 }
 
 function closeInspector() {
-  byId('inspector')?.classList.remove('open');
+  const inspector = byId('inspector');
+  inspector?.classList.remove('open');
+  inspector?.classList.remove('run-inspector-sheet');
+  state.inspector = { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
   byId('inspector-content').textContent = 'Select an item to inspect details.';
+  evaluateFlowGates();
 }
 
 function setNavCollapsed(collapsed) {
@@ -648,7 +827,7 @@ async function requestRunControl(runId) {
     method: 'POST',
     body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
   });
-  await inspect('run', runId);
+  await openRunInspector({ runId, source: 'runs' });
 }
 
 async function requestSessionControl(sessionId, action, confirmAction = true, refreshAfter = true) {
@@ -703,6 +882,131 @@ async function closeWorkContract(runId) {
 async function remindWorkContract(runId) {
   await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
   await refresh();
+}
+
+function openMessageThread(messageIdValue) {
+  const message = state.messages.find((item) => messageId(item) === String(messageIdValue));
+  if (!message) return;
+  const agentId = message.from === 'dashboard' ? message.to : message.from;
+  const session = sessionForAgent(agentId) || selectedSession();
+  if (session) {
+    state.selectedSessionId = sessionId(session);
+    state.selectedConversation = sessionAgentId(session) || 'dashboard';
+  }
+  state.selectedSessionTab = 'chat';
+  setPage('sessions');
+  renderSessionWorkspace();
+  setTimeout(() => {
+    document.getElementById(`message-${messageId(message)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 50);
+}
+
+function openRunConsole(run) {
+  const session = sessionForRun(run);
+  if (!session) return;
+  state.selectedSessionId = sessionId(session);
+  state.selectedConversation = sessionAgentId(session) || 'dashboard';
+  state.selectedSessionTab = 'console';
+  setPage('sessions');
+  renderSessionWorkspace();
+  closeInspector();
+}
+
+async function sendRunFollowup(run, { retry = false, body = '' } = {}) {
+  const target = runTargetAgent(run);
+  if (!target) return;
+  const text = body || run.body || run.summary || run.subject || `Follow-up for ${run.id}`;
+  await sendMessageWithTimeout({
+    from_agent: 'dashboard',
+    to: target,
+    type: run.type || 'request',
+    priority: run.priority || 'normal',
+    subject: retry ? `Retry: ${run.subject || run.id}` : `Queue after ${run.id}`,
+    body: text,
+    trigger: true,
+    queueIfBusy: true,
+    requireReply: true,
+    inReplyTo: run.messageId || run.message_id || '',
+  });
+}
+
+async function handleRunInspectorControl(action) {
+  const run = state.inspector.run;
+  if (!run?.id || !action) return;
+  const capabilities = runInspectorCapabilities(run);
+  const enabled = {
+    steer: capabilities.steer,
+    interrupt: capabilities.interrupt,
+    'queue-after': capabilities.queueAfter,
+    retry: capabilities.retry,
+    close: capabilities.close,
+    'open-console': capabilities.openConsole,
+  };
+  if (!enabled[action]) return;
+  if (action === 'open-console') {
+    openRunConsole(run);
+    return;
+  }
+  if (action === 'steer') {
+    const body = prompt('Steer this active run');
+    if (!body) return;
+    await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
+    });
+  } else if (action === 'interrupt') {
+    if (!confirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ from_agent: 'dashboard', action: 'interrupt', body: 'Interrupted from Dashboard Next run inspector.' }),
+    });
+  } else if (action === 'queue-after') {
+    const body = prompt('Queue a follow-up after this run');
+    if (!body) return;
+    await sendRunFollowup(run, { body });
+  } else if (action === 'retry') {
+    if (!confirm(`Retry this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    await sendRunFollowup(run, { retry: true });
+  } else if (action === 'close') {
+    if (!confirm('Close this run as operator-reviewed?')) return;
+    await patchRun(run.id, {
+      status: 'completed',
+      requireReply: false,
+      summary: 'Closed from run inspector by dashboard operator.',
+      appendEvent: 'Closed from run inspector by dashboard operator.',
+      eventType: 'operator_closed',
+    });
+  }
+  await refresh();
+  await openRunInspector({ runId: run.id, source: state.inspector.source || 'control', sourceMessageId: state.inspector.sourceMessageId || '' });
+}
+
+async function loadMoreRunEvents() {
+  if (!state.inspector.runId || state.inspector.loadingMore) return;
+  state.inspector.loadingMore = true;
+  const last = state.inspector.events[state.inspector.events.length - 1];
+  try {
+    const page = await loadRunEvents(state.inspector.runId, {
+      before: last?.id || '',
+      order: state.inspector.eventOrder,
+      limit: RUN_INSPECTOR_EVENT_LIMIT,
+    });
+    state.inspector.events = [...state.inspector.events, ...(page.events || [])];
+    state.inspector.hasMore = Boolean(page.hasMore);
+    renderRunInspector();
+  } finally {
+    state.inspector.loadingMore = false;
+  }
+}
+
+async function toggleRunEventOrder() {
+  if (!state.inspector.runId) return;
+  state.inspector.eventOrder = state.inspector.eventOrder === 'desc' ? 'asc' : 'desc';
+  state.inspector.events = [];
+  const page = await loadRunEvents(state.inspector.runId, { order: state.inspector.eventOrder, limit: RUN_INSPECTOR_EVENT_LIMIT });
+  state.inspector.events = page.events || [];
+  state.inspector.hasMore = Boolean(page.hasMore);
+  renderRunInspector();
 }
 
 function openClassic(anchor = '') {
@@ -808,6 +1112,39 @@ document.addEventListener('click', (event) => {
     state.selectedConversation = conversation;
     renderConversations();
   }
+  const runChip = event.target.closest('[data-run-chip]');
+  if (runChip) {
+    openRunInspector({ runId: runChip.dataset.runChip, source: 'chat', sourceMessageId: runChip.dataset.messageId || '' });
+    return;
+  }
+  const runInspectorButton = event.target.closest('[data-run-inspector]');
+  if (runInspectorButton) {
+    openRunInspector({ runId: runInspectorButton.dataset.runInspector, source: runInspectorButton.dataset.runSource || 'programmatic' });
+    return;
+  }
+  const runControlButton = event.target.closest('[data-run-control]');
+  if (runControlButton) {
+    handleRunInspectorControl(runControlButton.dataset.runControl);
+    return;
+  }
+  const copyRunButton = event.target.closest('[data-copy-run-id]');
+  if (copyRunButton) {
+    navigator.clipboard?.writeText(copyRunButton.dataset.copyRunId || '');
+    return;
+  }
+  const threadButton = event.target.closest('[data-open-thread-message]');
+  if (threadButton) {
+    openMessageThread(threadButton.dataset.openThreadMessage);
+    return;
+  }
+  if (event.target.closest('#run-inspector-load-more')) {
+    loadMoreRunEvents();
+    return;
+  }
+  if (event.target.closest('#run-inspector-order-toggle')) {
+    toggleRunEventOrder();
+    return;
+  }
   const inspectButton = event.target.closest('[data-inspect]');
   if (inspectButton) inspect(inspectButton.dataset.inspect, inspectButton.dataset.id);
   const closeContractButton = event.target.closest('[data-close-contract]');
@@ -892,6 +1229,16 @@ byId('close-inspector').addEventListener('click', closeInspector);
 byId('toggle-nav').addEventListener('click', () => {
   setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));
 });
+let inspectorTouchStartY = 0;
+byId('inspector').addEventListener('touchstart', (event) => {
+  inspectorTouchStartY = event.touches?.[0]?.clientY || 0;
+}, { passive: true });
+byId('inspector').addEventListener('touchend', (event) => {
+  const endY = event.changedTouches?.[0]?.clientY || 0;
+  if (byId('inspector')?.classList.contains('run-inspector-sheet') && endY - inspectorTouchStartY > 70) {
+    closeInspector();
+  }
+}, { passive: true });
 
 updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());

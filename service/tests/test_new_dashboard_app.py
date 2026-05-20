@@ -179,6 +179,36 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn(".session-bulk-toolbar", styles)
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.session-shell\s*\{[^}]*grid-template-columns:\s*1fr")
 
+    def test_universal_run_inspector_contract(self):
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+
+        self.assertIn("inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false", script)
+        self.assertIn("runInspector: () => Boolean", script)
+        self.assertIn("runInspector: { enabled: false, assertion: flowAssertions.runInspector }", script)
+        self.assertIn("function openInspector(request)", script)
+        self.assertIn("function openRunInspector", script)
+        self.assertIn("function renderRunInspector", script)
+        self.assertIn("function loadRunEvents", script)
+        self.assertIn("RUN_INSPECTOR_EVENT_LIMIT = 50", script)
+        self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}/events", script)
+        self.assertIn("params.set('limit', String(Math.min(limit, RUN_INSPECTOR_EVENT_LIMIT)))", script)
+        self.assertIn("source: 'chat'", script)
+        self.assertIn("data-run-chip", script)
+        self.assertIn("data-run-inspector", script)
+        self.assertIn("renderStatusChip(run.status", script)
+        self.assertIn("function runInspectorCapabilities", script)
+        for action in ["steer", "interrupt", "queue-after", "retry", "close", "open-console"]:
+            self.assertIn(f'data-run-control="{action}"', script)
+        self.assertIn("/dispatch/runs/${encodeURIComponent(run.id)}/control", script)
+        self.assertIn("/messages/send", script)
+        self.assertIn("patchRun(run.id", script)
+        self.assertIsNone(re.search(r"/contracts/[^'\"]+/(close|cancel|delete)", script))
+        self.assertIn("state.selectedSessionTab = 'console'", script)
+        self.assertNotIn("run-inspector-console", script)
+        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.run-inspector-sheet")
+        self.assertRegex(styles, r"\.run-inspector-controls\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0")
+
 
 if __name__ == "__main__":
     unittest.main()
