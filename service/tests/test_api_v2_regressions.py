@@ -1701,6 +1701,41 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_managed_claude_channel_eligible_bypasses_managed_run_cap_check(self):
+        # Deep-test caught this: managed claude with channelEnabled=true
+        # uses the channel transport (claude-channel.js inside the
+        # wrapper PTY) — it has no native managed-run API. Default
+        # capabilities for managed claude omit "managed-run" by design.
+        # Without this skip, _agent_execution_mode would reject the
+        # dispatch with "agent capabilities do not include managed-run"
+        # even though channel-only routing should deliver fine.
+        from service.routers.api_v2 import _agent_execution_mode
+        managed_claude_channel = {
+            "id": "test-claude-channel",
+            "runtime": "claude-code",
+            "session_mode": "managed",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["resume", "interrupt", "spawn"]',
+            "runtime_config": '{"channelEnabled": true}',
+        }
+        # Simulate the sqlite Row contract — row[k] + 'keys()'.
+        class _R(dict):
+            def keys(self): return super().keys()
+        row = _R(managed_claude_channel)
+        execution_mode, error = _agent_execution_mode(row)
+        self.assertEqual(error, None, f"channel-eligible managed claude must NOT be rejected for missing managed-run; got error={error}")
+        self.assertEqual(execution_mode, "channel", f"managed claude with channelEnabled must route channel; got {execution_mode}")
+
+        # Inverse: managed claude WITHOUT channelEnabled and WITHOUT
+        # managed-run still rejected — protects against accidentally
+        # opening a non-channel managed path that has no delivery.
+        managed_claude_no_channel = dict(managed_claude_channel)
+        managed_claude_no_channel["runtime_config"] = "{}"
+        execution_mode2, error2 = _agent_execution_mode(_R(managed_claude_no_channel))
+        self.assertEqual(execution_mode2, None)
+        self.assertIn("managed-run", error2 or "")
+
     def test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running(self):
         # Slices 1/2/4: when managed_pty_eager_spawn is on AND
         # managed_terminal_backing_enabled is on, the wrapper PTY is

@@ -868,7 +868,19 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
     if session_mode == "managed":
         if (row["launch_mode"] or "detached") == "none":
             return None, "launch mode is disabled"
-        if capabilities and "managed-run" not in capabilities:
+        # Managed claude with channelEnabled=true uses the channel
+        # transport, not the headless managed-run API (claude doesn't
+        # have a true headless managed-run). The wrapper-PTY-hosted
+        # claude-channel.js delivers via channel notifications. Skip
+        # the managed-run cap check for that path; the dispatch flows
+        # through execution_mode='channel' below.
+        runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+        _channel_eligible = (
+            runtime in _CHANNEL_MANAGED_RUNTIMES
+            and isinstance(runtime_config, dict)
+            and bool(runtime_config.get("channelEnabled"))
+        )
+        if capabilities and "managed-run" not in capabilities and not _channel_eligible:
             return None, 'agent capabilities do not include "managed-run"'
         if runtime in _CHANNEL_MANAGED_RUNTIMES:
             return "channel", None
@@ -4925,6 +4937,11 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             steer=True,
             require_reply=False,
         )
+        # Auto-mirrored handoff dispatches for managed claude must also
+        # honor claude_managed_channel_only — same parity fix as the
+        # spawn-time path above.
+        settings_for_handoff = await _load_settings(db)
+        await _apply_channel_only_to_claude_runs(db, delivery_runs, settings_for_handoff)
         delivery_runs = await _finalize_dispatch_runs(
             db,
             delivery_runs,
@@ -6041,6 +6058,12 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     message_id=None,
                     require_reply=True,
                 )
+                # Spawn-time initial-message dispatches for managed claude
+                # must honor claude_managed_channel_only (deep-test caught
+                # this: e2e-test-claude run stayed execution_mode='managed'
+                # so claude-channel.js never claimed it).
+                settings_for_runs = await _load_settings(db)
+                await _apply_channel_only_to_claude_runs(db, runs, settings_for_runs)
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
 
