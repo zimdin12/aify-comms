@@ -53,6 +53,20 @@ import { terminalChildEnv } from "./terminal-env.js";
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
 
+// Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
+// `omp --mode rpc --resume <session>`), that child inherits the aify
+// MCP env and would otherwise spawn its OWN `mcp/stdio/server.js` that
+// registers as the same agent and supersedes the resident bridge while
+// in-flight work is owned by the parent. The parent sets AIFY_BRIDGE_DISABLED=1
+// when spawning the child; this guard exits cleanly before any bridge
+// registration or claim polling. The child's MCP transport is unused in
+// RPC mode, so exiting here is benign.
+if (String(process.env.AIFY_BRIDGE_DISABLED || "").trim() === "1") {
+  // No registration. No polling. No file writes. The RPC child does not
+  // need an MCP server — it talks to the parent bridge via stdio pipes.
+  process.exit(0);
+}
+
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const DEFAULT_CWD = process.cwd();

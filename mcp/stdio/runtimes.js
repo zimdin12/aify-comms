@@ -309,7 +309,20 @@ const ENVIRONMENT_BRIDGE_ENV_KEYS = [
 ];
 
 export function runtimeChildEnv(extraEnv = {}) {
-  const env = { ...process.env, ...(extraEnv || {}) };
+  // Defense-in-depth for the resident-re-register / nested-RPC-child bug:
+  // every runtime adapter child process inherits the aify MCP env and
+  // could otherwise spawn its OWN mcp/stdio/server.js that registers as
+  // the same agent and supersedes the parent bridge. We default
+  // AIFY_BRIDGE_DISABLED=1 and clear AIFY_AGENT_ID for every runtime
+  // child so the inherited server.js (if any) exits cleanly at startup
+  // instead of registering. Runtime-agnostic — applies to codex, pi,
+  // hermes, opencode, and any future runtime spawn.
+  const env = {
+    ...process.env,
+    AIFY_BRIDGE_DISABLED: "1",
+    AIFY_AGENT_ID: "",
+    ...(extraEnv || {}),
+  };
   for (const key of ENVIRONMENT_BRIDGE_ENV_KEYS) {
     delete env[key];
   }
@@ -2721,6 +2734,12 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
 
     const startAttempt = () => {
       const args = buildArgs();
+      // runtimeChildEnv (called by spawnProcess) sets AIFY_BRIDGE_DISABLED=1
+      // and clears AIFY_AGENT_ID by default for ALL runtime children, so a
+      // nested `mcp/stdio/server.js` inheriting aify env exits cleanly at
+      // startup instead of registering as a sibling bridge for the same
+      // agent. Pi RPC was the operator-reported case but the fix is
+      // runtime-agnostic.
       proc = spawnProcess(launcher.command, args, { cwd });
       proc.stdin?.on?.("error", () => {});
       callbacks.onEvent?.("thread", `Started ${executionMode} Pi RPC runtime${sessionId ? ` for session ${sessionId}` : ""}`);
