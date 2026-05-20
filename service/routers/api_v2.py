@@ -136,6 +136,17 @@ DEFAULT_SETTINGS = {
     # as wake-up events, so live-smoke under this flag confirms the new
     # behavior before flipping the default.
     "claude_managed_channel_only": False,
+    # Slices 1/2/4 (proactive wrapper-PTY at spawn-request completion).
+    # When true AND managed_terminal_backing_enabled is also true, the
+    # service eagerly launches the agent's wrapper PTY at spawn-request
+    # transition to "running" — the console pre-exists by the time the
+    # first dispatch arrives, no "console pop-up on first send" UI
+    # symptom, and subsequent dispatches reuse via slice-3's
+    # console-attach reuse + the existing dispatch _active_terminal_for_agent.
+    # Default false so existing behavior (PTY lazily on first dispatch)
+    # is unchanged. Operator flips on for live-smoke; immediate
+    # rollback by flipping back to false.
+    "managed_pty_eager_spawn": False,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
@@ -6027,6 +6038,35 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 )
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
+
+            # Slices 1/2/4 (architectural): when managed_terminal_backing
+            # is enabled, proactively launch the wrapper PTY for this
+            # newly-registered managed agent. The wrapper stays alive
+            # across dispatches; subsequent sends reuse it via slice 3's
+            # console-attach reuse + the existing
+            # _active_terminal_for_agent lookup in
+            # _ensure_managed_pty_for_dispatch. Operator-visible win: no
+            # "console pops up when I send" — the console pre-exists by
+            # the time the first dispatch arrives. Best-effort: a
+            # wrapper-launch failure here does NOT fail the spawn-request
+            # running transition (the dispatch path's lazy spawn is the
+            # fallback).
+            settings_for_pty = await _load_settings(db)
+            if (
+                _managed_terminal_backing_enabled(settings_for_pty)
+                and bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
+            ):
+                try:
+                    await _ensure_managed_pty_for_dispatch(
+                        db,
+                        row["agent_id"],
+                        runtime=row["runtime"],
+                        settings=settings_for_pty,
+                        requested_by="spawn-request",
+                    )
+                except Exception:
+                    # The dispatch path's lazy spawn is our fallback.
+                    pass
 
         await db.execute(
             """

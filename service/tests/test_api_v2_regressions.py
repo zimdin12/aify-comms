@@ -1701,6 +1701,46 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running(self):
+        # Slices 1/2/4: when managed_pty_eager_spawn is on AND
+        # managed_terminal_backing_enabled is on, the wrapper PTY is
+        # created the moment the spawn-request transitions to running.
+        # Operator-visible effect: console pre-exists by the time the
+        # first dispatch arrives, so no "console pops up when I send"
+        # UI symptom. Subsequent sends reuse via slice-3's
+        # console-attach reuse + the dispatch _active_terminal_for_agent
+        # lookup in _ensure_managed_pty_for_dispatch.
+        self.client.put("/api/v1/settings", json={"managed_pty_eager_spawn": True})
+        # Run the standard spawn-request->running flow via _create_running_session.
+        session_id = self._create_running_session(terminal=True)
+        # A terminal_session for this agent now exists eagerly.
+        terminals = self._fetchall(
+            "SELECT id, status FROM terminal_sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        self.assertEqual(
+            len(terminals), 1,
+            f"eager spawn must create exactly one terminal_session at spawn-request running; got {[dict(r) for r in terminals]}",
+        )
+        # The agent_session points at it.
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(sess["terminal_id"], terminals[0]["id"])
+
+    def test_managed_pty_eager_spawn_default_off_preserves_prior_behavior(self):
+        # Contract guard: the flag is OFF by default. Existing behavior
+        # (PTY lazily on first dispatch) must be preserved so we don't
+        # surprise current operators.
+        # NO setting put -> default false.
+        session_id = self._create_running_session(terminal=True)
+        terminals = self._fetchall(
+            "SELECT id FROM terminal_sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        self.assertEqual(
+            len(terminals), 0,
+            f"with eager-spawn off, no terminal_session must exist at spawn-request running; got {[dict(r) for r in terminals]}",
+        )
+
     def test_console_start_reuses_existing_live_terminal_session(self):
         # Slice 3: clicking Start Console (or auto-attaching via the
         # dashboard) on a session that already has a live wrapper PTY
