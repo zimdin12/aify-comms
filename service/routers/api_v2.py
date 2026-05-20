@@ -4002,13 +4002,25 @@ async def _discard_unclaimable_active_run(db, recipient_id: str, active_run: dic
                 )
 
     if current_agent_bridge and current_agent_bridge != owner_bridge_id and not channel_owned:
-        return await _fail_stale_active_run(
-            db,
-            active_run,
-            reason=f'Active run owner bridge "{owner_bridge_id}" is not the current agent bridge "{current_agent_bridge}".',
-            summary=f'Active run failed because bridge "{owner_bridge_id}" was replaced by "{current_agent_bridge}". Retry after the current bridge is stable.',
-            event_body=f"Stale active run cleaned before send: {owner_bridge_id} -> {current_agent_bridge}",
+        # Scope-narrow: don't fail the run just because the agent's stored
+        # bridgeInstanceId changed. With same-logical-owner re-register
+        # (slice 4dbb2e2) the prior bridge stays NOT-superseded; it's still
+        # a valid owner. Only fail when the owner bridge has actually been
+        # superseded — that's a real ownership change.
+        owner_state_cursor = await db.execute(
+            "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            (owner_bridge_id, recipient_id),
         )
+        owner_state = await owner_state_cursor.fetchone()
+        owner_is_superseded = bool(owner_state and str(owner_state["superseded_by"] or "").strip())
+        if owner_is_superseded:
+            return await _fail_stale_active_run(
+                db,
+                active_run,
+                reason=f'Active run owner bridge "{owner_bridge_id}" is not the current agent bridge "{current_agent_bridge}".',
+                summary=f'Active run failed because bridge "{owner_bridge_id}" was replaced by "{current_agent_bridge}". Retry after the current bridge is stable.',
+                event_body=f"Stale active run cleaned before send: {owner_bridge_id} -> {current_agent_bridge}",
+            )
 
     bridge_cursor = await db.execute(
         "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",

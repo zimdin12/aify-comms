@@ -4578,6 +4578,76 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight run was killed by same-session re-register: {dict(run)}")
 
+    def test_active_run_with_non_superseded_owner_bridge_survives_current_bridge_change(self):
+        # Companion to test_same_logical_owner_reregister_*. The stale-active
+        # discard path (_discard_unclaimable_active_run) used to fail an
+        # active run whenever the agent's current bridgeInstanceId differed
+        # from the run's owner_bridge_id, even if the owner bridge was still
+        # the valid logical owner (not superseded). Live-smoke failure mode:
+        # codex/pi PTY dispatch after a same-session re-register cancelled
+        # the run with "is not the current agent bridge". Scope-narrowed:
+        # only fail when the owner bridge is actually superseded.
+        self._heartbeat_environment()
+        self._register(
+            "discard-scope-agent",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="codex-thread-Z",
+            bridgeId="owner-bridge",
+            machineId="linux:test-host",
+            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+        )
+        self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "discard-scope-agent",
+                "bridgeId": "owner-bridge",
+                "machineId": "linux:test-host",
+                "executionModes": ["managed"],
+            },
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="discard-scope-agent",
+            type="request",
+            subject="active run",
+            body="will survive bridge-id change without supersession",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["runs"][0]["runId"]
+        self._execute(
+            "UPDATE dispatch_runs SET status='running', claim_bridge_id=?, claim_machine_id=? WHERE id=?",
+            ("owner-bridge", "linux:test-host", run_id),
+        )
+        # Simulate: agent's current bridgeInstanceId moved to a different id
+        # WITHOUT superseding the owner bridge (this is what happens on a
+        # same-logical-owner re-register after slice 4dbb2e2).
+        import json as _json
+        self._execute(
+            "UPDATE agents SET runtime_state=? WHERE id=?",
+            (
+                _json.dumps({"bridgeInstanceId": "new-current-bridge", "environmentId": "linux:test-host:default"}),
+                "discard-scope-agent",
+            ),
+        )
+        # Now send another message. The discard path runs; with the
+        # scope-narrowing, the owner-bridge run must NOT be failed because
+        # owner-bridge is still not-superseded.
+        self._send_message(
+            from_agent="dashboard",
+            to="discard-scope-agent",
+            type="info",
+            subject="ping",
+            body="should not kill in-flight",
+        )
+        run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertEqual(
+            run["status"], "running",
+            f"in-flight run was killed by stale-active-discard despite owner bridge still being valid: {dict(run)}",
+        )
+
     def test_different_session_handle_reregister_still_supersedes_and_fails_run(self):
         # Contract guard for the opposite case: a genuinely different logical
         # owner (different session_handle) still supersedes and fails the
