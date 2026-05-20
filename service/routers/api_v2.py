@@ -128,6 +128,14 @@ DEFAULT_SETTINGS = {
     "managed_claude_effort": "high",
     "console_auto_confirm_claude_dev_channels": False,
     "managed_terminal_backing_enabled": True,
+    # When true, managed claude-code sends bypass _ensure_managed_pty_for_dispatch
+    # and create execution_mode='channel' dispatch_runs claimed by the
+    # claude-channel bridge. Default false because the previous design choice
+    # was that channel notifications didn't reliably create model turns;
+    # the aify-comms-channel MCP server now instructs Claude to treat them
+    # as wake-up events, so live-smoke under this flag confirms the new
+    # behavior before flipping the default.
+    "claude_managed_channel_only": False,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
@@ -190,6 +198,41 @@ _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
+
+
+def _claude_managed_channel_only(settings: dict[str, Any]) -> bool:
+    """Whether managed claude-code sends bypass the PTY and route as
+    execution_mode='channel' dispatch_runs claimed by claude-channel.js.
+    Default false; operator-controlled live-smoke gate to verify the
+    channel path actually wakes the model before flipping the default."""
+    return bool(settings.get("claude_managed_channel_only", DEFAULT_SETTINGS["claude_managed_channel_only"]))
+
+
+async def _apply_channel_only_to_claude_runs(db, runs, settings: dict[str, Any]) -> None:
+    """Post-create patch: when claude_managed_channel_only=true, force the
+    execution_mode of dispatch_runs targeting managed claude-code agents
+    from 'managed' to 'channel' so claude-channel.js claims them instead
+    of the generic managed worker. Idempotent; skips when setting is off."""
+    if not _claude_managed_channel_only(settings):
+        return
+    run_ids = [str(run.get("runId") or "") for run in (runs or []) if run and run.get("runId")]
+    if not run_ids:
+        return
+    placeholders = ",".join("?" for _ in run_ids)
+    await db.execute(
+        f"""
+        UPDATE dispatch_runs
+        SET execution_mode = 'channel'
+        WHERE id IN ({placeholders})
+          AND execution_mode != 'channel'
+          AND target_agent IN (
+            SELECT id FROM agents
+            WHERE LOWER(COALESCE(runtime, '')) = 'claude-code'
+              AND session_mode = 'managed'
+          )
+        """,
+        run_ids,
+    )
 
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
@@ -8125,11 +8168,20 @@ async def send_message(req: MessageSend, request: Request):
                             continue
                     continue
                 # Claude channel notifications are visible in Claude Code,
-                # but do not create a reliable model turn. Managed Claude
-                # dashboard chat therefore uses the claude-aify PTY backing
-                # as the single visible session and injects the formatted
-                # dashboard message there.
-                if runtime in _CHANNEL_MANAGED_RUNTIMES and _execution_mode == "channel":
+                # but historically did not reliably create a model turn —
+                # so managed Claude dashboard chat used the claude-aify PTY
+                # backing and injected the formatted message there.
+                # When claude_managed_channel_only is on, skip the PTY
+                # routing for claude-code entirely: the dispatch_run stays
+                # launchable and gets execution_mode='channel' (see
+                # _apply_channel_only_to_claude_runs after
+                # _create_dispatch_runs) so claude-channel.js claims it
+                # and emits the message as a channel wake-up event.
+                if (
+                    runtime in _CHANNEL_MANAGED_RUNTIMES
+                    and _execution_mode == "channel"
+                    and not _claude_managed_channel_only(settings)
+                ):
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
                         console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -8254,6 +8306,7 @@ async def send_message(req: MessageSend, request: Request):
                 require_reply=require_reply,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
+            await _apply_channel_only_to_claude_runs(db, dispatch_runs, settings)
 
         console_deliveries = []
         if req.trigger:
@@ -8818,7 +8871,10 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode == "channel":
                         reason = await _managed_environment_unavailable_reason(db, row)
-                    if not reason and execution_mode == "channel":
+                    if not reason and execution_mode == "channel" and not _claude_managed_channel_only(settings):
+                        # PTY path (legacy default). Skipped when channel-only
+                        # is enabled — run stays launchable and gets
+                        # execution_mode='channel' via the post-create patch.
                         console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                         if not console_terminal:
                             console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -8912,6 +8968,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 require_reply=require_reply,
             )
             runs = await _finalize_dispatch_runs(db, runs, launchable_recipients, not_started)
+            await _apply_channel_only_to_claude_runs(db, runs, settings)
 
         console_deliveries = []
         for recipient_id, terminal in console_recipients.items():

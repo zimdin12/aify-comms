@@ -4578,6 +4578,52 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight run was killed by same-session re-register: {dict(run)}")
 
+    def test_claude_managed_channel_only_routes_dispatch_as_channel_execution_mode(self):
+        # Operator-requested: managed Claude should deliver via channels,
+        # not via service-created terminal-input injection. Gated behind
+        # claude_managed_channel_only (default false) for a controlled
+        # live-smoke. When true, managed claude-code sends skip the PTY
+        # routing entirely and the resulting dispatch_run carries
+        # execution_mode='channel' so claude-channel.js claims it.
+        self.client.put("/api/v1/settings", json={"claude_managed_channel_only": True})
+        self._heartbeat_environment(
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+            runtimes=[{"runtime": "claude-code", "available": True, "supportsTerminal": True}],
+        )
+        self._register(
+            "claude-channel-only",
+            runtime="claude-code",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="claude-thread-1",
+            machineId="linux:test-host",
+            bridgeId="claude-bridge",
+            capabilities=["managed-run", "channel", "resume", "interrupt", "steer"],
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="claude-channel-only",
+            type="request",
+            subject="channel-only",
+            body="route via channel not PTY",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertTrue(dispatched["runs"], f"expected a launchable dispatch_run, got {dispatched}")
+        self.assertEqual(
+            dispatched.get("consoleDeliveries", []),
+            [],
+            f"channel-only must skip PTY routing; got console deliveries {dispatched.get('consoleDeliveries')}",
+        )
+        run_id = dispatched["runs"][0]["runId"]
+        run = self._fetchone("SELECT execution_mode, dispatch_mode FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertEqual(
+            run["execution_mode"], "channel",
+            f"channel-only must produce execution_mode='channel' so claude-channel.js claims it; got {dict(run)}",
+        )
+
     def test_active_run_with_non_superseded_owner_bridge_survives_current_bridge_change(self):
         # Companion to test_same_logical_owner_reregister_*. The stale-active
         # discard path (_discard_unclaimable_active_run) used to fail an
