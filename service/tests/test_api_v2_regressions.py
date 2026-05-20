@@ -1701,6 +1701,57 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_console_start_reuses_existing_live_terminal_session(self):
+        # Slice 3: clicking Start Console (or auto-attaching via the
+        # dashboard) on a session that already has a live wrapper PTY
+        # must REUSE that terminal_session instead of spawning a fresh
+        # one. Operator symptom we're killing: every dashboard
+        # interaction respawns a console pop-up even when the wrapper
+        # is already running, creating sibling PTYs.
+        session_id = self._create_running_session(terminal=True)
+        first = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        first_terminal_id = first.json()["terminal"]["id"]
+        self.assertNotIn("reused", first.json(), "first start must NOT be marked reused")
+
+        # Second start request immediately after — same session, same
+        # agent, the prior terminal is still in starting/attached state.
+        second = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        body = second.json()
+        self.assertTrue(body.get("reused"), f"second start must be marked reused; got {body}")
+        self.assertEqual(
+            body["terminal"]["id"], first_terminal_id,
+            f"reused start must return the SAME terminal id; got {body['terminal']['id']} vs {first_terminal_id}",
+        )
+
+        # Exactly one terminal_sessions row exists for this agent — no
+        # sibling spawn.
+        rows = self._fetchall(
+            "SELECT id FROM terminal_sessions WHERE session_id = ?", (session_id,),
+        )
+        self.assertEqual(
+            len(rows), 1,
+            f"reusing existing terminal must NOT create a sibling row; got {[dict(r) for r in rows]}",
+        )
+
+        # The reuse event is audited so we can debug it in production.
+        events = self._fetchall(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? ORDER BY created_at",
+            (first_terminal_id,),
+        )
+        event_types = [r["event_type"] for r in events]
+        self.assertIn(
+            "console_attach_reused_existing", event_types,
+            f"reuse event must be appended; got {event_types}",
+        )
+
     def test_console_start_rejects_environment_without_terminal_support(self):
         session_id = self._create_running_session(terminal=False)
 

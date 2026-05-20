@@ -6160,6 +6160,40 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         if not env_row:
             raise HTTPException(409, f'Environment "{session["environment_id"]}" is not available')
         settings = await _load_settings(db)
+
+        # Slice 3: reuse the existing live wrapper PTY for this agent
+        # session when one is already attached. Avoids the symptom
+        # where each "Start Console" click (or auto-attach via the
+        # dashboard) spawns a fresh wrapper PTY even though a previous
+        # one is still running — operator-visible "console pops up
+        # again". The dispatch path (via _ensure_managed_pty_for_dispatch
+        # -> _active_terminal_for_agent) already reuses; this brings the
+        # manual-start path to parity.
+        existing_terminal_id = str(session["terminal_id"] or "").strip()
+        if existing_terminal_id:
+            existing_terminal = await (await db.execute(
+                "SELECT * FROM terminal_sessions WHERE id = ?",
+                (existing_terminal_id,),
+            )).fetchone()
+            if existing_terminal:
+                existing_status = str(existing_terminal["status"] or "").strip().lower()
+                if existing_status in {"starting", "attached", "running", "active", "idle", "recovering"}:
+                    await _append_terminal_event(
+                        db,
+                        existing_terminal_id,
+                        "console_attach_reused_existing",
+                        json.dumps({
+                            "requestedBy": str(req.requestedBy or "dashboard").strip() or "dashboard",
+                            "sessionId": session_id,
+                            "agentId": session["agent_id"],
+                        }),
+                    )
+                    await db.commit()
+                    return {
+                        "ok": True,
+                        "terminal": _terminal_session_to_dict(existing_terminal),
+                        "reused": True,
+                    }
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
