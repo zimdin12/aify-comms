@@ -1701,6 +1701,28 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_pi_idle_prompt_hint_detects_omp_input_box(self):
+        # Pi (omp) idle prompt detector. Used by _close_idle_pi_terminal_run_without_reply
+        # to close PTY-delivered managed-pi runs whose interactive omp
+        # returned to the input box without emitting a structured reply.
+        from service.routers.api_v2 import _terminal_pi_idle_prompt_hint
+        idle_buffer = (
+            "Some prior conversation\n"
+            "more output\n"
+            "╭── π  > ⬢ GPT-5.5 · high > \U0001f4c1 C:\\tmp > ◫ 49.1%/272K ⟲ > $6.53 ▶──╮\n"
+            "╰─                                                                       ─╯\n"
+        )
+        self.assertTrue(_terminal_pi_idle_prompt_hint(idle_buffer), "must detect idle omp prompt")
+        # Streaming-thinking marker AFTER the box → not idle.
+        thinking = idle_buffer + "\n  thinking...\n"
+        self.assertFalse(
+            _terminal_pi_idle_prompt_hint(thinking),
+            "must NOT mark idle when a thinking marker appears after the box",
+        )
+        # Without the box at the tail → not idle.
+        no_box = "just some regular pi log output\nlast line\n"
+        self.assertFalse(_terminal_pi_idle_prompt_hint(no_box))
+
     def test_startup_reconcile_clears_stale_managed_pty_for_resident_agents(self):
         # Service-start event: when a container restarts, in-flight
         # managed wrapper PTYs are dead (their bridge died). For agents
