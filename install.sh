@@ -293,6 +293,7 @@ CODEX_ARGS=()
 CODEX_AUTO=false
 CODEX_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
 CODEX_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+CODEX_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
 PREV_ARG=""
 for ARG in "$@"; do
   if [ "$PREV_ARG" = "--aify-agent" ] || [ "$PREV_ARG" = "--agent-id" ]; then
@@ -307,6 +308,14 @@ for ARG in "$@"; do
   fi
   if [ "$ARG" = "-auto" ] || [ "$ARG" = "--auto" ]; then
     CODEX_AUTO=true
+    continue
+  fi
+  if [ "$ARG" = "--resident" ]; then
+    CODEX_AIFY_SESSION_MODE="resident"
+    continue
+  fi
+  if [ "$ARG" = "--managed" ]; then
+    CODEX_AIFY_SESSION_MODE="managed"
     continue
   fi
   if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
@@ -331,6 +340,17 @@ if [ -n "$CODEX_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ROLE="$CODEX_AIFY_ROLE"
 fi
 
+# Session-mode resolution: explicit flag/env > TTY auto-detect. See
+# claude-aify for the rationale; same contract applies here.
+if [ -z "$CODEX_AIFY_SESSION_MODE" ]; then
+  if [ -t 0 ]; then
+    CODEX_AIFY_SESSION_MODE="resident"
+  else
+    CODEX_AIFY_SESSION_MODE="managed"
+  fi
+fi
+export AIFY_SESSION_MODE="$CODEX_AIFY_SESSION_MODE"
+
 if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
@@ -352,6 +372,7 @@ set -euo pipefail
 
 PI_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
 PI_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
+PI_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
 PI_SESSION_HANDLE="${PI_SESSION_ID:-${OMP_SESSION_ID:-${AIFY_PI_SESSION_ID:-}}}"
 PI_RUNTIME_COMMAND="${AIFY_PI_COMMAND:-${PI_COMMAND:-omp}}"
 PI_ARGS=()
@@ -365,6 +386,14 @@ for ARG in "$@"; do
   if [ "$PREV_ARG" = "--aify-role" ]; then
     PI_AIFY_ROLE="$ARG"
     PREV_ARG=""
+    continue
+  fi
+  if [ "$ARG" = "--resident" ]; then
+    PI_AIFY_SESSION_MODE="resident"
+    continue
+  fi
+  if [ "$ARG" = "--managed" ]; then
+    PI_AIFY_SESSION_MODE="managed"
     continue
   fi
   if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
@@ -404,6 +433,19 @@ if [ -n "$PI_SESSION_HANDLE" ]; then
   export AIFY_SESSION_HANDLE="$PI_SESSION_HANDLE"
 fi
 
+# Session-mode resolution: explicit flag/env > TTY auto-detect.
+# Same contract as claude-aify; works on Ubuntu bash and Git Bash for
+# Windows (POSIX [-t 0] test). Bridge-spawned wrappers always have
+# AIFY_SESSION_MODE set explicitly via terminalChildEnv.
+if [ -z "$PI_AIFY_SESSION_MODE" ]; then
+  if [ -t 0 ]; then
+    PI_AIFY_SESSION_MODE="resident"
+  else
+    PI_AIFY_SESSION_MODE="managed"
+  fi
+fi
+export AIFY_SESSION_MODE="$PI_AIFY_SESSION_MODE"
+
 exec "$PI_RUNTIME_COMMAND" "${PI_ARGS[@]}"
 EOF
   chmod +x "$wrapper_path"
@@ -424,6 +466,7 @@ set -euo pipefail
 
 HERMES_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
 HERMES_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
+HERMES_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
 HERMES_SESSION_HANDLE="\${HERMES_SESSION_ID:-\${HERMES_SESSION:-\${AIFY_SESSION_HANDLE:-}}}"
 HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
 HERMES_ARGS=()
@@ -437,6 +480,14 @@ for ARG in "\$@"; do
   if [ "\$PREV_ARG" = "--aify-role" ]; then
     HERMES_AIFY_ROLE="\$ARG"
     PREV_ARG=""
+    continue
+  fi
+  if [ "\$ARG" = "--resident" ]; then
+    HERMES_AIFY_SESSION_MODE="resident"
+    continue
+  fi
+  if [ "\$ARG" = "--managed" ]; then
+    HERMES_AIFY_SESSION_MODE="managed"
     continue
   fi
   if [ "\$ARG" = "--aify-agent" ] || [ "\$ARG" = "--agent-id" ] || [ "\$ARG" = "--aify-role" ]; then
@@ -477,6 +528,16 @@ if [ -n "\$HERMES_SESSION_HANDLE" ]; then
   export HERMES_SESSION_ID="\$HERMES_SESSION_HANDLE"
   export AIFY_SESSION_HANDLE="\$HERMES_SESSION_HANDLE"
 fi
+
+# Session-mode resolution: explicit flag/env > TTY auto-detect.
+if [ -z "\$HERMES_AIFY_SESSION_MODE" ]; then
+  if [ -t 0 ]; then
+    HERMES_AIFY_SESSION_MODE="resident"
+  else
+    HERMES_AIFY_SESSION_MODE="managed"
+  fi
+fi
+export AIFY_SESSION_MODE="\$HERMES_AIFY_SESSION_MODE"
 
 exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 EOF
