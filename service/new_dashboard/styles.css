@@ -159,6 +159,13 @@ small, .subtle { color: var(--muted); }
 .page { display: none; }
 .page.active { display: block; }
 .two-pane.active { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; }
+.attention-strip {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -287,12 +294,114 @@ small, .subtle { color: var(--muted); }
 .bar-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 50px; gap: 10px; align-items: center; }
 .bar-track { height: 10px; background: #0d1010; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--teal); }
+.session-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.session-rail-wrap, .session-main {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.session-rail-wrap {
+  padding: 10px;
+  max-height: calc(100vh - 205px);
+  overflow: auto;
+}
+.session-main { padding: 12px; }
+.session-env-group { display: grid; gap: 7px; margin-bottom: 12px; }
+.session-env-title {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.session-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-3);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+.session-row.active {
+  border-color: rgba(88,199,187,.55);
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+.session-check { min-height: 0; margin-top: 6px; }
+.session-row-body { min-width: 0; display: grid; gap: 5px; }
+.session-runtime-badge {
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 2px 7px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.session-bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  border: 1px solid rgba(88,199,187,.35);
+  background: rgba(88,199,187,.07);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+.session-bulk-toolbar[hidden] { display: none; }
+.session-bulk-toolbar span { color: var(--soft); font-weight: 750; }
+.session-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.session-status { flex: 0 0 auto; }
+.segmented {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 4px;
+  background: #0d1010;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 10px;
+}
+.segmented button {
+  border-color: transparent;
+  background: transparent;
+  min-height: 36px;
+}
+.segmented button.active {
+  background: var(--panel-2);
+  border-color: rgba(88,199,187,.45);
+}
+.session-panel { display: none; }
+.session-panel.active { display: block; }
+.session-thread {
+  max-height: calc(100vh - 355px);
+  min-height: 260px;
+}
+.console-summary { display: grid; gap: 8px; }
 
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 190px minmax(0, 1fr); }
   .app-shell.nav-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
   .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .split, .two-pane.active { grid-template-columns: 1fr; }
+  .session-shell { grid-template-columns: 1fr; }
+  .session-rail-wrap { max-height: 38vh; }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -324,6 +433,8 @@ small, .subtle { color: var(--muted); }
   .composer { grid-template-columns: 1fr; }
   .toolbar { display: grid; }
   .toolbar label { min-width: 0; }
+  .session-head { display: grid; }
+  .session-thread { max-height: 46vh; }
 }
 @media (max-width: 414px) {
   .workspace { padding: 14px; }
@@ -336,5 +447,9 @@ small, .subtle { color: var(--muted); }
   .contract-actions { grid-template-columns: 1fr; }
   .run-actions { grid-template-columns: 1fr; }
   .timeline { max-height: 52vh; }
+  .session-shell { grid-template-columns: 1fr; }
+  .session-rail-wrap { max-height: none; }
+  .session-bulk-toolbar { display: grid; }
+  .segmented { display: grid; grid-auto-flow: row; }
   .inspector { width: 100vw; }
 }

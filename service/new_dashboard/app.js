@@ -25,6 +25,9 @@ const state = {
   terminalOwners: new Map(),
   realtimeConnected: false,
   selectedConversation: 'dashboard',
+  selectedSessionId: '',
+  selectedSessionTab: 'chat',
+  selectedSessionIds: new Set(),
   filter: '',
   runStatusFilter: '',
 };
@@ -46,24 +49,22 @@ const STATUS_KINDS = {
 
 const flowAssertions = {
   foundations: () => Boolean(STATUS_KINDS.unknown && state.terminalOwners && typeof connectRealtimeSocket === 'function'),
+  sessions: () => Boolean(byId('session-rail') && byId('session-chat-thread') && typeof renderSessionWorkspace === 'function'),
   runs: () => Boolean(state.stats.dispatch_runs_by_status !== undefined || byId('run-status-filter')),
   workLoop: () => Boolean(byId('send-reminders') && typeof closeWorkContract === 'function'),
 };
 
 const flowGates = {
   foundations: { enabled: false, assertion: flowAssertions.foundations },
+  sessions: { enabled: false, assertion: flowAssertions.sessions },
   runs: { enabled: false, assertion: flowAssertions.runs },
   workLoop: { enabled: false, assertion: flowAssertions.workLoop },
 };
 
 const pages = {
-  control: ['Control', 'Who is available, what is moving, and what needs attention.'],
-  chat: ['Chat', 'Direct messages first, with run and handoff state nearby.'],
-  'work-loop': ['Work Loop', 'Open contracts, reminders, and handoff hygiene.'],
-  sessions: ['Sessions', 'Runtime backings grouped by agent and environment.'],
+  sessions: ['Sessions', 'Environment-backed sessions with chat and console in one workspace.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
-  runs: ['Runs', 'Execution audit without making operators read raw logs first.'],
-  analytics: ['Analytics', 'Recent volume, health, and capacity signals.'],
+  diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
   settings: ['Settings', 'Configuration stays on the classic dashboard until this flow reaches parity.'],
 };
 
@@ -198,7 +199,6 @@ async function loadRunsForStatus(status = state.runStatusFilter, render = true) 
   state.runs = runs.runs || [];
   if (render) {
     renderRuns();
-    renderAnalytics();
   }
   return state.runs;
 }
@@ -219,10 +219,11 @@ async function refresh() {
   byId('api-status').textContent = 'refreshing';
   byId('api-status').className = 'status-chip muted';
   try {
-    const [agents, contracts, messages, runs, sessions, environments, stats] = await Promise.all([
+    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, stats] = await Promise.all([
       api('/agents'),
       api('/contracts?limit=80'),
       api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),
+      api('/messages/recent?limit=80'),
       api(runQueryPath()),
       api('/sessions?limit=80'),
       api('/environments'),
@@ -230,7 +231,7 @@ async function refresh() {
     ]);
     state.agents = asAgentArray(agents);
     state.contracts = contracts.contracts || [];
-    state.messages = messages.messages || [];
+    state.messages = recentMessages.messages || inboxMessages.messages || [];
     state.runs = runs.runs || [];
     state.sessions = asArray(sessions, 'sessions');
     state.environments = asArray(environments, 'environments');
@@ -260,13 +261,10 @@ function filtered(items, fields) {
 function renderAll() {
   renderMetrics();
   renderAttention();
-  renderAgents();
-  renderMessages();
-  renderConversations();
+  renderSessionWorkspace();
   renderContracts();
   renderRuntime();
   renderRuns();
-  renderAnalytics();
 }
 
 function metric(label, value, tone = 'neutral') {
@@ -322,6 +320,169 @@ function renderAttention() {
   byId('attention-list').innerHTML = items.length
     ? items.map(contractCard).join('')
     : '<div class="item"><strong>No open attention items</strong><p class="preview">The current Work Loop is clear.</p></div>';
+}
+
+function sessionId(session) {
+  return String(session?.id || session?.sessionId || session?.session_id || '');
+}
+
+function sessionAgentId(session) {
+  return String(session?.agentId || session?.agent_id || session?.agent || '');
+}
+
+function sessionEnvironmentId(session) {
+  return String(session?.environmentId || session?.environment_id || session?.envId || session?.env_id || 'unassigned');
+}
+
+function sessionRuntime(session) {
+  return String(session?.runtime || session?.runtimeKind || session?.kind || 'runtime');
+}
+
+function agentForSession(session) {
+  const agentId = sessionAgentId(session);
+  return state.agents.find((agent) => String(agent.id) === agentId) || {};
+}
+
+function groupedSessionsByEnvironment() {
+  const groups = new Map();
+  state.sessions.forEach((session) => {
+    const envId = sessionEnvironmentId(session);
+    if (!groups.has(envId)) {
+      const env = state.environments.find((item) => String(item.id || item.environmentId) === envId) || {};
+      groups.set(envId, { id: envId, label: env.label || env.name || envId, sessions: [] });
+    }
+    groups.get(envId).sessions.push(session);
+  });
+  return [...groups.values()].sort((a, b) => String(a.label).localeCompare(String(b.label)));
+}
+
+function selectedSessionIds() {
+  return [...state.selectedSessionIds].filter((id) => state.sessions.some((session) => sessionId(session) === id));
+}
+
+function selectedSession() {
+  return state.sessions.find((session) => sessionId(session) === state.selectedSessionId) || null;
+}
+
+function ensureSelectedSession() {
+  if (!state.sessions.length) {
+    state.selectedSessionId = '';
+    state.selectedConversation = 'dashboard';
+    state.selectedSessionIds.clear();
+    return null;
+  }
+  const current = selectedSession();
+  const session = current || state.sessions[0];
+  state.selectedSessionId = sessionId(session);
+  state.selectedConversation = sessionAgentId(session) || 'dashboard';
+  for (const id of [...state.selectedSessionIds]) {
+    if (!state.sessions.some((item) => sessionId(item) === id)) state.selectedSessionIds.delete(id);
+  }
+  return session;
+}
+
+function messagesForSession(session) {
+  const agentId = sessionAgentId(session);
+  if (!agentId) return [];
+  return state.messages
+    .filter((message) => message.from === agentId || message.to === agentId || message.targetAgentId === agentId || message.target_agent_id === agentId)
+    .slice(0, 50);
+}
+
+function renderSessionBulkToolbar() {
+  const toolbar = byId('session-bulk-toolbar');
+  const ids = selectedSessionIds();
+  toolbar.hidden = ids.length === 0;
+  toolbar.innerHTML = ids.length
+    ? `<span>${ids.length} selected</span>
+       <button class="ghost" data-bulk-session-action="recover">Recover</button>
+       <button class="ghost" data-bulk-session-action="restart">Restart</button>
+       <button class="ghost danger" data-bulk-session-action="stop">Stop</button>`
+    : '';
+}
+
+function renderSessionRail() {
+  const groups = groupedSessionsByEnvironment();
+  renderSessionBulkToolbar();
+  byId('session-rail').innerHTML = groups.length ? groups.map((group) => `
+    <section class="session-env-group">
+      <div class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></div>
+      ${group.sessions.map((session) => {
+        const id = sessionId(session);
+        const agent = agentForSession(session);
+        const status = session.status || agent.status || 'unknown';
+        const active = id === state.selectedSessionId ? ' active' : '';
+        const checked = state.selectedSessionIds.has(id) ? ' checked' : '';
+        return `
+          <article class="session-row${active}" data-session-select="${esc(id)}" data-kind="session" data-id="${esc(id)}">
+            <input class="session-check" type="checkbox" data-session-checkbox="${esc(id)}"${checked} title="Select session">
+            <div class="session-row-body">
+              <div class="item-title">
+                <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
+                ${renderStatusChip(status)}
+              </div>
+              <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
+              <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
+            </div>
+          </article>`;
+      }).join('')}
+    </section>`).join('') : '<div class="item">No sessions loaded.</div>';
+}
+
+function renderSessionChat(session) {
+  const messages = messagesForSession(session);
+  byId('session-chat-thread').innerHTML = messages.length ? messages.map((message) => `
+    <article class="message" data-kind="message" data-id="${esc(message.id || message.messageId)}">
+      <div class="item-title">
+        <strong>${esc(message.from || 'unknown')}</strong>
+        ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')) })}
+      </div>
+      <h3>${esc(message.subject || '(no subject)')}</h3>
+      <p class="preview">${esc(message.body || message.preview || '')}</p>
+    </article>`).join('') : '<div class="message">No loaded messages for this session yet.</div>';
+}
+
+function renderSessionConsole(session) {
+  const id = sessionId(session);
+  const status = String(session?.status || '').toLowerCase();
+  const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
+  byId('session-console-summary').innerHTML = `
+    <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
+      <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown')}</div>
+      <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
+      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}</small>
+      <div class="contract-actions">
+        <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
+        <button class="ghost" data-session-control="recover" data-session-id="${esc(id)}">Recover</button>
+        ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
+      </div>
+    </article>`;
+}
+
+function renderSessionWorkspace() {
+  const session = ensureSelectedSession();
+  renderSessionRail();
+  document.querySelectorAll('[data-session-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.sessionTab === state.selectedSessionTab);
+  });
+  byId('session-chat-panel').classList.toggle('active', state.selectedSessionTab === 'chat');
+  byId('session-console-panel').classList.toggle('active', state.selectedSessionTab === 'console');
+  if (!session) {
+    byId('session-title').textContent = 'No sessions loaded';
+    byId('session-subtitle').textContent = 'Spawn or connect an agent to start a session workspace.';
+    byId('session-status').innerHTML = renderStatusChip('unknown');
+    byId('session-chat-thread').innerHTML = '<div class="message">No session selected.</div>';
+    byId('session-console-summary').innerHTML = '<div class="item">No session selected.</div>';
+    byId('composer-body').placeholder = 'Select a session to send a message';
+    return;
+  }
+  const agentId = sessionAgentId(session);
+  byId('session-title').textContent = agentId || sessionId(session);
+  byId('session-subtitle').textContent = session.workspace || session.cwd || 'Chat and console are bound to this session.';
+  byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown');
+  byId('composer-body').placeholder = agentId ? `Send to ${agentId}` : 'Select a session to send a message';
+  renderSessionChat(session);
+  renderSessionConsole(session);
 }
 
 function renderAgents() {
@@ -384,22 +545,6 @@ function renderRuntime() {
       <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>
       <small>${esc((env.runtimes || env.runtimeCapabilities || []).map((r) => r.runtime || r).join(', '))}</small>
     </article>`).join('') || '<div class="item">No environments loaded.</div>';
-  byId('session-groups').innerHTML = state.sessions.map((session) => {
-    const sessionId = session.id || session.sessionId;
-    const status = String(session.status || '').toLowerCase();
-    const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
-    return `
-    <article class="runtime-card" data-kind="session" data-id="${esc(sessionId)}">
-      <div class="item-title"><strong>${esc(session.agentId || session.agent_id || sessionId)}</strong>${renderStatusChip(session.status)}</div>
-      <p class="preview">${esc(session.runtime || '')} · ${esc(session.environmentId || session.environment_id || '')}</p>
-      <small>${esc(session.workspace || session.cwd || '')}</small>
-      <div class="contract-actions">
-        <button class="ghost" data-session-control="restart" data-session-id="${esc(sessionId)}">Restart</button>
-        <button class="ghost" data-session-control="recover" data-session-id="${esc(sessionId)}">Recover</button>
-        ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(sessionId)}">Stop</button>` : ''}
-      </div>
-    </article>`;
-  }).join('') || '<div class="item">No sessions loaded.</div>';
 }
 
 function renderRuns() {
@@ -506,14 +651,14 @@ async function requestRunControl(runId) {
   await inspect('run', runId);
 }
 
-async function requestSessionControl(sessionId, action) {
+async function requestSessionControl(sessionId, action, confirmAction = true, refreshAfter = true) {
   const labels = {
     stop: 'stop this session',
     restart: 'restart this session using its saved backing',
     recover: 'recover this session using its saved backing',
   };
   if (!sessionId || !action) return;
-  if (!confirm(`Really ${labels[action] || action}?`)) return;
+  if (confirmAction && !confirm(`Really ${labels[action] || action}?`)) return;
   await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
     method: 'POST',
     body: JSON.stringify({
@@ -522,6 +667,17 @@ async function requestSessionControl(sessionId, action) {
       body: `Session ${action} requested from Dashboard Next.`,
     }),
   });
+  if (refreshAfter) await refresh();
+}
+
+async function requestBulkSessionControl(action) {
+  const ids = selectedSessionIds();
+  if (!ids.length || !action) return;
+  if (!confirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;
+  for (const id of ids) {
+    await requestSessionControl(id, action, false, false);
+  }
+  state.selectedSessionIds.clear();
   await refresh();
 }
 
@@ -568,6 +724,30 @@ async function sendMessageWithTimeout(payload, timeoutMs = 20000) {
   }
 }
 
+function pastedImageName(blob) {
+  const ext = String(blob?.type || 'image/png').split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'png';
+  return `img-${Date.now()}.${ext}`;
+}
+
+async function uploadPastedImage(blob, targetEl) {
+  if (!blob || !targetEl) return;
+  const name = pastedImageName(blob);
+  const form = new FormData();
+  form.append('from_agent', 'dashboard');
+  form.append('name', name);
+  form.append('description', 'Pasted image from Dashboard Next');
+  form.append('file', blob, name);
+  const response = await fetch(`${apiBase}/shared`, { method: 'POST', body: form });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false) throw new Error(result.detail || result.error || 'Image upload failed');
+  const link = `${apiBase}/shared/${encodeURIComponent(name)}`;
+  const ref = `[image: ${name}] ${link}`;
+  const current = targetEl.value || '';
+  targetEl.value = current ? `${current}${current.endsWith('\n') ? '' : '\n'}${ref}` : ref;
+  targetEl.dispatchEvent(new Event('input', { bubbles: true }));
+  targetEl.focus();
+}
+
 function lookup(kind, id) {
   const maps = {
     agent: state.agents,
@@ -581,7 +761,7 @@ function lookup(kind, id) {
 }
 
 function setPage(page) {
-  const [title, subtitle] = pages[page] || pages.control;
+  const [title, subtitle] = pages[page] || pages.sessions;
   byId('page-title').textContent = title;
   byId('page-subtitle').textContent = subtitle;
   document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
@@ -596,6 +776,33 @@ function updateStaticLinks() {
 document.addEventListener('click', (event) => {
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
   if (page) setPage(page);
+  const sessionCheckbox = event.target.closest('[data-session-checkbox]');
+  if (sessionCheckbox) {
+    const id = sessionCheckbox.dataset.sessionCheckbox;
+    if (sessionCheckbox.checked) state.selectedSessionIds.add(id);
+    else state.selectedSessionIds.delete(id);
+    renderSessionWorkspace();
+    return;
+  }
+  const sessionSelect = event.target.closest('[data-session-select]');
+  if (sessionSelect) {
+    state.selectedSessionId = sessionSelect.dataset.sessionSelect;
+    const session = selectedSession();
+    state.selectedConversation = session ? sessionAgentId(session) || 'dashboard' : 'dashboard';
+    renderSessionWorkspace();
+    return;
+  }
+  const sessionTab = event.target.closest('[data-session-tab]');
+  if (sessionTab) {
+    state.selectedSessionTab = sessionTab.dataset.sessionTab || 'chat';
+    renderSessionWorkspace();
+    return;
+  }
+  const bulkSessionButton = event.target.closest('[data-bulk-session-action]');
+  if (bulkSessionButton) {
+    requestBulkSessionControl(bulkSessionButton.dataset.bulkSessionAction);
+    return;
+  }
   const conversation = event.target.closest('[data-conversation]')?.dataset.conversation;
   if (conversation) {
     state.selectedConversation = conversation;
@@ -645,7 +852,8 @@ byId('send-reminders').addEventListener('click', async () => {
 byId('composer').addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = byId('composer-body').value.trim();
-  const to = state.selectedConversation;
+  const session = selectedSession();
+  const to = session ? sessionAgentId(session) : state.selectedConversation;
   if (!body || to === 'dashboard') return;
   const type = byId('composer-type').value || 'info';
   const queueIfBusy = byId('composer-queue').checked;
@@ -654,6 +862,7 @@ byId('composer').addEventListener('submit', async (event) => {
       from_agent: 'dashboard',
       to,
       type,
+      priority: byId('composer-priority').value,
       subject: body.slice(0, 80),
       body,
       trigger: true,
@@ -662,11 +871,23 @@ byId('composer').addEventListener('submit', async (event) => {
     });
     byId('composer-body').value = '';
     await refresh();
+    renderSessionWorkspace();
   } catch (error) {
     inspect('send-error', { message: error.message || 'Send failed' });
   }
 });
-byId('mark-read').addEventListener('click', () => inspect('mark-read', { note: 'Mark-read is planned for the next slice.' }));
+byId('mark-read')?.addEventListener('click', () => inspect('mark-read', { note: 'Mark-read is planned for the next slice.' }));
+document.addEventListener('paste', (event) => {
+  const target = event.target;
+  if (!target || target.id !== 'composer-body') return;
+  const items = event.clipboardData?.items ? [...event.clipboardData.items] : [];
+  const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
+  if (!imageItem) return;
+  const blob = imageItem.getAsFile();
+  if (!blob) return;
+  event.preventDefault();
+  uploadPastedImage(blob, target).catch((error) => inspect('paste-error', { message: error.message || 'Image upload failed' }));
+});
 byId('close-inspector').addEventListener('click', closeInspector);
 byId('toggle-nav').addEventListener('click', () => {
   setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));

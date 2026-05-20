@@ -1609,7 +1609,7 @@ def _terminal_idle_prompt_hint(output: str) -> str:
     if marker_at < 0:
         return ""
     suffix = tail[marker_at:]
-    if re.search(r"(calling|cogitat|honking|thinking|running|press\s+esc|esc\s+to\s+interrupt)", suffix, re.I):
+    if re.search(r"(calling|cogitat|honking|thinking|running|undulating|press\s+esc|esc\s+to\s+interrupt)", suffix, re.I):
         return ""
     return "Claude PTY returned to an idle prompt without an explicit reply."
 
@@ -1868,7 +1868,7 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
     return len(run_ids)
 
 
-async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_seconds: int = 8) -> bool:
+async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_seconds: int = 20) -> bool:
     if not row:
         return False
     if str(row["dispatch_mode"] or "").strip().lower() != "terminal":

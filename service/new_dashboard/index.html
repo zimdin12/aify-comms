@@ -19,16 +19,10 @@
         <button id="toggle-nav" class="icon-button" type="button" title="Collapse sidebar">Nav</button>
       </div>
       <nav>
-        <p>Work</p>
-        <button class="nav-item active" data-page="control" data-short="C">Control</button>
-        <button class="nav-item" data-page="chat" data-short="M">Chat</button>
-        <button class="nav-item" data-page="work-loop" data-short="W">Work Loop</button>
-        <p>Runtime</p>
-        <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
+        <p>Fleet</p>
+        <button class="nav-item active" data-page="sessions" data-short="S">Sessions</button>
         <button class="nav-item" data-page="environments" data-short="E">Environments</button>
-        <button class="nav-item" data-page="runs" data-short="R">Runs</button>
-        <p>Insight</p>
-        <button class="nav-item" data-page="analytics" data-short="A">Analytics</button>
+        <button class="nav-item" data-page="diagnostics" data-short="D">Diagnostics</button>
         <button class="nav-item" data-page="settings" data-short="G">Settings</button>
       </nav>
       <div class="nav-footer">
@@ -40,8 +34,8 @@
     <main class="workspace">
       <header class="topbar">
         <div>
-          <h1 id="page-title">Control</h1>
-          <p id="page-subtitle">Who is available, what is moving, and what needs attention.</p>
+          <h1 id="page-title">Sessions</h1>
+          <p id="page-subtitle">Environment-backed sessions with chat and console in one workspace.</p>
         </div>
         <div class="top-actions">
           <label class="search">
@@ -51,118 +45,111 @@
       <button id="refresh" class="primary" title="Refresh dashboard data">Refresh</button>
         </div>
       </header>
-
-      <section id="page-control" class="page active">
-        <div class="metric-grid" id="metrics"></div>
-        <section class="band compact">
-          <div class="section-head">
-            <h2>Needs Attention</h2>
-            <div class="button-row">
-              <button class="ghost" data-page-jump="work-loop" title="Open Work Loop">Open Work Loop</button>
-              <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
-              <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
-            </div>
+      <section id="attention-strip" class="attention-strip" aria-label="Needs attention">
+        <div class="section-head">
+          <h2>Needs Attention</h2>
+          <div class="button-row">
+            <button class="ghost" data-page-jump="diagnostics" title="Open Diagnostics">Diagnostics</button>
+            <button class="ghost" data-page-jump="environments" title="Open Environments">Spawn</button>
+            <button class="ghost" data-page-jump="settings" title="Open Settings">Settings</button>
           </div>
-          <div id="attention-list" class="item-list scroll-region"></div>
-        </section>
-        <section class="split">
-          <div class="band compact">
-            <div class="section-head">
-              <h2>Visible Agents</h2>
-              <button class="ghost" data-page-jump="chat" title="Open Chat">Open Chat</button>
-            </div>
-            <div id="agent-list" class="agent-list scroll-region"></div>
-          </div>
-          <div class="band compact">
-            <div class="section-head">
-              <h2>Recent Dashboard Messages</h2>
-            </div>
-            <div id="message-list" class="item-list scroll-region"></div>
-          </div>
-        </section>
-      </section>
-
-      <section id="page-chat" class="page two-pane">
-        <aside class="context-rail">
-          <div class="section-head">
-            <h2>Conversations</h2>
-            <span id="conversation-count" class="subtle"></span>
-          </div>
-          <div id="conversation-list" class="rail-list"></div>
-        </aside>
-        <section class="pane">
-          <div class="section-head">
-            <h2 id="conversation-title">Dashboard Inbox</h2>
-            <button class="primary" id="mark-read" title="Mark-read lands in a later slice">Mark Visible Read</button>
-          </div>
-          <div id="conversation-messages" class="timeline"></div>
-          <form id="composer" class="composer">
-            <div class="composer-options">
-              <select id="composer-type" title="Message type">
-                <option value="info">Info</option>
-                <option value="request">Request</option>
-                <option value="review">Review</option>
-              </select>
-              <label class="check-row">
-                <input id="composer-queue" type="checkbox" checked>
-                <span>Queue if busy</span>
-              </label>
-            </div>
-            <textarea id="composer-body" placeholder="Select an agent conversation to send a message"></textarea>
-            <button type="submit" class="primary">Send</button>
-          </form>
-        </section>
-      </section>
-
-      <section id="page-work-loop" class="page">
-        <div class="toolbar">
-          <select id="contract-state">
-            <option value="open">Open</option>
-            <option value="overdue">Overdue</option>
-            <option value="working">Working</option>
-            <option value="queued">Queued</option>
-            <option value="answered">Answered</option>
-            <option value="failed">Failed</option>
-          </select>
-          <button id="send-reminders" class="primary" title="Runs existing due-reminder endpoint">Send Due Reminders</button>
         </div>
-        <div id="contract-list" class="contract-list"></div>
+        <div class="metric-grid" id="metrics"></div>
+        <div id="attention-list" class="item-list scroll-region"></div>
       </section>
 
-      <section id="page-sessions" class="page">
-        <div id="session-groups" class="runtime-grid"></div>
+      <section id="page-sessions" class="page active">
+        <section id="session-view" class="session-shell">
+          <aside class="session-rail-wrap" aria-label="Sessions by environment">
+            <div id="session-bulk-toolbar" class="session-bulk-toolbar" hidden></div>
+            <div id="session-rail" class="session-rail"></div>
+          </aside>
+          <section class="session-main">
+            <div class="session-head">
+              <div>
+                <h2 id="session-title">Select a session</h2>
+                <p id="session-subtitle" class="preview">Chat and console stay bound to the selected session.</p>
+              </div>
+              <div id="session-status" class="session-status"></div>
+            </div>
+            <div class="segmented" role="tablist" aria-label="Session view">
+              <button class="active" type="button" data-session-tab="chat">Chat</button>
+              <button type="button" data-session-tab="console">Console</button>
+            </div>
+            <div id="session-chat-panel" class="session-panel active">
+              <div id="session-chat-thread" class="timeline session-thread"></div>
+              <form id="composer" class="composer">
+                <div class="composer-options">
+                  <select id="composer-type" title="Message type">
+                    <option value="info">Info</option>
+                    <option value="request">Request</option>
+                    <option value="review">Review</option>
+                  </select>
+                  <select id="composer-priority" title="Priority">
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                  <label class="check-row">
+                    <input id="composer-queue" type="checkbox" checked>
+                    <span>Queue if busy</span>
+                  </label>
+                </div>
+                <textarea id="composer-body" placeholder="Select a session to send a message"></textarea>
+                <button type="submit" class="primary">Send</button>
+              </form>
+            </div>
+            <div id="session-console-panel" class="session-panel">
+              <div id="session-console-summary" class="console-summary"></div>
+            </div>
+          </section>
+        </section>
       </section>
 
       <section id="page-environments" class="page">
         <div id="environment-list" class="runtime-grid"></div>
       </section>
 
-      <section id="page-runs" class="page">
-        <div class="toolbar">
-          <label>
-            <span class="subtle">Status</span>
-            <select id="run-status-filter">
-              <option value="">All statuses</option>
-              <option value="queued">Queued</option>
-              <option value="claimed">Claimed</option>
-              <option value="running">Running</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
-          <span id="run-result-note" class="subtle">Showing most recent runs.</span>
-        </div>
-        <div id="run-list" class="run-list"></div>
-      </section>
-
-      <section id="page-analytics" class="page">
-        <div id="analytics-grid" class="metric-grid"></div>
-        <section class="band">
-          <div class="section-head">
-            <h2>Run Status Mix</h2>
+      <section id="page-diagnostics" class="page">
+        <section class="split diagnostics-grid">
+          <div class="band">
+            <div class="section-head">
+              <h2>Work Loop</h2>
+              <button id="send-reminders" class="primary" title="Runs existing due-reminder endpoint">Send Due Reminders</button>
+            </div>
+            <div class="toolbar">
+              <select id="contract-state">
+                <option value="open">Open</option>
+                <option value="overdue">Overdue</option>
+                <option value="working">Working</option>
+                <option value="queued">Queued</option>
+                <option value="answered">Answered</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+            <div id="contract-list" class="contract-list"></div>
           </div>
-          <div id="run-status-mix" class="bar-stack"></div>
+          <div class="band">
+            <div class="section-head">
+              <h2>Runs</h2>
+              <span id="run-result-note" class="subtle">Showing most recent runs.</span>
+            </div>
+            <div class="toolbar">
+              <label>
+                <span class="subtle">Status</span>
+                <select id="run-status-filter">
+                  <option value="">All statuses</option>
+                  <option value="queued">Queued</option>
+                  <option value="claimed">Claimed</option>
+                  <option value="running">Running</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+            </div>
+            <div id="run-list" class="run-list"></div>
+          </div>
         </section>
       </section>
 
