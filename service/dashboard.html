@@ -5351,7 +5351,19 @@ function renderConsoleChat(meta) {
   const canInput = terminalId && consoleStatusAllowsInput(liveStatus);
   let body = '';
   let actions = '';
-  if (!session) {
+  // Universal rule: when the agent is currently resident (operator-launched
+  // *-aify wrapper owns the real terminal), the dashboard cannot stream
+  // that operator-local CLI. Hide the Console actions and explain instead
+  // of showing buttons that would spawn a sibling managed PTY for an agent
+  // whose owner is already the resident wrapper. When the resident wrapper
+  // disconnects (session_mode flips back to managed or session ends),
+  // normal Console actions return.
+  const agentSessionMode = String(agentInfo?.sessionMode || session?.mode || '').toLowerCase();
+  const isResidentOwned = agentSessionMode === 'resident'
+    || String(session?.status || '').toLowerCase() === 'cli-takeover';
+  if (isResidentOwned) {
+    body = `<div class="banner"><div class="banner-row"><span>This agent is currently running as a resident <code>${esc(runtime + '-aify')}</code> in the operator's terminal. The dashboard cannot stream a local CLI session, and a parallel managed Console would conflict with resident ownership. Close the resident wrapper to let dashboard-managed Console return.</span></div></div>`;
+  } else if (!session) {
     body = '<div class="banner"><div class="banner-row"><span>No managed session is recorded for this identity. Spawn or recover a session before opening Console.</span></div></div>';
   } else if (!canConsole) {
     const reason = !environment
@@ -5872,7 +5884,10 @@ function renderChatInspector(meta, messages) {
         sessionResumeCommandBlock(resumeCommand) +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
-        (environmentSupportsConsoleForSession(environment, session) ? actionButtonFn(session.terminalId ? 'Open Console' : 'Start Console', 'Switch this chat to the runtime Console surface', () => setChatMode('console')) : '') +
+        ((environmentSupportsConsoleForSession(environment, session)
+          && String(agentInfo?.sessionMode || session?.mode || '').toLowerCase() !== 'resident'
+          && String(session.status || '').toLowerCase() !== 'cli-takeover')
+          ? actionButtonFn(session.terminalId ? 'Open Console' : 'Start Console', 'Switch this chat to the runtime Console surface', () => setChatMode('console')) : '') +
         (resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '') +
         actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(meta.id, runtimeHandle)) +
         actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)) +

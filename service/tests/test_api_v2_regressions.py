@@ -1701,6 +1701,79 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_resident_register_stops_existing_managed_pty_for_same_agent(self):
+        # Universal rule: launching a *-aify wrapper for an agent
+        # registers it as resident — the operator's real terminal owns
+        # the session. ANY managed wrapper PTY that exists for that
+        # agent must be torn down at that moment (event-driven, no
+        # timers).
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-managed-1",
+        )
+        # Spawn a managed PTY (the kind of wrapper aify-comms creates).
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        managed_terminal_id = started.json()["terminal"]["id"]
+        agent_id = self._fetchone("SELECT agent_id FROM agent_sessions WHERE id = ?", (session_id,))["agent_id"]
+        # Operator launches claude-aify --aify-agent X → registers
+        # as resident.
+        register = self.client.post("/api/v1/agents", json={
+            "agentId": agent_id,
+            "role": "coder",
+            "runtime": "claude-code",
+            "sessionMode": "resident",
+            "sessionHandle": "claude-resident-1",
+            "machineId": "test-machine",
+            "bridgeId": "resident-bridge-1",
+        })
+        self.assertEqual(register.status_code, 200, register.text)
+        # No blocking active run → takeover should not be pending.
+        self.assertNotEqual(
+            register.json().get("ownershipTransition"), "pending_resident_takeover",
+            f"test invariant: no blocking active run; got {register.json()}",
+        )
+        # Managed PTY must now be stopped + binding cleared.
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
+        self.assertEqual(
+            term["status"], "stopped",
+            f"managed PTY must be stopped after resident takeover; got {term['status']}",
+        )
+        self.assertIn(
+            "superseded_by_resident_takeover", str(term["error"] or ""),
+            f"stopped reason must record the takeover event; got {term['error']!r}",
+        )
+        # agent_sessions.terminal_id binding cleared.
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(sess["terminal_id"], "", f"terminal_id binding must be cleared; got {sess['terminal_id']!r}")
+        # A 'stop' terminal_control was enqueued for the bridge to kill the wrapper subprocess.
+        # Read ALL controls for the terminal — _now() is second-precision so multiple
+        # controls inserted in the same second tie on requested_at; we just need
+        # to confirm a stop exists.
+        ctl = self._fetchall(
+            "SELECT action, requested_by FROM terminal_controls WHERE terminal_id = ?",
+            (managed_terminal_id,),
+        )
+        self.assertTrue(
+            any(r["action"] == "stop" and r["requested_by"] == "resident-takeover" for r in ctl),
+            f"a 'stop' control with requested_by='resident-takeover' must be enqueued; got {[dict(r) for r in ctl]}",
+        )
+        # Audit event recorded.
+        events = self._fetchall(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ?",
+            (managed_terminal_id,),
+        )
+        self.assertIn(
+            "superseded_by_resident_takeover",
+            [r["event_type"] for r in events],
+            f"audit event must be appended; got {[r['event_type'] for r in events]}",
+        )
+
     def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
         # Operator-caught bug: channel-bridge PATCH writes a summary of
         # "Delivered to Claude channel session; awaiting explicit reply"
