@@ -49,19 +49,21 @@ const result = await runServer({
 assert.equal(result.code, 0, `server.js with AIFY_BRIDGE_DISABLED=1 should exit cleanly. stderr=${result.stderr}`);
 assert.ok(!result.stdout.includes("registered"), "no registration messages expected from a disabled-bridge server.js");
 
-// Belt-and-braces: runtimeChildEnv defaults the disabled flag and clears
-// AIFY_AGENT_ID for every runtime child, so a future runtime adapter that
-// forgets to set explicit env still gets the protection.
+// runtimeChildEnv must NOT default AIFY_BRIDGE_DISABLED. Wrapper children
+// (claude-aify → claude → mcp/stdio/server.js, codex/hermes/opencode
+// equivalents) legitimately host MCP servers that need the aify env.
+// Defaulting the disabled flag was a real regression — it broke
+// claude-code permissions/MCP integration. Only known RPC-child spawn
+// sites (pi `omp --mode rpc`) set the flag explicitly via extraEnv.
 const { runtimeChildEnv } = await import("../runtimes.js");
-const childEnv = runtimeChildEnv({ EXTRA_VAR: "value" });
-assert.equal(childEnv.AIFY_BRIDGE_DISABLED, "1", "AIFY_BRIDGE_DISABLED must default to '1' for runtime children");
-assert.equal(childEnv.AIFY_AGENT_ID, "", "AIFY_AGENT_ID must be cleared for runtime children");
-assert.equal(childEnv.EXTRA_VAR, "value", "explicit extras must still flow through");
+const defaultEnv = runtimeChildEnv({ EXTRA_VAR: "value" });
+assert.notEqual(defaultEnv.AIFY_BRIDGE_DISABLED, "1", "runtimeChildEnv must NOT default AIFY_BRIDGE_DISABLED — it would break wrapper MCP chains");
+assert.equal(defaultEnv.EXTRA_VAR, "value", "explicit extras must still flow through");
 
-// Caller can OVERRIDE the disabled flag if they really need to (e.g. for an
-// agent-runtime child that legitimately registers). The default is the safe
-// state; explicit opt-in stays possible.
-const overrideEnv = runtimeChildEnv({ AIFY_BRIDGE_DISABLED: "" });
-assert.equal(overrideEnv.AIFY_BRIDGE_DISABLED, "", "explicit AIFY_BRIDGE_DISABLED override must win over the default");
+// Explicit per-call extraEnv DOES set the flag for the specific spawn
+// site that needs it (the pi RPC child).
+const explicitEnv = runtimeChildEnv({ AIFY_BRIDGE_DISABLED: "1", AIFY_AGENT_ID: "" });
+assert.equal(explicitEnv.AIFY_BRIDGE_DISABLED, "1", "explicit per-call AIFY_BRIDGE_DISABLED must propagate");
+assert.equal(explicitEnv.AIFY_AGENT_ID, "", "explicit AIFY_AGENT_ID clearing must propagate");
 
-console.log("OK rpc-child-bridge-disabled: server.js exits cleanly with AIFY_BRIDGE_DISABLED=1; runtimeChildEnv defaults verified");
+console.log("OK rpc-child-bridge-disabled: server.js exits cleanly with AIFY_BRIDGE_DISABLED=1; runtimeChildEnv DOES NOT default the flag (wrapper MCP chains preserved)");
