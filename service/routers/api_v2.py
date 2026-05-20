@@ -3313,26 +3313,47 @@ async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_outpu
     settings = await _load_settings(db)
     if not bool(settings.get("console_auto_confirm_claude_dev_channels", DEFAULT_SETTINGS["console_auto_confirm_claude_dev_channels"])):
         return
-    # Send "1\r" — explicitly select option 1 ("I am using this for local
-    # development"). Safer than bare \r because the ❯ cursor position can
-    # drift; explicit digit guarantees the right pick.
+    # Record the audit event NOW (idempotency guard) but DEFER the actual
+    # input by 2 seconds. Live testing showed firing immediately at the
+    # first chunk containing the menu text races with Claude's menu
+    # interactive-ready state — the "1\r" arrived while the menu was
+    # still rendering and Claude apparently dismissed/ignored it. The
+    # 2s deferral lets Claude finish drawing the menu and become
+    # interactive before our input lands. Operator's suggested timing.
     environment_id = terminal["environment_id"] if "environment_id" in terminal.keys() else ""
     bridge_id = terminal["bridge_id"] if "bridge_id" in terminal.keys() else ""
-    await _append_terminal_control(
-        db,
-        terminal_id=terminal["id"],
-        environment_id=environment_id or "",
-        bridge_id=bridge_id or "",
-        action="input",
-        requested_by="dev-channel-auto-confirm",
-        body="1\r",
-    )
+    terminal_id_value = terminal["id"]
     await _append_terminal_event(
         db,
-        terminal["id"],
+        terminal_id_value,
         "dev_channel_prompt_auto_confirmed",
-        json.dumps({"reason": "reactive prompt-text match", "sent": "1\\r"}),
+        json.dumps({"reason": "reactive prompt-text match (deferred 2s)", "sent": "1\\r"}),
     )
+
+    async def _deferred_send() -> None:
+        try:
+            await asyncio.sleep(2.0)
+            inner_db = await get_db()
+            try:
+                await _append_terminal_control(
+                    inner_db,
+                    terminal_id=terminal_id_value,
+                    environment_id=environment_id or "",
+                    bridge_id=bridge_id or "",
+                    action="input",
+                    requested_by="dev-channel-auto-confirm",
+                    body="1\r",
+                )
+                await inner_db.commit()
+            finally:
+                await inner_db.close()
+        except Exception:
+            # Best-effort. If the deferred send fails the audit event still
+            # records the attempt; next observed menu (e.g., on a fresh
+            # wrapper) gets another chance.
+            pass
+
+    asyncio.create_task(_deferred_send())
 
 
 
