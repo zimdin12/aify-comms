@@ -1701,6 +1701,52 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_startup_reconcile_clears_stale_managed_pty_for_resident_agents(self):
+        # Service-start event: when a container restarts, in-flight
+        # managed wrapper PTYs are dead (their bridge died). For agents
+        # currently registered as resident, those terminal_sessions
+        # rows must be cleared so the dashboard doesn't render ghost
+        # consoles.
+        from service.routers.api_v2 import _reconcile_stale_managed_terminals_for_resident_agents
+        # Set up: a managed terminal_session for an agent that is now resident.
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-managed-1",
+        )
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        agent_id = self._fetchone("SELECT agent_id FROM agent_sessions WHERE id = ?", (session_id,))["agent_id"]
+        # Manually mark the agent as resident (simulating the agent having
+        # been re-registered as resident while the managed PTY was still
+        # alive — exactly the pre-fix stale state).
+        self._execute("UPDATE agents SET session_mode='resident' WHERE id = ?", (agent_id,))
+
+        # Run the startup reconcile sweep.
+        import asyncio
+        from service.db import get_db
+        async def _run():
+            db = await get_db()
+            try:
+                n = await _reconcile_stale_managed_terminals_for_resident_agents(db)
+                await db.commit()
+                return n
+            finally:
+                await db.close()
+        cleared = asyncio.new_event_loop().run_until_complete(_run())
+
+        self.assertEqual(cleared, 1, f"should reconcile exactly the one stale terminal; got {cleared}")
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "stopped")
+        self.assertIn("reconciled_at_service_startup_resident_owns_agent", term["error"])
+        sess = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(sess["terminal_id"], "", f"agent_session terminal_id binding must be cleared; got {sess['terminal_id']!r}")
+
     def test_resident_register_stops_existing_managed_pty_for_same_agent(self):
         # Universal rule: launching a *-aify wrapper for an agent
         # registers it as resident — the operator's real terminal owns

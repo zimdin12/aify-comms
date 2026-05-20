@@ -1415,6 +1415,70 @@ async def _bridge_registered_at(db, bridge_id: str, agent_id: str) -> str:
     return row["registered_at"] or ""
 
 
+async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
+    """Service-start event-driven cleanup.
+
+    When the service container restarts, any in-flight managed wrapper
+    PTYs are dead (their bridge process died with the previous service).
+    For agents that are currently registered as resident (operator's
+    *-aify wrapper owns the terminal), the existing managed PTY rows
+    must NOT be displayed as live consoles — the dashboard would show
+    ghosts and users get confused.
+
+    This sweep fires once at service startup (an event, not a timer).
+    For each resident agent, mark any terminal_sessions in active
+    states as stopped and clear the agent_sessions.terminal_id binding
+    so the dashboard renders the resident-owned state cleanly.
+
+    Returns the number of terminal_sessions that were reconciled.
+    """
+    cursor = await db.execute(
+        """
+        SELECT t.id AS terminal_id, t.agent_id
+        FROM terminal_sessions t
+        JOIN agents a ON a.id = t.agent_id
+        WHERE a.session_mode = 'resident'
+          AND t.status IN ('starting','attached','running','active','idle','recovering')
+        """
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return 0
+    now = _now()
+    for row in rows:
+        terminal_id = row["terminal_id"]
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                stopped_at = ?,
+                updated_at = ?,
+                error = COALESCE(NULLIF(error, ''), 'reconciled_at_service_startup_resident_owns_agent')
+            WHERE id = ?
+            """,
+            (now, now, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_at_service_startup",
+            json.dumps({
+                "agentId": row["agent_id"],
+                "reason": "agent is registered as resident; bridge-spawned managed PTY rows from before service-restart are dead",
+            }),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = '',
+                terminal_status = ''
+            WHERE terminal_id = ?
+            """,
+            (terminal_id,),
+        )
+    return len(rows)
+
+
 async def _record_bridge_registration(
     db,
     *,

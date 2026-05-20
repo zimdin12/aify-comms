@@ -61,6 +61,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.routers.api_v2 import (
         _close_reconcilable_delivered_runs,
         _prune_terminal_history,
+        _reconcile_stale_managed_terminals_for_resident_agents,
         _repair_unusable_active_runs,
         _run_contract_reminders_once,
     )
@@ -76,12 +77,19 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
                 break
         pruned = await _prune_terminal_history(db)
         reminders = await _run_contract_reminders_once(db, limit=50, recent_only=True)
+        # Event-driven (service-start event): clear stale managed PTY rows
+        # for agents that are currently registered as resident. A previous
+        # service container died holding those PTY processes; the rows
+        # still show "attached" but no bridge owns them. Without this
+        # the dashboard renders ghost consoles for resident agents.
+        stale_resident_terminals = await _reconcile_stale_managed_terminals_for_resident_agents(db)
         await db.commit()
         return {
             "repaired_active": repaired_active,
             "closed_delivered": closed_delivered_total,
             "reply_reminders": len(reminders.get("reminded", [])),
             "reply_reminder_skipped": len(reminders.get("skipped", [])),
+            "stale_resident_terminals_cleared": stale_resident_terminals,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:
