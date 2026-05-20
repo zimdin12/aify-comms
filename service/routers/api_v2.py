@@ -3498,8 +3498,19 @@ class TerminalOutputWriteQueue:
     async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         db = await get_db()
         try:
+            # Include runtime + environment_id + bridge_id so reactive
+            # detectors inside _append_terminal_output (dev-channel
+            # auto-confirm + pi idle-prompt close) can see what runtime
+            # the buffer belongs to and where to enqueue follow-up
+            # controls. Pre-fix this SELECT was id/session/agent/output/
+            # status/output_seq only, which silently disabled the
+            # detectors because terminal["runtime"] was empty.
             terminal = await (await db.execute(
-                "SELECT id, session_id, agent_id, output, status, output_seq FROM terminal_sessions WHERE id = ?",
+                """
+                SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
+                       output, status, output_seq
+                FROM terminal_sessions WHERE id = ?
+                """,
                 (terminal_id,),
             )).fetchone()
             if not terminal:
