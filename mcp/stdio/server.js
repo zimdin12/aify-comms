@@ -253,6 +253,40 @@ const CONSECUTIVE_FAILURES = new Map();
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 const RESIDENT_BINDING_FAILURES = new Map();
 const RESIDENT_BINDING_LOST_AFTER_FAILURES = 2;
+// Terminal-activity-driven turn-busy pulses. When a managed PTY produces
+// sustained output (claude-aify, pi-aify, etc. working autonomously
+// BETWEEN dispatch runs), the backend status engine has no authoritative
+// signal that the agent is busy — dispatch_run is completed, no managed
+// worker heartbeat. So the agent shows "active" while clearly working,
+// which the operator has flagged repeatedly. This emits a debounced
+// turn_busy=true while terminal output is fresh, and clears it after a
+// short quiet window. Additive to authoritative signals: an active
+// dispatch_run still keeps status='working' independently via the
+// backend's status engine; this just fills the autonomous-work gap.
+const TERMINAL_TURN_BUSY_REMIT_MS = 5000;
+const TERMINAL_TURN_BUSY_QUIET_MS = 8000;
+const TERMINAL_TURN_BUSY_TIMERS = new Map();
+function pulseTerminalTurnBusy(terminalId, agentId) {
+  const aid = String(agentId || "").trim();
+  if (!aid) return;
+  let entry = TERMINAL_TURN_BUSY_TIMERS.get(terminalId);
+  if (!entry) {
+    entry = { agentId: aid, lastEmit: 0, timer: null };
+    TERMINAL_TURN_BUSY_TIMERS.set(terminalId, entry);
+  }
+  const now = Date.now();
+  if (now - entry.lastEmit > TERMINAL_TURN_BUSY_REMIT_MS) {
+    entry.lastEmit = now;
+    const state = REMOTE_AGENT_STATE.get(aid) || {};
+    reportTurnBusy(aid, state, { busy: true }).catch(() => {});
+  }
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    const state = REMOTE_AGENT_STATE.get(aid) || {};
+    reportTurnBusy(aid, state, { busy: false }).catch(() => {});
+    TERMINAL_TURN_BUSY_TIMERS.delete(terminalId);
+  }, TERMINAL_TURN_BUSY_QUIET_MS);
+}
 const TERMINAL_MANAGER = new TerminalProcessManager({
   onOutput: async (terminalId, output) => {
     await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
@@ -260,6 +294,13 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
       output,
       status: "attached",
     });
+    // Status-precision pulse (mismatch #4): keep status='working' while
+    // the agent's terminal is actively producing output even when no
+    // dispatch_run is in flight. Self-clears after the quiet window.
+    try {
+      const agentId = TERMINAL_MANAGER.stateFor?.(terminalId)?.agentId || "";
+      if (agentId) pulseTerminalTurnBusy(terminalId, agentId);
+    } catch {}
   },
   onExit: async (terminalId, detail = {}) => {
     const error = detail?.error?.message || "";
