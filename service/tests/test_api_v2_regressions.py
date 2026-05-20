@@ -1701,6 +1701,44 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
+        # Operator-caught bug: channel-bridge PATCH writes a summary of
+        # "Delivered to Claude channel session; awaiting explicit reply"
+        # as a delivery receipt. Before this fix, _mirror_dashboard_run_summary_to_chat
+        # persisted that receipt as a "Re: Hello"-style response message
+        # in chat (the dashboard rendered it as if it were Claude's
+        # actual reply). _is_delivery_only_claude_run only matched the
+        # resident-session prefix and missed the channel-session one.
+        from service.routers.api_v2 import _is_delivery_only_claude_run
+        class _R(dict):
+            def keys(self): return super().keys()
+        channel_row = _R({
+            "runtime": "claude-code",
+            "status": "completed",
+            "summary": "Delivered to Claude channel session; awaiting explicit reply",
+        })
+        self.assertTrue(
+            _is_delivery_only_claude_run(channel_row),
+            "channel-session delivery receipts must be treated as delivery-only (not persisted as a reply)",
+        )
+        # Resident still recognized.
+        resident_row = _R({
+            "runtime": "claude-code",
+            "status": "completed",
+            "summary": "Delivered to Claude resident session; awaiting explicit reply",
+        })
+        self.assertTrue(_is_delivery_only_claude_run(resident_row))
+        # An actual Claude reply summary is NOT delivery-only.
+        real_reply = _R({
+            "runtime": "claude-code",
+            "status": "completed",
+            "summary": "Hello! I'm online.",
+        })
+        self.assertFalse(
+            _is_delivery_only_claude_run(real_reply),
+            "real Claude reply summaries must NOT be classified as delivery-only",
+        )
+
     def test_managed_claude_channel_eligible_bypasses_managed_run_cap_check(self):
         # Deep-test caught this: managed claude with channelEnabled=true
         # uses the channel transport (claude-channel.js inside the

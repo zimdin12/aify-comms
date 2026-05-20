@@ -253,6 +253,7 @@ async def _apply_channel_only_to_claude_runs(db, runs, settings: dict[str, Any])
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
+CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude channel session"
 
 async def _get_ws(request: Request):
     try:
@@ -378,10 +379,22 @@ def _row_require_reply(row) -> bool:
 def _is_delivery_only_claude_run(row) -> bool:
     if not row:
         return False
+    if str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() != "claude-code":
+        return False
+    if str((row["status"] if "status" in row.keys() else "") or "").strip().lower() != "completed":
+        return False
+    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
+    # Both resident and channel bridges write a delivery-receipt summary
+    # for runs they handed off to the Claude session. The summary is NOT
+    # the agent's actual reply — it's just confirmation the dispatch
+    # reached the bridge. Without including the channel prefix here, the
+    # mirror function persisted the receipt as a fake "Re: Hello"
+    # response with body "Delivered to Claude channel session; awaiting
+    # explicit reply" — observed live as the misleading reply operator
+    # caught.
     return (
-        str((row["runtime"] if "runtime" in row.keys() else "") or "").strip() == "claude-code"
-        and str((row["status"] if "status" in row.keys() else "") or "").strip().lower() == "completed"
-        and str((row["summary"] if "summary" in row.keys() else "") or "").strip().startswith(CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX)
+        summary.startswith(CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX)
+        or summary.startswith(CLAUDE_CHANNEL_DELIVERY_SUMMARY_PREFIX)
     )
 
 
