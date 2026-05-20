@@ -3153,6 +3153,82 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     )
     if chunk:
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
+        await _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, next_output)
+
+
+async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_output: str) -> None:
+    """Reactive dev-channel prompt confirmation.
+
+    Claude with `--dangerously-load-development-channels server:...` shows
+    an interactive menu at boot:
+
+        WARNING: Loading development channels
+        ...
+        Channels: server:aify-comms-channel
+        ❯ 1. I am using this for local development
+          2. ...
+
+    The earlier blind \\r enqueue fires before this menu appears and ends
+    up consumed by some other prompt. The right fix is to react to the
+    actual prompt text in the terminal output: when this menu text shows
+    up AND we haven't fired auto-confirm for this terminal yet, enqueue
+    `1\\r` to explicitly pick the local-development option. The audit
+    event guards against re-firing within the same terminal session.
+
+    Only fires for claude-code wrappers; only when the setting is on.
+    """
+    if not terminal:
+        return
+    runtime = _normalize_runtime(terminal["runtime"] if "runtime" in terminal.keys() else "")
+    if runtime != "claude-code":
+        return
+    # Stripped scan-ready view of the recent output — ANSI sequences split
+    # the menu line in node-pty output, so collapse them before matching.
+    tail = full_output[-6000:] if full_output else ""
+    if not tail:
+        return
+    # Strip ANSI CSI/OSC so the text-only match is reliable.
+    stripped = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", tail)
+    stripped = re.sub(r"\x1b[\]\^\\]\\d*;?[^\x07]*\x07?", "", stripped)
+    # Match either the warning header OR the menu option text. Both are
+    # sufficient signals that the dev-channel menu is on screen.
+    menu_match = (
+        "I am using this for local development" in stripped
+        or "WARNING: Loading development channels" in stripped
+    )
+    if not menu_match:
+        return
+    # Idempotency: if we already fired for this terminal session, stop.
+    prior = await (await db.execute(
+        "SELECT 1 FROM terminal_events WHERE terminal_id = ? AND event_type = ? LIMIT 1",
+        (terminal["id"], "dev_channel_prompt_auto_confirmed"),
+    )).fetchone()
+    if prior:
+        return
+    # Gate on the setting (default true post-c895ba1).
+    settings = await _load_settings(db)
+    if not bool(settings.get("console_auto_confirm_claude_dev_channels", DEFAULT_SETTINGS["console_auto_confirm_claude_dev_channels"])):
+        return
+    # Send "1\r" — explicitly select option 1 ("I am using this for local
+    # development"). Safer than bare \r because the ❯ cursor position can
+    # drift; explicit digit guarantees the right pick.
+    environment_id = terminal["environment_id"] if "environment_id" in terminal.keys() else ""
+    bridge_id = terminal["bridge_id"] if "bridge_id" in terminal.keys() else ""
+    await _append_terminal_control(
+        db,
+        terminal_id=terminal["id"],
+        environment_id=environment_id or "",
+        bridge_id=bridge_id or "",
+        action="input",
+        requested_by="dev-channel-auto-confirm",
+        body="1\r",
+    )
+    await _append_terminal_event(
+        db,
+        terminal["id"],
+        "dev_channel_prompt_auto_confirmed",
+        json.dumps({"reason": "reactive prompt-text match", "sent": "1\\r"}),
+    )
 
 
 
