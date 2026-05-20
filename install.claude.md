@@ -44,6 +44,14 @@ For resident-session wakeups, start Claude with:
 claude-aify
 ```
 
+### Session-mode flag
+
+`claude-aify` accepts `--resident` and `--managed` to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its `mcp/stdio/server.js` child registers with `runtime_config.channelEnabled=true` — that's the precondition for resident-run/interrupt/steer caps to survive `_row_capabilities` strip.
+
+### Managed-channel routing
+
+`claude_managed_channel_only=true` (settings, default false) routes dispatches to managed Claude agents via channel events (claimed by `claude-channel.js`, emitted as `<channel source="aify-comms-channel" ...>` MCP notifications) instead of typing into the wrapper PTY. Same protocol resident Claude already uses. Flip via `PUT /api/v1/settings` and roll back instantly if anything regresses.
+
 That wrapper enables the local aify channel bridge, adds Claude’s current development-channel flag automatically, and records the live resident-session binding so `comms_register` can advertise `claude-live` reliably.
 If Claude says `server:aify-comms-channel · no MCP server configured with that name`, rerun the installer with a real server URL and restart Claude Code.
 

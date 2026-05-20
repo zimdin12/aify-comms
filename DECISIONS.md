@@ -259,6 +259,52 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why.** Hundreds of `delivered` runs accumulated that no code path would ever finish, inflating "reply pending" handoff metrics and making lanes look alive forever. The orphaned-require_reply case is gated on demonstrable no-owner so a run a live session could still answer is never closed prematurely.
 
+## Wrapper session-mode is declared, not inferred
+
+**Decision.** Every `*-aify` wrapper (`claude-aify`, `codex-aify`, `pi-aify`/`omp-aify`, `hermes-aify`) accepts explicit `--resident` and `--managed` flags. The wrapper reads `AIFY_SESSION_MODE` from its inherited env first; if unset, the flag wins; if neither, the wrapper auto-detects via TTY presence (`[ -t 0 ]`) — interactive launches default to `resident`, non-TTY launches default to `managed`. The wrapper exports `AIFY_SESSION_MODE=resident|managed` for its child `mcp/stdio/server.js`, which puts that mode into the `/agents` register call. `terminal-env.js` (the env builder used by bridge-spawned PTYs) always sets `AIFY_SESSION_MODE=managed`, so the inherited env wins for bridge-spawned wrappers regardless of TTY shape.
+
+**Why.** Earlier, session_mode was guessed from registration context (no session_handle ⇒ managed; with handle ⇒ resident). That inference broke when bridge-spawned PTYs (which run inside a node-pty allocated TTY) auto-detected as `resident` and registered as resident, then collided with the real resident bridge for the same agent. The collision triggered scope-mismatched supersession and killed in-flight runs. Making mode an explicit declaration removes the ambiguity at the wire.
+
+**Why TTY auto-detect as a fallback.** Operator-launched wrappers (the human types `pi-aify --aify-agent ...` in a terminal) almost always want resident. Container/bridge-spawned wrappers want managed. TTY presence is the single Unix-shell signal that distinguishes those cases and works identically on Ubuntu bash, macOS, and Git Bash for Windows.
+
+**Why claude-aify always exports `AIFY_CHANNELS_ENABLED=1`.** claude-aify is the channels-aware Claude wrapper. Server-side, `runtime_config.channelEnabled=true` is the precondition for `_row_capabilities` keeping resident-run/interrupt/steer caps; without it the strip reduces caps to just `managed-run/resume` and preflight rejects live sends. Declaring the channel-enabled flag at register time removes the manual DB patching that earlier sessions needed.
+
+## Managed Claude routes via channel events, not PTY input
+
+**Decision.** When `claude_managed_channel_only=true` (settings, default false in `DEFAULT_SETTINGS`), dispatches targeting managed claude-code agents are claimed by `claude-channel.js` over the channel transport and emitted to the agent as `<channel source="aify-comms-channel" ...>` MCP notifications instead of being typed into the wrapper PTY. `_apply_channel_only_to_claude_runs` flips `execution_mode='channel'` on those runs at create time; the PTY-routing branch in `send_message` is gated by `not _claude_managed_channel_only(settings)`.
+
+**Why.** Channel delivery is the architecturally-correct path for Claude — same protocol resident Claude already uses, no terminal-output parsing, no bracketed-paste injection, no operator-visible terminal pollution. Channel delivery has worked for >1 month for resident Claude; extending it to managed Claude was the natural unification.
+
+**Why a setting, default off.** Existing managed Claude wrappers were configured assuming PTY delivery. Flipping default-on without opt-in would change delivery semantics under operators' feet. Default-off lets operators flip live, smoke-test, and roll back instantly via `PUT /api/v1/settings`.
+
+## Wrapper-PTY pre-spawn at spawn-request running (managed_pty_eager_spawn)
+
+**Decision.** When `managed_pty_eager_spawn=true` AND `managed_terminal_backing_enabled=true` (both settings, both default false), `update_spawn_request`'s running-transition handler proactively launches the wrapper PTY for the newly-registered managed agent by calling `_ensure_managed_pty_for_dispatch`. The wrapper is alive by the time the first dispatch arrives; subsequent dispatches and manual Start Console clicks reuse the same terminal via `_active_terminal_for_agent` (dispatch path) and the slice-3 reuse check in `start_session_console` (manual path).
+
+**Why.** Without it, the first dispatch to a managed agent spawned the wrapper PTY on demand — an operator-visible "console pops up when I send my first message" symptom across pi/codex/opencode/hermes. With it on, the console pre-exists and the dispatch slots into it. Both directions are regression-pinned (test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running + ..._default_off_preserves_prior_behavior).
+
+**Why best-effort.** A wrapper-launch failure here does NOT fail the spawn-request running transition. The dispatch path's lazy spawn remains the safety net so the agent is still usable even if the eager launch hits a transient issue.
+
+**Why default off.** Same rationale as channel-only: avoid changing established behavior for current operators. Flip on per-environment when ready.
+
+## Console-start reuses existing live wrapper terminal
+
+**Decision.** `POST /api/v1/sessions/{id}/console/start` checks whether the agent_session already has a `terminal_id` pointing to a `terminal_sessions` row in `{starting, attached, running, active, idle, recovering}` before doing anything else. If so, it returns the existing terminal envelope with `reused:true` and appends a `console_attach_reused_existing` audit event — no new terminal_sessions row, no sibling wrapper PTY.
+
+**Why.** Multiple operator clicks on Start Console (or auto-attach flows that hit the endpoint) used to spawn sibling PTYs even when a wrapper was already running for the agent. Sibling PTYs confused the dashboard ("which one is current?") and wasted host processes. The dispatch path already had the same reuse semantics via `_active_terminal_for_agent`; this brings the manual-start path to parity.
+
+## RPC-child env gate: AIFY_BRIDGE_DISABLED is per-spawn, not global
+
+**Decision.** `runtimeChildEnv` does NOT default `AIFY_BRIDGE_DISABLED` for wrapper children. The pi RPC child spawn (`omp --mode rpc` invoked by `createPiController`) sets `AIFY_BRIDGE_DISABLED=1` + `AIFY_AGENT_ID=""` in its explicit per-call env. Other runtimes' wrapper spawns (claude-aify, codex-aify, hermes-aify, opencode) deliberately get the full aify env so their inner MCP servers function.
+
+**Why.** Pi's `omp --mode rpc` child accidentally launches a nested `mcp/stdio/server.js` that would register as a sibling bridge for the same agent and supersede the resident bridge while its run is in flight. The flag tells server.js to exit cleanly at startup. An earlier attempt set this default in `runtimeChildEnv` and broke claude-code's MCP chain because claude-aify legitimately needs the aify env to function. Per-spawn declaration in `createPiController` is the targeted fix.
+
+## Same-logical-owner supersession scope
+
+**Decision.** `bridge_instances` supersession is scoped to `(agent_id, machine_id, runtime, session_mode, session_handle)`. A new bridge that re-registers an agent with the SAME tuple supersedes prior bridge instances for that tuple only — it does NOT supersede bridges for the same agent with a different session_mode (resident vs managed) or a different session_handle.
+
+**Why.** Earlier supersession was scoped to `(agent_id, machine_id)` only. That triggered when a managed wrapper PTY registered for an agent whose resident bridge was alive — the managed registration superseded the resident bridge and killed its in-flight runs. Scope narrowing to the full logical-owner tuple lets resident and managed sessions for the same agent coexist when that's the intent (e.g. operator runs claude-aify resident while managed claude-aify PTYs handle dashboard dispatch).
+
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.

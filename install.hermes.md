@@ -59,6 +59,14 @@ restart the bridge:
 [Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
 ```
 
+## Session-mode flag
+
+`hermes-aify` accepts `--resident` and `--managed`. Precedence: inherited
+`AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`);
+else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to
+`resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection
+might be wrong for your shell context.
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.

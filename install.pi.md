@@ -55,6 +55,16 @@ Current Pi note:
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`).
 - Set `AIFY_PI_COMMAND` or `PI_COMMAND` before starting `aify-comms` if `omp` is installed somewhere that is not on the bridge process `PATH`.
 
+## Session-mode flag
+
+`omp-aify` / `pi-aify` accepts `--resident` and `--managed` to declare its session mode explicitly. Order of precedence:
+
+1. `AIFY_SESSION_MODE` env (`resident` or `managed`) — bridge-spawned PTYs always set this to `managed`.
+2. `--resident` / `--managed` flag on the wrapper command line.
+3. TTY auto-detect via `[ -t 0 ]` — interactive operator launches default `resident`; non-TTY launches default `managed`.
+
+Most operators don't need the flag — running `omp-aify` from a terminal Just Works as `resident`, and the bridge spawns managed wrappers with the env pre-set. Use `--managed` when you want a backing PTY in a TTY-shaped context (debug). Use `--resident` to force resident in a context where TTY detection might be wrong.
+
 ## Quick Start
 
 ```text

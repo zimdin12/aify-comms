@@ -481,6 +481,66 @@ This cluster was hardened on the `feature/dashboard-console-mode` branch. All fi
 
 **Operational note: never rebuild while service files are mid-edit.** The Docker image COPYs the working tree, not git HEAD. Running `docker compose up -d --build` while `service/` has an uncommitted syntax error bakes a broken image and the container crash-loops on `SyntaxError`. Before any rebuild: AST-check (`python -c "import ast; ast.parse(open('service/routers/api_v2.py').read())"`), run `python -m unittest service.tests.test_api_v2_regressions`, and commit. Recover by rebuilding from a known-green commit.
 
+## Send to resident Claude rejected as "no live wake path"
+
+**Symptom.** `comms_send(...)` to a resident claude-code agent returns "Message was not sent because one or more recipients cannot start live work now" even though the wrapper is running and `comms_agent_info` shows the agent online with a recent `last_seen`.
+
+**Cause.** The agent's `runtime_config.channelEnabled` is not `true`, so `_row_capabilities` at `api_v2.py` strips `resident-run`, `interrupt`, and `steer` from the capabilities at every read. Preflight then sees `["managed-run","resume"]` and concludes there's no live wake path. This used to require manual DB patches every time a claude-aify session re-registered.
+
+**Fix.** Restart the claude-aify wrapper from a current install — the post-`1585bc9` claude-aify exports `AIFY_CHANNELS_ENABLED=1`, and the post-`c676f2b` `mcp/stdio/server.js` includes `runtime_config.channelEnabled=true` in the `/agents` register call. If you can't restart immediately, patch the live agent:
+
+```bash
+docker exec aify-comms-service python -c "
+import sqlite3, glob, os, json
+db=sorted(glob.glob('/data/*.db'),key=os.path.getmtime)[-1]
+c=sqlite3.connect(db)
+c.execute(\"UPDATE agents SET runtime_config=? WHERE id=?\", (json.dumps({'channelEnabled': True}), 'YOUR-AGENT-ID'))
+c.commit()
+"
+```
+
+## In-flight run cancelled with "bridge X is not the current agent bridge Y"
+
+**Symptom.** A managed run was actively producing output, then the bridge log shows `Active run owner bridge X is not the current agent bridge Y` and the run is marked cancelled mid-turn. The agent re-registered (often because a nested RPC child or sibling wrapper PTY started up) and the new bridge_instance superseded the active one.
+
+**Cause.** `bridge_instances` supersession used to be scoped to `(agent_id, machine_id)` only. A sibling registration with a different `session_mode` or `session_handle` triggered supersession against the unrelated live bridge. The most common trigger was a bridge-spawned wrapper PTY (e.g. pi-aify hosting `omp --mode rpc`) that auto-detected its TTY and registered as resident, then collided with the real resident bridge.
+
+**Fix.** Already fixed in the post-`4dbb2e2` `_record_bridge_registration` helper (supersession narrowed to the full `(agent_id, machine_id, runtime, session_mode, session_handle)` tuple) + `terminal-env.js` declaring `AIFY_SESSION_MODE=managed` for bridge-spawned PTYs. If you still see it, check the agent's bridge_instances rows — different `session_mode` or `session_handle` between them means the new code is doing the right thing; the legacy supersession was likely cleared on a prior run.
+
+## Dashboard chat spawns a wrapper console on every send
+
+**Symptom.** Sending to a managed pi/codex/opencode/hermes agent from the dashboard spawns a new wrapper PTY each time. Operator sees the console pop up; the wrapper exits after the dispatch; the next send pops another console.
+
+**Cause.** With `managed_terminal_backing_enabled=true` and `managed_pty_eager_spawn=false` (the default), each dispatch lazily creates a wrapper PTY via `_ensure_managed_pty_for_dispatch`. The wrapper (e.g. `omp --mode rpc`) is ephemeral per dispatch.
+
+**Fix (architectural).** Flip `managed_pty_eager_spawn=true`. The wrapper PTY launches proactively at spawn-request running transition; subsequent dispatches reuse it via `_active_terminal_for_agent` (dispatch path) and the slice-3 reuse check in `start_session_console` (manual Start Console path). `PUT /api/v1/settings {"managed_pty_eager_spawn": true}`. Roll back by flipping false.
+
+**Fix (claude-specific).** For managed claude-code, flip `claude_managed_channel_only=true` instead — dispatches route via channel events (claimed by `claude-channel.js`) and no PTY is involved at all. Same protocol resident Claude already uses.
+
+## Each keystroke in the dashboard Console submits as a command
+
+**Symptom.** Operator types into the dashboard Console; every individual letter behaves like a separate Enter — the wrapper sees `c`, then `cd`, then `cd<space>`, etc. as distinct submissions.
+
+**Cause.** The bridge's `terminal-input` control handler used to auto-append `\r` to every input body. Combined with the dashboard sending keystrokes individually, that meant each letter arrived as a submitted line.
+
+**Fix.** Already fixed in commit `c1a1da1` — bridge does raw passthrough now (`TERMINAL_MANAGER.input(terminalId, rawBody)` with no auto-`\r`). The dashboard sends `\r` explicitly when the operator presses Enter. If you still see this, restart the bridge (the change is in `mcp/stdio/server.js` and loads at bridge start).
+
+## Pi-aify wrapper exits mid-turn / "terminal failed before reply"
+
+**Symptom.** Dashboard chat to a managed pi agent starts the wrapper PTY, the run goes to `running`, then `term_*` status flips to `stopped` and the run fails with "Terminal failed before an explicit reply was recorded".
+
+**Cause.** Most common: `omp --mode rpc` child accidentally launched a nested `mcp/stdio/server.js` (because `pi-aify` exports the full aify env) that registered as a sibling bridge for the same agent. The nested bridge's registration superseded the parent bridge, the parent's RPC child died, and the wrapper exited.
+
+**Fix.** Already fixed in commit `59c66ff` — `createPiController` spawns the pi RPC child with an explicit per-call env `{AIFY_BRIDGE_DISABLED:"1", AIFY_AGENT_ID:""}` so the nested `mcp/stdio/server.js` exits at startup. The fix is per-spawn, not global, so other wrapper children (claude-aify, codex-aify) keep their full aify env. If you still see this, verify the bridge log shows `AIFY_BRIDGE_DISABLED=1 exit at startup` from the omp RPC child.
+
+## Console opens a second time for an already-running wrapper
+
+**Symptom.** Operator clicks Start Console (or the dashboard auto-attaches) on an agent that already has a live wrapper PTY. A new sibling `terminal_sessions` row is created and a second wrapper PTY spawns instead of attaching to the existing one.
+
+**Cause.** Pre-`fd00c85`, `start_session_console` always created a fresh terminal_session, even when the agent_session already had a live `terminal_id` in `{starting, attached, running, active, idle, recovering}`.
+
+**Fix.** Already fixed in `fd00c85` — the endpoint now checks the existing terminal_id first and returns `{reused:true, terminal:{...}}` without spawning a sibling. Audit event `console_attach_reused_existing` confirms it in the audit log. If you still see it, container needs rebuild to pick up the api_v2.py change.
+
 ## General escalation
 
 If none of the fixes above resolve the issue:
