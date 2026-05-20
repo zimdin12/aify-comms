@@ -25,6 +25,14 @@ export function terminalChildEnv({
     AIFY_ENVIRONMENT_BRIDGE: "0",
     AIFY_MANAGED_DISPATCH: "0",
     AIFY_TERMINAL_ID: terminalId || "",
+    // Declare the spawn context: this PTY was created by aify-comms as a
+    // managed wrapper, not by a human running the wrapper interactively.
+    // The wrapper (claude-aify / pi-aify / codex-aify / hermes-aify /
+    // opencode) inherits this and the inner mcp/stdio/server.js child
+    // reads it for the /agents register call so the service knows this
+    // is a managed session, not a resident one. Operator-launched
+    // wrappers don't have this env set and auto-detect via TTY.
+    AIFY_SESSION_MODE: "managed",
   };
   for (const name of sessionEnvVarsForRuntime(key)) {
     env[name] = handle;

@@ -605,7 +605,21 @@ async function autoRegisterConfiguredAgent() {
       ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, cwd))
       : "";
   const sessionHandle = initialHandle || discoveredCodexThreadId || "";
-  const capabilities = defaultCapabilitiesForRuntime(runtime, "resident", sessionHandle, runtimeConfig);
+  // Wrapper-declared session mode + channel state. The *-aify wrappers set
+  // AIFY_SESSION_MODE (resident default for human TTY, managed when
+  // aify-comms spawns the wrapper) and AIFY_CHANNELS_ENABLED=1 when they
+  // launched the runtime with the aify channel MCP loaded. We trust the
+  // wrapper's declaration so the service's resident-cap strip (which
+  // requires runtime_config.channelEnabled) gets the truth.
+  const resolvedSessionMode = (() => {
+    const explicit = String(process.env.AIFY_SESSION_MODE || "").trim().toLowerCase();
+    return explicit === "managed" || explicit === "resident" ? explicit : "resident";
+  })();
+  const channelsEnabled = String(process.env.AIFY_CHANNELS_ENABLED || "").trim() === "1";
+  const capabilities = defaultCapabilitiesForRuntime(runtime, resolvedSessionMode, sessionHandle, runtimeConfig);
+  const effectiveRuntimeConfig = channelsEnabled
+    ? { ...(runtimeConfig || {}), channelEnabled: true }
+    : (runtimeConfig || {});
   const payload = {
     agentId: AIFY_AGENT_ID,
     role: AIFY_AGENT_ROLE || "coder",
@@ -615,10 +629,10 @@ async function autoRegisterConfiguredAgent() {
     machineId: MACHINE_ID,
     bridgeId: BRIDGE_INSTANCE_ID,
     launchMode: "detached",
-    sessionMode: "resident",
+    sessionMode: resolvedSessionMode,
     sessionHandle,
     capabilities,
-    runtimeConfig,
+    runtimeConfig: effectiveRuntimeConfig,
     terminalId: process.env.AIFY_TERMINAL_ID || "",
     restoreDeleted: true,
     autoRegister: true,

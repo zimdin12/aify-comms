@@ -71,4 +71,12 @@ assert.equal(piEnv.AIFY_SESSION_HANDLE, "pi-session");
 assert.equal(piEnv.PI_SESSION_ID, "pi-session");
 assert.equal(piEnv.OMP_SESSION_ID, "pi-session");
 assert.equal(piEnv.AIFY_PI_SESSION_ID, "pi-session");
+
+// Spawn-context declaration: every wrapper PTY spawned by aify-comms must
+// inherit AIFY_SESSION_MODE=managed so the inner mcp/stdio/server.js
+// registers the agent as managed (not resident). Operator-launched
+// wrappers don't have this env set and auto-detect via TTY presence.
+assert.equal(env.AIFY_SESSION_MODE, "managed", "bridge-spawned wrapper env must declare AIFY_SESSION_MODE=managed");
+assert.equal(piEnv.AIFY_SESSION_MODE, "managed", "bridge-spawned pi wrapper env must declare AIFY_SESSION_MODE=managed");
+
 console.log("terminal-env.test.js: all assertions passed");

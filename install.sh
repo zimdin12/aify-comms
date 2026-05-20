@@ -101,6 +101,11 @@ CLAUDE_RESUME_ID="\${CLAUDE_SESSION_ID:-}"
 CLAUDE_AUTO=false
 CLAUDE_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
 CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
+# Explicit session-mode opt-in. --resident is the default for human
+# invocation; --managed is set by aify-comms when it spawns this wrapper
+# as a backing process. If neither flag is passed and AIFY_SESSION_MODE
+# is unset, auto-detect via TTY presence on stdin: interactive → resident.
+CLAUDE_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
 CLAUDE_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
@@ -116,6 +121,14 @@ for ARG in "\$@"; do
   fi
   if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ]; then
     CLAUDE_AUTO=true
+    continue
+  fi
+  if [ "\$ARG" = "--resident" ]; then
+    CLAUDE_AIFY_SESSION_MODE="resident"
+    continue
+  fi
+  if [ "\$ARG" = "--managed" ]; then
+    CLAUDE_AIFY_SESSION_MODE="managed"
     continue
   fi
   if [ "\$ARG" = "--aify-agent" ] || [ "\$ARG" = "--agent-id" ] || [ "\$ARG" = "--aify-role" ]; then
@@ -152,6 +165,27 @@ if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$CLAUDE_AIFY_ROLE"
 fi
+
+# Session-mode resolution: explicit flag/env > TTY auto-detect.
+# Resident = a human runs this wrapper in their own terminal (interactive
+# stdin); aify-comms-channel notifications wake the model and chat
+# delivery uses channels. Managed = aify-comms spawned this wrapper as
+# a backing process (no human at the keyboard); same wrapper, same
+# channels, but the service knows there's no operator typing in this
+# session.
+if [ -z "\$CLAUDE_AIFY_SESSION_MODE" ]; then
+  if [ -t 0 ]; then
+    CLAUDE_AIFY_SESSION_MODE="resident"
+  else
+    CLAUDE_AIFY_SESSION_MODE="managed"
+  fi
+fi
+export AIFY_SESSION_MODE="\$CLAUDE_AIFY_SESSION_MODE"
+# claude-aify ALWAYS loads --channels server:aify-comms-channel below, so
+# tell the registration path that channels are enabled. This stops the
+# service-side _row_capabilities strip from removing resident-run from
+# this agent's capabilities.
+export AIFY_CHANNELS_ENABLED="1"
 
 CLAUDE_PERMISSION_FLAGS=()
 if [ "\$CLAUDE_AUTO" = true ]; then
