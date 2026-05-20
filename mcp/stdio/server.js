@@ -1235,16 +1235,19 @@ async function runTerminalControlLoop() {
             output: `[terminal attached pid=${started.pid}]\n`,
           });
         } else if (control.action === "input") {
-          // Submit the line. Message/dispatch-delivered input arrives WITHOUT
-          // a trailing newline, so writing it verbatim left the text sitting
-          // unsubmitted in the runtime's input until the next input flushed
-          // it (messages delivered batched / one-behind — the core bug). The
-          // raw-console path already appends \r, so only add one when the
-          // body is non-empty and not already \r/\n-terminated.
+          // Raw passthrough. The bridge does NOT auto-append \r anymore —
+          // auto-appending broke the dashboard's per-keystroke console input
+          // (every typed letter got a forced Enter, submitting one-letter
+          // commands). Callers own newline semantics:
+          //  - Dispatch / message paths build their bodies via
+          //    _console_dispatch_input_body, which already terminates with \r.
+          //  - Dev-channel auto-confirm enqueues body="\r" explicitly.
+          //  - Dashboard per-keystroke /terminals/{id}/input sends raw bytes
+          //    (including a real \r ONLY when the user actually presses Enter).
+          // This lets the operator type multi-character commands in the console.
           const rawBody = String(control.body || "");
           await prepareClaudeTerminalInput(terminalId, rawBody);
-          const submitBody = (rawBody && !/[\r\n]$/.test(rawBody)) ? `${rawBody}\r` : rawBody;
-          TERMINAL_MANAGER.input(terminalId, submitBody);
+          TERMINAL_MANAGER.input(terminalId, rawBody);
           if (normalizeRuntime(TERMINAL_MANAGER.stateFor(terminalId)?.runtime || "") === "claude-code" && (rawBody === "\r" || rawBody === "\n")) {
             await sleep(2500);
           }
