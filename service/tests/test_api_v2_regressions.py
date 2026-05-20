@@ -530,7 +530,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.json()["dashboard_theme"], "default")
         self.assertEqual(settings.json()["dashboard_primary_color"], "")
         self.assertEqual(settings.json()["dashboard_secondary_color"], "")
-        self.assertFalse(settings.json()["console_auto_confirm_claude_dev_channels"])
+        self.assertTrue(settings.json()["console_auto_confirm_claude_dev_channels"])
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
@@ -2201,6 +2201,11 @@ class ApiV2RegressionTests(unittest.TestCase):
                 )
                 self.assertIsNone(injected)
     def test_managed_claude_dispatch_uses_claude_aify_terminal_turn(self):
+        # This test pins the start/input control sequence for managed
+        # claude dispatch. Default-on auto-confirm of the dev-channel
+        # prompt would add an extra "input" before the message; opt out
+        # here so we keep asserting the core sequence.
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -2593,6 +2598,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
 
     def test_message_send_to_managed_claude_uses_console_turn_when_console_open(self):
+        # Opt out of default-on dev-channel auto-confirm so this test
+        # asserts the core start/input control sequence without the
+        # extra auto-confirm \r interleaved.
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -2638,6 +2647,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(submit), 1)
 
     def test_message_send_to_managed_claude_starts_claude_aify_and_inputs_dashboard_message(self):
+        # Opt out of default-on dev-channel auto-confirm so this test
+        # asserts the core start/input control sequence without the
+        # extra auto-confirm \r interleaved.
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": False})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",

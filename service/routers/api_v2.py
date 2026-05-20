@@ -126,7 +126,12 @@ DEFAULT_SETTINGS = {
     "active_run_stale_minutes": 30,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
-    "console_auto_confirm_claude_dev_channels": False,
+    # Auto-confirm the Claude "WARNING: Loading development channels" prompt
+    # when the bridge spawns a managed PTY or operator opens Console.
+    # Default true: the prompt is just confirming behavior the operator
+    # already asked for by launching a managed-channel claude wrapper.
+    # Operators who want manual approval can flip false.
+    "console_auto_confirm_claude_dev_channels": True,
     "managed_terminal_backing_enabled": True,
     # When true, managed claude-code sends bypass _ensure_managed_pty_for_dispatch
     # and create execution_mode='channel' dispatch_runs claimed by the
@@ -6052,10 +6057,15 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             # running transition (the dispatch path's lazy spawn is the
             # fallback).
             settings_for_pty = await _load_settings(db)
-            if (
-                _managed_terminal_backing_enabled(settings_for_pty)
-                and bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
-            ):
+            _is_claude_managed = _normalize_runtime(row["runtime"]) == "claude-code"
+            _eager_flag = bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
+            # When claude_managed_channel_only=true, managed Claude MUST
+            # have a wrapper PTY running so claude-aify (and its
+            # claude-channel.js child) polls /dispatch/claim for this
+            # specific agent. Without it, channel dispatches sit queued
+            # forever (observed in run_1779309370301).
+            _claude_needs_wrapper = _is_claude_managed and _claude_managed_channel_only(settings_for_pty)
+            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper):
                 try:
                     await _ensure_managed_pty_for_dispatch(
                         db,
@@ -8301,9 +8311,36 @@ async def send_message(req: MessageSend, request: Request):
                         channel_backing_failed.add(recipient_id)
                     continue
                 if runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    # Resident Claude channel sessions are still claimed
-                    # by the Claude channel bridge; only managed Claude
-                    # dashboard sends need the PTY turn path above.
+                    # Channel-only managed Claude needs a wrapper PTY
+                    # running so claude-aify's claude-channel.js child
+                    # actually polls /dispatch/claim for this agent and
+                    # picks up the channel-routed dispatch. Without it,
+                    # the run sits queued forever (observed in
+                    # run_1779309370301). We don't inject input — the
+                    # PTY is the host for the subscriber, not the
+                    # delivery channel. Existing terminal is reused
+                    # (slice-3 reuse semantics); only spawned if absent.
+                    if (
+                        _claude_managed_channel_only(settings)
+                        and _managed_terminal_backing_enabled(settings)
+                        and _execution_mode == "channel"
+                    ):
+                        existing = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not existing:
+                            try:
+                                await _ensure_managed_pty_for_dispatch(
+                                    db,
+                                    recipient_id,
+                                    runtime=runtime,
+                                    settings=settings,
+                                    requested_by=req.from_agent,
+                                )
+                            except Exception:
+                                # Best-effort. claude-channel.js may still
+                                # pick this up if a wrapper exists in
+                                # another env; otherwise dispatch stays
+                                # queued and operator can spawn manually.
+                                pass
                     continue
                 console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                 if not console_terminal:
