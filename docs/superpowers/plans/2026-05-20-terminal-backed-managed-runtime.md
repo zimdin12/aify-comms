@@ -176,15 +176,15 @@ Add settings/feature tests proving Codex/Pi/OpenCode still use native managed di
 
 - [ ] **Step 2: Implement feature flag and routing**
 
-Add `managed_terminal_backing_enabled=false` default. In dispatch preflight/finalization, route Codex/Pi/OpenCode to terminal-backed delivery only when the flag is enabled and a supported backing wrapper exists.
+Add `managed_terminal_backing_enabled=true` default after operator approval. In dispatch preflight/finalization, route Codex/Pi/OpenCode to terminal-backed delivery when the flag is enabled and a supported backing wrapper exists; preserve native managed dispatch as the fallback when the flag is disabled or no backing can be established.
 
 - [ ] **Step 3: Run migration tests**
 
 Run:
 
 ```bash
-python -m unittest service.tests.test_api_v2_regressions.ApiV2RegressionTests.test_managed_dispatch_native_runtime_ignores_active_console_and_dispatches
-node mcp/stdio/tests/managed-native-capabilities.test.js
+python -m unittest service.tests.test_api_v2_regressions.ApiV2RegressionTests.test_managed_dispatch_native_runtime_uses_terminal_backing_by_default service.tests.test_api_v2_regressions.ApiV2RegressionTests.test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled
+npm test --prefix mcp/stdio
 ```
 
 Expected: current native behavior remains green with flag off; new flag-on tests pass.
@@ -229,8 +229,8 @@ Expected: `{"status":"healthy"}`.
 - [ ] **Step 4: Live smoke**
 
 Verify one agent in each runtime class:
-- Claude/Hermes: terminal-backed run shows `working`, then `active` or `blocked` correctly.
-- Codex/Pi/OpenCode with flag off: native delivery still works.
+- Claude/Hermes/Codex/Pi/OpenCode with flag on: terminal-backed run shows `working`, then `active` or `blocked` correctly.
+- Codex/Pi/OpenCode with flag off or unavailable backing: native delivery still works.
 - Work Loop reminder repeat default is 10 minutes from `/api/v1/settings`.
 
 ---
@@ -239,4 +239,4 @@ Verify one agent in each runtime class:
 
 - Spec coverage: plan covers chat-vs-console separation, backing PTY/source-of-truth status, wrapper-owned status events, no direct hidden console input, hidden console status tracking, native migration, 10-minute reminders, tests, and rollout.
 - Placeholder scan: no TBD/TODO placeholders remain.
-- Type consistency: setting names are consistent: `reply_reminder_repeat_minutes`, `console_auto_confirm_claude_dev_channels`, and proposed `managed_terminal_backing_enabled`.
+- Type consistency: setting names are consistent: `reply_reminder_repeat_minutes`, `console_auto_confirm_claude_dev_channels`, and `managed_terminal_backing_enabled`.

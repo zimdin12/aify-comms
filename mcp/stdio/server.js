@@ -45,6 +45,7 @@ import {
   runtimeStateWithoutSessionHandle,
   terminateProcessTree,
 } from "./runtimes.js";
+import { shouldDropLocalActiveRun } from "./dispatch-state.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
@@ -1481,6 +1482,45 @@ ensureEnvironmentControlLoop();
 ensureSpawnLoop();
 ensureTerminalControlLoop();
 
+async function clearLocalActiveRun(agentId, state, active, reason) {
+  if (!active?.runId) return;
+  try {
+    active.controller?.interrupt?.(`Local active run cleared (${reason})`);
+  } catch {
+    // best effort; the important part is unblocking the claim loop
+  }
+  ACTIVE_RUNS.delete(agentId);
+  await reportTurnBusy(agentId, state, {
+    busy: false,
+    runId: active.runId,
+    runtime: active.runtime || normalizeRuntime(state?.info?.runtime || "generic"),
+  }).catch(() => {});
+}
+
+async function reconcileLocalActiveRun(agentId, state, active) {
+  if (!active?.runId) return false;
+  let backendRun = null;
+  try {
+    const response = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(active.runId)}`);
+    backendRun = response?.run || null;
+  } catch (error) {
+    if (error?.status !== 404) {
+      // Transient backend failures must not make us forget an actually running
+      // local turn and accidentally claim duplicate work.
+      return false;
+    }
+  }
+  const decision = shouldDropLocalActiveRun(active, backendRun, {
+    bridgeId: BRIDGE_INSTANCE_ID,
+    agentId,
+  });
+  if (!decision.drop) return false;
+  await clearLocalActiveRun(agentId, state, active, decision.reason);
+  console.error(`[aify] dropped stale local active run for "${agentId}" (${active.runId}): ${decision.reason}`);
+  return true;
+}
+
+
 async function runDispatchLoop() {
   if (!IS_REMOTE || dispatchLoopBusy) return;
   dispatchLoopBusy = true;
@@ -1490,12 +1530,15 @@ async function runDispatchLoop() {
 
       const active = ACTIVE_RUNS.get(agentId);
       if (active) {
-        // Heartbeat while an active run is genuinely owned by this process.
-        reportAgentHeartbeat(agentId, state, active).catch(() => {});
-        await processRunControls(agentId, active).catch((error) => {
-          logTransientOrError("[aify] control processing error", error);
-        });
-        continue;
+        const dropped = await reconcileLocalActiveRun(agentId, state, active);
+        if (!dropped) {
+          // Heartbeat while an active run is genuinely owned by this process.
+          reportAgentHeartbeat(agentId, state, active).catch(() => {});
+          await processRunControls(agentId, active).catch((error) => {
+            logTransientOrError("[aify] control processing error", error);
+          });
+          continue;
+        }
       }
 
       try {
@@ -2000,6 +2043,10 @@ server.tool(
           runtimeState,
         },
       });
+      const active = ACTIVE_RUNS.get(agentId);
+      if (active) {
+        await reconcileLocalActiveRun(agentId, REMOTE_AGENT_STATE.get(agentId), active);
+      }
       try {
         const agentsRes = await httpCall("GET", "/agents");
         for (const [managedId, managedInfo] of Object.entries(agentsRes.agents || {})) {
@@ -2033,6 +2080,10 @@ server.tool(
               runtimeState: managedRuntimeState,
             },
           });
+          const active = ACTIVE_RUNS.get(managedId);
+          if (active) {
+            await reconcileLocalActiveRun(managedId, REMOTE_AGENT_STATE.get(managedId), active);
+          }
         }
       } catch {
         // best effort

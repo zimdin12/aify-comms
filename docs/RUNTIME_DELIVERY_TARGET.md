@@ -27,10 +27,11 @@ and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md) (UX direction).
 
 ## Current mismatches (from pi — runtime/bridge lane)
 
-1. **Codex/Pi/OpenCode are native-managed, not wrapper-backed.** The
-   native decouple shipped (`22370e8` + the capability backfill +
-   bridge self-heal); the target is wrapper-attached delivery for
-   uniformity.
+1. **Codex/Pi/OpenCode are now being routed through managed terminal
+   backing by default in the flip slice.** Native adapters remain as
+   fallback / feature-off paths; the remaining target gap is making every
+   runtime wrapper emit explicit delivery/status events instead of relying
+   on service-side terminal-control records.
 2. **Claude/Hermes still use service-created terminal input.** Made
    atomic/safer (the running-contract + safety nets); target is
    wrapper-owned delivery.

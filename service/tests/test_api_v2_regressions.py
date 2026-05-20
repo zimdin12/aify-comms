@@ -533,6 +533,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(settings.json()["console_auto_confirm_claude_dev_channels"])
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
+        self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
 
         updated = self.client.put(
@@ -1991,11 +1992,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
     def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
-        # PTY-forward on an explicitly-open console is the contract only for
-        # runtimes WITHOUT a native managed/channel adapter (currently Hermes).
-        # Native runtimes (codex/pi/opencode) deliver via native dispatch even
-        # with a console open — see
-        # test_managed_dispatch_native_runtime_ignores_active_console.
+        # Hermes has no native managed adapter, so it always uses a managed PTY.
+        # Native runtimes are covered below: default terminal-backed delivery,
+        # plus an explicit legacy-native fallback when the setting is disabled.
         session_id = self._create_running_session(
             terminal=True,
             runtime="hermes",
@@ -2020,7 +2019,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], "console-agent")
         self.assertEqual(dispatched["consoleDeliveries"][0]["terminalId"], terminal_id)
         contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["require_reply"], 1)
         self.assertEqual(dispatched["consoleDeliveries"][0]["contractRunId"], contract["id"])
@@ -2031,11 +2030,48 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("do it", control["body"])
         self.assertTrue(control["body"].endswith("\r"))
 
-    def test_managed_dispatch_native_runtime_ignores_active_console_and_dispatches(self):
-        # THE decouple contract (operator's #1 demand): a native-managed
-        # runtime (codex/pi/opencode) delivers via a native dispatch_run and
-        # NEVER injects into a PTY — even when a console is explicitly open.
-        # Messaging must not depend on the console.
+    def test_managed_dispatch_native_runtime_uses_terminal_backing_by_default(self):
+        for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
+            with self.subTest(runtime=runtime):
+                agent_id = f"{runtime}-terminal-agent"
+                self._create_running_session(
+                    agent_id=agent_id,
+                    terminal=True,
+                    runtime=runtime,
+                    terminal_runtimes=[runtime],
+                    session_handle=handle,
+                )
+
+                dispatched = self._dispatch(
+                    from_agent="dashboard",
+                    to=agent_id,
+                    type="request",
+                    subject="work",
+                    body=f"terminal-backed dispatch for {runtime}",
+                    mode="start_if_possible",
+                    createMessage=True,
+                )
+                self.assertEqual(dispatched["notStarted"], [])
+                self.assertEqual(dispatched["runs"], [])
+                self.assertEqual(len(dispatched.get("consoleDeliveries", [])), 1)
+                contract = self._fetchone(
+                    "SELECT status, dispatch_mode, runtime FROM dispatch_runs WHERE target_agent = ?",
+                    (agent_id,),
+                )
+                self.assertIsNotNone(contract)
+                self.assertEqual(contract["status"], "running")
+                self.assertEqual(contract["dispatch_mode"], "terminal")
+                self.assertEqual(api_v2._normalize_runtime(contract["runtime"]), runtime)
+                terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+                injected = self._fetchone(
+                    "SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'",
+                    (terminal_id,),
+                )
+                self.assertIsNotNone(injected)
+                self.assertIn(f"terminal-backed dispatch for {runtime}", injected["body"])
+
+    def test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
             with self.subTest(runtime=runtime):
                 agent_id = f"{runtime}-native-agent"
@@ -2059,7 +2095,6 @@ class ApiV2RegressionTests(unittest.TestCase):
                     mode="start_if_possible",
                     createMessage=True,
                 )
-                # Native dispatch_run created; NOT diverted to a console.
                 self.assertEqual(dispatched.get("consoleDeliveries", []), [])
                 self.assertEqual(dispatched["notStarted"], [])
                 self.assertTrue(dispatched["runs"], dispatched)
@@ -2069,13 +2104,11 @@ class ApiV2RegressionTests(unittest.TestCase):
                 )
                 self.assertIsNotNone(contract)
                 self.assertNotEqual(contract["dispatch_mode"], "terminal")
-                # No terminal input was ever injected into the open console.
                 injected = self._fetchone(
                     "SELECT id FROM terminal_controls WHERE terminal_id = ? AND action = 'input'",
                     (terminal_id,),
                 )
                 self.assertIsNone(injected)
-
     def test_managed_claude_dispatch_uses_claude_aify_terminal_turn(self):
         session_id = self._create_running_session(
             terminal=True,
@@ -2184,6 +2217,37 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["status"], "blocked")
         self.assertIn("terminal", agent["statusNote"].lower())
 
+    def test_terminal_backed_codex_active_run_without_terminal_backing_reports_blocked(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="codex",
+            terminal_runtimes=["codex"],
+            session_handle="codex-thread-1",
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="console-agent",
+            type="request",
+            subject="codex work",
+            body="do it through terminal backing",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
+            (session_id,),
+        )
+        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agent = listed.json()["agents"]["console-agent"]
+        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
+        self.assertEqual(agent["status"], "blocked")
+        self.assertIn("terminal", agent["statusNote"].lower())
+
+
     def test_managed_claude_active_run_with_ended_terminal_backing_reports_blocked(self):
         session_id = self._create_running_session(
             terminal=True,
@@ -2290,9 +2354,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(orphan_channel)
 
     def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
-        # Only runtimes WITHOUT a native managed adapter still start a headless
-        # managed PTY for dispatch. codex/pi/opencode now deliver natively —
-        # see test_managed_dispatch_native_runtime_ignores_active_console.
+        # Hermes has no native managed adapter, so dispatch starts/reuses a
+        # managed PTY directly. Native runtimes use the same terminal-backed
+        # contract by default and have separate fallback coverage.
         cases = [
             ("hermes", "hermes-aify --aify-agent {agent_id}", "--resume hermes-session-1", "hermes-session-1"),
         ]
@@ -2331,7 +2395,7 @@ class ApiV2RegressionTests(unittest.TestCase):
                     self.assertIn(command_contains, controls[0]["body"])
                 self.assertIn(f"run through pty for {runtime}", controls[1]["body"])
                 contract = self._fetchone("SELECT status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", (agent_id,))
-                self.assertEqual(contract["status"], "delivered")
+                self.assertEqual(contract["status"], "running")
                 self.assertEqual(contract["dispatch_mode"], "terminal")
                 self.assertEqual(contract["require_reply"], 1)
 
@@ -2370,7 +2434,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         message = self._fetchone("SELECT dispatch_requested FROM messages WHERE id = ?", (payload["messageId"],))
         self.assertEqual(message["dispatch_requested"], 1)
         contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["require_reply"], 1)
         self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
@@ -2432,7 +2496,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("--resume hermes-session-1", controls[0]["body"])
         self.assertIn("run hermes through managed pty", controls[1]["body"])
         contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("hermes-pty-agent",))
-        self.assertEqual(contract["status"], "delivered")
+        self.assertEqual(contract["status"], "running")
         self.assertEqual(contract["dispatch_mode"], "terminal")
         self.assertEqual(contract["require_reply"], 1)
         self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
@@ -3662,6 +3726,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(run["summary"], "")
 
     def test_dispatch_claim_includes_scoped_direct_conversation_context(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register("dashboard", role="manager")
         self._create_running_session(
             agent_id="worker",
@@ -4438,6 +4503,110 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(session["status"], "cli-takeover")
         self.assertEqual(session["session_handle"], "resident-thread")
 
+
+    def test_resident_bridge_claims_queued_managed_run_after_takeover(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
+        self._register(
+            "resident-queue",
+            runtime="pi",
+            sessionMode="managed",
+            launchMode="managed",
+            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+        )
+        created = self._dispatch(
+            from_agent="dashboard",
+            to="resident-queue",
+            type="request",
+            subject="queued before resident",
+            body="claim me after visible CLI starts",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertTrue(created["runs"], created)
+        run_id = created["runs"][0]["runId"]
+
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "resident-queue",
+                "role": "coder",
+                "runtime": "pi",
+                "sessionMode": "resident",
+                "sessionHandle": "pi-session-visible",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge",
+                "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+
+        claimed = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "resident-queue",
+                "bridgeId": "resident-bridge",
+                "machineId": "linux:test-host",
+                "executionModes": ["resident"],
+            },
+        )
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertEqual(claimed.json()["run"]["id"], run_id)
+        stored = self._fetchone("SELECT status, execution_mode, claim_bridge_id FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(stored["status"], "claimed")
+        self.assertEqual(stored["execution_mode"], "resident")
+        self.assertEqual(stored["claim_bridge_id"], "resident-bridge")
+
+
+    def test_claim_ignores_missing_message_ids_in_buffered_body(self):
+        self._register(
+            "receipt-agent",
+            runtime="pi",
+            sessionMode="resident",
+            sessionHandle="pi-session-visible",
+            machineId="linux:test-host",
+            bridgeId="resident-bridge",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+        )
+        created = self._dispatch(
+            from_agent="dashboard",
+            to="receipt-agent",
+            type="request",
+            subject="buffered receipt",
+            body="claim should mark existing source read",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        run = self._fetchone("SELECT message_id, body FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertTrue(run["message_id"])
+        self._execute(
+            "UPDATE dispatch_runs SET body = ? WHERE id = ?",
+            (f"{run['body']}\n\n--- Buffered item ---\nMessageId: missing-message-id\nBody: stale reference", run_id),
+        )
+
+        claimed = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "receipt-agent",
+                "bridgeId": "resident-bridge",
+                "machineId": "linux:test-host",
+                "executionModes": ["resident"],
+            },
+        )
+
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertEqual(claimed.json()["run"]["id"], run_id)
+        valid_receipt = self._fetchone(
+            "SELECT read_at FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+            (run["message_id"], "receipt-agent"),
+        )
+        self.assertIsNotNone(valid_receipt)
+        missing_receipt = self._fetchone(
+            "SELECT read_at FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+            ("missing-message-id", "receipt-agent"),
+        )
+        self.assertIsNone(missing_receipt)
+
     def test_resident_register_defers_takeover_until_active_managed_run_ends(self):
         self._heartbeat_environment()
         self._register("defer-owner", runtime="codex", sessionMode="managed", launchMode="managed", capabilities=["managed-run", "resume", "interrupt", "steer"])
@@ -4984,6 +5153,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(rows_after, [])
 
     def test_unsending_queued_message_cancels_attached_dispatch_run(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register("lead", runtime="codex", sessionMode="managed")
         self._create_running_session(
             agent_id="manager",
@@ -5634,6 +5804,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(self._fetchone("SELECT id FROM dispatch_runs WHERE target_agent = ?", ("dashboard",)))
 
     def test_async_manager_summary_is_reported_to_dashboard_chat(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._create_running_session(
             agent_id="manager",
             role="manager",
@@ -5686,6 +5857,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(count["c"], 1)
 
     def test_async_manager_summary_does_not_duplicate_explicit_dashboard_reply(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._create_running_session(
             agent_id="manager",
             role="manager",
@@ -5798,6 +5970,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(queued["dispatchRuns"][0]["queuedBehindActiveRun"]["runId"], active_run_id)
 
     def test_normal_send_to_busy_non_steerable_target_queues_as_fallback(self):
+        self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("qa", runtime="codex", sessionMode="managed")
         self._create_running_session(

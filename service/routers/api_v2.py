@@ -127,6 +127,7 @@ DEFAULT_SETTINGS = {
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     "console_auto_confirm_claude_dev_channels": False,
+    "managed_terminal_backing_enabled": True,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
@@ -177,16 +178,19 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # window; the bridge re-sends true on every per-agent heartbeat during long
 # turns (keep its cadence well under this).
 TURN_BUSY_STALE_SECONDS = 120
-# Runtimes the bridge can drive through a native managed integration
-# (codex app-server, pi --mode rpc, opencode SDK). For these, a plain
-# managed dispatch_run is delivered natively by the bridge — they must
-# NEVER be diverted into a managed PTY / terminal-input. That diversion
-# is the root cause of "console starts on send / message not delivered
-# until console opened / lost messages".
+# Runtimes with native managed adapters. With managed terminal backing enabled,
+# these first route through a bridge-owned PTY so Console/status semantics stay
+# symmetric; if no backing can be established, the native adapter remains the
+# fallback path. With the setting disabled, they keep the legacy native
+# dispatch_run behavior.
 _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode"}
 # Managed Claude uses a live Claude Code channel bridge. It is not a native
 # managed runtime adapter and must not be claimed by the generic managed loop.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
+
+def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
+    return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
+
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -1691,13 +1695,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     active_run_mode = str(active_run["dispatch_mode"] or "").strip().lower() if active_run else ""
     active_run_terminal_missing = (
         active_run
-        and active_run_runtime == "claude-code"
         and active_run_mode == "terminal"
         and (not terminal_id or terminal_status not in _TERMINAL_ACTIVE_STATUSES)
     )
     if active_run_terminal_missing:
         effective_status = "blocked"
-        reason = f'Managed Claude active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
+        reason = f'Managed terminal-backed active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
     elif environment_id and env_status and env_status not in {"online", "degraded"}:
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
@@ -3477,7 +3480,7 @@ async def _record_terminal_delivery_contract(
     requested_at = _now()
     normalized_runtime = _normalize_runtime(runtime or "")
     existing_active_turn = None
-    if normalized_runtime == "claude-code":
+    if normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}:
         active_cursor = await db.execute(
             """
             SELECT id
@@ -3485,12 +3488,12 @@ async def _record_terminal_delivery_contract(
             WHERE target_agent = ?
               AND dispatch_mode = 'terminal'
               AND execution_mode = 'managed'
-              AND runtime = 'claude-code'
+              AND runtime = ?
               AND status IN ('claimed', 'running')
             ORDER BY COALESCE(started_at, claimed_at, requested_at) ASC
             LIMIT 1
             """,
-            (recipient_id,),
+            (recipient_id, normalized_runtime),
         )
         existing_active_turn = await active_cursor.fetchone()
     if existing_active_turn:
@@ -3505,7 +3508,7 @@ async def _record_terminal_delivery_contract(
             db,
             parent_run_id,
             "terminal_coalesced",
-            f"Coalesced message {source_message_id or 'unknown'} into active Claude PTY turn",
+            f"Coalesced message {source_message_id or 'unknown'} into active terminal-backed turn",
         )
         if source_message_id:
             await db.execute(
@@ -3515,7 +3518,7 @@ async def _record_terminal_delivery_contract(
         await _invalidate_agent_live_state(db, recipient_id)
         return parent_run_id
 
-    tracks_active_turn = normalized_runtime == "claude-code"
+    tracks_active_turn = normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
     status = "running" if tracks_active_turn else "delivered"
     await db.execute(
         """
@@ -3555,7 +3558,7 @@ async def _record_terminal_delivery_contract(
             db,
             run_id,
             "running",
-            "Awaiting explicit reply from Claude PTY turn",
+            "Awaiting explicit reply from terminal-backed turn",
         )
     if source_message_id:
         await db.execute(
@@ -8016,9 +8019,23 @@ async def send_message(req: MessageSend, request: Request):
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
                     if dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0:
                         continue
-                # Native-managed runtimes deliver via the bridge's native
-                # adapter from a plain dispatch_run.
+                # Native-managed runtimes are now terminal-backed by default
+                # when a supported bridge-owned PTY exists. If no backing can
+                # be established, preserve the native adapter path as fallback.
                 if runtime in _NATIVE_MANAGED_RUNTIMES:
+                    if _managed_terminal_backing_enabled(settings):
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        if console_terminal:
+                            console_recipients[recipient_id] = console_terminal
+                            continue
                     continue
                 # Claude channel notifications are visible in Claude Code,
                 # but do not create a reliable model turn. Managed Claude
@@ -8691,11 +8708,25 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
                 elif runtime in _NATIVE_MANAGED_RUNTIMES:
-                    # Native-managed runtimes deliver via a plain dispatch_run
-                    # claimed by the bridge's native adapter.
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode:
-                        reason = await _managed_environment_unavailable_reason(db, row)
+                        if _managed_terminal_backing_enabled(settings):
+                            console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                            if not console_terminal:
+                                console_terminal = await _ensure_managed_pty_for_dispatch(
+                                    db,
+                                    recipient_id,
+                                    runtime=runtime,
+                                    settings=settings,
+                                    requested_by=req.from_agent,
+                                )
+                            if console_terminal:
+                                console_recipients[recipient_id] = console_terminal
+                                execution_mode = None
+                            else:
+                                reason = await _managed_environment_unavailable_reason(db, row)
+                        else:
+                            reason = await _managed_environment_unavailable_reason(db, row)
                 elif runtime in _CHANNEL_MANAGED_RUNTIMES:
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode == "channel":
