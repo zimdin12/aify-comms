@@ -1331,6 +1331,90 @@ async def _bridge_registered_at(db, bridge_id: str, agent_id: str) -> str:
     return row["registered_at"] or ""
 
 
+async def _record_bridge_registration(
+    db,
+    *,
+    bridge_id: str,
+    agent_id: str,
+    machine_id: str,
+    runtime: str,
+    session_mode: str,
+    session_handle: str,
+    now: str,
+) -> None:
+    """Single source of truth for register-time bridge_instances writes.
+
+    Inserts/updates the bridge_instance row carrying the new bridge_id and
+    its full logical identity, then supersedes only the bridges whose
+    logical identity DIFFERS from this one (different runtime, session_mode,
+    or session_handle on the same agent_id+machine_id). In-flight runs are
+    failed only for the bridges actually superseded — same-logical-owner
+    re-registers are metadata refreshes that do not kill any work.
+    """
+    normalized_machine = str(machine_id or "")
+    normalized_runtime_value = str(runtime or "")
+    normalized_session_mode_value = str(session_mode or "")
+    normalized_session_handle_value = str(session_handle or "").strip()
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO bridge_instances (
+            id, agent_id, machine_id, runtime, session_mode, session_handle,
+            registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            bridge_id,
+            agent_id,
+            normalized_machine,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            normalized_session_handle_value,
+            now,
+            now,
+            "",
+            None,
+        ),
+    )
+    superseded_cursor = await db.execute(
+        """
+        SELECT id FROM bridge_instances
+        WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
+          AND NOT (
+            runtime = ? AND session_mode = ?
+            AND COALESCE(session_handle, '') = ?
+          )
+        """,
+        (
+            agent_id,
+            normalized_machine,
+            bridge_id,
+            normalized_runtime_value,
+            normalized_session_mode_value,
+            normalized_session_handle_value,
+        ),
+    )
+    superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]
+    if not superseded_ids:
+        return
+    placeholders = ",".join("?" for _ in superseded_ids)
+    await db.execute(
+        f"""
+        UPDATE bridge_instances
+        SET superseded_by = ?, superseded_at = ?
+        WHERE id IN ({placeholders})
+        """,
+        (bridge_id, now, *superseded_ids),
+    )
+    await _fail_active_runs_for_superseded_bridges(
+        db,
+        agent_id=agent_id,
+        machine_id=normalized_machine,
+        superseding_bridge_id=bridge_id,
+        finished_at=now,
+        superseded_bridge_ids=superseded_ids,
+    )
+
+
 async def _fail_active_runs_for_superseded_bridges(
     db,
     *,
@@ -1338,18 +1422,38 @@ async def _fail_active_runs_for_superseded_bridges(
     machine_id: str,
     superseding_bridge_id: str,
     finished_at: str,
+    superseded_bridge_ids: Optional[list[str]] = None,
 ) -> list[str]:
-    cursor = await db.execute(
-        """
-        SELECT id, claim_bridge_id
-        FROM dispatch_runs
-        WHERE target_agent = ?
-          AND status IN ('claimed', 'running')
-          AND claim_machine_id = ?
-          AND COALESCE(claim_bridge_id, '') != ?
-        """,
-        (agent_id, machine_id, superseding_bridge_id),
-    )
+    # Scope-narrowed: only fail runs whose claim_bridge_id is in the explicit
+    # superseded-bridge list. Callers without an explicit list fall back to
+    # the legacy "any bridge_id different from the new one" behavior.
+    if superseded_bridge_ids is not None:
+        if not superseded_bridge_ids:
+            return []
+        placeholders = ",".join("?" for _ in superseded_bridge_ids)
+        cursor = await db.execute(
+            f"""
+            SELECT id, claim_bridge_id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND status IN ('claimed', 'running')
+              AND claim_machine_id = ?
+              AND claim_bridge_id IN ({placeholders})
+            """,
+            (agent_id, machine_id, *superseded_bridge_ids),
+        )
+    else:
+        cursor = await db.execute(
+            """
+            SELECT id, claim_bridge_id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND status IN ('claimed', 'running')
+              AND claim_machine_id = ?
+              AND COALESCE(claim_bridge_id, '') != ?
+            """,
+            (agent_id, machine_id, superseding_bridge_id),
+        )
     rows = await cursor.fetchall()
     if not rows:
         return []
@@ -6925,23 +7029,15 @@ async def register_agent(req: AgentRegister, request: Request):
                 ),
             )
             if bridge_id:
-                await db.execute(
-                    """
-                    INSERT OR REPLACE INTO bridge_instances (
-                        id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        bridge_id,
-                        req.agentId,
-                        req.machineId or "",
-                        normalized_runtime,
-                        "managed",
-                        now,
-                        now,
-                        "",
-                        None,
-                    ),
+                await _record_bridge_registration(
+                    db,
+                    bridge_id=bridge_id,
+                    agent_id=req.agentId,
+                    machine_id=req.machineId or "",
+                    runtime=normalized_runtime,
+                    session_mode="managed",
+                    session_handle=session_handle,
+                    now=now,
                 )
             await db.commit()
             ws = await _get_ws(request)
@@ -7016,13 +7112,15 @@ async def register_agent(req: AgentRegister, request: Request):
                     ),
                 )
                 if bridge_id:
-                    await db.execute(
-                        """
-                        INSERT OR REPLACE INTO bridge_instances (
-                            id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?)
-                        """,
-                        (bridge_id, req.agentId, req.machineId or "", normalized_runtime, "resident", now, now, "", None),
+                    await _record_bridge_registration(
+                        db,
+                        bridge_id=bridge_id,
+                        agent_id=req.agentId,
+                        machine_id=req.machineId or "",
+                        runtime=normalized_runtime,
+                        session_mode="resident",
+                        session_handle=session_handle,
+                        now=now,
                     )
                 await db.commit()
                 ws = await _get_ws(request)
@@ -7126,38 +7224,15 @@ async def register_agent(req: AgentRegister, request: Request):
                 ),
             )
         if bridge_id:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO bridge_instances (
-                    id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen, superseded_by, superseded_at
-                ) VALUES (?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    bridge_id,
-                    req.agentId,
-                    req.machineId or "",
-                    normalized_runtime,
-                    normalized_session_mode,
-                    now,
-                    now,
-                    "",
-                    None,
-                )
-            )
-            await db.execute(
-                """
-                UPDATE bridge_instances
-                SET superseded_by = ?, superseded_at = ?
-                WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
-                """,
-                (bridge_id, now, req.agentId, req.machineId or "", bridge_id)
-            )
-            await _fail_active_runs_for_superseded_bridges(
+            await _record_bridge_registration(
                 db,
+                bridge_id=bridge_id,
                 agent_id=req.agentId,
                 machine_id=req.machineId or "",
-                superseding_bridge_id=bridge_id,
-                finished_at=now,
+                runtime=normalized_runtime,
+                session_mode=normalized_session_mode,
+                session_handle=session_handle,
+                now=now,
             )
         if pending_resident_takeover:
             await db.execute(

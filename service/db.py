@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS bridge_instances (
     machine_id TEXT DEFAULT '',
     runtime TEXT DEFAULT 'generic',
     session_mode TEXT DEFAULT 'resident',
+    session_handle TEXT DEFAULT '',
     registered_at TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     superseded_by TEXT DEFAULT '',
@@ -490,6 +491,19 @@ async def _migrate_agent_sessions_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+BRIDGE_INSTANCE_MIGRATIONS = {
+    "session_handle": "ALTER TABLE bridge_instances ADD COLUMN session_handle TEXT DEFAULT ''",
+}
+
+
+async def _migrate_bridge_instances_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(bridge_instances)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in BRIDGE_INSTANCE_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def _migrate_terminal_sessions_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(terminal_sessions)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -559,6 +573,7 @@ async def init_db(db_path: Path = None):
         await _migrate_environments_table(db)
         await _migrate_agent_sessions_table(db)
         await _migrate_terminal_sessions_table(db)
+        await _migrate_bridge_instances_table(db)
         await _backfill_native_managed_capability(db)
         await db.commit()
 
