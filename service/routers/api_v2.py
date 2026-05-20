@@ -133,14 +133,27 @@ DEFAULT_SETTINGS = {
     # Operators who want manual approval can flip false.
     "console_auto_confirm_claude_dev_channels": True,
     "managed_terminal_backing_enabled": True,
-    # When true, managed claude-code sends bypass _ensure_managed_pty_for_dispatch
-    # and create execution_mode='channel' dispatch_runs claimed by the
-    # claude-channel bridge. Default false because the previous design choice
-    # was that channel notifications didn't reliably create model turns;
-    # the aify-comms-channel MCP server now instructs Claude to treat them
-    # as wake-up events, so live-smoke under this flag confirms the new
-    # behavior before flipping the default.
-    "claude_managed_channel_only": False,
+    # Universal delivery-mode flag (operator's design):
+    #   false (default, the target architecture) — managed dispatch
+    #     uses each runtime's proper delivery channel:
+    #       * managed claude: aify-comms-channel notifications (the
+    #         claude-channel.js MCP server inside the wrapper PTY
+    #         claims and emits notifications/claude/channel events).
+    #       * managed codex/pi/opencode/hermes: native RPC adapters
+    #         (createCodexController, createPiController, etc.) via
+    #         executionModes=["managed"] /dispatch/claim polling.
+    #         No PTY-input typing.
+    #   true (legacy / opt-in escape hatch) — bridge writes the
+    #     dispatch body directly into the wrapper PTY as a
+    #     bracketed-paste terminal_control. Operator-visible Console
+    #     pop-up. Used as a working baseline when channel/RPC
+    #     delivery is misconfigured or under investigation.
+    #
+    # Earlier name was claude_managed_channel_only and gated only the
+    # claude-channel split. The current name covers ALL managed
+    # runtimes and inverts the polarity so the proper-delivery path
+    # is the default.
+    "insert_messages_via_console": False,
     # Slices 1/2/4 (proactive wrapper-PTY at spawn-request completion).
     # When true AND managed_terminal_backing_enabled is also true, the
     # service eagerly launches the agent's wrapper PTY at spawn-request
@@ -216,20 +229,34 @@ def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
 
 
-def _claude_managed_channel_only(settings: dict[str, Any]) -> bool:
-    """Whether managed claude-code sends bypass the PTY and route as
-    execution_mode='channel' dispatch_runs claimed by claude-channel.js.
-    Default false; operator-controlled live-smoke gate to verify the
-    channel path actually wakes the model before flipping the default."""
-    return bool(settings.get("claude_managed_channel_only", DEFAULT_SETTINGS["claude_managed_channel_only"]))
+def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
+    """Universal delivery-mode toggle (operator's design).
+
+    Returns True when managed dispatches should write the message body
+    DIRECTLY into the wrapper PTY (legacy console-typed delivery) and
+    False (default, target architecture) when dispatches should flow
+    through each runtime's proper delivery channel: claude-channel.js
+    notifications for managed claude, native RPC adapters
+    (createPiController / createCodexController / opencode SDK) for
+    the native managed runtimes.
+
+    Earlier name was _claude_managed_channel_only with INVERTED polarity
+    (channel-mode was opt-in). Renamed + inverted so the proper-delivery
+    path is the default and the PTY-input fallback is the opt-in
+    escape hatch.
+    """
+    return bool(settings.get("insert_messages_via_console", DEFAULT_SETTINGS["insert_messages_via_console"]))
 
 
-async def _apply_channel_only_to_claude_runs(db, runs, settings: dict[str, Any]) -> None:
-    """Post-create patch: when claude_managed_channel_only=true, force the
-    execution_mode of dispatch_runs targeting managed claude-code agents
-    from 'managed' to 'channel' so claude-channel.js claims them instead
-    of the generic managed worker. Idempotent; skips when setting is off."""
-    if not _claude_managed_channel_only(settings):
+async def _apply_channel_routing_to_claude_runs(db, runs, settings: dict[str, Any]) -> None:
+    """Post-create patch: when insert_messages_via_console=false (the
+    default + target architecture), force the execution_mode of
+    dispatch_runs targeting managed claude-code agents from 'managed'
+    to 'channel' so claude-channel.js claims them instead of the
+    generic managed worker. Idempotent; skips when via-console mode
+    is enabled (in which case PTY-input delivery handles managed
+    claude)."""
+    if _insert_messages_via_console(settings):
         return
     run_ids = [str(run.get("runId") or "") for run in (runs or []) if run and run.get("runId")]
     if not run_ids:
@@ -5230,10 +5257,9 @@ async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
             require_reply=False,
         )
         # Auto-mirrored handoff dispatches for managed claude must also
-        # honor claude_managed_channel_only — same parity fix as the
-        # spawn-time path above.
+        # honor insert_messages_via_console=false (channel-route default).
         settings_for_handoff = await _load_settings(db)
-        await _apply_channel_only_to_claude_runs(db, delivery_runs, settings_for_handoff)
+        await _apply_channel_routing_to_claude_runs(db, delivery_runs, settings_for_handoff)
         delivery_runs = await _finalize_dispatch_runs(
             db,
             delivery_runs,
@@ -6351,11 +6377,13 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     require_reply=True,
                 )
                 # Spawn-time initial-message dispatches for managed claude
-                # must honor claude_managed_channel_only (deep-test caught
-                # this: e2e-test-claude run stayed execution_mode='managed'
-                # so claude-channel.js never claimed it).
+                # must honor insert_messages_via_console=false (the channel-
+                # route default). Deep-test caught this earlier — without
+                # the helper here e2e-test-claude's initial run stayed
+                # execution_mode='managed' and claude-channel.js never
+                # claimed it.
                 settings_for_runs = await _load_settings(db)
-                await _apply_channel_only_to_claude_runs(db, runs, settings_for_runs)
+                await _apply_channel_routing_to_claude_runs(db, runs, settings_for_runs)
                 for run in runs:
                     _wake_agent(run["targetAgentId"])
 
@@ -6374,12 +6402,12 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             settings_for_pty = await _load_settings(db)
             _is_claude_managed = _normalize_runtime(row["runtime"]) == "claude-code"
             _eager_flag = bool(settings_for_pty.get("managed_pty_eager_spawn", DEFAULT_SETTINGS["managed_pty_eager_spawn"]))
-            # When claude_managed_channel_only=true, managed Claude MUST
-            # have a wrapper PTY running so claude-aify (and its
-            # claude-channel.js child) polls /dispatch/claim for this
+            # When insert_messages_via_console=false (the default), managed
+            # claude needs a wrapper PTY hosting claude-aify so its
+            # claude-channel.js child polls /dispatch/claim for this
             # specific agent. Without it, channel dispatches sit queued
-            # forever (observed in run_1779309370301).
-            _claude_needs_wrapper = _is_claude_managed and _claude_managed_channel_only(settings_for_pty)
+            # forever (originally observed in run_1779309370301).
+            _claude_needs_wrapper = _is_claude_managed and not _insert_messages_via_console(settings_for_pty)
             if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper):
                 try:
                     await _ensure_managed_pty_for_dispatch(
@@ -8644,11 +8672,19 @@ async def send_message(req: MessageSend, request: Request):
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
                     if dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0:
                         continue
-                # Native-managed runtimes are now terminal-backed by default
-                # when a supported bridge-owned PTY exists. If no backing can
-                # be established, preserve the native adapter path as fallback.
+                # Native-managed runtimes (codex/pi/opencode) — only
+                # route through PTY-input when the operator opted into
+                # the legacy via-console delivery mode AND managed-
+                # terminal-backing is enabled. Default
+                # (insert_messages_via_console=false) falls through and
+                # the dispatch is claimed by the runtime's native RPC
+                # adapter (createCodexController, createPiController,
+                # opencode SDK) on its /dispatch/claim poll.
                 if runtime in _NATIVE_MANAGED_RUNTIMES:
-                    if _managed_terminal_backing_enabled(settings):
+                    if (
+                        _managed_terminal_backing_enabled(settings)
+                        and _insert_messages_via_console(settings)
+                    ):
                         console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                         if not console_terminal:
                             console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -8662,20 +8698,19 @@ async def send_message(req: MessageSend, request: Request):
                             console_recipients[recipient_id] = console_terminal
                             continue
                     continue
-                # Claude channel notifications are visible in Claude Code,
-                # but historically did not reliably create a model turn —
-                # so managed Claude dashboard chat used the claude-aify PTY
-                # backing and injected the formatted message there.
-                # When claude_managed_channel_only is on, skip the PTY
-                # routing for claude-code entirely: the dispatch_run stays
-                # launchable and gets execution_mode='channel' (see
-                # _apply_channel_only_to_claude_runs after
-                # _create_dispatch_runs) so claude-channel.js claims it
-                # and emits the message as a channel wake-up event.
+                # Managed Claude PTY-input branch — only fires when the
+                # operator has opted into the legacy via-console delivery
+                # mode (insert_messages_via_console=true). Default-false
+                # routing flows through the channel branch below: the run
+                # is left launchable with execution_mode='channel' (see
+                # _apply_channel_routing_to_claude_runs after
+                # _create_dispatch_runs) so claude-channel.js inside the
+                # wrapper-hosted claude-aify claims it and emits the
+                # message as a channel wake-up event.
                 if (
                     runtime in _CHANNEL_MANAGED_RUNTIMES
                     and _execution_mode == "channel"
-                    and not _claude_managed_channel_only(settings)
+                    and _insert_messages_via_console(settings)
                 ):
                     console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                     if not console_terminal:
@@ -8699,17 +8734,18 @@ async def send_message(req: MessageSend, request: Request):
                         channel_backing_failed.add(recipient_id)
                     continue
                 if runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    # Channel-only managed Claude needs a wrapper PTY
-                    # running so claude-aify's claude-channel.js child
-                    # actually polls /dispatch/claim for this agent and
-                    # picks up the channel-routed dispatch. Without it,
-                    # the run sits queued forever (observed in
+                    # Channel-mode managed Claude (insert_messages_via_console=false)
+                    # needs a wrapper PTY running so claude-aify's
+                    # claude-channel.js child actually polls
+                    # /dispatch/claim for this agent and picks up the
+                    # channel-routed dispatch. Without it, the run sits
+                    # queued forever (originally observed in
                     # run_1779309370301). We don't inject input — the
                     # PTY is the host for the subscriber, not the
                     # delivery channel. Existing terminal is reused
                     # (slice-3 reuse semantics); only spawned if absent.
                     if (
-                        _claude_managed_channel_only(settings)
+                        not _insert_messages_via_console(settings)
                         and _managed_terminal_backing_enabled(settings)
                         and _execution_mode == "channel"
                     ):
@@ -8828,7 +8864,7 @@ async def send_message(req: MessageSend, request: Request):
                 require_reply=require_reply,
             )
             dispatch_runs = await _finalize_dispatch_runs(db, dispatch_runs, launchable_recipients, not_started)
-            await _apply_channel_only_to_claude_runs(db, dispatch_runs, settings)
+            await _apply_channel_routing_to_claude_runs(db, dispatch_runs, settings)
 
         console_deliveries = []
         if req.trigger:
@@ -9393,10 +9429,13 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
                     if not reason and execution_mode == "channel":
                         reason = await _managed_environment_unavailable_reason(db, row)
-                    if not reason and execution_mode == "channel" and not _claude_managed_channel_only(settings):
-                        # PTY path (legacy default). Skipped when channel-only
-                        # is enabled — run stays launchable and gets
-                        # execution_mode='channel' via the post-create patch.
+                    if not reason and execution_mode == "channel" and _insert_messages_via_console(settings):
+                        # PTY-input path — only the opt-in via-console
+                        # delivery mode goes through here. Default-false
+                        # routing leaves the run launchable and the post-
+                        # create _apply_channel_routing_to_claude_runs
+                        # flips execution_mode='channel' so claude-channel.js
+                        # claims it.
                         console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                         if not console_terminal:
                             console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -9490,7 +9529,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 require_reply=require_reply,
             )
             runs = await _finalize_dispatch_runs(db, runs, launchable_recipients, not_started)
-            await _apply_channel_only_to_claude_runs(db, runs, settings)
+            await _apply_channel_routing_to_claude_runs(db, runs, settings)
 
         console_deliveries = []
         for recipient_id, terminal in console_recipients.items():

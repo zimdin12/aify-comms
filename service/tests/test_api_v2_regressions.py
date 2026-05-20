@@ -44,6 +44,15 @@ class ApiV2RegressionTests(unittest.TestCase):
         app.state.testing = True
         app.include_router(router, prefix="/api/v1")
         self.client = TestClient(app)
+        # Most existing regression tests were written when PTY-input
+        # ("via-console") was the implicit default for managed claude.
+        # The new default (operator design) is channel routing — managed
+        # claude flows through claude-channel.js notifications. Opt this
+        # whole suite into the legacy via-console mode so the historical
+        # contracts (consoleDeliveries, terminal-control inputs, idle-
+        # prompt closes, etc.) still apply. Individual tests for the new
+        # channel-route default set this back to False explicitly.
+        self.client.put("/api/v1/settings", json={"insert_messages_via_console": True})
 
     def tearDown(self):
         self.client.close()
@@ -4896,14 +4905,15 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight run was killed by same-session re-register: {dict(run)}")
 
-    def test_claude_managed_channel_only_routes_dispatch_as_channel_execution_mode(self):
-        # Operator-requested: managed Claude should deliver via channels,
-        # not via service-created terminal-input injection. Gated behind
-        # claude_managed_channel_only (default false) for a controlled
-        # live-smoke. When true, managed claude-code sends skip the PTY
-        # routing entirely and the resulting dispatch_run carries
-        # execution_mode='channel' so claude-channel.js claims it.
-        self.client.put("/api/v1/settings", json={"claude_managed_channel_only": True})
+    def test_default_channel_routing_for_managed_claude(self):
+        # Operator design: managed Claude should deliver via channels by
+        # default, NOT via service-created terminal-input injection.
+        # Setting insert_messages_via_console=false (the default) makes
+        # managed claude-code sends skip the PTY routing entirely and
+        # the resulting dispatch_run carries execution_mode='channel'
+        # so claude-channel.js claims it. (Earlier name was
+        # claude_managed_channel_only with inverted polarity.)
+        self.client.put("/api/v1/settings", json={"insert_messages_via_console": False})
         self._heartbeat_environment(
             terminal=True,
             pty=True,

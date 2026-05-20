@@ -269,6 +269,31 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why claude-aify always exports `AIFY_CHANNELS_ENABLED=1`.** claude-aify is the channels-aware Claude wrapper. Server-side, `runtime_config.channelEnabled=true` is the precondition for `_row_capabilities` keeping resident-run/interrupt/steer caps; without it the strip reduces caps to just `managed-run/resume` and preflight rejects live sends. Declaring the channel-enabled flag at register time removes the manual DB patching that earlier sessions needed.
 
+## insert_messages_via_console (rename + semantic invert of the old channel-only setting)
+
+**Decision.** A single universal flag controls managed delivery semantics across ALL runtimes:
+
+- `insert_messages_via_console=false` (default, target architecture) — managed dispatch flows through each runtime's proper delivery channel:
+  - managed claude → `claude-channel.js` notifications inside the wrapper PTY (channel transport).
+  - managed codex / pi / opencode → native RPC adapters (`createCodexController`, `createPiController`, opencode SDK) via `executionModes=["managed"]` /dispatch/claim polling.
+  - No PTY-input typing.
+- `insert_messages_via_console=true` (legacy / opt-in escape hatch) — bridge writes the dispatch body directly into the wrapper PTY as a bracketed-paste `terminal_control`. Operator-visible Console pop-up. Used as a working baseline when channel/RPC delivery is misconfigured or under investigation.
+
+Earlier name was `claude_managed_channel_only` and gated ONLY the claude split with inverted polarity (channel mode was opt-in true). The rename:
+- Names what the flag actually does ("insert messages via console" = type them into the PTY).
+- Inverts the polarity so the proper-delivery path is the default and the PTY-input fallback is the explicit opt-in.
+- Covers ALL managed runtimes, not just claude. Native managed runtimes (codex/pi/opencode) also route through native RPC instead of PTY-input under the default-false.
+
+**Why.** Operator's framing: "we want to deliver messages via channels and `*-aify` bridges like we have." The PTY-input path was a workaround layered on top of the proper-delivery architecture. Making it opt-in clarifies the intended design and removes the visible "console pops up on first send" UX symptom from the default flow.
+
+**Why a legacy escape hatch instead of removal.** Channel delivery for managed claude currently depends on Claude CLI's `--dangerously-load-development-channels` flag + a per-session menu confirmation. The bridge's reactive auto-confirm (detect prompt text → 2s wait → send `1\r`) fires mechanically but the channel hasn't been confirmed working end-to-end yet (Claude inside the wrapper still rejected the channel after auto-confirm in live testing). Until that's resolved, operators may need the via-console escape hatch as a working baseline.
+
+**Implementation.** Helper renamed `_claude_managed_channel_only` → `_insert_messages_via_console`. All call sites inverted (was-true ↔ was-false). Routing in `send_message`:
+- NATIVE_MANAGED runtimes: PTY-input branch gated on `_managed_terminal_backing_enabled AND _insert_messages_via_console`. Default-false falls through to native adapter delivery.
+- CHANNEL_MANAGED (claude): PTY-input branch gated on `_insert_messages_via_console`. Default-false leaves the run launchable; `_apply_channel_routing_to_claude_runs` flips `execution_mode='channel'` so claude-channel.js claims it.
+
+Tests: regression suite's `setUp` opts the whole legacy suite into via-console mode so historical contracts (`consoleDeliveries`, terminal-control inputs, idle-prompt closes) still apply. Tests for the new default override.
+
 ## Managed Claude routes via channel events, not PTY input
 
 **Decision.** When `claude_managed_channel_only=true` (settings, default false in `DEFAULT_SETTINGS`), dispatches targeting managed claude-code agents are claimed by `claude-channel.js` over the channel transport and emitted to the agent as `<channel source="aify-comms-channel" ...>` MCP notifications instead of being typed into the wrapper PTY. `_apply_channel_only_to_claude_runs` flips `execution_mode='channel'` on those runs at create time; the PTY-routing branch in `send_message` is gated by `not _claude_managed_channel_only(settings)`.

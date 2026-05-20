@@ -50,7 +50,7 @@ claude-aify
 
 ### Managed-channel routing
 
-`claude_managed_channel_only=true` (settings, default false) routes dispatches to managed Claude agents via channel events (claimed by `claude-channel.js`, emitted as `<channel source="aify-comms-channel" ...>` MCP notifications) instead of typing into the wrapper PTY. Same protocol resident Claude already uses. Flip via `PUT /api/v1/settings` and roll back instantly if anything regresses.
+`insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)` (settings, default false) routes dispatches to managed Claude agents via channel events (claimed by `claude-channel.js`, emitted as `<channel source="aify-comms-channel" ...>` MCP notifications) instead of typing into the wrapper PTY. Same protocol resident Claude already uses. Flip via `PUT /api/v1/settings` and roll back instantly if anything regresses.
 
 That wrapper enables the local aify channel bridge, adds Claude’s current development-channel flag automatically, and records the live resident-session binding so `comms_register` can advertise `claude-live` reliably.
 If Claude says `server:aify-comms-channel · no MCP server configured with that name`, rerun the installer with a real server URL and restart Claude Code.

@@ -515,7 +515,7 @@ c.commit()
 
 **Fix (architectural).** Flip `managed_pty_eager_spawn=true`. The wrapper PTY launches proactively at spawn-request running transition; subsequent dispatches reuse it via `_active_terminal_for_agent` (dispatch path) and the slice-3 reuse check in `start_session_console` (manual Start Console path). `PUT /api/v1/settings {"managed_pty_eager_spawn": true}`. Roll back by flipping false.
 
-**Fix (claude-specific).** For managed claude-code, flip `claude_managed_channel_only=true` instead — dispatches route via channel events (claimed by `claude-channel.js`) and no PTY is involved at all. Same protocol resident Claude already uses.
+**Fix (claude-specific).** For managed claude-code, flip `insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)` instead — dispatches route via channel events (claimed by `claude-channel.js`) and no PTY is involved at all. Same protocol resident Claude already uses.
 
 ## Each keystroke in the dashboard Console submits as a command
 
@@ -543,7 +543,7 @@ c.commit()
 
 ## Managed claude dispatch cancelled with "capabilities do not include managed-run"
 
-**Symptom.** Send to a managed claude-code agent with `claude_managed_channel_only=true`. The dispatch_event row reads `agent capabilities do not include "managed-run"` and the run is cancelled before delivery. The agent's capabilities show `["resume", "interrupt", "spawn"]` (no `managed-run`) and `runtime_config.channelEnabled=true`.
+**Symptom.** Send to a managed claude-code agent with `insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)`. The dispatch_event row reads `agent capabilities do not include "managed-run"` and the run is cancelled before delivery. The agent's capabilities show `["resume", "interrupt", "spawn"]` (no `managed-run`) and `runtime_config.channelEnabled=true`.
 
 **Cause.** Default capabilities for managed claude omit `managed-run` by design (claude has no headless managed-run API). Pre-`a4498a6`, `_agent_execution_mode` rejected dispatches on the missing cap before the channel branch could fire.
 
@@ -551,7 +551,7 @@ c.commit()
 
 ## Spawn-time initial message to managed claude sits queued forever
 
-**Symptom.** `comms_spawn(runtime="claude-code")` registers the agent + spawns wrapper PTY successfully, but the spawn's `initialMessage` dispatch_run has `status='queued'` and `execution_mode='managed'` — never claimed by `claude-channel.js`. With `claude_managed_channel_only=true`, the run should have `execution_mode='channel'`.
+**Symptom.** `comms_spawn(runtime="claude-code")` registers the agent + spawns wrapper PTY successfully, but the spawn's `initialMessage` dispatch_run has `status='queued'` and `execution_mode='managed'` — never claimed by `claude-channel.js`. With `insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)`, the run should have `execution_mode='channel'`.
 
 **Cause.** Pre-`a4498a6`, `update_spawn_request`'s running-transition handler called `_create_dispatch_runs(...)` to create the initial-message run, but did NOT call `_apply_channel_only_to_claude_runs(...)` afterward. The run stayed `execution_mode='managed'` even with the channel-only setting on. The same gap existed in the auto-mirrored handoff path at line 4912.
 
