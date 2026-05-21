@@ -202,14 +202,22 @@ fi
 # the race. Resident operator-launched wrappers keep their full env.
 CLAUDE_MCP_FLAGS=()
 AIFY_MCP_CONFIG=""
-if [ "\$CLAUDE_AIFY_SESSION_MODE" = "managed" ]; then
+# ALWAYS use strict-mcp-config for claude-aify (both managed and
+# resident). Without this, claude-channel.js loses the stdio MCP
+# init race against the operator's other ~13 servers in
+# ~/.claude.json and silently fails to register the channel listener —
+# every channel-routed dispatch sits queued and never reaches the
+# model. Trade-off: the operator's other MCP servers (browsermcp,
+# github, etc.) are NOT loaded inside the claude-aify wrapper. They
+# stay loaded in plain `claude` sessions outside the wrapper. This
+# is the only configuration where aify-comms-channel reliably wakes
+# the session. Confirmed by GitHub issues #38462 + #21341.
+if true; then
   # Convert install dir to a Windows-native path (C:/Docker/aify-comms)
   # if cygpath is available, otherwise use SCRIPT_DIR as-is. The MSYS
   # path /c/Docker/aify-comms is unreadable by native-Windows Claude
   # spawning the MCP server children — they fail to start with the
-  # MSYS-style path even though bash itself reads it fine. Caused the
-  # "2 MCP servers failed" + "aify-comms disconnected" symptom that
-  # remained even with --strict-mcp-config in place.
+  # MSYS-style path even though bash itself reads it fine.
   if command -v cygpath >/dev/null 2>&1; then
     AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$SCRIPT_DIR")"
   else
