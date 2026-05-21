@@ -46,7 +46,8 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { shouldDropLocalActiveRun } from "./dispatch-state.js";
-import { shutdownAllPiSessions } from "./pi-session.js";
+import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session.js";
+import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
@@ -232,6 +233,7 @@ async function shutdownWithStatus(code) {
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
   PI_VIRTUAL_TERMINALS.clear();
+  VIRTUAL_TERMINAL_INPUT.clear();
   cleanupOnExit();
   process.exit(code);
 }
@@ -244,6 +246,23 @@ const LOCAL_RUNTIME_STATE = new Map();
 // agentId → { terminalId } for the bridge's synthesized pi rpc terminal.
 // Cached so subsequent dispatches reuse the same virtual terminal_session row.
 const PI_VIRTUAL_TERMINALS = new Map();
+// Dashboard input buffering for synthesized pi RPC terminals. See
+// virtual-terminal-input.js for the buffer-and-dispatch semantics.
+const VIRTUAL_TERMINAL_INPUT = createVirtualTerminalInputManager({
+  dispatch: (agentId, line) => dispatchVirtualTerminalLine(agentId, line),
+  onError: (error, ctx) => {
+    console.error(`[aify] virtual-terminal dispatch failed for "${ctx.agentId}" (line=${JSON.stringify(ctx.line?.slice(0, 80) || "")}): ${error?.message || error}`);
+  },
+});
+
+function findAgentIdForVirtualTerminal(terminalId) {
+  const id = String(terminalId || "").trim();
+  if (!id) return "";
+  for (const [agentId, entry] of PI_VIRTUAL_TERMINALS.entries()) {
+    if (entry?.terminalId === id) return agentId;
+  }
+  return "";
+}
 const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
 // Terminal-control loop polls separately and much tighter: console input is
 // latency-sensitive (operator typing), and the terminal_controls query is
@@ -323,6 +342,40 @@ async function ensurePiVirtualTerminal(agentId, agentInfo) {
   const entry = { terminalId };
   PI_VIRTUAL_TERMINALS.set(key, entry);
   return entry;
+}
+
+async function dispatchVirtualTerminalLine(agentId, lineBody) {
+  // Drive the persistent PiSession from operator-typed terminal input. This
+  // is intentionally lighter than launchRuntimeRun: there's no dispatch_run
+  // row, no agent_status/turn_busy management, no runtime-state PATCH. The
+  // synthesized terminal stream is the only operator-visible artifact.
+  const state = REMOTE_AGENT_STATE.get(String(agentId || "").trim());
+  if (!state) throw new Error(`No bridge state for agent "${agentId}"`);
+  const agentInfo = state.info || {};
+  const sessionHandle = String(agentInfo?.sessionHandle || agentInfo?.runtimeState?.sessionId || "").trim();
+  const session = await acquirePiSession({
+    agentId,
+    agentInfo,
+    sessionId: sessionHandle,
+    cwd: agentInfo?.cwd || process.cwd(),
+    onPoolEvent: () => {},
+  });
+  const entry = await ensurePiVirtualTerminal(agentId, agentInfo);
+  if (entry?.terminalId) session.attachTerminalSink(createPiTerminalSink(entry.terminalId));
+  const syntheticRun = {
+    from: "dashboard",
+    subject: "Operator console input",
+    body: String(lineBody || ""),
+    type: "request",
+    executionMode: "managed",
+    requireReply: false,
+  };
+  const turnHandle = session.runTurn(syntheticRun, {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  });
+  return turnHandle.promise;
 }
 
 function createPiTerminalSink(terminalId) {
@@ -1313,6 +1366,38 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
   return extractRuntimeSessionHandleFromCommand(runtime, command);
 }
 
+async function handleVirtualTerminalControl(agentId, terminalId, control) {
+  const action = String(control.action || "").trim();
+  if (action === "input") {
+    const rawBody = String(control.body || "");
+    await VIRTUAL_TERMINAL_INPUT.append(agentId, terminalId, rawBody);
+    await updateTerminalControl(control.id, { status: "completed", terminalStatus: "running" });
+    return;
+  }
+  if (action === "resize") {
+    // The synthesized terminal has no PTY dimensions; ack so the dashboard
+    // doesn't keep retrying. Future: surface cols/rows in the dashboard hint.
+    await updateTerminalControl(control.id, { status: "completed", terminalStatus: "running" });
+    return;
+  }
+  if (action === "stop") {
+    const session = getPiSession(agentId);
+    if (session) await session.stop("virtual-terminal stop control");
+    PI_VIRTUAL_TERMINALS.delete(agentId);
+    VIRTUAL_TERMINAL_INPUT.remove(terminalId);
+    await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
+    return;
+  }
+  if (action === "start") {
+    // Virtual terminals are created via /agents/{id}/virtual-terminal/ensure,
+    // not via the start control. Treat a stray start as a no-op ack so the
+    // dashboard's reconcile path doesn't infinite-retry.
+    await updateTerminalControl(control.id, { status: "completed", terminalStatus: "running" });
+    return;
+  }
+  throw new Error(`Unsupported virtual-terminal control action: ${action}`);
+}
+
 async function runTerminalControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;
   terminalControlBusy = true;
@@ -1327,6 +1412,11 @@ async function runTerminalControlLoop() {
       try {
         const terminalId = String(control.terminalId || "").trim();
         if (!terminalId) throw new Error("Terminal control missing terminal id");
+        const virtualAgentId = findAgentIdForVirtualTerminal(terminalId);
+        if (virtualAgentId) {
+          await handleVirtualTerminalControl(virtualAgentId, terminalId, control);
+          continue;
+        }
         if (control.action === "start") {
           const terminalRes = await httpCall("GET", `/terminals/${encodeURIComponent(terminalId)}`);
           const terminal = terminalRes?.terminal || {};

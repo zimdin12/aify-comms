@@ -1101,6 +1101,12 @@ export async function acquirePiSession({ agentId, agentInfo, sessionId = "", cwd
   return session;
 }
 
+export function getPiSession(agentId) {
+  const key = String(agentId || "").trim();
+  if (!key) return null;
+  return piSessionPool.get(key) || null;
+}
+
 export async function shutdownAllPiSessions(reason = "shutdown") {
   const sessions = [...piSessionPool.values()];
   piSessionPool.clear();

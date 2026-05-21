@@ -120,7 +120,7 @@ idle ──ensureStarted──▶ starting ──ready event──▶ ready
 
 - [x] Phase 1 — Persistent RPC child (pi-session.js + createPiControllerManaged + pool tests)
 - [x] Phase 2 — Synthesized terminal stream (formatPiEventAsTerminalFrame + sink/buffer in pi-session.js, /agents/{id}/virtual-terminal/ensure endpoint, bridge terminalSinkProvider; race-fix in PiSession.stop() pool-evicts synchronously before kill)
-- [ ] Phase 3 — Dashboard input routing
+- [x] Phase 3 — Dashboard input routing (virtual-terminal-input.js buffer-and-dispatch manager; bridge routes terminal_controls with action=input/stop/resize to the persistent PiSession; dispatchVirtualTerminalLine drives runTurn off operator console keystrokes). Out-of-scope follow-on: RpcExtensionUIRequest reply path (needs OMP response-schema investigation).
 - [ ] Phase 4 — Watchdog
 - [ ] Phase 5 — Docs
 
