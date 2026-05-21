@@ -8046,6 +8046,148 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(attach_body["sessionId"], "sess_pi_console_new")
         self.assertEqual(attach_body["agentId"], "pi-console-agent")
 
+    def test_channel_route_delivered_awaiting_reply_shows_working(self):
+        # Operator-reported gap: while a resident claude session was
+        # processing a channel-route dispatch, the dashboard showed the
+        # agent as "active" instead of "working". claude-channel.js pulses
+        # turn_busy=true on claim and busy=false in a finally right after
+        # emit, so the pulse window is ~milliseconds — the dashboard never
+        # samples the pulse and the agent looks idle while it's actually
+        # generating its reply. Server-side derivation closes this gap:
+        # execution_mode='channel' + status='delivered' + require_reply=1
+        # IS the agent-is-working signal (distinct from terminal-delivery
+        # 'delivered' which is normal lingering state).
+        self._heartbeat_environment(
+            id="env_channel_busy",
+            bridgeId="bridge-channel-busy",
+            machineId="linux:channel-busy",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("channel-claude", runtime="claude-code", sessionMode="resident")
+
+        # Baseline: no runs → not working.
+        agent_response = self.client.get("/api/v1/agents/channel-claude")
+        self.assertEqual(agent_response.status_code, 200, agent_response.text)
+        self.assertNotEqual(agent_response.json()["agent"]["status"], "working")
+
+        # Seed a channel-route delivered dispatch_run awaiting reply.
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_channel_busy_1",
+                None,
+                "dashboard",
+                "channel-claude",
+                "start_if_possible",
+                "channel",
+                "request",
+                "deep question",
+                "think hard about this",
+                "normal",
+                "delivered",
+                1,
+                "2026-05-21T00:00:00Z",
+            ),
+        )
+        # Invalidate cache so the next read recomputes against the new run.
+        asyncio.run(self._async_invalidate("channel-claude"))
+
+        working_response = self.client.get("/api/v1/agents/channel-claude")
+        self.assertEqual(working_response.status_code, 200, working_response.text)
+        working_payload = working_response.json()["agent"]
+        self.assertEqual(working_payload["status"], "working", working_payload)
+        self.assertIn("awaiting reply", working_payload.get("statusNote", "").lower())
+
+        # Reply lands → run completes → status flips back.
+        self._execute(
+            "UPDATE dispatch_runs SET status = 'completed' WHERE id = ?",
+            ("run_channel_busy_1",),
+        )
+        asyncio.run(self._async_invalidate("channel-claude"))
+        idle_response = self.client.get("/api/v1/agents/channel-claude")
+        self.assertEqual(idle_response.status_code, 200, idle_response.text)
+        self.assertNotEqual(idle_response.json()["agent"]["status"], "working")
+
+    async def _async_invalidate(self, agent_id: str):
+        from service.db import get_db as _get_db
+        db = await _get_db()
+        try:
+            await api_v2._invalidate_agent_live_state(db, agent_id)
+            await db.commit()
+        finally:
+            await db.close()
+
+    def test_terminal_route_delivered_does_not_pin_working_status(self):
+        # Guardrail for the channel-route fix: the new
+        # _current_channel_awaiting_reply_run_row lookup must filter on
+        # execution_mode='channel'. A terminal-route dispatch sitting
+        # 'delivered' as its normal lingering state must NOT light up
+        # "working" — that's the original failure mode the strict
+        # _current_active_run_row exists to avoid.
+        self._heartbeat_environment(
+            id="env_terminal_busy",
+            bridgeId="bridge-terminal-busy",
+            machineId="linux:terminal-busy",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("terminal-claude", runtime="claude-code", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_terminal_busy_1",
+                None,
+                "dashboard",
+                "terminal-claude",
+                "start_if_possible",
+                "managed",
+                "request",
+                "delivered-terminal",
+                "body",
+                "normal",
+                "delivered",
+                1,
+                "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("terminal-claude"))
+        response = self.client.get("/api/v1/agents/terminal-claude")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotEqual(
+            response.json()["agent"]["status"],
+            "working",
+            "execution_mode='managed' delivered run must NOT light up working — that's the terminal-delivery lingering bug guard",
+        )
+
     def test_pi_session_state_reports_bridge_ownership_for_watchdog(self):
         # Phase 4: omp-aify queries this before exec'ing OMP. When no virtual
         # terminal exists, bridgeOwned is false → the wrapper proceeds. After a

@@ -1840,6 +1840,34 @@ async def _current_active_run_row(db, agent_id: str):
     return await cursor.fetchone()
 
 
+async def _current_channel_awaiting_reply_run_row(db, agent_id: str):
+    # Channel-route dispatch transitions to 'delivered' the moment
+    # claude-channel.js emits the MCP notification, then waits for the
+    # agent's explicit reply. The agent IS working on that reply — but
+    # _current_active_run_row deliberately excludes 'delivered' because
+    # terminal-delivery runs also sit 'delivered' as a normal lingering
+    # state and would otherwise pin idle terminal agents to "working".
+    # The discriminator that lets us treat THIS case as working without
+    # re-introducing that bug is the (execution_mode='channel' AND
+    # require_reply=1) pair: terminal-delivery runs do not carry channel
+    # execution_mode. Use this only as the "still working on the reply"
+    # signal, not as a generic active-run replacement.
+    cursor = await db.execute(
+        """
+        SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at
+        FROM dispatch_runs
+        WHERE target_agent = ?
+          AND status = 'delivered'
+          AND execution_mode = 'channel'
+          AND require_reply = 1
+        ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )
+    return await cursor.fetchone()
+
+
 _ANSI_RE = re.compile(
     r"\x1b\][\s\S]*?(?:\x07|\x1b\\)|"
     r"\x1b\[[0-?]*[ -/]*[@-~]|"
@@ -1916,6 +1944,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         }
     session_row = await _current_agent_session_row(db, agent_row["id"])
     active_run = await _current_active_run_row(db, agent_row["id"])
+    channel_pending_reply_run = await _current_channel_awaiting_reply_run_row(db, agent_row["id"])
     # Authoritative mid-turn signal pushed by the bridge (contract). Fresh
     # turn_busy=1 means the runtime is executing a turn right now → working,
     # even when the dispatch row is delivered/ambiguous. Stale (no refresh
@@ -2006,6 +2035,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     elif turn_busy:
         effective_status = "working"
         reason = f"Executing turn ({turn_runtime})." if turn_runtime else "Executing turn."
+    elif channel_pending_reply_run:
+        # Channel-route delivered + requireReply: the agent owes a reply
+        # and is therefore working on it. Distinguished from generic
+        # 'delivered' (which also covers terminal-delivery lingering state
+        # and is NOT working) by the channel execution_mode + require_reply.
+        effective_status = "working"
+        reason = (
+            f'Channel dispatch delivered, awaiting reply: '
+            f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+        )
     elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
         effective_status = "working"
         reason = session_status or terminal_status or "Session is transitioning."
