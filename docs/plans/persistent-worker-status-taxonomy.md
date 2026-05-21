@@ -103,13 +103,15 @@ Each commit is operator-pull-safe. Phases 5-7 are independent; can be reordered 
 
 ## Status (as of save)
 
-- [ ] Phase 1 — Plan doc (this file)
-- [ ] Phase 2 — Status taxonomy
-- [ ] Phase 3 — Wake-on-message
-- [ ] Phase 4 — Stop endpoint
-- [ ] Phase 5 — Codex persistent worker
-- [ ] Phase 6 — Opencode persistent worker
-- [ ] Phase 7 — Hermes persistent SESSION
-- [ ] Phase 8 — Docs
+- [x] Phase 1 — Plan doc (this file) — `5714da8`
+- [x] Phase 2 — Status taxonomy (available/online/working) — `ba45795`
+- [x] Phase 3 — Wake-on-message (test-pinned; works implicitly via Phase 2 + existing per-runtime dispatch handlers) — `1904269`
+- [x] Phase 4 — Stop endpoint (`POST /agents/{id}/stop-worker`) — `1904269`
+- [ ] Phase 5 — Codex persistent worker — **deferred**. 3-5 day refactor: new CodexSession class mirroring `pi-session.js` (pool keyed by agentId, ensureStarted, runTurn, stop, idle-timeout, heal/retry); createCodexControllerManaged wraps it; createCodexController dispatches resident → legacy / managed → managed. Today managed codex still uses per-dispatch app-server connections — UX is unchanged but each turn pays startup cost.
+- [ ] Phase 6 — Opencode persistent worker — **deferred**. Same shape as Phase 5: new OpenCodeSession class, pool, persistent SDK session per agent.
+- [x] Phase 7 — Hermes persistent SESSION via `--continue` — `1904269`. Process is per-dispatch (upstream constraint), session+terminal are durable.
+- [ ] Phase 8 — Docs — in progress.
+
+Phases 5 + 6 are scoped but not implemented; they're efficiency wins (one spawn per agent vs per dispatch) without affecting operator UX. The architectural plumbing — taxonomy + wake + stop + synthesized terminal — is already in place for them to slot into when implemented.
 
 Update checkboxes as commits land.
