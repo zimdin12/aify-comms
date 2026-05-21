@@ -8132,6 +8132,165 @@ class ApiV2RegressionTests(unittest.TestCase):
         finally:
             await db.close()
 
+    def test_resident_route_delivered_awaiting_reply_shows_working(self):
+        # Resident dispatch to claude (execution_mode='resident') goes through
+        # the SAME claude-channel.js delivery path as channel-mode and now
+        # also stays in 'delivered' status until the reply lands. Server-side
+        # derivation should treat this identically to channel-route for the
+        # working-status signal — the operator's complaint was that resident
+        # claude sessions never showed "working" while processing replies.
+        self._heartbeat_environment(
+            id="env_resident_busy",
+            bridgeId="bridge-resident-busy",
+            machineId="linux:resident-busy",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("resident-claude", runtime="claude-code", sessionMode="resident")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_resident_busy_1",
+                None,
+                "dashboard",
+                "resident-claude",
+                "start_if_possible",
+                "resident",
+                "request",
+                "question to resident",
+                "deep think",
+                "normal",
+                "delivered",
+                1,
+                "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("resident-claude"))
+        response = self.client.get("/api/v1/agents/resident-claude")
+        self.assertEqual(response.status_code, 200, response.text)
+        agent = response.json()["agent"]
+        self.assertEqual(agent["status"], "working", agent)
+        self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
+
+    def test_reply_landing_clears_turn_busy_for_channel_route(self):
+        # claude-channel.js pulses turn_busy=true on every delivery and
+        # relies on the 120s stale window for cleanup. That's too slow
+        # after the reply lands — the operator wants status to flip back
+        # to "active" immediately when the agent finishes. Server-side
+        # _mark_dispatch_run_answered now clears turn_busy when the last
+        # in-flight channel-or-resident require_reply run for the agent
+        # closes.
+        self._heartbeat_environment(
+            id="env_clear_busy",
+            bridgeId="bridge-clear-busy",
+            machineId="linux:clear-busy",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("clearer-claude", runtime="claude-code", sessionMode="resident")
+        # Seed: dashboard's original message → a delivered+require_reply run
+        # → a fresh turn_busy=true pulse. Message must exist BEFORE the
+        # dispatch_run row that FKs to it.
+        self._execute(
+            """
+            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, timestamp)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "msg_clearer_1",
+                "dashboard",
+                "clearer-claude",
+                "direct",
+                "request",
+                "ask",
+                "body",
+                "normal",
+                0,
+                None,
+                1779394000000,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_clearer_1",
+                "msg_clearer_1",
+                "dashboard",
+                "clearer-claude",
+                "start_if_possible",
+                "channel",
+                "request",
+                "ask",
+                "body",
+                "normal",
+                "delivered",
+                1,
+                "2026-05-21T00:00:00Z",
+            ),
+        )
+        now = "2026-05-21T20:00:00Z"
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
+            """,
+            ("clearer-claude", "run_clearer_1", "bridge-clear-busy", "claude-code", now),
+        )
+        asyncio.run(self._async_invalidate("clearer-claude"))
+        before = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
+        self.assertEqual(before["status"], "working", before)
+
+        # Reply lands.
+        reply = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "clearer-claude",
+                "to": "dashboard",
+                "type": "response",
+                "subject": "answered",
+                "body": "Here is the answer.",
+                "inReplyTo": "msg_clearer_1",
+            },
+        )
+        self.assertEqual(reply.status_code, 200, reply.text)
+
+        # turn_busy must have been auto-cleared.
+        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("clearer-claude",))
+        self.assertEqual(int(tb["turn_busy"] or 0), 0, "expected turn_busy auto-cleared after reply closed the delivered run")
+
+        # And derived status should no longer be working.
+        after = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
+        self.assertNotEqual(after["status"], "working", after)
+
     def test_terminal_route_delivered_does_not_pin_working_status(self):
         # Guardrail for the channel-route fix: the new
         # _current_channel_awaiting_reply_run_row lookup must filter on

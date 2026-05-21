@@ -1841,24 +1841,22 @@ async def _current_active_run_row(db, agent_id: str):
 
 
 async def _current_channel_awaiting_reply_run_row(db, agent_id: str):
-    # Channel-route dispatch transitions to 'delivered' the moment
-    # claude-channel.js emits the MCP notification, then waits for the
-    # agent's explicit reply. The agent IS working on that reply — but
-    # _current_active_run_row deliberately excludes 'delivered' because
-    # terminal-delivery runs also sit 'delivered' as a normal lingering
-    # state and would otherwise pin idle terminal agents to "working".
-    # The discriminator that lets us treat THIS case as working without
-    # re-introducing that bug is the (execution_mode='channel' AND
-    # require_reply=1) pair: terminal-delivery runs do not carry channel
-    # execution_mode. Use this only as the "still working on the reply"
-    # signal, not as a generic active-run replacement.
+    # claude-channel.js delivers both 'channel' and 'resident' execution_mode
+    # dispatches and now (post-fix) marks any require_reply=1 run as
+    # 'delivered' to preserve the reply contract. While in 'delivered'
+    # awaiting the agent's reply, the agent IS working — surface that as
+    # "working" in the dashboard. _current_active_run_row deliberately
+    # excludes 'delivered' to avoid pinning idle terminal-delivery agents
+    # to working. The discriminator that lets us treat THIS case safely
+    # is execution_mode IN ('channel', 'resident') — terminal-delivery
+    # runs carry execution_mode='managed', so they're filtered out.
     cursor = await db.execute(
         """
         SELECT id, subject, from_agent, execution_mode, runtime, requested_at, claimed_at, started_at
         FROM dispatch_runs
         WHERE target_agent = ?
           AND status = 'delivered'
-          AND execution_mode = 'channel'
+          AND execution_mode IN ('channel', 'resident')
           AND require_reply = 1
         ORDER BY COALESCE(started_at, claimed_at, requested_at) DESC
         LIMIT 1
@@ -4956,6 +4954,42 @@ async def _mark_dispatch_run_answered(
             """,
             (reply_message_id, _now(), run_id),
         )
+        # Event-based working-state clear. claude-channel.js pulses
+        # turn_busy=true on every delivery and relies on the 120s
+        # TURN_BUSY_STALE_SECONDS window for cleanup. That window is too
+        # long after the agent's reply lands — operator sees "working"
+        # linger when the actual work is done. Clear it here for any
+        # channel-or-resident dispatch that just got answered AND has
+        # no other in-flight runs for the same agent (so we don't clear
+        # while OTHER dispatches are still being processed).
+        if mode in {"channel", "resident"} and target_agent:
+            remaining_cursor = await db.execute(
+                """
+                SELECT COUNT(*) AS open_count
+                FROM dispatch_runs
+                WHERE target_agent = ?
+                  AND id != ?
+                  AND status IN ('claimed', 'running', 'delivered')
+                  AND execution_mode IN ('channel', 'resident')
+                  AND COALESCE(require_reply, 0) = 1
+                """,
+                (target_agent, run_id),
+            )
+            remaining = await remaining_cursor.fetchone()
+            if remaining and int(remaining["open_count"] or 0) == 0:
+                await db.execute(
+                    """
+                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+                    VALUES (?, 0, '', '', '', ?)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                        turn_busy = 0,
+                        turn_run_id = '',
+                        turn_bridge_id = '',
+                        turn_runtime = '',
+                        turn_updated_at = excluded.turn_updated_at
+                    """,
+                    (target_agent, _now()),
+                )
         await _invalidate_agent_live_state(db, target_agent)
         return
     await db.execute(

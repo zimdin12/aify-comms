@@ -242,10 +242,18 @@ async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
 }
 
 async function markDispatchDelivered(run) {
+  // Any dispatch with require_reply=true stays in 'delivered' status until
+  // the agent's explicit reply (via comms_send with inReplyTo) closes it.
+  // This applies symmetrically to channel-route and resident-execution_mode
+  // dispatches — both pass through this delivery path. Without it, resident
+  // require_reply runs auto-completed on delivery and the dashboard had no
+  // signal that the agent still owed a reply. Server-side derivation
+  // (_current_channel_awaiting_reply_run_row) lights up "working" while
+  // any such run is 'delivered'.
   const channelRun = isChannelRun(run);
   const requireReply = !!run?.requireReply;
   const runId = String(run?.id || "");
-  const awaitingReply = channelRun && requireReply;
+  const awaitingReply = requireReply;
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: awaitingReply ? "delivered" : "completed",
     summary: channelRun
@@ -301,8 +309,15 @@ async function pollLoop() {
       }
       if (batch.length === 1) {
         const run = batch[0];
-        const busy = isChannelRun(run);
-        if (busy) await reportTurnBusy(agentId, { busy: true, runId: run.id });
+        // Pulse turn_busy=true on EVERY dispatch delivery (any execution_mode).
+        // The agent is about to receive a wake-up and start processing — show
+        // "working" in the dashboard until the heartbeat staleness window
+        // (server-side TURN_BUSY_STALE_SECONDS, currently 120s) clears it OR
+        // a new dispatch re-pulses to extend it. The previous channel-only
+        // gate + immediate-clear-in-finally meant resident dispatches got no
+        // pulse at all and channel dispatches got a microsecond pulse, neither
+        // observable in dashboard sampling.
+        await reportTurnBusy(agentId, { busy: true, runId: run.id }).catch(() => {});
         try {
           await emitChannel(dispatchContent(agentId, run), {
             event_type: "dispatch",
@@ -316,12 +331,14 @@ async function pollLoop() {
         } catch (error) {
           await markDispatchDeliveryFailed(run.id, error);
           throw error;
-        } finally {
-          if (busy) await reportTurnBusy(agentId, { busy: false, runId: run.id }).catch(() => {});
         }
+        // Intentional: NO finally { busy=false }. The agent is now working
+        // on the reply; clearing here loses the signal. Server stale-window
+        // closes it if no further pulses arrive. require_reply runs ALSO
+        // get the server-side channel-awaiting-reply derivation for tighter
+        // "working" tracking until the reply lands.
       } else if (batch.length > 1) {
-        const busyRun = batch.find(isChannelRun);
-        if (busyRun) await reportTurnBusy(agentId, { busy: true, runId: busyRun.id });
+        await reportTurnBusy(agentId, { busy: true, runId: batch[0].id }).catch(() => {});
         const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
         const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";
         try {
@@ -339,8 +356,6 @@ async function pollLoop() {
             await markDispatchDeliveryFailed(run.id, error);
           }
           throw error;
-        } finally {
-          if (busyRun) await reportTurnBusy(agentId, { busy: false, runId: busyRun.id }).catch(() => {});
         }
       }
 
