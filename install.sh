@@ -165,6 +165,12 @@ if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$CLAUDE_AIFY_ROLE"
 fi
+# Expose the aify service URL to Claude's process tree so the Stop hook
+# (installed by install.sh's install_claude_turn_end_hook) can POST a
+# turn-end signal to the bridge when each assistant turn ends. Without
+# this, the hook no-ops and the working-status pulse waits out the
+# 120s server-side stale window after every reply.
+export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
 # Resident = a human runs this wrapper in their own terminal (interactive
@@ -1078,6 +1084,51 @@ EOF
   ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
 }
 
+install_claude_turn_end_hook() {
+  # Architectural turn-end signal for resident claude-aify sessions.
+  # claude-channel.js delivers dispatches but has no native turn-end
+  # signal (unlike codex's turn/completed, pi's agent_end, hermes's
+  # process exit). Without it, "working" status in the dashboard
+  # waits out the 120s turn_busy stale window even when claude is
+  # actually idle. Claude Code's Stop hook fires exactly when the
+  # assistant turn ends (after all tool calls + final text), so it's
+  # the canonical signal. The hook command no-ops if AIFY_AGENT_ID
+  # isn't set, so a regular `claude` session (no aify wrapper) is
+  # unaffected.
+  local settings_file="$HOME/.claude/settings.json"
+  mkdir -p "$(dirname "$settings_file")"
+  if [ ! -f "$settings_file" ]; then
+    echo '{}' > "$settings_file"
+  fi
+  local node_settings_file
+  node_settings_file="$(path_for_node "$settings_file")"
+  local hook_command
+  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi'
+  MSYS_NO_PATHCONV=1 node -e "
+    const fs = require('fs');
+    const settingsPath = process.argv[1];
+    const command = process.argv[2];
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch (_) {}
+    if (!settings || typeof settings !== 'object') settings = {};
+    if (!settings.hooks) settings.hooks = {};
+    if (!Array.isArray(settings.hooks.Stop)) settings.hooks.Stop = [];
+    settings.hooks.Stop = settings.hooks.Stop.filter(
+      h => !JSON.stringify(h).includes('aify-comms/api/v1/agents') && !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-end')
+    );
+    settings.hooks.Stop.push({
+      hooks: [{
+        type: 'command',
+        command,
+        timeout: 3
+      }]
+    });
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  " "$node_settings_file" "$hook_command"
+}
+
 install_claude_hook() {
   local settings_file="$HOME/.claude/settings.json"
   local node_settings_file=""
@@ -1250,6 +1301,12 @@ fi
 if [ "$CLIENT" = "claude" ]; then
   if [ -n "$SERVER_URL" ]; then
     install_claude_wrapper
+    # Always install the Stop hook (not gated on --with-hook). This is
+    # the architectural turn-end signal for resident claude — without
+    # it the dashboard sees "working" linger for ~120s after every
+    # turn. The hook is a no-op for regular `claude` sessions (no
+    # AIFY_AGENT_ID env var set), so it's safe to install user-scoped.
+    install_claude_turn_end_hook
   else
     remove_claude_wrapper
   fi

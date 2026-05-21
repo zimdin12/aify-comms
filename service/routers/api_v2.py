@@ -9049,6 +9049,15 @@ async def send_message(req: MessageSend, request: Request):
     db = await get_db()
     try:
         await _touch_agent(db, req.from_agent)
+        # NOTE: do NOT clear turn_busy here based on the agent sending a
+        # message. The agent might send a reply and then keep working
+        # (more tool calls, more analysis, more messages) — clearing on
+        # response would flip status to "active" while real work is
+        # still happening. Turn-end is a harness-level signal: each
+        # runtime delivers its own (codex turn/completed, pi agent_end,
+        # hermes process exit, opencode SDK turn-complete). Resident
+        # claude under claude-channel.js needs its Stop hook to call
+        # the bridge — see install.sh's claude wrapper installation.
         msg_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
         resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
@@ -9695,6 +9704,57 @@ async def agent_heartbeat(agent_id: str, request: Request):
                         )
         await db.commit()
         return {"ok": True}
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/turn-end")
+async def agent_turn_end(agent_id: str, request: Request):
+    """Harness-level turn-end signal.
+
+    Called by per-runtime Stop hooks (claude-aify's Stop hook, hermes's
+    post_tool_call hook variant, etc.) when the agent has finished its
+    current turn at the HARNESS level — i.e., the assistant turn is
+    actually over, not just "the agent sent a message." Authoritative
+    clear of turn_busy regardless of which bridge originally set it,
+    because the harness itself is the source of truth about when its
+    own turns end. This is the architectural complement to the
+    per-runtime native turn-end signals (codex turn/completed, pi
+    agent_end, hermes process exit) that already exist for managed
+    runs but were missing for resident claude under claude-channel.js.
+
+    Idempotent: calling when turn_busy is already 0 is a no-op (still
+    refreshes turn_updated_at for liveness tracking).
+    """
+    db = await get_db()
+    try:
+        tombstone = await _agent_tombstone(db, agent_id)
+        if tombstone:
+            raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        now = _now()
+        await db.execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 0, '', '', '', ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                turn_busy = 0,
+                turn_run_id = '',
+                turn_bridge_id = '',
+                turn_runtime = '',
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, now),
+        )
+        await db.execute(
+            "UPDATE agents SET last_seen = ? WHERE id = ?",
+            (now, agent_id),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        return {"ok": True, "agentId": agent_id}
     finally:
         await db.close()
 
@@ -10463,7 +10523,30 @@ async def get_dispatch_run(run_id: str, request: Request):
         await db.close()
 
 
-async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hours: int = 24) -> list[dict[str, str]]:
+async def _close_reconcilable_delivered_runs(
+    db,
+    *,
+    limit: int = 500,
+    stale_hours: int = 24,
+    channel_stale_minutes: int = 30,
+) -> list[dict[str, str]]:
+    # Three classes of reconcilable lingering 'delivered' runs:
+    # 1. Any with result_message_id already set (reply landed but path
+    #    that linked it didn't close the run — close now).
+    # 2. require_reply=0 runs older than `stale_hours` (info-only, no
+    #    reply expected, should have been auto-completed).
+    # 3. require_reply=1 + orphaned (no in-flight runs AND no alive
+    #    session) older than `stale_hours` — the agent that owed the
+    #    reply is gone.
+    # 4. Channel/resident execution_mode + require_reply=1 older than
+    #    `channel_stale_minutes` (default 30) — these are claude-channel.js
+    #    deliveries; the wrapper does NOT preserve in-memory dispatch
+    #    state across restarts, so a 'delivered' channel run older than
+    #    30 minutes that the bridge never wrote a reply for almost
+    #    certainly fell on the floor across a wrapper restart. Without
+    #    this, sc-claude-style "agent showing working from before
+    #    restart" persists indefinitely once the agent has any live
+    #    session (the orphan rule's session check passes).
     cursor = await db.execute(
         """
         SELECT id, result_message_id, require_reply, requested_at
@@ -10494,6 +10577,15 @@ async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hour
                   AND s.status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover')
               )
             )
+            OR (
+              -- Channel/resident wrapper bounces: claude-channel.js polls in
+              -- a fresh wrapper after restart and has no memory of prior
+              -- 'delivered' runs. Reconcile after a short window so the
+              -- agent's working-status doesn't pin indefinitely.
+              require_reply = 1
+              AND execution_mode IN ('channel', 'resident')
+              AND datetime(requested_at) <= datetime('now', ?)
+            )
           )
         ORDER BY requested_at ASC
         LIMIT ?
@@ -10501,6 +10593,7 @@ async def _close_reconcilable_delivered_runs(db, *, limit: int = 500, stale_hour
         (
             f"-{max(1, int(stale_hours or 24))} hours",
             f"-{max(1, int(stale_hours or 24))} hours",
+            f"-{max(1, int(channel_stale_minutes or 30))} minutes",
             limit,
         ),
     )
