@@ -118,7 +118,7 @@ idle ──ensureStarted──▶ starting ──ready event──▶ ready
 
 ## Status (as of save)
 
-- [ ] Phase 1 — Persistent RPC child
+- [x] Phase 1 — Persistent RPC child (pi-session.js + createPiControllerManaged + pool tests)
 - [ ] Phase 2 — Synthesized terminal stream
 - [ ] Phase 3 — Dashboard input routing
 - [ ] Phase 4 — Watchdog

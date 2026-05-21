@@ -46,6 +46,7 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { shouldDropLocalActiveRun } from "./dispatch-state.js";
+import { shutdownAllPiSessions } from "./pi-session.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
@@ -229,6 +230,7 @@ async function shutdownWithStatus(code) {
   // still fire stopAll best-effort for the non-graceful case; that second
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
+  try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
   cleanupOnExit();
   process.exit(code);
 }

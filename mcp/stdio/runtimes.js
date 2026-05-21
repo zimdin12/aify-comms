@@ -9,6 +9,7 @@ import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
+import { acquirePiSession } from "./pi-session.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
 function userHomeDir() {
@@ -54,7 +55,7 @@ function spawnRawProcess(command, args, options = {}, { forceNode = false } = {}
   });
 }
 
-function spawnProcess(command, args, options = {}) {
+export function spawnProcess(command, args, options = {}) {
   const cwd = options.cwd || process.cwd();
   assertLaunchCwd(cwd);
   const useNode = isWindowsNodeScript(command);
@@ -541,7 +542,7 @@ export function prepareManagedCodexHome({ workspace = "", model = "", effort = "
   return targetHome;
 }
 
-function quoteForDisplay(text) {
+export function quoteForDisplay(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
@@ -772,7 +773,7 @@ function summarizeOpenCodeParts(parts = []) {
   return textChunks.join("").trim();
 }
 
-function extractPiAssistantText(value) {
+export function extractPiAssistantText(value) {
   const messages = Array.isArray(value) ? value : [value];
   const chunks = [];
   for (const message of messages) {
@@ -792,7 +793,7 @@ function extractPiAssistantText(value) {
   return chunks.join("\n").trim();
 }
 
-function extractPiSessionState(value) {
+export function extractPiSessionState(value) {
   const source = value && typeof value === "object" ? value : {};
   const data = source.data && typeof source.data === "object" ? source.data : {};
   const session = data.session && typeof data.session === "object"
@@ -820,7 +821,7 @@ function extractPiSessionState(value) {
   return { sessionId, sessionFile };
 }
 
-function normalizePiModelOverride(value) {
+export function normalizePiModelOverride(value) {
   const text = String(value || "").trim();
   return text.toLowerCase() === "default" ? "" : text;
 }
@@ -1024,7 +1025,7 @@ function defaultClaudeCommand() {
   return { command: target, args: [] };
 }
 
-function defaultPiCommand() {
+export function defaultPiCommand() {
   const configured = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "").trim();
   if (process.platform === "win32") {
     return { command: configured || "omp", args: [] };
@@ -1294,7 +1295,7 @@ function readBuildTag() {
 }
 const BRIDGE_BUILD_TAG = readBuildTag();
 
-function diagnosticsFor(name) {
+export function diagnosticsFor(name) {
   const info = describeExecutableResolution(name);
   const tried = (info.attempts || []).map(a => {
     const tag = a.method;
@@ -1380,7 +1381,7 @@ export function hasClaudeLiveChannel(runtimeConfig = {}) {
   );
 }
 
-function getRuntimeConfig(agentInfo) {
+export function getRuntimeConfig(agentInfo) {
   return agentInfo.runtimeConfig || {};
 }
 
@@ -2540,7 +2541,7 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   };
 }
 
-function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+function createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
   const availability = runtimeLaunchAvailability("pi");
   if (!availability.available) throw new Error(availability.message);
@@ -2966,6 +2967,78 @@ function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }
     },
     promise,
   };
+}
+
+function createPiControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const hintSession = String(runtimeState?.sessionId || runtimeState?.sessionFile || "").trim();
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  let turnHandle = null;
+  let acquireError = null;
+  const promise = (async () => {
+    let session;
+    let attemptSessionId = hintSession;
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        session = await acquirePiSession({
+          agentId,
+          agentInfo,
+          sessionId: attemptSessionId,
+          cwd: agentInfo.cwd || process.cwd(),
+          onPoolEvent: (level, message) => {
+            try { callbacks.onEvent?.(level, message); } catch {}
+          },
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+        const detected = error?.detected || detectPiRuntimeFailure(error?.message || "");
+        if (
+          attempt === 0 &&
+          detected.shouldHeal &&
+          attemptSessionId &&
+          executionMode !== "resident"
+        ) {
+          try { callbacks.onEvent?.("thread", `Pi session "${attemptSessionId}" is not resumable (${detected.message}); starting fresh.`); } catch {}
+          try { callbacks.onRuntimeState?.({}); } catch {}
+          try { callbacks.onSessionHandleChange?.("", { reason: detected.healReason, previous: attemptSessionId }); } catch {}
+          attemptSessionId = "";
+          continue;
+        }
+        if (detected.missingSession && executionMode === "resident") {
+          acquireError = new Error(
+            `Resident Pi session "${attemptSessionId}" is not resumable: ${detected.message}. Clear the saved session handle or start a fresh managed Pi session.`,
+          );
+          throw acquireError;
+        }
+        acquireError = error;
+        throw error;
+      }
+    }
+    if (!session) throw lastError || new Error("Pi session not acquired");
+    turnHandle = session.runTurn(run, callbacks);
+    return turnHandle.promise;
+  })();
+  return {
+    capabilities: controlCapabilitiesForRuntime("pi"),
+    interrupt: async () => {
+      if (turnHandle) await turnHandle.interrupt();
+    },
+    steer: async (text) => {
+      if (acquireError) throw acquireError;
+      if (!turnHandle) throw new Error("No active Pi turn to steer");
+      await turnHandle.steer(text);
+    },
+    promise,
+  };
+}
+
+function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  if (executionMode === "resident") {
+    return createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
+  return createPiControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks });
 }
 
 export function detectRuntime(explicitRuntime) {

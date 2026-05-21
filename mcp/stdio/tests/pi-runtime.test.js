@@ -16,6 +16,7 @@ const {
   normalizeRuntime,
   runtimeLaunchAvailability,
 } = await import("../runtimes.js");
+const { __resetPiSessionPoolForTests, __piSessionPoolSize, acquirePiSession, shutdownAllPiSessions } = await import("../pi-session.js");
 
 assert.equal(normalizeRuntime("pi"), "pi");
 assert.equal(normalizeRuntime("omp"), "pi");
@@ -222,6 +223,7 @@ assert(
   "Pi managed runs should query OMP RPC state to capture canonical sessionId",
 );
 
+__resetPiSessionPoolForTests();
 process.env.AIFY_PI_GET_STATE_SESSION_ID = "pi-session-from-state";
 process.env.AIFY_PI_EVENT_SESSION_ID = "";
 const stateOnlyController = launchRuntimeRun({
@@ -253,6 +255,7 @@ assert(runtimeStates.some((state) => state.sessionId === "pi-session-from-state"
 delete process.env.AIFY_PI_GET_STATE_SESSION_ID;
 delete process.env.AIFY_PI_EVENT_SESSION_ID;
 
+__resetPiSessionPoolForTests();
 process.env.AIFY_PI_AUTH_FAIL = "1";
 const authFailController = launchRuntimeRun({
   agentId: "pi-worker",
@@ -284,6 +287,7 @@ await assert.rejects(
 );
 delete process.env.AIFY_PI_AUTH_FAIL;
 
+__resetPiSessionPoolForTests();
 process.env.AIFY_PI_OOM_FAIL = "1";
 const oomFailController = launchRuntimeRun({
   agentId: "pi-worker",
@@ -315,6 +319,7 @@ await assert.rejects(
 );
 delete process.env.AIFY_PI_OOM_FAIL;
 
+__resetPiSessionPoolForTests();
 const assistantEpipeController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -347,6 +352,7 @@ await assert.rejects(
   },
 );
 
+__resetPiSessionPoolForTests();
 const longReplyController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -377,6 +383,7 @@ assert(longReplyResult.summary.includes("long-structured-reply"), "long Pi repli
 assert(longReplyResult.summary.includes("truncated"), "long Pi replies should mark omitted middle content");
 
 
+__resetPiSessionPoolForTests();
 const healEvents = [];
 const handleChanges = [];
 const healedController = launchRuntimeRun({
@@ -412,6 +419,7 @@ assert(healedArgvLines.some((argv) => argv.includes("--resume") && argv.includes
 assert(!healedArgvLines.at(-1).includes("--resume"), "healed Pi relaunch should omit the dead --resume handle");
 assert.deepEqual(handleChanges.at(-1), { newHandle: "", meta: { reason: "missing_session", previous: "dead-session" } });
 
+__resetPiSessionPoolForTests();
 const wrongProjectHandleChanges = [];
 const wrongProjectController = launchRuntimeRun({
   agentId: "pi-worker",
@@ -475,6 +483,7 @@ await assert.rejects(
 
 
 
+__resetPiSessionPoolForTests();
 const finalFallbackController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -502,6 +511,7 @@ const finalFallbackResult = await finalFallbackController.promise;
 assert.equal(finalFallbackResult.status, "completed");
 assert.equal(finalFallbackResult.summary, "final text from agent_end");
 
+__resetPiSessionPoolForTests();
 const steerController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -540,6 +550,7 @@ assert(steerCommand, "Pi steer should send a real OMP RPC steer command");
 const steerPrompt = stdinLines.find((message) => message.type === "prompt" && message.message === "steer me now");
 assert(!steerPrompt, "Pi steer must not send a second prompt while OMP is busy");
 
+__resetPiSessionPoolForTests();
 const defaultModelController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -569,6 +580,7 @@ const argvLines = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/)
 const defaultModelArgv = JSON.parse(argvLines.at(-1));
 assert(!defaultModelArgv.includes("--model"), 'Pi model "default" should not be passed as --model');
 
+__resetPiSessionPoolForTests();
 const runtimeConfigDefaultModelController = launchRuntimeRun({
   agentId: "pi-worker",
   agentInfo: {
@@ -597,4 +609,131 @@ const runtimeConfigArgvLines = fs.readFileSync(argvCapturePath, "utf8").trim().s
 const runtimeConfigDefaultModelArgv = JSON.parse(runtimeConfigArgvLines.at(-1));
 assert(!runtimeConfigDefaultModelArgv.includes("--model"), 'Pi runtimeConfig model "default" should not be passed as --model');
 
+// --- Phase 1 additions: pool reuse, idle teardown, crash recovery ---
+
+__resetPiSessionPoolForTests();
+fs.writeFileSync(argvCapturePath, "");
+const reusePoolAgentInfo = {
+  agentId: "pi-reuse-worker",
+  role: "coder",
+  runtime: "pi",
+  sessionMode: "managed",
+  cwd: process.cwd(),
+  runtimeConfig: { timeoutMs: 5000 },
+};
+const reuse1 = launchRuntimeRun({
+  agentId: "pi-reuse-worker",
+  agentInfo: reusePoolAgentInfo,
+  run: { from: "dashboard", subject: "Pi reuse 1", body: "Say hello", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+const reuse1Result = await reuse1.promise;
+assert.equal(reuse1Result.status, "completed");
+const argvAfterFirst = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean);
+assert.equal(argvAfterFirst.length, 1, "first dispatch should spawn the omp child exactly once");
+
+const reuse2 = launchRuntimeRun({
+  agentId: "pi-reuse-worker",
+  agentInfo: reusePoolAgentInfo,
+  run: { from: "dashboard", subject: "Pi reuse 2", body: "Say hello again", executionMode: "managed" },
+  runtimeState: { sessionId: "pi-session-fake" },
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+const reuse2Result = await reuse2.promise;
+assert.equal(reuse2Result.status, "completed");
+const argvAfterSecond = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean);
+assert.equal(argvAfterSecond.length, 1, "second dispatch on the same agent should reuse the persistent omp child (no new spawn)");
+assert.equal(reuse2Result.runtimeState.sessionId, "pi-session-fake");
+
+// Idle teardown: short timeout forces respawn between turns.
+__resetPiSessionPoolForTests();
+fs.writeFileSync(argvCapturePath, "");
+const idleAgentInfo = {
+  agentId: "pi-idle-worker",
+  role: "coder",
+  runtime: "pi",
+  sessionMode: "managed",
+  cwd: process.cwd(),
+  runtimeConfig: { timeoutMs: 5000, piIdleTimeoutMs: 100 },
+};
+const idle1 = launchRuntimeRun({
+  agentId: "pi-idle-worker",
+  agentInfo: idleAgentInfo,
+  run: { from: "dashboard", subject: "Pi idle 1", body: "Say hello", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+await idle1.promise;
+await new Promise((resolve) => setTimeout(resolve, 250));
+const idle2 = launchRuntimeRun({
+  agentId: "pi-idle-worker",
+  agentInfo: idleAgentInfo,
+  run: { from: "dashboard", subject: "Pi idle 2", body: "Say hello again", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+await idle2.promise;
+const idleArgv = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean);
+assert.equal(idleArgv.length, 2, "idle timeout should release the omp child and the next dispatch should respawn");
+
+// Crash recovery: persistent child dies between turns — next dispatch respawns.
+__resetPiSessionPoolForTests();
+fs.writeFileSync(argvCapturePath, "");
+const crashAgentInfo = {
+  agentId: "pi-crash-worker",
+  role: "coder",
+  runtime: "pi",
+  sessionMode: "managed",
+  cwd: process.cwd(),
+  runtimeConfig: { timeoutMs: 5000 },
+};
+const crash1 = launchRuntimeRun({
+  agentId: "pi-crash-worker",
+  agentInfo: crashAgentInfo,
+  run: { from: "dashboard", subject: "Pi crash 1", body: "Say hello", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+await crash1.promise;
+// Forcibly kill the live child to simulate a between-turn crash.
+const crashSessionPool = await import("../pi-session.js");
+for (const session of crashSessionPool.__piSessionPoolEntriesForTests?.() || []) {
+  if (session._proc) try { session._proc.kill(); } catch {}
+}
+await new Promise((resolve) => setTimeout(resolve, 100));
+const crash2 = launchRuntimeRun({
+  agentId: "pi-crash-worker",
+  agentInfo: crashAgentInfo,
+  run: { from: "dashboard", subject: "Pi crash 2", body: "Say hello again", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+await crash2.promise;
+const crashArgv = fs.readFileSync(argvCapturePath, "utf8").trim().split(/\r?\n/).filter(Boolean);
+assert.equal(crashArgv.length, 2, "crashed persistent child should respawn on the next dispatch");
+
+// shutdownAllPiSessions cleanly drains the pool.
+__resetPiSessionPoolForTests();
+const shutdownAgentInfo = {
+  agentId: "pi-shutdown-worker",
+  role: "coder",
+  runtime: "pi",
+  sessionMode: "managed",
+  cwd: process.cwd(),
+  runtimeConfig: { timeoutMs: 5000 },
+};
+const shutdownCtrl = launchRuntimeRun({
+  agentId: "pi-shutdown-worker",
+  agentInfo: shutdownAgentInfo,
+  run: { from: "dashboard", subject: "Pi shutdown", body: "Say hello", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: { onEvent: () => {}, onRuntimeState: () => {}, onRefs: () => {} },
+});
+await shutdownCtrl.promise;
+assert.equal(__piSessionPoolSize(), 1, "pool should retain agent session for reuse after a successful turn");
+await shutdownAllPiSessions("test");
+assert.equal(__piSessionPoolSize(), 0, "shutdownAllPiSessions should drain the pool");
+
+await shutdownAllPiSessions("test final");
 console.log("pi-runtime.test.js: all assertions passed");
