@@ -6599,6 +6599,87 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                         "terminal": _terminal_session_to_dict(existing_terminal),
                         "reused": True,
                     }
+
+        # Agent-scoped virtual terminal reattach (Phase 2 follow-up).
+        # The virtual terminal_session created by /agents/{id}/virtual-terminal/ensure
+        # is canonical per-agent: ONE row per agent regardless of how many
+        # agent_sessions exist over the agent's lifetime. The bridge creates
+        # it tied to whichever agent_session was active at first dispatch,
+        # but a later dashboard Console click on a DIFFERENT agent_session
+        # for the same agent must attach to that same virtual terminal —
+        # otherwise the dashboard would spawn a fresh pi-aify PTY console
+        # and the operator sees a different terminal than the one actually
+        # driving their dispatches. Skip the PTY env-supports check too:
+        # virtual terminals don't need node-pty.
+        agent_row_for_virtual = await (await db.execute(
+            "SELECT id, runtime, runtime_state FROM agents WHERE id = ?",
+            (session["agent_id"],),
+        )).fetchone()
+        if agent_row_for_virtual:
+            agent_runtime_state = _json_loads_or(agent_row_for_virtual["runtime_state"], {}) or {}
+            virtual_terminal_id = str(agent_runtime_state.get("virtualTerminalId") or "").strip()
+            if virtual_terminal_id:
+                virtual_terminal = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    (virtual_terminal_id,),
+                )).fetchone()
+                if virtual_terminal:
+                    virtual_status = str(virtual_terminal["status"] or "").strip().lower()
+                    virtual_command = str(virtual_terminal["command"] or "")
+                    if (
+                        virtual_command == VIRTUAL_PI_RPC_COMMAND
+                        and virtual_status in {"starting", "running", "recovering", "active", "idle"}
+                    ):
+                        attach_now = _now()
+                        # Point the requesting session at the canonical
+                        # virtual terminal so the dashboard's session view
+                        # follows it.
+                        await db.execute(
+                            """
+                            UPDATE agent_sessions
+                            SET terminal_id = ?,
+                                terminal_status = ?,
+                                terminal_command = ?,
+                                last_seen = ?
+                            WHERE id = ?
+                            """,
+                            (virtual_terminal_id, virtual_status, virtual_command, attach_now, session_id),
+                        )
+                        await _append_terminal_event(
+                            db,
+                            virtual_terminal_id,
+                            "virtual_pi_rpc_console_attached",
+                            json.dumps({
+                                "requestedBy": str(req.requestedBy or "dashboard").strip() or "dashboard",
+                                "sessionId": session_id,
+                                "agentId": session["agent_id"],
+                            }),
+                        )
+                        await db.commit()
+                        updated_session_for_virtual = await (await db.execute(
+                            "SELECT * FROM agent_sessions WHERE id = ?",
+                            (session_id,),
+                        )).fetchone()
+                        ws_for_virtual = await _get_ws(request)
+                        if ws_for_virtual:
+                            await ws_for_virtual.broadcast(
+                                "terminal_started",
+                                {
+                                    "terminalId": virtual_terminal_id,
+                                    "sessionId": session_id,
+                                    "agentId": session["agent_id"],
+                                    "virtual": True,
+                                    "reused": True,
+                                },
+                            )
+                        return {
+                            "ok": True,
+                            "terminal": _terminal_session_to_dict(virtual_terminal),
+                            "session": _agent_session_to_dict(updated_session_for_virtual),
+                            "reused": True,
+                            "virtual": True,
+                        }
+
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
@@ -6824,20 +6905,81 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
             )
         session_id = session_row["id"]
 
+        # Agent-scoped lookup: one virtual terminal per agent across all of
+        # its agent_sessions. If a prior session created the row and is now
+        # stale, re-anchor the terminal's session_id (and the new session's
+        # terminal_id pointer) to the requesting session so the
+        # CASCADE-on-delete FK keeps the row alive once the original
+        # session row is eventually cleaned up.
         existing = await (await db.execute(
             """
             SELECT *
             FROM terminal_sessions
             WHERE agent_id = ?
-              AND session_id = ?
               AND command = ?
               AND status NOT IN ('stopped', 'failed')
             ORDER BY updated_at DESC
             LIMIT 1
             """,
-            (agent_id, session_id, VIRTUAL_PI_RPC_COMMAND),
+            (agent_id, VIRTUAL_PI_RPC_COMMAND),
         )).fetchone()
         if existing:
+            existing_session_id = existing["session_id"]
+            if existing_session_id != session_id:
+                rebind_now = _now()
+                await db.execute(
+                    """
+                    UPDATE terminal_sessions
+                    SET session_id = ?,
+                        bridge_id = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (session_id, bridge_id, rebind_now, existing["id"]),
+                )
+                # Detach the prior session from the terminal but keep its
+                # historical record otherwise intact.
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_id = '',
+                        terminal_status = '',
+                        terminal_command = ''
+                    WHERE id = ? AND terminal_id = ?
+                    """,
+                    (existing_session_id, existing["id"]),
+                )
+                # Point the new active session at the terminal.
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET terminal_id = ?,
+                        terminal_status = 'running',
+                        terminal_command = ?,
+                        last_seen = ?
+                    WHERE id = ?
+                    """,
+                    (existing["id"], VIRTUAL_PI_RPC_COMMAND, rebind_now, session_id),
+                )
+                await _append_terminal_event(
+                    db,
+                    existing["id"],
+                    "virtual_pi_rpc_reanchored",
+                    json.dumps({
+                        "fromSessionId": existing_session_id,
+                        "toSessionId": session_id,
+                        "bridgeId": bridge_id,
+                    }),
+                )
+                await db.commit()
+                existing = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    (existing["id"],),
+                )).fetchone()
+                session_row = await (await db.execute(
+                    "SELECT * FROM agent_sessions WHERE id = ?",
+                    (session_id,),
+                )).fetchone()
             return {
                 "ok": True,
                 "terminal": _terminal_session_to_dict(existing),

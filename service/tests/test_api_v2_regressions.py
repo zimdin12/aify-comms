@@ -7906,6 +7906,146 @@ class ApiV2RegressionTests(unittest.TestCase):
         bob = self.client.get("/api/v1/agents/bob")
         self.assertEqual(bob.status_code, 200, bob.text)
 
+    def test_pi_console_reattaches_to_virtual_terminal_across_sessions(self):
+        # Phase 2 follow-up: the synthesized terminal for managed pi is
+        # canonical per AGENT, not per agent_session. Opening Console from
+        # the dashboard for a session that's DIFFERENT from the one that
+        # originally created the virtual terminal must reattach to the
+        # existing virtual row — not spawn a fresh pi-aify PTY (which would
+        # conflict with the bridge's persistent omp --mode rpc child).
+        self._heartbeat_environment(
+            id="env_pi_console",
+            bridgeId="bridge-pi-console",
+            machineId="linux:pi-console",
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True, "steer": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["pi"],
+        )
+        self._register("pi-console-agent", runtime="pi", sessionMode="managed")
+
+        for session_id, terminal_id in (("sess_pi_console_old", "vterm_pi_console"), ("sess_pi_console_new", None)):
+            self._execute(
+                """
+                INSERT INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode,
+                    owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                    terminal_command, terminal_workspace, process_id, session_handle,
+                    app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                    telemetry, status, started_at, last_seen, ended_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id,
+                    "pi-console-agent",
+                    "env_pi_console",
+                    "pi",
+                    "/workspace",
+                    "managed",
+                    "managed",
+                    "bridge-pi-console",
+                    terminal_id or "",
+                    "running" if terminal_id else "",
+                    "aify://virtual-rpc/pi" if terminal_id else "",
+                    "/workspace",
+                    "",
+                    "pi-handle-console",
+                    "",
+                    None,
+                    None,
+                    "{}",
+                    "{}",
+                    "running",
+                    "2026-05-21T00:00:00Z",
+                    "2026-05-21T00:00:00Z",
+                    None,
+                ),
+            )
+
+        # Virtual terminal anchored to the OLD session.
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_pi_console",
+                "sess_pi_console_old",
+                "pi-console-agent",
+                "env_pi_console",
+                "bridge-pi-console",
+                "pi",
+                "/workspace",
+                "aify://virtual-rpc/pi",
+                "",
+                "running",
+                "bridge-rpc",
+                "2026-05-21T00:00:00Z",
+                "2026-05-21T00:00:00Z",
+                None,
+                "",
+            ),
+        )
+        # Agent's runtime_state knows about the virtual terminal (set by
+        # Phase 2's virtual-terminal/ensure endpoint).
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (
+                json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_pi_console"}),
+                "pi-console-agent",
+            ),
+        )
+
+        # Dashboard opens Console for the NEW session — must NOT spawn a
+        # fresh PTY. Must reattach to the existing virtual terminal.
+        response = self.client.post(
+            "/api/v1/sessions/sess_pi_console_new/console/start",
+            json={"requestedBy": "operator"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["ok"], True)
+        self.assertEqual(body["reused"], True)
+        self.assertEqual(body.get("virtual"), True)
+        self.assertEqual(body["terminal"]["id"], "vterm_pi_console")
+        self.assertEqual(body["terminal"]["command"], "aify://virtual-rpc/pi")
+
+        # The NEW session's terminal_id should now point at the virtual one.
+        new_session = self._fetchone(
+            "SELECT terminal_id, terminal_status, terminal_command FROM agent_sessions WHERE id = ?",
+            ("sess_pi_console_new",),
+        )
+        self.assertEqual(new_session["terminal_id"], "vterm_pi_console")
+        self.assertEqual(new_session["terminal_status"], "running")
+        self.assertEqual(new_session["terminal_command"], "aify://virtual-rpc/pi")
+
+        # The OLD session's binding is left intact (the canonical owner from
+        # creation time stays linked until the original session is deleted).
+        old_session = self._fetchone(
+            "SELECT terminal_id FROM agent_sessions WHERE id = ?",
+            ("sess_pi_console_old",),
+        )
+        self.assertEqual(old_session["terminal_id"], "vterm_pi_console")
+
+        # A virtual_pi_rpc_console_attached event was recorded for audit.
+        attach_event = self._fetchone(
+            "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = ? ORDER BY id DESC LIMIT 1",
+            ("vterm_pi_console", "virtual_pi_rpc_console_attached"),
+        )
+        self.assertIsNotNone(attach_event)
+        attach_body = json.loads(attach_event["body"])
+        self.assertEqual(attach_body["sessionId"], "sess_pi_console_new")
+        self.assertEqual(attach_body["agentId"], "pi-console-agent")
+
     def test_pi_session_state_reports_bridge_ownership_for_watchdog(self):
         # Phase 4: omp-aify queries this before exec'ing OMP. When no virtual
         # terminal exists, bridgeOwned is false → the wrapper proceeds. After a
