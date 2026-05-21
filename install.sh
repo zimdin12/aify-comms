@@ -192,7 +192,51 @@ if [ "\$CLAUDE_AUTO" = true ]; then
   CLAUDE_PERMISSION_FLAGS+=(--dangerously-skip-permissions)
 fi
 
-claude --dangerously-load-development-channels server:aify-comms-channel --channels server:aify-comms-channel "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
+# Bridge-spawned managed wrappers: write a minimal MCP config with just
+# aify-comms + aify-comms-channel and pass --strict-mcp-config so Claude
+# does NOT try to load the operator's full ~/.claude.json MCP server list.
+# Known Claude Code bug (issues #38462, #21341): when many stdio MCP
+# servers compete for init, slower ones (including aify-comms-channel)
+# get stuck in "still connecting" state and channel notifications are
+# never delivered to the session. Restricting to two servers eliminates
+# the race. Resident operator-launched wrappers keep their full env.
+CLAUDE_MCP_FLAGS=()
+AIFY_MCP_CONFIG=""
+if [ "\$CLAUDE_AIFY_SESSION_MODE" = "managed" ]; then
+  # Convert install dir to a Windows-native path (C:/Docker/aify-comms)
+  # if cygpath is available, otherwise use SCRIPT_DIR as-is. The MSYS
+  # path /c/Docker/aify-comms is unreadable by native-Windows Claude
+  # spawning the MCP server children — they fail to start with the
+  # MSYS-style path even though bash itself reads it fine. Caused the
+  # "2 MCP servers failed" + "aify-comms disconnected" symptom that
+  # remained even with --strict-mcp-config in place.
+  if command -v cygpath >/dev/null 2>&1; then
+    AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$SCRIPT_DIR")"
+  else
+    AIFY_SCRIPT_DIR_FWD="$SCRIPT_DIR"
+  fi
+  AIFY_MCP_CONFIG="\$(mktemp -t aify-mcp.XXXXXX.json 2>/dev/null || mktemp -t aify-mcp)"
+  cat > "\$AIFY_MCP_CONFIG" <<JSON
+{
+  "mcpServers": {
+    "aify-comms": {
+      "command": "node",
+      "args": ["\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/server.js"],
+      "env": { "AIFY_SERVER_URL": "${SERVER_URL:-}", "CLAUDE_MCP_SERVER_URL": "${SERVER_URL:-}" }
+    },
+    "aify-comms-channel": {
+      "command": "node",
+      "args": ["\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-channel.js"],
+      "env": { "AIFY_SERVER_URL": "${SERVER_URL:-}", "CLAUDE_MCP_SERVER_URL": "${SERVER_URL:-}" }
+    }
+  }
+}
+JSON
+  CLAUDE_MCP_FLAGS+=(--strict-mcp-config --mcp-config "\$AIFY_MCP_CONFIG")
+  trap 'rm -f "\$AIFY_MCP_CONFIG"' EXIT
+fi
+
+claude --dangerously-load-development-channels server:aify-comms-channel --channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?
 exit "\$STATUS"
 EOF
