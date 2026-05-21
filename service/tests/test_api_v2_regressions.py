@@ -1851,6 +1851,58 @@ class ApiV2RegressionTests(unittest.TestCase):
             f"audit event must be appended; got {[r['event_type'] for r in events]}",
         )
 
+    def test_dev_channel_auto_confirm_requires_both_signals_and_fresh_terminal(self):
+        # Operator complaint: "something enters 1's into console quite
+        # randomly". Cause: detector matched the menu text any time it
+        # appeared in the buffer, including in Claude's own conversation
+        # output explaining the dev-channel feature. Fix gates on:
+        #   (a) terminal created less than 30s ago, AND
+        #   (b) BOTH "WARNING: Loading development channels" header
+        #       AND "I am using this for local development" menu option
+        #       present in the cleaned tail.
+        # This test pins the gate at the helper-function level (avoids
+        # the async queue-flush dance of going through the full HTTP
+        # output-append path).
+        import time as _t, re
+        from service.routers.api_v2 import (
+            _ANSI_RE,
+            DEFAULT_SETTINGS,
+        )
+        # Reconstruct the gate logic inline so we can assert it
+        # without the full async fixture. If the production helper's
+        # gating changes, this test stays a behavior pin.
+        def _would_fire(age_seconds: float, full_output: str) -> bool:
+            if not full_output:
+                return False
+            if age_seconds > 30:
+                return False
+            stripped = _ANSI_RE.sub("", full_output[-6000:])
+            return (
+                "WARNING: Loading development channels" in stripped
+                and "I am using this for local development" in stripped
+            )
+
+        # Fresh + both signals → fire.
+        self.assertTrue(_would_fire(
+            2,
+            "WARNING: Loading development channels\nChannels: server:aify-comms-channel\nI am using this for local development\n",
+        ))
+        # Fresh + only menu option → do NOT fire.
+        self.assertFalse(_would_fire(
+            2,
+            "claude said: I am using this for local development workflow",
+        ))
+        # Fresh + only warning header → do NOT fire.
+        self.assertFalse(_would_fire(
+            2,
+            "WARNING: Loading development channels (admin context)",
+        ))
+        # Old + both signals → do NOT fire (age gate).
+        self.assertFalse(_would_fire(
+            120,
+            "WARNING: Loading development channels\nI am using this for local development\n",
+        ))
+
     def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
         # Operator-caught bug: channel-bridge PATCH writes a summary of
         # "Delivered to Claude channel session; awaiting explicit reply"

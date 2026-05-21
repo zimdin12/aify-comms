@@ -3313,6 +3313,17 @@ async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_outpu
     runtime = _normalize_runtime(terminal["runtime"] if "runtime" in terminal.keys() else "")
     if runtime != "claude-code":
         return
+    # Only fire for FRESH wrappers — the dev-channel menu only appears
+    # right after Claude boots. Match only when the terminal was created
+    # less than 30s ago. Without this guard, the detector would also
+    # fire when Claude's conversation later contains the menu text
+    # verbatim (e.g., Claude explaining channels), causing spurious
+    # "1\r" inputs into a live conversation — what the operator
+    # described as "1's randomly entered into console".
+    created_at_iso = terminal["created_at"] if "created_at" in terminal.keys() else ""
+    created_epoch = _iso_to_epoch(str(created_at_iso or ""))
+    if not created_epoch or (time.time() - created_epoch) > 30:
+        return
     # Stripped scan-ready view of the recent output — ANSI sequences split
     # the menu line in node-pty output, so collapse them before matching.
     tail = full_output[-6000:] if full_output else ""
@@ -3321,13 +3332,13 @@ async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_outpu
     # Strip ANSI CSI/OSC so the text-only match is reliable.
     stripped = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", tail)
     stripped = re.sub(r"\x1b[\]\^\\]\\d*;?[^\x07]*\x07?", "", stripped)
-    # Match either the warning header OR the menu option text. Both are
-    # sufficient signals that the dev-channel menu is on screen.
-    menu_match = (
-        "I am using this for local development" in stripped
-        or "WARNING: Loading development channels" in stripped
-    )
-    if not menu_match:
+    # Require BOTH the warning header AND the menu option to be present.
+    # Each alone could appear in normal Claude conversation (Claude
+    # discussing channels with the operator). Both together near startup
+    # only happens for the actual dev-channel approval menu.
+    has_warning = "WARNING: Loading development channels" in stripped
+    has_menu_option = "I am using this for local development" in stripped
+    if not (has_warning and has_menu_option):
         return
     # Idempotency: if we already fired for this terminal session, stop.
     prior = await (await db.execute(
