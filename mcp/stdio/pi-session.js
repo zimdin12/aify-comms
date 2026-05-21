@@ -27,6 +27,9 @@ const PI_TRUNCATION_MARKER = "\n...[aify truncated middle output]...\n";
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const STARTUP_TIMEOUT_DEFAULT_MS = 45000;
 const INTERRUPT_GRACE_MS = 5000;
+const MAX_TERMINAL_FRAME_BUFFER_CHARS = 65536;
+const MAX_TOOL_INPUT_BRIEF_CHARS = 240;
+const MAX_TOOL_RESULT_BRIEF_CHARS = 320;
 
 function boundText(value, limit, { preserveEdges = false } = {}) {
   const text = String(value || "");
@@ -41,6 +44,95 @@ function boundText(value, limit, { preserveEdges = false } = {}) {
 function appendBounded(current, chunk, options = {}) {
   const limit = options.limit || MAX_PI_ERROR_CAPTURE_CHARS;
   return boundText(`${String(current || "")}${String(chunk || "")}`, limit, options);
+}
+
+function briefJsonInline(value, limit) {
+  if (value === undefined || value === null) return "";
+  let text;
+  if (typeof value === "string") {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function formatToolInputBrief(input) {
+  return briefJsonInline(input, MAX_TOOL_INPUT_BRIEF_CHARS);
+}
+
+function formatToolResultBrief(result) {
+  if (result === undefined || result === null) return "";
+  if (typeof result === "string") return briefJsonInline(result, MAX_TOOL_RESULT_BRIEF_CHARS);
+  if (Array.isArray(result)) {
+    const text = result
+      .map((part) => {
+        if (part && typeof part === "object" && typeof part.text === "string") return part.text;
+        return part;
+      })
+      .join("\n");
+    return briefJsonInline(text, MAX_TOOL_RESULT_BRIEF_CHARS);
+  }
+  if (typeof result === "object") {
+    if (typeof result.text === "string") return briefJsonInline(result.text, MAX_TOOL_RESULT_BRIEF_CHARS);
+    if (Array.isArray(result.content)) return formatToolResultBrief(result.content);
+    return briefJsonInline(result, MAX_TOOL_RESULT_BRIEF_CHARS);
+  }
+  return briefJsonInline(String(result), MAX_TOOL_RESULT_BRIEF_CHARS);
+}
+
+export function formatPiEventAsTerminalFrame(event) {
+  if (!event || typeof event !== "object") return "";
+  const type = String(event.type || "");
+  switch (type) {
+    case "ready":
+      return "[pi rpc ready]\r\n";
+    case "agent_start":
+      return "\r\n[turn started]\r\n";
+    case "agent_end":
+      return "\r\n[turn ended]\r\n";
+    case "error": {
+      const msg = String(event.error || event.message || "Pi runtime error");
+      return `\r\n[error] ${msg}\r\n`;
+    }
+    case "tool_execution_start": {
+      const name = String(event.tool?.name || event.toolName || event.name || "tool");
+      const brief = formatToolInputBrief(event.tool?.input ?? event.input ?? event.arguments);
+      return `\r\n[tool] ${name}${brief ? ` ${brief}` : ""}\r\n`;
+    }
+    case "tool_execution_end": {
+      const name = String(event.tool?.name || event.toolName || event.name || "tool");
+      const ok = event.success !== false && !event.error;
+      const status = ok ? "ok" : "ERROR";
+      const brief = ok
+        ? formatToolResultBrief(event.tool?.result ?? event.result ?? event.output)
+        : briefJsonInline(event.error || "", MAX_TOOL_RESULT_BRIEF_CHARS);
+      return `[tool] ${name} → ${status}${brief ? ` ${brief}` : ""}\r\n`;
+    }
+    case "RpcExtensionUIRequest": {
+      const req = event.request || event;
+      const kind = String(req.kind || req.type || "input");
+      const question = String(req.question || req.prompt || req.message || "");
+      const options = Array.isArray(req.options) ? req.options.join(" | ") : "";
+      const detail = options ? ` (${options})` : "";
+      return `\r\n[prompt:${kind}] ${question}${detail}\r\n`;
+    }
+    case "message_update": {
+      const inner = event.assistantMessageEvent || {};
+      if (inner.type === "text_delta") return String(inner.delta || "");
+      if (inner.type === "text_end") return "\r\n";
+      return "";
+    }
+    default:
+      return "";
+  }
 }
 
 function createDeferred() {
@@ -106,6 +198,57 @@ export class PiSession {
     this._sessionStderr = "";
     this._healAttempted = false;
     this._lastError = null;
+    this._terminalSink = null;
+    this._terminalBuffer = [];
+    this._terminalBufferChars = 0;
+    this._terminalFlushChain = Promise.resolve();
+  }
+
+  attachTerminalSink(sink) {
+    this._terminalSink = typeof sink === "function" ? sink : null;
+    if (this._terminalSink && this._terminalBuffer.length > 0) {
+      this._flushTerminalBuffer();
+    }
+  }
+
+  detachTerminalSink() {
+    this._terminalSink = null;
+  }
+
+  _pushTerminalFrame(text, status = "") {
+    const body = String(text || "");
+    const stat = String(status || "");
+    if (!body && !stat) return;
+    this._terminalBuffer.push({ text: body, status: stat });
+    this._terminalBufferChars += body.length;
+    while (
+      this._terminalBufferChars > MAX_TERMINAL_FRAME_BUFFER_CHARS &&
+      this._terminalBuffer.length > 1
+    ) {
+      const removed = this._terminalBuffer.shift();
+      this._terminalBufferChars -= removed.text.length;
+    }
+    this._flushTerminalBuffer();
+  }
+
+  _flushTerminalBuffer() {
+    if (!this._terminalSink || this._terminalBuffer.length === 0) return;
+    this._terminalFlushChain = this._terminalFlushChain.then(async () => {
+      while (this._terminalSink && this._terminalBuffer.length > 0) {
+        const frame = this._terminalBuffer.shift();
+        this._terminalBufferChars -= frame.text.length;
+        if (this._terminalBufferChars < 0) this._terminalBufferChars = 0;
+        try {
+          await this._terminalSink(frame.text, frame.status);
+        } catch {
+          // sink failure is best-effort; drop the frame to keep the queue moving
+        }
+      }
+    });
+  }
+
+  __terminalBufferForTests() {
+    return [...this._terminalBuffer];
   }
 
   get state() {
@@ -259,7 +402,11 @@ export class PiSession {
       this._onChildError(error);
     });
     ownProc.on("close", (code, signal) => {
-      if (this._proc !== ownProc && this._proc !== null) return;
+      // Only act on close for OUR child. A stopping session is evicted from
+      // the pool and sets _proc=null synchronously, so a stale close on the
+      // old proc finds _proc !== ownProc and returns. Synchronous teardown
+      // paths (stop, _teardownChild) do their own state reset.
+      if (this._proc !== ownProc) return;
       this._onChildExit(code, signal);
     });
   }
@@ -305,6 +452,7 @@ export class PiSession {
     this._publishSessionState(event);
 
     if (event.type === "ready") {
+      this._pushTerminalFrame(formatPiEventAsTerminalFrame(event), "running");
       this._onReady();
       return;
     }
@@ -313,6 +461,9 @@ export class PiSession {
       this._onResponseEvent(event);
       return;
     }
+
+    const synthesizedFrame = formatPiEventAsTerminalFrame(event);
+    if (synthesizedFrame) this._pushTerminalFrame(synthesizedFrame);
 
     const turn = this._activeTurn;
 
@@ -476,6 +627,12 @@ export class PiSession {
   }
 
   _teardownChild(error) {
+    if (error) {
+      const msg = String(error?.message || error || "").trim();
+      this._pushTerminalFrame(`\r\n[pi rpc exited]${msg ? ` ${msg}` : ""}\r\n`, "stopped");
+    } else {
+      this._pushTerminalFrame("\r\n[pi rpc exited]\r\n", "stopped");
+    }
     this._clearIdleTimer();
     if (this._startupTimer) {
       clearTimeout(this._startupTimer);
@@ -744,6 +901,15 @@ export class PiSession {
   _sendTurnPrompt(turn) {
     if (turn.initialPromptSent) return;
     turn.initialPromptSent = true;
+    const userPrompt = buildUserPrompt(turn.run);
+    const echo = String(userPrompt || "").replace(/\r?\n$/, "");
+    if (echo) {
+      const prefixed = echo
+        .split(/\r?\n/)
+        .map((line) => `> ${line}`)
+        .join("\r\n");
+      this._pushTerminalFrame(`\r\n${prefixed}\r\n`);
+    }
     this._send({
       id: this._nextRequestId("prompt"),
       type: "prompt",
@@ -833,6 +999,7 @@ export class PiSession {
   async _interruptTurn(turn) {
     if (this._activeTurn !== turn) return;
     turn.interrupted = true;
+    this._pushTerminalFrame("\r\n[interrupt requested]\r\n");
     try {
       this._send({ id: this._nextRequestId("abort"), type: "abort" });
     } catch {
@@ -858,6 +1025,12 @@ export class PiSession {
     if (this._activeTurn !== turn || !this.processAlive) {
       throw new Error("No active Pi turn to steer");
     }
+    const echo = message.replace(/\r?\n$/, "");
+    const prefixed = echo
+      .split(/\r?\n/)
+      .map((line) => `>> steer: ${line}`)
+      .join("\r\n");
+    this._pushTerminalFrame(`\r\n${prefixed}\r\n`);
     await this._sendCommandWithAck({ type: "steer", message }, { scope: "turn", prefix: "steer" });
     this._emit("steer", "Steer sent to active Pi RPC run");
   }
@@ -865,6 +1038,17 @@ export class PiSession {
   async stop(reason = "stop") {
     this._clearIdleTimer();
     const proc = this._proc;
+    // Evict from the pool FIRST, synchronously. A concurrent acquire on the
+    // same agentId would otherwise retrieve this still-dying session and
+    // reuse the just-killed child (whose exitCode/killed flags lag the
+    // signal), then dispatch a turn that gets rejected when the kill
+    // actually lands. The pool's only purpose is reuse, and a stopping
+    // session is no longer reusable.
+    if (piSessionPool.get(this.agentId) === this) {
+      piSessionPool.delete(this.agentId);
+    }
+    this._proc = null;
+    this._state = "dead";
     if (proc) {
       try {
         terminateProcessTree(proc);
@@ -881,12 +1065,7 @@ export class PiSession {
         }
       });
     }
-    this._proc = null;
-    this._state = "dead";
     this._rejectAcks("all", new Error(`Pi runtime stopped (${reason})`));
-    if (piSessionPool.get(this.agentId) === this) {
-      piSessionPool.delete(this.agentId);
-    }
   }
 }
 

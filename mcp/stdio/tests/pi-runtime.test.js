@@ -735,5 +735,47 @@ assert.equal(__piSessionPoolSize(), 1, "pool should retain agent session for reu
 await shutdownAllPiSessions("test");
 assert.equal(__piSessionPoolSize(), 0, "shutdownAllPiSessions should drain the pool");
 
+// Phase 2: terminalSinkProvider is invoked once per managed pi session
+// acquisition, the sink receives synthesized frames (ready, agent_*, prompt
+// echo), and frames flow before the dispatch's resolution.
+__resetPiSessionPoolForTests();
+fs.writeFileSync(argvCapturePath, "");
+const sinkAgentInfo = {
+  agentId: "pi-sink-worker",
+  role: "coder",
+  runtime: "pi",
+  sessionMode: "managed",
+  cwd: process.cwd(),
+  runtimeConfig: { timeoutMs: 5000 },
+};
+const sinkFrames = [];
+let sinkProviderCalls = 0;
+const sinkController = launchRuntimeRun({
+  agentId: "pi-sink-worker",
+  agentInfo: sinkAgentInfo,
+  run: { from: "dashboard", subject: "Pi sink", body: "Say hello", executionMode: "managed" },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+    terminalSinkProvider: async ({ agentId: providedAgentId }) => {
+      sinkProviderCalls++;
+      assert.equal(providedAgentId, "pi-sink-worker");
+      return async (output) => {
+        sinkFrames.push(output);
+      };
+    },
+  },
+});
+await sinkController.promise;
+// Let the async sink chain drain (sink is invoked from the flush microtask chain).
+await new Promise((resolve) => setTimeout(resolve, 50));
+assert.equal(sinkProviderCalls, 1, "terminalSinkProvider should be called once per acquired managed pi session");
+const sinkJoined = sinkFrames.join("");
+assert(sinkJoined.includes("[pi rpc ready]"), `expected ready frame, got ${JSON.stringify(sinkJoined.slice(0, 200))}`);
+assert(sinkJoined.includes("> Say hello"), `expected prompt echo, got ${JSON.stringify(sinkJoined.slice(0, 200))}`);
+await shutdownAllPiSessions("sink-test");
+
 await shutdownAllPiSessions("test final");
 console.log("pi-runtime.test.js: all assertions passed");

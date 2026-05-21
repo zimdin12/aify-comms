@@ -32,6 +32,7 @@ from service.models import (
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
     ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalOutputRequest,
+    VirtualTerminalEnsureRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -6722,6 +6723,168 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
             "ok": True,
             "terminal": _terminal_session_to_dict(terminal),
             "session": _agent_session_to_dict(updated_session),
+        }
+    finally:
+        await db.close()
+
+
+VIRTUAL_PI_RPC_COMMAND = "aify://virtual-rpc/pi"
+
+
+@router.post("/agents/{agent_id}/virtual-terminal/ensure")
+async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureRequest, request: Request):
+    """Bridge-driven creation of a synthesized terminal_session row.
+
+    Managed pi runs use a persistent `omp --mode rpc` child whose AgentSessionEvent
+    stream is synthesized by the bridge into a human-readable terminal_output
+    feed. There is no real PTY — the bridge owns the lifecycle. This endpoint is
+    idempotent: a second call for the same agent on the same bridge returns the
+    existing virtual terminal row. See docs/plans/pi-persistent-rpc.md.
+    """
+    db = await get_db()
+    try:
+        agent = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        bridge_id = str(req.bridgeId or "").strip()
+        if not bridge_id:
+            raise HTTPException(400, "bridgeId is required")
+        runtime = _normalize_runtime(req.runtime or agent["runtime"] or "pi")
+        if runtime != "pi":
+            raise HTTPException(409, f'Virtual terminal is only available for managed pi runs (got runtime="{runtime}")')
+
+        env_row = await (await db.execute(
+            "SELECT * FROM environments WHERE bridge_id = ? ORDER BY last_seen DESC LIMIT 1",
+            (bridge_id,),
+        )).fetchone()
+        if not env_row:
+            raise HTTPException(404, f'No environment registered for bridgeId "{bridge_id}"')
+        environment_id = env_row["id"]
+
+        session_row = await (await db.execute(
+            """
+            SELECT *
+            FROM agent_sessions
+            WHERE agent_id = ?
+              AND environment_id = ?
+              AND status IN ('running', 'recovering', 'starting', 'managed-warm')
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id, environment_id),
+        )).fetchone()
+        if not session_row:
+            raise HTTPException(
+                409,
+                f'No active agent_session for "{agent_id}" on environment "{environment_id}". '
+                f'The bridge should dispatch at least once before requesting a virtual terminal.',
+            )
+        session_id = session_row["id"]
+
+        existing = await (await db.execute(
+            """
+            SELECT *
+            FROM terminal_sessions
+            WHERE agent_id = ?
+              AND session_id = ?
+              AND command = ?
+              AND status NOT IN ('stopped', 'failed')
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (agent_id, session_id, VIRTUAL_PI_RPC_COMMAND),
+        )).fetchone()
+        if existing:
+            return {
+                "ok": True,
+                "terminal": _terminal_session_to_dict(existing),
+                "session": _agent_session_to_dict(session_row),
+                "reused": True,
+            }
+
+        workspace = str(req.workspace or session_row["workspace"] or "").strip()
+        terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        requested_by = str(req.requestedBy or "bridge-rpc").strip() or "bridge-rpc"
+        await db.execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                output, status, requested_by, created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                session_id,
+                agent_id,
+                environment_id,
+                bridge_id,
+                "pi",
+                workspace,
+                VIRTUAL_PI_RPC_COMMAND,
+                "",
+                "running",
+                requested_by,
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "virtual_pi_rpc_attached",
+            json.dumps({
+                "requestedBy": requested_by,
+                "sessionId": session_id,
+                "bridgeId": bridge_id,
+                "sessionHandle": req.sessionHandle or "",
+            }),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = ?,
+                terminal_status = 'running',
+                terminal_command = ?,
+                terminal_workspace = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (terminal_id, VIRTUAL_PI_RPC_COMMAND, workspace, now, session_id),
+        )
+        next_runtime_state = _json_loads_or(agent["runtime_state"], {}) or {}
+        next_runtime_state["virtualTerminal"] = True
+        next_runtime_state["virtualTerminalId"] = terminal_id
+        await db.execute(
+            """
+            UPDATE agents
+            SET runtime_state = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (json.dumps(next_runtime_state), now, agent_id),
+        )
+        await db.commit()
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "terminal_started",
+                {
+                    "terminalId": terminal_id,
+                    "sessionId": session_id,
+                    "agentId": agent_id,
+                    "virtual": True,
+                },
+            )
+        return {
+            "ok": True,
+            "terminal": _terminal_session_to_dict(terminal),
+            "session": _agent_session_to_dict(updated_session),
+            "reused": False,
         }
     finally:
         await db.close()

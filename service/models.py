@@ -261,6 +261,14 @@ class TerminalOutputRequest(BaseModel):
     status: Optional[str] = None
 
 
+class VirtualTerminalEnsureRequest(BaseModel):
+    bridgeId: str
+    sessionHandle: Optional[str] = None
+    workspace: Optional[str] = None
+    runtime: Optional[str] = "pi"
+    requestedBy: Optional[str] = None
+
+
 class AgentControlRequest(BaseModel):
     action: str
     from_agent: Optional[str] = None

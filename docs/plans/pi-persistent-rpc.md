@@ -119,7 +119,7 @@ idle ──ensureStarted──▶ starting ──ready event──▶ ready
 ## Status (as of save)
 
 - [x] Phase 1 — Persistent RPC child (pi-session.js + createPiControllerManaged + pool tests)
-- [ ] Phase 2 — Synthesized terminal stream
+- [x] Phase 2 — Synthesized terminal stream (formatPiEventAsTerminalFrame + sink/buffer in pi-session.js, /agents/{id}/virtual-terminal/ensure endpoint, bridge terminalSinkProvider; race-fix in PiSession.stop() pool-evicts synchronously before kill)
 - [ ] Phase 3 — Dashboard input routing
 - [ ] Phase 4 — Watchdog
 - [ ] Phase 5 — Docs

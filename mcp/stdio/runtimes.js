@@ -3016,6 +3016,18 @@ function createPiControllerManaged({ agentId, agentInfo, run, runtimeState, call
       }
     }
     if (!session) throw lastError || new Error("Pi session not acquired");
+    // Phase 2: wire up the synthesized terminal sink once per session lifetime.
+    // The bridge resolves the virtual terminal id (creating it on first use)
+    // and returns a POST-to-/terminals/{id}/output sink. Subsequent dispatches
+    // re-attach idempotently — attachTerminalSink replaces the previous sink.
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo, session });
+        if (typeof sink === "function") session.attachTerminalSink(sink);
+      } catch (error) {
+        try { callbacks.onEvent?.("pi", `Pi virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
     turnHandle = session.runTurn(run, callbacks);
     return turnHandle.promise;
   })();

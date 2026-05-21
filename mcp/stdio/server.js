@@ -231,6 +231,7 @@ async function shutdownWithStatus(code) {
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
+  PI_VIRTUAL_TERMINALS.clear();
   cleanupOnExit();
   process.exit(code);
 }
@@ -240,6 +241,9 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 const REMOTE_AGENT_STATE = new Map();
 const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();
+// agentId → { terminalId } for the bridge's synthesized pi rpc terminal.
+// Cached so subsequent dispatches reuse the same virtual terminal_session row.
+const PI_VIRTUAL_TERMINALS = new Map();
 const DISPATCH_POLL_MS = Number(process.env.AIFY_DISPATCH_POLL_MS || 3000);
 // Terminal-control loop polls separately and much tighter: console input is
 // latency-sensitive (operator typing), and the terminal_controls query is
@@ -300,6 +304,53 @@ function pulseTerminalTurnBusy(terminalId, agentId) {
     TERMINAL_TURN_BUSY_TIMERS.delete(terminalId);
   }, TERMINAL_TURN_BUSY_QUIET_MS);
 }
+async function ensurePiVirtualTerminal(agentId, agentInfo) {
+  const key = String(agentId || "").trim();
+  if (!key) return null;
+  const cached = PI_VIRTUAL_TERMINALS.get(key);
+  if (cached?.terminalId) return cached;
+  const sessionHandle = String(agentInfo?.sessionHandle || agentInfo?.runtimeState?.sessionId || "").trim();
+  const workspace = String(agentInfo?.cwd || "").trim();
+  const res = await httpCall("POST", `/agents/${encodeURIComponent(key)}/virtual-terminal/ensure`, {
+    bridgeId: BRIDGE_INSTANCE_ID,
+    sessionHandle,
+    workspace,
+    runtime: "pi",
+    requestedBy: "bridge-rpc",
+  });
+  const terminalId = String(res?.terminal?.id || "").trim();
+  if (!terminalId) throw new Error("virtual-terminal/ensure returned no terminal id");
+  const entry = { terminalId };
+  PI_VIRTUAL_TERMINALS.set(key, entry);
+  return entry;
+}
+
+function createPiTerminalSink(terminalId) {
+  const id = String(terminalId || "").trim();
+  if (!id) return null;
+  return async (output, status = "") => {
+    if (!output && !status) return;
+    try {
+      await httpCall("POST", `/terminals/${encodeURIComponent(id)}/output`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        output: String(output || ""),
+        status: String(status || ""),
+      });
+    } catch (error) {
+      const msg = error?.message || String(error);
+      if (/^HTTP 404/.test(msg)) {
+        // Operator deleted the virtual terminal — invalidate the cache so
+        // the next dispatch re-creates one. Frame is dropped.
+        for (const [key, value] of PI_VIRTUAL_TERMINALS.entries()) {
+          if (value?.terminalId === id) PI_VIRTUAL_TERMINALS.delete(key);
+        }
+      }
+      // Otherwise: best-effort. The PiSession buffer is already capped;
+      // the next successful POST resumes the stream.
+    }
+  };
+}
+
 const TERMINAL_MANAGER = new TerminalProcessManager({
   onOutput: async (terminalId, output) => {
     await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/output`, {
@@ -1849,6 +1900,20 @@ async function runDispatchLoop() {
               console.error(`[aify] healed sessionHandle for "${agentId}" → ${nextHandle}${metaLabel}`);
             } catch (error) {
               console.error(`[aify] failed to persist healed sessionHandle for "${agentId}": ${error?.message || error}`);
+            }
+          },
+          // Phase 2: surface the persistent omp --mode rpc child as a
+          // synthesized terminal_session row. Pi managed only; createPiController
+          // ignores this for resident-mode runs (legacy per-dispatch spawn).
+          terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
+            if (normalizeRuntime(agentInfo?.runtime || "") !== "pi") return null;
+            try {
+              const entry = await ensurePiVirtualTerminal(provId, agentInfo);
+              if (!entry?.terminalId) return null;
+              return createPiTerminalSink(entry.terminalId);
+            } catch (error) {
+              console.error(`[aify] virtual-terminal/ensure failed for "${provId}": ${error?.message || error}`);
+              return null;
             }
           },
         },
