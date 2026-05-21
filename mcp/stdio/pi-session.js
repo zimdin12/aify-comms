@@ -88,47 +88,99 @@ function formatToolResultBrief(result) {
   return briefJsonInline(String(result), MAX_TOOL_RESULT_BRIEF_CHARS);
 }
 
+// ANSI color helpers. xterm.js's WebGL renderer (current dashboard build)
+// handles standard 16-color + bright variants and bold/dim. We use a small
+// palette consistently so the synthesized terminal feels distinguishable
+// from raw assistant text without being a circus.
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  brightGreen: "\x1b[92m",
+  brightYellow: "\x1b[93m",
+  brightCyan: "\x1b[96m",
+};
+
+function colorize(color, text) {
+  if (!text) return "";
+  return `${color}${text}${ANSI.reset}`;
+}
+
+function formatTokenUsage(usage) {
+  if (!usage || typeof usage !== "object") return "";
+  const input = Number(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens);
+  const output = Number(usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens ?? usage.completionTokens);
+  const cached = Number(usage.cached_tokens ?? usage.cacheReadInputTokens ?? usage.cache_read_input_tokens);
+  const parts = [];
+  if (Number.isFinite(input) && input > 0) parts.push(`in=${input}`);
+  if (Number.isFinite(output) && output > 0) parts.push(`out=${output}`);
+  if (Number.isFinite(cached) && cached > 0) parts.push(`cached=${cached}`);
+  return parts.length ? parts.join(" ") : "";
+}
+
 export function formatPiEventAsTerminalFrame(event) {
   if (!event || typeof event !== "object") return "";
   const type = String(event.type || "");
   switch (type) {
     case "ready":
-      return "[pi rpc ready]\r\n";
+      // The banner with model/effort/session is emitted separately by
+      // _emitReadyBanner so we can use PiSession context. The "ready" event
+      // itself produces no synthesized frame here; the banner replaces it.
+      return "";
     case "agent_start":
-      return "\r\n[turn started]\r\n";
-    case "agent_end":
-      return "\r\n[turn ended]\r\n";
+      return `\r\n${colorize(ANSI.brightCyan + ANSI.bold, "▶ turn started")}\r\n`;
+    case "agent_end": {
+      const usage = formatTokenUsage(event.usage ?? event.message?.usage ?? event.data?.usage);
+      const suffix = usage ? colorize(ANSI.dim, `  (${usage})`) : "";
+      return `\r\n${colorize(ANSI.cyan + ANSI.bold, "■ turn ended")}${suffix}\r\n`;
+    }
     case "error": {
       const msg = String(event.error || event.message || "Pi runtime error");
-      return `\r\n[error] ${msg}\r\n`;
+      return `\r\n${colorize(ANSI.red + ANSI.bold, "✗ error")} ${colorize(ANSI.red, msg)}\r\n`;
     }
     case "tool_execution_start": {
       const name = String(event.tool?.name || event.toolName || event.name || "tool");
       const brief = formatToolInputBrief(event.tool?.input ?? event.input ?? event.arguments);
-      return `\r\n[tool] ${name}${brief ? ` ${brief}` : ""}\r\n`;
+      const head = colorize(ANSI.yellow, `→ ${name}`);
+      const detail = brief ? colorize(ANSI.dim, ` ${brief}`) : "";
+      return `\r\n${head}${detail}\r\n`;
     }
     case "tool_execution_end": {
       const name = String(event.tool?.name || event.toolName || event.name || "tool");
       const ok = event.success !== false && !event.error;
-      const status = ok ? "ok" : "ERROR";
       const brief = ok
         ? formatToolResultBrief(event.tool?.result ?? event.result ?? event.output)
         : briefJsonInline(event.error || "", MAX_TOOL_RESULT_BRIEF_CHARS);
-      return `[tool] ${name} → ${status}${brief ? ` ${brief}` : ""}\r\n`;
+      const marker = ok
+        ? colorize(ANSI.green, `✓ ${name}`)
+        : colorize(ANSI.red, `✗ ${name}`);
+      const detail = brief ? colorize(ANSI.dim, ` ${brief}`) : "";
+      return `${marker}${detail}\r\n`;
     }
     case "RpcExtensionUIRequest": {
       const req = event.request || event;
       const kind = String(req.kind || req.type || "input");
       const question = String(req.question || req.prompt || req.message || "");
       const options = Array.isArray(req.options) ? req.options.join(" | ") : "";
-      const detail = options ? ` (${options})` : "";
-      return `\r\n[prompt:${kind}] ${question}${detail}\r\n`;
+      const detail = options ? colorize(ANSI.dim, ` (${options})`) : "";
+      return `\r\n${colorize(ANSI.magenta + ANSI.bold, `? ${kind}`)} ${question}${detail}\r\n`;
     }
     case "message_update": {
       const inner = event.assistantMessageEvent || {};
       if (inner.type === "text_delta") return String(inner.delta || "");
       if (inner.type === "text_end") return "\r\n";
       return "";
+    }
+    case "usage":
+    case "token_usage": {
+      const usage = formatTokenUsage(event.usage ?? event.data ?? event);
+      return usage ? `${colorize(ANSI.dim, `  ${usage}`)}\r\n` : "";
     }
     default:
       return "";
@@ -249,6 +301,27 @@ export class PiSession {
 
   __terminalBufferForTests() {
     return [...this._terminalBuffer];
+  }
+
+  _emitReadyBanner(event) {
+    // Operator-visible "what just spun up" panel. Renders on every ready
+    // transition (initial spawn + heal-respawn) so the operator sees the
+    // current model/effort/session-id without having to inspect anything.
+    // We pull model/effort from the PiSession's stored launch params (set
+    // by ensureStarted via runtimeConfig) — agentInfo is the source of
+    // truth at spawn time.
+    const cfg = getRuntimeConfig(this.agentInfo);
+    const model = String(this._model || this.agentInfo?.model || cfg.model || "").trim();
+    const effort = String(this._thinking || cfg.thinking || cfg.effort || "").trim();
+    const sessionId = String(event?.data?.sessionId || event?.sessionId || this.sessionId || "").trim();
+    const lines = [];
+    lines.push(colorize(ANSI.brightGreen + ANSI.bold, "● pi rpc ready"));
+    const meta = [];
+    if (model) meta.push(`${colorize(ANSI.dim, "model")} ${colorize(ANSI.cyan, model)}`);
+    if (effort) meta.push(`${colorize(ANSI.dim, "effort")} ${colorize(ANSI.cyan, effort)}`);
+    if (sessionId) meta.push(`${colorize(ANSI.dim, "session")} ${colorize(ANSI.cyan, sessionId)}`);
+    if (meta.length) lines.push(`  ${meta.join("  ")}`);
+    this._pushTerminalFrame(`${lines.join("\r\n")}\r\n`, "running");
   }
 
   get state() {
@@ -452,7 +525,7 @@ export class PiSession {
     this._publishSessionState(event);
 
     if (event.type === "ready") {
-      this._pushTerminalFrame(formatPiEventAsTerminalFrame(event), "running");
+      this._emitReadyBanner(event);
       this._onReady();
       return;
     }
@@ -627,11 +700,12 @@ export class PiSession {
   }
 
   _teardownChild(error) {
+    const header = colorize(ANSI.dim + ANSI.red, "○ pi rpc exited");
     if (error) {
       const msg = String(error?.message || error || "").trim();
-      this._pushTerminalFrame(`\r\n[pi rpc exited]${msg ? ` ${msg}` : ""}\r\n`, "stopped");
+      this._pushTerminalFrame(`\r\n${header}${msg ? ` ${colorize(ANSI.dim, msg)}` : ""}\r\n`, "stopped");
     } else {
-      this._pushTerminalFrame("\r\n[pi rpc exited]\r\n", "stopped");
+      this._pushTerminalFrame(`\r\n${header}\r\n`, "stopped");
     }
     this._clearIdleTimer();
     if (this._startupTimer) {
@@ -906,7 +980,7 @@ export class PiSession {
     if (echo) {
       const prefixed = echo
         .split(/\r?\n/)
-        .map((line) => `> ${line}`)
+        .map((line) => `${colorize(ANSI.brightGreen, ">")} ${line}`)
         .join("\r\n");
       this._pushTerminalFrame(`\r\n${prefixed}\r\n`);
     }
@@ -999,7 +1073,7 @@ export class PiSession {
   async _interruptTurn(turn) {
     if (this._activeTurn !== turn) return;
     turn.interrupted = true;
-    this._pushTerminalFrame("\r\n[interrupt requested]\r\n");
+    this._pushTerminalFrame(`\r\n${colorize(ANSI.brightYellow + ANSI.bold, "⏸ interrupt requested")}\r\n`);
     try {
       this._send({ id: this._nextRequestId("abort"), type: "abort" });
     } catch {
@@ -1028,7 +1102,7 @@ export class PiSession {
     const echo = message.replace(/\r?\n$/, "");
     const prefixed = echo
       .split(/\r?\n/)
-      .map((line) => `>> steer: ${line}`)
+      .map((line) => `${colorize(ANSI.brightYellow + ANSI.bold, ">> steer:")} ${line}`)
       .join("\r\n");
     this._pushTerminalFrame(`\r\n${prefixed}\r\n`);
     await this._sendCommandWithAck({ type: "steer", message }, { scope: "turn", prefix: "steer" });

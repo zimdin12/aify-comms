@@ -6,12 +6,25 @@ const { PiSession, formatPiEventAsTerminalFrame } = await import("../pi-session.
 
 // ── Pure formatter ─────────────────────────────────────────────────────────
 
-assert.equal(formatPiEventAsTerminalFrame({ type: "ready" }), "[pi rpc ready]\r\n");
-assert.equal(formatPiEventAsTerminalFrame({ type: "agent_start" }), "\r\n[turn started]\r\n");
-assert.equal(formatPiEventAsTerminalFrame({ type: "agent_end" }), "\r\n[turn ended]\r\n");
-assert.equal(
-  formatPiEventAsTerminalFrame({ type: "error", error: "auth required" }),
-  "\r\n[error] auth required\r\n",
+// ANSI escape sequences (CSI ... letter, plus reset, bold, dim — full
+// vt100 SGR set used by the synthesizer). Strip for content assertions so
+// tests pin semantics, not exact color codes.
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+function noColor(s) { return String(s || "").replace(ANSI_RE, ""); }
+
+// Bare 'ready' frame is empty — PiSession's _emitReadyBanner replaces it
+// with a richer banner that depends on model/effort/session context.
+assert.equal(formatPiEventAsTerminalFrame({ type: "ready" }), "");
+assert.match(noColor(formatPiEventAsTerminalFrame({ type: "agent_start" })), /turn started/);
+assert.match(noColor(formatPiEventAsTerminalFrame({ type: "agent_end" })), /turn ended/);
+{
+  const usedEnd = formatPiEventAsTerminalFrame({ type: "agent_end", usage: { input_tokens: 1200, output_tokens: 340 } });
+  assert.match(noColor(usedEnd), /in=1200/);
+  assert.match(noColor(usedEnd), /out=340/);
+}
+assert.match(
+  noColor(formatPiEventAsTerminalFrame({ type: "error", error: "auth required" })),
+  /error.*auth required/,
 );
 assert.equal(
   formatPiEventAsTerminalFrame({
@@ -27,37 +40,50 @@ assert.equal(
   }),
   "\r\n",
 );
-assert.equal(
-  formatPiEventAsTerminalFrame({
+{
+  const startFrame = noColor(formatPiEventAsTerminalFrame({
     type: "tool_execution_start",
     tool: { name: "bash", input: { command: "ls -la" } },
-  }),
-  '\r\n[tool] bash {"command":"ls -la"}\r\n',
-);
-assert.equal(
-  formatPiEventAsTerminalFrame({
+  }));
+  assert.match(startFrame, /→ bash/);
+  assert.match(startFrame, /"command":"ls -la"/);
+}
+{
+  const endOk = noColor(formatPiEventAsTerminalFrame({
     type: "tool_execution_end",
     tool: { name: "bash", result: "total 0" },
     success: true,
-  }),
-  "[tool] bash → ok total 0\r\n",
-);
-assert.equal(
-  formatPiEventAsTerminalFrame({
+  }));
+  assert.match(endOk, /✓ bash/);
+  assert.match(endOk, /total 0/);
+}
+{
+  const endFail = noColor(formatPiEventAsTerminalFrame({
     type: "tool_execution_end",
     tool: { name: "bash" },
     success: false,
     error: "permission denied",
-  }),
-  "[tool] bash → ERROR permission denied\r\n",
-);
-assert.equal(
-  formatPiEventAsTerminalFrame({
+  }));
+  assert.match(endFail, /✗ bash/);
+  assert.match(endFail, /permission denied/);
+}
+{
+  const promptFrame = noColor(formatPiEventAsTerminalFrame({
     type: "RpcExtensionUIRequest",
     request: { kind: "confirm", question: "Proceed?", options: ["yes", "no"] },
-  }),
-  "\r\n[prompt:confirm] Proceed? (yes | no)\r\n",
-);
+  }));
+  assert.match(promptFrame, /\? confirm/);
+  assert.match(promptFrame, /Proceed\?/);
+  assert.match(promptFrame, /yes \| no/);
+}
+{
+  const usageFrame = noColor(formatPiEventAsTerminalFrame({
+    type: "usage",
+    usage: { input_tokens: 250, output_tokens: 80 },
+  }));
+  assert.match(usageFrame, /in=250/);
+  assert.match(usageFrame, /out=80/);
+}
 assert.equal(formatPiEventAsTerminalFrame({ type: "response", id: "x" }), "");
 assert.equal(formatPiEventAsTerminalFrame({ type: "unknown_event" }), "");
 
@@ -67,8 +93,9 @@ const briefFrame = formatPiEventAsTerminalFrame({
   type: "tool_execution_start",
   tool: { name: "bash", input: longInput },
 });
-assert.ok(briefFrame.length < 300, `expected brief tool input, got ${briefFrame.length} chars`);
-assert.ok(briefFrame.endsWith("…\r\n") || briefFrame.endsWith("…\"}\r\n"), `expected ellipsis suffix, got ${briefFrame.slice(-10)}`);
+const briefFrameNoColor = noColor(briefFrame);
+assert.ok(briefFrameNoColor.length < 350, `expected brief tool input, got ${briefFrameNoColor.length} chars`);
+assert.ok(briefFrameNoColor.includes("…"), `expected ellipsis in trimmed frame, got ${briefFrameNoColor.slice(-30)}`);
 
 // ── Sink + buffer mechanics ─────────────────────────────────────────────────
 

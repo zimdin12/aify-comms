@@ -772,9 +772,11 @@ await sinkController.promise;
 // Let the async sink chain drain (sink is invoked from the flush microtask chain).
 await new Promise((resolve) => setTimeout(resolve, 50));
 assert.equal(sinkProviderCalls, 1, "terminalSinkProvider should be called once per acquired managed pi session");
-const sinkJoined = sinkFrames.join("");
-assert(sinkJoined.includes("[pi rpc ready]"), `expected ready frame, got ${JSON.stringify(sinkJoined.slice(0, 200))}`);
-assert(sinkJoined.includes("> Say hello"), `expected prompt echo, got ${JSON.stringify(sinkJoined.slice(0, 200))}`);
+// Strip ANSI SGR codes for content assertions; pin semantics, not exact color.
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+const sinkJoined = sinkFrames.join("").replace(ANSI_RE, "");
+assert(sinkJoined.includes("● pi rpc ready"), `expected ready banner, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
+assert(sinkJoined.includes("> Say hello"), `expected prompt echo, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
 await shutdownAllPiSessions("sink-test");
 
 await shutdownAllPiSessions("test final");
