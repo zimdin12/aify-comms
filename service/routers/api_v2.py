@@ -1986,7 +1986,30 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # heartbeat staleness should. Stale "running" rows are still caught by
     # the env-offline branch below and the heartbeat-freshness else-branch.
     live_session = session_status in _LIVE_SESSION_STATUSES
-    effective_status = "active"
+    # New status taxonomy (persistent-worker model — see
+    # docs/plans/persistent-worker-status-taxonomy.md). Replaces the
+    # overloaded `active` with a clearer split:
+    #   - available: env online, agent registered, no live worker yet.
+    #     Send (Phase 3) auto-spawns the worker.
+    #   - online:    worker alive, idle (this is the new "ready").
+    #   - working:   worker handling a turn (unchanged downstream).
+    # `live_session` (agent_sessions.status in {starting,running,...})
+    # is the primary "worker present" signal — true if the bridge has
+    # an agent_session row tracking a runtime process for this agent.
+    # `active` is no longer emitted by the engine; consumers that
+    # treated `active` as "online" continue to work because new
+    # responses just use `online` directly.
+    has_live_worker = live_session
+    if has_live_worker:
+        effective_status = "online"
+    elif environment_id and env_status not in {"online", "degraded"}:
+        # An env IS bound but it's unreachable → offline. Unbound agents
+        # (no environment_id yet) fall through to "available" — they can
+        # still receive a message, the dispatch path resolves the env at
+        # claim time.
+        effective_status = "offline"
+    else:
+        effective_status = "available"
     reason = ""
     terminal_input_hint = ""
     if active_run and terminal_id:
@@ -2054,19 +2077,25 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # is reachable, so it falls through to the heartbeat branch as "active",
     # never "working". (Supersedes the B1 / console-activity heuristics.)
     else:
-        idle_minutes = int(settings.get("idle_minutes", 5) or 5)
-        offline_minutes = int(settings.get("offline_minutes", 30) or 30)
-        freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
-        try:
-            age = datetime.now(timezone.utc).timestamp() - freshness if freshness else 0
-            if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
-                effective_status = "offline"
-                reason = "Agent heartbeat is stale."
-            elif freshness and age > timedelta(minutes=idle_minutes).total_seconds():
-                effective_status = "idle"
-                reason = "Agent is idle."
-        except Exception:
-            pass
+        # Staleness checks: heartbeat-stale agents are functionally offline
+        # regardless of worker presence — apply to both `online` and
+        # `available`. Idle-warning only meaningful for `online` (workers
+        # that haven't done anything in a while); `available` agents are
+        # by definition not working, so the idle marker is redundant.
+        if effective_status in {"online", "available"}:
+            idle_minutes = int(settings.get("idle_minutes", 5) or 5)
+            offline_minutes = int(settings.get("offline_minutes", 30) or 30)
+            freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
+            try:
+                age = datetime.now(timezone.utc).timestamp() - freshness if freshness else 0
+                if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
+                    effective_status = "offline"
+                    reason = "Agent heartbeat is stale."
+                elif effective_status == "online" and freshness and age > timedelta(minutes=idle_minutes).total_seconds():
+                    effective_status = "idle"
+                    reason = "Agent is idle."
+            except Exception:
+                pass
     return {
         "status": effective_status,
         "reason": reason,

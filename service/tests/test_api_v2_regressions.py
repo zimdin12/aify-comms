@@ -1553,7 +1553,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
 
     def test_idle_attached_console_reports_active_not_working(self):
         # Post-B1 regression the operator caught: an attached console with no
@@ -1583,7 +1583,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
 
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
@@ -3093,7 +3093,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("returned to an idle prompt", run["summary"])
         self.assertTrue(run["finished_at"])
         agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "active")
+        self.assertEqual(agent["status"], "online")
         self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_busy_claude_terminal_output_does_not_close_running_turn(self):
@@ -3347,7 +3347,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(run["status"], "cancelled")
         self.assertTrue(run["finished_at"])
         agent = self.client.get("/api/v1/agents").json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "active")
+        self.assertEqual(agent["status"], "online")
         self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_unthreaded_completion_info_links_active_claude_terminal_run(self):
@@ -3462,7 +3462,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(repaired["status"], "failed")
         self.assertIn("no bridge owner", repaired["summary"])
         self.assertTrue(repaired["finished_at"])
-        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "active")
+        self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
 
     def test_message_send_to_managed_claude_replaces_legacy_raw_channel_terminal(self):
         session_id = self._create_running_session(
@@ -3704,7 +3704,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(delivered.status_code, 200, delivered.text)
         listed_active_after_delivery = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active_after_delivery.status_code, 200, listed_active_after_delivery.text)
-        self.assertEqual(listed_active_after_delivery.json()["agents"]["console-agent"]["status"], "active")
+        self.assertEqual(listed_active_after_delivery.json()["agents"]["console-agent"]["status"], "online")
         self._execute(
             """
             INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
@@ -3737,7 +3737,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(closed["finished_at"])
         listed_active = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active.status_code, 200, listed_active.text)
-        self.assertEqual(listed_active.json()["agents"]["console-agent"]["status"], "active")
+        self.assertEqual(listed_active.json()["agents"]["console-agent"]["status"], "online")
 
     def test_terminal_control_claim_orders_start_before_input_with_same_timestamp(self):
         # Ordering is a PTY-path concern; exercise it on a runtime that still
@@ -8131,6 +8131,77 @@ class ApiV2RegressionTests(unittest.TestCase):
             await db.commit()
         finally:
             await db.close()
+
+    def test_status_taxonomy_available_when_no_live_worker_online_when_session_alive(self):
+        # Persistent-worker model (Phase 2 of plan
+        # docs/plans/persistent-worker-status-taxonomy.md). An agent
+        # registered with env online but no live agent_session reports
+        # "available" — the wake-on-message path will spawn the worker.
+        # Once a live agent_session exists, status flips to "online"
+        # (worker alive, idle).
+        self._heartbeat_environment(
+            id="env_taxonomy",
+            bridgeId="bridge-taxonomy",
+            machineId="linux:taxonomy",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("taxonomy-claude", runtime="claude-code", sessionMode="resident")
+
+        avail = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
+        self.assertEqual(avail["status"], "available", avail)
+
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_taxonomy_1",
+                "taxonomy-claude",
+                "env_taxonomy",
+                "claude-code",
+                "/workspace",
+                "managed",
+                "managed",
+                "bridge-taxonomy",
+                "",
+                "",
+                "",
+                "/workspace",
+                "",
+                "claude-handle-tax",
+                "",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                "2026-05-22T00:00:00Z",
+                "2026-05-22T00:00:00Z",
+                None,
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET last_seen = ? WHERE id = ?",
+            ("2026-05-22T00:00:00Z", "taxonomy-claude"),
+        )
+        asyncio.run(self._async_invalidate("taxonomy-claude"))
+        online = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
+        self.assertEqual(online["status"], "online", online)
 
     def test_resident_route_delivered_awaiting_reply_shows_working(self):
         # Resident dispatch to claude (execution_mode='resident') goes through
