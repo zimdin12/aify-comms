@@ -1248,8 +1248,8 @@ function staleClaudeAifyWrapperReason(resolved) {
       const stat = fs.statSync(candidate);
       if (!stat.isFile() || stat.size > 1024 * 1024) continue;
       const body = fs.readFileSync(candidate, "utf-8");
-      if (body.includes("--channels server:aify-comms-channel --dangerously-load-development-channels")) {
-        return `resolved wrapper "${candidate}" has stale Claude channel flag ordering; rerun install.sh for Claude support`;
+      if (body.includes("--channels server:aify-comms-channel")) {
+        return `resolved wrapper "${candidate}" has stale Claude --channels flag (custom channels must use only --dangerously-load-development-channels); rerun install.sh for Claude support`;
       }
     } catch {
       // Best-effort validation. Launch itself will surface unreadable files.

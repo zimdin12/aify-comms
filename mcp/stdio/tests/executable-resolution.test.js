@@ -48,18 +48,29 @@ try {
   const staleWrapper = path.join(tmp, "claude-aify");
   fs.writeFileSync(
     staleWrapper,
-    "#!/bin/sh\nclaude --channels server:aify-comms-channel --dangerously-load-development-channels server:aify-comms-channel \"$@\"\n",
+    "#!/bin/sh\nclaude --dangerously-load-development-channels server:aify-comms-channel --channels server:aify-comms-channel \"$@\"\n",
   );
   fs.chmodSync(staleWrapper, 0o755);
   process.env.AIFY_CLAUDE_COMMAND = staleWrapper;
   mod = await import(`../runtimes.js?cacheBust=${Date.now()}-stale-wrapper`);
   result = mod.runtimeLaunchAvailability("claude-code");
-  assert.equal(result.available, false, "stale Claude wrapper should not advertise terminal support");
+  assert.equal(result.available, false, "wrapper with --channels duplicate must be rejected (channels-reference docs: dev-flag is the activation, --channels is allowlist-checked and blocks registration for custom channels)");
   assert.match(
     result.message,
-    /stale Claude channel flag ordering|rerun install\.sh/i,
+    /stale Claude --channels flag|rerun install\.sh/i,
     "stale wrapper diagnostic should tell the operator to reinstall the wrapper",
   );
+
+  const freshWrapper = path.join(tmp, "claude-aify-fresh");
+  fs.writeFileSync(
+    freshWrapper,
+    "#!/bin/sh\nclaude --dangerously-load-development-channels server:aify-comms-channel \"$@\"\n",
+  );
+  fs.chmodSync(freshWrapper, 0o755);
+  process.env.AIFY_CLAUDE_COMMAND = freshWrapper;
+  mod = await import(`../runtimes.js?cacheBust=${Date.now()}-fresh-wrapper`);
+  result = mod.runtimeLaunchAvailability("claude-code");
+  assert.equal(result.available, true, "wrapper with only --dangerously-load-development-channels should be accepted as current");
 
   // describeExecutableResolution should expose structured attempts for tools
   const info = mod.describeExecutableResolution("this-binary-does-not-exist-aify-test-zzz");

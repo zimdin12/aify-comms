@@ -181,10 +181,10 @@ if [ -z "\$CLAUDE_AIFY_SESSION_MODE" ]; then
   fi
 fi
 export AIFY_SESSION_MODE="\$CLAUDE_AIFY_SESSION_MODE"
-# claude-aify ALWAYS loads --channels server:aify-comms-channel below, so
-# tell the registration path that channels are enabled. This stops the
-# service-side _row_capabilities strip from removing resident-run from
-# this agent's capabilities.
+# claude-aify ALWAYS activates aify-comms-channel as a dev channel below
+# (--dangerously-load-development-channels), so tell the registration path
+# that channels are enabled. This stops the service-side _row_capabilities
+# strip from removing resident-run from this agent's capabilities.
 export AIFY_CHANNELS_ENABLED="1"
 
 CLAUDE_PERMISSION_FLAGS=()
@@ -244,7 +244,7 @@ JSON
   trap 'rm -f "\$AIFY_MCP_CONFIG"' EXIT
 fi
 
-claude --dangerously-load-development-channels server:aify-comms-channel --channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
+claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?
 exit "\$STATUS"
 EOF
