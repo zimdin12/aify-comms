@@ -427,6 +427,7 @@ PI_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
 PI_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
 PI_SESSION_HANDLE="${PI_SESSION_ID:-${OMP_SESSION_ID:-${AIFY_PI_SESSION_ID:-}}}"
 PI_RUNTIME_COMMAND="${AIFY_PI_COMMAND:-${PI_COMMAND:-omp}}"
+PI_AIFY_STANDALONE=false
 PI_ARGS=()
 PREV_ARG=""
 for ARG in "$@"; do
@@ -446,6 +447,14 @@ for ARG in "$@"; do
   fi
   if [ "$ARG" = "--managed" ]; then
     PI_AIFY_SESSION_MODE="managed"
+    continue
+  fi
+  if [ "$ARG" = "--standalone" ]; then
+    # Operator override of the Phase 4 watchdog. Lets you launch a parallel
+    # OMP session on a different session-id while the bridge keeps driving
+    # the dashboard one. Pass --resume <other-id> alongside if you actually
+    # want to attach to a saved session.
+    PI_AIFY_STANDALONE=true
     continue
   fi
   if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
@@ -497,6 +506,28 @@ if [ -z "$PI_AIFY_SESSION_MODE" ]; then
   fi
 fi
 export AIFY_SESSION_MODE="$PI_AIFY_SESSION_MODE"
+
+# Phase 4 watchdog: refuse to launch OMP if the aify-comms bridge is already
+# driving this agent's pi session through its persistent RPC child. The
+# upstream RPC channel has no multiplexing — two processes on the same
+# session-id step on each other. Soft mutex: this is a single HTTP read
+# that fails open (timeout / network error / non-pi runtime → exec normally).
+# Override with --standalone if you intentionally want a parallel session
+# on a different session-id (pass --resume <other-id> too).
+if [ "$PI_AIFY_STANDALONE" != true ] && [ -n "$PI_AIFY_AGENT_ID" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then
+  AIFY_WATCHDOG_URL="${AIFY_COMMS_URL%/}/api/v1/agents/${PI_AIFY_AGENT_ID}/pi-session-state"
+  AIFY_WATCHDOG_HEADERS=()
+  if [ -n "${AIFY_API_KEY:-}" ]; then
+    AIFY_WATCHDOG_HEADERS+=("-H" "X-API-Key: ${AIFY_API_KEY}")
+  fi
+  AIFY_WATCHDOG_BODY="$(curl -sS --max-time 2 "${AIFY_WATCHDOG_HEADERS[@]}" "$AIFY_WATCHDOG_URL" 2>/dev/null || true)"
+  if [ -n "$AIFY_WATCHDOG_BODY" ] && printf '%s' "$AIFY_WATCHDOG_BODY" | grep -q '"bridgeOwned":[[:space:]]*true'; then
+    cat >&2 <<EOM
+Agent '${PI_AIFY_AGENT_ID}' is currently driven by aify-comms (visible in dashboard terminal). Stop it from the dashboard or use \`omp-aify --standalone --aify-agent ${PI_AIFY_AGENT_ID}\` to launch a parallel session on a different session-id.
+EOM
+    exit 1
+  fi
+fi
 
 exec "$PI_RUNTIME_COMMAND" "${PI_ARGS[@]}"
 EOF

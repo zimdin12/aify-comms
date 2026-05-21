@@ -6731,6 +6731,49 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
 VIRTUAL_PI_RPC_COMMAND = "aify://virtual-rpc/pi"
 
 
+@router.get("/agents/{agent_id}/pi-session-state")
+async def get_agent_pi_session_state(agent_id: str):
+    """Watchdog readout for omp-aify (Phase 4).
+
+    Reports whether the aify-comms bridge currently drives this agent's pi
+    session through a persistent RPC child. The omp-aify wrapper queries this
+    before exec'ing omp; if the bridge owns the session it refuses to start,
+    avoiding two processes racing on the same OMP session-id (the upstream
+    RPC channel has no multiplexing — see DECISIONS.md). Soft mutex: this
+    endpoint never kills anything. It is a fast read against
+    terminal_sessions + agents.runtime_state.
+    """
+    db = await get_db()
+    try:
+        agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        runtime_state = _json_loads_or(agent_row["runtime_state"], {}) or {}
+        virtual_terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
+        bridge_owned = False
+        terminal_payload: Optional[dict[str, Any]] = None
+        if virtual_terminal_id:
+            row = await (await db.execute(
+                "SELECT * FROM terminal_sessions WHERE id = ?",
+                (virtual_terminal_id,),
+            )).fetchone()
+            if row and (row["command"] or "") == VIRTUAL_PI_RPC_COMMAND:
+                status = str(row["status"] or "").strip().lower()
+                if status in {"starting", "running", "recovering", "active", "idle"}:
+                    bridge_owned = True
+                    terminal_payload = _terminal_session_to_dict(row)
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "runtime": _normalize_runtime(agent_row["runtime"] or ""),
+            "bridgeOwned": bridge_owned,
+            "virtualTerminalId": virtual_terminal_id if bridge_owned else "",
+            "terminal": terminal_payload,
+        }
+    finally:
+        await db.close()
+
+
 @router.post("/agents/{agent_id}/virtual-terminal/ensure")
 async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureRequest, request: Request):
     """Bridge-driven creation of a synthesized terminal_session row.

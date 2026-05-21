@@ -7905,3 +7905,127 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         bob = self.client.get("/api/v1/agents/bob")
         self.assertEqual(bob.status_code, 200, bob.text)
+
+    def test_pi_session_state_reports_bridge_ownership_for_watchdog(self):
+        # Phase 4: omp-aify queries this before exec'ing OMP. When no virtual
+        # terminal exists, bridgeOwned is false → the wrapper proceeds. After a
+        # virtual terminal_session is created (Phase 2 endpoint), it returns
+        # bridgeOwned=true and the wrapper refuses to start.
+        self._heartbeat_environment(
+            id="env_watchdog",
+            bridgeId="bridge-watchdog",
+            machineId="linux:watchdog",
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True, "steer": True},
+                }
+            ],
+        )
+        self._register("pi-worker", runtime="pi", sessionMode="managed")
+        state_clear = self.client.get("/api/v1/agents/pi-worker/pi-session-state")
+        self.assertEqual(state_clear.status_code, 200, state_clear.text)
+        body_clear = state_clear.json()
+        self.assertEqual(body_clear["ok"], True)
+        self.assertEqual(body_clear["agentId"], "pi-worker")
+        self.assertEqual(body_clear["bridgeOwned"], False)
+        self.assertEqual(body_clear["virtualTerminalId"], "")
+        self.assertIsNone(body_clear["terminal"])
+
+        # Seed the state that ensure_virtual_terminal would set: an
+        # agent_session row, a running terminal_sessions row marked with the
+        # virtual-rpc command marker, and the agent's runtime_state pointing
+        # at it. We don't go through the full /ensure endpoint because that
+        # requires an environment heartbeat from a bridge.
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_pi_watchdog",
+                "pi-worker",
+                "env_watchdog",
+                "pi",
+                "/workspace",
+                "managed",
+                "managed",
+                "bridge-watchdog",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "pi-handle-1",
+                "",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                "2026-05-21T00:00:00Z",
+                "2026-05-21T00:00:00Z",
+                None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_watchdog_1",
+                "sess_pi_watchdog",
+                "pi-worker",
+                "env_watchdog",
+                "bridge-watchdog",
+                "pi",
+                "/workspace",
+                "aify://virtual-rpc/pi",
+                "",
+                "running",
+                "bridge-rpc",
+                "2026-05-21T00:00:00Z",
+                "2026-05-21T00:00:00Z",
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (
+                json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_watchdog_1"}),
+                "pi-worker",
+            ),
+        )
+
+        state_owned = self.client.get("/api/v1/agents/pi-worker/pi-session-state")
+        self.assertEqual(state_owned.status_code, 200, state_owned.text)
+        body_owned = state_owned.json()
+        self.assertEqual(body_owned["bridgeOwned"], True)
+        self.assertEqual(body_owned["virtualTerminalId"], "vterm_watchdog_1")
+        self.assertIsNotNone(body_owned["terminal"])
+        self.assertEqual(body_owned["terminal"]["command"], "aify://virtual-rpc/pi")
+
+        # When the bridge tears the virtual terminal down (status='stopped'),
+        # bridgeOwned must flip back to false so the wrapper can proceed.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            ("vterm_watchdog_1",),
+        )
+        state_stopped = self.client.get("/api/v1/agents/pi-worker/pi-session-state")
+        self.assertEqual(state_stopped.status_code, 200, state_stopped.text)
+        self.assertEqual(state_stopped.json()["bridgeOwned"], False)
+
+        # Unknown agent → 404 (so the wrapper can fail-open cleanly).
+        missing = self.client.get("/api/v1/agents/ghost-agent/pi-session-state")
+        self.assertEqual(missing.status_code, 404, missing.text)
