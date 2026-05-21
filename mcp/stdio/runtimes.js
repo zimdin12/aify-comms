@@ -1042,6 +1042,23 @@ export function defaultPiCommand() {
   return { command: target, args: [] };
 }
 
+export function defaultHermesCommand() {
+  const configured = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "").trim();
+  if (process.platform === "win32") {
+    return { command: configured || "hermes", args: [] };
+  }
+  const target = configured || "hermes";
+  const resolved = resolveExecutable(target);
+  if (resolved) {
+    const shebang = inspectShebang(resolved);
+    if (shebang && !shebang.valid) {
+      return bashShebangFallback(resolved);
+    }
+    return { command: resolved, args: [] };
+  }
+  return { command: target, args: [] };
+}
+
 const RESOLVED_EXECUTABLE_CACHE = new Map();
 const EXECUTABLE_RESOLUTION_LOG = new Map();
 
@@ -3080,7 +3097,7 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
       case "pi":
         return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
       case "hermes":
-        return ["resume", "interrupt", "spawn"];
+        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
       case "claude-code":
         return ["resume", "interrupt", "spawn"];
       default:
@@ -3143,12 +3160,7 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
     }
     if (runtime === "hermes") {
-      // Hermes is a first-class SPAWN + dashboard-console (PTY) runtime — the
-      // shared Pi/Hermes terminal substrate handles it. It is intentionally
-      // not a bridge active-dispatch controller. Fail fast with an actionable
-      // message instead of the generic "does not support active dispatch"
-      // reject, which previously made a claimed Hermes run look broken (R4).
-      return createTerminalDeliveryController("hermes");
+      return createHermesController({ agentId, agentInfo, run, runtimeState, callbacks });
     }
   } catch (error) {
     return failedRuntimeController(runtime, error);
@@ -3160,6 +3172,177 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       throw new Error(`Runtime "${runtime}" does not support active dispatch`);
     },
     promise: Promise.reject(new Error(`Runtime "${runtime}" does not support active dispatch`)),
+  };
+}
+
+function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  // Per-dispatch native controller for managed hermes. Same shape as
+  // createCodexController (per-turn spawn, capture stdout, resolve), but
+  // simpler because upstream Hermes only exposes one programmatic entry
+  // point: `hermes chat -q -Q "<prompt>"` (one-shot, "-Q" suppresses
+  // banner/spinner/tool previews per upstream's documented "Programmatic
+  // mode"). No --resume support in -q upstream, so conversation context
+  // is carried in the wire prompt via buildUserPrompt — identical to how
+  // codex carries it. The synthesized terminal feed (request/response
+  // frames pushed via callbacks.terminalSinkProvider) is the operator-
+  // visibility equivalent of pi Phase 2 for hermes.
+  const config = getRuntimeConfig(agentInfo);
+  const launcher = defaultHermesCommand();
+  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
+  const hostCwd = agentInfo.cwd || process.cwd();
+  const model = String(agentInfo.model || config.model || "").trim();
+  const provider = String(config.provider || "").trim();
+  const skipApprovals = config.yolo !== false; // default on for managed (no operator at the wheel)
+
+  const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
+  const userPrompt = buildUserPrompt(run);
+  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+  const args = [...launcher.args, "chat", "-Q", "-q", fullPrompt];
+  if (model) args.push("-m", model);
+  if (provider) args.push("--provider", provider);
+  if (skipApprovals) args.push("--yolo");
+
+  let proc = null;
+  let stdoutBuf = "";
+  let stderrBuf = "";
+  let interrupted = false;
+  let settled = false;
+  let timeoutTimer = null;
+  let terminalSink = null;
+  let sinkChain = Promise.resolve();
+
+  const pushTerminalFrame = (text, status = "") => {
+    if (!terminalSink || (!text && !status)) return;
+    const frame = { text: String(text || ""), status: String(status || "") };
+    sinkChain = sinkChain.then(async () => {
+      try {
+        await terminalSink(frame.text, frame.status);
+      } catch {
+        // best-effort
+      }
+    });
+  };
+
+  const echoPromptToTerminal = () => {
+    const body = String(run?.body || "").trim();
+    if (!body) return;
+    const subject = String(run?.subject || "").trim();
+    const from = String(run?.from || "dashboard").trim() || "dashboard";
+    const header = subject ? `\r\n> [${from}] ${subject}\r\n` : `\r\n> [${from}]\r\n`;
+    const prefixed = body
+      .split(/\r?\n/)
+      .map((line) => `> ${line}`)
+      .join("\r\n");
+    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+  };
+
+  const promise = (async () => {
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
+        if (typeof sink === "function") terminalSink = sink;
+      } catch (error) {
+        try { callbacks.onEvent?.("hermes", `Hermes virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    echoPromptToTerminal();
+    pushTerminalFrame("[hermes] thinking...\r\n");
+
+    return new Promise((resolve, reject) => {
+      proc = spawnProcess(launcher.command, args, {
+        cwd: hostCwd,
+        env: { AIFY_BRIDGE_DISABLED: "1", AIFY_AGENT_ID: "" },
+      });
+      proc.stdin?.on?.("error", () => {});
+      try { proc.stdin?.end?.(); } catch {}
+
+      proc.stdout?.on?.("data", (chunk) => {
+        const text = chunk.toString();
+        stdoutBuf += text;
+        try { callbacks.onEvent?.("hermes", quoteForDisplay(text).slice(0, 200)); } catch {}
+      });
+      proc.stderr?.on?.("data", (chunk) => {
+        const text = chunk.toString();
+        stderrBuf += text;
+        try { callbacks.onEvent?.("stderr", quoteForDisplay(text).slice(0, 200)); } catch {}
+      });
+
+      timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        interrupted = true;
+        try { terminateProcessTree(proc); } catch {}
+      }, timeoutMs);
+      if (typeof timeoutTimer.unref === "function") timeoutTimer.unref();
+
+      proc.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutTimer);
+        if (error?.code === "ENOENT") {
+          const target = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "hermes").trim();
+          const enriched = new Error(
+            `spawn "${launcher.command}" ENOENT — the bridge resolved Hermes to "${launcher.command}" but Node could not execute it. ` +
+              `Set AIFY_HERMES_COMMAND to an absolute path to a real "hermes" binary and restart aify-comms. ` +
+              `Diagnostic: ${diagnosticsFor(target)}`,
+          );
+          pushTerminalFrame(`\r\n[error] ${enriched.message}\r\n`, "failed");
+          reject(enriched);
+          return;
+        }
+        const msg = error?.message || String(error || "Hermes spawn error");
+        pushTerminalFrame(`\r\n[error] ${msg}\r\n`, "failed");
+        reject(new Error(msg));
+      });
+
+      proc.on("close", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutTimer);
+
+        if (interrupted) {
+          pushTerminalFrame("\r\n[interrupted]\r\n", "running");
+          resolve({
+            status: "cancelled",
+            summary: stdoutBuf.trim() || "Run interrupted",
+            runtimeState: {},
+            externalRefs: {},
+          });
+          return;
+        }
+
+        if (code !== 0) {
+          const errMsg = stderrBuf.trim() || stdoutBuf.trim() || `Hermes exited with code ${code}`;
+          pushTerminalFrame(`\r\n[error] ${errMsg}\r\n`, "failed");
+          reject(new Error(errMsg));
+          return;
+        }
+
+        const reply = stdoutBuf.trim() || "(no output)";
+        pushTerminalFrame(`\r\n${reply}\r\n`, "running");
+        resolve({
+          status: "completed",
+          summary: reply,
+          runtimeState: {},
+          externalRefs: {},
+        });
+      });
+    });
+  })();
+
+  return {
+    capabilities: controlCapabilitiesForRuntime("hermes"),
+    interrupt: async () => {
+      if (settled || !proc) return;
+      interrupted = true;
+      try { terminateProcessTree(proc); } catch {}
+    },
+    steer: async () => {
+      // Hermes `chat -q` is single-shot — no mid-turn steering surface.
+      // Use a follow-up dispatch instead.
+      throw new Error("Hermes managed runs do not support mid-turn steer (hermes chat -q is single-shot). Send a follow-up dispatch instead.");
+    },
+    promise,
   };
 }
 

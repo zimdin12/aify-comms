@@ -232,7 +232,7 @@ async function shutdownWithStatus(code) {
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
-  PI_VIRTUAL_TERMINALS.clear();
+  VIRTUAL_TERMINALS_BY_AGENT.clear();
   VIRTUAL_TERMINAL_INPUT.clear();
   cleanupOnExit();
   process.exit(code);
@@ -243,9 +243,12 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 const REMOTE_AGENT_STATE = new Map();
 const ACTIVE_RUNS = new Map();
 const LOCAL_RUNTIME_STATE = new Map();
-// agentId → { terminalId } for the bridge's synthesized pi rpc terminal.
-// Cached so subsequent dispatches reuse the same virtual terminal_session row.
-const PI_VIRTUAL_TERMINALS = new Map();
+// agentId → { terminalId, runtime } for the bridge's synthesized RPC
+// terminal. Cached so subsequent dispatches reuse the same virtual
+// terminal_session row. Covers both managed pi (persistent omp --mode rpc
+// child) and managed hermes (per-dispatch `hermes chat -q -Q` with a
+// synthesized request/response feed).
+const VIRTUAL_TERMINALS_BY_AGENT = new Map();
 // Dashboard input buffering for synthesized pi RPC terminals. See
 // virtual-terminal-input.js for the buffer-and-dispatch semantics.
 const VIRTUAL_TERMINAL_INPUT = createVirtualTerminalInputManager({
@@ -258,8 +261,8 @@ const VIRTUAL_TERMINAL_INPUT = createVirtualTerminalInputManager({
 function findAgentIdForVirtualTerminal(terminalId) {
   const id = String(terminalId || "").trim();
   if (!id) return "";
-  for (const [agentId, entry] of PI_VIRTUAL_TERMINALS.entries()) {
-    if (entry?.terminalId === id) return agentId;
+  for (const [agentId, entry] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
+    if (entry?.terminalId === id && entry?.runtime === "pi") return agentId;
   }
   return "";
 }
@@ -323,24 +326,25 @@ function pulseTerminalTurnBusy(terminalId, agentId) {
     TERMINAL_TURN_BUSY_TIMERS.delete(terminalId);
   }, TERMINAL_TURN_BUSY_QUIET_MS);
 }
-async function ensurePiVirtualTerminal(agentId, agentInfo) {
+async function ensureVirtualTerminal(agentId, agentInfo, runtime) {
   const key = String(agentId || "").trim();
-  if (!key) return null;
-  const cached = PI_VIRTUAL_TERMINALS.get(key);
-  if (cached?.terminalId) return cached;
+  const rt = String(runtime || "").trim();
+  if (!key || !rt) return null;
+  const cached = VIRTUAL_TERMINALS_BY_AGENT.get(key);
+  if (cached?.terminalId && cached.runtime === rt) return cached;
   const sessionHandle = String(agentInfo?.sessionHandle || agentInfo?.runtimeState?.sessionId || "").trim();
   const workspace = String(agentInfo?.cwd || "").trim();
   const res = await httpCall("POST", `/agents/${encodeURIComponent(key)}/virtual-terminal/ensure`, {
     bridgeId: BRIDGE_INSTANCE_ID,
     sessionHandle,
     workspace,
-    runtime: "pi",
+    runtime: rt,
     requestedBy: "bridge-rpc",
   });
   const terminalId = String(res?.terminal?.id || "").trim();
   if (!terminalId) throw new Error("virtual-terminal/ensure returned no terminal id");
-  const entry = { terminalId };
-  PI_VIRTUAL_TERMINALS.set(key, entry);
+  const entry = { terminalId, runtime: rt };
+  VIRTUAL_TERMINALS_BY_AGENT.set(key, entry);
   return entry;
 }
 
@@ -360,8 +364,8 @@ async function dispatchVirtualTerminalLine(agentId, lineBody) {
     cwd: agentInfo?.cwd || process.cwd(),
     onPoolEvent: () => {},
   });
-  const entry = await ensurePiVirtualTerminal(agentId, agentInfo);
-  if (entry?.terminalId) session.attachTerminalSink(createPiTerminalSink(entry.terminalId));
+  const entry = await ensureVirtualTerminal(agentId, agentInfo, "pi");
+  if (entry?.terminalId) session.attachTerminalSink(createVirtualTerminalSink(entry.terminalId));
   const syntheticRun = {
     from: "dashboard",
     subject: "Operator console input",
@@ -378,7 +382,7 @@ async function dispatchVirtualTerminalLine(agentId, lineBody) {
   return turnHandle.promise;
 }
 
-function createPiTerminalSink(terminalId) {
+function createVirtualTerminalSink(terminalId) {
   const id = String(terminalId || "").trim();
   if (!id) return null;
   return async (output, status = "") => {
@@ -394,11 +398,11 @@ function createPiTerminalSink(terminalId) {
       if (/^HTTP 404/.test(msg)) {
         // Operator deleted the virtual terminal — invalidate the cache so
         // the next dispatch re-creates one. Frame is dropped.
-        for (const [key, value] of PI_VIRTUAL_TERMINALS.entries()) {
-          if (value?.terminalId === id) PI_VIRTUAL_TERMINALS.delete(key);
+        for (const [key, value] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
+          if (value?.terminalId === id) VIRTUAL_TERMINALS_BY_AGENT.delete(key);
         }
       }
-      // Otherwise: best-effort. The PiSession buffer is already capped;
+      // Otherwise: best-effort. Buffers upstream of the sink are capped;
       // the next successful POST resumes the stream.
     }
   };
@@ -1383,7 +1387,7 @@ async function handleVirtualTerminalControl(agentId, terminalId, control) {
   if (action === "stop") {
     const session = getPiSession(agentId);
     if (session) await session.stop("virtual-terminal stop control");
-    PI_VIRTUAL_TERMINALS.delete(agentId);
+    VIRTUAL_TERMINALS_BY_AGENT.delete(agentId);
     VIRTUAL_TERMINAL_INPUT.remove(terminalId);
     await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
     return;
@@ -1992,17 +1996,22 @@ async function runDispatchLoop() {
               console.error(`[aify] failed to persist healed sessionHandle for "${agentId}": ${error?.message || error}`);
             }
           },
-          // Phase 2: surface the persistent omp --mode rpc child as a
-          // synthesized terminal_session row. Pi managed only; createPiController
-          // ignores this for resident-mode runs (legacy per-dispatch spawn).
+          // Synthesized terminal_session row backing the bridge's native
+          // RPC controller. Pi (Phase 2): persistent omp --mode rpc child
+          // streams its event feed through this sink. Hermes: per-dispatch
+          // `hermes chat -q -Q` controller pushes request/response frames.
+          // createPiController ignores this for resident-mode pi (legacy
+          // per-dispatch spawn). Other runtimes return null and stay on
+          // their existing visibility surface.
           terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
-            if (normalizeRuntime(agentInfo?.runtime || "") !== "pi") return null;
+            const rt = normalizeRuntime(agentInfo?.runtime || "");
+            if (rt !== "pi" && rt !== "hermes") return null;
             try {
-              const entry = await ensurePiVirtualTerminal(provId, agentInfo);
+              const entry = await ensureVirtualTerminal(provId, agentInfo, rt);
               if (!entry?.terminalId) return null;
-              return createPiTerminalSink(entry.terminalId);
+              return createVirtualTerminalSink(entry.terminalId);
             } catch (error) {
-              console.error(`[aify] virtual-terminal/ensure failed for "${provId}": ${error?.message || error}`);
+              console.error(`[aify] virtual-terminal/ensure failed for "${provId}" (runtime=${rt}): ${error?.message || error}`);
               return null;
             }
           },

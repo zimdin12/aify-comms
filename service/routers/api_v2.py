@@ -6666,7 +6666,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     virtual_status = str(virtual_terminal["status"] or "").strip().lower()
                     virtual_command = str(virtual_terminal["command"] or "")
                     if (
-                        virtual_command == VIRTUAL_PI_RPC_COMMAND
+                        virtual_command in VIRTUAL_RPC_COMMAND_SET
                         and virtual_status in {"starting", "running", "recovering", "active", "idle"}
                     ):
                         attach_now = _now()
@@ -6849,6 +6849,12 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
 
 
 VIRTUAL_PI_RPC_COMMAND = "aify://virtual-rpc/pi"
+VIRTUAL_HERMES_RPC_COMMAND = "aify://virtual-rpc/hermes"
+VIRTUAL_RPC_COMMANDS_BY_RUNTIME = {
+    "pi": VIRTUAL_PI_RPC_COMMAND,
+    "hermes": VIRTUAL_HERMES_RPC_COMMAND,
+}
+VIRTUAL_RPC_COMMAND_SET = set(VIRTUAL_RPC_COMMANDS_BY_RUNTIME.values())
 
 
 @router.get("/agents/{agent_id}/pi-session-state")
@@ -6913,8 +6919,12 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
         if not bridge_id:
             raise HTTPException(400, "bridgeId is required")
         runtime = _normalize_runtime(req.runtime or agent["runtime"] or "pi")
-        if runtime != "pi":
-            raise HTTPException(409, f'Virtual terminal is only available for managed pi runs (got runtime="{runtime}")')
+        virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME.get(runtime)
+        if not virtual_command:
+            raise HTTPException(
+                409,
+                f'Virtual terminal is available for runtimes {sorted(VIRTUAL_RPC_COMMANDS_BY_RUNTIME)} only (got runtime="{runtime}")',
+            )
 
         env_row = await (await db.execute(
             "SELECT * FROM environments WHERE bridge_id = ? ORDER BY last_seen DESC LIMIT 1",
@@ -6960,7 +6970,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
             ORDER BY updated_at DESC
             LIMIT 1
             """,
-            (agent_id, VIRTUAL_PI_RPC_COMMAND),
+            (agent_id, virtual_command),
         )).fetchone()
         if existing:
             existing_session_id = existing["session_id"]
@@ -6998,7 +7008,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                         last_seen = ?
                     WHERE id = ?
                     """,
-                    (existing["id"], VIRTUAL_PI_RPC_COMMAND, rebind_now, session_id),
+                    (existing["id"], virtual_command, rebind_now, session_id),
                 )
                 await _append_terminal_event(
                     db,
@@ -7043,9 +7053,9 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 agent_id,
                 environment_id,
                 bridge_id,
-                "pi",
+                runtime,
                 workspace,
-                VIRTUAL_PI_RPC_COMMAND,
+                virtual_command,
                 "",
                 "running",
                 requested_by,
@@ -7058,7 +7068,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
         await _append_terminal_event(
             db,
             terminal_id,
-            "virtual_pi_rpc_attached",
+            f"virtual_{runtime}_rpc_attached",
             json.dumps({
                 "requestedBy": requested_by,
                 "sessionId": session_id,
@@ -7076,7 +7086,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 last_seen = ?
             WHERE id = ?
             """,
-            (terminal_id, VIRTUAL_PI_RPC_COMMAND, workspace, now, session_id),
+            (terminal_id, virtual_command, workspace, now, session_id),
         )
         next_runtime_state = _json_loads_or(agent["runtime_state"], {}) or {}
         next_runtime_state["virtualTerminal"] = True
