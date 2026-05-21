@@ -48,6 +48,14 @@ claude-aify
 
 `claude-aify` accepts `--resident` and `--managed` to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its `mcp/stdio/server.js` child registers with `runtime_config.channelEnabled=true` — that's the precondition for resident-run/interrupt/steer caps to survive `_row_capabilities` strip.
 
+### Wrapper isolates MCP servers (strict-mcp-config)
+
+`claude-aify` always launches Claude with `--strict-mcp-config` and a minimal MCP config containing ONLY `aify-comms` + `aify-comms-channel`. Your broader `~/.claude.json` MCP server list (browsermcp, github, etc.) is NOT loaded inside the `claude-aify` wrapper session — they still work in plain `claude` sessions outside the wrapper.
+
+**Why**: a known Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)) silently fails to initialize MCP servers when many stdio servers compete at startup. `aify-comms-channel` consistently lost the init race against the operator's typical 13-server config, leaving the channel listener unregistered and every channel-routed dispatch silently dropped despite the bridge reporting `delivered`. The strict-mcp isolation is the documented Claude-Code-side workaround.
+
+On Git Bash Windows, the wrapper uses `cygpath -m` to convert `/c/Docker/aify-comms` → `C:/Docker/aify-comms` so the MCP server paths are Windows-native (otherwise the MCP child processes fail to start).
+
 ### Managed-channel routing
 
 `insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)` (settings, default false) routes dispatches to managed Claude agents via channel events (claimed by `claude-channel.js`, emitted as `<channel source="aify-comms-channel" ...>` MCP notifications) instead of typing into the wrapper PTY. Same protocol resident Claude already uses. Flip via `PUT /api/v1/settings` and roll back instantly if anything regresses.

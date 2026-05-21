@@ -269,6 +269,22 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why claude-aify always exports `AIFY_CHANNELS_ENABLED=1`.** claude-aify is the channels-aware Claude wrapper. Server-side, `runtime_config.channelEnabled=true` is the precondition for `_row_capabilities` keeping resident-run/interrupt/steer caps; without it the strip reduces caps to just `managed-run/resume` and preflight rejects live sends. Declaring the channel-enabled flag at register time removes the manual DB patching that earlier sessions needed.
 
+## claude-aify wraps with --strict-mcp-config + minimal MCP config
+
+**Decision.** `claude-aify` always launches Claude with `--strict-mcp-config` and a runtime-generated minimal MCP config containing ONLY `aify-comms` and `aify-comms-channel`. The operator's broader `~/.claude.json` MCP server list is NOT loaded inside the `claude-aify` wrapper session. The minimal MCP config is written to a temp file via `mktemp`; cleaned up on shell exit.
+
+**Why.** Known Claude Code bug ([anthropics/claude-code#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)): when Claude loads many stdio MCP servers simultaneously, the slower ones get stuck in `still connecting` state. `aify-comms-channel` was consistently losing the init race against the 13-server operator config and never finished its initialize handshake — Claude's `notifications/claude/channel` listener wasn't registered, so every channel-routed dispatch was silently dropped despite the bridge reporting `delivered`. Confirmed via `claude -p` diagnostic listing both `aify-comms` and `aify-comms-channel` as "still connecting".
+
+Trade-off: operator's other MCP servers (browsermcp, github, gitlab, etc.) do NOT load inside `claude-aify` sessions. They still work in plain `claude` sessions outside the wrapper. Channel delivery reliability requires this isolation.
+
+Applies to BOTH `claude-aify` modes (resident operator-launched AND managed bridge-spawned). Previous gating on `AIFY_SESSION_MODE=managed` only fixed the bridge-spawned case; operator's own session still hit the bug.
+
+## cygpath -m converts SCRIPT_DIR for the wrapper's MCP config on Git Bash Windows
+
+**Decision.** When generating `claude-aify` on Git Bash Windows, `install.sh` uses `cygpath -m "$SCRIPT_DIR"` to convert the install dir to mixed-mode Windows-native path format (`C:/Docker/aify-comms`) before substituting into the generated wrapper script. The wrapper's minimal MCP config emits this Windows-native path in the MCP server `args`. On Linux/Mac (no cygpath available), `SCRIPT_DIR` is already native and used directly.
+
+**Why.** `install.sh` runs in Git Bash where `$SCRIPT_DIR` is MSYS format (`/c/Docker/aify-comms`). Native-Windows Claude cannot resolve that POSIX path when spawning MCP server children. The MCP servers fail to start even with `--strict-mcp-config` in place. Symptom: wrapper output showed `2 MCP servers failed` and Claude reported `aify-comms is currently disconnected` in conversational replies despite all the other fixes being correct.
+
 ## insert_messages_via_console (rename + semantic invert of the old channel-only setting)
 
 **Decision.** A single universal flag controls managed delivery semantics across ALL runtimes:

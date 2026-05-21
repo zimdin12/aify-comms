@@ -557,6 +557,38 @@ c.commit()
 
 **Fix.** Already fixed in `a4498a6` — both call sites now apply channel-only post-create. For runs created BEFORE the fix that are stuck queued, you can manually flip: `UPDATE dispatch_runs SET execution_mode='channel' WHERE id='YOUR-RUN-ID' AND status='queued'` — `claude-channel.js` will pick it up on the next poll cycle (~5s).
 
+## Channel-routed claude dispatches stay queued forever (resident or managed)
+
+**Symptom.** Send to a claude-code agent (resident OR managed). `dispatch_runs.status` stays `queued`, `execution_mode='channel'`. No `claimed` event, no delivery. The bridge appears alive (heartbeats), `aify-comms` MCP tools work for OTHER tasks, but channel dispatches sit forever.
+
+**Cause.** Known Claude Code bug ([anthropics/claude-code#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)): when Claude loads many stdio MCP servers simultaneously, the slower ones get stuck in `still connecting` state. With a typical operator `~/.claude.json` (10+ servers including browsermcp, claude.ai connectors, etc.), `aify-comms-channel` loses the init race. Claude never registers the `notifications/claude/channel` listener, so the bridge's `mcp.notification()` calls are silently dropped — even though the MCP server itself is running and the channel-bridge reports `delivered`.
+
+Verify by running `claude -p "list MCP servers"` from a plain shell — if `aify-comms-channel` shows under "still connecting" (instead of "connected"), the race is biting.
+
+**Fix.** Already applied in `06289e0` — `claude-aify` always uses `--strict-mcp-config` + a temp minimal MCP config with only `aify-comms` + `aify-comms-channel`. Other operator MCP servers do NOT load inside the wrapper but still work in plain `claude` sessions. Run `install.sh --client claude` to regenerate the wrapper, then restart `claude-aify`.
+
+If you're on Windows Git Bash and the regenerated wrapper still fails (`2 MCP servers failed`, `aify-comms is currently disconnected`), the wrapper's MCP config paths may be MSYS-style. The wrapper uses `cygpath -m "$SCRIPT_DIR"` to convert to Windows-native paths. If cygpath isn't available in your Git Bash, install it (`pacman -S cygwin-tools` or update Git for Windows).
+
+## Visible Console for a managed agent isn't where the reply came from
+
+**Symptom.** Send to a managed pi/codex/opencode agent. Reply arrives in chat. But the Console pane in the dashboard shows a different terminal session than the one that actually produced the reply, OR shows an attached console even when delivery used a different path.
+
+**Cause.** When `insert_messages_via_console=false` (the default), managed dispatch for pi/codex/opencode goes through the **native RPC adapter** (`createPiController` / `createCodexController`) — the bridge spawns a fresh `omp --mode rpc` (or codex app-server connection) per dispatch. The reply comes through this RPC path, NOT through a visible PTY. Any attached `terminal_sessions` row in the dashboard is a leftover from earlier PTY-input mode (or from a manual console-start) and not the actual delivery surface.
+
+**Fix.** Stop the leftover PTY explicitly:
+```bash
+docker exec aify-comms-service python -c "
+import sqlite3, glob
+db = sorted(glob.glob('/data/*.db'))[-1]
+c = sqlite3.connect(db)
+c.execute(\"UPDATE terminal_sessions SET status='stopped', error='superseded_by_native_rpc_delivery' WHERE agent_id='YOUR-AGENT-ID' AND status='attached'\")
+c.execute(\"UPDATE agent_sessions SET terminal_id='', terminal_status='' WHERE agent_id='YOUR-AGENT-ID'\")
+c.commit()
+"
+```
+
+Next dispatch flows through the native RPC adapter only; the dashboard's Console pane will correctly show "no console" since native RPC has no PTY.
+
 ## General escalation
 
 If none of the fixes above resolve the issue:
