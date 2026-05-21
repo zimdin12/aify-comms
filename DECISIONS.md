@@ -285,6 +285,16 @@ Applies to BOTH `claude-aify` modes (resident operator-launched AND managed brid
 
 **Why.** `install.sh` runs in Git Bash where `$SCRIPT_DIR` is MSYS format (`/c/Docker/aify-comms`). Native-Windows Claude cannot resolve that POSIX path when spawning MCP server children. The MCP servers fail to start even with `--strict-mcp-config` in place. Symptom: wrapper output showed `2 MCP servers failed` and Claude reported `aify-comms is currently disconnected` in conversational replies despite all the other fixes being correct.
 
+## Bridges coerce `http://localhost` to `http://127.0.0.1` before fetching
+
+**Decision.** Both `mcp/stdio/claude-channel.js` and `mcp/stdio/server.js` apply a `coerceLoopbackToIPv4` normalization to `AIFY_SERVER_URL` / `CLAUDE_MCP_SERVER_URL` and to every fallback URL in `SERVER_URLS`. Any `http://localhost[:port][/path]` is rewritten to `http://127.0.0.1[:port][/path]` at the point of use. Wrapper-generated MCP configs also emit `127.0.0.1` directly instead of `localhost`. The coercion is universal, not Windows-gated.
+
+**Why.** Docker Desktop on Windows reports IPv6 port bindings (`docker port` shows both `0.0.0.0:8800` and `[::]:8800`) but its IPv6 port forwarding is unreliable in practice — connections to `::1` hang silently. Windows resolves `localhost` to IPv6 `::1` first, so node's `fetch()` and curl both hit the broken path. Every `/dispatch/claim` poll aborted at the bridge's `HTTP_TIMEOUT_MS` (20s), no run was ever claimed, no `notifications/claude/channel` was ever emitted. Symptom looked identical to a channel-registration bug, a wrong-allowlist bug, or a queue-routing bug — but the actual blocker was network-level. Confirmed live: `curl http://localhost:8800/health` from host timed out at 30s while `curl http://127.0.0.1:8800/health` returned in 30ms.
+
+Coercion lives in the bridges rather than only in the wrapper template because operators can override `AIFY_SERVER_URL` from their shell or `~/.claude/settings.local.json`. A wrapper-only fix would miss those cases; a bridge-level fix protects against any future config that says `localhost`. Linux/macOS resolve `localhost` to IPv4 `127.0.0.1` by default so the coercion is a no-op there.
+
+Hindsight: when channel-routed dispatches sit queued forever, time `curl --max-time 5 http://localhost:8800/health` before chasing channel-registration or allowlist hypotheses. The IPv6/loopback bug shows up first.
+
 ## insert_messages_via_console (rename + semantic invert of the old channel-only setting)
 
 **Decision.** A single universal flag controls managed delivery semantics across ALL runtimes:

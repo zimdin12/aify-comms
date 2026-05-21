@@ -569,6 +569,24 @@ Verify by running `claude -p "list MCP servers"` from a plain shell — if `aify
 
 If you're on Windows Git Bash and the regenerated wrapper still fails (`2 MCP servers failed`, `aify-comms is currently disconnected`), the wrapper's MCP config paths may be MSYS-style. The wrapper uses `cygpath -m "$SCRIPT_DIR"` to convert to Windows-native paths. If cygpath isn't available in your Git Bash, install it (`pacman -S cygwin-tools` or update Git for Windows).
 
+## Channel/resident dispatches silently fail on Windows — bridge can't reach localhost:8800
+
+**Symptom.** Send to a resident or channel-routed claude-code agent. The dispatch_runs row stays `status='queued'` forever, `claim_bridge_id=''`. The channel-bridge child process is alive (verify with `Get-CimInstance Win32_Process | Where-Object CommandLine -match claude-channel.js`), `agent_turn_state.turn_busy=0`, the wrapper has the right flags (`--dangerously-load-development-channels`), and `~/.claude/projects/*/[session].jsonl | grep -c notifications/claude/channel` returns **0**. Nothing about the bridge looks wrong — but no claim ever happens and no `<channel source="aify-comms-channel">` event reaches the operator's session.
+
+Smoke test that confirms the bug:
+```bash
+curl --max-time 5 http://localhost:8800/health                # times out
+curl --max-time 5 http://127.0.0.1:8800/health                # returns immediately
+node -e 'fetch("http://localhost:8800/health",{signal:AbortSignal.timeout(5000)}).then(r=>r.text()).then(console.log).catch(e=>console.log("ERR",e.message))'  # ERR aborted
+node -e 'fetch("http://127.0.0.1:8800/health",{signal:AbortSignal.timeout(5000)}).then(r=>r.text()).then(console.log).catch(e=>console.log("ERR",e.message))'  # OK
+```
+
+**Cause.** Docker Desktop on Windows reports IPv6 port bindings (`docker port aify-comms-service` shows both `0.0.0.0:8800` and `[::]:8800`), but its IPv6 port forwarding to the container is unreliable — connections to `::1` hang silently. On Windows, `localhost` resolves to IPv6 `::1` first, so node's `fetch()` and curl both hit the broken IPv6 path. The channel bridge's `/dispatch/claim` poll aborts at `HTTP_TIMEOUT_MS` (20s) every cycle, no run is ever claimed, no `notifications/claude/channel` is ever emitted, and the symptom looks identical to a missing channel-server registration or a queue-routing bug. The same applies to managed runs going through `server.js` HTTP, and to anything else the wrappers do over `http://localhost:8800`.
+
+**Fix (shipped, commit `71f2576`).** `claude-channel.js` and `mcp/stdio/server.js` now coerce `http://localhost` URLs to `http://127.0.0.1` before fetching. Defensive — works regardless of what env vars or wrappers pass. No-op on Linux/macOS (same loopback address). The wrapper template still uses `127.0.0.1` directly in the generated MCP config so operators on Linux don't notice anything; the bridge-level fix protects against custom `AIFY_SERVER_URL=http://localhost:...` configs and stale wrappers that predate the install regeneration. Run `install.sh --client claude` and restart `claude-aify` after pulling — verify with the smoke test above.
+
+**Manual quick-fix while you wait to update.** Set `AIFY_SERVER_URL` / `CLAUDE_MCP_SERVER_URL` to `http://127.0.0.1:8800` in the wrapper's MCP env block (or `~/.claude/settings.local.json`) before launching the wrapper.
+
 ## Visible Console for a managed agent isn't where the reply came from
 
 **Symptom.** Send to a managed pi/codex/opencode agent. Reply arrives in chat. But the Console pane in the dashboard shows a different terminal session than the one that actually produced the reply, OR shows an attached console even when delivery used a different path.

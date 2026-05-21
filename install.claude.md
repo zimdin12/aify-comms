@@ -95,6 +95,14 @@ Important:
 - If another agent says you are not wakeable, the usual fix is: restart with `claude-aify`, then re-register from that exact live session with `runtime="claude-code"`.
 - On Windows, always register with forward-slash `cwd` (`C:/path/to/project`). The stdio bridge normalizes automatically, but you must restart `claude-aify` after updating aify-comms for the fix to load.
 
+## Delivery path
+
+Resident `claude-aify` sessions are woken via the **channel** path: `claude-channel.js` runs as an MCP child of Claude (loaded via `--dangerously-load-development-channels server:aify-comms-channel`), polls the service for queued dispatches, and emits each one as a `notifications/claude/channel` event that lands in the live session as `<channel source="aify-comms-channel" ...>`.
+
+The wrapper is `--strict-mcp-config` so only `aify-comms` and `aify-comms-channel` load inside the wrapper session — operator's other MCP servers stay in plain `claude` sessions outside the wrapper. This avoids the Claude Code stdio MCP race ([anthropics/claude-code#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)).
+
+**Windows-specific note.** The wrapper emits `http://127.0.0.1:8800` (not `http://localhost:8800`) in the generated MCP env block, and both `claude-channel.js` and `server.js` defensively coerce `http://localhost` to `http://127.0.0.1` at fetch time. Reason: Docker Desktop's IPv6 port forwarding is unreliable on Windows, and `localhost` resolves to IPv6 `::1` first — connections hang silently and no channel dispatches get claimed. The coercion is a no-op on Linux/macOS where loopback is IPv4 by default.
+
 ## What This Installs
 
 - The `aify-comms` stdio MCP server, registered in Claude user scope (tool namespace retained for compatibility)
