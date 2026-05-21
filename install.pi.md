@@ -42,11 +42,12 @@ If no Pi session handle is available, the resident session can still use MCP too
 
 ## Managed Pi
 
-Managed Pi agents are spawned from the dashboard or `comms_spawn(..., runtime="pi")`. The bridge uses OMP RPC mode (`omp --mode rpc`) so it can send prompts, capture streamed assistant text, steer active work, and interrupt through the runtime boundary.
+Managed Pi agents are spawned from the dashboard or `comms_spawn(..., runtime="pi")`. The bridge uses OMP RPC mode (`omp --mode rpc`) so it can send prompts, capture streamed assistant text, steer active work, and interrupt through the runtime boundary. The RPC child is **persistent**: spawned on the first managed dispatch and reused across subsequent ones — see *Delivery path* below.
 
 Current Pi note:
 - Runtime aliases `pi`, `omp`, `oh-my-pi`, and `pi-agent` normalize to `pi`.
 - Managed Pi supports persistent managed work, resume handles when OMP exposes them, active-run steer, and interrupt.
+- The dashboard's Console pane shows a synthesized terminal stream for the persistent RPC child — see *Delivery path*.
 - Managed Pi captures streamed `text_delta` output and final assistant text from RPC completion events such as `message_end` / `agent_end`.
 - A blank model, or a stored model value of `default`, means no `--model` override; Oh My Pi then uses `~/.omp/agent/config.yml`.
 - Dashboard **Settings -> Runtime** can set managed Pi model and effort defaults. Pi effort is passed to OMP as `--thinking` when set.
@@ -57,9 +58,23 @@ Current Pi note:
 
 ## Delivery path
 
-Managed-pi dispatches flow through the bridge's `createPiController` native RPC adapter — for each dispatch the bridge spawns an `omp --mode rpc` child of itself and drives the turn directly. The bridge does NOT depend on aify-comms loading as an MCP server inside the omp interactive session for delivery. So `omp-aify`/`pi-aify` does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs.
+Managed-pi dispatches drive a **persistent** `omp --mode rpc` child per agent. The first managed dispatch spawns the child; every later dispatch on the same agent reuses it. Each `AgentSessionEvent` the child emits (`message_update`, `tool_execution_start`/`_end`, `RpcExtensionUIRequest`, `agent_start`/`_end`, `error`) is formatted by the bridge into a human-readable terminal frame and pushed into a **synthesized** `terminal_session` row (`status='running'`, `command='aify://virtual-rpc/pi'`). The dashboard's Console pane shows that synthesized stream, so the operator sees what the bridge sees even though there is no PTY. The bridge does NOT depend on aify-comms loading as an MCP server inside the omp session for delivery, so `omp-aify`/`pi-aify` does NOT need the `--strict-mcp-config` isolation that `claude-aify` requires.
 
-Under the default `insert_messages_via_console=false`, dashboard chat to a managed pi agent flows through this native RPC path with NO visible wrapper PTY spawned. Any attached pi PTY in the dashboard's Console pane is a stale leftover from earlier via-console mode and can be stopped — the actual reply comes from the bridge's RPC child, not the PTY.
+Operator console input typed into the synthesized terminal is buffered until `\r`/`\n`, echoed back into the stream, and dispatched as a new RPC turn through the persistent child — same plumbing as a dashboard chat dispatch, no separate wakeup. The child idle-times out after 24 hours of no use (`AIFY_PI_IDLE_TIMEOUT_MS` overrides); the next dispatch respawns on demand.
+
+The agent's `runtime_state.virtualTerminal=true` flag lets the dashboard render this as a bridge-driven feed rather than a real PTY. A real PTY for managed pi is no longer created on dispatch, so the legacy "stop the stale wrapper PTY" advice no longer applies.
+
+### Single-process mutex
+
+Two omp processes on the same OMP session-id corrupt each other's session file — OMP's RPC channel has no multiplexing, see upstream [#436](https://github.com/can1357/oh-my-pi/issues/436). To prevent this, `omp-aify`/`pi-aify` queries `GET /agents/{id}/pi-session-state` before exec'ing omp. When the bridge currently drives the agent's session (a non-stopped virtual terminal row exists), the wrapper refuses with:
+
+> Agent '<id>' is currently driven by aify-comms (visible in dashboard terminal). Stop it from the dashboard or use `omp-aify --standalone --aify-agent <id>` to launch a parallel session on a different session-id.
+
+Choices when this fires:
+- **Stop the bridge session from the dashboard** (Console pane → Stop). Then re-run `omp-aify`.
+- **Launch a parallel session.** Pass `--standalone` and use a different `--resume <other-handle>`. The bridge will keep driving its own session-id; you'll have a second OMP process on a separate handle. They will not contend.
+
+The check is fail-open: missing `AIFY_COMMS_URL`, a 2-second curl timeout, or a non-pi runtime all cause the wrapper to proceed normally.
 
 ## Session-mode flag
 

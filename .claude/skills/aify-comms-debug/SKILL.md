@@ -587,25 +587,50 @@ node -e 'fetch("http://127.0.0.1:8800/health",{signal:AbortSignal.timeout(5000)}
 
 **Manual quick-fix while you wait to update.** Set `AIFY_SERVER_URL` / `CLAUDE_MCP_SERVER_URL` to `http://127.0.0.1:8800` in the wrapper's MCP env block (or `~/.claude/settings.local.json`) before launching the wrapper.
 
-## Visible Console for a managed agent isn't where the reply came from
+## Managed pi: synthesized terminal stream vs. real PTY
 
-**Symptom.** Send to a managed pi/codex/opencode agent. Reply arrives in chat. But the Console pane in the dashboard shows a different terminal session than the one that actually produced the reply, OR shows an attached console even when delivery used a different path.
+**Symptom.** Operator opens the Console pane for a managed pi agent and sees a `command='aify://virtual-rpc/pi'` row with output that looks like `[pi rpc ready]`, `[turn started]`, `[tool] bash ...`, the assistant's streamed text, and `[turn ended]` rather than a real shell prompt. There is no input cursor in the traditional shell sense, but typing into the console DOES work — the operator's line is echoed back as `> ...` and the agent runs a new turn.
 
-**Cause.** When `insert_messages_via_console=false` (the default), managed dispatch for pi/codex/opencode goes through the **native RPC adapter** (`createPiController` / `createCodexController`) — the bridge spawns a fresh `omp --mode rpc` (or codex app-server connection) per dispatch. The reply comes through this RPC path, NOT through a visible PTY. Any attached `terminal_sessions` row in the dashboard is a leftover from earlier PTY-input mode (or from a manual console-start) and not the actual delivery surface.
+**Cause (not a bug).** Phase 2 swapped per-dispatch `omp --mode rpc` spawn for a persistent child per agent, and surfaces the child's `AgentSessionEvent` stream as a synthesized terminal row. The `runtime_state.virtualTerminal=true` flag on the agent marks this as a bridge-driven feed, not a PTY — there is no shell. Operator input typed in the dashboard buffers until `\r`/`\n` and dispatches a new RPC turn through the persistent child. See DECISIONS.md "Managed pi uses persistent RPC + synthesized terminal stream" and `docs/plans/pi-persistent-rpc.md`.
 
-**Fix.** Stop the leftover PTY explicitly:
+**What to expect.**
+- One `terminal_sessions` row per agent for the lifetime of the persistent child (default idle timeout 24h via `AIFY_PI_IDLE_TIMEOUT_MS`).
+- No resize semantics (the synthesized stream has no PTY dimensions).
+- Stopping from the dashboard tears down the persistent RPC child + the virtual terminal row. Next dispatch respawns.
+- Real PTY managed pi (the old `terminal_sessions` rows with `command='pi-aify --aify-agent ...'`) no longer exists for managed dispatches under the persistent RPC path. If you see one, it's a stale leftover from a pre-Phase-2 deployment — clear it the same way as below.
+
+**Cleanup of legacy real-PTY rows (only relevant if upgrading from a pre-persistent-RPC build).**
 ```bash
 docker exec aify-comms-service python -c "
 import sqlite3, glob
 db = sorted(glob.glob('/data/*.db'))[-1]
 c = sqlite3.connect(db)
-c.execute(\"UPDATE terminal_sessions SET status='stopped', error='superseded_by_native_rpc_delivery' WHERE agent_id='YOUR-AGENT-ID' AND status='attached'\")
+c.execute(\"UPDATE terminal_sessions SET status='stopped', error='superseded_by_virtual_rpc' WHERE agent_id='YOUR-AGENT-ID' AND command != 'aify://virtual-rpc/pi' AND status IN ('attached','running','starting')\")
 c.execute(\"UPDATE agent_sessions SET terminal_id='', terminal_status='' WHERE agent_id='YOUR-AGENT-ID'\")
 c.commit()
 "
 ```
 
-Next dispatch flows through the native RPC adapter only; the dashboard's Console pane will correctly show "no console" since native RPC has no PTY.
+## `omp-aify` / `pi-aify` refuses to start: "currently driven by aify-comms"
+
+**Symptom.** Operator runs `omp-aify --aify-agent X` (or `pi-aify ...`) and the wrapper prints:
+
+> Agent 'X' is currently driven by aify-comms (visible in dashboard terminal). Stop it from the dashboard or use `omp-aify --standalone --aify-agent X` to launch a parallel session on a different session-id.
+
+…and exits 1.
+
+**Cause (not a bug).** Phase 4 watchdog. The bridge's persistent `omp --mode rpc` child currently holds this agent's session-id; an external omp on the same handle would corrupt the session file (OMP's RPC channel has no multiplexing, upstream [#436](https://github.com/can1357/oh-my-pi/issues/436)). The wrapper queries `GET /agents/{id}/pi-session-state` before exec'ing omp.
+
+**Choices.**
+- Stop the bridge session from the dashboard (Console pane → Stop). Then re-run the wrapper.
+- Pass `--standalone` AND a different `--resume <other-handle>`. The bridge keeps driving its session-id; you get a parallel omp on a separate handle. They will not contend.
+- If `AIFY_COMMS_URL` is missing, the curl times out, or the runtime isn't pi, the check fails open and the wrapper proceeds normally — so this only fires when the bridge actually claims ownership.
+
+**Quick check from the host:**
+```bash
+curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | python -m json.tool
+# {"ok": true, "bridgeOwned": true|false, "virtualTerminalId": "vterm_..."}
+```
 
 ## General escalation
 

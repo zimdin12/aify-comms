@@ -122,6 +122,6 @@ idle ──ensureStarted──▶ starting ──ready event──▶ ready
 - [x] Phase 2 — Synthesized terminal stream (formatPiEventAsTerminalFrame + sink/buffer in pi-session.js, /agents/{id}/virtual-terminal/ensure endpoint, bridge terminalSinkProvider; race-fix in PiSession.stop() pool-evicts synchronously before kill)
 - [x] Phase 3 — Dashboard input routing (virtual-terminal-input.js buffer-and-dispatch manager; bridge routes terminal_controls with action=input/stop/resize to the persistent PiSession; dispatchVirtualTerminalLine drives runTurn off operator console keystrokes). Out-of-scope follow-on: RpcExtensionUIRequest reply path (needs OMP response-schema investigation).
 - [x] Phase 4 — Watchdog (GET /agents/{id}/pi-session-state endpoint + omp-aify wrapper-side `bridgeOwned` check + `--standalone` override). Soft mutex via clear refusal text; bridge respawn-on-resident-exit handled implicitly because the persistent PiSession is only created on managed dispatches.
-- [ ] Phase 5 — Docs
+- [x] Phase 5 — Docs (DECISIONS.md entry; install.pi.md Delivery path rewrite + watchdog section; debug SKILL.md + .agents mirror updated with synthesized-terminal explainer and watchdog refusal flow)
 
 Update checkboxes as commits land. Reference: this conversation's source jsonl is at `~/.claude/projects/C--Docker-aify-comms/651b895f-a564-4d3a-8e0b-27f8429b1dd0.jsonl`.
