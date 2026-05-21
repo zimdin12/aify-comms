@@ -12,11 +12,24 @@ import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 
 loadSettingsEnv();
 
-const SERVER_URL = process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
+// Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
+// Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
+// time out silently and the channel bridge cannot claim dispatches.
+// Force the IPv4 loopback. Benign on Linux/macOS (same loopback address).
+function coerceLoopbackToIPv4(url) {
+  return String(url || "").replace(
+    /^(https?:\/\/)localhost(?=[:\/]|$)/i,
+    "$1127.0.0.1",
+  );
+}
+
+const SERVER_URL = coerceLoopbackToIPv4(
+  process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
+);
 function splitServerUrls(value) {
   return String(value || "")
     .split(/[,\s]+/)
-    .map(item => item.trim().replace(/\/+$/, ""))
+    .map(item => coerceLoopbackToIPv4(item.trim().replace(/\/+$/, "")))
     .filter(Boolean);
 }
 function uniqueServerUrls(urls) {
