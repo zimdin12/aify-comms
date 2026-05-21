@@ -67,6 +67,14 @@ else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to
 `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection
 might be wrong for your shell context.
 
+## Delivery path
+
+Managed-hermes dispatches flow through the bridge's hermes adapter and PTY-input
+delivery contract. The bridge does NOT depend on aify-comms loading as an MCP
+server inside the hermes session for delivery. So `hermes-aify` does NOT require
+the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to
+work around the Claude Code stdio MCP race bug.
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.

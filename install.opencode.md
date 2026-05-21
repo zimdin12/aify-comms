@@ -51,6 +51,10 @@ Important:
 - Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Current bridge builds terminate the whole managed runtime process tree on timeout/interrupt/stop so stale child processes do not keep false liveness. Managed Codex has additional Codex-specific watchdogs: 30 minutes without Codex runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) and 90 seconds for stuck `mcpToolCall aify-comms` turns (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging).
 - If another agent says you are a resident OpenCode session without a bound session handle, either re-register with `sessionHandle="<session-id>"` or create a persistent agent with `comms_spawn`.
 
+## Delivery path
+
+Managed-opencode dispatches flow through the bridge's opencode SDK adapter — the bridge talks to the opencode server directly. The bridge does NOT depend on aify-comms loading as an MCP server inside opencode for delivery. So the opencode wrapper does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to work around the Claude Code stdio MCP race bug. Your opencode MCP config loads normally.
+
 ## Session-mode flag
 
 The `opencode` wrapper accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context.

@@ -55,6 +55,12 @@ Current Pi note:
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`).
 - Set `AIFY_PI_COMMAND` or `PI_COMMAND` before starting `aify-comms` if `omp` is installed somewhere that is not on the bridge process `PATH`.
 
+## Delivery path
+
+Managed-pi dispatches flow through the bridge's `createPiController` native RPC adapter — for each dispatch the bridge spawns an `omp --mode rpc` child of itself and drives the turn directly. The bridge does NOT depend on aify-comms loading as an MCP server inside the omp interactive session for delivery. So `omp-aify`/`pi-aify` does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs.
+
+Under the default `insert_messages_via_console=false`, dashboard chat to a managed pi agent flows through this native RPC path with NO visible wrapper PTY spawned. Any attached pi PTY in the dashboard's Console pane is a stale leftover from earlier via-console mode and can be stopped — the actual reply comes from the bridge's RPC child, not the PTY.
+
 ## Session-mode flag
 
 `omp-aify` / `pi-aify` accepts `--resident` and `--managed` to declare its session mode explicitly. Order of precedence:

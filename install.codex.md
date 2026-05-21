@@ -56,6 +56,10 @@ The wrapper removes `-auto` before launching Codex and adds the best permission 
 
 `codex-aify` accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context (most operators never need it).
 
+### Delivery path
+
+Managed-codex dispatches flow through the bridge's `createCodexController` native RPC adapter — the bridge connects to the codex app-server (over WebSocket) and drives turns directly. The bridge does NOT need an aify-comms MCP server inside the codex CLI session for delivery to work. This means `codex-aify` does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to work around the [Claude Code stdio MCP race bug](https://github.com/anthropics/claude-code/issues/38462). Your codex MCP servers (whatever you have configured in `~/.codex/config.toml` or equivalent) load normally inside `codex-aify`.
+
 Windows note:
 - If you run the installer from Git Bash on Windows, it installs Bash wrappers plus `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd` and `codex-aify.cmd`, and adds that directory to your user `PATH`.
 - Open a new PowerShell after install. If `aify-comms.cmd` is still not recognized, run `$env:Path += ";$env:USERPROFILE\.local\bin"` for the current window or launch it directly with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd"`.
