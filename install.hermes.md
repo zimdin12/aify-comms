@@ -107,9 +107,11 @@ work around the Claude Code stdio MCP race bug.
 - The resident wrapper `hermes-aify`.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook.
 
-Hermes is terminal-first. Managed dashboard Hermes sessions use the shared PTY
-path; opening Console attaches to that live terminal, and Messenger delivery is
-sent through the managed PTY when Console is open or closed.
+Resident Hermes is terminal-first — `hermes-aify` opens an interactive `hermes
+chat` session for human use. Managed Hermes is now driven by `createHermesController`
+(per-dispatch `hermes chat -Q -q` with a synthesized terminal feed in the
+dashboard Console) and does NOT need a visible wrapper PTY for delivery. See the
+"Delivery path" section above and [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md).
 
 See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for the full
 integration guide, hooks details, MCP config shape, resident mode, and current

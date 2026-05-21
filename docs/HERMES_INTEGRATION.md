@@ -19,7 +19,7 @@ Primary upstream references:
 - MCP server registration in `~/.hermes/config.yaml`.
 - Optional post-tool notification hook using `~/.hermes/agent-hooks/aify-notify.sh`.
 
-Hermes is terminal-first. aify-comms treats it like the other PTY-capable runtimes: the bridge starts the interactive process, dashboard chat sends prompts into that process, and Console attaches to the live terminal stream.
+Managed Hermes dispatch flows through the bridge's `createHermesController` native RPC adapter — for each dispatch the bridge spawns `hermes chat -Q -q "<built prompt>"` (upstream's documented "Programmatic mode" — `-Q` suppresses banner/spinner/tool previews). The agent's stdout is captured as the reply summary. The dashboard's Console pane attaches to a synthesized `terminal_session` row (`command='aify://virtual-rpc/hermes'`, `runtime_state.virtualTerminal=true`) where the bridge pushes request/response frames per dispatch — the operator sees the conversation history without a real PTY behind it. Resident Hermes is still terminal-first: `hermes-aify` opens an interactive `hermes chat` session for human use.
 
 ## Install Hermes
 
@@ -108,7 +108,7 @@ In the dashboard:
 4. Pick a workspace under that bridge's roots.
 5. Send a normal chat message.
 
-For terminal-capable managed delivery, aify-comms will start a managed PTY and send the message into Hermes. Opening Console attaches to that same PTY instead of changing the agent to `cli-takeover`.
+Managed dispatch invokes `hermes chat -Q -q` per turn through `createHermesController`. There is no visible wrapper PTY for managed Hermes; the bridge surfaces the request/response cycle as a synthesized terminal stream in the dashboard's Console pane (`command='aify://virtual-rpc/hermes'`). Conversation context across turns is carried in the wire prompt (`buildUserPrompt` includes recent context from aify-comms) because upstream Hermes does not currently combine `-q` with `--resume`. `--yolo` is added by default so unattended approval prompts don't stall the turn; flip via `runtimeConfig.yolo=false`.
 
 ## Resident Hermes
 
@@ -163,6 +163,6 @@ When Hermes is launched through `hermes-aify`, the wrapper exports the server UR
 
 ## Current Limits
 
-- aify-comms does not yet parse Hermes terminal output to discover a newly created session ID automatically.
-- If you need durable resume after the PTY exits, copy the Hermes session ID from Hermes and use dashboard **Set handle** or launch with `hermes-aify --resume <session-id>`.
-- Hermes active-run steering is not exposed as a separate adapter yet. Messenger input is delivered through the PTY path.
+- Mid-turn steering is not supported on managed Hermes — `hermes chat -q` is single-shot per upstream's documented programmatic mode. `comms_run_steer` rejects with a clear message; send a follow-up dispatch instead (the next turn's prompt carries the prior context via `buildUserPrompt`).
+- Conversation state across managed turns lives in the wire prompt, not in a persistent Hermes session, because upstream doesn't expose `-q` combined with `--resume`. If Hermes upstream adds either a true RPC daemon or session-resume on programmatic mode, the controller will be upgradeable to a persistent shape similar to managed Pi's Phase 2 architecture.
+- Resident Hermes uses the real `hermes chat` TUI under `hermes-aify` and supports operator-driven multi-turn interactively. The bridge will not auto-discover a Hermes session ID created during a resident TUI session; copy it manually if you want durable resume and use dashboard **Set handle** or `hermes-aify --resume <session-id>`.
