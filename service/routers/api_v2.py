@@ -9737,6 +9737,102 @@ async def agent_heartbeat(agent_id: str, request: Request):
         await db.close()
 
 
+@router.post("/agents/{agent_id}/stop-worker")
+async def stop_agent_worker(agent_id: str, request: Request):
+    """Phase 4: dashboard Stop → agent.status = 'available'.
+
+    Single endpoint that tears down whatever persistent worker the agent
+    has (virtual rpc terminal_session, live agent_sessions, terminal
+    bindings, runtime_state.virtualTerminalId pointer, turn_busy pulse).
+    Bridge-side resources (PiSession pool entry, codex/opencode session
+    pools, claude-aify wrapper PTY) get cleaned up by the bridge on its
+    next reconcile cycle — the service-side teardown here is
+    authoritative for the agent's reported status.
+
+    The agent's persistent identity (registration, capabilities,
+    conversation history, session_handle for resume) is preserved.
+    Only the live worker lifecycle ends.
+    """
+    db = await get_db()
+    try:
+        agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        now = _now()
+        runtime_state = _json_loads_or(agent_row["runtime_state"], {}) or {}
+        virtual_terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
+        terminal_payload = None
+        if virtual_terminal_id:
+            row = await (await db.execute(
+                "SELECT * FROM terminal_sessions WHERE id = ?",
+                (virtual_terminal_id,),
+            )).fetchone()
+            if row:
+                await db.execute(
+                    """
+                    UPDATE terminal_sessions
+                    SET status = 'stopped',
+                        stopped_at = COALESCE(stopped_at, ?),
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, virtual_terminal_id),
+                )
+                await _append_terminal_event(
+                    db,
+                    virtual_terminal_id,
+                    "agent_worker_stopped",
+                    json.dumps({"agentId": agent_id, "requestedAt": now}),
+                )
+                terminal_payload = _terminal_session_to_dict(row)
+            runtime_state.pop("virtualTerminal", None)
+            runtime_state.pop("virtualTerminalId", None)
+        await db.execute(
+            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+            (json.dumps(runtime_state), now, agent_id),
+        )
+        # End any live agent_sessions for the agent — they tracked the
+        # worker process which is being torn down.
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET status = 'ended',
+                ended_at = COALESCE(ended_at, ?),
+                last_seen = ?
+            WHERE agent_id = ?
+              AND status IN ('starting', 'running', 'recovering', 'restarting', 'cli-takeover', 'managed-warm')
+            """,
+            (now, now, agent_id),
+        )
+        # Clear turn_busy.
+        await db.execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 0, '', '', '', ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                turn_busy = 0,
+                turn_run_id = '',
+                turn_bridge_id = '',
+                turn_runtime = '',
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, now),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_worker_stopped", {"agentId": agent_id, "virtualTerminalId": virtual_terminal_id})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "virtualTerminalId": virtual_terminal_id,
+            "terminal": terminal_payload,
+        }
+    finally:
+        await db.close()
+
+
 @router.post("/agents/{agent_id}/turn-end")
 async def agent_turn_end(agent_id: str, request: Request):
     """Harness-level turn-end signal.

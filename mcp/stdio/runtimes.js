@@ -3221,16 +3221,25 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
 }
 
 function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  // Per-dispatch native controller for managed hermes. Same shape as
-  // createCodexController (per-turn spawn, capture stdout, resolve), but
-  // simpler because upstream Hermes only exposes one programmatic entry
-  // point: `hermes chat -q -Q "<prompt>"` (one-shot, "-Q" suppresses
-  // banner/spinner/tool previews per upstream's documented "Programmatic
-  // mode"). No --resume support in -q upstream, so conversation context
-  // is carried in the wire prompt via buildUserPrompt — identical to how
-  // codex carries it. The synthesized terminal feed (request/response
-  // frames pushed via callbacks.terminalSinkProvider) is the operator-
-  // visibility equivalent of pi Phase 2 for hermes.
+  // Persistent-SESSION controller for managed hermes (Phase 7 of the
+  // persistent-worker plan). Upstream Hermes has no daemon/programmatic
+  // persistent mode, so the PROCESS is still per-dispatch — but we now
+  // pass `--continue <session-name>` so conversation state is durable
+  // across dispatches in Hermes's own session storage. The session name
+  // is derived from the agent id (stable across dispatches and bridge
+  // restarts). Combined with the synthesized terminal_session row that
+  // stays alive accumulating frames, the operator-visible UX is a
+  // persistent session even though `hermes` exits between turns.
+  //
+  // Conversation context across turns: --continue handles it natively,
+  // so we no longer have to stuff aify-comms's conversationContext into
+  // the wire prompt for hermes (still done by buildUserPrompt; the
+  // duplication is harmless and a defense if --continue ever fails).
+  //
+  // The synthesized terminal feed (frames pushed via
+  // callbacks.terminalSinkProvider) is the operator-visibility surface
+  // and survives across dispatches because the terminal_session row is
+  // canonical per-agent (Phase 2 follow-up fix in the prior PR).
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultHermesCommand();
   const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
@@ -3238,12 +3247,19 @@ function createHermesController({ agentId, agentInfo, run, runtimeState, callbac
   const model = String(agentInfo.model || config.model || "").trim();
   const provider = String(config.provider || "").trim();
   const skipApprovals = config.yolo !== false; // default on for managed (no operator at the wheel)
+  // Stable per-agent session name. Hermes session names are operator-
+  // facing (visible via `hermes chat --resume <name>`), so use a clear
+  // aify-prefix so they're obvious as bridge-managed and don't collide
+  // with operator-named sessions. Override via runtimeConfig.continueName
+  // if the operator wants a specific name.
+  const continueName = String(config.continueName || `aify-${agentId}`).trim();
 
   const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
   const userPrompt = buildUserPrompt(run);
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
   const args = [...launcher.args, "chat", "-Q", "-q", fullPrompt];
+  if (continueName) args.push("--continue", continueName);
   if (model) args.push("-m", model);
   if (provider) args.push("--provider", provider);
   if (skipApprovals) args.push("--yolo");

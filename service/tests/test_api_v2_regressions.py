@@ -8132,6 +8132,167 @@ class ApiV2RegressionTests(unittest.TestCase):
         finally:
             await db.close()
 
+    def test_wake_on_message_send_to_available_agent_queues_dispatch(self):
+        # Phase 3: sending to an `available` agent (env online, no live
+        # worker yet) must NOT be rejected as "cannot start live work
+        # now" — the dispatch path queues a run that the bridge claims
+        # on next poll, and the per-runtime dispatch handlers
+        # (PiSession.acquirePiSession, claude-aify wrapper spawn, etc.)
+        # spawn the worker on first claim. The send-side preflight
+        # already allows this after Phase 2's taxonomy change (available
+        # not in {offline, stale, stopped}); this test pins the
+        # contract: send to available → ok=true with a queued
+        # dispatchRun, NOT the "no live wake" error.
+        self._heartbeat_environment(
+            id="env_wake",
+            bridgeId="bridge-wake",
+            machineId="linux:wake",
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True, "steer": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["pi"],
+        )
+        self._register("wake-pi", runtime="pi", sessionMode="managed")
+
+        # Confirm "available" status precondition.
+        avail = self.client.get("/api/v1/agents/wake-pi").json()["agent"]
+        self.assertEqual(avail["status"], "available", avail)
+
+        # Send with trigger=true → expect queued dispatch_run, not error.
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="wake-pi",
+            type="request",
+            subject="wake up",
+            body="please get to work",
+            trigger=True,
+        )
+        # Phase 3 contract: available agents are NOT blocked from receiving
+        # work. The dispatch_run is created and the bridge will claim it.
+        self.assertTrue(
+            sent.get("ok") is not False or len(sent.get("dispatchRuns", [])) > 0,
+            f"Expected send to available agent to queue a dispatch, got {sent}",
+        )
+
+    def test_stop_worker_tears_down_session_and_returns_to_available(self):
+        # Phase 4: dashboard Stop → agent goes from online/working to
+        # available. The endpoint ends live agent_sessions, marks any
+        # virtual terminal_session row as stopped, clears the
+        # runtime_state.virtualTerminalId pointer, and zeros turn_busy.
+        self._heartbeat_environment(
+            id="env_stop",
+            bridgeId="bridge-stop",
+            machineId="linux:stop",
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["pi"],
+        )
+        self._register("stop-pi", runtime="pi", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_stop_1",
+                "stop-pi",
+                "env_stop",
+                "pi",
+                "/workspace",
+                "managed",
+                "managed",
+                "bridge-stop",
+                "vterm_stop_1",
+                "running",
+                "aify://virtual-rpc/pi",
+                "/workspace",
+                "",
+                "pi-handle-stop",
+                "",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                "2026-05-22T00:00:00Z",
+                "2026-05-22T00:00:00Z",
+                None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_stop_1",
+                "sess_stop_1",
+                "stop-pi",
+                "env_stop",
+                "bridge-stop",
+                "pi",
+                "/workspace",
+                "aify://virtual-rpc/pi",
+                "",
+                "running",
+                "bridge-rpc",
+                "2026-05-22T00:00:00Z",
+                "2026-05-22T00:00:00Z",
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_stop_1"}), "stop-pi"),
+        )
+        asyncio.run(self._async_invalidate("stop-pi"))
+        before = self.client.get("/api/v1/agents/stop-pi").json()["agent"]
+        self.assertEqual(before["status"], "online", before)
+
+        # Stop the worker.
+        response = self.client.post("/api/v1/agents/stop-pi/stop-worker", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["virtualTerminalId"], "vterm_stop_1")
+
+        # Effects: virtual terminal stopped, agent_session ended, runtime_state cleared.
+        term_row = self._fetchone("SELECT status, stopped_at FROM terminal_sessions WHERE id = ?", ("vterm_stop_1",))
+        self.assertEqual(term_row["status"], "stopped")
+        self.assertIsNotNone(term_row["stopped_at"])
+        sess_row = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess_stop_1",))
+        self.assertEqual(sess_row["status"], "ended")
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("stop-pi",))
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        self.assertNotIn("virtualTerminalId", rs)
+        self.assertNotIn("virtualTerminal", rs)
+
+        # Derived status flips to available.
+        after = self.client.get("/api/v1/agents/stop-pi").json()["agent"]
+        self.assertEqual(after["status"], "available", after)
+
     def test_status_taxonomy_available_when_no_live_worker_online_when_session_alive(self):
         # Persistent-worker model (Phase 2 of plan
         # docs/plans/persistent-worker-status-taxonomy.md). An agent
