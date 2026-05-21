@@ -51,7 +51,7 @@ For live Oh My Pi (OMP), use `omp-aify --aify-agent <id> --resume <session-id>`;
 comms_register(agentId="my-agent", role="coder", runtime="pi", sessionHandle="$PI_SESSION_ID")
 ```
 
-OMP managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. The aify runtime key remains `pi`; use `omp-aify` in operator-facing commands and mention `pi-aify` only as an alias. Use `queueIfBusy=true` when the message should wait for the next turn instead.
+OMP managed/resident active-run steering uses OMP's native RPC `steer` command when the active run is steer-capable. The aify runtime key remains `pi`; use `omp-aify` in operator-facing commands and mention `pi-aify` only as an alias. Use `queueIfBusy=true` when the message should wait for the next turn instead. Managed pi keeps a persistent `omp --mode rpc` child per agent across dispatches and surfaces it in the dashboard as a synthesized terminal stream (no real PTY); `omp-aify` refuses to launch locally when the bridge currently owns the session — pass `--standalone --resume <other-id>` if you want a parallel session.
 
 For live Hermes, `hermes-aify --aify-agent <id> --resume <session-id>` auto-registers the resident session when a resumable Hermes session ID is known. Dashboard-managed Hermes uses the PTY delivery path.
 
