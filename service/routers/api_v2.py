@@ -238,7 +238,7 @@ TURN_BUSY_STALE_SECONDS = 120
 # symmetric; if no backing can be established, the native adapter remains the
 # fallback path. With the setting disabled, they keep the legacy native
 # dispatch_run behavior.
-_NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode"}
+_NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # Managed Claude uses a live Claude Code channel bridge. It is not a native
 # managed runtime adapter and must not be claimed by the generic managed loop.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
@@ -10726,6 +10726,31 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                     "run": None,
                     "blockedBy": blocked_by_console,
                 }
+        # Turn-busy claim gate: if the agent is currently mid-turn
+        # (turn_busy=1, fresh, within TURN_BUSY_STALE_SECONDS),
+        # don't return queued runs. Operator-asked 2026-05-22:
+        # "queue should wait until agent stops working" — without this
+        # gate, the SENDER's queueIfBusy=true correctly held the run
+        # in 'queued' state, but the bridge's next claim cycle picked
+        # it up and delivered immediately because the claim endpoint
+        # didn't respect turn_busy. Stop hook (or 120s stale window)
+        # is the authoritative clear; once that fires, next claim
+        # picks up the queued run as designed.
+        try:
+            tb_row = await (await db.execute(
+                "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                (req.agentId,),
+            )).fetchone()
+            if tb_row and int(tb_row["turn_busy"] or 0) == 1:
+                tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
+                if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
+                    await db.commit()
+                    return {"ok": True, "run": None}
+        except Exception:
+            # If turn_busy state is unreadable, fall through and let the
+            # normal claim flow proceed — better to deliver than block.
+            pass
+
         run_cursor = await db.execute(
             """
             SELECT * FROM dispatch_runs
