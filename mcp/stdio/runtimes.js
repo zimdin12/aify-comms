@@ -2589,20 +2589,32 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   let terminalSink = null;
   let sinkChain = Promise.resolve();
   const pushTerminalFrame = (text, status = "") => {
-    if (!terminalSink || (!text && !status)) return;
-    const frame = { text: String(text || ""), status: String(status || "") };
-    sinkChain = sinkChain.then(async () => {
-      try { await terminalSink(frame.text, frame.status); } catch {}
-    });
+    // Defensive: parity with codex (b6d403c). Called from SDK delta
+    // callbacks; an uncaught throw in this synchronous path can crash
+    // the bridge process. Belt-and-suspenders: guard everything.
+    try {
+      if (!terminalSink || (!text && !status)) return;
+      const body = String(text || "");
+      const stat = String(status || "");
+      sinkChain = sinkChain.then(async () => {
+        try { await terminalSink(body, stat); } catch {}
+      });
+    } catch {
+      // best-effort: don't propagate frame-push failures
+    }
   };
   const echoPromptToTerminal = () => {
-    const body = String(run?.body || "").trim();
-    if (!body) return;
-    const subject = String(run?.subject || "").trim();
-    const from = String(run?.from || "dashboard").trim() || "dashboard";
-    const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
-    const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
-    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    try {
+      const body = String(run?.body || "").trim();
+      if (!body) return;
+      const subject = String(run?.subject || "").trim();
+      const from = String(run?.from || "dashboard").trim() || "dashboard";
+      const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
+      const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
+      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    } catch {
+      // best-effort
+    }
   };
 
   const promise = new Promise(async (resolve, reject) => {
@@ -3393,28 +3405,36 @@ function createHermesController({ agentId, agentInfo, run, runtimeState, callbac
   let sinkChain = Promise.resolve();
 
   const pushTerminalFrame = (text, status = "") => {
-    if (!terminalSink || (!text && !status)) return;
-    const frame = { text: String(text || ""), status: String(status || "") };
-    sinkChain = sinkChain.then(async () => {
-      try {
-        await terminalSink(frame.text, frame.status);
-      } catch {
-        // best-effort
-      }
-    });
+    // Defensive: parity with codex/opencode (b6d403c). Called from
+    // child process stdout/exit callbacks; uncaught throws can crash
+    // the bridge process. Guard everything.
+    try {
+      if (!terminalSink || (!text && !status)) return;
+      const body = String(text || "");
+      const stat = String(status || "");
+      sinkChain = sinkChain.then(async () => {
+        try { await terminalSink(body, stat); } catch {}
+      });
+    } catch {
+      // best-effort: don't propagate frame-push failures
+    }
   };
 
   const echoPromptToTerminal = () => {
-    const body = String(run?.body || "").trim();
-    if (!body) return;
-    const subject = String(run?.subject || "").trim();
-    const from = String(run?.from || "dashboard").trim() || "dashboard";
-    const header = subject ? `\r\n> [${from}] ${subject}\r\n` : `\r\n> [${from}]\r\n`;
-    const prefixed = body
-      .split(/\r?\n/)
-      .map((line) => `> ${line}`)
-      .join("\r\n");
-    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    try {
+      const body = String(run?.body || "").trim();
+      if (!body) return;
+      const subject = String(run?.subject || "").trim();
+      const from = String(run?.from || "dashboard").trim() || "dashboard";
+      const header = subject ? `\r\n> [${from}] ${subject}\r\n` : `\r\n> [${from}]\r\n`;
+      const prefixed = body
+        .split(/\r?\n/)
+        .map((line) => `> ${line}`)
+        .join("\r\n");
+      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    } catch {
+      // best-effort
+    }
   };
 
   const promise = (async () => {

@@ -8280,6 +8280,164 @@ class ApiV2RegressionTests(unittest.TestCase):
         run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_owned_1",))
         self.assertEqual(run_row["status"], "running")
 
+    def test_turn_start_endpoint_sets_turn_busy_idempotent(self):
+        # Pinning test for /agents/{id}/turn-start (added in 805e2df).
+        # Symmetric counterpart to /turn-end. Sets turn_busy=1, refreshes
+        # turn_updated_at on every call.
+        self._register("turnstart-claude", runtime="claude-code", sessionMode="resident")
+        r1 = self.client.post("/api/v1/agents/turnstart-claude/turn-start", json={})
+        self.assertEqual(r1.status_code, 200, r1.text)
+        self.assertTrue(r1.json()["ok"])
+        tb = self._fetchone("SELECT turn_busy, turn_bridge_id, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("turnstart-claude",))
+        self.assertEqual(int(tb["turn_busy"] or 0), 1)
+        self.assertEqual(tb["turn_bridge_id"], "user-prompt-submit")
+        first_updated = tb["turn_updated_at"]
+
+        # Call again — should refresh turn_updated_at (idempotent).
+        import time as _time
+        _time.sleep(0.01)
+        r2 = self.client.post("/api/v1/agents/turnstart-claude/turn-start", json={})
+        self.assertEqual(r2.status_code, 200, r2.text)
+        tb2 = self._fetchone("SELECT turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("turnstart-claude",))
+        # second call should not regress the timestamp
+        self.assertTrue(tb2["turn_updated_at"] >= first_updated)
+
+    def test_turn_start_does_not_clobber_in_flight_managed_dispatch(self):
+        # Code review I2 pinning (2026-05-22): UserPromptSubmit hook firing
+        # on a resident-takeover shouldn't wipe out a managed dispatch's
+        # turn_run_id / turn_bridge_id that's already in flight.
+        self._register("dual-claude", runtime="claude-code", sessionMode="resident")
+        # Simulate a managed bridge having just set turn_busy with real run linkage
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, 'run_real_123', 'real-bridge-abc', 'claude-code', ?)
+            """,
+            ("dual-claude", api_v2._now()),
+        )
+        # Then UserPromptSubmit fires
+        r = self.client.post("/api/v1/agents/dual-claude/turn-start", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        tb = self._fetchone("SELECT turn_busy, turn_run_id, turn_bridge_id FROM agent_turn_state WHERE agent_id = ?", ("dual-claude",))
+        # turn_busy should still be 1
+        self.assertEqual(int(tb["turn_busy"] or 0), 1)
+        # turn_run_id should be preserved (managed dispatch context lives)
+        self.assertEqual(tb["turn_run_id"], "run_real_123")
+        # turn_bridge_id should NOT be clobbered to user-prompt-submit
+        self.assertEqual(tb["turn_bridge_id"], "real-bridge-abc")
+
+    def test_virtual_rpc_bridge_takeover_revives_stopped_terminal(self):
+        # Code review and operator-report pinning: bridge takeover on
+        # /terminals/{id}/output also revives a stopped synth terminal
+        # row (race between supersession-cleanup and new bridge's POST).
+        self._heartbeat_environment(
+            id="env_takeover",
+            bridgeId="bridge-takeover-old",
+            machineId="linux:takeover",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["pi"],
+        )
+        self._register("takeover-pi", runtime="pi", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_takeover", "takeover-pi", "env_takeover", "pi", "/w", "managed",
+                "managed", "bridge-takeover-old", "vterm_takeover", "running",
+                "aify://virtual-rpc/pi", "/w", "", "pi-handle", "", None, None,
+                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+            ),
+        )
+        # Seed a stopped virtual rpc terminal owned by the old bridge
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_takeover", "sess_takeover", "takeover-pi", "env_takeover",
+                "bridge-takeover-old", "pi", "/w", "aify://virtual-rpc/pi",
+                "", "stopped", "bridge-rpc",
+                api_v2._now(), api_v2._now(), api_v2._now(),
+                "Superseded by bridge re-registration; in-memory worker pool empty after restart.",
+            ),
+        )
+        # New bridge POSTs output → should takeover + revive
+        r = self.client.post(
+            "/api/v1/terminals/vterm_takeover/output",
+            json={"bridgeId": "bridge-takeover-new", "output": "frame", "status": "running"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        row = self._fetchone("SELECT status, bridge_id, stopped_at, error FROM terminal_sessions WHERE id = ?", ("vterm_takeover",))
+        self.assertEqual(row["status"], "running", row)
+        self.assertEqual(row["bridge_id"], "bridge-takeover-new")
+        self.assertIsNone(row["stopped_at"])
+        self.assertEqual(row["error"], "")
+
+    def test_runtime_state_patch_preserves_virtual_terminal_keys(self):
+        # Pinning for SERVICE_MANAGED_RUNTIME_STATE_KEYS (commit 95524d7).
+        # When the bridge PATCHes runtime_state without virtualTerminalId,
+        # the existing pointer must be preserved (not clobbered).
+        self._register("preserve-pi", runtime="pi", sessionMode="managed")
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({
+                "virtualTerminal": True,
+                "virtualTerminalId": "vterm_existing_123",
+                "sessionId": "old-session",
+            }), "preserve-pi"),
+        )
+        # Bridge PATCHes with only sessionId (no virtualTerminalId)
+        r = self.client.patch("/api/v1/agents/preserve-pi/runtime-state", json={
+            "runtimeState": {"sessionId": "new-session", "sessionFile": "/tmp/x"},
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("preserve-pi",))
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        # virtualTerminalId preserved
+        self.assertEqual(rs.get("virtualTerminalId"), "vterm_existing_123")
+        self.assertTrue(rs.get("virtualTerminal"))
+        # New keys applied
+        self.assertEqual(rs.get("sessionId"), "new-session")
+        self.assertEqual(rs.get("sessionFile"), "/tmp/x")
+
+        # Explicit null clears it
+        r2 = self.client.patch("/api/v1/agents/preserve-pi/runtime-state", json={
+            "runtimeState": {"virtualTerminalId": None, "sessionId": "yet-newer"},
+        })
+        self.assertEqual(r2.status_code, 200, r2.text)
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("preserve-pi",))
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        self.assertNotIn("virtualTerminalId", rs)
+
+    def test_console_available_payload_false_for_resident(self):
+        # Pinning for consoleAvailable (commit 334a2ff). Resident sessions
+        # don't have an aify-tracked PTY/RPC, so Console can't open.
+        self._register("payload-resident", runtime="claude-code", sessionMode="resident")
+        r = self.client.get("/api/v1/agents/payload-resident")
+        self.assertEqual(r.status_code, 200, r.text)
+        a = r.json()["agent"]
+        self.assertEqual(a.get("sessionMode"), "resident")
+        self.assertEqual(a.get("consoleAvailable"), False)
+
+        self._register("payload-managed", runtime="claude-code", sessionMode="managed")
+        r2 = self.client.get("/api/v1/agents/payload-managed")
+        a2 = r2.json()["agent"]
+        self.assertEqual(a2.get("sessionMode"), "managed")
+        self.assertEqual(a2.get("consoleAvailable"), True)
+
     def test_queue_if_busy_respects_turn_busy_when_no_active_run_row(self):
         # Operator-reported 2026-05-22: clicking dashboard "Queue" sent
         # the message immediately when the target was still mid-turn.

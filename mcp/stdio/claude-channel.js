@@ -304,6 +304,13 @@ async function markDispatchDeliveryFailed(runId, error) {
 // (we read server's turn_busy state) or window expiry.
 const LAST_DELIVERED_AT_PER_AGENT = new Map();
 const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
+// Throttle the "direct CLI typing" status sync — fires every N empty
+// cycles when there's no local delivery tracker. POLL_MS ~= 3s, so 5
+// cycles ≈ 15s. Picks up UserPromptSubmit-set turn_busy fast enough
+// to refresh before the 120s server stale window expires, slow enough
+// to avoid spamming `/agents/{id}` GET on every empty poll cycle.
+const SLOW_REFRESH_COUNTER = new Map();
+const SLOW_REFRESH_EVERY_N_CYCLES = 5;
 
 async function pollLoop() {
   while (true) {
@@ -348,27 +355,40 @@ async function pollLoop() {
       // it was set. Stop hook (or staleness past the cap) is still
       // the only way out.
       if (batch.length === 0) {
-        // Drop expired delivery tracker so it doesn't refresh forever.
+        // Heartbeat refresh, gated to avoid an extra `/agents/{id}` GET
+        // every poll cycle on every resident claude. Two trigger paths:
+        // (a) we recently delivered a dispatch (LAST_DELIVERED_AT_PER_AGENT
+        //     set) — refresh frequently to keep working status fresh
+        // (b) UserPromptSubmit hook fires server-side (no local
+        //     tracking) — refresh on a slower cadence so we still
+        //     extend that window without polling the server every 3s
         const trackedAt = LAST_DELIVERED_AT_PER_AGENT.get(agentId);
         if (trackedAt && Date.now() - trackedAt > TURN_REFRESH_MAX_AGE_MS) {
           LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
         }
-        // Check the server's view of whether the agent is currently
-        // working and re-pulse if so. Picks up BOTH dispatch-initiated
-        // turns AND UserPromptSubmit-initiated direct CLI turns.
-        try {
-          const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-          const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
-          const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
-          if (serverStatus === "working" || serverBusy) {
-            await reportTurnBusy(agentId, { busy: true }).catch(() => {});
-          } else if (LAST_DELIVERED_AT_PER_AGENT.get(agentId)) {
-            // Server says not working AND we had a tracked delivery
-            // — Stop hook fired, drop local tracking.
-            LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
+        const haveLocalTracker = LAST_DELIVERED_AT_PER_AGENT.has(agentId);
+        // Slow-cadence sampling for the "direct CLI typing" path: only
+        // every N-th empty cycle, fetch agent state. Default: every
+        // 5 cycles (~15s with POLL_MS=3s) — fast enough that working
+        // state doesn't stale out at 120s, slow enough not to spam.
+        SLOW_REFRESH_COUNTER.set(agentId, (SLOW_REFRESH_COUNTER.get(agentId) || 0) + 1);
+        const slowTick = SLOW_REFRESH_COUNTER.get(agentId) >= SLOW_REFRESH_EVERY_N_CYCLES;
+        if (slowTick) SLOW_REFRESH_COUNTER.set(agentId, 0);
+        if (haveLocalTracker || slowTick) {
+          try {
+            const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+            const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
+            const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
+            if (serverStatus === "working" || serverBusy) {
+              await reportTurnBusy(agentId, { busy: true }).catch(() => {});
+            } else if (haveLocalTracker) {
+              // Server says not working AND we had a tracked delivery
+              // — Stop hook fired, drop local tracking.
+              LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
+            }
+          } catch {
+            // Transient — best-effort, do nothing this cycle.
           }
-        } catch {
-          // Transient — best-effort, do nothing this cycle.
         }
       }
 

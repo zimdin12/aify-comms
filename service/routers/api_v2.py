@@ -1636,14 +1636,19 @@ async def _stop_virtual_terminals_for_superseded_bridges(
     if not superseded_bridge_ids:
         return
     placeholders = ",".join("?" for _ in superseded_bridge_ids)
+    # Defense-in-depth (code review I6, 2026-05-22): scope by agent_id
+    # too. Each bridge process today has exactly one AIFY_AGENT_ID so
+    # bridge_id is unique per agent, but if multi-agent bridges land
+    # later this prevents cross-agent terminal slaughter.
     cursor = await db.execute(
         f"""
         SELECT id, agent_id FROM terminal_sessions
         WHERE bridge_id IN ({placeholders})
+          AND agent_id = ?
           AND command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
           AND status NOT IN ('stopped', 'failed')
         """,
-        (*superseded_bridge_ids, *VIRTUAL_RPC_COMMAND_SET),
+        (*superseded_bridge_ids, agent_id, *VIRTUAL_RPC_COMMAND_SET),
     )
     rows = await cursor.fetchall()
     for row in rows:
@@ -2104,7 +2109,6 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # row across worker restarts (graph-tech-lead symptom: Console
     # stopped, session row stale-running, agent should be `available`
     # not `online`).
-    agent_runtime = _normalize_runtime(agent_row["runtime"] or "")
     agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
     has_live_worker = False
     if live_session:
@@ -3549,7 +3553,7 @@ async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_outpu
     has_menu_option = (
         "i am using this for local development" in warning_lower
         or "using this for local development" in warning_lower
-        or "local development" in warning_lower and "channel" in warning_lower
+        or ("local development" in warning_lower and "channel" in warning_lower)
     )
     if not (has_warning and has_menu_option):
         return
@@ -7434,6 +7438,13 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                         "revived": current_status == "stopped",
                     }),
                 )
+                # Commit immediately — the endpoint's only other commit
+                # is inside the _TERMINAL_END_STATUSES branch, which
+                # doesn't fire for normal "running" output POSTs. Without
+                # this, the bridge_id transfer + revive would silently
+                # be lost on the next connection (failing the takeover
+                # contract for any subsequent reader).
+                await db.commit()
             else:
                 raise HTTPException(409, "Terminal is owned by a different bridge")
         status = str(req.status or "").strip()
@@ -10112,13 +10123,23 @@ async def agent_turn_start(agent_id: str, request: Request):
             raise HTTPException(404, f'Agent "{agent_id}" not found')
         now = _now()
         runtime = _normalize_runtime(agent_row["runtime"] or "claude-code")
+        # If a managed dispatch is already in flight (turn_run_id set,
+        # fresh, set by a real bridge), DON'T clobber the dispatch
+        # context with our user-prompt-submit attribution. Just refresh
+        # turn_updated_at so the existing run linkage keeps the
+        # dashboard's "working on subject X" display intact.
         await db.execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, '', 'user-prompt-submit', ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET
                 turn_busy = 1,
-                turn_bridge_id = 'user-prompt-submit',
+                turn_bridge_id = CASE
+                    WHEN turn_busy = 1 AND COALESCE(turn_run_id, '') != ''
+                         AND COALESCE(turn_bridge_id, '') NOT IN ('', 'user-prompt-submit')
+                    THEN turn_bridge_id
+                    ELSE 'user-prompt-submit'
+                END,
                 turn_runtime = excluded.turn_runtime,
                 turn_updated_at = excluded.turn_updated_at
             """,
@@ -11007,17 +11028,32 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     stale_minutes = int(settings.get("active_managed_run_stale_minutes", 5) or 5)
     stale_seconds = max(60, stale_minutes * 60)
     cutoff_param = f"-{stale_seconds} seconds"
+    # Defense against false-positive reaping (code review C1, 2026-05-22):
+    # an orphan candidate must satisfy ALL of:
+    #   1. status claimed/running
+    #   2. claim_bridge_id is empty (no bridge took ownership)
+    #   3. started_at + stale_seconds is in the past
+    #   4. NO recent dispatch_events (run hasn't progressed at all since
+    #      the cutoff) — if events ARE flowing, the run is alive even
+    #      if claim_bridge_id is empty (a slow-claim client path or
+    #      a different write path didn't set the bridge_id but the
+    #      controller IS running).
     cursor = await db.execute(
         """
         SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode
-        FROM dispatch_runs
-        WHERE status IN ('claimed', 'running')
-          AND COALESCE(claim_bridge_id, '') = ''
-          AND datetime(COALESCE(started_at, requested_at)) <= datetime('now', ?)
-        ORDER BY requested_at ASC
+        FROM dispatch_runs r
+        WHERE r.status IN ('claimed', 'running')
+          AND COALESCE(r.claim_bridge_id, '') = ''
+          AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM dispatch_events de
+            WHERE de.run_id = r.id
+              AND datetime(de.created_at) > datetime('now', ?)
+          )
+        ORDER BY r.requested_at ASC
         LIMIT ?
         """,
-        (cutoff_param, limit),
+        (cutoff_param, cutoff_param, limit),
     )
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
@@ -11025,9 +11061,16 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     for row in rows:
         run_id = str(row["id"] or "").strip()
         target_agent = str(row["target_agent"] or "").strip()
+        dispatch_mode = str(row["dispatch_mode"] or "").strip()
+        execution_mode = str(row["execution_mode"] or "").strip()
         if not run_id:
             continue
-        reason = f"Active managed run has no owning bridge and has exceeded {stale_seconds}s — bridge crashed or failure PATCH was dropped."
+        reason = (
+            f"Active run (dispatch_mode={dispatch_mode or '(default)'}, "
+            f"execution_mode={execution_mode or '(default)'}) has no owning bridge "
+            f"and made no progress for {stale_seconds}s — bridge crashed, "
+            f"failure PATCH was dropped, or the wrapper PTY never claimed."
+        )
         await db.execute(
             """
             UPDATE dispatch_runs
