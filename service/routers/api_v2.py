@@ -10994,8 +10994,14 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     Only called from the periodic reconciler — NOT from preflight —
     because preflight's stale-repair call uses a different (terminal-
     only) discriminator that older steer-preflight tests pin against.
-    This function uses dispatch_mode != 'terminal' as its scope so it
-    doesn't overlap with `_discard_unusable_active_run`'s terminal path.
+    This function catches orphaned runs regardless of dispatch_mode:
+    a terminal-mode run with empty claim_bridge_id means the wrapper
+    PTY backing was supposed to drive it but the bridge that spawned
+    the PTY is gone — same orphan condition as managed-mode runs,
+    deserves the same fast cleanup. Operator-reported 2026-05-22:
+    hermes-test queued run sat blocked behind a terminal-mode running
+    run with empty bridge_id for 45+ min waiting for the 30-min
+    generic stale reaper.
     """
     settings = await _load_settings(db)
     stale_minutes = int(settings.get("active_managed_run_stale_minutes", 5) or 5)
@@ -11007,7 +11013,6 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         FROM dispatch_runs
         WHERE status IN ('claimed', 'running')
           AND COALESCE(claim_bridge_id, '') = ''
-          AND COALESCE(dispatch_mode, '') != 'terminal'
           AND datetime(COALESCE(started_at, requested_at)) <= datetime('now', ?)
         ORDER BY requested_at ASC
         LIMIT ?

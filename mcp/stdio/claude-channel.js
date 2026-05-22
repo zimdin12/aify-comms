@@ -334,42 +334,41 @@ async function pollLoop() {
         batch.push(claim.run);
       }
       // Periodic turn_busy refresh while the assistant is probably
-      // still mid-turn. Tracked by the timestamp of the most recent
-      // dispatch we delivered to this agent — independent of the
-      // dispatch_run's status (require_reply=0 runs complete
-      // immediately on delivery but the assistant keeps working).
-      // Bounded by TURN_REFRESH_MAX_AGE_MS so a missed Stop hook
-      // can't pin "working" forever.
+      // still mid-turn. Two triggers can set turn_busy=1 server-side:
+      // (a) dispatch claim (channel-route or claude-channel via this
+      //     loop), tracked in LAST_DELIVERED_AT_PER_AGENT
+      // (b) UserPromptSubmit hook on direct CLI typing
+      //     (`turn_bridge_id='user-prompt-submit'`), no local timestamp.
+      // For (b), `LAST_DELIVERED_AT_PER_AGENT` is never set so the old
+      // refresh loop didn't run — direct CLI turns staled at 120s.
+      // Operator-reported 2026-05-22 ("you are working but your status
+      // is not reflecting that again"). Fix: when batch empty, ALSO
+      // query the server's `turn_busy` directly; if set AND fresh
+      // (within TURN_REFRESH_MAX_AGE_MS), re-pulse regardless of how
+      // it was set. Stop hook (or staleness past the cap) is still
+      // the only way out.
       if (batch.length === 0) {
+        // Drop expired delivery tracker so it doesn't refresh forever.
         const trackedAt = LAST_DELIVERED_AT_PER_AGENT.get(agentId);
-        if (trackedAt) {
-          const age = Date.now() - trackedAt;
-          if (age > TURN_REFRESH_MAX_AGE_MS) {
+        if (trackedAt && Date.now() - trackedAt > TURN_REFRESH_MAX_AGE_MS) {
+          LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
+        }
+        // Check the server's view of whether the agent is currently
+        // working and re-pulse if so. Picks up BOTH dispatch-initiated
+        // turns AND UserPromptSubmit-initiated direct CLI turns.
+        try {
+          const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+          const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
+          const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
+          if (serverStatus === "working" || serverBusy) {
+            await reportTurnBusy(agentId, { busy: true }).catch(() => {});
+          } else if (LAST_DELIVERED_AT_PER_AGENT.get(agentId)) {
+            // Server says not working AND we had a tracked delivery
+            // — Stop hook fired, drop local tracking.
             LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
-          } else {
-            // Check if Stop hook has cleared turn_busy on the server
-            // side. If yes, the assistant has finished; stop refreshing.
-            // If no, re-pulse to keep the working state fresh.
-            try {
-              const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-              const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
-              // No reliable "turn_busy" field on the public payload;
-              // approximate via status. If server says working, keep
-              // refreshing. If server says online/available/idle, the
-              // Stop hook already cleared — stop our refresh.
-              const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
-              if (serverStatus === "working" || serverBusy) {
-                await reportTurnBusy(agentId, { busy: true }).catch(() => {});
-              } else {
-                // Assistant has finished (Stop hook fired) — drop tracking.
-                LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
-              }
-            } catch {
-              // Transient — re-pulse defensively. The window cap will
-              // eventually drop us if the agent really did stop.
-              await reportTurnBusy(agentId, { busy: true }).catch(() => {});
-            }
           }
+        } catch {
+          // Transient — best-effort, do nothing this cycle.
         }
       }
 
