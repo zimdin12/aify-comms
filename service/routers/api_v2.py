@@ -7377,8 +7377,37 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         )).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        if req.bridgeId and str(req.bridgeId).strip() != str(terminal["bridge_id"] or "").strip():
-            raise HTTPException(409, "Terminal is owned by a different bridge")
+        # Bridge-ownership check: for REAL PTY terminals (a node-pty process
+        # spawned by one bridge), a mismatched bridge_id MUST 409 — only the
+        # owning bridge can write to its PTY. But synthesized virtual rpc
+        # terminals (pi/hermes/codex/opencode) are just frame buffers with no
+        # underlying owned process; sequential bridges that take over an
+        # agent (e.g., aify-comms restarted between dispatches) need to
+        # write to the SAME terminal_session row so the operator's Console
+        # view stays continuous. Operator-reported 2026-05-22:
+        # graph-tester-pi's synth terminal stopped updating at the
+        # timestamp of the bridge that originally created it — every later
+        # dispatch was rejected with 409.
+        new_bridge_id = str(req.bridgeId or "").strip()
+        existing_bridge_id = str(terminal["bridge_id"] or "").strip()
+        terminal_command = str(terminal["command"] or "")
+        is_virtual_rpc = terminal_command in VIRTUAL_RPC_COMMAND_SET
+        if new_bridge_id and existing_bridge_id and new_bridge_id != existing_bridge_id:
+            if is_virtual_rpc:
+                # Transfer ownership of the synth terminal to the new bridge.
+                # Audit so operators see the takeover in the event log.
+                await db.execute(
+                    "UPDATE terminal_sessions SET bridge_id = ? WHERE id = ?",
+                    (new_bridge_id, terminal_id),
+                )
+                await _append_terminal_event(
+                    db,
+                    terminal_id,
+                    "virtual_rpc_bridge_takeover",
+                    json.dumps({"from": existing_bridge_id, "to": new_bridge_id}),
+                )
+            else:
+                raise HTTPException(409, "Terminal is owned by a different bridge")
         status = str(req.status or "").strip()
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
