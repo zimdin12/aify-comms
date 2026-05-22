@@ -304,13 +304,6 @@ async function markDispatchDeliveryFailed(runId, error) {
 // (we read server's turn_busy state) or window expiry.
 const LAST_DELIVERED_AT_PER_AGENT = new Map();
 const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
-// Throttle the "direct CLI typing" status sync — fires every N empty
-// cycles when there's no local delivery tracker. POLL_MS ~= 3s, so 5
-// cycles ≈ 15s. Picks up UserPromptSubmit-set turn_busy fast enough
-// to refresh before the 120s server stale window expires, slow enough
-// to avoid spamming `/agents/{id}` GET on every empty poll cycle.
-const SLOW_REFRESH_COUNTER = new Map();
-const SLOW_REFRESH_EVERY_N_CYCLES = 5;
 
 async function pollLoop() {
   while (true) {
@@ -340,50 +333,37 @@ async function pollLoop() {
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
       }
-      // Periodic turn_busy refresh while the assistant is probably
-      // still mid-turn. Two triggers can set turn_busy=1 server-side:
-      // (a) dispatch claim (channel-route or claude-channel via this
-      //     loop), tracked in LAST_DELIVERED_AT_PER_AGENT
-      // (b) UserPromptSubmit hook on direct CLI typing
-      //     (`turn_bridge_id='user-prompt-submit'`), no local timestamp.
-      // For (b), `LAST_DELIVERED_AT_PER_AGENT` is never set so the old
-      // refresh loop didn't run — direct CLI turns staled at 120s.
-      // Operator-reported 2026-05-22 ("you are working but your status
-      // is not reflecting that again"). Fix: when batch empty, ALSO
-      // query the server's `turn_busy` directly; if set AND fresh
-      // (within TURN_REFRESH_MAX_AGE_MS), re-pulse regardless of how
-      // it was set. Stop hook (or staleness past the cap) is still
-      // the only way out.
+      // Periodic turn_busy refresh ONLY for dispatches this bridge
+      // claimed (tracked locally via LAST_DELIVERED_AT_PER_AGENT).
+      //
+      // Previous design also did a slow-tick GET /agents/{id} to catch
+      // UserPromptSubmit-initiated turns and refresh based on server
+      // status — that created a feedback loop (operator-reported
+      // 2026-05-22 "sc-manager stuck working with no active run"):
+      //   1. UserPromptSubmit (or any path) sets turn_busy=1 once
+      //   2. Server reports status='working' (because turn_busy is fresh)
+      //   3. Bridge's slow-tick GET reads 'working' → re-pulses turn_busy=1
+      //   4. turn_updated_at never expires → step 2 keeps holding → infinite loop
+      //
+      // UserPromptSubmit-initiated turns now rely on the 120s
+      // server-side TURN_BUSY_STALE_SECONDS window + the
+      // authoritative Stop hook clear. Brief flicker for >120s
+      // assistant turns is acceptable; stuck-working-forever is not.
       if (batch.length === 0) {
-        // Heartbeat refresh, gated to avoid an extra `/agents/{id}` GET
-        // every poll cycle on every resident claude. Two trigger paths:
-        // (a) we recently delivered a dispatch (LAST_DELIVERED_AT_PER_AGENT
-        //     set) — refresh frequently to keep working status fresh
-        // (b) UserPromptSubmit hook fires server-side (no local
-        //     tracking) — refresh on a slower cadence so we still
-        //     extend that window without polling the server every 3s
         const trackedAt = LAST_DELIVERED_AT_PER_AGENT.get(agentId);
         if (trackedAt && Date.now() - trackedAt > TURN_REFRESH_MAX_AGE_MS) {
           LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
         }
-        const haveLocalTracker = LAST_DELIVERED_AT_PER_AGENT.has(agentId);
-        // Slow-cadence sampling for the "direct CLI typing" path: only
-        // every N-th empty cycle, fetch agent state. Default: every
-        // 5 cycles (~15s with POLL_MS=3s) — fast enough that working
-        // state doesn't stale out at 120s, slow enough not to spam.
-        SLOW_REFRESH_COUNTER.set(agentId, (SLOW_REFRESH_COUNTER.get(agentId) || 0) + 1);
-        const slowTick = SLOW_REFRESH_COUNTER.get(agentId) >= SLOW_REFRESH_EVERY_N_CYCLES;
-        if (slowTick) SLOW_REFRESH_COUNTER.set(agentId, 0);
-        if (haveLocalTracker || slowTick) {
+        if (LAST_DELIVERED_AT_PER_AGENT.has(agentId)) {
           try {
             const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
             const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
             const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
             if (serverStatus === "working" || serverBusy) {
               await reportTurnBusy(agentId, { busy: true }).catch(() => {});
-            } else if (haveLocalTracker) {
-              // Server says not working AND we had a tracked delivery
-              // — Stop hook fired, drop local tracking.
+            } else {
+              // Server says not working — Stop hook fired or run
+              // completed externally. Drop tracking.
               LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
             }
           } catch {
