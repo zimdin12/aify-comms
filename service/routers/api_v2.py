@@ -6769,19 +6769,20 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
         # Managed headless PTY dispatch keeps native resume for continuity.
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
-        if interactive:
-            # Human Console: fresh INTERACTIVE codex (codex-aify already execs
-            # `codex --remote ...` interactive). `resume --include-non-
-            # interactive <handle>` opens a managed/headless thread through the
-            # console path → machine/RPC output, not a usable REPL ("026H and
-            # nothing else"). Same fix shape as pi. Explicit "resume saved
-            # Codex context" can be a future opt-in action.
-            return f"codex-aify --aify-agent {agent_id}"
-        # Managed headless PTY dispatch keeps native resume for continuity.
-        parts = ["codex-aify", "--aify-agent", agent_id]
-        if handle:
-            parts.extend(["resume", "--include-non-interactive", handle])
-        return " ".join(part for part in parts if part)
+        # Operator-verified 2026-05-22: `codex resume --include-non-interactive
+        # <handle>` fails with "no such file or directory (os error 2)" when
+        # the saved handle is stale relative to codex's session storage
+        # (codex deletes session files independently of aify-comms). And
+        # the bridge's native RPC adapter (createCodexController) already
+        # drives turns through its own app-server connection, so the
+        # Console PTY doesn't need to share that session-id — it can be
+        # a fresh codex-aify shell. Aligns with the interactive path
+        # and the same simplification pi uses.
+        # Native context preservation: the bridge's controller still
+        # passes `runtimeState.sessionId/threadId` on its own app-server
+        # connection — Console is supplementary visibility, not the
+        # delivery surface.
+        return f"codex-aify --aify-agent {agent_id}"
     else:
         parts = [runtime or "agent", "--aify-agent", agent_id]
     if handle:
