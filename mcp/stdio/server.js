@@ -387,24 +387,43 @@ function createVirtualTerminalSink(terminalId) {
   if (!id) return null;
   return async (output, status = "") => {
     if (!output && !status) return;
-    try {
-      await httpCall("POST", `/terminals/${encodeURIComponent(id)}/output`, {
-        bridgeId: BRIDGE_INSTANCE_ID,
-        output: String(output || ""),
-        status: String(status || ""),
-      });
-    } catch (error) {
-      const msg = error?.message || String(error);
-      if (/^HTTP 404/.test(msg)) {
-        // Operator deleted the virtual terminal — invalidate the cache so
-        // the next dispatch re-creates one. Frame is dropped.
-        for (const [key, value] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
-          if (value?.terminalId === id) VIRTUAL_TERMINALS_BY_AGENT.delete(key);
+    // Retry transient POST failures up to 3 times so text_delta frames
+    // during a long claude/pi turn aren't silently lost when the
+    // service is briefly unreachable (e.g., container rebuild blip).
+    // Operator-reported (2026-05-22): pi terminal output stopped at
+    // "▶ turn started" with only one character of the assistant's
+    // reply visible — the subsequent text_delta POSTs fell on the
+    // floor during a service-restart window. 404 always means the
+    // terminal row is gone — don't retry, invalidate the cache.
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await httpCall("POST", `/terminals/${encodeURIComponent(id)}/output`, {
+          bridgeId: BRIDGE_INSTANCE_ID,
+          output: String(output || ""),
+          status: String(status || ""),
+        });
+        return;
+      } catch (error) {
+        lastErr = error;
+        const msg = error?.message || String(error);
+        if (/^HTTP 404/.test(msg)) {
+          for (const [key, value] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
+            if (value?.terminalId === id) VIRTUAL_TERMINALS_BY_AGENT.delete(key);
+          }
+          return;
+        }
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 250 * Math.pow(2, attempt)));
         }
       }
-      // Otherwise: best-effort. Buffers upstream of the sink are capped;
-      // the next successful POST resumes the stream.
     }
+    // After 3 retries: still best-effort, but log so debug ledgers
+    // show dropped frames rather than silent loss.
+    console.error(
+      `[aify] virtual terminal sink dropped frame for ${id} after 3 retries:`,
+      lastErr?.message || lastErr,
+    );
   };
 }
 
