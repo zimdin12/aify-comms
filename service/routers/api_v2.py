@@ -1568,6 +1568,24 @@ async def _record_bridge_registration(
             None,
         ),
     )
+    # Supersession carve-out applies ONLY to resident session_mode
+    # (operator-side multi-window CLI scenarios where two
+    # human-launched shells legitimately coexist for the same
+    # identity). For MANAGED session_mode, at most ONE bridge should
+    # claim per (agent, machine, runtime) at any time — latest
+    # registration wins, older managed bridges with the same handle
+    # are superseded. Operator-reported 2026-05-22: sc-manager had
+    # 22+ live managed bridge_instances all sharing the same
+    # session_handle, never superseded, all running old code with the
+    # turn_busy feedback loop. The pre-fix carve-out included managed
+    # sessions, which is why they accumulated.
+    #
+    # IMPORTANT: `_fail_active_runs_for_superseded_bridges` will fail
+    # in-flight runs owned by the superseded bridges. For managed
+    # mode that's correct — only one bridge should be driving an
+    # active run, and if a new bridge registers, the old in-flight
+    # one is presumed orphaned. For resident mode the carve-out is
+    # what protects parent in-flight runs from RPC-child re-registers.
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
@@ -1575,6 +1593,7 @@ async def _record_bridge_registration(
           AND NOT (
             runtime = ? AND session_mode = ?
             AND COALESCE(session_handle, '') = ?
+            AND ? = 'resident'
           )
         """,
         (
@@ -1584,6 +1603,7 @@ async def _record_bridge_registration(
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
+            normalized_session_mode_value,
         ),
     )
     superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]

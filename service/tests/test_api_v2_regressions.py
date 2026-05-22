@@ -4887,38 +4887,42 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(session["session_handle"], "resident-thread")
 
 
-    def test_same_logical_owner_reregister_does_not_supersede_or_fail_inflight_run(self):
-        # Resident-re-register / nested-RPC-child bug class: a re-register call
-        # from the same logical owner (same agent_id + runtime + session_mode +
-        # session_handle + machine_id) must be treated as metadata refresh.
-        # The prior bridge stays NOT superseded; in-flight runs it claimed
-        # stay claimed/running (NOT auto-failed). Operator-reported scenario
-        # was an `omp --mode rpc` child registering with the same session id
-        # as its resident parent and killing the parent's in-flight work.
+    def test_resident_same_logical_owner_reregister_does_not_supersede_or_fail_inflight_run(self):
+        # Resident-re-register / nested-RPC-child bug class (RESIDENT mode):
+        # a re-register from the same logical owner (same agent_id +
+        # runtime + session_mode='resident' + session_handle + machine_id)
+        # must be treated as metadata refresh. Prior bridge stays NOT
+        # superseded; in-flight runs stay claimed/running.
+        # Operator-reported scenario: `omp --mode rpc` child registering
+        # with the same session id as its resident parent and killing
+        # parent's in-flight work. This protective carve-out is RESIDENT-ONLY
+        # post-2026-05-22 (managed bridges now supersede each other to
+        # prevent the 22-zombie-wrapper leak class — see sibling test
+        # test_managed_same_logical_owner_reregister_supersedes_old_bridge).
         self._heartbeat_environment()
         self._register(
-            "logical-owner-reregister",
-            runtime="codex",
-            sessionMode="managed",
-            launchMode="managed",
-            sessionHandle="codex-thread-1",
+            "resident-logical-owner",
+            runtime="pi",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="omp-session-1",
             bridgeId="bridge-A",
             machineId="linux:test-host",
-            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+            capabilities=["resident-run", "resume", "interrupt"],
         )
         claimed = self.client.post(
             "/api/v1/dispatch/claim",
             json={
-                "agentId": "logical-owner-reregister",
+                "agentId": "resident-logical-owner",
                 "bridgeId": "bridge-A",
                 "machineId": "linux:test-host",
-                "executionModes": ["managed"],
+                "executionModes": ["resident"],
             },
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
         dispatched = self._dispatch(
             from_agent="dashboard",
-            to="logical-owner-reregister",
+            to="resident-logical-owner",
             type="request",
             subject="in flight",
             body="must survive same-session re-register",
@@ -4941,7 +4945,57 @@ class ApiV2RegressionTests(unittest.TestCase):
         reregistered = self.client.post(
             "/api/v1/agents",
             json={
-                "agentId": "logical-owner-reregister",
+                "agentId": "resident-logical-owner",
+                "role": "coder",
+                "runtime": "pi",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "omp-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+
+        # The original bridge MUST NOT be marked superseded (resident carve-out).
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "", "resident same-logical-owner re-register must not supersede the prior bridge")
+        # The in-flight run MUST stay alive.
+        run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertEqual(run["status"], "running", f"in-flight resident run was killed by same-session re-register: {dict(run)}")
+
+    def test_managed_same_logical_owner_reregister_supersedes_old_bridge(self):
+        # Operator-reported 2026-05-22: 22+ leaked managed bridge_instances
+        # for sc-manager, all sharing the same (runtime, session_mode='managed',
+        # session_handle), none ever superseded. They piled up as the
+        # operator opened/closed claude-aify sessions across the day, and
+        # the pre-fix carve-out preserved them all. Older zombies running
+        # pre-d4e2ba9 code kept feedback-looping turn_busy.
+        # New semantic (post-2026-05-22): for MANAGED session_mode, latest
+        # registration ALWAYS supersedes older same-(agent, machine, runtime,
+        # session_mode) bridges, regardless of session_handle. Only one
+        # bridge can claim per managed agent at a time.
+        self._heartbeat_environment()
+        self._register(
+            "managed-logical-owner",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="codex-thread-1",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+        )
+        # Bridge-A registered; no other bridges yet.
+        bridge_a = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(bridge_a["superseded_by"], "")
+
+        # Same-logical-owner re-register with FRESH bridge-B for MANAGED mode.
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "managed-logical-owner",
                 "role": "coder",
                 "runtime": "codex",
                 "sessionMode": "managed",
@@ -4954,12 +5008,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(reregistered.status_code, 200, reregistered.text)
 
-        # The original bridge MUST NOT be marked superseded.
+        # bridge-A MUST now be superseded by bridge-B.
         prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
-        self.assertEqual(prior["superseded_by"], "", "same-logical-owner re-register must not supersede the prior bridge")
-        # The in-flight run MUST stay alive (not auto-failed by supersession).
-        run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
-        self.assertEqual(run["status"], "running", f"in-flight run was killed by same-session re-register: {dict(run)}")
+        self.assertEqual(prior["superseded_by"], "bridge-B", "managed same-handle re-register MUST supersede the older bridge")
+        latest = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-B",))
+        self.assertEqual(latest["superseded_by"], "", "newest managed bridge stays primary")
 
     def test_default_channel_routing_for_managed_claude(self):
         # Operator design: managed Claude should deliver via channels by
