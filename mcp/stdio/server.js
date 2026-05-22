@@ -2024,7 +2024,13 @@ async function runDispatchLoop() {
           // their existing visibility surface.
           terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
             const rt = normalizeRuntime(agentInfo?.runtime || "");
-            if (rt !== "pi" && rt !== "hermes") return null;
+            // Phases 2 + 7 + 5/6: pi (persistent), hermes (per-dispatch
+            // with synth feed), codex (per-dispatch with synth feed),
+            // opencode (per-dispatch with synth feed). Codex/opencode
+            // still use per-dispatch controllers; the synth terminal
+            // gives operators visible Console activity even before the
+            // full Phase 5/6 persistent-worker pool refactor.
+            if (rt !== "pi" && rt !== "hermes" && rt !== "codex" && rt !== "opencode") return null;
             try {
               const entry = await ensureVirtualTerminal(provId, agentInfo, rt);
               if (!entry?.terminalId) return null;

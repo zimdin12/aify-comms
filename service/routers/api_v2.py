@@ -7046,9 +7046,13 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
 
 VIRTUAL_PI_RPC_COMMAND = "aify://virtual-rpc/pi"
 VIRTUAL_HERMES_RPC_COMMAND = "aify://virtual-rpc/hermes"
+VIRTUAL_CODEX_RPC_COMMAND = "aify://virtual-rpc/codex"
+VIRTUAL_OPENCODE_RPC_COMMAND = "aify://virtual-rpc/opencode"
 VIRTUAL_RPC_COMMANDS_BY_RUNTIME = {
     "pi": VIRTUAL_PI_RPC_COMMAND,
     "hermes": VIRTUAL_HERMES_RPC_COMMAND,
+    "codex": VIRTUAL_CODEX_RPC_COMMAND,
+    "opencode": VIRTUAL_OPENCODE_RPC_COMMAND,
 }
 VIRTUAL_RPC_COMMAND_SET = set(VIRTUAL_RPC_COMMANDS_BY_RUNTIME.values())
 

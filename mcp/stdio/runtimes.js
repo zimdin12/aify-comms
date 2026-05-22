@@ -2011,6 +2011,33 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   let activityLabel = "runtime launch";
   const activeItems = new Map();
 
+  // Synthesized-terminal feed (Phase 5 intermediate — codex stays per-
+  // dispatch but operators see Console activity for each turn). Mirror
+  // of the hermes/pi pattern: terminalSink resolves async at start,
+  // pushTerminalFrame serializes via the sinkChain.
+  let terminalSink = null;
+  let sinkChain = Promise.resolve();
+  const pushTerminalFrame = (text, status = "") => {
+    if (!terminalSink || (!text && !status)) return;
+    const frame = { text: String(text || ""), status: String(status || "") };
+    sinkChain = sinkChain.then(async () => {
+      try {
+        await terminalSink(frame.text, frame.status);
+      } catch {
+        // best-effort
+      }
+    });
+  };
+  const echoPromptToTerminal = () => {
+    const body = String(run?.body || "").trim();
+    if (!body) return;
+    const subject = String(run?.subject || "").trim();
+    const from = String(run?.from || "dashboard").trim() || "dashboard";
+    const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
+    const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
+    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+  };
+
   const markActivity = (label = "runtime event") => {
     lastActivityAt = Date.now();
     activityLabel = label;
@@ -2023,17 +2050,26 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       activeTurnId = params.turn.id;
       callbacks.onRefs?.({ turnId: activeTurnId });
       callbacks.onEvent?.("turn", `Started turn ${activeTurnId}`);
+      pushTerminalFrame(`\r\n\x1b[96m\x1b[1m▶ turn started\x1b[0m\r\n`);
     } else if (message.method === "turn/completed") {
       finalStatus = params.turn?.status || "completed";
       if (params.turn?.error?.message) {
         finalError = params.turn.error.message;
       }
+      const usage = params.turn?.usage || params.usage;
+      const usageStr = usage && (usage.input_tokens || usage.output_tokens)
+        ? ` \x1b[2m(in=${usage.input_tokens || 0} out=${usage.output_tokens || 0})\x1b[0m`
+        : "";
+      pushTerminalFrame(`\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m${usageStr}\r\n`);
       if (finalStatus === "completed" || finalStatus === "interrupted" || finalStatus === "failed") {
         settled = true;
       }
     } else if (message.method === "item/agentMessage/delta") {
       const delta = params.delta || "";
-      if (delta) finalText += delta;
+      if (delta) {
+        finalText += delta;
+        pushTerminalFrame(String(delta));
+      }
     } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
       finalText = params.item.text || finalText;
       if (params.item?.id) activeItems.delete(params.item.id);
@@ -2041,12 +2077,15 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
       const itemType = describeCodexItem(params.item);
       activeItems.set(params.item.id, { label: itemType, startedAt: Date.now() });
       callbacks.onEvent?.("codex", `Started ${itemType}`);
+      pushTerminalFrame(`\r\n\x1b[33m→ ${itemType}\x1b[0m\r\n`);
     } else if (message.method === "item/completed" && params.item?.id) {
       const itemType = activeItems.get(params.item.id)?.label || describeCodexItem(params.item);
       activeItems.delete(params.item.id);
       callbacks.onEvent?.("codex", `Completed ${itemType}`);
+      pushTerminalFrame(`\x1b[32m✓ ${itemType}\x1b[0m\r\n`);
     } else if (message.method === "error" && params.error?.message) {
       finalError = params.error.message;
+      pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${params.error.message}\x1b[0m\r\n`);
     }
   };
 
@@ -2076,6 +2115,19 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
 
   const promise = new Promise(async (resolve, reject) => {
     rejectPromise = reject;
+    // Resolve the synthesized-terminal sink once for this dispatch
+    // (terminalSinkProvider is owned by server.js's dispatch loop).
+    // Awaiting here lets us echo the prompt before any RPC events fire.
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
+        if (typeof sink === "function") terminalSink = sink;
+      } catch (error) {
+        try { callbacks.onEvent?.("codex", `Codex virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    echoPromptToTerminal();
+    pushTerminalFrame("\x1b[2m[codex] connecting...\x1b[0m\r\n");
     let quietTimer = null;
     let mcpToolTimer = null;
     const timer = setTimeout(() => {
@@ -2515,7 +2567,39 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   let interrupted = false;
   let open = null;
 
+  // Synthesized-terminal feed for opencode (Phase 6 intermediate).
+  // Per-dispatch like hermes; full persistent worker is deferred.
+  let terminalSink = null;
+  let sinkChain = Promise.resolve();
+  const pushTerminalFrame = (text, status = "") => {
+    if (!terminalSink || (!text && !status)) return;
+    const frame = { text: String(text || ""), status: String(status || "") };
+    sinkChain = sinkChain.then(async () => {
+      try { await terminalSink(frame.text, frame.status); } catch {}
+    });
+  };
+  const echoPromptToTerminal = () => {
+    const body = String(run?.body || "").trim();
+    if (!body) return;
+    const subject = String(run?.subject || "").trim();
+    const from = String(run?.from || "dashboard").trim() || "dashboard";
+    const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
+    const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
+    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+  };
+
   const promise = new Promise(async (resolve, reject) => {
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
+        if (typeof sink === "function") terminalSink = sink;
+      } catch (error) {
+        try { callbacks.onEvent?.("opencode", `OpenCode virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    echoPromptToTerminal();
+    pushTerminalFrame("\x1b[2m[opencode] connecting...\x1b[0m\r\n");
+
     const timer = setTimeout(async () => {
       interrupted = true;
       try {
@@ -2578,6 +2662,7 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
         "";
 
       if (interrupted || /aborted/i.test(errorMessage || "")) {
+        pushTerminalFrame(`\r\n\x1b[93m\x1b[1m⏸ interrupted\x1b[0m\r\n`);
         resolve({
           status: "cancelled",
           summary: summary || errorMessage || "Run interrupted",
@@ -2588,17 +2673,21 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
       }
 
       if (errorMessage) {
+        pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${errorMessage}\x1b[0m\r\n`, "failed");
         reject(new Error(errorMessage));
         return;
       }
 
+      const reply = summary || "(no output)";
+      pushTerminalFrame(`\r\n${reply}\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n`, "running");
       resolve({
         status: "completed",
-        summary: summary || "(no output)",
+        summary: reply,
         runtimeState: { sessionId },
         externalRefs: { threadId: sessionId, turnId: info.id || "" },
       });
     } catch (error) {
+      pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${error?.message || error}\x1b[0m\r\n`, "failed");
       clearTimeout(timer);
       reject(error);
     } finally {
