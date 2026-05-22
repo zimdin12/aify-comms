@@ -125,6 +125,14 @@ DEFAULT_SETTINGS = {
     "reply_reminder_max_count": 0,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
+    # Tighter window for managed dispatches (non-terminal). Default 5 min.
+    # A managed run with an empty claim_bridge_id that hasn't progressed
+    # within this window is presumed orphaned — the bridge crashed
+    # between claim and the controller's failure-PATCH, OR the failure
+    # PATCH hit a transient connection error and was logged-but-lost.
+    # Tuned tighter than the 30-min terminal window because managed
+    # dispatches are typically per-turn and shouldn't linger.
+    "active_managed_run_stale_minutes": 5,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     # Auto-confirm the Claude "WARNING: Loading development channels" prompt
@@ -10815,6 +10823,83 @@ async def get_dispatch_run(run_id: str, request: Request):
         }
     finally:
         await db.close()
+
+
+async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str, str]]:
+    """Close managed/channel/resident dispatch_runs whose owning bridge
+    didn't report a terminal status within `active_managed_run_stale_minutes`.
+
+    Operator-reported case (2026-05-22): hermes-test's createHermesController
+    spawn failed (provider missing) but the dispatch_run lingered in
+    'running' state for 30 minutes before the generic 30-min stale repair
+    caught it. The bridge's failure-PATCH may have hit a transient
+    connection error and was logged-but-dropped — bridge-side retry
+    logic now catches most of these, but a service-side safety net is
+    still worth having for cases where the bridge crashed entirely.
+
+    Only called from the periodic reconciler — NOT from preflight —
+    because preflight's stale-repair call uses a different (terminal-
+    only) discriminator that older steer-preflight tests pin against.
+    This function uses dispatch_mode != 'terminal' as its scope so it
+    doesn't overlap with `_discard_unusable_active_run`'s terminal path.
+    """
+    settings = await _load_settings(db)
+    stale_minutes = int(settings.get("active_managed_run_stale_minutes", 5) or 5)
+    stale_seconds = max(60, stale_minutes * 60)
+    cutoff_param = f"-{stale_seconds} seconds"
+    cursor = await db.execute(
+        """
+        SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode
+        FROM dispatch_runs
+        WHERE status IN ('claimed', 'running')
+          AND COALESCE(claim_bridge_id, '') = ''
+          AND COALESCE(dispatch_mode, '') != 'terminal'
+          AND datetime(COALESCE(started_at, requested_at)) <= datetime('now', ?)
+        ORDER BY requested_at ASC
+        LIMIT ?
+        """,
+        (cutoff_param, limit),
+    )
+    rows = await cursor.fetchall()
+    closed: list[dict[str, str]] = []
+    now = _now()
+    for row in rows:
+        run_id = str(row["id"] or "").strip()
+        target_agent = str(row["target_agent"] or "").strip()
+        if not run_id:
+            continue
+        reason = f"Active managed run has no owning bridge and has exceeded {stale_seconds}s — bridge crashed or failure PATCH was dropped."
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'failed',
+                error_text = ?,
+                finished_at = COALESCE(finished_at, ?)
+            WHERE id = ?
+            """,
+            (reason, now, run_id),
+        )
+        await _append_dispatch_event(db, run_id, "failed", reason)
+        if target_agent:
+            # Clear turn_busy so the agent's status falls back to
+            # available/online instead of staying "working" via stale
+            # heartbeat.
+            await db.execute(
+                """
+                INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+                VALUES (?, 0, '', '', '', ?)
+                ON CONFLICT(agent_id) DO UPDATE SET
+                    turn_busy = 0,
+                    turn_run_id = '',
+                    turn_bridge_id = '',
+                    turn_runtime = '',
+                    turn_updated_at = excluded.turn_updated_at
+                """,
+                (target_agent, now),
+            )
+            await _invalidate_agent_live_state(db, target_agent)
+        closed.append({"runId": run_id, "agentId": target_agent})
+    return closed
 
 
 async def _close_idle_virtual_rpc_workers(db, *, limit: int = 200) -> list[dict[str, str]]:

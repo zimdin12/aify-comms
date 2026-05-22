@@ -8184,6 +8184,102 @@ class ApiV2RegressionTests(unittest.TestCase):
             f"Expected send to available agent to queue a dispatch, got {sent}",
         )
 
+    def test_orphaned_managed_runs_closed_after_stale_window(self):
+        # Operator-reported (2026-05-22): managed hermes-test dispatch
+        # sat in 'running' for 30 min after the spawn failed because
+        # the bridge's failure-PATCH was dropped on a transient
+        # connection error. The 30-min generic stale-repair caught it
+        # eventually; this commit tightens the window for managed-mode
+        # runs to 5 min (configurable) via _close_orphaned_managed_runs
+        # in the periodic reconciler. Bridge-side .catch handler now
+        # also retries the failure-PATCH 3 times so the service-side
+        # safety net is only needed when the bridge crashed entirely.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("orphan-hermes", runtime="hermes", sessionMode="managed")
+        # Seed: dispatch_run started 10 minutes ago, no claim_bridge_id,
+        # non-terminal dispatch_mode → orphan candidate.
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_orphan_1", None, "dashboard", "orphan-hermes", "start_if_possible",
+                "managed", "request", "stuck working", "body", "normal",
+                "running", 0, stale_at, None, stale_at, "",
+            ),
+        )
+        # Seed turn_busy=1 to simulate the stuck working signal.
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, '', 'hermes', ?)
+            """,
+            ("orphan-hermes", "run_orphan_1", api_v2._now()),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, closed)
+        self.assertEqual(closed[0]["runId"], "run_orphan_1")
+
+        # Run is now failed.
+        run_row = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id = ?", ("run_orphan_1",))
+        self.assertEqual(run_row["status"], "failed")
+        self.assertIn("no owning bridge", (run_row["error_text"] or "").lower())
+
+        # turn_busy auto-cleared.
+        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("orphan-hermes",))
+        self.assertEqual(int(tb["turn_busy"] or 0), 0)
+
+    def test_orphaned_managed_runs_not_closed_when_bridge_owns(self):
+        # Guardrail: orphan-cleanup never touches runs with a real
+        # claim_bridge_id. Bridge-driven runs stay until the bridge
+        # itself reports their terminal state.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("owned-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_owned_1", None, "dashboard", "owned-hermes", "start_if_possible",
+                "managed", "request", "still running", "body", "normal",
+                "running", 0, stale_at, stale_at, stale_at, "bridge-real-1",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 0)
+        run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_owned_1",))
+        self.assertEqual(run_row["status"], "running")
+
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
         # Operator-driven feature: virtual rpc terminal_sessions whose
         # updated_at is older than worker_idle_close_minutes AND have no

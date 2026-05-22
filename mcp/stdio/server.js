@@ -2055,19 +2055,37 @@ async function runDispatchLoop() {
         })
         .catch(async (error) => {
           const message = error?.message || String(error);
-          try {
-            await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
-              status: "failed",
-              error: message,
-              agentStatus: "idle",
-              appendEvent: message,
-              eventType: "failed",
-            });
-            await clearTurnBusy();
-            await ensureRequiredReplyHandoff(agentId, run, "failed", message);
-          } catch (inner) {
-            console.error("[aify] failed to report dispatch failure:", inner);
+          // Retry the failure-PATCH up to 3 times with exponential
+          // backoff. Without this, a transient connection blip during
+          // the FAILURE path leaves the dispatch_run stuck `running`
+          // — operator-reported "hermes stuck working" symptom. The
+          // server's stale-run reconciler eventually catches it, but
+          // its window is 5+ minutes (5 for managed). Retrying here
+          // closes the gap for the common case.
+          let lastErr = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
+                status: "failed",
+                error: message,
+                agentStatus: "idle",
+                appendEvent: message,
+                eventType: "failed",
+              });
+              await clearTurnBusy();
+              await ensureRequiredReplyHandoff(agentId, run, "failed", message);
+              return;
+            } catch (inner) {
+              lastErr = inner;
+              if (attempt < 2) {
+                await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+              }
+            }
           }
+          console.error(
+            `[aify] failed to report dispatch failure for ${run.id} after 3 retries; server reconciler will catch it within active_managed_run_stale_minutes:`,
+            lastErr?.message || lastErr,
+          );
         })
         .finally(async () => {
           await clearTurnBusy();

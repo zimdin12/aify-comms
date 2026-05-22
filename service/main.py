@@ -60,6 +60,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
     from service.routers.api_v2 import (
         _close_idle_virtual_rpc_workers,
+        _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
         _prune_terminal_history,
         _reconcile_stale_managed_terminals_for_resident_agents,
@@ -88,6 +89,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # window (default 0 = disabled). Returns the closed terminals
         # so the periodic-reconcile log shows them.
         closed_idle_workers = await _close_idle_virtual_rpc_workers(db, limit=200)
+        # Tight-window cleanup for managed-mode runs whose bridge
+        # didn't report failure (bridge crashed or failure PATCH was
+        # dropped during a transient connection blip). 5-min default.
+        closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
         await db.commit()
         return {
             "repaired_active": repaired_active,
@@ -96,6 +101,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "reply_reminder_skipped": len(reminders.get("skipped", [])),
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
+            "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:
