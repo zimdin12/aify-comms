@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -8182,6 +8183,176 @@ class ApiV2RegressionTests(unittest.TestCase):
             sent.get("ok") is not False or len(sent.get("dispatchRuns", [])) > 0,
             f"Expected send to available agent to queue a dispatch, got {sent}",
         )
+
+    def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
+        # Operator-driven feature: virtual rpc terminal_sessions whose
+        # updated_at is older than worker_idle_close_minutes AND have no
+        # in-flight dispatch runs get auto-closed by the periodic
+        # reconciler. Setting at 0 (default) → disabled.
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_close",
+            bridgeId="bridge-idle-close",
+            machineId="linux:idle-close",
+            runtimes=[
+                {
+                    "runtime": "pi",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True},
+                }
+            ],
+        )
+        self._register("idle-pi", runtime="pi", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_close_1", "idle-pi", "env_idle_close", "pi", "/w", "managed",
+                "managed", "bridge-idle-close", "vterm_idle_close_1", "running",
+                "aify://virtual-rpc/pi", "/w", "", "pi-handle", "", None, None,
+                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+            ),
+        )
+        # Stale terminal_session (updated 30 min ago).
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_idle_close_1", "sess_idle_close_1", "idle-pi", "env_idle_close",
+                "bridge-idle-close", "pi", "/w", "aify://virtual-rpc/pi",
+                "", "running", "bridge-rpc", stale_at, stale_at, None, "",
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({"virtualTerminal": True, "virtualTerminalId": "vterm_idle_close_1"}), "idle-pi"),
+        )
+
+        # Run the reconciler.
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, closed)
+        self.assertEqual(closed[0]["agentId"], "idle-pi")
+
+        # Terminal stopped, agent runtime_state cleared.
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_idle_close_1",))
+        self.assertEqual(term["status"], "stopped")
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("idle-pi",))
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        self.assertNotIn("virtualTerminalId", rs)
+
+    def test_idle_virtual_rpc_workers_not_closed_when_in_flight_run(self):
+        # Guardrail: in-flight dispatch_run blocks auto-close.
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_inflight",
+            bridgeId="bridge-idle-inflight",
+            machineId="linux:idle-inflight",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("inflight-pi", runtime="pi", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_inflight", "inflight-pi", "env_idle_inflight", "pi", "/w", "managed",
+                "managed", "bridge-idle-inflight", "vterm_inflight", "running",
+                "aify://virtual-rpc/pi", "/w", "", "pi-handle-2", "", None, None,
+                "{}", "{}", "running", api_v2._now(), api_v2._now(), None,
+            ),
+        )
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_inflight", "sess_inflight", "inflight-pi", "env_idle_inflight",
+                "bridge-idle-inflight", "pi", "/w", "aify://virtual-rpc/pi",
+                "", "running", "bridge-rpc", stale_at, stale_at, None, "",
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_inflight", None, "dashboard", "inflight-pi", "start_if_possible",
+                "managed", "request", "in flight", "body", "normal", "running", 0, api_v2._now(),
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 0, "in-flight run should block auto-close")
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_inflight",))
+        self.assertEqual(term["status"], "running")
+
+    def test_agent_favorite_endpoint_toggles_and_returns_in_payload(self):
+        self._register("fav-agent")
+        # Default not favorited.
+        agent = self.client.get("/api/v1/agents/fav-agent").json()["agent"]
+        self.assertEqual(agent.get("favorited"), False)
+
+        # Favorite.
+        r1 = self.client.patch("/api/v1/agents/fav-agent/favorite", json={"favorited": True})
+        self.assertEqual(r1.status_code, 200, r1.text)
+        self.assertEqual(r1.json()["favorited"], True)
+        agent = self.client.get("/api/v1/agents/fav-agent").json()["agent"]
+        self.assertEqual(agent["favorited"], True)
+
+        # Unfavorite.
+        r2 = self.client.patch("/api/v1/agents/fav-agent/favorite", json={"favorited": False})
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json()["favorited"], False)
+        agent = self.client.get("/api/v1/agents/fav-agent").json()["agent"]
+        self.assertEqual(agent["favorited"], False)
+
+        # Unknown agent → 404.
+        r3 = self.client.patch("/api/v1/agents/ghost/favorite", json={"favorited": True})
+        self.assertEqual(r3.status_code, 404, r3.text)
 
     def test_stop_worker_tears_down_session_and_returns_to_available(self):
         # Phase 4: dashboard Stop → agent goes from online/working to

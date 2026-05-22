@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
     from service.routers.api_v2 import (
+        _close_idle_virtual_rpc_workers,
         _close_reconcilable_delivered_runs,
         _prune_terminal_history,
         _reconcile_stale_managed_terminals_for_resident_agents,
@@ -83,6 +84,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # still show "attached" but no bridge owns them. Without this
         # the dashboard renders ghost consoles for resident agents.
         stale_resident_terminals = await _reconcile_stale_managed_terminals_for_resident_agents(db)
+        # Auto-close persistent workers idle longer than the configured
+        # window (default 0 = disabled). Returns the closed terminals
+        # so the periodic-reconcile log shows them.
+        closed_idle_workers = await _close_idle_virtual_rpc_workers(db, limit=200)
         await db.commit()
         return {
             "repaired_active": repaired_active,
@@ -90,6 +95,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "reply_reminders": len(reminders.get("reminded", [])),
             "reply_reminder_skipped": len(reminders.get("skipped", [])),
             "stale_resident_terminals_cleared": stale_resident_terminals,
+            "idle_workers_closed": len(closed_idle_workers),
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:

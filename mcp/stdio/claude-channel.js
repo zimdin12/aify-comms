@@ -333,9 +333,23 @@ async function pollLoop() {
               // Run closed (completed / failed / cancelled) — stop refreshing.
               LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
             }
-          } catch {
-            // 404 or transient — clear so we don't poll forever
-            LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
+          } catch (error) {
+            // 404 = run is genuinely gone → drop tracking. Transient fetch
+            // failures (service restart bumps, network blips) → keep
+            // tracking, retry next cycle. Without this distinction, a
+            // single service-restart blip would silently stop the
+            // working-status heartbeat and the dashboard would prematurely
+            // report online while the agent is still mid-turn.
+            const status = Number(error?.status || 0);
+            if (status === 404) {
+              LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
+            }
+            // Otherwise: keep tracking. Also re-pulse busy=true once more
+            // to extend the heartbeat past the transient — the agent IS
+            // still working as far as we know.
+            else {
+              await reportTurnBusy(agentId, { busy: true, runId: trackedRunId }).catch(() => {});
+            }
           }
         }
       }

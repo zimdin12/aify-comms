@@ -30,6 +30,10 @@ class AgentDescribeRequest(BaseModel):
     description: str
 
 
+class AgentFavoriteUpdate(BaseModel):
+    favorited: bool
+
+
 class AgentStatusUpdate(BaseModel):
     status: str
     note: Optional[str] = None

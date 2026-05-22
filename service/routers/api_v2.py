@@ -32,7 +32,7 @@ from service.models import (
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
     ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalOutputRequest,
-    VirtualTerminalEnsureRequest,
+    VirtualTerminalEnsureRequest, AgentFavoriteUpdate,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -166,6 +166,15 @@ DEFAULT_SETTINGS = {
     # is unchanged. Operator flips on for live-smoke; immediate
     # rollback by flipping back to false.
     "managed_pty_eager_spawn": False,
+    # Auto-close persistent workers (virtual rpc terminals) that have
+    # been idle for this many minutes. 0 disables (default). Operator
+    # asked for this 2026-05-22: after sending a message the agent
+    # comes online (worker spawns), but if no follow-up arrives within
+    # the window the worker should close to free resources and reflect
+    # the actual operational state (available). The reconciler checks
+    # every cycle (60s) and only acts on workers with no in-flight
+    # dispatch_runs.
+    "worker_idle_close_minutes": 0,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
@@ -1810,6 +1819,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
         "runtimeState": _json_loads_or(row["runtime_state"], {}),
         "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
+        "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
     }
 
 
@@ -10033,6 +10043,35 @@ async def update_agent_description(agent_id: str, req: AgentDescribeRequest, req
         await db.close()
 
 
+@router.patch("/agents/{agent_id}/favorite")
+async def update_agent_favorite(agent_id: str, req: AgentFavoriteUpdate, request: Request):
+    """Dashboard favorites — pin/unpin an agent in the chat list.
+
+    Operator-set per-deployment flag (not synced across remote
+    dashboards). Dashboard renders favorited agents at the top of the
+    list and shows a visual marker. Pure metadata — no behavior change.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        flag = 1 if bool(req.favorited) else 0
+        await db.execute(
+            "UPDATE agents SET favorited = ?, last_seen = ? WHERE id = ?",
+            (flag, _now(), agent_id),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_favorite_updated", {"agentId": agent_id, "favorited": bool(flag)})
+        return {"ok": True, "agentId": agent_id, "favorited": bool(flag)}
+    finally:
+        await db.close()
+
+
 @router.get("/agents/{agent_id}/listen")
 async def listen_for_messages(agent_id: str, request: Request, timeout: int = Query(300, ge=1, le=600)):
     """Long-poll: blocks until agent has unread messages or timeout. Returns the messages."""
@@ -10769,6 +10808,90 @@ async def get_dispatch_run(run_id: str, request: Request):
         }
     finally:
         await db.close()
+
+
+async def _close_idle_virtual_rpc_workers(db, *, limit: int = 200) -> list[dict[str, str]]:
+    """Auto-close persistent workers idle longer than `worker_idle_close_minutes`.
+
+    Operator-driven feature (2026-05-22 plan). Configurable via the
+    setting (default 0 = disabled, recommend 10 if enabled). Finds
+    virtual rpc terminal_session rows that:
+      - command is in VIRTUAL_RPC_COMMAND_SET (pi or hermes virtual feed)
+      - status is active (not stopped/failed)
+      - updated_at is older than N minutes (no recent output)
+      - the owning agent has NO in-flight dispatch_runs (claimed/
+        running/delivered+require_reply) — so we don't kill a worker
+        mid-turn
+    For each, marks the terminal stopped, clears the agent's
+    runtime_state.virtualTerminal* pointers, emits an audit event,
+    and invalidates the live-state cache. The owning bridge's
+    PiSession.idle-timeout (24h default) ALSO closes it eventually;
+    this is the operator-tunable, much-shorter version that runs
+    server-side and works across bridge restarts.
+    """
+    settings = await _load_settings(db)
+    minutes = int(settings.get("worker_idle_close_minutes", 0) or 0)
+    if minutes <= 0:
+        return []
+    cursor = await db.execute(
+        f"""
+        SELECT t.id, t.agent_id, t.command
+        FROM terminal_sessions t
+        WHERE t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
+          AND t.status IN ('starting', 'running', 'recovering', 'active', 'idle')
+          AND datetime(t.updated_at) <= datetime('now', ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM dispatch_runs r
+            WHERE r.target_agent = t.agent_id
+              AND (
+                r.status IN ('claimed', 'running')
+                OR (r.status = 'delivered' AND COALESCE(r.require_reply, 0) = 1)
+              )
+          )
+        ORDER BY t.updated_at ASC
+        LIMIT ?
+        """,
+        (*VIRTUAL_RPC_COMMAND_SET, f"-{minutes} minutes", limit),
+    )
+    rows = await cursor.fetchall()
+    now = _now()
+    closed: list[dict[str, str]] = []
+    for row in rows:
+        terminal_id = str(row["id"] or "").strip()
+        owner_agent = str(row["agent_id"] or "").strip()
+        if not terminal_id:
+            continue
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                stopped_at = COALESCE(stopped_at, ?),
+                updated_at = ?,
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, f"Auto-closed: idle longer than worker_idle_close_minutes={minutes}.", terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "virtual_rpc_auto_closed_idle",
+            json.dumps({"agentId": owner_agent, "idleMinutes": minutes}),
+        )
+        if owner_agent:
+            agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (owner_agent,))).fetchone()
+            if agent_row:
+                rs = _json_loads_or(agent_row["runtime_state"], {}) or {}
+                if str(rs.get("virtualTerminalId") or "").strip() == terminal_id:
+                    rs.pop("virtualTerminal", None)
+                    rs.pop("virtualTerminalId", None)
+                    await db.execute(
+                        "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                        (json.dumps(rs), now, owner_agent),
+                    )
+            await _invalidate_agent_live_state(db, owner_agent)
+        closed.append({"terminalId": terminal_id, "agentId": owner_agent})
+    return closed
 
 
 async def _close_reconcilable_delivered_runs(

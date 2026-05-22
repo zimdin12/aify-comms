@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS agents (
     capabilities TEXT DEFAULT '[]',
     runtime_config TEXT DEFAULT '{}',
     runtime_state TEXT DEFAULT '{}',
+    favorited INTEGER NOT NULL DEFAULT 0,
     registered_at TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
@@ -408,6 +409,10 @@ AGENT_MIGRATIONS = {
     "runtime_state": "ALTER TABLE agents ADD COLUMN runtime_state TEXT DEFAULT '{}'",
     "description": "ALTER TABLE agents ADD COLUMN description TEXT DEFAULT ''",
     "status_note": "ALTER TABLE agents ADD COLUMN status_note TEXT DEFAULT ''",
+    # Operator-set "favorite" flag for chat ordering (dashboard puts
+    # favorited agents on top). Per-deployment marker; not synced
+    # across remote dashboards.
+    "favorited": "ALTER TABLE agents ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0",
 }
 
 DISPATCH_RUN_MIGRATIONS = {
