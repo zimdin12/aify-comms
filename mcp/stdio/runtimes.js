@@ -684,7 +684,7 @@ function splitProviderModel(value) {
   return { providerID: providerID.trim(), modelID };
 }
 
-function opencodePermissionConfig(config = {}) {
+export function opencodePermissionConfig(config = {}, executionMode = "managed") {
   if (config.permission && typeof config.permission === "object") {
     return config.permission;
   }
@@ -694,6 +694,9 @@ function opencodePermissionConfig(config = {}) {
   }
   if (policy === "ask") {
     return { bash: "ask", edit: "ask", webfetch: "ask" };
+  }
+  if (executionMode !== "resident") {
+    return { bash: "allow", edit: "allow", webfetch: "allow" };
   }
   return undefined;
 }
@@ -2495,7 +2498,7 @@ function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callb
   const cwd = agentInfo.cwd || process.cwd();
   const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
   const model = splitProviderModel(agentInfo.model || config.model || "");
-  const permission = opencodePermissionConfig(config);
+  const permission = opencodePermissionConfig(config, executionMode);
   const selectedAgent = String(config.agent || "").trim() || undefined;
   let sessionId =
     executionMode === "resident"
