@@ -279,15 +279,31 @@ async function markDispatchDeliveryFailed(runId, error) {
   });
 }
 
-// Most-recent run we delivered to each agent. While the run sits in
-// 'delivered' status (awaiting reply), we refresh turn_busy=true on
-// every poll cycle so the 120s server-side stale window doesn't time
-// out the working state during long claude turns. Stop hook clears
-// turn_busy authoritatively when the turn ends (see install.sh's
-// claude-aify Stop hook → POST /agents/{id}/turn-end); the periodic
-// refresh is what keeps "working" visible until that fires (or until
-// the reply lands and closes the run).
-const LAST_DELIVERED_RUN_PER_AGENT = new Map();
+// Per-agent "I delivered work recently — assistant is probably still
+// running" timestamp. While set and within TURN_REFRESH_MAX_AGE_MS, we
+// refresh turn_busy=true on every poll cycle. The Stop hook is the
+// authoritative clear signal (POST /agents/{id}/turn-end fires when
+// the assistant turn ends); this map's 10-min ceiling is the safety
+// upper bound for a single turn so a missed Stop hook doesn't pin
+// "working" forever.
+//
+// Previous design polled the dispatch_run's status and dropped
+// tracking when it went non-'delivered'. Wrong for require_reply=0
+// dispatches: the server completes delivery-only runs IMMEDIATELY
+// on delivery, so the next poll cycle (~3s later) saw status =
+// 'completed' and dropped tracking → 120s later turn_busy staled →
+// status flipped to "online" while the assistant was still composing
+// a long multi-tool-call reply. Operator-reported 2026-05-22:
+// "you are showing online. check now" + "i wrote you in here (in
+// console) so i would not affect that status. but it should affect
+// it, because you are running in claude-aify i think" — confirming
+// the bridge IS claude-aify-wrapped but the refresh wasn't keeping up.
+//
+// New: timestamp-based tracker. Set on EVERY claim. Re-pulse on every
+// poll cycle while within the window. Drop only on Stop-hook clear
+// (we read server's turn_busy state) or window expiry.
+const LAST_DELIVERED_AT_PER_AGENT = new Map();
+const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 
 async function pollLoop() {
   while (true) {
@@ -317,38 +333,41 @@ async function pollLoop() {
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
       }
-      // Periodic turn_busy refresh while the agent has an in-flight
-      // delivered run we previously notified. Stop hook clears it
-      // authoritatively when the assistant turn ends; this just keeps
-      // the working state from staling out during long turns.
+      // Periodic turn_busy refresh while the assistant is probably
+      // still mid-turn. Tracked by the timestamp of the most recent
+      // dispatch we delivered to this agent — independent of the
+      // dispatch_run's status (require_reply=0 runs complete
+      // immediately on delivery but the assistant keeps working).
+      // Bounded by TURN_REFRESH_MAX_AGE_MS so a missed Stop hook
+      // can't pin "working" forever.
       if (batch.length === 0) {
-        const trackedRunId = LAST_DELIVERED_RUN_PER_AGENT.get(agentId);
-        if (trackedRunId) {
-          try {
-            const res = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(trackedRunId)}`);
-            const status = String(res?.run?.status || "").trim().toLowerCase();
-            if (status === "delivered") {
-              await reportTurnBusy(agentId, { busy: true, runId: trackedRunId }).catch(() => {});
-            } else {
-              // Run closed (completed / failed / cancelled) — stop refreshing.
-              LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
-            }
-          } catch (error) {
-            // 404 = run is genuinely gone → drop tracking. Transient fetch
-            // failures (service restart bumps, network blips) → keep
-            // tracking, retry next cycle. Without this distinction, a
-            // single service-restart blip would silently stop the
-            // working-status heartbeat and the dashboard would prematurely
-            // report online while the agent is still mid-turn.
-            const status = Number(error?.status || 0);
-            if (status === 404) {
-              LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
-            }
-            // Otherwise: keep tracking. Also re-pulse busy=true once more
-            // to extend the heartbeat past the transient — the agent IS
-            // still working as far as we know.
-            else {
-              await reportTurnBusy(agentId, { busy: true, runId: trackedRunId }).catch(() => {});
+        const trackedAt = LAST_DELIVERED_AT_PER_AGENT.get(agentId);
+        if (trackedAt) {
+          const age = Date.now() - trackedAt;
+          if (age > TURN_REFRESH_MAX_AGE_MS) {
+            LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
+          } else {
+            // Check if Stop hook has cleared turn_busy on the server
+            // side. If yes, the assistant has finished; stop refreshing.
+            // If no, re-pulse to keep the working state fresh.
+            try {
+              const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+              const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
+              // No reliable "turn_busy" field on the public payload;
+              // approximate via status. If server says working, keep
+              // refreshing. If server says online/available/idle, the
+              // Stop hook already cleared — stop our refresh.
+              const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
+              if (serverStatus === "working" || serverBusy) {
+                await reportTurnBusy(agentId, { busy: true }).catch(() => {});
+              } else {
+                // Assistant has finished (Stop hook fired) — drop tracking.
+                LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
+              }
+            } catch {
+              // Transient — re-pulse defensively. The window cap will
+              // eventually drop us if the agent really did stop.
+              await reportTurnBusy(agentId, { busy: true }).catch(() => {});
             }
           }
         }
@@ -356,7 +375,7 @@ async function pollLoop() {
 
       if (batch.length === 1) {
         const run = batch[0];
-        LAST_DELIVERED_RUN_PER_AGENT.set(agentId, run.id);
+        LAST_DELIVERED_AT_PER_AGENT.set(agentId, Date.now());
         // Pulse turn_busy=true on EVERY dispatch delivery (any execution_mode).
         // The agent is about to receive a wake-up and start processing — show
         // "working" in the dashboard until the heartbeat staleness window
@@ -386,7 +405,7 @@ async function pollLoop() {
         // get the server-side channel-awaiting-reply derivation for tighter
         // "working" tracking until the reply lands.
       } else if (batch.length > 1) {
-        LAST_DELIVERED_RUN_PER_AGENT.set(agentId, batch[0].id);
+        LAST_DELIVERED_AT_PER_AGENT.set(agentId, Date.now());
         await reportTurnBusy(agentId, { busy: true, runId: batch[0].id }).catch(() => {});
         const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
         const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";
