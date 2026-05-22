@@ -1105,6 +1105,53 @@ EOF
   ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
 }
 
+install_claude_turn_start_hook() {
+  # Symmetric counterpart to install_claude_turn_end_hook (Stop hook).
+  # Claude Code's UserPromptSubmit hook fires when the operator submits
+  # a prompt to the resident CLI — exactly the moment "working" should
+  # flip on, even when the prompt didn't come through aify-comms's
+  # dispatch path (i.e., operator typed directly into the CLI). Without
+  # this hook, only channel-route dispatches set turn_busy and direct
+  # CLI typing left the dashboard showing "online" while the assistant
+  # was mid-turn. Operator-asked 2026-05-22 to make the two surfaces
+  # symmetric.
+  #
+  # The hook is a no-op when AIFY_AGENT_ID isn't set, so a regular
+  # `claude` session (no aify wrapper) is unaffected.
+  local settings_file="$HOME/.claude/settings.json"
+  mkdir -p "$(dirname "$settings_file")"
+  if [ ! -f "$settings_file" ]; then
+    echo '{}' > "$settings_file"
+  fi
+  local node_settings_file
+  node_settings_file="$(path_for_node "$settings_file")"
+  local hook_command
+  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true; fi'
+  MSYS_NO_PATHCONV=1 node -e "
+    const fs = require('fs');
+    const settingsPath = process.argv[1];
+    const command = process.argv[2];
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch (_) {}
+    if (!settings || typeof settings !== 'object') settings = {};
+    if (!settings.hooks) settings.hooks = {};
+    if (!Array.isArray(settings.hooks.UserPromptSubmit)) settings.hooks.UserPromptSubmit = [];
+    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
+      h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-start')
+    );
+    settings.hooks.UserPromptSubmit.push({
+      hooks: [{
+        type: 'command',
+        command,
+        timeout: 3
+      }]
+    });
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  " "$node_settings_file" "$hook_command"
+}
+
 install_claude_turn_end_hook() {
   # Architectural turn-end signal for resident claude-aify sessions.
   # claude-channel.js delivers dispatches but has no native turn-end
@@ -1322,12 +1369,14 @@ fi
 if [ "$CLIENT" = "claude" ]; then
   if [ -n "$SERVER_URL" ]; then
     install_claude_wrapper
-    # Always install the Stop hook (not gated on --with-hook). This is
-    # the architectural turn-end signal for resident claude — without
-    # it the dashboard sees "working" linger for ~120s after every
-    # turn. The hook is a no-op for regular `claude` sessions (no
-    # AIFY_AGENT_ID env var set), so it's safe to install user-scoped.
+    # Always install the Stop + UserPromptSubmit hooks (not gated on
+    # --with-hook). Stop is the architectural turn-end signal; UserPromptSubmit
+    # is its symmetric counterpart so direct CLI typing (not just channel-
+    # route dispatches) flips the dashboard to "working". Both hooks are
+    # no-ops for regular `claude` sessions without AIFY_AGENT_ID set, so
+    # safe to install user-scoped.
     install_claude_turn_end_hook
+    install_claude_turn_start_hook
   else
     remove_claude_wrapper
   fi

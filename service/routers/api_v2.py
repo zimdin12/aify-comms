@@ -9999,6 +9999,57 @@ async def stop_agent_worker(agent_id: str, request: Request):
         await db.close()
 
 
+@router.post("/agents/{agent_id}/turn-start")
+async def agent_turn_start(agent_id: str, request: Request):
+    """Harness-level turn-START signal — symmetric counterpart to /turn-end.
+
+    Called by per-runtime UserPromptSubmit hooks (claude-aify's
+    UserPromptSubmit hook installed via install.sh) when the operator
+    types a prompt directly into the resident CLI without going through
+    aify-comms's dispatch path. Without this, channel-route dispatches
+    correctly flip the agent to "working" but direct CLI typing leaves
+    the status at "online" while the assistant is actually mid-turn —
+    operator-asked 2026-05-22 to make the two surfaces symmetric.
+
+    Idempotent: refreshes turn_updated_at on every call so the 120s
+    server-side staleness window keeps resetting while the assistant
+    works.
+    """
+    db = await get_db()
+    try:
+        tombstone = await _agent_tombstone(db, agent_id)
+        if tombstone:
+            raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        agent_row = await (await db.execute(
+            "SELECT id, runtime FROM agents WHERE id = ?", (agent_id,)
+        )).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        now = _now()
+        runtime = _normalize_runtime(agent_row["runtime"] or "claude-code")
+        await db.execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, '', 'user-prompt-submit', ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                turn_busy = 1,
+                turn_bridge_id = 'user-prompt-submit',
+                turn_runtime = excluded.turn_runtime,
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, runtime, now),
+        )
+        await db.execute(
+            "UPDATE agents SET last_seen = ? WHERE id = ?",
+            (now, agent_id),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        return {"ok": True, "agentId": agent_id}
+    finally:
+        await db.close()
+
+
 @router.post("/agents/{agent_id}/turn-end")
 async def agent_turn_end(agent_id: str, request: Request):
     """Harness-level turn-end signal.
