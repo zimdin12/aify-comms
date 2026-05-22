@@ -30,6 +30,16 @@ bash install.sh --client hermes --with-hook
 
 Restart Hermes after install.
 
+The installer writes the MCP entry and optional hook to Hermes' active config
+home. On native Windows this is often `%LOCALAPPDATA%\\hermes` (for example
+`C:\\Users\\Administrator\\AppData\\Local\\hermes\\config.yaml`), not
+`~/.hermes`. To confirm the target before or after install:
+
+```bash
+hermes config path
+hermes mcp list
+```
+
 For dashboard-managed spawns, also connect an environment bridge on the machine
 that should run Hermes:
 
@@ -103,7 +113,7 @@ work around the Claude Code stdio MCP race bug.
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.
-- A Hermes MCP config entry in `~/.hermes/config.yaml`.
+- A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
 - The resident wrapper `hermes-aify`.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook.
 

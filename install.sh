@@ -730,6 +730,25 @@ shell_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+hermes_config_root() {
+  # Hermes home is profile-/install-aware.  Native Windows Hermes commonly
+  # runs with HERMES_HOME under AppData\Local\hermes, so writing unconditionally
+  # to ~/.hermes leaves the active Hermes with no MCP server configured.
+  if [ -n "${HERMES_HOME:-}" ]; then
+    printf '%s\n' "$HERMES_HOME"
+    return
+  fi
+  if command -v hermes >/dev/null 2>&1; then
+    local cfg_path=""
+    cfg_path="$(hermes config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+    if [ -n "$cfg_path" ]; then
+      dirname "$cfg_path"
+      return
+    fi
+  fi
+  printf '%s\n' "$HOME/.hermes"
+}
+
 hook_command_for_node_script() {
   local node_script="$1"
   if is_git_bash_windows; then
@@ -896,7 +915,7 @@ EOF
 }
 
 install_hermes_config() {
-  local config_root="$HOME/.hermes"
+  local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
   local node_config_file=""
   local node_server_path=""
@@ -909,6 +928,7 @@ install_hermes_config() {
     const fs = require("fs");
     const file = process.argv[1];
     const serverPath = process.argv[2];
+    const serverUrl = process.argv[3] || "";
     let text = "";
     try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
     if (/^[ \t]*aify-comms:[ \t]*$/m.test(text) && /^[ \t]*mcp_servers:[ \t]*$/m.test(text)) {
@@ -919,6 +939,7 @@ install_hermes_config() {
       "    command: \"node\"",
       "    args:",
       `      - ${JSON.stringify(serverPath)}`,
+      ...(serverUrl ? ["    env:", `      AIFY_SERVER_URL: ${JSON.stringify(serverUrl)}`, `      CLAUDE_MCP_SERVER_URL: ${JSON.stringify(serverUrl)}`] : []),
     ];
     const lines = text.replace(/\s*$/, "").split(/\r?\n/);
     const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
@@ -928,7 +949,7 @@ install_hermes_config() {
     } else {
       fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`);
     }
-  ' "$node_config_file" "$node_server_path"
+  ' "$node_config_file" "$node_server_path" "$SERVER_URL"
 }
 
 migrate_codex_hooks_key() {
@@ -1040,7 +1061,7 @@ install_codex_hook() {
 }
 
 install_hermes_hook() {
-  local config_root="$HOME/.hermes"
+  local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
   local hook_dir="$config_root/agent-hooks"
   local hook_path="$hook_dir/aify-notify.sh"
