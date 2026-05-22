@@ -446,9 +446,14 @@ a{color:var(--accent-text)}
 .chat-global-hit span{display:block;color:var(--muted);font-size:.74em;margin-top:2px}
 .chat-list{overflow:auto;padding:8px}
 .chat-section-label{color:var(--subtle);font-size:.72em;text-transform:uppercase;letter-spacing:.4px;margin:10px 8px 5px}
-.chat-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:8px;border-radius:6px;cursor:pointer}
+.chat-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;padding:8px;border-radius:6px;cursor:pointer}
 .chat-item:hover{background:var(--panel-3)}
 .chat-item.active{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--secondary)}
+.chat-item.fav{box-shadow:inset 3px 0 0 #f5c84c}
+.chat-fav-btn{background:none;border:0;cursor:pointer;font-size:1.1em;line-height:1;padding:2px 4px;color:var(--muted);opacity:.55;transition:opacity .12s,color .12s}
+.chat-fav-btn:hover{opacity:1;color:#f5c84c}
+.chat-fav-btn.on{color:#f5c84c;opacity:1}
+.chat-draft-badge{background:var(--panel-3);color:var(--muted);border:1px solid var(--line);border-radius:999px;font-size:.6em;font-weight:600;padding:1px 6px;letter-spacing:.04em;text-transform:uppercase}
 .chat-item-title{font-weight:600;color:var(--text);min-width:0;display:flex;align-items:center;gap:7px}
 .chat-item-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-status-dot{display:inline-flex;width:8px;height:8px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px #ffffff10;flex:0 0 auto}
@@ -1265,9 +1270,9 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
                 <span>Open only</span>
               </label>
-              <label class="chat-toggle" title="Show only agents that are currently live/startable">
+              <label class="chat-toggle" title="Hide agents whose environment/heartbeat is offline">
                 <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
-                <span>Online only</span>
+                <span>Hide offline</span>
               </label>
               <label class="chat-toggle" title="View chats without marking incoming messages read automatically">
                 <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
@@ -1827,6 +1832,11 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <label>Managed Pi Effort</label>
         <select id="s-pi-effort"><option value="">OMP default</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
         <div class="hint">Optional thinking/effort value passed to Oh My Pi as <code>--thinking</code>.</div>
+      </div>
+      <div class="form-group">
+        <label>Auto-close idle worker (minutes)</label>
+        <input id="s-worker-idle-close" type="number" min="0" max="1440" step="1" placeholder="0 = disabled">
+        <div class="hint">Auto-close persistent workers (managed pi/hermes virtual rpc terminals) idle longer than this many minutes. The reconciler only acts on workers with no in-flight dispatch_runs. <code>0</code> disables. Recommended: <code>10</code>.</div>
       </div>
           </section>
           <section class="settings-panel" data-settings-panel="work">
@@ -4782,7 +4792,13 @@ function updateChatToolPanels() {
 }
 
 function isOnlineChatAgent(info) {
-  return isLiveWakeAgent(info) && !liveIssueForAgent('', info);
+  // Operator-renamed semantic 2026-05-22: "Online only" toggle now means
+  // "exclude offline" — show every agent whose status engine doesn't
+  // explicitly report unreachable. Previously this was a stricter
+  // "live-wake capable AND no live-issue" check which excluded
+  // available/idle agents that were still legitimate chat targets.
+  const raw = String(info?.statusRaw || info?.status || '').toLowerCase();
+  return !['offline', 'stale', 'unreachable'].includes(raw);
 }
 
 function chatPresenceForAgent(info = {}) {
@@ -4864,8 +4880,16 @@ function chatConversations() {
       presence,
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
+      // Server-managed star (PATCH /agents/{id}/favorite). Used by
+      // the favorite-sort hoist below so starred chats float to top
+      // regardless of the operator's sort selection.
+      favorited: !!info.favorited,
     };
   }).filter(Boolean));
+  // Favorites always sort to the top, preserving the chosen sort
+  // among them. Stable sort: sortItems already ran; this re-orders
+  // only the favorited subset to the head.
+  dmItems.sort((a, b) => Number(!!b.favorited) - Number(!!a.favorited));
   const channelItems = sortItems((window._channels || []).map(ch => {
     const cachedMessages = window._chatChannelMessages[ch.name] || [];
     const latestCached = cachedMessages.length ? cachedMessages[cachedMessages.length - 1] : null;
@@ -5087,10 +5111,37 @@ function renderChatRailItem(item) {
     ? `<span class="chat-status-dot ${esc(item.presence.kind + activity)}"${titleAttr(item.presence.label)}></span>`
     : '';
   const awaiting = item.kind === 'dm' ? agentAwaitingInputBadge(item.id || (item.key || '').slice(3)) : '';
-  return `<div class="chat-item${active}" data-chat-key="${esc(item.key)}">` +
-    `<div><div class="chat-item-title">${presence}<span class="chat-item-title-text">${esc(item.title)}</span>${awaiting}</div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
+  // Favorites + half-written draft indicator. Server exposes
+  // `favorited: bool` on every agent payload (PATCH /agents/{id}/favorite).
+  // Draft is per-agent localStorage written by saveCurrentChatDraft().
+  const fav = !!item.favorited;
+  const star = item.kind === 'dm' ? `<button class="chat-fav-btn${fav ? ' on' : ''}" type="button" data-chat-fav="${esc(item.id || '')}" title="${fav ? 'Unfavorite chat' : 'Favorite chat'}" onclick="toggleChatFavorite(event, '${esc(item.id || '')}', ${fav})">${fav ? '★' : '☆'}</button>` : '';
+  const draftKey = item.kind === 'dm' ? `aifyChatDraft:${item.id || ''}` : '';
+  const hasDraft = !!(draftKey && (localStorage.getItem(draftKey) || '').trim());
+  const draftBadge = hasDraft ? '<span class="chat-draft-badge" title="Half-written message saved for this chat">draft</span>' : '';
+  return `<div class="chat-item${active}${fav ? ' fav' : ''}" data-chat-key="${esc(item.key)}">` +
+    `${star}` +
+    `<div><div class="chat-item-title">${presence}<span class="chat-item-title-text">${esc(item.title)}</span>${draftBadge}${awaiting}</div><div class="chat-item-meta clip-1">${esc(item.meta || '')}</div></div>` +
     `${item.unread ? `<span class="chat-unread">${item.unread}</span>` : ''}` +
     `</div>`;
+}
+
+async function toggleChatFavorite(event, agentId, currentlyFavorited) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  if (!agentId) return;
+  try {
+    await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/favorite`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({favorited: !currentlyFavorited}),
+    });
+    // Optimistic local update so the rail re-sorts immediately.
+    const entry = (window._allAgents || []).find(([id]) => id === agentId);
+    if (entry && entry[1]) entry[1].favorited = !currentlyFavorited;
+    renderChatRail();
+  } catch (e) {
+    toast('Could not update favorite');
+  }
 }
 
 async function selectChatConversation(key) {
@@ -5630,15 +5681,29 @@ function updateChatControls(meta) {
   const isDm = meta.kind === 'dm';
   const mode = chatMode();
   if (messengerButton) messengerButton.classList.toggle('btn-primary', mode === 'messenger');
+  // Server payload exposes `consoleAvailable: false` for resident
+  // sessions (server-side: sessionMode === 'resident' → no aify-tracked
+  // PTY/RPC to attach). Operator-asked 2026-05-22: hide the Console
+  // button for resident chats and show a clearer label.
+  const agentInfo = isDm ? ((window._allAgents || []).find(([id]) => id === meta.id)?.[1] || {}) : {};
+  const isResident = isDm && (agentInfo?.consoleAvailable === false
+    || String(agentInfo?.sessionMode || '').toLowerCase() === 'resident');
   if (consoleButton) {
     consoleButton.classList.toggle('btn-primary', mode === 'console');
-    consoleButton.disabled = !isDm;
-    consoleButton.title = isDm ? 'Open a bridge-owned runtime console for this direct chat' : 'Console mode is only available for direct agent chats';
+    consoleButton.disabled = !isDm || isResident;
+    consoleButton.hidden = isResident;
+    consoleButton.title = !isDm
+      ? 'Console mode is only available for direct agent chats'
+      : isResident
+        ? 'Resident sessions run in the operator\'s own terminal — no bridge-owned Console to attach'
+        : 'Open a bridge-owned runtime console for this direct chat';
   }
   if (chatMain) chatMain.classList.toggle('console-mode', mode === 'console');
   if (consoleState) {
     if (!isDm) {
       consoleState.textContent = 'Direct chats only';
+    } else if (isResident) {
+      consoleState.textContent = 'Resident session';
     } else {
       const session = primarySessionForAgent(meta.id);
       const environment = environmentForSession(session);
@@ -7527,6 +7592,7 @@ async function loadSettings() {
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
   document.getElementById('s-pi-effort').value = s.managed_pi_effort || '';
+  document.getElementById('s-worker-idle-close').value = Number(s.worker_idle_close_minutes || 0);
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
   document.getElementById('s-reply-repeat').value = s.reply_reminder_repeat_minutes;
@@ -7564,6 +7630,7 @@ async function saveSettings(e) {
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),
       managed_pi_effort: document.getElementById('s-pi-effort').value || '',
+      worker_idle_close_minutes: Math.max(0, parseInt(document.getElementById('s-worker-idle-close').value) || 0),
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
       reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
       reply_reminder_repeat_minutes: parseInt(document.getElementById('s-reply-repeat').value),

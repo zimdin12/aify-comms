@@ -3532,12 +3532,25 @@ async def _maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, full_outpu
     # Strip ANSI CSI/OSC so the text-only match is reliable.
     stripped = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", tail)
     stripped = re.sub(r"\x1b[\]\^\\]\\d*;?[^\x07]*\x07?", "", stripped)
-    # Require BOTH the warning header AND the menu option to be present.
-    # Each alone could appear in normal Claude conversation (Claude
-    # discussing channels with the operator). Both together near startup
-    # only happens for the actual dev-channel approval menu.
-    has_warning = "WARNING: Loading development channels" in stripped
-    has_menu_option = "I am using this for local development" in stripped
+    # Require BOTH a development-channels warning AND a local-development
+    # menu option to be present. Each alone could appear in normal Claude
+    # conversation; both together near startup only happens for the
+    # actual dev-channel approval menu. Pattern matching is intentionally
+    # permissive to survive minor upstream text changes — operator-
+    # reported 2026-05-22 "Claude dev-channel auto-confirm might not
+    # work" probably traces to a text shift in newer Claude Code.
+    warning_lower = stripped.lower()
+    has_warning = (
+        "loading development channels" in warning_lower
+        or "loading dev channels" in warning_lower
+        or "development channels enabled" in warning_lower
+        or "dev-channel" in warning_lower
+    )
+    has_menu_option = (
+        "i am using this for local development" in warning_lower
+        or "using this for local development" in warning_lower
+        or "local development" in warning_lower and "channel" in warning_lower
+    )
     if not (has_warning and has_menu_option):
         return
     # Idempotency: if we already fired for this terminal session, stop.
