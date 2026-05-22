@@ -1398,13 +1398,34 @@ export function runtimeLaunchAvailability(runtime) {
     };
   }
   if (normalized === "hermes") {
+    // Use the same resolution path as defaultHermesCommand so the
+    // availability advertised on /api/v1/environments matches what the
+    // controller will actually find at spawn time. defaultHermesCommand
+    // probes known Windows install locations (User AppData) when PATH
+    // lookup fails — that's the operator-friendly fallback for shells
+    // started before the Hermes installer populated User PATH. Without
+    // this, the bridge advertised hermes as unavailable even though the
+    // controller would have been able to spawn it.
+    const launcher = defaultHermesCommand();
     const configured = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "").trim();
-    const expected = configured || "hermes";
-    const available = hasExecutable(expected);
+    const cmd = launcher?.command || "";
+    let available = false;
+    if (cmd) {
+      try {
+        if (/[\\/]/.test(cmd) && fs.existsSync(cmd) && fs.statSync(cmd).isFile()) {
+          available = true;
+        } else if (hasExecutable(cmd)) {
+          available = true;
+        }
+      } catch {
+        available = false;
+      }
+    }
+    const expected = configured || cmd || "hermes";
     return {
       available,
       message: available
-        ? `Hermes launcher available (resolved to ${resolveExecutable(expected)})`
+        ? `Hermes launcher available (resolved to ${cmd})`
         : `Runtime "hermes" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
           `Install Hermes Agent for this OS/user, or set AIFY_HERMES_COMMAND to an absolute path and restart the bridge. ` +
           `Diagnostic: ${diagnosticsFor(expected)}`,
