@@ -25,10 +25,16 @@ assert.deepEqual(
   "managed Codex should remain claimable through native managed dispatch",
 );
 
+// Updated 2026-05-22: hermes is now in NATIVE_MANAGED_RUNTIMES
+// (mirrors service-side _NATIVE_MANAGED_RUNTIMES). Managed hermes
+// dispatches are claimed via the native RPC path through
+// createHermesController. The capabilities-based gate is OR'd with
+// runtime membership, so managed Hermes is claimable without an
+// explicit native-managed-run capability now.
 assert.deepEqual(
   supportedExecutionModes({ sessionMode: "managed", runtime: "hermes", capabilities: ["managed-run"] }),
-  [],
-  "managed Hermes should not be claimed without native-managed-run",
+  ["managed"],
+  "managed Hermes must be claimable via native RPC (now in NATIVE_MANAGED_RUNTIMES)",
 );
 
 assert.deepEqual(
