@@ -1820,6 +1820,13 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "runtimeState": _json_loads_or(row["runtime_state"], {}),
         "dispatchState": dispatch_state or {"hasActiveRun": False, "activeRun": None, "queuedRuns": 0},
         "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
+        # Dashboard rendering hint: resident sessions live in an
+        # operator-launched terminal outside aify's PTY tracking — the
+        # dashboard's "Start Console" button can't open or attach to
+        # them, so the dashboard should hide the button for these.
+        # Managed sessions have either a real wrapper PTY OR a
+        # synthesized virtual rpc terminal — Console attaches to either.
+        "consoleAvailable": session_mode != "resident",
     }
 
 
