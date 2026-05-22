@@ -2229,16 +2229,30 @@ server.tool(
   async ({ agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     if (IS_MANAGED_DISPATCH) {
-      return {
-        content: [{
-          type: "text",
-          text:
-            "This is a dashboard-managed run. The agent identity is already registered by the environment bridge, " +
-            "so comms_register is disabled here to avoid converting the managed agent into a resident CLI identity. " +
-            "Answer the current message in final plain text; use comms_send only for separate agent/dashboard updates.",
-        }],
-        isError: true,
-      };
+      // Allow EXPLICIT resident takeover. Operator-verified 2026-05-22:
+      // a managed dashboard agent that's stopped/stale (wake disabled)
+      // needs a way to be picked up by a fresh CLI session — without
+      // this exit, the operator's only path was to delete + re-register
+      // from a different shell, which fights the env-var lifecycle.
+      // The guard's original purpose was to prevent ACCIDENTAL conversion
+      // from a managed-dispatch turn's tool-call. An explicit
+      // `sessionMode: "resident"` is an intentional act and should
+      // succeed. Other sessionMode values (managed, omitted, etc.)
+      // still hit the guard so a tool-call slip can't reclassify.
+      if (normalizeSessionMode(sessionMode) !== "resident") {
+        return {
+          content: [{
+            type: "text",
+            text:
+              "This is a dashboard-managed run. The agent identity is already registered by the environment bridge, " +
+              "so comms_register without an explicit sessionMode is disabled here to avoid converting the managed agent into a resident CLI identity. " +
+              "To take this identity over as a resident CLI session (e.g., the managed worker is stopped and you want to claim it from here), " +
+              "call comms_register with sessionMode=\"resident\" explicitly. " +
+              "Otherwise, answer the current message in final plain text; use comms_send only for separate agent/dashboard updates.",
+          }],
+          isError: true,
+        };
+      }
     }
     const resolvedRuntime = detectRuntime(runtime);
     const resolvedMachineId = machineId || MACHINE_ID;
