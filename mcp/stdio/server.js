@@ -258,11 +258,20 @@ const VIRTUAL_TERMINAL_INPUT = createVirtualTerminalInputManager({
   },
 });
 
+// Bridge-side runtimes that own a synthesized virtual rpc
+// terminal_session. Must stay aligned with the service-side
+// VIRTUAL_RPC_COMMANDS_BY_RUNTIME in api_v2.py — when a new runtime
+// is added there, add it here too so the bridge's terminal-control
+// router routes synth-terminal controls (input/resize/stop) through
+// handleVirtualTerminalControl instead of the legacy node-pty path
+// (which marks the row stopped because no real PTY exists).
+const VIRTUAL_RPC_RUNTIMES = new Set(["pi", "hermes", "codex", "opencode"]);
+
 function findAgentIdForVirtualTerminal(terminalId) {
   const id = String(terminalId || "").trim();
   if (!id) return "";
   for (const [agentId, entry] of VIRTUAL_TERMINALS_BY_AGENT.entries()) {
-    if (entry?.terminalId === id && entry?.runtime === "pi") return agentId;
+    if (entry?.terminalId === id && VIRTUAL_RPC_RUNTIMES.has(entry?.runtime)) return agentId;
   }
   return "";
 }
