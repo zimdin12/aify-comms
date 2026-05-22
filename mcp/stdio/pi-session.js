@@ -298,6 +298,10 @@ export class PiSession {
     this._terminalSink = null;
     this._terminalBuffer = [];
     this._terminalBufferChars = 0;
+    this._flushing = false;
+    // Promise that resolves when the current drain finishes. Reset on
+    // each drain completion so the chain never accumulates closures
+    // (was the chain-leak fixed in bug-hunt audit B-C1).
     this._terminalFlushChain = Promise.resolve();
   }
 
@@ -330,18 +334,37 @@ export class PiSession {
 
   _flushTerminalBuffer() {
     if (!this._terminalSink || this._terminalBuffer.length === 0) return;
-    this._terminalFlushChain = this._terminalFlushChain.then(async () => {
-      while (this._terminalSink && this._terminalBuffer.length > 0) {
-        const frame = this._terminalBuffer.shift();
-        this._terminalBufferChars -= frame.text.length;
-        if (this._terminalBufferChars < 0) this._terminalBufferChars = 0;
-        try {
-          await this._terminalSink(frame.text, frame.status);
-        } catch {
-          // sink failure is best-effort; drop the frame to keep the queue moving
+    if (this._flushing) return;
+    // Single-flight drain. Replaces the previous `_terminalFlushChain =
+    // _terminalFlushChain.then(...)` pattern which kept appending
+    // .then() links forever — a real memory leak for the long-lived
+    // PiSession pool (each text_delta event added a permanent closure
+    // capture of `this`). Pulled out of bug-hunt audit (B-C1).
+    //
+    // `_terminalFlushChain` is still exposed as a Promise so callers
+    // (tests, stop()) can await drain completion — but it's reset on
+    // each drain so the chain never accumulates.
+    this._flushing = true;
+    this._terminalFlushChain = (async () => {
+      try {
+        while (this._terminalSink && this._terminalBuffer.length > 0) {
+          const frame = this._terminalBuffer.shift();
+          this._terminalBufferChars -= frame.text.length;
+          if (this._terminalBufferChars < 0) this._terminalBufferChars = 0;
+          try {
+            await this._terminalSink(frame.text, frame.status);
+          } catch {
+            // sink failure is best-effort; drop the frame to keep the queue moving
+          }
+        }
+      } finally {
+        this._flushing = false;
+        // If frames arrived during the drain, re-arm exactly once.
+        if (this._terminalSink && this._terminalBuffer.length > 0) {
+          this._flushTerminalBuffer();
         }
       }
-    });
+    })();
   }
 
   __terminalBufferForTests() {

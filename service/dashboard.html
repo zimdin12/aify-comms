@@ -149,7 +149,7 @@ tr:hover{background:#19212a}
 .t-info{background:var(--accent-soft);color:var(--accent-text)}.t-error{background:#ff6b6636;color:var(--state-error)}
 .t-review{background:#a371f733;color:#b997ff}.t-approval{background:#55c47524;color:var(--state-online)}
 .t-channel{background:#e2b04424;color:var(--state-working)}
-.st-active{color:var(--state-online)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--state-error)}
+.st-active{color:var(--state-online)}.st-online{color:var(--state-online)}.st-available{color:var(--state-online)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--state-error)}
 .st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--state-error)}.st-offline{color:var(--subtle)}
 .st-queued{color:var(--muted)}.st-claimed{color:var(--state-working)}.st-running{color:var(--state-info)}.st-failed{color:var(--state-error)}.st-cancelled{color:var(--state-working)}.st-cli-takeover{color:var(--state-info)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
@@ -460,7 +460,7 @@ a{color:var(--accent-text)}
 .chat-status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}
 .chat-status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .chat-status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.chat-status-dot.active,.chat-status-dot.online{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
+.chat-status-dot.active,.chat-status-dot.online,.chat-status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
 .chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 @keyframes terminalActivityPulse{0%,100%{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}45%{background:#ff8a2a;box-shadow:0 0 0 6px #ff8a2a36}}
@@ -646,7 +646,7 @@ tr:hover{background:#1b1f21}
 .status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15620}
 .status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.status-dot.active,.status-dot.online{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
+.status-dot.active,.status-dot.online,.status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
 .status-dot.idle,.status-dot.recovering,.status-dot.starting{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .status-dot.cli-takeover{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
@@ -1910,6 +1910,26 @@ window._mobileChatRailOpen = false;
 window._chatChannelMessages = {};
 window._chatReadMarking = new Set();
 window._chatDrafts = {};
+// Hydrate chat drafts from localStorage so the badge + composer survive
+// page reloads.
+(function hydrateChatDrafts() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const lsKey = localStorage.key(i);
+      if (!lsKey || !lsKey.startsWith('aifyChatDraft:')) continue;
+      const key = lsKey.slice('aifyChatDraft:'.length);
+      try {
+        const raw = localStorage.getItem(lsKey);
+        if (!raw) continue;
+        window._chatDrafts[key] = JSON.parse(raw);
+      } catch (_) {
+        // skip malformed draft
+      }
+    }
+  } catch (_) {
+    // localStorage may be unavailable in some sandboxed contexts
+  }
+})();
 window._selectedContracts = new Set();
 window._chatMode = localStorage.getItem('aifyChatMode') === 'console' ? 'console' : 'messenger';
 window._terminalDetails = {};
@@ -4668,10 +4688,16 @@ function saveCurrentChatDraft() {
     priority: priority?.value || 'normal',
     replyTo: window._chatReplyTo || null,
   };
+  // Mirror in-memory draft to localStorage so it survives page
+  // reloads AND so renderChatRail can render the "draft" badge
+  // (which previously read a localStorage key that nothing populated).
+  const lsKey = `aifyChatDraft:${key}`;
   if (!draft.body && !draft.subject && !draft.replyTo && draft.type === 'info' && draft.priority === 'normal') {
     delete window._chatDrafts[key];
+    try { localStorage.removeItem(lsKey); } catch (_) {}
   } else {
     window._chatDrafts[key] = draft;
+    try { localStorage.setItem(lsKey, JSON.stringify(draft)); } catch (_) {}
   }
 }
 
@@ -4834,7 +4860,7 @@ function chatConversations() {
   const openOnly = chatOpenOnly();
   const onlineOnly = chatOnlineOnly();
   const sortMode = chatSortMode();
-  const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
+  const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, available: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
     if (sortMode === 'name') return a.title.localeCompare(b.title);
     if (sortMode === 'activity') {
@@ -5113,11 +5139,14 @@ function renderChatRailItem(item) {
   const awaiting = item.kind === 'dm' ? agentAwaitingInputBadge(item.id || (item.key || '').slice(3)) : '';
   // Favorites + half-written draft indicator. Server exposes
   // `favorited: bool` on every agent payload (PATCH /agents/{id}/favorite).
-  // Draft is per-agent localStorage written by saveCurrentChatDraft().
+  // Draft is in `window._chatDrafts` keyed by `chatDraftKey(item.key)`
+  // (saveCurrentChatDraft writes there; was previously misread from
+  // localStorage which is never populated).
   const fav = !!item.favorited;
   const star = item.kind === 'dm' ? `<button class="chat-fav-btn${fav ? ' on' : ''}" type="button" data-chat-fav="${esc(item.id || '')}" title="${fav ? 'Unfavorite chat' : 'Favorite chat'}" onclick="toggleChatFavorite(event, '${esc(item.id || '')}', ${fav})">${fav ? '★' : '☆'}</button>` : '';
-  const draftKey = item.kind === 'dm' ? `aifyChatDraft:${item.id || ''}` : '';
-  const hasDraft = !!(draftKey && (localStorage.getItem(draftKey) || '').trim());
+  const draftKey = item.kind === 'dm' ? chatDraftKey(item.key) : '';
+  const draftEntry = draftKey ? (window._chatDrafts || {})[draftKey] : null;
+  const hasDraft = !!(draftEntry && ((draftEntry.body && draftEntry.body.trim()) || (draftEntry.subject && draftEntry.subject.trim()) || draftEntry.replyTo));
   const draftBadge = hasDraft ? '<span class="chat-draft-badge" title="Half-written message saved for this chat">draft</span>' : '';
   return `<div class="chat-item${active}${fav ? ' fav' : ''}" data-chat-key="${esc(item.key)}">` +
     `${star}` +

@@ -2166,6 +2166,10 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     }, timeoutMs);
     if (quietTimeoutMs > 0) {
       quietTimer = setInterval(() => {
+        // Outer try-catch: a setInterval callback that throws becomes
+        // an uncaughtException in Node — would crash the bridge.
+        // Code-review B-C2 (2026-05-22).
+        try {
         if (settled) return;
         const idleFor = Date.now() - lastActivityAt;
         if (idleFor < quietTimeoutMs) return;
@@ -2198,10 +2202,14 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           // ignore close errors
         }
         reject(new Error(message));
+        } catch (_) {
+          // best-effort: never let a setInterval throw crash the bridge
+        }
       }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
     }
     if (aifyMcpToolTimeoutMs > 0) {
       mcpToolTimer = setInterval(() => {
+        try {
         if (settled) return;
         const now = Date.now();
         const stuck = [...activeItems.values()].find(item => (
@@ -2233,6 +2241,9 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
           // ignore close errors
         }
         reject(new Error(message));
+        } catch (_) {
+          // best-effort: never let a setInterval throw crash the bridge
+        }
       }, Math.min(10 * 1000, Math.max(2 * 1000, Math.floor(aifyMcpToolTimeoutMs / 6))));
     }
 

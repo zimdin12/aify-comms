@@ -170,7 +170,9 @@ fi
 # turn-end signal to the bridge when each assistant turn ends. Without
 # this, the hook no-ops and the working-status pulse waits out the
 # 120s server-side stale window after every reply.
-export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
+# Caller env wins — a bridge-spawned managed PTY can override the
+# install-time default by exporting AIFY_COMMS_URL beforehand.
+export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-${SERVER_URL:-http://127.0.0.1:8800}}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
 # Resident = a human runs this wrapper in their own terminal (interactive
@@ -402,7 +404,7 @@ fi
 # turn-start / turn-end signals to the bridge symmetrically with
 # claude-aify. Without this, the hooks would no-op because they gate
 # on \${AIFY_COMMS_URL:-}.
-export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
+export AIFY_COMMS_URL="${AIFY_COMMS_URL:-__AIFY_INSTALL_TIME_URL__}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect. See
 # claude-aify for the rationale; same contract applies here.
@@ -421,6 +423,13 @@ fi
 
 exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
 EOF
+  # Substitute the install-time service URL into the wrapper. The
+  # heredoc above is single-quoted so `$SERVER_URL` is NOT expanded
+  # inside it — using a placeholder + post-substitution lets the
+  # wrapper respect a runtime-set AIFY_COMMS_URL while falling back
+  # to the URL the operator passed to install.sh. Without this, the
+  # wrapper hardcoded 127.0.0.1:8800 regardless of `--client codex <url>`.
+  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" && rm -f "$wrapper_path.bak"
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }
@@ -509,8 +518,10 @@ fi
 # expose user-prompt-submit/stop hook surfaces, but exposing the
 # service URL means a future omp hook surface — or operator-written
 # tooling that wraps pi-aify — can call /turn-start /turn-end without
-# additional setup).
-export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
+# additional setup). The placeholder is sed-replaced with the actual
+# install-time URL after the heredoc closes (this heredoc is single-
+# quoted so `$SERVER_URL` is NOT expanded here).
+export AIFY_COMMS_URL="${AIFY_COMMS_URL:-__AIFY_INSTALL_TIME_URL__}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
 # Same contract as claude-aify; works on Ubuntu bash and Git Bash for
@@ -549,6 +560,10 @@ fi
 
 exec "$PI_RUNTIME_COMMAND" "${PI_ARGS[@]}"
 EOF
+  # Same placeholder-substitute pattern as codex-aify above. Without
+  # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
+  # operator's install-time URL.
+  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" && rm -f "$wrapper_path.bak"
   chmod +x "$wrapper_path"
   cp "$wrapper_path" "$alias_path"
   chmod +x "$alias_path"
@@ -859,7 +874,17 @@ EOF
     const apiKey = process.argv[3];
     const serverPath = process.argv[4];
     let data = {};
-    try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (_) {}
+    try {
+      data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (err) {
+      try {
+        if (fs.existsSync(file)) {
+          const bak = file + '.aify-bak-' + Date.now();
+          fs.copyFileSync(file, bak);
+          console.error('[aify-install] WARN: ' + file + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify entry only.');
+        }
+      } catch (_) {}
+    }
     if (!data || typeof data !== 'object') data = {};
     if (!data['\$schema']) data['\$schema'] = 'https://opencode.ai/config.json';
     if (!data.mcp || typeof data.mcp !== 'object' || Array.isArray(data.mcp)) data.mcp = {};
@@ -908,7 +933,17 @@ EOF
     const apiKey = process.argv[3];
     const serverPath = process.argv[4];
     let data = {};
-    try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (_) {}
+    try {
+      data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (err) {
+      try {
+        if (fs.existsSync(file)) {
+          const bak = file + '.aify-bak-' + Date.now();
+          fs.copyFileSync(file, bak);
+          console.error('[aify-install] WARN: ' + file + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify entry only.');
+        }
+      } catch (_) {}
+    }
     if (!data || typeof data !== 'object') data = {};
     if (!data['\$schema']) data['\$schema'] = 'https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json';
     if (!data.mcpServers || typeof data.mcpServers !== 'object' || Array.isArray(data.mcpServers)) data.mcpServers = {};
@@ -1149,7 +1184,17 @@ install_codex_turn_hooks() {
     const startCmd = process.argv[2];
     const endCmd = process.argv[3];
     let data = { hooks: {} };
-    try { data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8')); } catch (_) {}
+    try {
+      data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
+    } catch (err) {
+      try {
+        if (fs.existsSync(hooksPath)) {
+          const bak = hooksPath + '.aify-bak-' + Date.now();
+          fs.copyFileSync(hooksPath, bak);
+          console.error('[aify-install] WARN: ' + hooksPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
+        }
+      } catch (_) {}
+    }
     if (!data || typeof data !== 'object') data = {};
     if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
     const wire = (eventKey, cmd, marker) => {
@@ -1248,7 +1293,18 @@ install_claude_turn_start_hook() {
     let settings = {};
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    } catch (_) {}
+    } catch (err) {
+      // Malformed JSON would otherwise be silently overwritten with a
+      // fresh aify-only file — losing every operator setting/hook.
+      // Back up and warn before we rebuild the file.
+      try {
+        if (fs.existsSync(settingsPath)) {
+          const bak = settingsPath + '.aify-bak-' + Date.now();
+          fs.copyFileSync(settingsPath, bak);
+          console.error('[aify-install] WARN: ' + settingsPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
+        }
+      } catch (_) {}
+    }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
     if (!Array.isArray(settings.hooks.UserPromptSubmit)) settings.hooks.UserPromptSubmit = [];
@@ -1293,7 +1349,18 @@ install_claude_turn_end_hook() {
     let settings = {};
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    } catch (_) {}
+    } catch (err) {
+      // Malformed JSON would otherwise be silently overwritten with a
+      // fresh aify-only file — losing every operator setting/hook.
+      // Back up and warn before we rebuild the file.
+      try {
+        if (fs.existsSync(settingsPath)) {
+          const bak = settingsPath + '.aify-bak-' + Date.now();
+          fs.copyFileSync(settingsPath, bak);
+          console.error('[aify-install] WARN: ' + settingsPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
+        }
+      } catch (_) {}
+    }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
     if (!Array.isArray(settings.hooks.Stop)) settings.hooks.Stop = [];
@@ -1332,7 +1399,18 @@ install_claude_hook() {
     let settings = {};
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    } catch (_) {}
+    } catch (err) {
+      // Malformed JSON would otherwise be silently overwritten with a
+      // fresh aify-only file — losing every operator setting/hook.
+      // Back up and warn before we rebuild the file.
+      try {
+        if (fs.existsSync(settingsPath)) {
+          const bak = settingsPath + '.aify-bak-' + Date.now();
+          fs.copyFileSync(settingsPath, bak);
+          console.error('[aify-install] WARN: ' + settingsPath + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify hook only.');
+        }
+      } catch (_) {}
+    }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
     if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = [];
