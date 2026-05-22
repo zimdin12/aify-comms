@@ -2018,24 +2018,36 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   let terminalSink = null;
   let sinkChain = Promise.resolve();
   const pushTerminalFrame = (text, status = "") => {
-    if (!terminalSink || (!text && !status)) return;
-    const frame = { text: String(text || ""), status: String(status || "") };
-    sinkChain = sinkChain.then(async () => {
-      try {
-        await terminalSink(frame.text, frame.status);
-      } catch {
-        // best-effort
-      }
-    });
+    // Defensive: this is called from RPC notification handlers, often
+    // at high frequency for agentMessage deltas. Any throw here would
+    // propagate up through the RPC client's event dispatch and could
+    // crash the bridge. Belt-and-suspenders: guard everything.
+    try {
+      if (!terminalSink || (!text && !status)) return;
+      const frame = { text: String(text || ""), status: String(status || "") };
+      sinkChain = sinkChain.then(async () => {
+        try {
+          await terminalSink(frame.text, frame.status);
+        } catch {
+          // best-effort
+        }
+      });
+    } catch {
+      // best-effort: don't propagate frame-push failures
+    }
   };
   const echoPromptToTerminal = () => {
-    const body = String(run?.body || "").trim();
-    if (!body) return;
-    const subject = String(run?.subject || "").trim();
-    const from = String(run?.from || "dashboard").trim() || "dashboard";
-    const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
-    const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
-    pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    try {
+      const body = String(run?.body || "").trim();
+      if (!body) return;
+      const subject = String(run?.subject || "").trim();
+      const from = String(run?.from || "dashboard").trim() || "dashboard";
+      const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
+      const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
+      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
+    } catch {
+      // best-effort
+    }
   };
 
   const markActivity = (label = "runtime event") => {
@@ -2118,7 +2130,12 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     // Resolve the synthesized-terminal sink once for this dispatch
     // (terminalSinkProvider is owned by server.js's dispatch loop).
     // Awaiting here lets us echo the prompt before any RPC events fire.
-    if (typeof callbacks?.terminalSinkProvider === "function") {
+    // Wrap broadly so a synchronous helper error (provider lookup,
+    // ensureVirtualTerminal HTTP failure, etc.) can't crash the
+    // controller — operator-reported 2026-05-22 "running codex crashes
+    // aify-comms" possibly traces here. Managed dispatches only;
+    // resident codex has the operator's own visible terminal.
+    if (executionMode === "managed" && typeof callbacks?.terminalSinkProvider === "function") {
       try {
         const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
         if (typeof sink === "function") terminalSink = sink;
@@ -2126,8 +2143,8 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
         try { callbacks.onEvent?.("codex", `Codex virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
       }
     }
-    echoPromptToTerminal();
-    pushTerminalFrame("\x1b[2m[codex] connecting...\x1b[0m\r\n");
+    try { echoPromptToTerminal(); } catch {}
+    try { pushTerminalFrame("\x1b[2m[codex] connecting...\x1b[0m\r\n"); } catch {}
     let quietTimer = null;
     let mcpToolTimer = null;
     const timer = setTimeout(() => {
