@@ -55,6 +55,8 @@ Important:
 
 Managed-opencode dispatches flow through the bridge's opencode SDK adapter — the bridge talks to the opencode server directly. The bridge does NOT depend on aify-comms loading as an MCP server inside opencode for delivery. So the opencode wrapper does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to work around the Claude Code stdio MCP race bug. Your opencode MCP config loads normally.
 
+Managed opencode also surfaces a synthesized `terminal_session` (`command='aify://virtual-rpc/opencode'`, `runtime_state.virtualTerminal=true`) that the dashboard's Console pane attaches to. Frames are coarser than codex because the opencode SDK doesn't expose granular tool events — prompt echo, `[opencode] connecting...`, the final reply (or `✗ error` red on failure), and `■ turn ended`. The controller stays per-dispatch — full persistent-worker pool is Phase 6 of `docs/plans/persistent-worker-status-taxonomy.md`, deferred.
+
 ## Session-mode flag
 
 The `opencode` wrapper accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context.

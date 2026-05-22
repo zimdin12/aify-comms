@@ -107,8 +107,8 @@ Each commit is operator-pull-safe. Phases 5-7 are independent; can be reordered 
 - [x] Phase 2 — Status taxonomy (available/online/working) — `ba45795`
 - [x] Phase 3 — Wake-on-message (test-pinned; works implicitly via Phase 2 + existing per-runtime dispatch handlers) — `1904269`
 - [x] Phase 4 — Stop endpoint (`POST /agents/{id}/stop-worker`) — `1904269`
-- [ ] Phase 5 — Codex persistent worker — **deferred**. 3-5 day refactor: new CodexSession class mirroring `pi-session.js` (pool keyed by agentId, ensureStarted, runTurn, stop, idle-timeout, heal/retry); createCodexControllerManaged wraps it; createCodexController dispatches resident → legacy / managed → managed. Today managed codex still uses per-dispatch app-server connections — UX is unchanged but each turn pays startup cost.
-- [ ] Phase 6 — Opencode persistent worker — **deferred**. Same shape as Phase 5: new OpenCodeSession class, pool, persistent SDK session per agent.
+- [x] Phase 5 — Codex synthesized terminal feed shipped via `a625030` (`aify://virtual-rpc/codex`, per-event frames). Full **persistent-worker pool refactor** still deferred — 3-5 day work: new CodexSession class mirroring `pi-session.js`. Today managed codex still uses per-dispatch app-server connections — UX is identical to the pool version, remaining gain is one connection per agent vs per turn.
+- [x] Phase 6 — Opencode synthesized terminal feed shipped via `a625030` (`aify://virtual-rpc/opencode`, coarser frames because SDK doesn't expose granular events). Full **persistent-worker pool refactor** still deferred — same shape as Phase 5.
 - [x] Phase 7 — Hermes persistent SESSION via `--continue` — `1904269`. Process is per-dispatch (upstream constraint), session+terminal are durable.
 - [ ] Phase 8 — Docs — in progress.
 
