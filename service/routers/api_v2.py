@@ -8936,6 +8936,21 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         next_state = dict(req.runtimeState or {})
         current_state = _json_loads_or(current["runtime_state"], {})
+        # Preserve service-managed runtime_state keys that the bridge
+        # doesn't know about (or won't repopulate on every PATCH).
+        # Without this, a bridge PATCH from the dispatch path (which
+        # only carries sessionId/sessionFile etc.) silently clobbers
+        # virtualTerminalId set earlier by /virtual-terminal/ensure —
+        # the dashboard Console-reattach then looks up a stale pointer.
+        # Bridges that genuinely need to clear these should send
+        # explicit null (handled below).
+        SERVICE_MANAGED_RUNTIME_STATE_KEYS = ("virtualTerminal", "virtualTerminalId")
+        for key in SERVICE_MANAGED_RUNTIME_STATE_KEYS:
+            if key not in next_state and key in current_state:
+                next_state[key] = current_state[key]
+            elif next_state.get(key) is None and key in next_state:
+                # Caller explicitly passed null → honor the clear.
+                next_state.pop(key, None)
         pending = current_state.get("pendingResidentTakeover")
         if (
             _normalize_session_mode(current["session_mode"] or "resident") == "managed"
