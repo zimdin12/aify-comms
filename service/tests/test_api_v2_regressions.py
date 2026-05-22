@@ -3347,7 +3347,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(run["status"], "cancelled")
         self.assertTrue(run["finished_at"])
         agent = self.client.get("/api/v1/agents").json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "online")
+        # Terminal ended → no live worker → status = available (was
+        # "online" under the legacy active-only taxonomy; post-Phase-2
+        # available is the precise label when no worker is running).
+        self.assertEqual(agent["status"], "available")
         self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_unthreaded_completion_info_links_active_claude_terminal_run(self):
@@ -8356,9 +8359,15 @@ class ApiV2RegressionTests(unittest.TestCase):
                 None,
             ),
         )
+        # Use a fresh heartbeat so the idle-staleness override doesn't fire.
+        fresh = api_v2._now()
         self._execute(
             "UPDATE agents SET last_seen = ? WHERE id = ?",
-            ("2026-05-22T00:00:00Z", "taxonomy-claude"),
+            (fresh, "taxonomy-claude"),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET last_seen = ? WHERE id = ?",
+            (fresh, "sess_taxonomy_1"),
         )
         asyncio.run(self._async_invalidate("taxonomy-claude"))
         online = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]

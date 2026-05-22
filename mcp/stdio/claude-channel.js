@@ -279,6 +279,16 @@ async function markDispatchDeliveryFailed(runId, error) {
   });
 }
 
+// Most-recent run we delivered to each agent. While the run sits in
+// 'delivered' status (awaiting reply), we refresh turn_busy=true on
+// every poll cycle so the 120s server-side stale window doesn't time
+// out the working state during long claude turns. Stop hook clears
+// turn_busy authoritatively when the turn ends (see install.sh's
+// claude-aify Stop hook → POST /agents/{id}/turn-end); the periodic
+// refresh is what keeps "working" visible until that fires (or until
+// the reply lands and closes the run).
+const LAST_DELIVERED_RUN_PER_AGENT = new Map();
+
 async function pollLoop() {
   while (true) {
     try {
@@ -307,8 +317,32 @@ async function pollLoop() {
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
       }
+      // Periodic turn_busy refresh while the agent has an in-flight
+      // delivered run we previously notified. Stop hook clears it
+      // authoritatively when the assistant turn ends; this just keeps
+      // the working state from staling out during long turns.
+      if (batch.length === 0) {
+        const trackedRunId = LAST_DELIVERED_RUN_PER_AGENT.get(agentId);
+        if (trackedRunId) {
+          try {
+            const res = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(trackedRunId)}`);
+            const status = String(res?.run?.status || "").trim().toLowerCase();
+            if (status === "delivered") {
+              await reportTurnBusy(agentId, { busy: true, runId: trackedRunId }).catch(() => {});
+            } else {
+              // Run closed (completed / failed / cancelled) — stop refreshing.
+              LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
+            }
+          } catch {
+            // 404 or transient — clear so we don't poll forever
+            LAST_DELIVERED_RUN_PER_AGENT.delete(agentId);
+          }
+        }
+      }
+
       if (batch.length === 1) {
         const run = batch[0];
+        LAST_DELIVERED_RUN_PER_AGENT.set(agentId, run.id);
         // Pulse turn_busy=true on EVERY dispatch delivery (any execution_mode).
         // The agent is about to receive a wake-up and start processing — show
         // "working" in the dashboard until the heartbeat staleness window
@@ -338,6 +372,7 @@ async function pollLoop() {
         // get the server-side channel-awaiting-reply derivation for tighter
         // "working" tracking until the reply lands.
       } else if (batch.length > 1) {
+        LAST_DELIVERED_RUN_PER_AGENT.set(agentId, batch[0].id);
         await reportTurnBusy(agentId, { busy: true, runId: batch[0].id }).catch(() => {});
         const combined = batch.map((run, i) => `--- Message ${i + 1} of ${batch.length} ---\n${dispatchContent(agentId, run)}`).join("\n\n");
         const highestPriority = batch.some(r => r.priority === "urgent") ? "urgent" : batch.some(r => r.priority === "high") ? "high" : "normal";

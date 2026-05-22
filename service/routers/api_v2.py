@@ -1987,19 +1987,52 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # the env-offline branch below and the heartbeat-freshness else-branch.
     live_session = session_status in _LIVE_SESSION_STATUSES
     # New status taxonomy (persistent-worker model — see
-    # docs/plans/persistent-worker-status-taxonomy.md). Replaces the
-    # overloaded `active` with a clearer split:
-    #   - available: env online, agent registered, no live worker yet.
-    #     Send (Phase 3) auto-spawns the worker.
-    #   - online:    worker alive, idle (this is the new "ready").
-    #   - working:   worker handling a turn (unchanged downstream).
-    # `live_session` (agent_sessions.status in {starting,running,...})
-    # is the primary "worker present" signal — true if the bridge has
-    # an agent_session row tracking a runtime process for this agent.
-    # `active` is no longer emitted by the engine; consumers that
-    # treated `active` as "online" continue to work because new
-    # responses just use `online` directly.
-    has_live_worker = live_session
+    # docs/plans/persistent-worker-status-taxonomy.md).
+    # `has_live_worker` discriminates `available` (env online, no
+    # worker) from `online` (worker alive, idle). The "worker" is
+    # whichever runtime process actually serves dispatches:
+    #   - Virtual rpc child (pi managed, hermes managed) → a
+    #     terminal_session row with command in VIRTUAL_RPC_COMMAND_SET
+    #     and active status.
+    #   - Wrapper PTY (claude-aify, codex-aify, hermes-aify, pi-aify,
+    #     omp-aify, opencode wrapper) → terminal_session whose command
+    #     contains "-aify" or "opencode", with active status.
+    #   - Resident without any terminal row → fall back to live_session
+    #     (operator launched the wrapper outside the dashboard's
+    #     terminal_sessions tracking).
+    # A live agent_session ALONE is NOT enough — the bridge keeps the
+    # row across worker restarts (graph-tech-lead symptom: Console
+    # stopped, session row stale-running, agent should be `available`
+    # not `online`).
+    agent_runtime = _normalize_runtime(agent_row["runtime"] or "")
+    agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    has_live_worker = False
+    if live_session:
+        worker_row = await (await db.execute(
+            """
+            SELECT status, command FROM terminal_sessions
+            WHERE agent_id = ?
+              AND status NOT IN ('stopped', 'failed')
+            ORDER BY updated_at DESC LIMIT 1
+            """,
+            (agent_row["id"],),
+        )).fetchone()
+        if worker_row:
+            w_status = str(worker_row["status"] or "").strip().lower()
+            w_command = str(worker_row["command"] or "")
+            if w_status in {"starting", "attached", "running", "active", "idle", "recovering"}:
+                if (
+                    w_command in VIRTUAL_RPC_COMMAND_SET
+                    or "-aify" in w_command
+                    or w_command.startswith("opencode")
+                ):
+                    has_live_worker = True
+        # Resident mode fallback: an operator-launched wrapper might
+        # not register a terminal_session (it lives outside the
+        # dashboard-tracked PTY). live_session is the only signal
+        # available — trust it.
+        if not has_live_worker and agent_session_mode == "resident":
+            has_live_worker = True
     if has_live_worker:
         effective_status = "online"
     elif environment_id and env_status not in {"online", "degraded"}:
