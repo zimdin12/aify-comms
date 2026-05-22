@@ -114,8 +114,9 @@ work around the Claude Code stdio MCP race bug.
 
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
-- The resident wrapper `hermes-aify`.
-- With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook.
+- The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call.
+- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. No matching turn-end shell hook exists upstream; the 120s server-side `turn_busy` stale window handles cleanup.
+- With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive `hermes
 chat` session for human use. Managed Hermes is now driven by `createHermesController`

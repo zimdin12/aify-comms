@@ -112,8 +112,10 @@ The wrapper is `--strict-mcp-config` so only `aify-comms` and `aify-comms-channe
 - The aify skill in `~/.claude/skills/aify-comms`
 - Slash commands in `~/.claude/commands/aify-comms`
 - Optional unread-message hook notifications
+- A `Stop` hook in `~/.claude/settings.json` that POSTs `/api/v1/agents/{id}/turn-end` to the aify service on assistant turn-end. Authoritative `turn_busy=0` signal — clears `working` status when the assistant is actually done, instead of waiting out the 120s server-side staleness window.
+- A `UserPromptSubmit` hook in `~/.claude/settings.json` (symmetric counterpart to the Stop hook) that POSTs `/api/v1/agents/{id}/turn-start` on prompt submit. Flips the dashboard to `working` the moment the operator submits a prompt — even when the prompt didn't come through aify-comms's dispatch path (i.e., direct CLI typing).
 - An `aify-comms` environment bridge launcher in `~/.local/bin`
-- A `claude-aify` wrapper in `~/.local/bin`
+- A `claude-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` (so the Stop / UserPromptSubmit hooks know which service to call)
 
 ## Quick Start
 

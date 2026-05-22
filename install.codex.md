@@ -134,8 +134,9 @@ Important:
 - The `aify-comms` stdio MCP server for Codex (tool namespace retained for compatibility)
 - The aify skill in `$CODEX_HOME/skills/aify-comms`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
+- `UserPromptSubmit` + `Stop` hooks in `$CODEX_HOME/hooks.json` that POST `/api/v1/agents/{id}/turn-start` and `/turn-end` to the aify service. Symmetric with claude-aify's hooks — direct CLI typing flips status to `working`, end-of-turn flips it back. Codex's hooks.json schema accepts these events; inert on CLI versions that don't yet recognize them.
 - An `aify-comms` environment bridge launcher in `~/.local/bin`
-- A `codex-aify` wrapper in `~/.local/bin`
+- A `codex-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` so the turn hooks know which aify service to call
 
 Current Codex CLI note:
 - The installer uses the current `codex mcp add ... --env ...` syntax.

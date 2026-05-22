@@ -392,6 +392,34 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 
 **Consequence.** Managed codex/opencode dispatches show Console activity end-to-end. The auto-close idle-workers reconciler and the stop-worker endpoint already operate on any `command in VIRTUAL_RPC_COMMAND_SET`, so lifecycle is wired automatically. Codex dispatches that fail (provider missing, executable not found, etc.) push a red `✗ error` frame and the run is marked failed via the bridge-side `.catch` retry (3× exponential backoff) — closes the operator-reported "stuck working" symptom from the same testing pass. Service-side `_close_orphaned_managed_runs` (default 5 min via `active_managed_run_stale_minutes`) catches the edge case where the bridge crashed entirely between claim and failure-PATCH.
 
+## Symmetric turn-start / turn-end hooks across *-aify wrappers
+
+**Decision.** Direct CLI typing (operator typing into `claude-aify` / `codex-aify` / `hermes-aify` WITHOUT going through aify-comms's dispatch path) now flips the agent to `working` on prompt submit and back to `online`/`available` on turn-end, symmetric with channel-route dispatches. New service endpoint `POST /agents/{id}/turn-start` (mirror of the existing `/turn-end`) sets `agent_turn_state.turn_busy=1`. Per-runtime hook installs target whichever event surface each CLI exposes:
+- **claude-aify**: `~/.claude/settings.json` → `UserPromptSubmit` + `Stop` hooks (Claude Code's standard hook events).
+- **codex-aify**: `~/.codex/hooks.json` → same schema (`UserPromptSubmit` + `Stop`). Inert on codex CLI versions that don't yet recognize those event names.
+- **hermes-aify**: `~/.hermes/config.yaml` → shell hook on `pre_llm_call` (no turn-end event exposed by upstream shell hooks; the 120s server-side `turn_busy` stale window handles cleanup).
+- pi-aify / opencode-aify: no documented hook surface today, but the wrappers now export `AIFY_COMMS_URL` so future hook surfaces (or operator-written tooling) can call `/turn-start` `/turn-end` without additional setup.
+
+**Why.** Operator-asked 2026-05-22 ("we want stuff to be symmetrical and work in same way"). Before this, only channel-route dispatches set `turn_busy` — direct typing left the dashboard showing `online` while the assistant was actively mid-turn. Symmetry across runtimes was the explicit ask.
+
+**Consequence.** All *-aify wrappers now export `AIFY_COMMS_URL` (was only claude-aify). install.sh's `install_claude_turn_start_hook`, `install_codex_turn_hooks`, and `install_hermes_turn_hooks` wire the hooks. The queue-gate fix (next entry) leans on this signal — without it, `queueIfBusy=true` would still fire prematurely on direct-typing turns.
+
+## Queue gate respects turn_busy
+
+**Decision.** `queueIfBusy=true` defers when ANY of `hasActiveRun`, `queuedRuns > 0`, or `agent_turn_state.turn_busy=1` (fresh, within `TURN_BUSY_STALE_SECONDS`) is true. Previously only the first two were checked.
+
+**Why.** Operator-reported 2026-05-22 — clicking dashboard "Queue" sent the message immediately when the target was mid-turn. Repro: target received an `info` (`require_reply=0`) message; the dispatch_run auto-completed server-side on delivery (delivery-only path); the assistant kept working but `hasActiveRun=False` because no dispatch_run was in `claimed`/`running`. Queue therefore saw "not busy" and dispatched the next message immediately.
+
+**Consequence.** Queue now correctly defers across `require_reply=0` dispatches AND across direct-CLI typing (because the turn-start hooks set `turn_busy`). Authoritative clear paths (Stop hook, reply-landing, orphan reconciler, 120s stale safety) remain unchanged.
+
+## Bridge takeover on virtual rpc terminal_sessions
+
+**Decision.** When a `POST /terminals/{id}/output` arrives with a `bridgeId` that differs from the terminal_session's stored `bridge_id` AND the terminal's `command` is in `VIRTUAL_RPC_COMMAND_SET`, ownership transfers to the new bridge (UPDATE bridge_id) and the write proceeds. Audit event `virtual_rpc_bridge_takeover` records the transition. Real PTY terminals (node-pty spawned by a specific bridge) keep the strict ownership check unchanged.
+
+**Why.** Operator-reported 2026-05-22 — graph-tester-pi's synthesized Console showed "▶ turn started + —" indefinitely while chat kept getting fresh replies. Every dispatch since the bridge restart at 00:24 was claimed by a different bridge UUID (each restart picks a fresh `BRIDGE_INSTANCE_ID`). The strict `bridge_id` check at the output endpoint returned 409 for every new bridge's synth frames → frames dropped → terminal content frozen.
+
+**Consequence.** Synthesized rpc terminals are now portable across bridge processes — the operator's frame stream stays continuous across restarts. Real PTY terminals (where ownership matters because a specific bridge spawned a specific node-pty process) keep their strict check; only the synth-row case relaxes.
+
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.
