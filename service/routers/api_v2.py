@@ -9345,7 +9345,35 @@ async def send_message(req: MessageSend, request: Request):
                 # delivery path instead of creating an orphan dispatch queue.
                 if bool(req.queueIfBusy):
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-                    if dispatch_state.get("hasActiveRun") or int(dispatch_state.get("queuedRuns") or 0) > 0:
+                    # Three signals of "currently busy":
+                    # 1. hasActiveRun: tracked dispatch_run in claimed/running
+                    # 2. queuedRuns > 0: prior queue already pending
+                    # 3. turn_busy=1 (fresh): the agent is mid-turn even if
+                    #    no tracked dispatch_run is in flight. Operator-
+                    #    reported 2026-05-22: queue button sent immediately
+                    #    because require_reply=0 info messages auto-complete
+                    #    their dispatch_run on delivery → hasActiveRun goes
+                    #    false → queue fires the next message immediately
+                    #    while the assistant is still working. turn_busy
+                    #    is the harness-level signal that survives the
+                    #    auto-completion.
+                    is_turn_busy = False
+                    try:
+                        tb_row = await (await db.execute(
+                            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+                            (recipient_id,),
+                        )).fetchone()
+                        if tb_row and int(tb_row["turn_busy"] or 0) == 1:
+                            tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
+                            if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
+                                is_turn_busy = True
+                    except Exception:
+                        is_turn_busy = False
+                    if (
+                        dispatch_state.get("hasActiveRun")
+                        or int(dispatch_state.get("queuedRuns") or 0) > 0
+                        or is_turn_busy
+                    ):
                         continue
                 # Native-managed runtimes (codex/pi/opencode) — only
                 # route through PTY-input when the operator opted into

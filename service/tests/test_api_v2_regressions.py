@@ -8280,6 +8280,63 @@ class ApiV2RegressionTests(unittest.TestCase):
         run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_owned_1",))
         self.assertEqual(run_row["status"], "running")
 
+    def test_queue_if_busy_respects_turn_busy_when_no_active_run_row(self):
+        # Operator-reported 2026-05-22: clicking dashboard "Queue" sent
+        # the message immediately when the target was still mid-turn.
+        # Root cause: require_reply=0 info messages auto-complete on
+        # delivery → hasActiveRun=False even though the assistant was
+        # still working. The queue-if-busy gate now ALSO checks the
+        # harness-level turn_busy signal (set by claude-channel.js claim
+        # / UserPromptSubmit hook / per-runtime turn-start hook), which
+        # survives the dispatch-row auto-completion.
+        self._heartbeat_environment(
+            id="env_qb",
+            bridgeId="bridge-qb",
+            machineId="linux:qb",
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"interrupt": True, "steer": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("qb-claude", runtime="claude-code", sessionMode="resident", runtimeConfig={"channelEnabled": True})
+        # No claimed/running dispatch_run, but turn_busy=1 (fresh) — the
+        # exact scenario the operator hit: previous info message
+        # auto-completed but the assistant is still working.
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, '', 'channel-test', 'claude-code', ?)
+            """,
+            ("qb-claude", api_v2._now()),
+        )
+        self._register("qb-sender", runtime="claude-code", sessionMode="resident")
+        sent = self._send_message(
+            from_agent="qb-sender",
+            to="qb-claude",
+            type="info",
+            subject="should queue not immediate",
+            body="defer this",
+            trigger=True,
+            queueIfBusy=True,
+        )
+        # Queue-if-busy must NOT have dispatched a new live run while
+        # turn_busy=1. The send returns success, but the dispatch_run
+        # should remain in queued state behind the busy turn.
+        runs = sent.get("dispatchRuns", [])
+        if runs:
+            for run in runs:
+                self.assertEqual(
+                    run.get("status"),
+                    "queued",
+                    f"queueIfBusy should defer while turn_busy=1, got {run}",
+                )
+
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
         # Operator-driven feature: virtual rpc terminal_sessions whose
         # updated_at is older than worker_idle_close_minutes AND have no
