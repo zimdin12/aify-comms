@@ -140,6 +140,25 @@ export function formatPiEventAsTerminalFrame(event) {
       const suffix = usage ? colorize(ANSI.dim, `  (${usage})`) : "";
       return `\r\n${colorize(ANSI.cyan + ANSI.bold, "■ turn ended")}${suffix}\r\n`;
     }
+    case "message_end":
+    case "turn_end": {
+      // Operator-reported 2026-05-22: the synthesized pi terminal stopped
+      // at "▶ turn started" + ~1 char of streamed text even though the
+      // assistant produced a full multi-paragraph reply. Root cause:
+      // OMP streams only a few text_delta events at the head of a turn
+      // and then emits the COMPLETE assistant message as
+      // message_end/turn_end with `event.message`. The synthesizer
+      // formatter didn't handle these event types so the bulk of the
+      // reply never made it into the terminal_session.output column.
+      // (turn.finalSnapshotText was correctly populating via the same
+      // events for the chat reply path — that's why chat worked while
+      // Console didn't.)
+      const messageText = extractPiAssistantText(event.message);
+      if (!messageText) return "";
+      // CRLF normalize so the terminal output renders cleanly.
+      const normalized = String(messageText).replace(/\r?\n/g, "\r\n");
+      return `\r\n${normalized}\r\n`;
+    }
     case "error": {
       const msg = String(event.error || event.message || "Pi runtime error");
       return `\r\n${colorize(ANSI.red + ANSI.bold, "✗ error")} ${colorize(ANSI.red, msg)}\r\n`;
@@ -172,10 +191,36 @@ export function formatPiEventAsTerminalFrame(event) {
       return `\r\n${colorize(ANSI.magenta + ANSI.bold, `? ${kind}`)} ${question}${detail}\r\n`;
     }
     case "message_update": {
-      const inner = event.assistantMessageEvent || {};
+      const inner = event.assistantMessageEvent || event.messageEvent || event.message || {};
+      // Operator-reported 2026-05-22: pi synthesized terminal stops at
+      // "▶ turn started" + one delta. The first delta arrives in the
+      // expected shape (assistantMessageEvent.text_delta), subsequent
+      // ones evidently use a different envelope — turn.finalText
+      // accumulates correctly so the assistant DOES produce text;
+      // formatter just doesn't recognize the later shapes. Defensive
+      // fallback covers the variants we've seen in the wild:
+      //   - inner.type === "text_delta" + inner.delta (canonical)
+      //   - inner.type === "text_end" terminator
+      //   - inner.delta directly (no .type field on inner)
+      //   - inner.text or inner.content for batch text
+      //   - top-level event.delta (sometimes OMP flattens)
       if (inner.type === "text_delta") return String(inner.delta || "");
       if (inner.type === "text_end") return "\r\n";
+      if (typeof inner.delta === "string" && inner.delta) return inner.delta;
+      if (typeof inner.text === "string" && inner.text) return inner.text;
+      if (typeof inner.content === "string" && inner.content) return inner.content;
+      if (typeof event.delta === "string" && event.delta) return event.delta;
       return "";
+    }
+    // Additional top-level shapes that some OMP versions emit directly
+    // instead of wrapping in message_update.
+    case "text_delta":
+    case "agent_message_delta":
+    case "agent.message.delta":
+    case "message_delta":
+    case "delta": {
+      const delta = event.delta ?? event.text ?? event.content;
+      return typeof delta === "string" ? delta : "";
     }
     case "usage":
     case "token_usage": {
