@@ -115,7 +115,9 @@ The wrapper is `--strict-mcp-config` so only `aify-comms` and `aify-comms-channe
 - A `Stop` hook in `~/.claude/settings.json` that POSTs `/api/v1/agents/{id}/turn-end` to the aify service on assistant turn-end. Authoritative `turn_busy=0` signal — clears `working` status when the assistant is actually done, instead of waiting out the 120s server-side staleness window.
 - A `UserPromptSubmit` hook in `~/.claude/settings.json` (symmetric counterpart to the Stop hook) that POSTs `/api/v1/agents/{id}/turn-start` on prompt submit. Flips the dashboard to `working` the moment the operator submits a prompt — even when the prompt didn't come through aify-comms's dispatch path (i.e., direct CLI typing).
 - An `aify-comms` environment bridge launcher in `~/.local/bin`
-- A `claude-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` (so the Stop / UserPromptSubmit hooks know which service to call)
+- A `claude-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` using the form `${AIFY_COMMS_URL:-<install-time-url>}` — caller env wins, so a bridge-spawned managed PTY can override the install-time default if it needs to talk to a different aify-comms service.
+
+**Installer safety:** If `~/.claude/settings.json` is malformed (operator hand-edit, prior crash, BOM), the installer backs up the existing file to `<path>.aify-bak-<timestamp>` and logs a `WARN` to stderr before rewriting. The pre-2026-05-22 behavior silently overwrote the file with an aify-only fresh copy, losing every operator setting/hook. Same protection now applies to all hook/config files the installer touches.
 
 ## Quick Start
 

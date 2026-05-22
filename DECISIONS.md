@@ -420,6 +420,16 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 
 **Consequence.** Synthesized rpc terminals are now portable across bridge processes — the operator's frame stream stays continuous across restarts. Real PTY terminals (where ownership matters because a specific bridge spawned a specific node-pty process) keep their strict check; only the synth-row case relaxes.
 
+**Revive-when-stopped (follow-up, `0a0231a`).** A subtle race surfaced after the initial takeover landed: bridge-supersession cleanup (`_stop_virtual_terminals_for_superseded_bridges`) can mark a synth terminal_session `stopped` while a new bridge is concurrently writing frames to it via `/terminals/{id}/output`. The takeover transferred ownership and the writes succeeded (frames appeared in `terminal_events`), but the row's `status='stopped'` lingered — dashboard kept saying "terminal is not running" even with frames streaming in. Bridge-takeover now ALSO revives the row when `current_status == 'stopped'` (`status='running'`, `stopped_at=NULL`, `error=''`). The arriving POST is hard proof the bridge is actively writing. Audit payload extended with `revived: bool`.
+
+## Orphan-managed-run reaper covers terminal-mode runs too
+
+**Decision.** `_close_orphaned_managed_runs` (the 5-min fast reaper) drops its `dispatch_mode != 'terminal'` exclusion and ALSO catches terminal-mode runs whose `claim_bridge_id` is empty. Same 5-min `active_managed_run_stale_minutes` window. Plus: the reaper now requires positive evidence of no progress (`NOT EXISTS dispatch_events since cutoff`) to avoid false-positive reaping of slow-claim clients.
+
+**Why.** Operator-reported 2026-05-22 — hermes-test's queued run sat behind a terminal-mode running run with empty `claim_bridge_id` for 45+ minutes waiting for the generic 30-min `_discard_unusable_active_run` to catch up. The dispatch_mode!='terminal' exclusion was designed to avoid overlap with the generic reaper but was excluding exactly the case where the queue couldn't make progress. Adding the dispatch_events evidence requirement (code-review C1) hardens against false positives from legitimate slow clients.
+
+**Consequence.** Stuck wrapper-PTY-backed dispatches now clear in 5 min instead of 30, unblocking queued messages. Same `active_managed_run_stale_minutes` setting tunes it. Legitimate in-flight runs that DO emit dispatch_events (the normal case) are untouched.
+
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.
