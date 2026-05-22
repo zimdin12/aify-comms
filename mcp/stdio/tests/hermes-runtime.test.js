@@ -113,11 +113,14 @@ assert.equal(argv[1], "-Q");
 assert.equal(argv[2], "-q");
 assert(argv[3].includes("Please summarize the build"), `expected prompt to embed body, got "${argv[3].slice(0, 200)}"`);
 assert(argv.includes("--yolo"), `expected --yolo for managed runs by default, got ${JSON.stringify(argv)}`);
-// Phase 7: --continue <aify-${agentId}> threads Hermes's session
-// continuity across dispatches without needing a persistent process.
-const continueIdx = argv.indexOf("--continue");
-assert(continueIdx >= 0, `expected --continue flag for persistent session, got ${JSON.stringify(argv)}`);
-assert.equal(argv[continueIdx + 1], "aify-hermes-worker", `expected --continue session name, got ${argv[continueIdx + 1]}`);
+// Phase 7 rollback (2026-05-22): upstream Hermes's --continue requires
+// the session to already exist and refuses on first dispatch. The
+// controller no longer passes --continue; conversation context is in
+// the wire prompt instead (codex/opencode shape).
+assert(
+  !argv.includes("--continue"),
+  `expected --continue NOT to be passed (upstream refuses without pre-existing session), got ${JSON.stringify(argv)}`,
+);
 
 // Synthesized terminal sink received: a header echo, a thinking marker, and
 // the reply. Late-attach via terminalSinkProvider is awaited before any
