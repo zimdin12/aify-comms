@@ -397,6 +397,12 @@ if [ -n "$CODEX_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="$CODEX_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="$CODEX_AIFY_ROLE"
 fi
+# Expose the aify service URL so codex's UserPromptSubmit / Stop hooks
+# (installed by install.sh's install_codex_turn_hooks) can POST the
+# turn-start / turn-end signals to the bridge symmetrically with
+# claude-aify. Without this, the hooks would no-op because they gate
+# on \${AIFY_COMMS_URL:-}.
+export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect. See
 # claude-aify for the rationale; same contract applies here.
@@ -499,6 +505,12 @@ if [ -n "$PI_SESSION_HANDLE" ]; then
   export PI_SESSION_ID="$PI_SESSION_HANDLE"
   export AIFY_SESSION_HANDLE="$PI_SESSION_HANDLE"
 fi
+# Symmetric env-var for future pi turn hooks (omp does not currently
+# expose user-prompt-submit/stop hook surfaces, but exposing the
+# service URL means a future omp hook surface — or operator-written
+# tooling that wraps pi-aify — can call /turn-start /turn-end without
+# additional setup).
+export AIFY_COMMS_URL="${SERVER_URL:-http://127.0.0.1:8800}"
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
 # Same contract as claude-aify; works on Ubuntu bash and Git Bash for
@@ -609,6 +621,11 @@ done
 export AIFY_RUNTIME="hermes"
 export AIFY_SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
 export CLAUDE_MCP_SERVER_URL="\${CLAUDE_MCP_SERVER_URL:-\$AIFY_SERVER_URL}"
+# Expose AIFY_COMMS_URL too so the pre_llm_call shell hook installed by
+# install_hermes_turn_hooks can POST /turn-start symmetrically with
+# claude-aify and codex-aify. The hook gates on \\\${AIFY_COMMS_URL:-} so
+# without this export it would silently no-op.
+export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-\$AIFY_SERVER_URL}"
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
@@ -1105,6 +1122,103 @@ EOF
   ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
 }
 
+install_codex_turn_hooks() {
+  # Symmetric to install_claude_turn_*_hook. Codex's hooks.json
+  # supports the same hook event schema as Claude Code. Adding
+  # UserPromptSubmit + Stop entries lets direct codex-aify CLI typing
+  # flip the dashboard to "working" mid-turn AND clear it cleanly when
+  # the turn ends — matching the claude path. If a particular codex CLI
+  # version doesn't recognize these event names yet, the entries are
+  # inert (no harm).
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local hooks_file="$codex_home/hooks.json"
+  mkdir -p "$codex_home"
+  if [ ! -f "$hooks_file" ]; then
+    echo '{"hooks":{}}' > "$hooks_file"
+  fi
+  enable_codex_hooks_feature
+  local node_hooks_file
+  node_hooks_file="$(path_for_node "$hooks_file")"
+  local start_command
+  start_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true; fi'
+  local end_command
+  end_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi'
+  MSYS_NO_PATHCONV=1 node -e "
+    const fs = require('fs');
+    const hooksPath = process.argv[1];
+    const startCmd = process.argv[2];
+    const endCmd = process.argv[3];
+    let data = { hooks: {} };
+    try { data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8')); } catch (_) {}
+    if (!data || typeof data !== 'object') data = {};
+    if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
+    const wire = (eventKey, cmd, marker) => {
+      if (!Array.isArray(data.hooks[eventKey])) data.hooks[eventKey] = [];
+      data.hooks[eventKey] = data.hooks[eventKey].filter(
+        group => !JSON.stringify(group).includes(marker)
+      );
+      data.hooks[eventKey].push({
+        hooks: [{ type: 'command', command: cmd, timeout: 3 }],
+      });
+    };
+    wire('UserPromptSubmit', startCmd, '/api/v1/agents/\${AIFY_AGENT_ID}/turn-start');
+    wire('Stop', endCmd, '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end');
+    fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
+  " "$node_hooks_file" "$start_command" "$end_command"
+}
+
+install_hermes_turn_hooks() {
+  # Hermes-side symmetric hook. Hermes shell hooks support events
+  # pre_tool_call / post_tool_call / pre_llm_call / subagent_stop
+  # (see `hermes hooks --help`). `pre_llm_call` fires before each
+  # LLM call — close enough to a user-prompt-submit signal that
+  # the dashboard flips to "working" the moment the operator
+  # submits a prompt in hermes-aify. No clean upstream turn-end
+  # hook exists for shell hooks; the existing 120s server-side
+  # turn_busy stale window (or the per-process exit signal for
+  # managed hermes dispatches) handles cleanup.
+  local config_root="$(hermes_config_root)"
+  local config_file="$config_root/config.yaml"
+  local hook_dir="$config_root/agent-hooks"
+  local hook_path="$hook_dir/aify-turn-start.sh"
+  mkdir -p "$hook_dir"
+  touch "$config_file"
+  cat > "$hook_path" <<EOF
+#!/usr/bin/env bash
+if [ -n "\${AIFY_AGENT_ID:-}" ] && [ -n "\${AIFY_COMMS_URL:-}" ]; then
+  curl -sS --max-time 2 -X POST "\${AIFY_COMMS_URL%/}/api/v1/agents/\${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true
+fi
+EOF
+  chmod +x "$hook_path"
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    const hookPath = process.argv[2];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
+    if (text.includes("aify-turn-start.sh")) process.exit(0);
+    const entry = [
+      "    - matcher: \".*\"",
+      `      command: ${JSON.stringify(hookPath)}`,
+      "      timeout: 3",
+    ];
+    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    const preIndex = lines.findIndex((line) => /^[ \t]*pre_llm_call:[ \t]*$/.test(line));
+    if (preIndex >= 0) {
+      lines.splice(preIndex + 1, 0, ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
+    const hooksIndex = lines.findIndex((line) => /^[ \t]*hooks:[ \t]*$/.test(line));
+    if (hooksIndex >= 0) {
+      lines.splice(hooksIndex + 1, 0, "  pre_llm_call:", ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
+    fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  pre_llm_call:\n${entry.join("\n")}\n`);
+  ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
+}
+
 install_claude_turn_start_hook() {
   # Symmetric counterpart to install_claude_turn_end_hook (Stop hook).
   # Claude Code's UserPromptSubmit hook fires when the operator submits
@@ -1382,8 +1496,18 @@ if [ "$CLIENT" = "claude" ]; then
   fi
 elif [ "$CLIENT" = "codex" ]; then
   install_codex_wrapper
+  # Symmetric turn-start/turn-end hooks for direct codex-aify typing,
+  # mirroring claude-aify. Codex's hooks.json shares the Claude Code
+  # schema (UserPromptSubmit, Stop). Inert if a particular codex CLI
+  # version doesn't recognize the events yet.
+  install_codex_turn_hooks
 elif [ "$CLIENT" = "hermes" ]; then
   install_hermes_wrapper
+  # Symmetric turn-start hook for hermes-aify direct typing via the
+  # pre_llm_call shell-hook event. No matching turn-end hook because
+  # upstream hermes shell-hooks don't expose one; the 120s server-side
+  # turn_busy stale window handles cleanup.
+  install_hermes_turn_hooks
 elif [ "$CLIENT" = "pi" ]; then
   install_pi_wrapper
 fi
