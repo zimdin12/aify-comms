@@ -2755,6 +2755,15 @@ async def _repair_terminal_session_consistency(db) -> int:
         )
         repaired += 1
 
+    # Exclude virtual rpc terminals from PTY-status mirroring. The
+    # synth feed for managed pi/hermes/codex/opencode has a different
+    # lifecycle from a real node-pty wrapper: it survives across
+    # dispatch boundaries as the operator-visibility surface, while
+    # the agent_sessions.terminal_status field can carry stale state
+    # from a previous wrapper PTY for the same agent. Operator-
+    # reported 2026-05-22: hermes synth terminal got marked stopped
+    # within seconds of creation because agent_sessions.terminal_status
+    # had a leftover 'stopped' from earlier hermes-aify wrapper PTYs.
     mismatch_cursor = await db.execute(
         f"""
         SELECT t.id, t.agent_id, s.terminal_status
@@ -2762,8 +2771,9 @@ async def _repair_terminal_session_consistency(db) -> int:
         JOIN agent_sessions s ON s.terminal_id = t.id
         WHERE t.status IN ({",".join("?" for _ in active_statuses)})
           AND s.terminal_status IN ('stopped', 'failed')
+          AND t.command NOT IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
         """,
-        active_statuses,
+        (*active_statuses, *VIRTUAL_RPC_COMMAND_SET),
     )
     mismatch_rows = await mismatch_cursor.fetchall()
     for row in mismatch_rows:
