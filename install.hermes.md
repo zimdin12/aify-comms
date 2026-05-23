@@ -143,6 +143,10 @@ streaming.
 - Resident hermes is unaffected — the operator-typed hermes still launches
   interactively under PTY.
 
+**Filesystem callbacks are sandboxed to the agent's `cwd`.** When hermes requests `fs/read_text_file` or `fs/write_text_file`, the bridge resolves the path against the registered session `cwd` and refuses anything outside that tree with JSON-RPC error -32602. This prevents a compromised agent from reading `~/.ssh/id_rsa` or writing arbitrary host files through the ACP callback channel. Operators who genuinely need unrestricted access can set `AIFY_HERMES_FS_UNSAFE=1` to disable the containment check (explicit opt-out, not recommended).
+
+**Permission auto-approve uses an allow-list.** The bridge auto-selects only options whose `kind` is `allow_once` or `allow_always`. If hermes presents only escalation-kind options, the bridge returns `outcome.cancelled` instead of picking option[0]. The hook lives in `_handleClientRequest` in `mcp/stdio/hermes-session.js` if you need a different policy.
+
 To verify the persistent child is alive: open the agent's Console after a
 managed dispatch — status should go `available → working → available` while
 the same `hermes acp` PID stays up between turns (`tasklist | findstr hermes`
