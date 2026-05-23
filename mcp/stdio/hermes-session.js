@@ -10,6 +10,7 @@
 // + the DECISIONS.md entry for 2026-05-23.
 
 import { spawn } from "node:child_process";
+import nodePath from "node:path";
 import {
   encodeRequest,
   encodeResponse,
@@ -21,6 +22,17 @@ import {
 import { terminateProcessTree, getRuntimeConfig, quoteForDisplay } from "./runtimes.js";
 
 const hermesSessionPool = new Map();
+
+function createDeferred() {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  // Attach a no-op .catch so a rejection on a Deferred that ends up with
+  // no real awaiter (e.g. ensureStarted called once with no concurrent
+  // callers) doesn't become an unhandled-rejection. Real awaiters that
+  // share `promise` still see their own .catch handlers fire.
+  promise.catch(() => {});
+  return { promise, resolve, reject };
+}
 
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const STARTUP_TIMEOUT_DEFAULT_MS = 45000;
@@ -87,6 +99,7 @@ export class HermesSession {
     this._assistantCapture = "";
     this._stderrTail = "";
     this._exitInfo = null;
+    this._startupDeferred = null; // shared barrier for concurrent ensureStarted callers (fix I10)
   }
 
   _emit(kind, payload) {
@@ -147,14 +160,13 @@ export class HermesSession {
       throw new Error(`HermesSession ${this.agentId} is ${this._state}; create a new session`);
     }
     if (this._state === "starting") {
-      // Wait for the in-flight start to finish.
-      while (this._state === "starting") {
-        await new Promise((r) => setTimeout(r, 20));
-      }
-      if (this._state === "ready") return;
-      throw new Error(`HermesSession ${this.agentId} failed to start (state=${this._state})`);
+      // Concurrent ensureStarted callers wait on the same Deferred (fix
+      // I10: avoids busy-poll, no spin-forever if state gets stuck).
+      if (this._startupDeferred) return this._startupDeferred.promise;
+      throw new Error(`HermesSession ${this.agentId} starting without barrier`);
     }
     this._state = "starting";
+    this._startupDeferred = createDeferred();
 
     const launcher = defaultHermesAcpLauncher();
     const cwd = this.agentInfo.cwd || process.cwd();
@@ -167,7 +179,11 @@ export class HermesSession {
       });
     } catch (error) {
       this._state = "failed";
-      throw new Error(`failed to spawn ${launcher.command}: ${error?.message || error}`);
+      const wrapped = new Error(`failed to spawn ${launcher.command}: ${error?.message || error}`);
+      this._startupDeferred.reject(wrapped);
+      const d = this._startupDeferred; this._startupDeferred = null;
+      try { await d.promise; } catch {}
+      throw wrapped;
     }
 
     this._proc.stdout.on("data", (chunk) => this._onStdout(chunk));
@@ -181,6 +197,7 @@ export class HermesSession {
     this._proc.stdin?.on?.("error", () => {});
 
     const timeout = startupTimeoutFor(this.agentInfo);
+    const deferred = this._startupDeferred;
     try {
       await Promise.race([
         this._handshake(cwd),
@@ -191,10 +208,14 @@ export class HermesSession {
       ]);
       this._state = "ready";
       this._armIdleTimer();
+      this._startupDeferred = null;
+      deferred.resolve();
       this._emit("ready", { agentId: this.agentId, sessionId: this.sessionId });
     } catch (error) {
       this._state = "failed";
       try { terminateProcessTree(this._proc); } catch {}
+      this._startupDeferred = null;
+      deferred.reject(error);
       throw error;
     }
   }
@@ -295,35 +316,52 @@ export class HermesSession {
     const respondError = (code, message) => this._writeRaw(encodeError(id, code, message));
     try {
       if (method === METHODS.FS_READ_TEXT_FILE) {
+        const safe = this._resolveSafePath(msg.params?.path);
+        if (!safe) {
+          respondError(-32602, `fs/read_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
+          return;
+        }
         const fsMod = await import("node:fs/promises");
-        const filePath = String(msg.params?.path || "");
-        const content = await fsMod.readFile(filePath, "utf-8");
+        const content = await fsMod.readFile(safe, "utf-8");
         respond({ content });
         return;
       }
       if (method === METHODS.FS_WRITE_TEXT_FILE) {
+        const safe = this._resolveSafePath(msg.params?.path);
+        if (!safe) {
+          respondError(-32602, `fs/write_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
+          return;
+        }
         const fsMod = await import("node:fs/promises");
-        const filePath = String(msg.params?.path || "");
         const content = String(msg.params?.content ?? "");
-        await fsMod.writeFile(filePath, content, "utf-8");
+        await fsMod.writeFile(safe, content, "utf-8");
         respond(null);
         return;
       }
       if (method === METHODS.SESSION_REQUEST_PERMISSION) {
         // Managed-mode dispatches run YOLO — there is no operator at the
         // wheel to answer prompts. Mirror of the `--yolo` flag we used to
-        // pass to `hermes chat -q`. If we ever want per-tool gating, this
-        // is the hook.
+        // pass to `hermes chat -q`. Allow-list is explicit (fix I5):
+        // only auto-select options whose `kind` is in the safe-allow set,
+        // never fall back to `options[0]` (an option-list reorder upstream
+        // could otherwise flip auto-approve to auto-deny, or worse, auto-
+        // pick `allow_always_no_prompt`-style escalations).
+        const SAFE_ALLOW_KINDS = new Set(["allow_once", "allow_always"]);
         const options = Array.isArray(msg.params?.options) ? msg.params.options : [];
-        const allow =
-          options.find((o) => o && (o.kind === "allow_always" || o.kind === "allow_once")) ||
-          options[0];
-        respond({
-          outcome: {
-            outcome: "selected",
-            optionId: allow?.optionId || allow?.id || "allow",
-          },
-        });
+        const allow = options.find((o) => o && SAFE_ALLOW_KINDS.has(o.kind));
+        if (allow) {
+          respond({
+            outcome: {
+              outcome: "selected",
+              optionId: allow.optionId || allow.id || "allow",
+            },
+          });
+        } else {
+          // No safe-allow option offered — cancel the request. The agent
+          // will surface this as a tool denial; operator can re-dispatch
+          // after configuring a less-restrictive permission flow.
+          respond({ outcome: { outcome: "cancelled" } });
+        }
         return;
       }
       if (
@@ -343,6 +381,24 @@ export class HermesSession {
     } catch (error) {
       respondError(-32000, error?.message || String(error));
     }
+  }
+
+  // Resolve an agent-requested file path against the session's cwd and
+  // refuse anything that escapes the workspace tree (fix I6).
+  // Returns the absolute resolved path on success, or null on denial.
+  // Operators who genuinely want unrestricted access can set
+  // AIFY_HERMES_FS_UNSAFE=1 (explicit opt-out, documented in install.hermes.md).
+  _resolveSafePath(requestedPath) {
+    const raw = String(requestedPath || "").trim();
+    if (!raw) return null;
+    if (process.env.AIFY_HERMES_FS_UNSAFE === "1") return raw;
+    const cwd = nodePath.resolve(this.agentInfo?.cwd || process.cwd());
+    const candidate = nodePath.isAbsolute(raw) ? nodePath.resolve(raw) : nodePath.resolve(cwd, raw);
+    // Containment check: candidate must equal cwd or live under it.
+    // Trailing-separator suffix avoids "/foo" matching "/foobar".
+    const cwdWithSep = cwd.endsWith(nodePath.sep) ? cwd : cwd + nodePath.sep;
+    if (candidate === cwd || candidate.startsWith(cwdWithSep)) return candidate;
+    return null;
   }
 
   _writeRaw(line) {
@@ -414,11 +470,15 @@ export class HermesSession {
   async runTurn({ promptText, run }) {
     await this.ensureStarted();
     // Serialize per-session prompts — hermes acp rejects concurrent
-    // session/prompt against the same sessionId.
-    return (this._turnQueue = this._turnQueue.then(
-      () => this._runTurnInner({ promptText, run }),
-      () => this._runTurnInner({ promptText, run }), // queue keeps moving on prior failure
-    ));
+    // session/prompt against the same sessionId. Each caller gets its
+    // own Deferred so a prior turn's rejection doesn't leak into the
+    // next caller's promise (fix C3).
+    const deferred = createDeferred();
+    this._turnQueue = this._turnQueue
+      .catch(() => {}) // queue keeps moving on prior failure
+      .then(() => this._runTurnInner({ promptText, run }))
+      .then(deferred.resolve, deferred.reject);
+    return deferred.promise;
   }
 
   async _runTurnInner({ promptText, run }) {
@@ -484,7 +544,19 @@ export function getOrCreateHermesSession({ agentId, agentInfo, onPoolEvent }) {
   const key = String(agentId || "").trim();
   if (!key) throw new Error("agentId required for HermesSession pool");
   const existing = hermesSessionPool.get(key);
-  if (existing && existing._state !== "stopped" && existing._state !== "failed") return existing;
+  if (existing) {
+    if (existing._state === "stopped" || existing._state === "failed") {
+      // Race: terminal state but _onExit hasn't run yet (or already ran
+      // and we somehow still see the entry). Evict and re-create so the
+      // caller gets a usable session (fix C1: pool-heal race). Without
+      // this, ensureStarted would throw "is failed; create a new session"
+      // and the dispatcher would surface a confusing error to the
+      // operator instead of healing transparently.
+      hermesSessionPool.delete(key);
+    } else {
+      return existing;
+    }
+  }
   const sess = new HermesSession({ agentId: key, agentInfo, onPoolEvent });
   hermesSessionPool.set(key, sess);
   return sess;

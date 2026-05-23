@@ -39,6 +39,18 @@ import { detectCodexResumeFailure } from "./codex-errors.js";
 
 const codexSessionPool = new Map();
 
+function createDeferred() {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  // Attach a no-op .catch so a rejection on a Deferred that ends up with
+  // no real awaiter doesn't become an unhandled-rejection. Real awaiters
+  // sharing `promise` still see their own .catch handlers fire.
+  promise.catch(() => {});
+  return { promise, resolve, reject };
+}
+
+const CANCEL_GRACE_MS = 5000;
+
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const STARTUP_TIMEOUT_DEFAULT_MS = 60000;
 const DEFAULT_TURN_TIMEOUT_MS = 12 * 60 * 60 * 1000;
@@ -84,6 +96,7 @@ export class CodexSession {
     this._managedCodexHome = "";
     this._exitInfo = null;
     this._fatalRuntimeError = null;
+    this._startupDeferred = null; // shared barrier for concurrent ensureStarted (fix I10)
   }
 
   _emit(kind, payload) {
@@ -141,11 +154,13 @@ export class CodexSession {
       throw new Error(`CodexSession ${this.agentId} is ${this._state}; create a new session`);
     }
     if (this._state === "starting") {
-      while (this._state === "starting") await new Promise((r) => setTimeout(r, 20));
-      if (this._state === "ready") return;
-      throw new Error(`CodexSession ${this.agentId} failed to start (state=${this._state})`);
+      // Concurrent ensureStarted callers wait on the same Deferred (fix
+      // I10: avoids busy-poll and spin-forever if state gets stuck).
+      if (this._startupDeferred) return this._startupDeferred.promise;
+      throw new Error(`CodexSession ${this.agentId} starting without barrier`);
     }
     this._state = "starting";
+    this._startupDeferred = createDeferred();
 
     const config = getRuntimeConfig(this.agentInfo);
     const launcher = defaultCodexCommand();
@@ -165,7 +180,11 @@ export class CodexSession {
       });
     } catch (error) {
       this._state = "failed";
-      throw new Error(`failed to spawn ${launcher.command}: ${error?.message || error}`);
+      const wrapped = new Error(`failed to spawn ${launcher.command}: ${error?.message || error}`);
+      const d = this._startupDeferred; this._startupDeferred = null;
+      d?.reject(wrapped);
+      try { await d?.promise; } catch {}
+      throw wrapped;
     }
 
     this._rpc = createRpcClient(this._proc, {
@@ -176,6 +195,7 @@ export class CodexSession {
     this._proc.on("error", (err) => this._onSpawnError(err));
 
     const startupMs = startupTimeoutFor(this.agentInfo);
+    const deferred = this._startupDeferred;
     try {
       await Promise.race([
         this._handshake({ cwd, model, approvalPolicy, sandboxMode, runtimeState, callbacks }),
@@ -183,11 +203,15 @@ export class CodexSession {
       ]);
       this._state = "ready";
       this._armIdleTimer();
+      this._startupDeferred = null;
+      deferred.resolve();
       this._emit("ready", { agentId: this.agentId, threadId: this.threadId });
     } catch (error) {
       this._state = "failed";
       try { this._rpc?.close?.(); } catch {}
       try { terminateProcessTree(this._proc); } catch {}
+      this._startupDeferred = null;
+      deferred.reject(error);
       throw error;
     }
   }
@@ -385,10 +409,15 @@ export class CodexSession {
 
   async runTurn({ promptText, run, callbacks = {}, runtimeState = {} }) {
     await this.ensureStarted({ runtimeState, callbacks });
-    return (this._turnQueue = this._turnQueue.then(
-      () => this._runTurnInner({ promptText, run, callbacks, runtimeState }),
-      () => this._runTurnInner({ promptText, run, callbacks, runtimeState }),
-    ));
+    // Per-caller Deferred isolates each caller's promise from prior-turn
+    // rejections; the queue itself absorbs rejections via .catch so the
+    // chain keeps advancing (fix C3).
+    const deferred = createDeferred();
+    this._turnQueue = this._turnQueue
+      .catch(() => {})
+      .then(() => this._runTurnInner({ promptText, run, callbacks, runtimeState }))
+      .then(deferred.resolve, deferred.reject);
+    return deferred.promise;
   }
 
   async _runTurnInner({ promptText, run, callbacks, runtimeState }) {
@@ -444,118 +473,123 @@ export class CodexSession {
       this._pushTerminalFrame("\x1b[2m[codex] working...\x1b[0m\r\n", "running");
     } catch {}
 
-    let timer, quietTimer, mcpToolTimer;
-    let rejectPromise;
-    const promise = new Promise(async (resolve, reject) => {
-      rejectPromise = reject;
-      timer = setTimeout(() => {
-        if (!turn.settled) {
-          turn.finalStatus = "failed";
-          turn.finalError = `Codex run timed out after ${timeoutMs}ms`;
-          turn.settled = true;
-        }
-      }, timeoutMs);
-      if (quietTimeoutMs > 0) {
-        quietTimer = setInterval(() => {
-          try {
-            if (turn.settled) return;
-            const idleFor = Date.now() - turn.lastActivityAt;
-            if (idleFor < quietTimeoutMs) return;
-            const activeLabel = turn.activeItems.size
-              ? ` Active Codex item(s): ${[...new Set([...turn.activeItems.values()].map((item) => item.label))].join(", ")}.`
-              : "";
-            turn.finalStatus = "failed";
-            turn.finalError =
-              `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${turn.activityLabel}.` +
-              activeLabel +
-              ` The turn was treated as stalled and terminated. Retry the message, or restart the session if this repeats.`;
-            turn.settled = true;
-            try { callbacks.onEvent?.("stalled", turn.finalError); } catch {}
-          } catch {}
-        }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
-      }
-      if (aifyMcpToolTimeoutMs > 0) {
-        mcpToolTimer = setInterval(() => {
-          try {
-            if (turn.settled) return;
-            const now = Date.now();
-            const stuck = [...turn.activeItems.values()].find((item) =>
-              isAifyCommsMcpToolItem(item.label) && now - item.startedAt >= aifyMcpToolTimeoutMs,
-            );
-            if (!stuck) return;
-            turn.finalStatus = "failed";
-            turn.finalError =
-              `Codex aify-comms MCP tool call produced no completion for ${aifyMcpToolTimeoutMs}ms. ` +
-              `The turn was terminated before the general quiet-stall timeout.`;
-            turn.settled = true;
-            try { callbacks.onEvent?.("mcp_tool_stalled", turn.finalError); } catch {}
-          } catch {}
-        }, Math.min(10 * 1000, Math.max(2 * 1000, Math.floor(aifyMcpToolTimeoutMs / 6))));
-      }
+    // Deferred + sequential awaits replaces the prior
+    // `new Promise(async (resolve, reject) => ...)` antipattern (fix C4):
+    // any synchronous throw inside an async Promise constructor body is
+    // unhandled. Using a Deferred + a normal async function keeps the
+    // surrounding try/finally semantics clean.
+    const deferred = createDeferred();
+    let timer, quietTimer, mcpToolTimer, poll;
+    const clearAllTimers = () => {
+      clearTimeout(timer);
+      clearInterval(quietTimer);
+      clearInterval(mcpToolTimer);
+      clearInterval(poll);
+    };
 
-      try {
-        callbacks.onEvent?.("turn", `Calling turn/start on thread ${this.threadId} with cwd="${cwd}"`);
-        let turnResp;
+    timer = setTimeout(() => {
+      if (!turn.settled) {
+        turn.finalStatus = "failed";
+        turn.finalError = `Codex run timed out after ${timeoutMs}ms`;
+        turn.settled = true;
+      }
+    }, timeoutMs);
+    if (quietTimeoutMs > 0) {
+      quietTimer = setInterval(() => {
         try {
-          turnResp = await this._rpc.request("turn/start", {
-            threadId: this.threadId,
-            input: [{ type: "text", text: String(promptText || "") }],
-            cwd,
-            approvalPolicy,
-            sandboxPolicy: codexTurnSandboxPolicy(sandboxMode, cwd, networkAccess),
-            effort,
-            summary: summaryMode,
-            personality: "friendly",
-            ...(model ? { model } : {}),
-          }, 60000);
-        } catch (error) {
-          throw new Error(
-            `Codex turn/start failed for thread ${this.threadId} (cwd="${cwd}"): ${error?.message || error}`,
-            { cause: error },
+          if (turn.settled) return;
+          const idleFor = Date.now() - turn.lastActivityAt;
+          if (idleFor < quietTimeoutMs) return;
+          const activeLabel = turn.activeItems.size
+            ? ` Active Codex item(s): ${[...new Set([...turn.activeItems.values()].map((item) => item.label))].join(", ")}.`
+            : "";
+          turn.finalStatus = "failed";
+          turn.finalError =
+            `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${turn.activityLabel}.` +
+            activeLabel +
+            ` The turn was treated as stalled and terminated. Retry the message, or restart the session if this repeats.`;
+          turn.settled = true;
+          try { callbacks.onEvent?.("stalled", turn.finalError); } catch {}
+        } catch {}
+      }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
+    }
+    if (aifyMcpToolTimeoutMs > 0) {
+      mcpToolTimer = setInterval(() => {
+        try {
+          if (turn.settled) return;
+          const now = Date.now();
+          const stuck = [...turn.activeItems.values()].find((item) =>
+            isAifyCommsMcpToolItem(item.label) && now - item.startedAt >= aifyMcpToolTimeoutMs,
           );
-        }
-        turn.activeTurnId = turnResp?.turn?.id || turn.activeTurnId;
-        callbacks.onRefs?.({ threadId: this.threadId, turnId: turn.activeTurnId });
-        turn.markActivity("turn/start");
-
-        const poll = setInterval(() => {
-          if (!turn.settled) return;
-          clearInterval(poll);
-          clearTimeout(timer);
-          clearInterval(quietTimer);
-          clearInterval(mcpToolTimer);
-          if (turn.finalStatus === "completed") {
-            resolve({
-              status: "completed",
-              summary: turn.finalText.trim() || "(no output)",
-              runtimeState: { threadId: this.threadId },
-              externalRefs: { threadId: this.threadId, turnId: turn.activeTurnId },
-            });
-            return;
-          }
-          if (turn.finalStatus === "interrupted" || turn.cancelled) {
-            resolve({
-              status: "cancelled",
-              summary: turn.finalText.trim() || turn.finalError || "Run interrupted",
-              runtimeState: { threadId: this.threadId },
-              externalRefs: { threadId: this.threadId, turnId: turn.activeTurnId },
-            });
-            return;
-          }
-          const detail = turn.finalError || turn.finalText || `Codex turn finished with status ${turn.finalStatus}`;
-          reject(new Error(detail));
-        }, 250);
-      } catch (error) {
-        clearTimeout(timer);
-        clearInterval(quietTimer);
-        clearInterval(mcpToolTimer);
-        reject(error);
-      }
-    });
+          if (!stuck) return;
+          turn.finalStatus = "failed";
+          turn.finalError =
+            `Codex aify-comms MCP tool call produced no completion for ${aifyMcpToolTimeoutMs}ms. ` +
+            `The turn was terminated before the general quiet-stall timeout.`;
+          turn.settled = true;
+          try { callbacks.onEvent?.("mcp_tool_stalled", turn.finalError); } catch {}
+        } catch {}
+      }, Math.min(10 * 1000, Math.max(2 * 1000, Math.floor(aifyMcpToolTimeoutMs / 6))));
+    }
 
     try {
-      return await promise;
+      callbacks.onEvent?.("turn", `Calling turn/start on thread ${this.threadId} with cwd="${cwd}"`);
+      let turnResp;
+      try {
+        turnResp = await this._rpc.request("turn/start", {
+          threadId: this.threadId,
+          input: [{ type: "text", text: String(promptText || "") }],
+          cwd,
+          approvalPolicy,
+          sandboxPolicy: codexTurnSandboxPolicy(sandboxMode, cwd, networkAccess),
+          effort,
+          summary: summaryMode,
+          personality: "friendly",
+          ...(model ? { model } : {}),
+        }, 60000);
+      } catch (error) {
+        throw new Error(
+          `Codex turn/start failed for thread ${this.threadId} (cwd="${cwd}"): ${error?.message || error}`,
+          { cause: error },
+        );
+      }
+      turn.activeTurnId = turnResp?.turn?.id || turn.activeTurnId;
+      callbacks.onRefs?.({ threadId: this.threadId, turnId: turn.activeTurnId });
+      turn.markActivity("turn/start");
+
+      poll = setInterval(() => {
+        if (!turn.settled) return;
+        clearAllTimers();
+        if (turn.finalStatus === "completed") {
+          deferred.resolve({
+            status: "completed",
+            summary: turn.finalText.trim() || "(no output)",
+            runtimeState: { threadId: this.threadId },
+            externalRefs: { threadId: this.threadId, turnId: turn.activeTurnId },
+          });
+          return;
+        }
+        if (turn.finalStatus === "interrupted" || turn.cancelled) {
+          deferred.resolve({
+            status: "cancelled",
+            summary: turn.finalText.trim() || turn.finalError || "Run interrupted",
+            runtimeState: { threadId: this.threadId },
+            externalRefs: { threadId: this.threadId, turnId: turn.activeTurnId },
+          });
+          return;
+        }
+        const detail = turn.finalError || turn.finalText || `Codex turn finished with status ${turn.finalStatus}`;
+        deferred.reject(new Error(detail));
+      }, 250);
+    } catch (error) {
+      clearAllTimers();
+      deferred.reject(error);
+    }
+
+    try {
+      return await deferred.promise;
     } finally {
+      clearAllTimers();
       this._activeTurn = null;
       // After the turn settles, the codex app-server stays alive in the pool.
       // Idle timer rearms; next dispatch reuses the same RPC + threadId.
@@ -567,18 +601,30 @@ export class CodexSession {
     const turn = this._activeTurn;
     if (!turn) return;
     turn.cancelled = true;
-    if (turn.activeTurnId) {
-      try {
-        await this._rpc.request("turn/interrupt", {
-          threadId: this.threadId,
-          turnId: turn.activeTurnId,
-        }, 30000);
-      } catch {}
-    } else {
-      // No turn id yet; force settlement.
+    if (!turn.activeTurnId) {
+      // No turn id yet; force settlement immediately.
       turn.finalStatus = "interrupted";
       turn.settled = true;
+      return;
     }
+    try {
+      await this._rpc.request("turn/interrupt", {
+        threadId: this.threadId,
+        turnId: turn.activeTurnId,
+      }, 30000);
+    } catch {}
+    // Grace fallback (fix C2): if codex doesn't emit turn/completed
+    // within CANCEL_GRACE_MS, force the turn to settle so the poll loop
+    // exits and the dispatcher doesn't hang until timeoutMs. The codex
+    // app-server is expected to honor turn/interrupt with a turn/completed
+    // (status=interrupted) but we can't depend on it under a stalled
+    // condition — which is exactly when cancel is most needed.
+    setTimeout(() => {
+      if (turn.settled) return;
+      turn.finalStatus = "interrupted";
+      turn.finalError = turn.finalError || `Codex did not honor turn/interrupt within ${CANCEL_GRACE_MS}ms; forcing settle`;
+      turn.settled = true;
+    }, CANCEL_GRACE_MS).unref?.();
   }
 
   async steer(text) {
@@ -597,7 +643,16 @@ export function getOrCreateCodexSession({ agentId, agentInfo, onPoolEvent }) {
   const key = String(agentId || "").trim();
   if (!key) throw new Error("agentId required for CodexSession pool");
   const existing = codexSessionPool.get(key);
-  if (existing && existing._state !== "stopped" && existing._state !== "failed") return existing;
+  if (existing) {
+    if (existing._state === "stopped" || existing._state === "failed") {
+      // Heal-on-lookup: terminal-state entry would force the caller into
+      // an "is failed; create a new session" error path. Instead, evict
+      // and spawn a fresh one transparently (fix C1: pool-heal race).
+      codexSessionPool.delete(key);
+    } else {
+      return existing;
+    }
+  }
   const sess = new CodexSession({ agentId: key, agentInfo, onPoolEvent });
   codexSessionPool.set(key, sess);
   return sess;
