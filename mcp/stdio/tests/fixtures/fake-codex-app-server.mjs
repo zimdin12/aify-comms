@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Test double for `codex app-server` — speaks newline-delimited JSON-RPC
-// over stdio matching the subset of codex's protocol that CodexSession
-// uses (initialize/initialized, thread/start, thread/resume, turn/start,
-// turn/interrupt, plus notifications: turn/started, turn/completed,
-// item/agentMessage/delta, item/started, item/completed, error).
+// over stdio (default) OR over WebSocket (when invoked with --listen).
+//
+// Stdio mode is what CodexSession (managed pool) uses.
+// WebSocket mode is what createCodexControllerLegacy (resident dispatch)
+// uses; it mimics the local `codex app-server --listen ws://...` the
+// codex-aify wrapper spawns at install.sh:319-330.
 //
 // Scripts (set via FAKE_CODEX_SCRIPT env):
 //   - hello (default)      : emit "hello world\n" as agentMessage deltas, turn/completed status=completed
@@ -18,15 +20,23 @@ import readline from "node:readline";
 const SCRIPT = String(process.env.FAKE_CODEX_SCRIPT || "hello");
 const DELAY_MS = Number(process.env.FAKE_CODEX_DELAY_MS || 5);
 
-function send(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
-function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
+const cliArgs = process.argv.slice(2);
+const listenIdx = cliArgs.indexOf("--listen");
+const LISTEN_URL = listenIdx >= 0 ? String(cliArgs[listenIdx + 1] || "") : "";
+const RESIDENT_THREAD = String(process.env.FAKE_CODEX_RESIDENT_THREAD || "");
 
 let threadCounter = 0;
 let turnCounter = 0;
 const threads = new Map(); // threadId → { interrupted, activeTurnId }
 let interruptResolver = null;
+if (RESIDENT_THREAD) threads.set(RESIDENT_THREAD, { interrupted: false, activeTurnId: null });
 
-async function runTurn(reqId, threadId, params) {
+// Pluggable sender: stdio writes JSON to stdout; WS writes to the open socket.
+let sendFn = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
+function send(obj) { sendFn(obj); }
+function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function runTurn(reqId, threadId, _params) {
   const turn = `turn-${++turnCounter}`;
   const t = threads.get(threadId);
   if (t) t.activeTurnId = turn;
@@ -75,13 +85,7 @@ async function runTurn(reqId, threadId, params) {
   send({ jsonrpc: "2.0", method: "turn/completed", params: { turn: { id: turn, status: "completed" } } });
 }
 
-const rl = readline.createInterface({ input: process.stdin });
-rl.on("line", async (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let msg;
-  try { msg = JSON.parse(trimmed); } catch { return; }
-
+async function handleMessage(msg) {
   if (msg.method === "initialize") {
     if (SCRIPT === "crash-on-init") process.exit(1);
     send({ jsonrpc: "2.0", id: msg.id, result: {} });
@@ -124,6 +128,41 @@ rl.on("line", async (line) => {
   if (msg.id !== undefined) {
     send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } });
   }
-});
+}
 
-rl.on("close", () => process.exit(0));
+if (LISTEN_URL) {
+  // WebSocket mode — resident-codex dispatch path. Bridge connects via
+  // createWebSocketRpcClient(appServerUrl) from runtimes.js:1679.
+  const { WebSocketServer } = await import("ws");
+  const url = new URL(LISTEN_URL);
+  const port = Number(url.port);
+  const host = url.hostname || "127.0.0.1";
+  const wss = new WebSocketServer({ port, host });
+  wss.on("listening", () => {
+    process.stdout.write(`fake-codex listening on ${LISTEN_URL}\n`);
+  });
+  wss.on("connection", (socket) => {
+    sendFn = (obj) => {
+      try { socket.send(JSON.stringify(obj)); } catch {}
+    };
+    socket.on("message", async (frame) => {
+      let msg;
+      try { msg = JSON.parse(String(frame)); } catch { return; }
+      await handleMessage(msg);
+    });
+    socket.on("close", () => {
+      if (interruptResolver) { interruptResolver(); interruptResolver = null; }
+    });
+  });
+} else {
+  // Stdio mode — managed CodexSession path.
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on("line", async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let msg;
+    try { msg = JSON.parse(trimmed); } catch { return; }
+    await handleMessage(msg);
+  });
+  rl.on("close", () => process.exit(0));
+}
