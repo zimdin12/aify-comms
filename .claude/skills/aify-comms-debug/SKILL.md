@@ -647,6 +647,30 @@ curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | py
 # {"ok": true, "bridgeOwned": true|false, "virtualTerminalId": "vterm_..."}
 ```
 
+## Codex persistent app-server session
+
+Managed codex dispatches go through a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
+
+### Dispatch sits at `[codex] working...` forever
+
+The codex app-server is alive but the turn never completes. Cause: codex stalled mid-turn (provider hang, sandbox-policy block, etc.).
+
+**Fix.** From the dashboard, Stop the agent's persistent worker (Console Stop) and re-dispatch — the bridge will spawn a fresh `codex app-server`, re-initialize, and `thread/resume` the same threadId to recover the conversation. The synthesized terminal row survives.
+
+### `codex handshake timeout (60000ms)`
+
+The bridge spawned `codex app-server` but never got an `initialize` response within 60s.
+
+- Confirm codex runs by hand from the same host: `codex app-server` should not error.
+- If using a custom binary path: set `AIFY_CODEX_COMMAND="/abs/path/to/codex app-server"` and restart the wrapper (claude-aify/codex-aify) so it reloads env.
+- Common cause: the codex CLI is itself in a broken auth state — `codex doctor` or re-login may be needed.
+
+### `Codex thread/resume failed for saved thread <id>`
+
+The bridge tried to resume a previously-saved threadId but codex says no rollout exists. CodexSession does the same heal logic as the legacy controller: tries to import the rollout from other CODEX_HOME dirs, then (only if `resumePolicy='fresh_context'`) starts a fresh thread. The conservative default is to fail loudly — see DECISIONS.md.
+
+**Fix.** Either flip the agent to `resumePolicy=fresh_context` (Dashboard → Sessions → Recreate) or restore the rollout file in the active CODEX_HOME and retry.
+
 ## Hermes ACP persistent session
 
 Managed hermes dispatches go through a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:

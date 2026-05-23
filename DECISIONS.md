@@ -2,6 +2,20 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Codex managed dispatch uses persistent `codex app-server` (2026-05-23)
+
+**Decision.** Managed codex dispatches go through a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js` — `CodexSession`), mirror of HermesSession and PiSession. On first dispatch the bridge spawns `codex app-server`, runs `initialize` + `initialized`, then `thread/start` (or `thread/resume` if a `threadId` is bound on the agent record). Every subsequent dispatch reuses the same RPC connection and threadId — `turn/start` only. The codex `--app-server` URL path (resident WebSocket) is unchanged; only the spawn-fresh managed path is pooled.
+
+**Why.** Symmetry with pi (persistent `omp --mode rpc`) and hermes (persistent `hermes acp`). The prior managed-codex controller spawned a fresh `codex app-server` per turn, paying ~1–3s of startup cost every dispatch and never giving the operator a "one PID per agent" mental model. After this change all four managed runtimes (pi, hermes, codex, opencode) follow the same UX shape: one persistent process per agentId, native conversation continuity, streaming notifications into the synth terminal, idle-reaper cleanup.
+
+**Why per-agent pool (not per-thread).** The thread is the conversation unit; the codex app-server can host many threads but in our model each agent owns one. Pool key = agentId keeps the dispatcher and pool aligned.
+
+**Why we kept the WS app-server path separate.** Resident codex with a shared `codexAppServerUrl` is already pooled at the app-server process level — the WebSocket is the persistent backing. Adding a CodexSession in front would be redundant and harder to reason about. Routing in `createCodexController`: `executionMode==='managed' && !hasCodexLiveAppServer(config)` → CodexSession; else → legacy controller.
+
+**RPC handler swap, not multiplexer.** `createRpcClient` / `createWebSocketRpcClient` gained `setOnNotification(handler)` so the pooled RPC can bind a fresh per-turn handler. Simpler than a multiplexer and keeps the per-turn state (`activeTurnId`, `finalText`, `activeItems`, quiet-timeout, MCP-tool-stall detection) in `CodexSession._runTurnInner` where it can be reasoned about as a single function.
+
+Tests in `mcp/stdio/tests/codex-session.test.js` + `fixtures/fake-codex-app-server.mjs`.
+
 ## Hermes managed dispatch uses persistent `hermes acp` JSON-RPC (2026-05-23)
 
 **Decision.** Managed hermes dispatches go through a long-lived `hermes acp` child per agent (mcp/stdio/hermes-session.js — `HermesSession`), mirroring the `PiSession` pattern. The bridge spawns one `hermes acp --accept-hooks` per `(agentId, machine)`, completes ACP `initialize` + `session/new` once, and reuses the same `sessionId` for every subsequent `session/prompt`. Resident hermes (operator-typed `hermes-aify`) still spawns interactive `hermes` under PTY — only the managed delivery path moved to ACP.

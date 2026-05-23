@@ -156,3 +156,14 @@ comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body
 comms_inbox(agentId="my-agent", mode="headers")
 comms_inbox(agentId="my-agent", messageId="<message id>")
 ```
+
+## Persistent app-server (managed dispatches)
+
+For managed codex agents (no `appServerUrl` set), the bridge spawns one `codex app-server` per agentId on first dispatch and reuses it across turns. Mirror of the persistent ACP path that managed hermes uses. Benefits: no per-turn spawn cost, native conversation continuity via the cached `threadId`, one PID per agent that the dashboard can surface.
+
+- Default launcher: platform-native (`wsl.exe -e codex app-server` on Windows, `codex app-server` on POSIX). Override with `AIFY_CODEX_COMMAND="/abs/path/to/codex app-server"` if your binary isn't on PATH or you want to point the bridge at a wrapper script. (The fake test fixture uses this same env var.)
+- Idle reaper: 24h default. Override globally via `AIFY_CODEX_IDLE_TIMEOUT_MS` or per-agent via `runtimeConfig.codexIdleTimeoutMs`.
+- Handshake timeout: 60s default; tune via `AIFY_CODEX_STARTUP_TIMEOUT_MS` or `runtimeConfig.startupTimeoutMs`.
+- The resident path (with a real WebSocket `codexAppServerUrl`) is unchanged — that's already pooled at the app-server process level.
+
+Verify: open the agent's Console after a managed dispatch — `tasklist | findstr codex` (Windows) or `pgrep -f "codex app-server"` (POSIX) should show one PID that survives a second dispatch. The same threadId persists, so the conversation accumulates context turn-over-turn natively (no wire-prompt context-carry needed).
