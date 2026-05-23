@@ -470,3 +470,13 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.
+
+## Resident codex uses the existing WS app-server channel (no separate codex-channel.js)
+
+**Decision.** Resident-codex dispatch delivery is handled by the existing `createCodexControllerLegacy` path in `mcp/stdio/runtimes.js:2118`. The main bridge claims resident-codex runs through `/dispatch/claim` (server.js:1857 with `executionModes` from `supportedExecutionModes`), `launchRuntimeRun` → `createCodexController` routes resident runs with `runtimeConfig.appServerUrl` set to `createCodexControllerLegacy`, which connects WebSocket to the per-instance `codex app-server` launched by `codex-aify` (install.sh:319-330) and issues `turn/start` on the resident's active thread. We did NOT create a separate `codex-channel.js` mirroring `claude-channel.js`.
+
+**Why.** `claude-channel.js` is a separate process because Anthropic's `notifications/claude/channel` mechanism requires a separate MCP server entry registered via `--dangerously-load-development-channels server:aify-comms-channel`. Codex has no equivalent constraint — its native JSON-RPC `turn/start` against an existing `threadId` is the right primitive and is already used by the legacy controller. A separate process would duplicate the WS client, initialize/initialized handshake, turn lifecycle notification handling, and turn/interrupt support that `createCodexControllerLegacy` already implements, increasing the surface area for divergence bugs. The dispatch loop's `reportTurnBusy` pulse (server.js:1930) and explicit clear (server.js:2057-2065) already give resident codex the same status taxonomy as claude.
+
+**Visibility note (codex #15320).** Externally-injected `turn/start` against a thread that a `codex --remote` TUI is attached to may not visibly render in the TUI live (history fixes up later). Mitigated by also pushing synth-terminal frames for resident dispatches — the dashboard Console pane shows the wake event reliably. The `executionMode === "managed"` gate on `terminalSinkProvider` in `runtimes.js` was lifted on 2026-05-24 so resident dispatches feed the same Console surface that managed dispatches always did.
+
+**Reconsider if.** A future codex version ships a custom MCP notification primitive analogous to `notifications/claude/channel` that requires a separate MCP server entry to subscribe. At that point a real `codex-channel.js` is justified.
