@@ -303,9 +303,25 @@ export class HermesSession {
   _handleSessionUpdate(update) {
     if (!update) return;
     const kind = String(update.sessionUpdate || "");
+    // Summary capture mirrors what the operator-visible reply ends up
+    // containing: assistant text PLUS user-facing tool-call results.
+    // Pre-fix only agent_message_chunk fed _assistantCapture, which lost
+    // tool output that the agent surfaced as the actual answer (Minor
+    // #15 from 2026-05-23 review). agent_thought_chunk is excluded —
+    // thoughts are internal reasoning, not part of the reply.
     if (kind === "agent_message_chunk") {
       const text = (update.content && update.content.text) || "";
       this._assistantCapture = (this._assistantCapture + text).slice(-MAX_ASSISTANT_CAPTURE_CHARS);
+    } else if (kind === "tool_call_update" || kind === "tool_call_progress") {
+      const status = String(update.status || "");
+      if (status === "completed") {
+        const raw = update.rawOutput ?? update.output;
+        if (raw && typeof raw === "object" && typeof raw.text === "string" && raw.text.trim()) {
+          this._assistantCapture = (this._assistantCapture + raw.text).slice(-MAX_ASSISTANT_CAPTURE_CHARS);
+        } else if (typeof raw === "string" && raw.trim()) {
+          this._assistantCapture = (this._assistantCapture + raw).slice(-MAX_ASSISTANT_CAPTURE_CHARS);
+        }
+      }
     }
     const frame = formatSessionUpdateAsTerminalFrame(update);
     if (frame) this._pushTerminalFrame(frame, "running");
@@ -320,7 +336,11 @@ export class HermesSession {
       if (method === METHODS.FS_READ_TEXT_FILE) {
         const safe = await this._resolveSafePath(msg.params?.path, { write: false });
         if (!safe) {
-          respondError(-32602, `fs/read_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
+          // Don't echo the requested path back to a potentially-compromised
+          // agent — that could leak filesystem layout to a probing agent
+          // (Minor follow-up to I6: agent sees only that ITS request was
+          // denied, not which subpath of cwd it almost escaped to).
+          respondError(-32602, "fs/read_text_file: path is outside the session workspace and was denied by the bridge.");
           return;
         }
         const fsMod = await import("node:fs/promises");
@@ -331,7 +351,7 @@ export class HermesSession {
       if (method === METHODS.FS_WRITE_TEXT_FILE) {
         const safe = await this._resolveSafePath(msg.params?.path, { write: true });
         if (!safe) {
-          respondError(-32602, `fs/write_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
+          respondError(-32602, "fs/write_text_file: path is outside the session workspace and was denied by the bridge.");
           return;
         }
         const fsMod = await import("node:fs/promises");
@@ -474,10 +494,13 @@ export class HermesSession {
 
   async stop() {
     if (this._state === "stopped" || this._state === "failed") {
-      // Already terminal. Clean up the pool entry (in case it lingers) and
-      // make sure the OS process is gone. Preserve `failed` so callers can
-      // still distinguish a handshake-failure death from a normal stop.
+      // Already terminal. Drain any in-flight terminal frames so the
+      // last bits of operator-visible output land before teardown (Minor
+      // #17 from 2026-05-23 review). Then clean up. Preserve `failed`
+      // so callers can still distinguish a handshake-failure death from
+      // a normal stop.
       if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+      try { await this._terminalFlushChain; } catch {}
       try { terminateProcessTree(this._proc); } catch {}
       hermesSessionPool.delete(this.agentId);
       return;
@@ -488,6 +511,7 @@ export class HermesSession {
         await this._request(METHODS.SESSION_CLOSE, { sessionId: this.sessionId }, { timeoutMs: 2000 });
       } catch {}
     }
+    try { await this._terminalFlushChain; } catch {}
     try { terminateProcessTree(this._proc); } catch {}
     this._state = "stopped";
     hermesSessionPool.delete(this.agentId);

@@ -306,8 +306,17 @@ export class CodexSession {
   _dispatchNotification(message) {
     const turn = this._activeTurn;
     if (!turn) {
-      // No active turn — agent emitted something unsolicited (rare).
-      // Push to terminal as dim text so operator sees it.
+      // No active turn — agent emitted something between turns (rare).
+      // Emit as a pool event so operator-visible logs capture it (fix I9
+      // from 2026-05-23 review: pre-fix the comment said "push to
+      // terminal as dim text" but the code just returned, silently
+      // dropping potentially-important late notifications like
+      // turn/completed arrivals or error/* events from a hung child).
+      try {
+        const method = String(message?.method || "<unknown>");
+        const brief = JSON.stringify(message?.params || {}).slice(0, 200);
+        this._emit("notification-no-active-turn", { method, paramsBrief: brief });
+      } catch {}
       return;
     }
     turn.markActivity(message.method || "runtime notification");
@@ -412,12 +421,17 @@ export class CodexSession {
   async stop() {
     if (this._state === "stopped" || this._state === "failed") {
       if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+      // Drain in-flight terminal frames before teardown (Minor #17 from
+      // 2026-05-23 review) so the last bits of operator-visible output
+      // land before the process is killed.
+      try { await this._terminalFlushChain; } catch {}
       try { this._rpc?.close?.(); } catch {}
       try { terminateProcessTree(this._proc); } catch {}
       codexSessionPool.delete(this.agentId);
       return;
     }
     if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+    try { await this._terminalFlushChain; } catch {}
     try { this._rpc?.close?.(); } catch {}
     try { terminateProcessTree(this._proc); } catch {}
     this._state = "stopped";
