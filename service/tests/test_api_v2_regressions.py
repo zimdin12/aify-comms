@@ -8298,12 +8298,24 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(int(tb["turn_busy"] or 0), 0)
 
     def test_orphaned_managed_runs_not_closed_when_bridge_owns(self):
-        # Guardrail: orphan-cleanup never touches runs with a real
-        # claim_bridge_id. Bridge-driven runs stay until the bridge
-        # itself reports their terminal state.
+        # Guardrail: orphan-cleanup never touches runs whose claim_bridge_id
+        # points at a LIVE bridge_instance (heartbeat within the stale
+        # window). Bridge-driven runs stay until the bridge itself reports
+        # their terminal state. After the 2026-05-23 fix, "real bridge_id"
+        # means "a bridge_instances row that's still heartbeating" — not
+        # just any non-empty string.
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("owned-hermes", runtime="hermes", sessionMode="managed")
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        live_seen = api_v2._now()
+        # Seed the live bridge_instance the run claims to be owned by.
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-real-1", "owned-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
+        )
         self._execute(
             """
             INSERT INTO dispatch_runs (
@@ -8332,6 +8344,105 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(closed), 0)
         run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_owned_1",))
         self.assertEqual(run_row["status"], "running")
+
+    def test_orphaned_managed_runs_closed_when_claim_bridge_is_stale(self):
+        # Operator-reported (2026-05-23): sc-coder hermes managed run sat
+        # in 'running' state for 50+ minutes because its claim_bridge_id
+        # pointed at a bridge_instance that had since gone stale
+        # (last_seen 8+ min ago) when the owning claude-aify wrapper was
+        # restarted. The original reaper only checked claim_bridge_id =
+        # '' so it skipped this case. After the fix the reaper ALSO
+        # treats "claim_bridge_id present BUT named bridge_instance is
+        # stale" as orphaned — symmetric handling of "no owning bridge"
+        # whether the column is empty or points at a dead bridge.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("stale-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # bridge_instance with last_seen 10 min ago — well past 5-min window.
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-stale-1", "stale-hermes", "test-machine", "hermes", "managed", stale_at, stale_at),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_stale_1", None, "dashboard", "stale-hermes", "start_if_possible",
+                "managed", "request", "stuck on dead bridge", "body", "normal",
+                "running", 0, stale_at, stale_at, stale_at, "bridge-stale-1",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, closed)
+        self.assertEqual(closed[0]["runId"], "run_stale_1")
+        run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_stale_1",))
+        self.assertEqual(run_row["status"], "failed")
+
+    def test_orphaned_managed_runs_closed_despite_reply_reminder_events(self):
+        # Operator-reported (2026-05-23): sc-coder's stuck run had a
+        # 'reply_reminder_skipped' dispatch_event firing every minute
+        # (service-side reminder loop), which kept resetting the reaper's
+        # "NOT EXISTS dispatch_events" cutoff and prevented reaping even
+        # after the bridge died. reply_reminder_skipped is metadata the
+        # service emits ABOUT the run, not progress FROM the runtime —
+        # the reaper now filters it out of the progress check.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("reminder-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recent_at = api_v2._now()  # within the cutoff window
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_reminder_1", None, "dashboard", "reminder-hermes", "start_if_possible",
+                "managed", "request", "stuck under reminder spam", "body", "normal",
+                "running", 1, stale_at, stale_at, stale_at, "",
+            ),
+        )
+        # Reminder event INSIDE the cutoff window — must NOT keep the run alive.
+        self._execute(
+            """
+            INSERT INTO dispatch_events (run_id, event_type, body, created_at)
+            VALUES (?,?,?,?)
+            """,
+            ("run_reminder_1", "reply_reminder_skipped", "target is busy", recent_at),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, f"reply_reminder_skipped must not block reaping; got {closed}")
+        self.assertEqual(closed[0]["runId"], "run_reminder_1")
 
     def test_turn_start_endpoint_sets_turn_busy_idempotent(self):
         # Pinning test for /agents/{id}/turn-start (added in 805e2df).

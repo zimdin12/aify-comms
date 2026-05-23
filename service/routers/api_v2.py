@@ -11086,29 +11086,46 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     # Defense against false-positive reaping (code review C1, 2026-05-22):
     # an orphan candidate must satisfy ALL of:
     #   1. status claimed/running
-    #   2. claim_bridge_id is empty (no bridge took ownership)
+    #   2. claim_bridge_id is empty (no bridge took ownership) OR the
+    #      named bridge_instance is gone/stale (operator-reported
+    #      2026-05-23: sc-coder's hermes managed run sat at "running"
+    #      for 50+ min because claim_bridge_id pointed at a bridge
+    #      that had since gone stale — original "claim_bridge_id = ''"
+    #      check missed this case. A bridge that hasn't heartbeated
+    #      within stale_seconds is dead from the dispatcher's POV;
+    #      runs it claimed are orphaned).
     #   3. started_at + stale_seconds is in the past
-    #   4. NO recent dispatch_events (run hasn't progressed at all since
-    #      the cutoff) — if events ARE flowing, the run is alive even
-    #      if claim_bridge_id is empty (a slow-claim client path or
-    #      a different write path didn't set the bridge_id but the
-    #      controller IS running).
+    #   4. NO recent dispatch_events of PROGRESS kind (run hasn't
+    #      progressed since the cutoff). reply_reminder_skipped is a
+    #      service-side METADATA event the reminder loop emits about
+    #      the run, not progress FROM the runtime — exclude it (same
+    #      operator-report: reply_reminder_skipped fired every minute,
+    #      kept resetting this cutoff window even after the controller
+    #      had died).
     cursor = await db.execute(
         """
-        SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode
+        SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode, claim_bridge_id
         FROM dispatch_runs r
         WHERE r.status IN ('claimed', 'running')
-          AND COALESCE(r.claim_bridge_id, '') = ''
+          AND (
+            COALESCE(r.claim_bridge_id, '') = ''
+            OR NOT EXISTS (
+              SELECT 1 FROM bridge_instances bi
+              WHERE bi.id = r.claim_bridge_id
+                AND datetime(bi.last_seen) > datetime('now', ?)
+            )
+          )
           AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)
           AND NOT EXISTS (
             SELECT 1 FROM dispatch_events de
             WHERE de.run_id = r.id
               AND datetime(de.created_at) > datetime('now', ?)
+              AND de.event_type NOT IN ('reply_reminder_skipped')
           )
         ORDER BY r.requested_at ASC
         LIMIT ?
         """,
-        (cutoff_param, cutoff_param, limit),
+        (cutoff_param, cutoff_param, cutoff_param, limit),
     )
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []

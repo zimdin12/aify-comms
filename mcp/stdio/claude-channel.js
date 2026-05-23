@@ -218,6 +218,18 @@ const mcp = new Server(
   },
 );
 
+// Pure decision: given a /agents/{id} snapshot, should the channel
+// bridge re-pulse turn_busy on this poll cycle? Exported for tests.
+// Returns { repulse: boolean, runId: string }. See the call site +
+// 2026-05-23 feedback-loop discussion in pollLoop for rationale.
+export function decideRepulse(agentSnapshot = {}) {
+  const dispatchState = agentSnapshot.dispatchState || {};
+  const hasActiveRun = Boolean(dispatchState.hasActiveRun);
+  if (!hasActiveRun) return { repulse: false, runId: "" };
+  const activeRunId = String(dispatchState.activeRun?.runId || "");
+  return { repulse: true, runId: activeRunId };
+}
+
 async function emitChannel(content, meta = {}) {
   await mcp.notification({
     method: "notifications/claude/channel",
@@ -357,13 +369,35 @@ async function pollLoop() {
         if (LAST_DELIVERED_AT_PER_AGENT.has(agentId)) {
           try {
             const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-            const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
-            const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
-            if (serverStatus === "working" || serverBusy) {
-              await reportTurnBusy(agentId, { busy: true }).catch(() => {});
+            const decision = decideRepulse(agentRes?.agent || {});
+            // Re-pulse condition: ONLY if there's an actual unsettled
+            // dispatch run (hasActiveRun = require_reply=true awaiting
+            // reply, or status=running). NOT based on serverStatus alone,
+            // which is DERIVED from turn_busy=1 — using it as a re-pulse
+            // trigger creates the self-reinforcing feedback loop
+            // (operator-reported 2026-05-23 "your and sc-coder status
+            // were stuck at working"):
+            //   1. dispatch delivered → turn_busy=1, LAST_DELIVERED set
+            //   2. dispatch marked completed (require_reply=false case)
+            //     → hasActiveRun=false but turn_busy still 1 fresh
+            //   3. server derives status='working' from turn_busy=1
+            //   4. bridge GET → reads 'working' → re-pulses turn_busy=1
+            //   5. step 3 keeps holding → infinite loop until
+            //      TURN_REFRESH_MAX_AGE_MS (10 min) clears the tracker.
+            //
+            // Why hasActiveRun is the right anchor: it's POSITIVE
+            // evidence the agent owes work (a delivered run that hasn't
+            // been replied to, or a claimed/running run still in flight).
+            // For UserPromptSubmit-initiated turns (no dispatch),
+            // turn_busy relies on the server-side TURN_BUSY_STALE_SECONDS
+            // window + the authoritative Stop hook clear. Brief flicker
+            // for >120s assistant turns is acceptable; stuck-working-
+            // forever is not.
+            if (decision.repulse) {
+              await reportTurnBusy(agentId, { busy: true, runId: decision.runId }).catch(() => {});
             } else {
-              // Server says not working — Stop hook fired or run
-              // completed externally. Drop tracking.
+              // No unsettled run — agent is genuinely idle (Stop hook
+              // fired, run completed externally, etc.). Drop tracking.
               LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
             }
           } catch {
