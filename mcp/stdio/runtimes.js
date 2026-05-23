@@ -11,6 +11,7 @@ import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 import { acquirePiSession } from "./pi-session.js";
 import { getOrCreateHermesSession } from "./hermes-session.js";
+import { getOrCreateCodexSession } from "./codex-session.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
 function userHomeDir() {
@@ -547,7 +548,7 @@ export function quoteForDisplay(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
-function describeCodexItem(item = {}) {
+export function describeCodexItem(item = {}) {
   const type = String(item?.type || item?.kind || "item").trim() || "item";
   const name =
     String(item?.name || item?.toolName || item?.call?.name || item?.function?.name || "").trim();
@@ -938,7 +939,14 @@ function requireOpenCodeData(response, fallbackMessage) {
   throw new Error(errorMessage);
 }
 
-function defaultCodexCommand() {
+export function defaultCodexCommand() {
+  // Test/operator override: full command line incl. args. Single-space tokens.
+  // E.g. AIFY_CODEX_COMMAND="node /path/to/fake-codex-app-server.mjs".
+  const override = String(process.env.AIFY_CODEX_COMMAND || "").trim();
+  if (override) {
+    const tokens = override.split(/\s+/).filter(Boolean);
+    return { command: tokens[0], args: tokens.slice(1) };
+  }
   if (process.platform === "win32") {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
@@ -976,7 +984,7 @@ function codexWorkingPath(launcher, cwd) {
   return toWslPath(cwd);
 }
 
-function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
+export function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
   return resolveCodexRequestCwdFor({
     hostCwd,
     appServerUrl,
@@ -984,7 +992,7 @@ function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
   });
 }
 
-function codexSpawnCwd(launcher, cwd) {
+export function codexSpawnCwd(launcher, cwd) {
   if (!isWslCodexLauncher(launcher)) return cwd;
   return process.env.USERPROFILE || process.env.HOMEDRIVE && process.env.HOMEPATH
     ? `${process.env.HOMEDRIVE || "C:"}${process.env.HOMEPATH || "\\Users\\Default"}`
@@ -1511,10 +1519,15 @@ export function defaultSessionHandleForRuntime(runtime) {
   return "";
 }
 
-function createRpcClient(proc, { onNotification, onStderr }) {
+export function createRpcClient(proc, { onNotification, onStderr } = {}) {
   const pending = new Map();
   let nextId = 1;
   let processError = null;
+  // Mutable notification handler so a pooled RPC (CodexSession) can swap
+  // it per turn without rebuilding the client. Defaults to the
+  // constructor-time `onNotification`; null disables forwarding.
+  let activeNotificationHandler = onNotification || null;
+  let activeStderrHandler = onStderr || null;
 
   function failPending(error) {
     for (const [id, pendingRequest] of pending.entries()) {
@@ -1526,7 +1539,7 @@ function createRpcClient(proc, { onNotification, onStderr }) {
   proc.on("error", (error) => {
     processError = error instanceof Error ? error : new Error(String(error));
     failPending(processError);
-    if (onStderr) onStderr(processError.message || String(processError));
+    if (activeStderrHandler) activeStderrHandler(processError.message || String(processError));
   });
 
   const stdout = readline.createInterface({ input: proc.stdout });
@@ -1549,14 +1562,14 @@ function createRpcClient(proc, { onNotification, onStderr }) {
       return;
     }
 
-    if (message.method && onNotification) {
-      onNotification(message);
+    if (message.method && activeNotificationHandler) {
+      activeNotificationHandler(message);
     }
   });
 
   const stderr = readline.createInterface({ input: proc.stderr });
   stderr.on("line", (line) => {
-    if (onStderr) onStderr(line);
+    if (activeStderrHandler) activeStderrHandler(line);
   });
 
   function send(payload) {
@@ -1592,16 +1605,33 @@ function createRpcClient(proc, { onNotification, onStderr }) {
     send({ jsonrpc: "2.0", method, params });
   }
 
-  return { request, notify };
+  function setOnNotification(handler) {
+    activeNotificationHandler = typeof handler === "function" ? handler : null;
+  }
+
+  function setOnStderr(handler) {
+    activeStderrHandler = typeof handler === "function" ? handler : null;
+  }
+
+  function close() {
+    failPending(new Error("rpc client closed"));
+    activeNotificationHandler = null;
+    activeStderrHandler = null;
+    try { proc.stdin?.end?.(); } catch {}
+  }
+
+  return { request, notify, setOnNotification, setOnStderr, close };
 }
 
-function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
+export function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
   return new Promise((resolve, reject) => {
     const pending = new Map();
     let nextId = 1;
     let opened = false;
     let closed = false;
 
+    let activeNotificationHandler = onNotification || null;
+    let activeStderrHandler = onStderr || null;
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     const socket = new WebSocket(url, Object.keys(headers).length ? { headers } : undefined);
@@ -1671,9 +1701,19 @@ function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {})
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
           socket.close();
         }
+        activeNotificationHandler = null;
+        activeStderrHandler = null;
       }
 
-      resolve({ request, notify, close });
+      function setOnNotification(handler) {
+        activeNotificationHandler = typeof handler === "function" ? handler : null;
+      }
+
+      function setOnStderr(handler) {
+        activeStderrHandler = typeof handler === "function" ? handler : null;
+      }
+
+      resolve({ request, notify, close, setOnNotification, setOnStderr });
     });
 
     socket.on("message", (data) => {
@@ -1693,8 +1733,8 @@ function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {})
         return;
       }
 
-      if (message.method && onNotification) {
-        onNotification(message);
+      if (message.method && activeNotificationHandler) {
+        activeNotificationHandler(message);
       }
     });
 
@@ -1960,6 +2000,69 @@ export function isClaudeSessionInUseError(text) {
 }
 
 function createCodexController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  // Codex dispatch routing:
+  //   - resident with shared app-server URL → keep the WebSocket controller
+  //     path (existing infrastructure; the WS app-server is already the
+  //     persistent backing process).
+  //   - else (managed / default, no WS URL) → persistent CodexSession pool
+  //     keyed by agentId. Mirror of HermesSession/PiSession: spawn `codex
+  //     app-server` once, initialize + thread/start, reuse across turns.
+  //     See DECISIONS.md 2026-05-23 and
+  //     docs/plans/2026-05-23-hermes-acp-persistent-session.md (codex
+  //     follow-up).
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  const cfg = getRuntimeConfig(agentInfo);
+  const hasWsAppServer = executionMode === "resident" && hasCodexLiveAppServer(cfg);
+  if (executionMode === "managed" && !hasWsAppServer) {
+    return createCodexControllerPooled({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
+  return createCodexControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks });
+}
+
+function createCodexControllerPooled({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const sess = getOrCreateCodexSession({
+    agentId,
+    agentInfo,
+    onPoolEvent: (kind, payload) => {
+      try {
+        callbacks?.onEvent?.("codex", `${kind}: ${typeof payload === "string" ? payload : JSON.stringify(payload).slice(0, 200)}`);
+      } catch {}
+    },
+  });
+
+  const promise = (async () => {
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo, session: sess });
+        if (typeof sink === "function") sess.attachTerminalSink(sink);
+      } catch (error) {
+        try { callbacks.onEvent?.("codex", `Codex virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
+    const userPrompt = buildUserPrompt(run);
+    const result = await sess.runTurn({
+      promptText: `${systemPrompt}\n\n${userPrompt}`,
+      run,
+      callbacks,
+      runtimeState,
+    });
+    // Propagate thread id back to caller so server can persist it.
+    if (result?.runtimeState?.threadId) {
+      try { callbacks?.onRuntimeState?.({ threadId: result.runtimeState.threadId }); } catch {}
+    }
+    return result;
+  })();
+
+  return {
+    capabilities: controlCapabilitiesForRuntime("codex"),
+    interrupt: async () => { try { await sess.cancelActiveTurn(); } catch {} },
+    steer: async (text) => { await sess.steer(text); },
+    promise,
+  };
+}
+
+function createCodexControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultCodexCommand();
   const resumePolicy = String(runtimeState?.resumePolicy || agentInfo?.runtimeState?.resumePolicy || "native_first").trim().toLowerCase();
