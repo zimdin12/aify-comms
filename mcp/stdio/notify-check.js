@@ -90,8 +90,30 @@ try {
   const data = await resp.json();
 
   if (heartbeatAllowed) {
+    // For PostToolUse hook payloads ONLY, re-pulse turn_busy=1 with empty
+    // runId (operator-initiated turn, no dispatch). This is what keeps
+    // status='working' alive for long multi-tool claude turns past the
+    // 120s TURN_BUSY_STALE_SECONDS window — every tool call is positive
+    // evidence the agent is still working. Pre-fix the heartbeat updated
+    // agents.last_seen but NOT turn_updated_at, so >120s turns silently
+    // flipped to 'online' on the dashboard while claude was still using
+    // tools (operator-reported 2026-05-23: "graph-tech-lead showing
+    // online, but he is working").
+    //
+    // Safe by design — this is a HOOK script firing on actual tool use,
+    // not a polling loop reacting to derived status. The 2026-05-23
+    // feedback-loop fix in claude-channel.js stays in place: the bridge
+    // poll loop only re-pulses on hasActiveRun (dispatch anchor); hook
+    // refreshes here are bound to real activity, no self-reinforcement.
+    const heartbeatBody = (hookPayload?.hook_event_name === "PostToolUse")
+      ? JSON.stringify({ turnBusy: true, turnRuntime: "claude-code" })
+      : undefined;
+    const hbHeaders = heartbeatBody ? { ...headers, "Content-Type": "application/json" } : headers;
     fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
-      method: "POST", headers, signal: AbortSignal.timeout(2000),
+      method: "POST",
+      headers: hbHeaders,
+      body: heartbeatBody,
+      signal: AbortSignal.timeout(2000),
     }).catch(() => {});
   }
 
