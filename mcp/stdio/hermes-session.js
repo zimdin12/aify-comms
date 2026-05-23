@@ -316,7 +316,7 @@ export class HermesSession {
     const respondError = (code, message) => this._writeRaw(encodeError(id, code, message));
     try {
       if (method === METHODS.FS_READ_TEXT_FILE) {
-        const safe = this._resolveSafePath(msg.params?.path);
+        const safe = await this._resolveSafePath(msg.params?.path, { write: false });
         if (!safe) {
           respondError(-32602, `fs/read_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
           return;
@@ -327,7 +327,7 @@ export class HermesSession {
         return;
       }
       if (method === METHODS.FS_WRITE_TEXT_FILE) {
-        const safe = this._resolveSafePath(msg.params?.path);
+        const safe = await this._resolveSafePath(msg.params?.path, { write: true });
         if (!safe) {
           respondError(-32602, `fs/write_text_file: path "${msg.params?.path || ""}" is outside the session workspace and was denied by the bridge.`);
           return;
@@ -385,19 +385,45 @@ export class HermesSession {
 
   // Resolve an agent-requested file path against the session's cwd and
   // refuse anything that escapes the workspace tree (fix I6).
-  // Returns the absolute resolved path on success, or null on denial.
+  // Returns the absolute, **realpath-canonical** path on success, or null
+  // on denial. Resolves symlinks before the containment check so an agent
+  // can't plant `cwd/escape -> /etc` and exfiltrate via it (second-round
+  // review follow-up — lurking-concern S1).
+  //
+  // For writes to paths that don't yet exist, the parent directory is
+  // canonicalized instead, then re-joined with the basename. This still
+  // catches the symlink-in-parent-chain case while allowing legitimate
+  // new-file creates.
+  //
   // Operators who genuinely want unrestricted access can set
   // AIFY_HERMES_FS_UNSAFE=1 (explicit opt-out, documented in install.hermes.md).
-  _resolveSafePath(requestedPath) {
+  async _resolveSafePath(requestedPath, { write = false } = {}) {
     const raw = String(requestedPath || "").trim();
     if (!raw) return null;
     if (process.env.AIFY_HERMES_FS_UNSAFE === "1") return raw;
+    const fsMod = await import("node:fs/promises");
     const cwd = nodePath.resolve(this.agentInfo?.cwd || process.cwd());
-    const candidate = nodePath.isAbsolute(raw) ? nodePath.resolve(raw) : nodePath.resolve(cwd, raw);
-    // Containment check: candidate must equal cwd or live under it.
-    // Trailing-separator suffix avoids "/foo" matching "/foobar".
-    const cwdWithSep = cwd.endsWith(nodePath.sep) ? cwd : cwd + nodePath.sep;
-    if (candidate === cwd || candidate.startsWith(cwdWithSep)) return candidate;
+    let cwdReal;
+    try { cwdReal = await fsMod.realpath(cwd); } catch { cwdReal = cwd; }
+    const candidate = nodePath.isAbsolute(raw) ? nodePath.resolve(raw) : nodePath.resolve(cwdReal, raw);
+
+    let canonical;
+    try {
+      canonical = await fsMod.realpath(candidate);
+    } catch (err) {
+      if (!write || err?.code !== "ENOENT") return null;
+      // Write to a not-yet-existing file: canonicalize the parent dir, then
+      // re-join with the basename. The parent MUST exist (otherwise the
+      // write would fail anyway) and MUST resolve under cwd.
+      const parent = nodePath.dirname(candidate);
+      try {
+        const parentReal = await fsMod.realpath(parent);
+        canonical = nodePath.join(parentReal, nodePath.basename(candidate));
+      } catch { return null; }
+    }
+
+    const cwdWithSep = cwdReal.endsWith(nodePath.sep) ? cwdReal : cwdReal + nodePath.sep;
+    if (canonical === cwdReal || canonical.startsWith(cwdWithSep)) return canonical;
     return null;
   }
 

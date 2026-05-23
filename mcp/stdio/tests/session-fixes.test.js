@@ -205,6 +205,65 @@ async function test_I6_fs_containment() {
   console.log("PASS test_I6_fs_containment");
 }
 
+async function test_I6_fs_symlink_traversal_blocked() {
+  // Second-round-review lurking-concern S1: a symlink inside cwd pointing
+  // outside the workspace must NOT bypass the containment check.
+  const sandboxRoot = path.join(process.cwd(), `.tmp-sandbox-symlink-${Date.now()}`);
+  await fs.mkdir(sandboxRoot, { recursive: true });
+  const outsideTarget = path.join(process.cwd(), `.tmp-outside-symlink-${Date.now()}.txt`);
+  await fs.writeFile(outsideTarget, "secret-data");
+
+  const symlinkPath = path.join(sandboxRoot, "escape");
+  let symlinkSupported = true;
+  try {
+    await fs.symlink(outsideTarget, symlinkPath);
+  } catch (e) {
+    // Windows non-elevated processes can't create symlinks. Skip rather
+    // than fail — but log so a CI matrix with privilege can catch regressions.
+    symlinkSupported = false;
+    console.log(`SKIP test_I6_fs_symlink_traversal_blocked (symlink create failed: ${e.code || e.message})`);
+  }
+
+  if (symlinkSupported) {
+    const sess = new HermesSession({
+      agentId: "fs-symlink",
+      agentInfo: { runtime: "hermes", mode: "managed", cwd: sandboxRoot, runtimeConfig: {} },
+    });
+    try {
+      await sess.ensureStarted();
+      const responses = [];
+      sess._writeRaw = (line) => { responses.push(line); };
+
+      // Read through the symlink — must be DENIED (realpath resolves outside cwd).
+      await sess._handleClientRequest({
+        id: 9400,
+        method: METHODS.FS_READ_TEXT_FILE,
+        params: { path: symlinkPath },
+      });
+      const r = JSON.parse(responses.shift());
+      assert.ok(r.error, `symlink-traversal must be DENIED; got ${JSON.stringify(r).slice(0, 200)}`);
+      assert.equal(r.error.code, -32602);
+      assert.match(r.error.message, /outside the session workspace/);
+
+      // Read via the symlink's relative name — also DENIED.
+      await sess._handleClientRequest({
+        id: 9401,
+        method: METHODS.FS_READ_TEXT_FILE,
+        params: { path: "escape" },
+      });
+      const r2 = JSON.parse(responses.shift());
+      assert.ok(r2.error, "relative symlink-traversal must be DENIED");
+      assert.equal(r2.error.code, -32602);
+    } finally {
+      await sess.stop();
+    }
+    console.log("PASS test_I6_fs_symlink_traversal_blocked");
+  }
+
+  await fs.rm(sandboxRoot, { recursive: true, force: true });
+  await fs.unlink(outsideTarget).catch(() => {});
+}
+
 async function test_I6_fs_unsafe_opt_out() {
   // AIFY_HERMES_FS_UNSAFE=1 must restore unrestricted access.
   const outsideRoot = path.join(process.cwd(), `.tmp-outside-${Date.now()}`);
@@ -264,6 +323,7 @@ await test_C1_pool_heal_codex();
 await test_C2_codex_cancel_force_settles_when_app_server_ignores_interrupt();
 await test_I5_permission_safe_allow_kinds();
 await test_I6_fs_containment();
+await test_I6_fs_symlink_traversal_blocked();
 await test_I6_fs_unsafe_opt_out();
 await test_I10_concurrent_ensureStarted_shares_barrier();
 console.log("session-fixes.test.js: all assertions passed");
