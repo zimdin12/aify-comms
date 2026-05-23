@@ -2,6 +2,19 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Hermes managed dispatch uses persistent `hermes acp` JSON-RPC (2026-05-23)
+
+**Decision.** Managed hermes dispatches go through a long-lived `hermes acp` child per agent (mcp/stdio/hermes-session.js — `HermesSession`), mirroring the `PiSession` pattern. The bridge spawns one `hermes acp --accept-hooks` per `(agentId, machine)`, completes ACP `initialize` + `session/new` once, and reuses the same `sessionId` for every subsequent `session/prompt`. Resident hermes (operator-typed `hermes-aify`) still spawns interactive `hermes` under PTY — only the managed delivery path moved to ACP.
+
+**Why.** Operator quote (2026-05-22): *"I do not want pseudo terminal input because i might write while other agent sends message in and it gets scrambled. We neeed to be able to send in background like with claude code pseudo terminal."* ACP is JSON-RPC stdio with a persistent sessionId — the bridge can stream `session/update` notifications without sharing a PTY with the operator. The prior `hermes chat -q` per-turn spawn could not stream incremental tokens, could not carry native conversation context (`--continue <name>` requires a pre-existing session, see Phase 7 rollback note in mcp/stdio/runtimes.js), and had to embed all prior context in the wire prompt every turn.
+
+**Why per-agent pool (not per-session, not per-machine).** `agentId` is the unit the dispatcher already knows about. Multiple sessions sharing one child would require routing `session/update` notifications by `sessionId`, which is bug surface for negligible memory savings.
+
+**Why we decline `terminal/*` client requests from the agent.** The bridge has no operator-safe sandbox for hermes-spawned child processes. Hermes falls back to its own sandbox if one is configured. Revisit when there's an operator demand.
+
+**Wire format note.** ACP method names are slash-separated (`session/new`, `session/prompt`, `session/update`) but field names are camelCase (`sessionId`, `protocolVersion`, `stopReason`) — confirmed live against Hermes 0.14.0; see `docs/plans/notes/2026-05-23-hermes-acp-spike.md`. The `sessionUpdate` discriminator value is snake_case (`agent_message_chunk`, `agent_thought_chunk`, `tool_call`, ...). Tests live in `mcp/stdio/tests/hermes-acp-protocol.test.js` and `mcp/stdio/tests/hermes-session-acp.test.js` with the `fake-hermes-acp.mjs` stdio fixture.
+
+
 ## Runtime limits
 
 | Capability | Claude Code | Codex | OpenCode |

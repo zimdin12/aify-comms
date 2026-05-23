@@ -647,6 +647,27 @@ curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | py
 # {"ok": true, "bridgeOwned": true|false, "virtualTerminalId": "vterm_..."}
 ```
 
+## Hermes ACP persistent session
+
+Managed hermes dispatches go through a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
+
+### Dispatch sits at `[hermes] thinking...` forever
+
+`hermes acp` is alive but the prompt never resolves. Cause: hermes deadlocked inside the agent loop (provider stall, hook race, etc.), or a `session/request_permission` callback is being mishandled.
+
+**Fix.** From the dashboard, Stop the agent's persistent worker (terminal Stop) and re-dispatch — the bridge will spawn a fresh `hermes acp`, run `initialize` + `session/new` again, and continue. The synthesized terminal row survives across the restart.
+
+### `hermes acp handshake timeout (45000ms)`
+
+The bridge spawned `hermes acp` but never got an `initialize` response within 45s.
+
+- Confirm `hermes acp --check` exits 0 from the host (`pwsh: hermes acp --check`). If it prompts about shell-hook approval, your install is missing the `--accept-hooks` flag — the bridge passes it by default, but a custom `AIFY_HERMES_ACP_COMMAND` may have dropped it. Re-set: `AIFY_HERMES_ACP_COMMAND="hermes acp --accept-hooks"`.
+- Check stderr tail in the dispatch_event for the run — the handshake-timeout error includes the last 200 chars of hermes's stderr. Common culprits: provider credentials missing, `~/.hermes/.env` not loaded, hooks-approval prompt blocking startup.
+
+### Bridge declines hermes's terminal/* callbacks
+
+If hermes asks the bridge to spawn a child process (`terminal/create`, etc.), the bridge replies with method-not-found by design (no in-bridge sandbox). Hermes should fall back to its own sandbox. If hermes errors out instead, configure hermes itself with a sandbox provider — the bridge will not host tool subprocesses.
+
 ## General escalation
 
 If none of the fixes above resolve the issue:

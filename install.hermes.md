@@ -119,10 +119,37 @@ work around the Claude Code stdio MCP race bug.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive `hermes
-chat` session for human use. Managed Hermes is now driven by `createHermesController`
-(per-dispatch `hermes chat -Q -q` with a synthesized terminal feed in the
-dashboard Console) and does NOT need a visible wrapper PTY for delivery. See the
-"Delivery path" section above and [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md).
+chat` session for human use. Managed Hermes is driven by `createHermesController`
+in the bridge, which keeps a long-lived `hermes acp` JSON-RPC child per agent
+(see `mcp/stdio/hermes-session.js`) and streams `session/update` notifications
+into the dashboard Console — no visible wrapper PTY is needed for delivery.
+
+## Persistent ACP session (managed dispatches)
+
+For managed hermes agents the bridge spawns a single `hermes acp --accept-hooks`
+per agentId on first dispatch, runs the ACP handshake (`initialize` →
+`session/new`), and reuses the same `sessionId` for every subsequent
+`session/prompt`. This gives native conversation continuity and token-level
+streaming.
+
+- Default launcher: `hermes acp --accept-hooks` (looked up on PATH).
+- Override: `AIFY_HERMES_ACP_COMMAND="/abs/path/to/hermes acp --accept-hooks"`
+  (or per-agent via `runtimeConfig.hermesAcpCommand`).
+- Idle reaper: 24h by default. Override globally via
+  `AIFY_HERMES_IDLE_TIMEOUT_MS` or per-agent via
+  `runtimeConfig.hermesIdleTimeoutMs`.
+- Handshake-startup window: 45s default; tune via
+  `AIFY_HERMES_STARTUP_TIMEOUT_MS` or `runtimeConfig.startupTimeoutMs`.
+- Resident hermes is unaffected — the operator-typed hermes still launches
+  interactively under PTY.
+
+To verify the persistent child is alive: open the agent's Console after a
+managed dispatch — status should go `available → working → available` while
+the same `hermes acp` PID stays up between turns (`tasklist | findstr hermes`
+on Windows, `pgrep -f "hermes acp"` on POSIX). A second dispatch reuses the
+same PID. The bridge declines hermes's `terminal/*` callbacks (no in-bridge
+sandbox), so configure hermes itself to use its own sandbox if you need
+tool-driven child processes.
 
 See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for the full
 integration guide, hooks details, MCP config shape, resident mode, and current
