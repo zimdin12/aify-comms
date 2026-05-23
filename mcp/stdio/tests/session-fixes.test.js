@@ -318,6 +318,44 @@ async function test_I10_concurrent_ensureStarted_shares_barrier() {
   console.log("PASS test_I10_concurrent_ensureStarted_shares_barrier");
 }
 
+async function test_I11_codex_threadid_hint_mismatch_stops_and_throws() {
+  // Codex runTurn called with a runtimeState.threadId different from
+  // the session's cached threadId must NOT silently ignore the hint.
+  // It should stop+evict the session so the next dispatch spawns a
+  // fresh codex app-server on the new thread (fix I11 from 2026-05-23
+  // review). Pre-fix the hint was honored only on the FIRST handshake;
+  // subsequent calls reused the cached threadId regardless of hint.
+  _resetCodexSessionPoolForTests();
+  const { CodexSession: CodexSessionClass } = await import("../codex-session.js");
+  const sess = new CodexSessionClass({
+    agentId: "tid-mismatch",
+    agentInfo: { runtime: "codex", sessionMode: "managed", cwd: process.cwd(), runtimeConfig: { codexAppServerUrl: "", timeoutMs: 30000, quietTimeoutMs: 0, mcpToolTimeoutMs: 0 } },
+  });
+  try {
+    await sess.ensureStarted({ runtimeState: {}, callbacks: {} });
+    const firstThreadId = sess.threadId;
+    assert.ok(firstThreadId.startsWith("fake-thread-"), `expected fake-thread-* on first handshake, got ${firstThreadId}`);
+
+    // Now call runTurn with a DIFFERENT threadId hint — must throw and stop the session.
+    let caught = null;
+    try {
+      await sess.runTurn({
+        promptText: "go",
+        run: { id: "r" },
+        callbacks: {},
+        runtimeState: { threadId: "different-thread-xyz" },
+      });
+    } catch (e) { caught = e; }
+    assert.ok(caught, "runTurn with mismatched threadId hint must throw");
+    assert.match(caught.message, /threadId hint mismatch/);
+    assert.equal(sess._state, "stopped", `expected session stopped after mismatch, got ${sess._state}`);
+  } finally {
+    if (sess._state !== "stopped") await sess.stop();
+    _resetCodexSessionPoolForTests();
+  }
+  console.log("PASS test_I11_codex_threadid_hint_mismatch_stops_and_throws");
+}
+
 await test_C1_pool_heal_hermes();
 await test_C1_pool_heal_codex();
 await test_C2_codex_cancel_force_settles_when_app_server_ignores_interrupt();
@@ -326,4 +364,5 @@ await test_I6_fs_containment();
 await test_I6_fs_symlink_traversal_blocked();
 await test_I6_fs_unsafe_opt_out();
 await test_I10_concurrent_ensureStarted_shares_barrier();
+await test_I11_codex_threadid_hint_mismatch_stops_and_throws();
 console.log("session-fixes.test.js: all assertions passed");

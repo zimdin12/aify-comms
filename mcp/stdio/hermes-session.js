@@ -506,14 +506,19 @@ export class HermesSession {
       return;
     }
     if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
-    if (this.sessionId && this._state === "ready") {
+    const wasReady = this._state === "ready";
+    // Set state BEFORE tearing down so any queued turns chained behind
+    // the current one see _state='stopped' on their _runTurnInner entry
+    // and fail-fast with "not ready" instead of racing into stdin-end
+    // errors (Minor #12 from 2026-05-23 review).
+    this._state = "stopped";
+    if (this.sessionId && wasReady) {
       try {
         await this._request(METHODS.SESSION_CLOSE, { sessionId: this.sessionId }, { timeoutMs: 2000 });
       } catch {}
     }
     try { await this._terminalFlushChain; } catch {}
     try { terminateProcessTree(this._proc); } catch {}
-    this._state = "stopped";
     hermesSessionPool.delete(this.agentId);
   }
 

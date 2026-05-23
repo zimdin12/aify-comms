@@ -431,16 +431,45 @@ export class CodexSession {
       return;
     }
     if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+    // Set state BEFORE tearing down RPC/process so any queued turns
+    // chained behind the current one see _state='stopped' on their
+    // _runTurnInner entry and fail-fast with "not ready" instead of
+    // racing into RPC-close errors (Minor #12 from 2026-05-23 review).
+    this._state = "stopped";
     try { await this._terminalFlushChain; } catch {}
     try { this._rpc?.close?.(); } catch {}
     try { terminateProcessTree(this._proc); } catch {}
-    this._state = "stopped";
     codexSessionPool.delete(this.agentId);
   }
 
   // ------- turn execution --------------------------------------------------
 
   async runTurn({ promptText, run, callbacks = {}, runtimeState = {} }) {
+    // Detect threadId-hint mismatch (fix I11 from 2026-05-23 review).
+    // If the caller passed a runtimeState.threadId that's different from
+    // the session's cached this.threadId, the pre-fix code silently
+    // ignored the hint — only the first turn's hint mattered, all
+    // subsequent calls were forced to keep using the cached threadId.
+    // That broke "fresh context" requests (Dashboard → Sessions →
+    // Recreate writes a new agent.sessionHandle; the next dispatch's
+    // runtimeState would carry the new id but the persistent CodexSession
+    // wouldn't honor it). Fix: detect mismatch, stop+evict the session
+    // so the next ensureStarted reads the new hint and spawns fresh.
+    const hint = String(runtimeState?.threadId || "").trim();
+    if (
+      hint &&
+      this.threadId &&
+      hint !== this.threadId &&
+      (this._state === "ready" || this._state === "starting")
+    ) {
+      this._emit("threadid-mismatch", { sessionThreadId: this.threadId, hintedThreadId: hint });
+      try { callbacks?.onEvent?.("codex", `threadId hint mismatch (cached=${this.threadId}, hinted=${hint}); evicting session for a fresh start`); } catch {}
+      try { await this.stop(); } catch {}
+      throw new Error(
+        `Codex threadId hint mismatch: session was on thread ${this.threadId}, caller hinted ${hint}. ` +
+        `Session has been torn down; the next dispatch will spawn a fresh codex app-server on the new thread.`,
+      );
+    }
     await this.ensureStarted({ runtimeState, callbacks });
     // Per-caller Deferred isolates each caller's promise from prior-turn
     // rejections; the queue itself absorbs rejections via .catch so the
