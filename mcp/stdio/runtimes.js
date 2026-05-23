@@ -2290,9 +2290,14 @@ function createCodexControllerLegacy({ agentId, agentInfo, run, runtimeState, ca
     // Wrap broadly so a synchronous helper error (provider lookup,
     // ensureVirtualTerminal HTTP failure, etc.) can't crash the
     // controller — operator-reported 2026-05-22 "running codex crashes
-    // aify-comms" possibly traces here. Managed dispatches only;
-    // resident codex has the operator's own visible terminal.
-    if (executionMode === "managed" && typeof callbacks?.terminalSinkProvider === "function") {
+    // aify-comms" possibly traces here.
+    //
+    // Both managed AND resident dispatches push frames now. For resident,
+    // codex issue #15320 means an externally-injected turn/start may not
+    // render in the operator's `codex --remote` TUI live (history fixes
+    // up later), so the dashboard Console pane becomes the operator's
+    // wake-event surface — same way managed codex always was.
+    if (typeof callbacks?.terminalSinkProvider === "function") {
       try {
         const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
         if (typeof sink === "function") terminalSink = sink;
