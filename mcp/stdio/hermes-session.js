@@ -11,6 +11,7 @@
 
 import { spawn } from "node:child_process";
 import nodePath from "node:path";
+import { tokenizeCommandString } from "./runtimes.js";
 import {
   encodeRequest,
   encodeResponse,
@@ -47,10 +48,11 @@ function defaultHermesAcpLauncher() {
       process.env.HERMES_ACP_COMMAND ||
       "hermes acp --accept-hooks",
   ).trim();
-  // shell-style quoting isn't supported — single space separates tokens.
-  // Operators with paths-containing-spaces must use an env-var wrapper.
-  const tokens = raw.split(/\s+/).filter(Boolean);
-  return { command: tokens[0], args: tokens.slice(1) };
+  // Quote-aware tokenization (fix I7): single+double quotes + backslash
+  // escapes survive paths with spaces like
+  //   AIFY_HERMES_ACP_COMMAND='"C:\Program Files\hermes\hermes.exe" acp --accept-hooks'
+  // (Previously the split was whitespace-only and broke paths-with-spaces.)
+  return tokenizeCommandString(raw);
 }
 
 function idleTimeoutFor(agentInfo) {

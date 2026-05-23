@@ -57,6 +57,60 @@ function spawnRawProcess(command, args, options = {}, { forceNode = false } = {}
   });
 }
 
+// Tokenize a command string with shell-style quoting so paths containing
+// spaces survive an env-var override. Supports double-quote and single-
+// quote groupings. Backslash escapes the next char ONLY when not inside
+// quotes — inside double quotes backslash is literal (POSIX-ish but
+// Windows-path-friendly: `"C:\Program Files\hermes\hermes.exe"` parses
+// to the literal Windows path without losing backslashes).
+// Returns { command, args }. Empty input → { command: "", args: [] }.
+// Used by AIFY_HERMES_ACP_COMMAND, AIFY_CODEX_COMMAND, and any future
+// shell-style env override (fixes I7 from 2026-05-23 code review).
+export function tokenizeCommandString(raw) {
+  const text = String(raw || "");
+  const tokens = [];
+  let current = "";
+  let inDouble = false;
+  let inSingle = false;
+  let hasToken = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length && !inDouble && !inSingle && /\s/.test(text[i + 1])) {
+      // Outside quotes: backslash ONLY escapes whitespace (so `foo\ bar`
+      // is a single token). Anywhere else outside quotes (including
+      // Windows path separators like `C:\Program Files\…`), backslash is
+      // literal — otherwise an unquoted Windows path would lose its
+      // separators.
+      current += text[i + 1];
+      hasToken = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      hasToken = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      hasToken = true;
+      continue;
+    }
+    if (/\s/.test(ch) && !inDouble && !inSingle) {
+      if (hasToken) {
+        tokens.push(current);
+        current = "";
+        hasToken = false;
+      }
+      continue;
+    }
+    current += ch;
+    hasToken = true;
+  }
+  if (hasToken) tokens.push(current);
+  return { command: tokens[0] || "", args: tokens.slice(1) };
+}
+
 export function spawnProcess(command, args, options = {}) {
   const cwd = options.cwd || process.cwd();
   assertLaunchCwd(cwd);
@@ -940,12 +994,11 @@ function requireOpenCodeData(response, fallbackMessage) {
 }
 
 export function defaultCodexCommand() {
-  // Test/operator override: full command line incl. args. Single-space tokens.
-  // E.g. AIFY_CODEX_COMMAND="node /path/to/fake-codex-app-server.mjs".
+  // Test/operator override: full command line incl. args. Quote-aware so
+  // paths with spaces survive (fix I7 — '"C:\Program Files\codex\codex.exe" app-server').
   const override = String(process.env.AIFY_CODEX_COMMAND || "").trim();
   if (override) {
-    const tokens = override.split(/\s+/).filter(Boolean);
-    return { command: tokens[0], args: tokens.slice(1) };
+    return tokenizeCommandString(override);
   }
   if (process.platform === "win32") {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";

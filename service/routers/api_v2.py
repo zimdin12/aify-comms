@@ -1586,14 +1586,25 @@ async def _record_bridge_registration(
     # active run, and if a new bridge registers, the old in-flight
     # one is presumed orphaned. For resident mode the carve-out is
     # what protects parent in-flight runs from RPC-child re-registers.
+    # Heartbeat-aware carve-out (operator-reported 2026-05-23: 10+ leaked
+    # bridge_instances for comms-tech-lead from May 21–22 claude-aify
+    # restarts, never superseded). The resident-mode carve-out only
+    # protects bridges whose heartbeat is FRESH — a same-identity bridge
+    # whose last_seen is past the 5-min stale window is a dead process
+    # whose row should be superseded so the table doesn't accumulate
+    # zombie entries. Live multi-window resident scenarios still keep the
+    # protection because their last_seen heartbeats stay fresh.
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
         WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
-          AND NOT (
-            runtime = ? AND session_mode = ?
-            AND COALESCE(session_handle, '') = ?
-            AND ? = 'resident'
+          AND (
+            datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', '-5 minutes')
+            OR NOT (
+              runtime = ? AND session_mode = ?
+              AND COALESCE(session_handle, '') = ?
+              AND ? = 'resident'
+            )
           )
         """,
         (

@@ -4965,6 +4965,61 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight resident run was killed by same-session re-register: {dict(run)}")
 
+    def test_resident_stale_same_handle_bridge_IS_superseded_by_fresh_reregister(self):
+        # Heartbeat-aware carve-out (2026-05-23): the resident carve-out
+        # that protects same-handle re-registers MUST only apply when the
+        # prior bridge is still HEARTBEATING. A bridge whose last_seen is
+        # older than the 5-min stale window is a dead process — its row
+        # should be superseded so the table doesn't accumulate zombie
+        # entries across restarts. Operator-reported 2026-05-23:
+        # comms-tech-lead had 10+ leaked bridge_instances from May 21-22
+        # claude-aify restarts, all sharing the same session_handle and
+        # session_mode='resident', none superseded because the pre-fix
+        # carve-out unconditionally protected same-handle resident rows.
+        self._heartbeat_environment()
+        # Register the agent first (FK target). _register writes a
+        # bridge_instances row with last_seen=now; we then UPDATE that
+        # row to a stale timestamp so the heartbeat-aware carve-out kicks in.
+        self._register(
+            "resident-zombie",
+            runtime="claude-code",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="claude-session-1",
+            bridgeId="bridge-stale-resident",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            "UPDATE bridge_instances SET last_seen=?, registered_at=? WHERE id=?",
+            (stale_at, stale_at, "bridge-stale-resident"),
+        )
+        # Fresh re-register with identical logical identity but a new bridgeId.
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "resident-zombie",
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "claude-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-fresh-resident",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+
+        # The STALE bridge MUST be marked superseded (heartbeat-aware fix).
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-stale-resident",))
+        self.assertEqual(
+            prior["superseded_by"],
+            "bridge-fresh-resident",
+            f"stale same-handle resident bridge must be superseded by fresh re-register; got {dict(prior)}",
+        )
+
     def test_managed_same_logical_owner_reregister_supersedes_old_bridge(self):
         # Operator-reported 2026-05-22: 22+ leaked managed bridge_instances
         # for sc-manager, all sharing the same (runtime, session_mode='managed',

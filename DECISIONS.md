@@ -2,6 +2,16 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Resident same-handle carve-out is heartbeat-aware (2026-05-23)
+
+**Decision.** The supersession carve-out that protects same-logical-owner resident re-registers (so an `omp --mode rpc` child doesn't kill its parent's in-flight runs) now ONLY applies when the prior bridge_instance is still heartbeating within the 5-minute stale window. A bridge whose `last_seen` is older than that is a dead process — its row is superseded so the table doesn't accumulate zombie entries across restarts.
+
+**Why.** Operator-reported 2026-05-23: comms-tech-lead had 10+ leaked bridge_instances from May 21–22 claude-aify restarts, all sharing the same `session_handle` and `session_mode='resident'`, none superseded because the pre-fix carve-out unconditionally protected same-handle resident rows regardless of liveness. Each restart wrote a new row but left the old one alive in the DB.
+
+**Why this preserves the original protection.** Legitimate multi-window resident scenarios (two operator shells on the same identity, or an RPC child registering under its parent's session_handle) heartbeat continuously while the processes are alive — their rows stay within the 5-min window, the carve-out still protects them. Only DEAD same-handle rows get superseded.
+
+Test: `test_resident_stale_same_handle_bridge_IS_superseded_by_fresh_reregister`.
+
 ## Codex managed dispatch uses persistent `codex app-server` (2026-05-23)
 
 **Decision.** Managed codex dispatches go through a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js` — `CodexSession`), mirror of HermesSession and PiSession. On first dispatch the bridge spawns `codex app-server`, runs `initialize` + `initialized`, then `thread/start` (or `thread/resume` if a `threadId` is bound on the agent record). Every subsequent dispatch reuses the same RPC connection and threadId — `turn/start` only. The codex `--app-server` URL path (resident WebSocket) is unchanged; only the spawn-fresh managed path is pooled.

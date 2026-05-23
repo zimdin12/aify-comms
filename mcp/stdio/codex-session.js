@@ -174,9 +174,16 @@ export class CodexSession {
     this._managedCodexHome = prepareManagedCodexHome({ workspace: cwd, model, effort });
 
     try {
+      // Env merge (fix I8): inherit parent env + overlay CODEX_HOME if set.
+      // Previously the sparse `{}` (or `{CODEX_HOME: …}` alone) relied on
+      // spawnProcess to merge, but the asymmetry with PiSession/HermesSession
+      // (which pass {...process.env, …}) was a latent foot-gun for any future
+      // spawn helper that does NOT merge by default.
+      const childEnv = { ...process.env };
+      if (this._managedCodexHome) childEnv.CODEX_HOME = this._managedCodexHome;
       this._proc = spawnProcess(launcher.command, launcher.args, {
         cwd: spawnCwd,
-        env: this._managedCodexHome ? { CODEX_HOME: this._managedCodexHome } : {},
+        env: childEnv,
       });
     } catch (error) {
       this._state = "failed";
@@ -378,6 +385,18 @@ export class CodexSession {
 
   _onSpawnError(err) {
     this._emit("spawn-error", { message: err?.message || String(err) });
+    // Mirror PiSession: don't wait for _onExit to flip state — spawn
+    // errors are terminal. Reject any pending startup so concurrent
+    // ensureStarted callers fail fast instead of hanging on the deferred
+    // until the handshake-timeout (fix Minor #16 from 2026-05-23 review).
+    if (this._state === "starting" || this._state === "ready") {
+      this._state = "failed";
+      const deferred = this._startupDeferred;
+      this._startupDeferred = null;
+      if (deferred) {
+        try { deferred.reject(new Error(`codex spawn error: ${err?.message || err}`)); } catch {}
+      }
+    }
   }
 
   _armIdleTimer() {
