@@ -10,6 +10,7 @@ import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 import { acquirePiSession } from "./pi-session.js";
+import { getOrCreateHermesSession } from "./hermes-session.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
 function userHomeDir() {
@@ -3374,21 +3375,64 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
 }
 
 function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  // Per-dispatch native controller for managed hermes.
-  //
-  // Phase 7 attempted `--continue aify-<agentId>` for upstream session
-  // continuity, but operator-verified 2026-05-22: Hermes's
-  // `--continue <name>` requires the session to already exist and
-  // refuses with "No session found matching '<name>'" on first
-  // dispatch — there's no upstream way to auto-create a named session
-  // from -q mode. So conversation context is carried in the wire
-  // prompt instead (buildUserPrompt includes recent conversationContext
-  // from aify-comms), identical to codex/opencode managed adapters.
-  // The synthesized terminal_session row still survives across
-  // dispatches as the operator-visibility surface — the `hermes`
-  // process is short-lived per turn but the dashboard-visible
-  // "conversation" is durable through the synthesized feed + the
-  // wire-prompt context-carry.
+  // Hermes dispatch routing:
+  //   - executionMode === "resident" → legacy single-shot `hermes chat -q`
+  //     (preserved for operator-typed resident hermes, which currently has
+  //     no persistent-RPC equivalent on the resident path).
+  //   - else (managed / default) → persistent `hermes acp` JSON-RPC session
+  //     keyed by agentId, mirror of PiSession. Streams session/update
+  //     notifications into the synth terminal; conversation context is
+  //     native via the persistent sessionId so we no longer need the
+  //     wire-prompt context-carry that the single-shot path used.
+  //     See DECISIONS.md 2026-05-23 and
+  //     docs/plans/2026-05-23-hermes-acp-persistent-session.md.
+  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  if (executionMode !== "resident") {
+    return createHermesControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
+  return createHermesControllerSingleShot({ agentId, agentInfo, run, runtimeState, callbacks });
+}
+
+function createHermesControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const sess = getOrCreateHermesSession({
+    agentId,
+    agentInfo,
+    onPoolEvent: (kind, payload) => {
+      try {
+        callbacks?.onEvent?.("hermes", `${kind}: ${typeof payload === "string" ? payload : JSON.stringify(payload).slice(0, 200)}`);
+      } catch {}
+    },
+  });
+
+  const promise = (async () => {
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo, session: sess });
+        if (typeof sink === "function") sess.attachTerminalSink(sink);
+      } catch (error) {
+        try { callbacks.onEvent?.("hermes", `Hermes virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
+    const userPrompt = buildUserPrompt(run);
+    return sess.runTurn({ promptText: `${systemPrompt}\n\n${userPrompt}`, run });
+  })();
+
+  return {
+    capabilities: controlCapabilitiesForRuntime("hermes"),
+    interrupt: async () => { try { await sess.cancelActiveTurn(); } catch {} },
+    steer: async () => {
+      throw new Error("Hermes managed runs do not support mid-turn steer; send a follow-up dispatch instead.");
+    },
+    promise,
+  };
+}
+
+function createHermesControllerSingleShot({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  // Legacy per-dispatch native controller — kept for resident-mode hermes
+  // (operator-typed agents whose dispatch goes through this path rather
+  // than the persistent ACP session). Conversation context is carried in
+  // the wire prompt because `hermes chat -q` is single-shot.
   const config = getRuntimeConfig(agentInfo);
   const launcher = defaultHermesCommand();
   const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
