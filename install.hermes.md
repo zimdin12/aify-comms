@@ -133,7 +133,7 @@ per agentId on first dispatch, runs the ACP handshake (`initialize` →
 streaming.
 
 - Default launcher: `hermes acp --accept-hooks` (looked up on PATH).
-- Override: `AIFY_HERMES_ACP_COMMAND="/abs/path/to/hermes acp --accept-hooks"`
+- Override: `AIFY_HERMES_ACP_COMMAND="/abs/path/to/hermes acp --accept-hooks"` (quote-aware, so `AIFY_HERMES_ACP_COMMAND='"C:\Program Files\hermes\hermes.exe" acp --accept-hooks'` works for paths-with-spaces)
   (or per-agent via `runtimeConfig.hermesAcpCommand`).
 - Idle reaper: 24h by default. Override globally via
   `AIFY_HERMES_IDLE_TIMEOUT_MS` or per-agent via
