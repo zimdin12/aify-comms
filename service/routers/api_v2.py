@@ -987,10 +987,23 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
             "Re-register that live session with sessionHandle explicitly or create an environment-managed session."
         )
     if runtime == "hermes" and not session_handle:
-        return None, (
-            f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
-            "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
-        )
+        # Hermes-with-gatewayUrl doesn't need a captured sessionHandle —
+        # the bridge's gateway-channel controller resolves
+        # session.most_recent at dispatch time. Mirror of the carve-out
+        # in defaultCapabilitiesForRuntime (mcp/stdio/runtimes.js).
+        # Operator-reported 2026-05-24: sc-hermes-test-1 registered with
+        # gatewayUrl but no sessionHandle, capability check passed (resident-run
+        # was granted) but this gate still rejected live delivery. Without this
+        # carve-out the new gateway path can never deliver since hermes-aify
+        # registers before any chat session exists.
+        _rc = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+        _rc = _rc if isinstance(_rc, dict) else {}
+        _gw = str(_rc.get("gatewayUrl") or "").strip()
+        if not (_gw.startswith("ws://") or _gw.startswith("wss://")):
+            return None, (
+                f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
+                "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
+            )
     if runtime == "pi" and not session_handle:
         return None, (
             f'agent "{row["id"]}" is a resident Pi session without a bound session handle. '
