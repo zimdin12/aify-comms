@@ -1088,12 +1088,28 @@ install_hermes_config() {
     if (/^[ \t]*aify-comms:[ \t]*$/m.test(text) && /^[ \t]*mcp_servers:[ \t]*$/m.test(text)) {
       process.exit(0);
     }
+    // Hermes filters env-vars to stdio MCP children — only PATH/HOME/etc.
+    // pass through by default (tools/mcp_tool.py _SAFE_ENV_KEYS). The
+    // hermes-aify wrapper exports AIFY_HERMES_GATEWAY_URL +
+    // AIFY_HERMES_GATEWAY_TOKEN + HERMES_TUI_GATEWAY_URL to hermes itself,
+    // but without explicit propagation here those vars never reach the
+    // aify-comms MCP server child — so resolvedRuntimeConfigForRegistration
+    // can't auto-detect the gateway and resident-run capability stays empty.
+    //
+    // Hermes supports ${VAR} interpolation against its own env at
+    // MCP-spawn time (tools/mcp_tool.py:289 _ENV_VAR_PATTERN), so we
+    // template these so the value is resolved per-launch from whatever
+    // the wrapper exported, NOT baked in at install time.
     const entry = [
       "  aify-comms:",
       "    command: \"node\"",
       "    args:",
       `      - ${JSON.stringify(serverPath)}`,
-      ...(serverUrl ? ["    env:", `      AIFY_SERVER_URL: ${JSON.stringify(serverUrl)}`, `      CLAUDE_MCP_SERVER_URL: ${JSON.stringify(serverUrl)}`] : []),
+      "    env:",
+      `      AIFY_HERMES_GATEWAY_URL: \"\${AIFY_HERMES_GATEWAY_URL}\"`,
+      `      AIFY_HERMES_GATEWAY_TOKEN: \"\${AIFY_HERMES_GATEWAY_TOKEN}\"`,
+      `      HERMES_TUI_GATEWAY_URL: \"\${HERMES_TUI_GATEWAY_URL}\"`,
+      ...(serverUrl ? [`      AIFY_SERVER_URL: ${JSON.stringify(serverUrl)}`, `      CLAUDE_MCP_SERVER_URL: ${JSON.stringify(serverUrl)}`] : []),
     ];
     const lines = text.replace(/\s*$/, "").split(/\r?\n/);
     const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
