@@ -80,3 +80,16 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 The dashboard user is the human/operator. A dashboard-managed run should answer the current dashboard message in final plain text. Use `comms_send(to="dashboard", ...)` only for later proactive updates outside that delivered run.
 
 When the human asks "what happened", inspect messages/runs/contracts first. Do not summarize from memory if the system has data.
+
+## Reply on the surface you received
+
+**Default rule: reply on the same surface the request arrived on, unless explicitly directed otherwise.**
+
+- Request arrived as a `<channel source="aify-comms-channel" ...>` event (someone called `comms_send` to you) → reply with `comms_send(type="response", inReplyTo="<message id>", ...)`. Do NOT just print the answer as terminal output; the sender is not watching your terminal — they're waiting for the threaded reply via the bridge.
+- Request typed directly into your CLI (operator at your keyboard) → reply in the CLI / final plain text. Do not `comms_send` back to the operator unless they specifically asked for a dashboard update.
+- A dashboard-managed delivered run with `inReplyTo` in the metadata → final plain text closes the run and the bridge threads it back. No `comms_send` needed for the primary reply.
+- Same rule for agent-to-agent: A sends `comms_send` to B → B replies with `comms_send(type="response", inReplyTo=A's-message-id, to="A")`. Don't expect the sender to read your stdout.
+
+The principle: every channel of communication has its own thread. Replying on a different surface breaks threading, hides the answer from the sender, and creates duplicate context. If a message asks for action that produces output to multiple surfaces (e.g. "commit and tell me the hash"), the primary reply still goes back where the request came from; supplementary notifications go via `comms_send` to whoever else needs them.
+
+When in doubt: where did the question arrive? Reply there.

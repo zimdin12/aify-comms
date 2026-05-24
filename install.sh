@@ -1211,9 +1211,14 @@ install_codex_hook() {
     if (!data || typeof data !== 'object') data = {};
     if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
     if (!Array.isArray(data.hooks.PostToolUse)) data.hooks.PostToolUse = [];
-    const matcher = 'Bash';
+    // matcher .* fires on every tool call (Bash + Edit + Read + Write + ...).
+    // notify-check.js has its own 10s rate limit so the volume is bounded,
+    // and the heartbeat needs to fire on non-Bash tools to keep turn_busy
+    // fresh during stretches of file-only work (operator-reported 2026-05-24:
+    // status flipped to online mid-task when no Bash hook fired for >120s).
+    const matcher = '.*';
     data.hooks.PostToolUse = data.hooks.PostToolUse.filter(group => {
-      if (!group || group.matcher !== matcher || !Array.isArray(group.hooks)) return true;
+      if (!group || !Array.isArray(group.hooks)) return true;
       const keptHooks = group.hooks.filter(h => !isAifyNotifyHook(h));
       if (keptHooks.length === 0) return false;
       group.hooks = keptHooks;
@@ -1537,8 +1542,15 @@ install_claude_hook() {
     settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
       h => !JSON.stringify(h).includes('notify-check')
     );
+    // matcher .* fires on every tool call so notify-check.js heartbeat
+    // refreshes turn_busy during stretches of file-only work (Edit/Read/
+    // Write/Grep). Previous matcher 'Bash' only fired on Bash calls,
+    // which let turn_busy stale out (120s window) when claude spent a
+    // long stretch reading/editing without shell invocations — operator
+    // saw status flip to online mid-task. notify-check.js has its own
+    // 10s rate limit so heartbeat volume is bounded.
     settings.hooks.PostToolUse.push({
-      matcher: 'Bash',
+      matcher: '.*',
       hooks: [{
         type: 'command',
         command,
