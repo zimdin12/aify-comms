@@ -996,7 +996,12 @@ export class PiSession {
     if (launcher) this._launcher = launcher;
     if (cwd) this._cwd = cwd;
     if (!this._cwd) this._cwd = process.cwd();
-    this._model = String(model || "").trim();
+    // Normalize placeholder model values ("unknown" / "default" / "auto") to
+    // empty so we omit --model and let pi use its own configured default
+    // model. Operator-reported 2026-05-25: fresh sc-omp-test-1 registration
+    // landed with model="unknown" and the worker spawned `pi --model unknown`
+    // which pi rejects with `Model "unknown" not found`.
+    this._model = normalizePiModelOverride(model);
     this._thinking = String(thinking || "").trim();
     if (agentInfo) {
       this.agentInfo = agentInfo;

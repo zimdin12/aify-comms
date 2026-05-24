@@ -881,9 +881,10 @@ export function extractPiSessionState(value) {
   return { sessionId, sessionFile };
 }
 
+const PI_MODEL_PLACEHOLDER_VALUES = new Set(["default", "unknown", "auto"]);
 export function normalizePiModelOverride(value) {
   const text = String(value || "").trim();
-  return text.toLowerCase() === "default" ? "" : text;
+  return PI_MODEL_PLACEHOLDER_VALUES.has(text.toLowerCase()) ? "" : text;
 }
 
 export const RUNTIME_SESSION_ENV_VARS = Object.freeze({
