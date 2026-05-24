@@ -145,6 +145,36 @@ async function test_interrupt_active_turn() {
   console.log("PASS test_interrupt_active_turn");
 }
 
+// Bug #2.6 regression: when CodexSession starts a fresh thread (no
+// hint provided in runtimeState), it MUST notify the bridge via
+// onSessionHandleChange so the agent's session_handle gets persisted
+// in the service DB. Without this, subsequent Console PTY launches
+// see an empty session_handle and can't even theoretically resume
+// the codex thread. Operator-reported 2026-05-24: codex managed
+// console opens with a fresh shell because the bridge knew the
+// threadId but never published it.
+async function test_initial_thread_start_fires_onSessionHandleChange() {
+  const handleChanges = [];
+  const sess = new CodexSession({ agentId: "cx-persist", agentInfo: makeAgentInfo() });
+  try {
+    await sess.ensureStarted({
+      runtimeState: {}, // no hint — forces _startFreshThread
+      callbacks: {
+        onSessionHandleChange: async (newHandle, meta = {}) => {
+          handleChanges.push({ newHandle, meta });
+        },
+      },
+    });
+    assert.ok(sess.threadId.startsWith("fake-thread-"),
+              `expected fake-thread-* threadId, got ${sess.threadId}`);
+    assert.ok(handleChanges.length >= 1,
+              `expected at least one onSessionHandleChange call; got ${handleChanges.length}`);
+    assert.equal(handleChanges[0].newHandle, sess.threadId,
+                 "onSessionHandleChange newHandle must match the freshly-started threadId");
+  } finally { await sess.stop(); }
+  console.log("PASS test_initial_thread_start_fires_onSessionHandleChange");
+}
+
 await test_ensureStarted_starts_thread();
 await test_runTurn_streams_deltas_and_returns_summary();
 await test_session_reused_across_turns();
@@ -153,4 +183,5 @@ await test_idle_timeout_reaps_session();
 await test_handshake_failure_marks_failed();
 await test_refusal_rejects_turn();
 await test_interrupt_active_turn();
+await test_initial_thread_start_fires_onSessionHandleChange();
 console.log("codex-session.test.js: all assertions passed");

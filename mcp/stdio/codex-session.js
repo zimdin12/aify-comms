@@ -283,6 +283,17 @@ export class CodexSession {
       }
     }
     await this._startFreshThread({ cwd, model, approvalPolicy, sandboxMode });
+    // Bug #2.6 (operator-reported 2026-05-24): without this notification,
+    // the agent's session_handle in the service DB stays empty after the
+    // first managed run — subsequent Console PTY launches read an empty
+    // handle and the bridge can't recover the threadId after a restart.
+    // Mirror of the heal-path notification above (line 280) but for the
+    // no-hint initial start.
+    if (this.threadId) {
+      try {
+        await callbacks?.onSessionHandleChange?.(this.threadId, { reason: "initial_thread_start" });
+      } catch {}
+    }
   }
 
   async _startFreshThread({ cwd, model, approvalPolicy, sandboxMode }) {

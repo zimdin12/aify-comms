@@ -25,6 +25,7 @@ const state = {
   stats: {},
   terminalOwners: new Map(),
   activeXterm: null, // { terminalId, agentId, term, fitAddon, container } — xterm.js mounted into Session Console
+  sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   selectedConversation: 'dashboard',
   selectedSessionId: '',
@@ -703,6 +704,74 @@ function hermesGatewayUrlToHttp(wsUrl) {
   }
 }
 
+// Pure: pick the Session Console widget and the effective terminalId to use.
+// Caches the most-recent terminalId per session so the widget doesn't
+// oscillate when the server temporarily clears runtime_state.virtualTerminalId
+// (Bug #3: _stop_virtual_terminals_for_superseded_bridges runs on every
+// dashboard list-sessions refresh and wipes virtualTerminalId; the
+// terminal_session row itself usually still exists, so we keep showing the
+// xterm widget mounted to the cached terminalId until the operator switches
+// sessions). Stateless contract so it can be unit-tested without DOM setup.
+//
+// Inputs:
+//   agent: agent record with runtimeState
+//   sessionId: the selected session id (used as the cache key)
+//   runtime: normalized runtime string ('hermes' / 'codex' / ...)
+//   runtimeConfig: agent.runtimeConfig
+//   cache: Map<sessionId, terminalId> — updated in-place when a fresh
+//     terminalId is observed
+// Output:
+//   { kind: 'xterm' | 'hermes-iframe' | 'codex-synth' | 'none',
+//     terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId }
+// (Marked `function` not `export function` because app.js is loaded as a
+// classic <script>, not a module. The test in app.test.mjs reads the source,
+// strips the `export` it expects, and evals — see app.test.mjs for the
+// extract pattern.)
+function chooseSessionConsoleWidget({ agent, sessionId, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
+  const liveTerminalId = String(
+    agent?.runtimeState?.virtualTerminalId || agent?.runtimeState?.terminalId || ''
+  ).trim();
+  if (liveTerminalId && cache && typeof cache.set === 'function') {
+    cache.set(String(sessionId || ''), liveTerminalId);
+  }
+  const cachedTerminalId = (cache && typeof cache.get === 'function')
+    ? String(cache.get(String(sessionId || '')) || '').trim()
+    : '';
+  const effectiveTerminalId = liveTerminalId || cachedTerminalId;
+
+  if (effectiveTerminalId) {
+    return {
+      kind: 'xterm',
+      terminalId: effectiveTerminalId,
+      isLive: Boolean(liveTerminalId),
+      hermesGatewayHttp: '',
+      codexAppServerUrl: '',
+      codexThreadId: '',
+    };
+  }
+  if (runtime === 'hermes' && hermesGatewayHttp) {
+    return {
+      kind: 'hermes-iframe',
+      terminalId: '',
+      isLive: false,
+      hermesGatewayHttp,
+      codexAppServerUrl: '',
+      codexThreadId: '',
+    };
+  }
+  if (runtime === 'codex' && codexAttachable) {
+    return {
+      kind: 'codex-synth',
+      terminalId: '',
+      isLive: false,
+      hermesGatewayHttp: '',
+      codexAppServerUrl,
+      codexThreadId,
+    };
+  }
+  return { kind: 'none', terminalId: '', isLive: false, hermesGatewayHttp: '', codexAppServerUrl: '', codexThreadId: '' };
+}
+
 // --- Real PTY rendering via xterm.js ---------------------------------
 // When the bridge spawns a managed agent via TerminalProcessManager
 // (managed-claude PTY today; codex-aify / hermes-aify PTY soon), the
@@ -962,16 +1031,26 @@ function renderSessionConsole(session) {
   // the same WS session the bridge attaches to via /api/ws. (See
   // ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl + the hermes
   // dashboard's embedded chat tab gated on HERMES_DASHBOARD_TUI=1.)
-  // xterm.js render for ANY agent that has a bridge-owned terminal_session
-  // (virtual or real). Real PTYs (TerminalProcessManager-backed managed
-  // agents — codex-aify / hermes-aify / claude-aify in node-pty) give
-  // the actual Ink TUI; virtual terminals (synth-frame translations
-  // from native RPC adapters) get rendered with full ANSI color/cursor
-  // fidelity instead of the previous "no render at all" state. Falls
-  // back to the iframe / synth widgets when there's no terminal_session
-  // (resident agents the bridge can't reach).
-  const terminalId = String(agent?.runtimeState?.virtualTerminalId || agent?.runtimeState?.terminalId || '').trim();
-  const hasTerminal = Boolean(terminalId);
+  // Widget choice is delegated to chooseSessionConsoleWidget (pure helper,
+  // unit-tested in app.test.mjs). It caches the most-recent terminalId per
+  // session so the widget doesn't oscillate when the server temporarily
+  // clears runtime_state.virtualTerminalId — fixing the operator-reported
+  // 2026-05-24 Bug #3 (iframe ↔ xterm flip mid-conversation triggered by
+  // _stop_virtual_terminals_for_superseded_bridges running on every
+  // list-sessions refresh).
+  const widgetChoice = chooseSessionConsoleWidget({
+    agent,
+    sessionId: id,
+    runtime,
+    runtimeConfig,
+    cache: state.sessionTerminals,
+    hermesGatewayHttp,
+    codexAppServerUrl,
+    codexThreadId,
+    codexAttachable,
+  });
+  const terminalId = widgetChoice.terminalId;
+  const hasTerminal = widgetChoice.kind === 'xterm';
   const isVirtualTerminal = Boolean(agent?.runtimeState?.virtualTerminal);
   const ptyContainerId = hasTerminal ? `xterm-${terminalId}` : '';
 
