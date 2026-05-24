@@ -660,8 +660,110 @@ if [ -z "\$HERMES_AIFY_SESSION_MODE" ]; then
 fi
 export AIFY_SESSION_MODE="\$HERMES_AIFY_SESSION_MODE"
 
+# Resident-mode bridge-injection path (mirror of codex-aify install.sh:319-424
+# and the claude-channel.js path). When the operator launches hermes-aify
+# interactively, we:
+#   1. Spawn \`hermes dashboard --tui --port <P> --no-open --skip-build\` in the
+#      background. This sets _DASHBOARD_EMBEDDED_CHAT_ENABLED=True in
+#      web_server.py and mounts the /api/ws JSON-RPC gateway.
+#   2. Wait for the dashboard to bind, then fetch / and parse the ephemeral
+#      __HERMES_SESSION_TOKEN__ from the embedded <script> tag.
+#   3. Export HERMES_TUI_GATEWAY_URL so the Ink TUI launched by \`hermes chat
+#      --tui\` attaches to the running gateway via WebSocket (per
+#      ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl) instead of
+#      spawning its own stdio sidecar.
+#   4. Export AIFY_HERMES_GATEWAY_URL + AIFY_HERMES_GATEWAY_TOKEN so the
+#      aify-comms bridge (loaded inside hermes chat as an MCP server) writes
+#      a hermes runtime marker and the resident-channel controller in
+#      runtimes.js connects to the same /api/ws for bridge-injected prompts.
+#   5. Trap cleanup kills the dashboard child on wrapper exit.
+#
+# Opt out: AIFY_HERMES_SKIP_GATEWAY=1 falls back to plain \`hermes\` exec
+# (no gateway, no bridge-injection — operator-typed only). Use this if the
+# dashboard probe is breaking your install and you don't need resident wake.
+if [ "\$HERMES_AIFY_SESSION_MODE" = "resident" ] && [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
+  pick_port() {
+    node -e '
+      const net = require("net");
+      const srv = net.createServer();
+      srv.listen(0, "127.0.0.1", () => {
+        const p = srv.address().port;
+        srv.close(() => { process.stdout.write(String(p)); });
+      });
+    '
+  }
+
+  wait_for_http() {
+    local url="\$1"
+    local deadline=\$(( \$(date +%s) + 30 ))
+    while [ \$(date +%s) -lt "\$deadline" ]; do
+      if curl -s -o /dev/null "\$url"; then return 0; fi
+      sleep 0.2
+    done
+    return 1
+  }
+
+  AIFY_HERMES_PORT="\$(pick_port)"
+  if [ -z "\$AIFY_HERMES_PORT" ]; then
+    echo "hermes-aify: failed to allocate a local port for the dashboard gateway; falling back to plain hermes." >&2
+    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+  fi
+
+  AIFY_HERMES_DASHBOARD_URL="http://127.0.0.1:\$AIFY_HERMES_PORT"
+  LOG_ROOT="\${XDG_STATE_HOME:-\$HOME/.local/state}/aify-comms"
+  mkdir -p "\$LOG_ROOT"
+  AIFY_HERMES_DASHBOARD_LOG="\$LOG_ROOT/hermes-aify-dashboard-\$AIFY_HERMES_PORT.log"
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
+  else
+    "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
+  fi
+  AIFY_HERMES_DASHBOARD_PID=\$!
+
+  cleanup_aify_dashboard() {
+    if [ -n "\${AIFY_HERMES_DASHBOARD_PID:-}" ] && kill -0 "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1; then
+      kill "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1 || true
+      wait "\$AIFY_HERMES_DASHBOARD_PID" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_aify_dashboard EXIT INT TERM
+
+  if ! wait_for_http "\$AIFY_HERMES_DASHBOARD_URL/"; then
+    echo "hermes-aify: dashboard at \$AIFY_HERMES_DASHBOARD_URL did not become reachable. Falling back to plain hermes." >&2
+    echo "  log: \$AIFY_HERMES_DASHBOARD_LOG" >&2
+    cleanup_aify_dashboard
+    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+  fi
+
+  # web_server.py:3688 injects: <script>window.__HERMES_SESSION_TOKEN__="..."
+  AIFY_HERMES_TOKEN="\$(curl -s "\$AIFY_HERMES_DASHBOARD_URL/" | grep -oE '__HERMES_SESSION_TOKEN__="[^"]+"' | head -1 | sed -E 's/.*="([^"]+)"\$/\1/')"
+  if [ -z "\$AIFY_HERMES_TOKEN" ]; then
+    echo "hermes-aify: could not capture the dashboard session token from \$AIFY_HERMES_DASHBOARD_URL/. Falling back to plain hermes." >&2
+    cleanup_aify_dashboard
+    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+  fi
+
+  AIFY_HERMES_GATEWAY="ws://127.0.0.1:\$AIFY_HERMES_PORT/api/ws?token=\$AIFY_HERMES_TOKEN"
+  export HERMES_TUI_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
+  export AIFY_HERMES_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
+  export AIFY_HERMES_GATEWAY_TOKEN="\$AIFY_HERMES_TOKEN"
+
+  # Default to \`hermes chat --tui\` for the operator's interactive TUI when
+  # no explicit subcommand args were passed. If the operator passed args
+  # (e.g. \`hermes-aify model list\`), pass them through unchanged.
+  if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+    exec "\$HERMES_RUNTIME_COMMAND" chat --tui
+  fi
+  exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+fi
+
 exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 EOF
+  # Same placeholder-substitute pattern as codex-aify above. Without
+  # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
+  # operator's install-time URL.
+  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" 2>/dev/null && rm -f "$wrapper_path.bak" || true
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
 }
