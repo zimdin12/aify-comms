@@ -1977,6 +1977,108 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(execution_mode2, None)
         self.assertIn("managed-run", error2 or "")
 
+    def test_managed_via_wrapper_setting_defaults_to_off(self):
+        # Unified-backing refactor: feature flag must default to off-equivalent
+        # so existing managed flow stays default until the new path is
+        # validated per-runtime.
+        from service.routers.api_v2 import DEFAULT_SETTINGS
+        self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
+        val = DEFAULT_SETTINGS["managed_via_wrapper"]
+        self.assertTrue(val is False or val == [] or val is None,
+                        f"managed_via_wrapper must default to off-equivalent; got {val!r}")
+
+    def test_managed_via_wrapper_routes_dispatch_as_channel(self):
+        # Unified-backing refactor: when managed_via_wrapper includes a runtime,
+        # _agent_execution_mode returns 'channel' for managed dispatches so the
+        # wrapper's child bridge (claiming with executionModes=['channel',
+        # 'resident']) picks it up. Main bridge's dispatch loop has been
+        # gated off for this runtime (Task A4).
+        from service.routers.api_v2 import _agent_execution_mode
+        class _R(dict):
+            def keys(self): return super().keys()
+        managed_hermes = _R({
+            "id": "h-managed-wrapped",
+            "runtime": "hermes",
+            "session_mode": "managed",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["managed-run","native-managed-run","resume","interrupt","spawn"]',
+            "runtime_config": "{}",
+        })
+        # Without settings: existing behavior (returns 'managed').
+        mode_default, _ = _agent_execution_mode(managed_hermes)
+        self.assertEqual(mode_default, "managed", "default behavior unchanged when no settings passed")
+        # With settings flagging hermes wrapper-backed: returns 'channel'.
+        settings = {"managed_via_wrapper": ["hermes"]}
+        mode_wrapped, error = _agent_execution_mode(managed_hermes, settings=settings)
+        self.assertIsNone(error)
+        self.assertEqual(mode_wrapped, "channel",
+                         f"wrapper-backed hermes managed must route as channel; got {mode_wrapped}")
+        # Codex NOT in the wrapper list: still managed (mixed runtime opt-in).
+        managed_codex = _R({**managed_hermes, "id": "c-managed", "runtime": "codex"})
+        mode_codex, _ = _agent_execution_mode(managed_codex, settings=settings)
+        self.assertEqual(mode_codex, "managed", "codex unflagged stays on managed")
+
+    def test_managed_via_wrapper_forces_eager_pty_spawn(self):
+        # Unified-backing refactor: when managed_via_wrapper includes a runtime,
+        # the wrapper PTY must pre-exist at spawn-request running transition.
+        # Otherwise the main bridge stops claiming managed runs for that
+        # runtime (Task A4 gate) AND the wrapper child bridge doesn't exist
+        # yet → dispatches queue forever.
+        self.client.put("/api/v1/settings", json={
+            "managed_terminal_backing_enabled": True,
+            "managed_pty_eager_spawn": False,  # NOT relying on the general eager flag
+            "managed_via_wrapper": ["hermes"],
+        })
+        session_id = self._create_running_session(terminal=True, runtime="hermes")
+        rows = self._fetchall("SELECT id FROM terminal_sessions WHERE session_id = ?", (session_id,))
+        self.assertGreaterEqual(
+            len(rows), 1,
+            "wrapper-backed managed must eagerly spawn the PTY even when managed_pty_eager_spawn is false",
+        )
+
+    def test_ensure_managed_pty_writes_terminal_id_into_agent_runtime_state(self):
+        # The wrapper PTY's terminal_session id must land in agents.runtime_state.terminalId
+        # so the dashboard's chooseSessionConsoleWidget renders xterm against it.
+        # Before this fix only the native-RPC ensure_virtual_terminal path published
+        # virtualTerminalId (api_v2.py:7396); the wrapper PTY's row was orphaned from
+        # the dashboard POV (operator-reported 2026-05-24).
+        self.client.put("/api/v1/settings", json={
+            "managed_terminal_backing_enabled": True,
+            "managed_pty_eager_spawn": True,
+        })
+        session_id = self._create_running_session(terminal=True, runtime="hermes")
+        # The spawn-request running transition with eager_spawn=True triggers
+        # _ensure_managed_pty_for_dispatch which inserts a terminal_session row.
+        # After this fix, the agent row's runtime_state should also carry terminalId.
+        agent_row = self._fetchone(
+            "SELECT a.runtime_state FROM agents a JOIN agent_sessions s ON s.agent_id = a.id WHERE s.id = ?",
+            (session_id,),
+        )
+        self.assertIsNotNone(agent_row, "agent row must exist for the spawned session")
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        self.assertIn("terminalId", rs,
+                      "_ensure_managed_pty_for_dispatch must publish terminalId in agents.runtime_state")
+        self.assertTrue(rs["terminalId"].startswith("term_"),
+                        f"terminalId must be a real terminal_session id, got {rs['terminalId']!r}")
+
+    def test_managed_via_wrapper_for_runtime_handles_bool_list_none(self):
+        from service.routers.api_v2 import _managed_via_wrapper_for_runtime
+        # Off: returns False for all runtimes.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({}, "hermes"))
+        # True: returns True for all eligible runtimes.
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "codex"))
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
+        # claude-code is already wrapper-backed via claude-channel; not gated by this flag.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "claude-code"))
+        # List: only listed runtimes route via wrapper.
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "hermes"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "codex"))
+        # Unknown runtime: always False (defensive).
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "unknown"))
+
     def test_resident_hermes_with_gateway_url_does_not_require_session_handle(self):
         # Operator-reported 2026-05-24: sc-hermes-test-2 → sc-hermes-test-1
         # ping-pong refused live delivery with "without a bound session

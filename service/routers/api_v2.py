@@ -174,6 +174,19 @@ DEFAULT_SETTINGS = {
     # is unchanged. Operator flips on for live-smoke; immediate
     # rollback by flipping back to false.
     "managed_pty_eager_spawn": False,
+    # Unified-backing refactor (2026-05-24): when set, managed dispatches for
+    # the listed runtimes route through a *-aify wrapper PTY (mirror of how
+    # managed claude already works via claude-channel.js inside claude-aify)
+    # instead of through the bridge's native RPC adapters (CodexSession,
+    # HermesSession, HermesManagedGatewaySession, PiSession). The wrapper's
+    # in-process MCP bridge claims /dispatch/claim and delivers via the
+    # wrapper's local backing. Dashboard Session Console renders the real
+    # Ink TUI of the wrapper via xterm.js.
+    #   false (default): existing managed dispatch flow.
+    #   true: all codex / hermes / pi / opencode managed runs route via wrapper.
+    #   ["hermes", "codex"]: per-runtime opt-in during rollout.
+    # claude-code is always wrapper-backed (claude-channel.js); not gated.
+    "managed_via_wrapper": False,
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
     # asked for this 2026-05-22: after sending a message the agent
@@ -245,6 +258,27 @@ _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
+
+
+def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> bool:
+    """True when managed dispatches for this runtime should route through a
+    *-aify wrapper PTY (the wrapper's child bridge claims and delivers) instead
+    of the bridge's native RPC adapter. Unified-backing refactor 2026-05-24.
+
+    claude-code is excluded — it's already wrapper-backed via claude-channel.js
+    inside claude-aify regardless of this flag.
+    """
+    val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
+    runtime_n = _normalize_runtime(runtime or "")
+    if runtime_n == "claude-code":
+        return False
+    if runtime_n not in {"codex", "hermes", "pi", "opencode"}:
+        return False
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, list):
+        return runtime_n in {str(item).strip().lower() for item in val if item}
+    return False
 
 
 def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
@@ -914,7 +948,7 @@ def _agent_wake_mode(row) -> str:
     return "message-only"
 
 
-def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings: Optional[dict[str, Any]] = None) -> tuple[Optional[str], Optional[str]]:
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     session_handle = str(row["session_handle"] or "").strip()
@@ -926,6 +960,16 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
     if session_mode == "managed":
         if (row["launch_mode"] or "detached") == "none":
             return None, "launch mode is disabled"
+        # Unified-backing refactor 2026-05-24: when this runtime is
+        # wrapper-backed (managed_via_wrapper includes it), route managed
+        # dispatches as execution_mode='channel'. The wrapper's child bridge
+        # (loaded as MCP inside *-aify, running with sessionMode=resident)
+        # claims via its resident-run capability and executionModes=['channel',
+        # 'resident'] — same shape as channel-route managed claude. The main
+        # bridge no longer claims 'managed' for wrapper-backed runtimes
+        # (mcp/stdio/dispatch-execution.js supportedExecutionModes gate).
+        if settings is not None and _managed_via_wrapper_for_runtime(settings, runtime):
+            return "channel", None
         # Managed claude with channelEnabled=true uses the channel
         # transport, not the headless managed-run API (claude doesn't
         # have a true headless managed-run). The wrapper-PTY-hosted
@@ -3378,7 +3422,7 @@ async def _preflight_live_send_recipients(
             not_started.append(hint)
             continue
 
-        execution_mode, reason = _agent_execution_mode(row)
+        execution_mode, reason = _agent_execution_mode(row, settings=settings)
         if reason or not execution_mode:
             hint = _dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable")
             hint["recipientStatus"] = effective_status
@@ -4187,6 +4231,22 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
         requested_by=requested_by or "dashboard",
         body=command,
     )
+    # Publish the wrapper PTY's terminal_session id into agent.runtime_state.terminalId
+    # so the dashboard's chooseSessionConsoleWidget (service/new_dashboard/app.js)
+    # can render xterm against it. Without this the row is orphaned from the
+    # runtime_state-driven rendering — only ensure_virtual_terminal publishes
+    # virtualTerminalId (native RPC adapter path). Operator-reported 2026-05-24:
+    # wrapper PTY existed but dashboard couldn't see it.
+    agent_runtime_state_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if agent_runtime_state_row:
+        _agent_rs = _json_loads_or(agent_runtime_state_row["runtime_state"], {})
+        if not isinstance(_agent_rs, dict):
+            _agent_rs = {}
+        _agent_rs["terminalId"] = terminal_id
+        await db.execute(
+            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+            (json.dumps(_agent_rs), now, agent_id),
+        )
     if normalized_runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
         await _append_terminal_control(
             db,
@@ -6757,7 +6817,14 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             # specific agent. Without it, channel dispatches sit queued
             # forever (originally observed in run_1779309370301).
             _claude_needs_wrapper = _is_claude_managed and not _insert_messages_via_console(settings_for_pty)
-            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper):
+            # Unified-backing refactor 2026-05-24: when this runtime is
+            # wrapper-backed, the wrapper PTY MUST pre-exist by spawn-request
+            # running transition — otherwise nothing claims dispatches (the
+            # main bridge dispatch loop drops 'managed' from supportedExecutionModes
+            # for this runtime, and the wrapper's child bridge doesn't exist
+            # until the PTY launches).
+            _wrapper_backed = _managed_via_wrapper_for_runtime(settings_for_pty, row["runtime"] or "")
+            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper or _wrapper_backed):
                 try:
                     await _ensure_managed_pty_for_dispatch(
                         db,

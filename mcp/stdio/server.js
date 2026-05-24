@@ -1249,6 +1249,29 @@ function currentTurnHeartbeatFields(state = {}, activeRun = null) {
   });
 }
 
+// Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
+// so the dispatch loop knows which runtimes to skip claiming for (the
+// wrapper's child bridge claims those). 5s cache to avoid hammering /settings.
+let _managedViaWrapperCache = { fetchedAt: 0, runtimes: new Set() };
+async function readManagedViaWrapperRuntimes() {
+  if (Date.now() - _managedViaWrapperCache.fetchedAt < 5000) {
+    return _managedViaWrapperCache.runtimes;
+  }
+  try {
+    const resp = await httpCall("GET", "/settings");
+    const val = resp?.settings?.managed_via_wrapper;
+    let set = new Set();
+    if (val === true) set = new Set(["codex", "hermes", "pi", "opencode"]);
+    else if (Array.isArray(val)) {
+      set = new Set(val.map((r) => String(r || "").trim().toLowerCase()).filter(Boolean));
+    }
+    _managedViaWrapperCache = { fetchedAt: Date.now(), runtimes: set };
+    return set;
+  } catch (_) {
+    return _managedViaWrapperCache.runtimes; // best-effort: return stale cache
+  }
+}
+
 async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
   return httpCall(
     "POST",
@@ -1896,7 +1919,8 @@ async function runDispatchLoop() {
       // orphaned MCP child processes keeping a closed resident CLI "active".
       reportAgentHeartbeat(agentId, state).catch(() => {});
 
-      const executionModes = supportedExecutionModes(state.info);
+      const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => null);
+      const executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
       if (!executionModes.length) continue;
 
       // Claim all available dispatches and merge into one turn. The server
@@ -1995,11 +2019,20 @@ async function runDispatchLoop() {
         throw error;
       }
 
+      // Pass managedViaWrapper into the controller so native RPC adapters
+      // (CodexController / HermesController) can short-circuit to a delegated
+      // marker when the wrapper's child bridge owns delivery. Defensive: if
+      // the main bridge dispatch loop's executionMode gate (Task A4) somehow
+      // misses a wrapper-backed managed run, the controller still no-ops
+      // rather than competing with the wrapper.
+      const _runRuntime = normalizeRuntime(state.info?.runtime || "");
+      const _isManagedViaWrapper = Boolean(_runRuntime && managedViaWrapperRuntimes && managedViaWrapperRuntimes.has?.(_runRuntime));
       const controller = launchRuntimeRun({
         agentId,
         agentInfo: state.info,
         run,
         runtimeState,
+        managedViaWrapper: _isManagedViaWrapper,
         callbacks: {
           onEvent: async (eventType, text) => {
             try {

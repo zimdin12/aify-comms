@@ -2058,7 +2058,7 @@ export function isClaudeSessionInUseError(text) {
   return /session id(?:\s+[0-9a-f-]+)?\s+is already in use/i.test(String(text || ""));
 }
 
-function createCodexController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+function createCodexController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
   // Codex dispatch routing:
   //   - resident with shared app-server URL → keep the WebSocket controller
   //     path (existing infrastructure; the WS app-server is already the
@@ -2069,7 +2069,25 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
   //     See DECISIONS.md 2026-05-23 and
   //     docs/plans/2026-05-23-hermes-acp-persistent-session.md (codex
   //     follow-up).
+  //   - managed + managedViaWrapper → no-op delegated controller. The
+  //     bridge's main dispatch loop drops 'managed' from supportedExecutionModes
+  //     for wrapper-backed runtimes (mcp/stdio/dispatch-execution.js), so this
+  //     branch is a safety belt that returns a resolved promise if some other
+  //     code path still calls into here for a wrapper-backed managed run.
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  if (executionMode === "managed" && managedViaWrapper) {
+    return {
+      capabilities: { interrupt: false, steer: false },
+      interrupt: async () => {},
+      steer: async () => {},
+      promise: Promise.resolve({
+        status: "delegated",
+        summary: "managed dispatch delegated to wrapper-PTY child bridge",
+        runtimeState: {},
+        externalRefs: {},
+      }),
+    };
+  }
   const cfg = getRuntimeConfig(agentInfo);
   const hasWsAppServer = executionMode === "resident" && hasCodexLiveAppServer(cfg);
   if (executionMode === "managed" && !hasWsAppServer) {
@@ -3517,11 +3535,11 @@ export function defaultMachineId() {
   return `${wsl}:${host}`;
 }
 
-export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks }) {
+export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
   const runtime = normalizeRuntime(agentInfo.runtime || "generic");
   try {
     if (runtime === "codex") {
-      return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks });
+      return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
     }
     if (runtime === "opencode") {
       return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
@@ -3533,7 +3551,7 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
     }
     if (runtime === "hermes") {
-      return createHermesController({ agentId, agentInfo, run, runtimeState, callbacks });
+      return createHermesController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
     }
   } catch (error) {
     return failedRuntimeController(runtime, error);
@@ -3548,25 +3566,29 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
   };
 }
 
-function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks }) {
+function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
   // Hermes dispatch routing:
+  //   - managed + managedViaWrapper → no-op delegated controller (wrapper's
+  //     child bridge claims and delivers via the wrapper's local gateway).
   //   - executionMode === "resident" + runtimeConfig.gatewayUrl set →
-  //     resident-channel controller (NEW 2026-05-24). Bridge connects to
-  //     the hermes-aify-launched `hermes dashboard --tui` /api/ws gateway
-  //     and injects prompt.submit / session.steer JSON-RPC frames into
-  //     the operator's existing chat session. TeeTransport fans events
-  //     to the operator's Ink TUI live. Symmetric with claude-channel.js
-  //     and the codex resident WS app-server path.
+  //     resident-channel controller (NEW 2026-05-24).
   //   - executionMode === "resident" without a gateway → legacy single-shot
   //     `hermes chat -q` per dispatch.
-  //   - else (managed / default) → persistent `hermes acp` JSON-RPC session
-  //     keyed by agentId, mirror of PiSession. Streams session/update
-  //     notifications into the synth terminal; conversation context is
-  //     native via the persistent sessionId so we no longer need the
-  //     wire-prompt context-carry that the single-shot path used.
-  //     See DECISIONS.md 2026-05-23 and
-  //     docs/plans/2026-05-23-hermes-acp-persistent-session.md.
+  //   - else (managed / default) → persistent `hermes acp` JSON-RPC session.
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
+  if (executionMode === "managed" && managedViaWrapper) {
+    return {
+      capabilities: { interrupt: false, steer: false },
+      interrupt: async () => {},
+      steer: async () => {},
+      promise: Promise.resolve({
+        status: "delegated",
+        summary: "managed dispatch delegated to wrapper-PTY child bridge",
+        runtimeState: {},
+        externalRefs: {},
+      }),
+    };
+  }
   if (executionMode === "resident") {
     const cfg = getRuntimeConfig(agentInfo);
     const gatewayUrl = String(cfg.gatewayUrl || "").trim();
