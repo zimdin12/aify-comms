@@ -571,6 +571,19 @@ small, .subtle { color: var(--muted); }
   border-radius: 6px;
   background: #0b0e13;
 }
+.xterm-host {
+  width: 100%;
+  height: min(60vh, 620px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0b0e13;
+  padding: 4px;
+}
+.xterm-host .xterm,
+.xterm-host .xterm-viewport {
+  height: 100% !important;
+  background: #0b0e13 !important;
+}
 .codex-console-stream {
   font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
   font-size: 12px;

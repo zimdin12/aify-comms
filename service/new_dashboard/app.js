@@ -24,6 +24,7 @@ const state = {
   environments: [],
   stats: {},
   terminalOwners: new Map(),
+  activeXterm: null, // { terminalId, agentId, term, fitAddon, container } — xterm.js mounted into Session Console
   realtimeConnected: false,
   selectedConversation: 'dashboard',
   selectedSessionId: '',
@@ -213,6 +214,12 @@ function applyRealtimeEvent(event, data = {}) {
     const owner = state.terminalOwners.get(String(data.terminalId));
     if (owner && data.agentId && data.agentId !== owner) return;
     if (data.agentId) state.terminalOwners.set(String(data.terminalId), String(data.agentId));
+    // Live PTY rendering: if this terminal is currently mounted in
+    // the Session Console pane, write the new bytes straight to the
+    // xterm.js instance — no DOM refresh required for the byte stream.
+    if (state.activeXterm && String(state.activeXterm.terminalId) === String(data.terminalId) && data.output) {
+      try { state.activeXterm.term.write(data.output); } catch {}
+    }
     refreshSoon();
     return;
   }
@@ -696,6 +703,89 @@ function hermesGatewayUrlToHttp(wsUrl) {
   }
 }
 
+// --- Real PTY rendering via xterm.js ---------------------------------
+// When the bridge spawns a managed agent via TerminalProcessManager
+// (managed-claude PTY today; codex-aify / hermes-aify PTY soon), the
+// bytes flow into a `terminal_session` row and are broadcast as
+// terminal_output WS events. This mounts an xterm.js instance into
+// the Session Console pane and pipes those bytes straight in — the
+// operator sees the REAL Ink TUI in their browser, not a synth
+// translation or an iframe of upstream's web UI.
+
+function disposeActiveXterm() {
+  const entry = state.activeXterm;
+  if (!entry) return;
+  try { entry.term.dispose(); } catch {}
+  state.activeXterm = null;
+}
+
+async function mountXtermForTerminal(terminalId, agentId, container) {
+  if (!container || !terminalId) return;
+  if (typeof window.Terminal === 'undefined') {
+    container.innerHTML = '<div class="codex-line err">[xterm.js failed to load from CDN — refresh dashboard or check network]</div>';
+    return;
+  }
+  if (state.activeXterm && state.activeXterm.terminalId === terminalId) return;
+  disposeActiveXterm();
+  container.innerHTML = '';
+
+  const term = new window.Terminal({
+    convertEol: true,
+    cursorBlink: true,
+    fontFamily: '"Cascadia Code", ui-monospace, "Consolas", monospace',
+    fontSize: 13,
+    theme: { background: '#0b0e13', foreground: '#cdd6f4' },
+    scrollback: 5000,
+  });
+  let fitAddon = null;
+  if (window.FitAddon && window.FitAddon.FitAddon) {
+    fitAddon = new window.FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+  }
+  term.open(container);
+  if (fitAddon) {
+    try { fitAddon.fit(); } catch {}
+  }
+
+  // Keystroke forwarding back to the bridge PTY via /terminals/<id>/input.
+  // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
+  // The control is claimed by the bridge's polling loop and applied via
+  // TERMINAL_MANAGER.input(terminalId, body).
+  term.onData(async (data) => {
+    try {
+      await api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
+        method: 'POST',
+        body: JSON.stringify({ body: data, requestedBy: 'dashboard' }),
+      });
+    } catch (err) {
+      term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
+    }
+  });
+  term.onResize(({ cols, rows }) => {
+    api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
+      method: 'POST',
+      body: JSON.stringify({ cols, rows, requestedBy: 'dashboard' }),
+    }).catch(() => {});
+  });
+
+  state.activeXterm = { terminalId, agentId, term, fitAddon, container };
+
+  // Replay existing buffered output so the operator sees history when
+  // they open the Console pane mid-session (instead of waiting for the
+  // next byte to arrive).
+  try {
+    const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
+    const output = data?.terminal?.output;
+    if (output) term.write(String(output));
+  } catch (err) {
+    term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
+  }
+  if (fitAddon) {
+    try { fitAddon.fit(); } catch {}
+  }
+  term.focus();
+}
+
 // --- Codex live-console widget --------------------------------------
 // Connects directly to a codex app-server WS (browser → ws://127.0.0.1:<port>),
 // subscribes to events on the agent's threadId via initialize + thread/resume,
@@ -872,9 +962,29 @@ function renderSessionConsole(session) {
   // the same WS session the bridge attaches to via /api/ws. (See
   // ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl + the hermes
   // dashboard's embedded chat tab gated on HERMES_DASHBOARD_TUI=1.)
-  const hermesIframe = hermesGatewayHttp
+  // xterm.js render for ANY agent that has a bridge-owned terminal_session
+  // (virtual or real). Real PTYs (TerminalProcessManager-backed managed
+  // agents — codex-aify / hermes-aify / claude-aify in node-pty) give
+  // the actual Ink TUI; virtual terminals (synth-frame translations
+  // from native RPC adapters) get rendered with full ANSI color/cursor
+  // fidelity instead of the previous "no render at all" state. Falls
+  // back to the iframe / synth widgets when there's no terminal_session
+  // (resident agents the bridge can't reach).
+  const terminalId = String(agent?.runtimeState?.virtualTerminalId || agent?.runtimeState?.terminalId || '').trim();
+  const hasTerminal = Boolean(terminalId);
+  const isVirtualTerminal = Boolean(agent?.runtimeState?.virtualTerminal);
+  const ptyContainerId = hasTerminal ? `xterm-${terminalId}` : '';
+
+  const ptyEmbed = hasTerminal
+    ? `<div class="console-embed" data-kind="pty-xterm">
+         <div class="console-embed-label">${isVirtualTerminal ? 'Synth terminal' : 'Live PTY'} — <code>${esc(agent?.runtime || 'runtime')}</code> · terminal <code>${esc(terminalId)}</code>${isVirtualTerminal ? '' : ' · keystrokes flow back to the wrapper'}</div>
+         <div id="${esc(ptyContainerId)}" class="xterm-host"></div>
+       </div>`
+    : '';
+
+  const hermesIframe = (!hasTerminal && hermesGatewayHttp)
     ? `<div class="console-embed" data-kind="hermes-gateway">
-         <div class="console-embed-label">Hermes live chat — embedded from <code>${esc(hermesGatewayHttp.split('?')[0])}</code></div>
+         <div class="console-embed-label">Hermes live chat — embedded from <code>${esc(hermesGatewayHttp.split('?')[0])}</code> (resident; switch to dashboard-spawned managed for true PTY render)</div>
          <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
        </div>`
     : '';
@@ -884,11 +994,12 @@ function renderSessionConsole(session) {
   // console" → browser WS direct to codex app-server (loopback only,
   // same security argument as the hermes iframe) → subscribes to the
   // agent's threadId → renders deltas + lifecycle markers + accepts
-  // turn/start frames from the local input box.
-  const codexConsole = codexAttachable
+  // turn/start frames from the local input box. Falls back behind the
+  // PTY render if the bridge owns a real terminal for this agent.
+  const codexConsole = (!hasTerminal && codexAttachable)
     ? `<div class="console-embed" data-kind="codex-app-server" data-codex-console="${esc(agentIdForCodex)}">
          <div class="console-embed-label">
-           Codex live thread — attaches direct WS to <code>${esc(codexAppServerUrl)}</code>${codexThreadId ? ` · thread <code>${esc(codexThreadId)}</code>` : ''}
+           Codex live thread — attaches direct WS to <code>${esc(codexAppServerUrl)}</code>${codexThreadId ? ` · thread <code>${esc(codexThreadId)}</code>` : ''} (resident; switch to dashboard-spawned managed for true PTY render)
          </div>
          <div class="codex-console-stream" aria-live="polite"></div>
          <form class="codex-console-input" data-action="codex-console-send" data-agent-id="${esc(agentIdForCodex)}">
@@ -899,7 +1010,16 @@ function renderSessionConsole(session) {
        </div>`
     : '';
 
-  byId('session-console-summary').innerHTML = `${headerCard}${hermesIframe}${codexConsole}`;
+  byId('session-console-summary').innerHTML = `${headerCard}${ptyEmbed}${hermesIframe}${codexConsole}`;
+
+  // Mount xterm.js into the terminal container we just rendered. If a
+  // different terminal was previously mounted, dispose its xterm first.
+  if (hasTerminal) {
+    const container = byId(ptyContainerId);
+    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container).catch(() => {});
+  } else {
+    disposeActiveXterm();
+  }
 }
 
 function renderSessionWorkspace() {
