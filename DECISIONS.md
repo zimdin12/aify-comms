@@ -494,3 +494,24 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 **Bypass.** `AIFY_HERMES_SKIP_GATEWAY=1` falls back to plain `hermes` exec for operators who don't want the dashboard child or have a broken install. Graceful internal fallback to plain hermes if any wrapper step fails (port allocation, dashboard timeout, token parse) — broken gateway never blocks operator-typed hermes.
 
 **Reconsider if.** Upstream ships a dedicated `hermes chat --listen` flag that embeds the WS server in the chat process itself. At that point we drop the dashboard child and use the chat-embedded gateway directly.
+
+## Dashboard Session Console widget cache + xterm.js render
+
+**Decision (2026-05-24).** Dashboard Session Console renders the live PTY via xterm.js when an agent has a `runtime_state.virtualTerminalId` or `terminalId`. Iframe (hermes web UI) and synth WS-attached widgets are fallbacks for resident agents the bridge can't see. Widget choice is gated by a pure helper `chooseSessionConsoleWidget` (`service/new_dashboard/app.js`) that caches the most-recent terminalId per session in `state.sessionTerminals` and prefers the cached id over the live one when the live one disappears.
+
+**Why the cache.** `_stop_virtual_terminals_for_superseded_bridges` (`service/routers/api_v2.py:1755-1762`) runs from `_repair_*` reconcilers on every list-sessions refresh and clears `runtime_state.virtualTerminalId` when bridge ownership transitions. Combined with the per-dispatch controller dispose lifecycle and operator-stop paths, the field oscillates set→unset→set over the lifetime of a managed agent. Without the cache the dashboard would teardown+remount xterm on every list refresh — operator-visible flicker between iframe and xterm mid-conversation (2026-05-24 bug report).
+
+**Reconsider if.** The server-side clear paths get reconciled into a single source of truth (e.g. the bridge writes through the supersede transition rather than the server stomping it), in which case the cache becomes redundant.
+
+## Codex initial-thread-start persistence gap
+
+**Decision (2026-05-24).** `CodexSession._handshake` (`mcp/stdio/codex-session.js`) fires `callbacks.onSessionHandleChange(this.threadId, {reason: "initial_thread_start"})` immediately after the no-hint `_startFreshThread` path, mirroring the existing heal-after-failure notification. Without this, the first managed dispatch creates a codex thread that the bridge knows about but never persists into `agents.session_handle` in the service DB — subsequent Console PTY launches read an empty handle and the bridge can't even theoretically recover the thread after a restart.
+
+## Open architectural items: managed Console PTY can't share state with bridge
+
+**Known limitations as of 2026-05-24:**
+
+- **Codex managed Console PTY starts a fresh app-server**, not the bridge's existing one (`install.sh:319-330` allocates a new port per `codex-aify` invocation; the wrapper has no flag to attach to a pre-existing `codex app-server` URL). The bridge's `CodexSession` and the wrapper PTY are two separate app-server processes with two separate thread states. Operator-visible: clicking Open Console for a managed codex agent shows a brand new codex prompt, not the agent's running context. Bridge dispatches still deliver correctly via the bridge's own app-server connection — the Console PTY is supplementary visibility only.
+- **Pi managed wrapper PTY exits with bridge-owned mutex.** `pi-aify` (`install.sh:539-559`) probes `GET /agents/<id>/pi-session-state` at startup and refuses to launch when `bridgeOwned: true`. The bridge's persistent `PiSession` claims that mutex on every dispatch via `acquirePiSession` (`mcp/stdio/pi-session.js`). Result: managed pi Console PTY launched via `_ensure_managed_pty_for_dispatch` exits 1 before omp ever runs. The synth-terminal view of `omp --mode rpc` is the only operator-visible surface for managed pi.
+
+**Why not fix individually.** Both stem from the same architectural choice: managed agents have TWO competing backings — the bridge's native RPC adapter (`CodexSession` / `HermesSession` / `PiSession`) AND the (sometimes spawned) wrapper PTY. They don't share state. The proper fix is the **unified-backing refactor**: managed agents always go through `_ensure_managed_pty_for_dispatch` → `*-aify` in PTY → the wrapper's in-process bridge claims dispatches just like resident agents do. Drop the native RPC adapters for managed entirely. Same code path resident & managed. Significant change to dispatch routing; deferred pending operator confirmation.

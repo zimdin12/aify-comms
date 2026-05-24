@@ -145,6 +145,10 @@ into the dashboard Console — no visible wrapper PTY is needed for delivery.
 
 ## Persistent ACP session (managed dispatches)
 
+**Re-running `install.sh --client hermes` does NOT update an existing `aify-comms` block in `config.yaml`.** The installer's idempotency check (`install_hermes_config` in install.sh) exits early if the `aify-comms:` entry already exists under `mcp_servers:`. After upgrading aify-comms (e.g. to pick up new env-var propagation entries like `AIFY_HERMES_GATEWAY_URL`), you need to either:
+- Manually edit `~/.hermes/config.yaml` (or `%LOCALAPPDATA%\hermes\config.yaml`) and add the new `env:` entries under the existing `aify-comms:` block
+- OR delete the `aify-comms:` block entirely and rerun `bash install.sh --client hermes` to regenerate it
+
 **Opt-in: multi-client gateway backing for managed agents.** Set
 `AIFY_HERMES_MANAGED_USE_GATEWAY=1` in the environment bridge's env to
 route managed dispatches through a per-agent `hermes dashboard --tui`
