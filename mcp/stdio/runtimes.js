@@ -11,6 +11,7 @@ import { listRuntimeMarkers } from "./runtime-markers.js";
 import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
 import { acquirePiSession } from "./pi-session.js";
 import { getOrCreateHermesSession } from "./hermes-session.js";
+import { getOrCreateHermesGatewaySession, managedHermesUsesGateway } from "./hermes-managed-gateway-session.js";
 import { getOrCreateCodexSession } from "./codex-session.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
@@ -3800,6 +3801,16 @@ function createHermesResidentChannelController({ agentId, agentInfo, run, runtim
 }
 
 function createHermesControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  // AIFY_HERMES_MANAGED_USE_GATEWAY=1 routes managed hermes through the
+  // multi-client tui_gateway path instead of the single-client ACP path.
+  // Bridge spawns `hermes dashboard --tui` per agent (mirror of how
+  // codex-aify spawns app-server), then attaches via WS for prompt.submit
+  // injection. Dashboard Console can also attach as a second WS client
+  // because TeeTransport fans events to all attached clients. Off by
+  // default until operator-validated; flip the env var to opt in.
+  if (managedHermesUsesGateway()) {
+    return createHermesControllerManagedGateway({ agentId, agentInfo, run, runtimeState, callbacks });
+  }
   const sess = getOrCreateHermesSession({
     agentId,
     agentInfo,
@@ -3829,6 +3840,44 @@ function createHermesControllerManaged({ agentId, agentInfo, run, runtimeState, 
     interrupt: async () => { try { await sess.cancelActiveTurn(); } catch {} },
     steer: async () => {
       throw new Error("Hermes managed runs do not support mid-turn steer; send a follow-up dispatch instead.");
+    },
+    promise,
+  };
+}
+
+function createHermesControllerManagedGateway({ agentId, agentInfo, run, runtimeState, callbacks }) {
+  const sess = getOrCreateHermesGatewaySession({
+    agentId,
+    agentInfo,
+    onPoolEvent: (kind, payload) => {
+      try {
+        callbacks?.onEvent?.("hermes", `${kind}: ${typeof payload === "string" ? payload : JSON.stringify(payload).slice(0, 200)}`);
+      } catch {}
+    },
+  });
+
+  const promise = (async () => {
+    if (typeof callbacks?.terminalSinkProvider === "function") {
+      try {
+        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo, session: sess });
+        if (typeof sink === "function") sess.attachTerminalSink(sink);
+      } catch (error) {
+        try { callbacks.onEvent?.("hermes", `Hermes gateway virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
+      }
+    }
+    const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
+    const userPrompt = buildUserPrompt(run);
+    return sess.runTurn({ promptText: `${systemPrompt}\n\n${userPrompt}`, run, callbacks, runtimeState });
+  })();
+
+  return {
+    // Gateway-backed managed hermes supports mid-run insertion via
+    // session.steer (the controller's prompt.submit fallback), so this
+    // path advertises steer where the legacy ACP-backed path doesn't.
+    capabilities: { interrupt: true, steer: true },
+    interrupt: async () => { try { await sess.cancelActiveTurn(); } catch {} },
+    steer: async () => {
+      throw new Error("Direct steer not implemented; send another comms_send and the controller will route via session.steer if the turn is still running.");
     },
     promise,
   };
