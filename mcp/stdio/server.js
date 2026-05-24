@@ -182,6 +182,27 @@ if (AIFY_CODEX_APP_SERVER_URL) {
   }
 }
 
+// Write the Hermes runtime marker from this long-lived bridge process when
+// we detect we are running inside a hermes-aify wrapper (which sets the
+// AIFY_HERMES_GATEWAY_URL environment variable before launching `hermes
+// chat --tui`). Mirror of the codex marker block above — same long-lived-
+// PID rationale: the wrapper's bash PID isn't a real Windows PID under
+// Git Bash, so the marker MUST be written from this Node process.
+const AIFY_HERMES_GATEWAY_URL = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+const AIFY_HERMES_GATEWAY_TOKEN_ENV = String(process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "AIFY_HERMES_GATEWAY_TOKEN").trim();
+let hermesMarkerCwd = "";
+if (AIFY_HERMES_GATEWAY_URL) {
+  hermesMarkerCwd = DEFAULT_CWD;
+  try {
+    const markerData = { gatewayUrl: AIFY_HERMES_GATEWAY_URL };
+    if (AIFY_HERMES_GATEWAY_TOKEN_ENV) markerData.gatewayTokenEnv = AIFY_HERMES_GATEWAY_TOKEN_ENV;
+    writeRuntimeMarker("hermes", hermesMarkerCwd, markerData);
+  } catch (error) {
+    console.error("[aify] failed to write hermes runtime marker:", error?.message || String(error));
+    hermesMarkerCwd = "";
+  }
+}
+
 let shutdownStarted = false;
 let reportEnvironmentOffline = async () => {};
 
@@ -217,6 +238,10 @@ function cleanupOnExit() {
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
+  }
+  // Remove hermes runtime marker
+  if (hermesMarkerCwd) {
+    try { removeRuntimeMarker("hermes", hermesMarkerCwd); } catch { /* best effort */ }
   }
   // Remove agent binding temp file
   removeAgentBindingFile({ pid: process.ppid || process.pid, bridgeId: BRIDGE_INSTANCE_ID });
