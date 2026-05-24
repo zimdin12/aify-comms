@@ -29,6 +29,7 @@ const state = {
   selectedSessionId: '',
   selectedSessionTab: 'chat',
   selectedSessionIds: new Set(),
+  selectedDiagnosticIds: new Set(),
   inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
   filter: '',
   runStatusFilter: '',
@@ -55,6 +56,10 @@ const flowAssertions = {
   runs: () => Boolean(state.stats.dispatch_runs_by_status !== undefined || byId('run-status-filter')),
   workLoop: () => Boolean(byId('send-reminders') && typeof closeWorkContract === 'function'),
   runInspector: () => Boolean(state.inspector.kind === 'run' && state.inspector.runId && byId('run-inspector-events') && byId('run-inspector-controls') && typeof resolveStatus === 'function'),
+  statusWhy: () => Boolean(byId('status-why-popover') && typeof statusWhyContext === 'function'),
+  activityFeed: () => Boolean(byId('activity-feed') && typeof renderActivityFeed === 'function'),
+  diagnostics: () => Boolean(byId('diagnostics-summary') && byId('diagnostics-bulk-toolbar') && typeof selectedDiagnostics === 'function'),
+  environments: () => Boolean(byId('environment-summary') && byId('environment-spawn-form') && typeof createSpawnRequest === 'function'),
 };
 
 const flowGates = {
@@ -63,6 +68,10 @@ const flowGates = {
   runs: { enabled: false, assertion: flowAssertions.runs },
   workLoop: { enabled: false, assertion: flowAssertions.workLoop },
   runInspector: { enabled: false, assertion: flowAssertions.runInspector },
+  statusWhy: { enabled: false, assertion: flowAssertions.statusWhy },
+  activityFeed: { enabled: false, assertion: flowAssertions.activityFeed },
+  diagnostics: { enabled: false, assertion: flowAssertions.diagnostics },
+  environments: { enabled: false, assertion: flowAssertions.environments },
 };
 
 const pages = {
@@ -88,10 +97,44 @@ function resolveStatus(rawStatus, context = {}) {
   return { ...base, kind: STATUS_KINDS[raw] ? raw : 'unknown', label, badges };
 }
 
+function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
+  const base = resolveStatus(rawStatus, context);
+  const parts = [];
+  if (kind === 'session') {
+    parts.push(`Session ${sessionAgentId(item) || sessionId(item) || 'unknown'} is ${base.label}.`);
+    if (sessionEnvironmentId(item)) parts.push(`Environment: ${sessionEnvironmentId(item)}.`);
+    if (sessionRuntime(item)) parts.push(`Runtime: ${sessionRuntime(item)}.`);
+    if (item.workspace || item.cwd) parts.push(`Workspace: ${item.workspace || item.cwd}.`);
+  } else if (kind === 'run') {
+    parts.push(`Run ${item.id || 'unknown'} is ${base.label}.`);
+    if (runTargetAgent(item)) parts.push(`Target: ${runTargetAgent(item)}.`);
+    if (item.requestedAt) parts.push(`Requested ${relTime(item.requestedAt)} ago.`);
+    if (item.startedAt) parts.push(`Started ${relTime(item.startedAt)} ago.`);
+    if (item.error || item.blockedByActiveRun) parts.push(`Reason: ${item.error || item.blockedByActiveRun}.`);
+  } else if (kind === 'contract') {
+    parts.push(`Work Loop item ${item.subject || item.id || 'unknown'} is ${base.label}.`);
+    if (item.targetAgentId) parts.push(`Target: ${item.targetAgentId}.`);
+    if (item.lastReminderAt) parts.push(`Last reminder ${relTime(item.lastReminderAt)} ago.`);
+    if (item.overdue) parts.push('It is overdue.');
+  } else if (kind === 'agent') {
+    parts.push(`Agent ${item.id || 'unknown'} is ${base.label}.`);
+    if (item.runtime) parts.push(`Runtime: ${item.runtime}.`);
+    if (item.lastSeen || item.last_seen) parts.push(`Last seen ${relTime(item.lastSeen || item.last_seen)} ago.`);
+  } else if (kind === 'environment') {
+    parts.push(`Environment ${item.label || item.id || 'unknown'} is ${base.label}.`);
+    if (item.bridgeId || item.bridge_id) parts.push(`Bridge: ${item.bridgeId || item.bridge_id}.`);
+    if (item.lastSeen || item.last_seen) parts.push(`Last heartbeat ${relTime(item.lastSeen || item.last_seen)} ago.`);
+  } else {
+    parts.push(`${kind || 'Item'} is ${base.label}.`);
+  }
+  return { ...context, label: context.label || base.label, why: parts.filter(Boolean).join(' ') };
+}
+
 function renderStatusChip(rawStatus, context = {}) {
   const status = resolveStatus(rawStatus, context);
   const badges = status.badges.length ? ` <small>${esc(status.badges.join(' · '))}</small>` : '';
-  return `<span class="status-chip ${esc(status.tone)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
+  const why = context.why || `${status.label} status`;
+  return `<span class="status-chip ${esc(status.tone)} status-why-trigger" role="button" tabindex="0" title="${esc(why)}" data-status-why="${esc(why)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
 }
 
 function renderStatusDot(rawStatus) {
@@ -266,7 +309,12 @@ function renderAll() {
   renderMetrics();
   renderAttention();
   renderSessionWorkspace();
+  renderActivityFeed();
+  renderDiagnosticsSummary();
+  renderDiagnosticsBulkToolbar();
   renderContracts();
+  renderEnvironmentSummary();
+  renderEnvironmentSpawnOptions();
   renderRuntime();
   renderRuns();
 }
@@ -290,14 +338,17 @@ function renderMetrics() {
   ].join('');
 }
 
-function contractCard(contract) {
+function contractCard(contract, { selectable = true } = {}) {
   const actionable = contractActionable(contract);
+  const key = diagnosticKey('contract', contract.id);
+  const checked = state.selectedDiagnosticIds.has(key) ? ' checked' : '';
   return `
     <article class="contract" data-kind="contract" data-id="${esc(contract.id)}">
+      ${selectable ? `<input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(contract.id)}" data-diagnostic-kind="contract"${checked} title="Select Work Loop item">` : ''}
       <div>
         <div class="item-title">
           <strong class="clip">${esc(contract.subject || contract.id)}</strong>
-          ${renderStatusChip(contract.overdue ? 'failed' : contract.state || contract.status, { label: contract.state || contract.status })}
+          ${renderStatusChip(contract.overdue ? 'failed' : contract.state || contract.status, statusWhyContext('contract', contract, contract.overdue ? 'failed' : contract.state || contract.status, { label: contract.state || contract.status }))}
         </div>
         <p class="preview">${esc(contract.preview || '')}</p>
         <div class="contract-meta">
@@ -322,8 +373,153 @@ function renderAttention() {
     .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')
     .slice(0, 8);
   byId('attention-list').innerHTML = items.length
-    ? items.map(contractCard).join('')
+    ? items.map((contract) => contractCard(contract, { selectable: false })).join('')
     : '<div class="item"><strong>No open attention items</strong><p class="preview">The current Work Loop is clear.</p></div>';
+}
+
+function diagnosticKey(kind, id) {
+  return `${kind}:${id}`;
+}
+
+function selectedDiagnostics() {
+  const selected = [];
+  const contractById = new Map(state.contracts.map((contract) => [String(contract.id), contract]));
+  const runById = new Map(state.runs.map((run) => [String(run.id), run]));
+  for (const key of state.selectedDiagnosticIds) {
+    const [kind, ...rest] = String(key).split(':');
+    const id = rest.join(':');
+    if (kind === 'contract' && contractById.has(id)) selected.push({ kind, id, item: contractById.get(id) });
+    if (kind === 'run' && runById.has(id)) selected.push({ kind, id, item: runById.get(id) });
+  }
+  return selected;
+}
+
+function pruneDiagnosticSelection() {
+  const live = new Set([
+    ...state.contracts.map((contract) => diagnosticKey('contract', contract.id)),
+    ...state.runs.map((run) => diagnosticKey('run', run.id)),
+  ]);
+  for (const key of [...state.selectedDiagnosticIds]) {
+    if (!live.has(key)) state.selectedDiagnosticIds.delete(key);
+  }
+}
+
+function renderDiagnosticsSummary() {
+  const target = byId('diagnostics-summary');
+  if (!target) return;
+  const openWork = state.contracts.filter((contract) => ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)).length;
+  const overdue = state.contracts.filter((contract) => contract.overdue).length;
+  const activeRuns = state.runs.filter((run) => ['claimed', 'running'].includes(resolveStatus(run.status).kind)).length;
+  const failedRuns = state.runs.filter((run) => resolveStatus(run.status).kind === 'failed').length;
+  target.innerHTML = [
+    metric('Open work', openWork, openWork ? 'warn' : 'neutral'),
+    metric('Overdue', overdue, overdue ? 'bad' : 'neutral'),
+    metric('Active runs', activeRuns, activeRuns ? 'working' : 'neutral'),
+    metric('Failed recent', failedRuns, failedRuns ? 'bad' : 'neutral'),
+  ].join('');
+}
+
+function renderDiagnosticsBulkToolbar() {
+  const toolbar = byId('diagnostics-bulk-toolbar');
+  if (!toolbar) return;
+  pruneDiagnosticSelection();
+  const selected = selectedDiagnostics();
+  toolbar.hidden = selected.length === 0;
+  if (!selected.length) {
+    toolbar.innerHTML = '';
+    return;
+  }
+  const contracts = selected.filter((item) => item.kind === 'contract').length;
+  const runs = selected.filter((item) => item.kind === 'run').length;
+  toolbar.innerHTML = `
+    <span>${selected.length} selected · ${contracts} work · ${runs} runs</span>
+    <button class="ghost" data-diagnostic-action="remind">Remind work</button>
+    <button class="ghost danger" data-diagnostic-action="close">Close selected</button>
+    <button class="ghost" data-diagnostic-action="inspect">Inspect first</button>
+    <button class="ghost" data-diagnostic-action="clear">Clear</button>`;
+}
+
+function activityItems() {
+  const runItems = state.runs.slice(0, 8).map((run) => ({
+    kind: 'run',
+    id: run.id,
+    title: run.subject || run.id,
+    meta: `${runTargetAgent(run) || 'unassigned'} · ${relTime(run.startedAt || run.requestedAt)} ago`,
+    status: run.status || 'unknown',
+    at: Date.parse(run.startedAt || run.requestedAt || '') || 0,
+    source: run,
+  }));
+  const messageItems = state.messages.slice(0, 8).map((message) => ({
+    kind: 'message',
+    id: messageId(message),
+    title: message.subject || message.body || '(no subject)',
+    meta: `${message.from || 'unknown'} → ${message.to || message.targetAgentId || 'dashboard'} · ${relTime(message.createdAt || message.timestamp || message.time)} ago`,
+    status: message.read ? 'completed' : 'queued',
+    at: Date.parse(message.createdAt || message.timestamp || message.time || '') || 0,
+    source: message,
+  }));
+  const contractItems = state.contracts.slice(0, 8).map((contract) => ({
+    kind: 'contract',
+    id: contract.id,
+    title: contract.subject || contract.id,
+    meta: `${contract.targetAgentId || 'unknown'} · ${relTime(contract.requestedAt)} old`,
+    status: contract.overdue ? 'failed' : contract.state || contract.status || 'unknown',
+    at: Date.parse(contract.lastReminderAt || contract.requestedAt || '') || 0,
+    source: contract,
+  }));
+  return [...runItems, ...messageItems, ...contractItems]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 10);
+}
+
+function renderActivityFeed() {
+  const feed = byId('activity-feed');
+  if (!feed) return;
+  const items = activityItems();
+  feed.innerHTML = items.length ? items.map((item) => {
+    const context = item.kind === 'run'
+      ? statusWhyContext('run', item.source, item.status)
+      : item.kind === 'contract'
+        ? statusWhyContext('contract', item.source, item.status, { label: item.source.state || item.source.status || item.status })
+        : statusWhyContext('message', item.source, item.status, { label: item.source.type || item.status, why: `Message from ${item.source.from || 'unknown'} to ${item.source.to || item.source.targetAgentId || 'dashboard'}.` });
+    const inspectAttrs = item.kind === 'run' || item.kind === 'contract'
+      ? `data-run-inspector="${esc(item.id)}" data-run-source="activity"`
+      : `data-kind="message" data-id="${esc(item.id)}"`;
+    return `
+      <article class="activity-item" ${inspectAttrs}>
+        <div class="item-title">
+          <strong class="clip">${esc(item.title)}</strong>
+          ${renderStatusChip(item.status, context)}
+        </div>
+        <p class="preview">${esc(item.meta)}</p>
+      </article>`;
+  }).join('') : '<div class="activity-item"><strong>No recent activity loaded</strong><p class="preview">Activity appears after messages, runs, or Work Loop updates.</p></div>';
+}
+
+function openStatusWhy(trigger) {
+  const popover = byId('status-why-popover');
+  if (!popover || !trigger) return;
+  const reason = trigger.dataset.statusWhy || trigger.title || 'No status reason loaded.';
+  const kind = trigger.dataset.statusKind || 'unknown';
+  popover.hidden = false;
+  popover.innerHTML = `
+    <div class="item-title">
+      <strong>Status: ${esc(kind)}</strong>
+      <button class="ghost" data-close-status-why>Close</button>
+    </div>
+    <p>${esc(reason)}</p>`;
+  const rect = trigger.getBoundingClientRect();
+  const top = Math.min(window.innerHeight - 160, Math.max(12, rect.bottom + 8));
+  const left = Math.min(window.innerWidth - 320, Math.max(12, rect.left));
+  popover.style.top = `${top}px`;
+  popover.style.left = `${left}px`;
+}
+
+function closeStatusWhy() {
+  const popover = byId('status-why-popover');
+  if (!popover) return;
+  popover.hidden = true;
+  popover.innerHTML = '';
 }
 
 function sessionId(session) {
@@ -449,7 +645,7 @@ function renderSessionRail() {
             <div class="session-row-body">
               <div class="item-title">
                 <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>
-                ${renderStatusChip(status)}
+                ${renderStatusChip(status, statusWhyContext('session', session, status))}
               </div>
               <p class="preview">${esc(session.workspace || session.cwd || '')}</p>
               <span class="session-runtime-badge" data-runtime="${esc(sessionRuntime(session))}">${esc(sessionRuntime(session))}</span>
@@ -470,7 +666,7 @@ function renderSessionChat(session) {
         <strong>${esc(message.from || 'unknown')}</strong>
         <span class="button-row">
           ${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-run-source="chat" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}
-          ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')) })}
+          ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')), why: `Message is ${message.read ? 'read' : 'unread'}; type ${message.type || 'unknown'}.` })}
         </span>
       </div>
       <h3>${esc(message.subject || '(no subject)')}</h3>
@@ -479,21 +675,66 @@ function renderSessionChat(session) {
   }).join('') : '<div class="message">No loaded messages for this session yet.</div>';
 }
 
+// Convert a hermes tui_gateway WS URL into its sibling HTTP root URL.
+// Input:  ws://127.0.0.1:1234/api/ws?token=abc
+// Output: http://127.0.0.1:1234/?token=abc
+// Returns "" if the input isn't a recognizable loopback ws:// URL.
+function hermesGatewayUrlToHttp(wsUrl) {
+  const raw = String(wsUrl || '').trim();
+  if (!/^wss?:\/\//i.test(raw)) return '';
+  try {
+    const u = new URL(raw);
+    // Only embed loopback hermes dashboards — public hosts would expose tokens
+    // through the iframe URL and the dashboard would need explicit allowlisting.
+    if (!['127.0.0.1', 'localhost', '::1'].includes(u.hostname)) return '';
+    const scheme = u.protocol === 'wss:' ? 'https' : 'http';
+    const token = u.searchParams.get('token') || '';
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${scheme}://${u.hostname}:${u.port || (scheme === 'https' ? '443' : '80')}/${query}`;
+  } catch (_) {
+    return '';
+  }
+}
+
 function renderSessionConsole(session) {
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
   const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
-  byId('session-console-summary').innerHTML = `
+  const agent = agentForSession(session);
+  const runtimeConfig = agent?.runtimeConfig || {};
+  const hermesGatewayHttp = String(agent?.runtime || '').toLowerCase() === 'hermes'
+    ? hermesGatewayUrlToHttp(runtimeConfig.gatewayUrl)
+    : '';
+
+  const headerCard = `
     <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
-      <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown')}</div>
+      <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown', statusWhyContext('session', session || {}, session?.status || 'unknown'))}</div>
       <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
-      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}</small>
+      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}</small>
       <div class="contract-actions">
         <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
         <button class="ghost" data-session-control="recover" data-session-id="${esc(id)}">Recover</button>
         ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
+        ${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}
       </div>
     </article>`;
+
+  // For hermes resident agents with a live tui_gateway, embed the upstream
+  // hermes web dashboard chat surface as an iframe. The dashboard runs at
+  // http://127.0.0.1:<port>/ on the operator's machine; the operator's
+  // browser is also on that machine, so loopback access works. This is
+  // the real Ink Chat UI — interactive, typing-supported, full fidelity —
+  // the same WS session the bridge attaches to via /api/ws. (See
+  // ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl + the hermes
+  // dashboard's embedded chat tab gated on HERMES_DASHBOARD_TUI=1.)
+  const hermesIframe = hermesGatewayHttp
+    ? `<div class="console-embed" data-kind="hermes-gateway">
+         <div class="console-embed-label">Hermes live chat — embedded from <code>${esc(hermesGatewayHttp.split('?')[0])}</code></div>
+         <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
+       </div>`
+    : '';
+
+  byId('session-console-summary').innerHTML = `${headerCard}${hermesIframe}`;
 }
 
 function renderSessionWorkspace() {
@@ -507,7 +748,7 @@ function renderSessionWorkspace() {
   if (!session) {
     byId('session-title').textContent = 'No sessions loaded';
     byId('session-subtitle').textContent = 'Spawn or connect an agent to start a session workspace.';
-    byId('session-status').innerHTML = renderStatusChip('unknown');
+    byId('session-status').innerHTML = renderStatusChip('unknown', statusWhyContext('session', {}, 'unknown'));
     byId('session-chat-thread').innerHTML = '<div class="message">No session selected.</div>';
     byId('session-console-summary').innerHTML = '<div class="item">No session selected.</div>';
     byId('composer-body').placeholder = 'Select a session to send a message';
@@ -516,7 +757,7 @@ function renderSessionWorkspace() {
   const agentId = sessionAgentId(session);
   byId('session-title').textContent = agentId || sessionId(session);
   byId('session-subtitle').textContent = session.workspace || session.cwd || 'Chat and console are bound to this session.';
-  byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown');
+  byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown', statusWhyContext('session', session, session.status || agentForSession(session).status || 'unknown'));
   byId('composer-body').placeholder = agentId ? `Send to ${agentId}` : 'Select a session to send a message';
   renderSessionChat(session);
   renderSessionConsole(session);
@@ -531,7 +772,7 @@ function renderAgents() {
         <strong>${esc(agent.id)}</strong>
         <p class="preview">${esc(agent.runtime || 'runtime')} · ${esc(agent.sessionMode || '')} · ${esc(agent.machineId || '')}</p>
       </div>
-      ${renderStatusChip(agent.status)}
+      ${renderStatusChip(agent.status, statusWhyContext('agent', agent, agent.status))}
     </article>`).join('');
 }
 
@@ -541,7 +782,7 @@ function renderMessages() {
     <article class="item" data-kind="message" data-id="${esc(message.id)}">
       <div class="item-title">
         <strong class="clip">${esc(message.subject || '(no subject)')}</strong>
-        ${renderStatusChip(message.read ? 'completed' : 'queued', { label: message.read ? 'read' : 'unread' })}
+        ${renderStatusChip(message.read ? 'completed' : 'queued', { label: message.read ? 'read' : 'unread', why: `Message is ${message.read ? 'read' : 'unread'} from ${message.from || 'unknown'}.` })}
       </div>
       <p class="preview">${esc(message.preview || message.body || '')}</p>
       <small>${esc(message.from)} · ${relTime(message.createdAt || message.timestamp || message.time)} ago</small>
@@ -573,14 +814,71 @@ function renderContracts() {
   const contracts = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
     .filter((contract) => selected === 'open' ? ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state) : contract.state === selected);
   byId('contract-list').innerHTML = contracts.map(contractCard).join('') || '<div class="item">No contracts match this filter.</div>';
+  renderDiagnosticsBulkToolbar();
+}
+
+function environmentRuntimes(env) {
+  const runtimes = env?.runtimes || env?.runtimeCapabilities || [];
+  return Array.isArray(runtimes) ? runtimes
+    .map((runtime) => typeof runtime === 'string' ? { runtime, available: true } : runtime)
+    .filter((runtime) => runtime && runtime.runtime) : [];
+}
+
+function environmentRoots(env) {
+  const roots = env?.cwdRoots || env?.cwd_roots || env?.roots || env?.workspaceRoots || [];
+  return Array.isArray(roots) ? roots.filter(Boolean) : [];
+}
+
+function renderEnvironmentSummary() {
+  const target = byId('environment-summary');
+  if (!target) return;
+  const online = state.environments.filter((env) => resolveStatus(env.status).kind === 'online').length;
+  const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;
+  const runtimeKinds = new Set();
+  state.environments.forEach((env) => environmentRuntimes(env).forEach((runtime) => runtimeKinds.add(runtime.runtime)));
+  target.innerHTML = [
+    metric('Environments', state.environments.length, state.environments.length ? 'ok' : 'neutral'),
+    metric('Online bridges', online, online ? 'ok' : 'neutral'),
+    metric('Offline', offline, offline ? 'bad' : 'neutral'),
+    metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
+  ].join('');
+}
+
+function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environment')?.value || '') {
+  const envSelect = byId('env-spawn-environment');
+  const runtimeSelect = byId('env-spawn-runtime');
+  if (!envSelect || !runtimeSelect) return;
+  const currentEnv = state.environments.some((env) => String(env.id) === selectedEnvId)
+    ? selectedEnvId
+    : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id || state.environments[0]?.id || '');
+  envSelect.innerHTML = '<option value="">Environment</option>' + state.environments.map((env) => `<option value="${esc(env.id)}"${String(env.id) === currentEnv ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(resolveStatus(env.status).label)})</option>`).join('');
+  const env = state.environments.find((item) => String(item.id) === currentEnv) || {};
+  const runtimeOptions = environmentRuntimes(env);
+  const available = runtimeOptions.filter((runtime) => runtime.available !== false);
+  runtimeSelect.innerHTML = '<option value="">Runtime</option>' + runtimeOptions.map((runtime) => {
+    const disabled = runtime.available === false ? ' disabled' : '';
+    const suffix = runtime.available === false ? ' (unavailable)' : '';
+    return `<option value="${esc(runtime.runtime)}"${disabled}>${esc(runtime.runtime)}${suffix}</option>`;
+  }).join('');
+  runtimeSelect.value = available[0]?.runtime || '';
+  const workspace = byId('env-spawn-workspace');
+  if (workspace && !workspace.value) workspace.value = environmentRoots(env)[0] || '';
 }
 
 function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
-      <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status)}</div>
+      <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
       <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>
-      <small>${esc((env.runtimes || env.runtimeCapabilities || []).map((r) => r.runtime || r).join(', '))}</small>
+      <div class="env-runtime-list">
+        ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' off' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
+      </div>
+      <div class="env-root-list">
+        ${environmentRoots(env).slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join('') || '<span class="subtle">No workspace roots advertised</span>'}
+      </div>
+      <div class="contract-actions">
+        <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
+      </div>
     </article>`).join('') || '<div class="item">No environments loaded.</div>';
 }
 
@@ -593,7 +891,8 @@ function renderRuns() {
   }
   byId('run-list').innerHTML = runs.map((run) => `
     <article class="run-row" data-kind="run" data-id="${esc(run.id)}">
-      ${renderStatusChip(run.status)}
+      <input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(run.id)}" data-diagnostic-kind="run"${state.selectedDiagnosticIds.has(diagnosticKey('run', run.id)) ? ' checked' : ''} title="Select run">
+      ${renderStatusChip(run.status, statusWhyContext('run', run, run.status))}
       <span>${esc(run.targetAgentId || run.target_agent || '')}</span>
       <div><strong class="clip">${esc(run.subject || run.id)}</strong><p class="preview">${esc(run.summary || run.error || '')}</p></div>
       <div class="run-actions">
@@ -601,6 +900,7 @@ function renderRuns() {
         ${['claimed', 'running'].includes(resolveStatus(run.status).kind) ? `<button class="ghost" data-steer-run="${esc(run.id)}">Steer</button>` : ''}
       </div>
     </article>`).join('') || '<div class="item">No runs loaded.</div>';
+  renderDiagnosticsBulkToolbar();
 }
 
 function renderAnalytics() {
@@ -867,8 +1167,8 @@ async function patchRun(runId, payload) {
   });
 }
 
-async function closeWorkContract(runId) {
-  if (!confirm('Close this Work Loop contract as operator-reviewed?')) return;
+async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
+  if (confirmAction && !confirm('Close this Work Loop contract as operator-reviewed?')) return;
   await patchRun(runId, {
     status: 'completed',
     requireReply: false,
@@ -876,11 +1176,86 @@ async function closeWorkContract(runId) {
     appendEvent: 'Closed from Work Loop by dashboard operator.',
     eventType: 'operator_closed',
   });
-  await refresh();
+  if (refreshAfter) await refresh();
 }
 
-async function remindWorkContract(runId) {
+async function remindWorkContract(runId, refreshAfter = true) {
   await api(`/contracts/reminders/run?runId=${encodeURIComponent(runId)}`, { method: 'POST' });
+  if (refreshAfter) await refresh();
+}
+
+async function requestBulkDiagnosticAction(action) {
+  const selected = selectedDiagnostics();
+  if (!selected.length || !action) return;
+  if (action === 'clear') {
+    state.selectedDiagnosticIds.clear();
+    renderContracts();
+    renderRuns();
+    return;
+  }
+  if (action === 'inspect') {
+    const first = selected[0];
+    if (first.kind === 'run') await openRunInspector({ runId: first.id, source: 'diagnostics-bulk' });
+    else if (first.kind === 'contract') await openRunInspector({ runId: first.id, source: 'work' });
+    return;
+  }
+  if (action === 'remind') {
+    const contracts = selected.filter((entry) => entry.kind === 'contract');
+    for (const item of contracts) {
+      await remindWorkContract(item.id, false);
+    }
+    state.selectedDiagnosticIds.clear();
+    await refresh();
+    return;
+  }
+  if (action === 'close') {
+    if (!confirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
+    for (const item of selected) {
+      if (item.kind === 'contract') {
+        await closeWorkContract(item.id, false, false);
+      } else if (item.kind === 'run') {
+        await patchRun(item.id, {
+          status: 'completed',
+          requireReply: false,
+          summary: 'Closed from Diagnostics by dashboard operator.',
+          appendEvent: 'Closed from Diagnostics by dashboard operator.',
+          eventType: 'operator_closed',
+        });
+      }
+    }
+    state.selectedDiagnosticIds.clear();
+    await refresh();
+  }
+}
+
+async function createSpawnRequest() {
+  const environmentId = byId('env-spawn-environment')?.value || '';
+  const runtime = byId('env-spawn-runtime')?.value || '';
+  const agentId = byId('env-spawn-agent-id')?.value.trim() || '';
+  const role = byId('env-spawn-role')?.value || 'coder';
+  const workspace = byId('env-spawn-workspace')?.value.trim() || '';
+  const initialMessage = byId('env-spawn-prompt')?.value.trim() || '';
+  if (!environmentId || !runtime || !agentId || !workspace) {
+    inspect('spawn-error', { message: 'Need environment, runtime, agent ID, and workspace.' });
+    return;
+  }
+  const result = await api('/spawn-requests', {
+    method: 'POST',
+    body: JSON.stringify({
+      createdBy: 'dashboard',
+      environmentId,
+      agentId,
+      role,
+      runtime,
+      workspace,
+      initialMessage,
+      subject: initialMessage ? `Spawn ${agentId}` : '',
+      mode: 'managed-warm',
+    }),
+  });
+  byId('env-spawn-agent-id').value = '';
+  byId('env-spawn-prompt').value = '';
+  inspect('spawn-request', result.spawnRequest || result);
   await refresh();
 }
 
@@ -1070,6 +1445,7 @@ function setPage(page) {
   byId('page-subtitle').textContent = subtitle;
   document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
   document.querySelectorAll('.nav-item[data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
 }
 
 function updateStaticLinks() {
@@ -1078,8 +1454,43 @@ function updateStaticLinks() {
 }
 
 document.addEventListener('click', (event) => {
+  const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
+  if (openHermesTab) {
+    const url = openHermesTab.dataset.url;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const statusWhy = event.target.closest('[data-status-why]');
+  if (statusWhy) {
+    openStatusWhy(statusWhy);
+    return;
+  }
+  if (event.target.closest('[data-close-status-why]')) {
+    closeStatusWhy();
+    return;
+  }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
   if (page) setPage(page);
+  const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
+  if (diagnosticSelect) {
+    const key = diagnosticKey(diagnosticSelect.dataset.diagnosticKind || 'run', diagnosticSelect.dataset.diagnosticSelect);
+    if (diagnosticSelect.checked) state.selectedDiagnosticIds.add(key);
+    else state.selectedDiagnosticIds.delete(key);
+    renderDiagnosticsBulkToolbar();
+    return;
+  }
+  const diagnosticAction = event.target.closest('[data-diagnostic-action]');
+  if (diagnosticAction) {
+    requestBulkDiagnosticAction(diagnosticAction.dataset.diagnosticAction);
+    return;
+  }
+  const envSpawn = event.target.closest('[data-env-spawn]');
+  if (envSpawn) {
+    setPage('environments');
+    renderEnvironmentSpawnOptions(envSpawn.dataset.envSpawn);
+    byId('env-spawn-agent-id')?.focus();
+    return;
+  }
   const sessionCheckbox = event.target.closest('[data-session-checkbox]');
   if (sessionCheckbox) {
     const id = sessionCheckbox.dataset.sessionCheckbox;
@@ -1162,6 +1573,14 @@ document.addEventListener('click', (event) => {
   if (inspectItem && !inspectButton) inspect(inspectItem.dataset.kind, inspectItem.dataset.id);
 });
 
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeStatusWhy();
+  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
+    event.preventDefault();
+    openStatusWhy(event.target);
+  }
+});
+
 byId('refresh').addEventListener('click', refresh);
 byId('global-filter').addEventListener('input', (event) => {
   state.filter = event.target.value;
@@ -1179,6 +1598,18 @@ byId('run-status-filter').addEventListener('change', async (event) => {
     byId('api-status').textContent = 'API error';
     byId('api-status').className = 'status-chip bad';
     inspect('API error', { message: error.message });
+  }
+});
+byId('env-spawn-environment')?.addEventListener('change', (event) => {
+  byId('env-spawn-workspace').value = '';
+  renderEnvironmentSpawnOptions(event.target.value);
+});
+byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await createSpawnRequest();
+  } catch (error) {
+    inspect('spawn-error', { message: error.message || 'Spawn request failed' });
   }
 });
 byId('send-reminders').addEventListener('click', async () => {
