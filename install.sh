@@ -681,7 +681,14 @@ export AIFY_SESSION_MODE="\$HERMES_AIFY_SESSION_MODE"
 # Opt out: AIFY_HERMES_SKIP_GATEWAY=1 falls back to plain \`hermes\` exec
 # (no gateway, no bridge-injection — operator-typed only). Use this if the
 # dashboard probe is breaking your install and you don't need resident wake.
-if [ "\$HERMES_AIFY_SESSION_MODE" = "resident" ] && [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
+if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
+  # Spawn the hermes dashboard backing for BOTH resident and managed
+  # invocations. Resident: operator's Ink TUI attaches via the gateway,
+  # bridge attaches as a WS peer for dispatch injection. Managed
+  # (bridge-spawned via TerminalProcessManager): the dashboard renders
+  # the wrapper's Ink TUI via xterm.js, and the bridge can attach to
+  # the same gateway. Set AIFY_HERMES_SKIP_GATEWAY=1 to fall back to
+  # plain \`hermes\` exec without the dashboard child.
   pick_port() {
     node -e '
       const net = require("net");
@@ -1088,18 +1095,13 @@ install_hermes_config() {
     if (/^[ \t]*aify-comms:[ \t]*$/m.test(text) && /^[ \t]*mcp_servers:[ \t]*$/m.test(text)) {
       process.exit(0);
     }
-    // Hermes filters env-vars to stdio MCP children — only PATH/HOME/etc.
+    // Hermes filters env-vars to stdio MCP children: only PATH HOME etc
     // pass through by default (tools/mcp_tool.py _SAFE_ENV_KEYS). The
-    // hermes-aify wrapper exports AIFY_HERMES_GATEWAY_URL +
-    // AIFY_HERMES_GATEWAY_TOKEN + HERMES_TUI_GATEWAY_URL to hermes itself,
-    // but without explicit propagation here those vars never reach the
-    // aify-comms MCP server child — so resolvedRuntimeConfigForRegistration
-    // can't auto-detect the gateway and resident-run capability stays empty.
-    //
-    // Hermes supports ${VAR} interpolation against its own env at
-    // MCP-spawn time (tools/mcp_tool.py:289 _ENV_VAR_PATTERN), so we
-    // template these so the value is resolved per-launch from whatever
-    // the wrapper exported, NOT baked in at install time.
+    // hermes-aify wrapper exports the gateway vars to hermes itself but
+    // without explicit propagation here those vars never reach the
+    // aify-comms MCP server child. Hermes does support templated env
+    // resolution at MCP-spawn time so we use that to inject the
+    // current value of each var per launch.
     const entry = [
       "  aify-comms:",
       "    command: \"node\"",
