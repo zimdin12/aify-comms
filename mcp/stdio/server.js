@@ -188,7 +188,17 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // chat --tui`). Mirror of the codex marker block above — same long-lived-
 // PID rationale: the wrapper's bash PID isn't a real Windows PID under
 // Git Bash, so the marker MUST be written from this Node process.
-const AIFY_HERMES_GATEWAY_URL = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+// Validate the env var: hermes's YAML ${VAR} interpolation falls back to the
+// LITERAL placeholder string when the var isn't set in hermes's own env
+// (tools/mcp_tool.py _interpolate_env_vars). We MUST NOT propagate a
+// "${AIFY_HERMES_GATEWAY_URL}" literal into the agent's runtime_config —
+// operator-reported 2026-05-25: sc-hermes-test-1 had that literal stored
+// as gatewayUrl, capability check failed, ping-pong rejected.
+const _rawHermesGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+const AIFY_HERMES_GATEWAY_URL = /^wss?:\/\//i.test(_rawHermesGatewayUrl) ? _rawHermesGatewayUrl : "";
+if (_rawHermesGatewayUrl && !AIFY_HERMES_GATEWAY_URL) {
+  console.error(`[aify] ignoring unresolved AIFY_HERMES_GATEWAY_URL placeholder: ${_rawHermesGatewayUrl.slice(0, 60)}. Hermes MCP config interpolation failed — relaunch hermes-aify so the env var is set in hermes's own env before MCP child spawn.`);
+}
 const AIFY_HERMES_GATEWAY_TOKEN_ENV = String(process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "AIFY_HERMES_GATEWAY_TOKEN").trim();
 let hermesMarkerCwd = "";
 if (AIFY_HERMES_GATEWAY_URL) {
@@ -762,7 +772,15 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
     else delete runtimeConfig.remoteAuthTokenEnv;
   } else if (normalizedRuntime === "hermes") {
-    const gatewayUrl = String(marker?.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+    const rawGatewayUrl = String(marker?.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+    // Reject unresolved hermes YAML interpolation placeholders. Operator-
+    // reported 2026-05-25: hermes config.yaml env: AIFY_HERMES_GATEWAY_URL:
+    // "${AIFY_HERMES_GATEWAY_URL}" — when hermes's own env doesn't have the
+    // var set (because operator's hermes wasn't relaunched through the new
+    // hermes-aify wrapper), interpolation falls back to the literal
+    // placeholder string, which would pass through to runtime_config and
+    // make the resident-channel controller fail later.
+    const gatewayUrl = /^wss?:\/\//i.test(rawGatewayUrl) ? rawGatewayUrl : "";
     const gatewayTokenEnv = String(marker?.gatewayTokenEnv || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
     if (gatewayUrl) runtimeConfig.gatewayUrl = gatewayUrl;
     else delete runtimeConfig.gatewayUrl;
@@ -1524,11 +1542,26 @@ async function runTerminalControlLoop() {
           const command = terminal.command || control.body || "";
           const runtime = normalizeRuntime(terminal.runtime || "");
           const sessionHandle = extractTerminalSessionHandle(runtime, command);
+          const wrapperEnv = terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId });
+          // When this terminal is the wrapper PTY for a wrapper-backed
+          // managed agent, signal that to the spawned wrapper's in-process
+          // bridge via AIFY_MANAGED_VIA_WRAPPER=1. The wrapper's child
+          // bridge sees this env and includes 'channel' in dispatch claim
+          // executionModes (mirror of claude-channel.js inside claude-aify).
+          // The agent's runtime must be in the operator's managed_via_wrapper
+          // setting list (or true) for this to apply.
+          try {
+            const _wrapperRuntimes = await readManagedViaWrapperRuntimes();
+            if (_wrapperRuntimes && _wrapperRuntimes.has?.(runtime)) {
+              wrapperEnv.AIFY_MANAGED_VIA_WRAPPER = "1";
+              if (terminal.agentId) wrapperEnv.AIFY_AGENT_ID = String(terminal.agentId);
+            }
+          } catch { /* best effort */ }
           const started = await TERMINAL_MANAGER.start({
             id: terminalId,
             command,
             cwd: workspace,
-            env: terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId }),
+            env: wrapperEnv,
             cols: control.cols || 100,
             rows: control.rows || 28,
             runtime,
@@ -1920,7 +1953,20 @@ async function runDispatchLoop() {
       reportAgentHeartbeat(agentId, state).catch(() => {});
 
       const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => null);
-      const executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
+      let executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
+      // When this bridge IS the wrapper child for a managed agent (env
+      // AIFY_MANAGED_VIA_WRAPPER=1 set by server.js when it spawned the
+      // wrapper PTY), claim channel + resident regardless of the agent's
+      // recorded session_mode. The wrapper IS the backing — its in-process
+      // bridge owns delivery via the runtime's local backing (gateway / app-
+      // server / RPC). Mirror of how claude-channel.js polls for channel +
+      // resident from inside claude-aify. Operator-stated 2026-05-25:
+      // "managed workers are just pseudo terminals running resident sessions
+      // in them".
+      if (String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" && String(state.info?.agentId || agentId || "") === (process.env.AIFY_AGENT_ID || "")) {
+        if (!executionModes.includes("channel")) executionModes = [...executionModes, "channel"];
+        if (!executionModes.includes("resident")) executionModes = [...executionModes, "resident"];
+      }
       if (!executionModes.length) continue;
 
       // Claim all available dispatches and merge into one turn. The server
@@ -2025,8 +2071,14 @@ async function runDispatchLoop() {
       // the main bridge dispatch loop's executionMode gate (Task A4) somehow
       // misses a wrapper-backed managed run, the controller still no-ops
       // rather than competing with the wrapper.
+      //
+      // BUT: when THIS bridge IS the wrapper child (AIFY_MANAGED_VIA_WRAPPER=1),
+      // it IS the wrapper — it should NOT short-circuit. The wrapper child
+      // needs to actually deliver via the runtime's local backing (gateway /
+      // app-server). Only the main bridge should short-circuit.
       const _runRuntime = normalizeRuntime(state.info?.runtime || "");
-      const _isManagedViaWrapper = Boolean(_runRuntime && managedViaWrapperRuntimes && managedViaWrapperRuntimes.has?.(_runRuntime));
+      const _isWrapperChild = String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1";
+      const _isManagedViaWrapper = !_isWrapperChild && Boolean(_runRuntime && managedViaWrapperRuntimes && managedViaWrapperRuntimes.has?.(_runRuntime));
       const controller = launchRuntimeRun({
         agentId,
         agentInfo: state.info,

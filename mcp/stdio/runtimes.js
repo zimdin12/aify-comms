@@ -2089,7 +2089,11 @@ function createCodexController({ agentId, agentInfo, run, runtimeState, callback
     };
   }
   const cfg = getRuntimeConfig(agentInfo);
-  const hasWsAppServer = executionMode === "resident" && hasCodexLiveAppServer(cfg);
+  // channel-mode (set by server-side _agent_execution_mode for wrapper-
+  // backed managed runs) routes via the WS app-server when one is
+  // available — same controller as resident. Wrapper child bridge owns
+  // the codex app-server URL via runtimeConfig.appServerUrl.
+  const hasWsAppServer = (executionMode === "resident" || executionMode === "channel") && hasCodexLiveAppServer(cfg);
   if (executionMode === "managed" && !hasWsAppServer) {
     return createCodexControllerPooled({ agentId, agentInfo, run, runtimeState, callbacks });
   }
@@ -3589,7 +3593,12 @@ function createHermesController({ agentId, agentInfo, run, runtimeState, callbac
       }),
     };
   }
-  if (executionMode === "resident") {
+  // channel-mode dispatches (set by server-side _agent_execution_mode for
+  // wrapper-backed managed runs) route to the resident-channel controller
+  // when a gatewayUrl is available. The wrapper child bridge (running with
+  // AIFY_MANAGED_VIA_WRAPPER=1) is the actor here — it knows the local
+  // dashboard gateway URL via runtimeConfig.gatewayUrl.
+  if (executionMode === "channel" || executionMode === "resident") {
     const cfg = getRuntimeConfig(agentInfo);
     const gatewayUrl = String(cfg.gatewayUrl || "").trim();
     if (/^wss?:\/\//i.test(gatewayUrl)) {
