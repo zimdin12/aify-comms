@@ -186,6 +186,9 @@ DEFAULT_SETTINGS = {
     #   true: all codex / hermes / pi / opencode managed runs route via wrapper.
     #   ["hermes", "codex"]: per-runtime opt-in during rollout.
     # claude-code is always wrapper-backed (claude-channel.js); not gated.
+    # pi is structurally excluded (omp single-client RPC + bridge-owned
+    # mutex make the wrapper pattern impossible). pi managed stays on
+    # the persistent PiSession synth-terminal path. See DECISIONS.md.
     "managed_via_wrapper": False,
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
@@ -267,12 +270,21 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
 
     claude-code is excluded — it's already wrapper-backed via claude-channel.js
     inside claude-aify regardless of this flag.
+
+    pi is excluded — omp --mode rpc is single-client stdio by upstream design.
+    pi-aify's bridge-owned-mutex (install.sh:539-559) makes the wrapper PTY
+    exit when the persistent PiSession owns the RPC. The wrapper pattern is
+    structurally incompatible with pi; if operator lists "pi" anyway, the
+    dispatch would queue forever waiting for a claimer that can't exist.
+    See DECISIONS.md "Open architectural items".
     """
     val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
     runtime_n = _normalize_runtime(runtime or "")
     if runtime_n == "claude-code":
         return False
-    if runtime_n not in {"codex", "hermes", "pi", "opencode"}:
+    if runtime_n == "pi":
+        return False
+    if runtime_n not in {"codex", "hermes", "opencode"}:
         return False
     if isinstance(val, bool):
         return val

@@ -2067,13 +2067,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         # Off: returns False for all runtimes.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
         self.assertFalse(_managed_via_wrapper_for_runtime({}, "hermes"))
-        # True: returns True for all eligible runtimes.
+        # True: returns True for eligible runtimes (codex/hermes/opencode).
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "codex"))
-        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
         # claude-code is already wrapper-backed via claude-channel; not gated by this flag.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "claude-code"))
-        # List: only listed runtimes route via wrapper.
+        # pi is excluded by architecture (omp single-client RPC + pi-aify
+        # bridge-owned-mutex makes wrapper PTY exit). Listing pi anyway
+        # would queue dispatches forever.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
+        # List: only listed eligible runtimes route via wrapper.
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "hermes"))
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "codex"))
         # Unknown runtime: always False (defensive).
