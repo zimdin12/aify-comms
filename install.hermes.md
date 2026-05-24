@@ -110,6 +110,25 @@ the hermes session for delivery. So `hermes-aify` does NOT require the
 `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to
 work around the Claude Code stdio MCP race bug.
 
+### Resident dispatch delivery (operator-launched `hermes-aify`)
+
+`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, AND it accepts bridge-injected aify-comms messages mid-conversation. The mechanism mirrors `codex-aify`:
+
+1. The wrapper spawns `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child. This sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher.
+2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (`web_server.py:3688`).
+3. It exports `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<P>/api/ws?token=<T>` in the env passed to `hermes chat --tui`. The Ink TUI's `gatewayClient.ts:startAttachedGateway` opens a WebSocket to that URL instead of spawning its own stdio sidecar — operator sees their normal terminal TUI experience.
+4. The aify-comms bridge (loaded inside `hermes chat` as an MCP server) ALSO opens a WebSocket to the same `/api/ws` (it reads `AIFY_HERMES_GATEWAY_URL` from env, written into the hermes runtime marker by `server.js`). For inbound aify-comms messages the bridge calls JSON-RPC `prompt.submit` (idle session) or `session.steer` (mid-run injection, when `prompt.submit` returns code 4009 "session busy"). `tui_gateway/transport.py::TeeTransport` mirrors dispatcher events back to BOTH attached clients, so the operator's TUI renders the injected user turn AND the model's reply live.
+
+This is the symmetric equivalent of Claude Code's `notifications/claude/channel` delivery and the codex resident `turn/start` path — same wrapper-spawned-daemon + transport-pluggable-TUI + bridge-as-second-client shape. No upstream patches required.
+
+**Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
+
+**Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.
+
+**Cleanup:** `trap cleanup_aify_dashboard EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background dashboard logs go to `$XDG_STATE_HOME/aify-comms/hermes-aify-dashboard-<port>.log` (or `~/.local/state/aify-comms/...` on systems without XDG_STATE_HOME).
+
+**Known limitations.** The dashboard binds to 127.0.0.1 only and uses ephemeral per-process tokens — it's safe to leave running. The `--skip-build` flag relies on hermes having already built the web UI dist once; if you never ran `hermes dashboard` before, the first wrapper invocation may need to build it (skip the flag, or run `hermes dashboard --no-open` once to prime).
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.
