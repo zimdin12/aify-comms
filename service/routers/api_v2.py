@@ -9575,6 +9575,31 @@ async def send_message(req: MessageSend, request: Request):
                 # adapter (createCodexController, createPiController,
                 # opencode SDK) on its /dispatch/claim poll.
                 if runtime in _NATIVE_MANAGED_RUNTIMES:
+                    # Wrapper-backed managed (operator-stated 2026-05-25): if
+                    # the runtime is in managed_via_wrapper, the wrapper PTY
+                    # MUST exist to claim — auto-spawn here so an available
+                    # agent gets its console started on first message arrival
+                    # (mirror of the operator's "send → console auto-starts
+                    # → status flips" model).
+                    if (
+                        _managed_terminal_backing_enabled(settings)
+                        and _managed_via_wrapper_for_runtime(settings, runtime)
+                    ):
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        # Do NOT add to console_recipients (that's the legacy
+                        # PTY-input delivery path). Wrapper child bridge claims
+                        # via /dispatch/claim once its in-process MCP boots.
+                        # Just let the dispatch sit queued; it'll get picked up
+                        # within a polling cycle (3s) once the wrapper is up.
+                        continue
                     if (
                         _managed_terminal_backing_enabled(settings)
                         and _insert_messages_via_console(settings)
