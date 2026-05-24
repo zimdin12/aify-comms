@@ -45,6 +45,16 @@ For live Codex, prefer exact binding from the same `codex-aify` session:
 comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
 
+If you skip `sessionHandle`/`appServerUrl` and the bridge can't auto-discover them, the agent registers but `wakeMode` will be `codex-missing-handle` and `comms_send` will refuse with "agent capabilities do not include resident-run". Re-register with both fields from the same `codex-aify` session to flip the wake mode to `codex-live`.
+
+For live Hermes, launch `hermes-aify` (which spawns a local `hermes dashboard --tui --no-open` and exports `AIFY_HERMES_GATEWAY_URL`), then register:
+
+```text
+comms_register(agentId="my-agent", role="tester", runtime="hermes")
+```
+
+The bridge auto-detects `gatewayUrl` from the env var the wrapper set — no explicit field needed. After registration, `wakeMode` should be `hermes-live`. If it shows `hermes-missing-handle` instead, the wrapper didn't export `AIFY_HERMES_GATEWAY_URL` (you're either on the old wrapper or didn't restart hermes-aify after the wrapper update). Verify with `head -30 ~/.local/bin/hermes-aify | grep pick_port` — the new wrapper has that function; the old one doesn't.
+
 For live Oh My Pi (OMP), use `omp-aify --aify-agent <id> --resume <session-id>`; `pi-aify` is only a compatibility alias for the same wrapper. When registering manually, bind the real resumable session handle from that same wrapper session:
 
 ```text

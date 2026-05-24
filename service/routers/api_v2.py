@@ -944,7 +944,38 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
             return "channel", None
         return "managed", None
     if "resident-run" not in capabilities:
-        return None, 'agent capabilities do not include "resident-run"'
+        # Actionable diagnosis: identify the most likely missing wake-config
+        # for this runtime so the operator can fix the registration without
+        # spelunking docs. Mirror of mcp/stdio/runtimes.js:defaultCapabilities-
+        # ForRuntime gating: bridge returns [] for resident agents missing
+        # their runtime-specific wake handle (sessionHandle for codex/pi/
+        # opencode; gatewayUrl for hermes; channelEnabled for claude).
+        runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+        runtime_config = runtime_config if isinstance(runtime_config, dict) else {}
+        if runtime == "claude-code" and not runtime_config.get("channelEnabled"):
+            return None, (
+                f'agent "{row["id"]}" is a resident Claude session without channelEnabled. '
+                "Restart with `claude-aify` (which sets AIFY_CHANNELS_ENABLED=1) and re-register from that session."
+            )
+        if runtime == "codex" and not _has_codex_live_app_server(runtime_config):
+            return None, (
+                f'agent "{row["id"]}" is a resident Codex session without a live appServerUrl. '
+                "Restart with `codex-aify` and re-register passing `appServerUrl=\"$AIFY_CODEX_APP_SERVER_URL\"` and `sessionHandle=\"$CODEX_THREAD_ID\"`."
+            )
+        if runtime == "hermes":
+            gateway_url = str(runtime_config.get("gatewayUrl") or "").strip()
+            if not (gateway_url.startswith("ws://") or gateway_url.startswith("wss://")):
+                return None, (
+                    f'agent "{row["id"]}" is a resident Hermes session without a live gatewayUrl. '
+                    "Restart with the updated `hermes-aify` (which exports AIFY_HERMES_GATEWAY_URL) and re-register — the bridge auto-detects the gateway from env. "
+                    "Verify the wrapper is current with `head -30 ~/.local/bin/hermes-aify | grep pick_port` (function exists in the new wrapper)."
+                )
+        if runtime in {"opencode", "pi"} and not session_handle:
+            return None, (
+                f'agent "{row["id"]}" is a resident {runtime.title()} session without a bound session handle. '
+                f"Re-register with `sessionHandle=\"<your live session id>\"` or create an environment-managed session."
+            )
+        return None, 'agent capabilities do not include "resident-run" — re-register from a live aify-wrapper session with the runtime\'s wake handle.'
     if runtime == "codex" and not session_handle:
         return None, (
             f'agent "{row["id"]}" is a resident Codex session without a bound session handle. '

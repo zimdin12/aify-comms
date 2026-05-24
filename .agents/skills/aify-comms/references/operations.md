@@ -73,7 +73,7 @@ Browser Console is current behavior when an environment advertises terminal/PTY 
 |---|---|---|
 | `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
 | `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
-| `hermes` | Prefer `hermes-aify --aify-agent <id> --resume <session-id>` when a resumable ID is known; dashboard-managed Hermes can run as a PTY-backed warm process while the PTY is alive. | OK |
+| `hermes` | Resident: launch `hermes-aify`, then `comms_register(agentId=..., runtime="hermes")` — the bridge auto-detects `gatewayUrl` from `AIFY_HERMES_GATEWAY_URL` exported by the wrapper, flipping wake mode to `hermes-live`. If you see `hermes-missing-handle`, the wrapper is the old one or wasn't restarted after today's update. | OK |
 | `opencode` | OK with explicit `sessionHandle` per session. | OK |
 | `pi` | OK with explicit `sessionHandle` per session. | OK |
 
