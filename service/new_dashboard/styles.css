@@ -571,6 +571,42 @@ small, .subtle { color: var(--muted); }
   border-radius: 6px;
   background: #0b0e13;
 }
+.codex-console-stream {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  height: min(50vh, 540px);
+  overflow-y: auto;
+  background: #0b0e13;
+  color: #cdd6f4;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.codex-line { padding: 1px 0; }
+.codex-line.sys { color: #7a8294; font-style: italic; }
+.codex-line.err { color: #ef5350; }
+.codex-line.turn { color: #74c0fc; font-weight: 600; }
+.codex-line.tool { color: #ffd166; }
+.codex-line.tool.ok { color: #69db7c; }
+.codex-line.user { color: #b5e853; font-weight: 600; }
+.codex-line.delta { color: #cdd6f4; }
+.codex-console-input {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.codex-console-input input {
+  flex: 1;
+  padding: 6px 8px;
+  background: #0b0e13;
+  color: #cdd6f4;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+}
 .activity-feed {
   margin-top: 14px;
   border-top: 1px solid var(--line);

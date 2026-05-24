@@ -696,26 +696,171 @@ function hermesGatewayUrlToHttp(wsUrl) {
   }
 }
 
+// --- Codex live-console widget --------------------------------------
+// Connects directly to a codex app-server WS (browser → ws://127.0.0.1:<port>),
+// subscribes to events on the agent's threadId via initialize + thread/resume,
+// and renders agent message deltas + turn lifecycle markers into a div.
+// Symmetric in intent with the hermes iframe embed, but built custom because
+// codex has no upstream web UI to embed — we render the JSON-RPC event stream
+// ourselves. Send a turn/start when the operator types in the input box.
+
+const codexConsoleConnections = new Map(); // agentId → { ws, threadId, container }
+
+function codexConsoleClose(agentId) {
+  const entry = codexConsoleConnections.get(agentId);
+  if (!entry) return;
+  try { entry.ws?.close(); } catch {}
+  codexConsoleConnections.delete(agentId);
+}
+
+function codexConsoleAppendLine(container, line, cls = '') {
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = `codex-line ${cls}`.trim();
+  div.textContent = line;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function codexConsoleAppendText(container, text) {
+  if (!container) return;
+  const lastLine = container.querySelector('.codex-line.delta:last-child');
+  if (lastLine) {
+    lastLine.textContent += text;
+  } else {
+    const div = document.createElement('div');
+    div.className = 'codex-line delta';
+    div.textContent = text;
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function codexConsoleConnect(agentId, appServerUrl, threadId) {
+  const wsUrl = String(appServerUrl || '').trim();
+  if (!/^wss?:\/\//i.test(wsUrl)) return;
+  codexConsoleClose(agentId);
+
+  const container = document.querySelector(`[data-codex-console="${agentId}"] .codex-console-stream`);
+  if (!container) return;
+  container.innerHTML = '';
+  codexConsoleAppendLine(container, `[connecting to ${wsUrl}…]`, 'sys');
+
+  let ws;
+  try { ws = new WebSocket(wsUrl); } catch (err) {
+    codexConsoleAppendLine(container, `[connect error: ${err?.message || err}]`, 'err');
+    return;
+  }
+  let nextId = 1;
+  let activeTurn = null;
+  const entry = { ws, threadId, container };
+  codexConsoleConnections.set(agentId, entry);
+
+  ws.addEventListener('open', () => {
+    codexConsoleAppendLine(container, '[connected]', 'sys');
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id: nextId++,
+      method: 'initialize',
+      params: { clientInfo: { name: 'aify-dashboard', title: 'aify dashboard console', version: '1.0' } },
+    }));
+    ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} }));
+    if (threadId) {
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: nextId++,
+        method: 'thread/resume',
+        params: { threadId, personality: 'friendly' },
+      }));
+      codexConsoleAppendLine(container, `[subscribed to thread ${threadId}]`, 'sys');
+    } else {
+      codexConsoleAppendLine(container, '[no threadId — will only see broadcast events]', 'sys');
+    }
+  });
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(String(ev.data)); } catch { return; }
+    const method = String(msg.method || '');
+    const params = msg.params || {};
+    if (method === 'turn/started' && params.turn?.id) {
+      activeTurn = params.turn.id;
+      codexConsoleAppendLine(container, `▶ turn started (${params.turn.id})`, 'turn');
+    } else if (method === 'turn/completed') {
+      const usage = params.turn?.usage || params.usage || {};
+      const usageStr = usage.input_tokens || usage.output_tokens
+        ? ` (in=${usage.input_tokens || 0} out=${usage.output_tokens || 0})`
+        : '';
+      codexConsoleAppendLine(container, `■ turn ended [${params.turn?.status || 'completed'}]${usageStr}`, 'turn');
+      activeTurn = null;
+    } else if (method === 'item/agentMessage/delta') {
+      codexConsoleAppendText(container, String(params.delta || ''));
+    } else if (method === 'item/started' && params.item?.id) {
+      codexConsoleAppendLine(container, `→ ${params.item?.type || 'item'}`, 'tool');
+    } else if (method === 'item/completed' && params.item?.id) {
+      codexConsoleAppendLine(container, `✓ ${params.item?.type || 'item'}`, 'tool ok');
+    } else if (method === 'error' && params.error?.message) {
+      codexConsoleAppendLine(container, `✗ ${params.error.message}`, 'err');
+    }
+  });
+  ws.addEventListener('close', (ev) => {
+    codexConsoleAppendLine(container, `[disconnected: code=${ev.code}]`, 'sys');
+    codexConsoleConnections.delete(agentId);
+  });
+  ws.addEventListener('error', () => {
+    codexConsoleAppendLine(container, '[websocket error]', 'err');
+  });
+}
+
+function codexConsoleSendTurn(agentId, text) {
+  const entry = codexConsoleConnections.get(agentId);
+  if (!entry || !entry.ws || entry.ws.readyState !== 1 || !entry.threadId) return;
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return;
+  const id = Math.floor(Math.random() * 1e9);
+  entry.ws.send(JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'turn/start',
+    params: {
+      threadId: entry.threadId,
+      input: [{ type: 'text', text: trimmed }],
+    },
+  }));
+  codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
+}
+
 function renderSessionConsole(session) {
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
   const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
   const agent = agentForSession(session);
   const runtimeConfig = agent?.runtimeConfig || {};
-  const hermesGatewayHttp = String(agent?.runtime || '').toLowerCase() === 'hermes'
+  const runtime = String(agent?.runtime || '').toLowerCase();
+  const hermesGatewayHttp = runtime === 'hermes'
     ? hermesGatewayUrlToHttp(runtimeConfig.gatewayUrl)
     : '';
+  const codexAppServerUrl = runtime === 'codex' ? String(runtimeConfig.appServerUrl || '').trim() : '';
+  const codexThreadId = runtime === 'codex'
+    ? String(agent?.sessionHandle || runtimeConfig.threadId || agent?.runtimeState?.threadId || '').trim()
+    : '';
+  const codexIsLoopback = codexAppServerUrl && (() => {
+    try { return ['127.0.0.1', 'localhost', '::1'].includes(new URL(codexAppServerUrl).hostname); }
+    catch { return false; }
+  })();
+  const codexAttachable = codexAppServerUrl && codexIsLoopback;
+  const agentIdForCodex = sessionAgentId(session) || '';
 
   const headerCard = `
     <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
       <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown', statusWhyContext('session', session || {}, session?.status || 'unknown'))}</div>
       <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
-      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}</small>
+      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}</small>
       <div class="contract-actions">
         <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
         <button class="ghost" data-session-control="recover" data-session-id="${esc(id)}">Recover</button>
         ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
         ${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}
+        ${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}
       </div>
     </article>`;
 
@@ -734,7 +879,27 @@ function renderSessionConsole(session) {
        </div>`
     : '';
 
-  byId('session-console-summary').innerHTML = `${headerCard}${hermesIframe}`;
+  // Codex doesn't have an upstream web UI to iframe, so we render the
+  // JSON-RPC event stream ourselves. Operator clicks "Connect live
+  // console" → browser WS direct to codex app-server (loopback only,
+  // same security argument as the hermes iframe) → subscribes to the
+  // agent's threadId → renders deltas + lifecycle markers + accepts
+  // turn/start frames from the local input box.
+  const codexConsole = codexAttachable
+    ? `<div class="console-embed" data-kind="codex-app-server" data-codex-console="${esc(agentIdForCodex)}">
+         <div class="console-embed-label">
+           Codex live thread — attaches direct WS to <code>${esc(codexAppServerUrl)}</code>${codexThreadId ? ` · thread <code>${esc(codexThreadId)}</code>` : ''}
+         </div>
+         <div class="codex-console-stream" aria-live="polite"></div>
+         <form class="codex-console-input" data-action="codex-console-send" data-agent-id="${esc(agentIdForCodex)}">
+           <input type="text" placeholder="${codexThreadId ? 'Type to send turn/start into this thread...' : 'No threadId — read-only.'}" ${codexThreadId ? '' : 'disabled'}>
+           <button type="submit" class="primary" ${codexThreadId ? '' : 'disabled'}>Send</button>
+           <button type="button" class="ghost" data-action="codex-console-disconnect" data-agent-id="${esc(agentIdForCodex)}">Disconnect</button>
+         </form>
+       </div>`
+    : '';
+
+  byId('session-console-summary').innerHTML = `${headerCard}${hermesIframe}${codexConsole}`;
 }
 
 function renderSessionWorkspace() {
@@ -1460,6 +1625,20 @@ document.addEventListener('click', (event) => {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
     return;
   }
+  const codexConnect = event.target.closest('[data-action="codex-console-connect"]');
+  if (codexConnect) {
+    codexConsoleConnect(
+      codexConnect.dataset.agentId,
+      codexConnect.dataset.appServerUrl,
+      codexConnect.dataset.threadId,
+    );
+    return;
+  }
+  const codexDisconnect = event.target.closest('[data-action="codex-console-disconnect"]');
+  if (codexDisconnect) {
+    codexConsoleClose(codexDisconnect.dataset.agentId);
+    return;
+  }
   const statusWhy = event.target.closest('[data-status-why]');
   if (statusWhy) {
     openStatusWhy(statusWhy);
@@ -1617,6 +1796,19 @@ byId('send-reminders').addEventListener('click', async () => {
   inspect('reminders', result);
   await refresh();
 });
+// Codex live-console input form: send turn/start via the existing WS
+// the operator opened with "Connect live console".
+document.addEventListener('submit', (event) => {
+  const codexForm = event.target.closest('[data-action="codex-console-send"]');
+  if (!codexForm) return;
+  event.preventDefault();
+  const agentId = codexForm.dataset.agentId;
+  const input = codexForm.querySelector('input[type="text"]');
+  const text = input?.value || '';
+  codexConsoleSendTurn(agentId, text);
+  if (input) input.value = '';
+});
+
 byId('composer').addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = byId('composer-body').value.trim();
