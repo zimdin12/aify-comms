@@ -199,6 +199,22 @@ const AIFY_HERMES_GATEWAY_URL = /^wss?:\/\//i.test(_rawHermesGatewayUrl) ? _rawH
 if (_rawHermesGatewayUrl && !AIFY_HERMES_GATEWAY_URL) {
   console.error(`[aify] ignoring unresolved AIFY_HERMES_GATEWAY_URL placeholder: ${_rawHermesGatewayUrl.slice(0, 60)}. Hermes MCP config interpolation failed — relaunch hermes-aify so the env var is set in hermes's own env before MCP child spawn.`);
 }
+
+// Startup diagnostic: surface the env vars the bridge sees so operators
+// can verify env propagation through *-aify → runtime → MCP child.
+// Operator-reported 2026-05-25: sc-hermes-test-1 stuck with empty
+// runtimeConfig despite multiple "relaunch hermes-aify" attempts.
+// Without this log the failure point in the env chain is invisible.
+try {
+  const _runtime = String(process.env.AIFY_RUNTIME || "").trim();
+  const _agentId = String(process.env.AIFY_AGENT_ID || "").trim();
+  const _sessionMode = String(process.env.AIFY_SESSION_MODE || "").trim();
+  const _wrapperFlag = String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim();
+  const _rawGw = _rawHermesGatewayUrl || "(unset)";
+  const _gw = AIFY_HERMES_GATEWAY_URL || "(unset/invalid)";
+  const _codexApp = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim() || "(unset)";
+  console.error(`[aify] bridge startup: runtime=${_runtime || "(unset)"} agentId=${_agentId || "(unset)"} sessionMode=${_sessionMode || "(unset)"} wrapperChild=${_wrapperFlag || "0"} hermesGwRaw=${_rawGw.slice(0, 80)} hermesGwResolved=${_gw.slice(0, 80)} codexAppServer=${_codexApp.slice(0, 80)}`);
+} catch { /* best effort */ }
 const AIFY_HERMES_GATEWAY_TOKEN_ENV = String(process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "AIFY_HERMES_GATEWAY_TOKEN").trim();
 let hermesMarkerCwd = "";
 if (AIFY_HERMES_GATEWAY_URL) {
