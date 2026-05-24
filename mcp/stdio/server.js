@@ -666,11 +666,21 @@ function wakeModeSummary(info = {}) {
     return "codex-live";
   }
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
+  if (
+    sessionMode === "resident" &&
+    runtime === "hermes" &&
+    capabilities.includes("resident-run") &&
+    /^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))
+  ) {
+    // Gateway-channel resident hermes: bridge injects via tui_gateway /api/ws.
+    // sessionHandle is optional — controller resolves session.most_recent.
+    return "hermes-live";
+  }
   if (sessionMode === "resident" && runtime === "hermes" && capabilities.includes("resident-run") && info.sessionHandle) return "hermes-session-resume";
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
-  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle) return "hermes-missing-handle";
+  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle && !/^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))) return "hermes-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
@@ -751,6 +761,13 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     else delete runtimeConfig.appServerUrl;
     if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
     else delete runtimeConfig.remoteAuthTokenEnv;
+  } else if (normalizedRuntime === "hermes") {
+    const gatewayUrl = String(marker?.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
+    if (gatewayUrl) runtimeConfig.gatewayUrl = gatewayUrl;
+    else delete runtimeConfig.gatewayUrl;
+    if (gatewayTokenEnv) runtimeConfig.gatewayTokenEnv = gatewayTokenEnv;
+    else delete runtimeConfig.gatewayTokenEnv;
   } else if (normalizedRuntime === "claude-code") {
     if (marker?.channelEnabled) runtimeConfig.channelEnabled = true;
     else delete runtimeConfig.channelEnabled;

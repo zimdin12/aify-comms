@@ -1538,6 +1538,11 @@ export function hasCodexLiveAppServer(runtimeConfig = {}) {
   return /^wss?:\/\//i.test(url);
 }
 
+export function hasHermesLiveGateway(runtimeConfig = {}) {
+  const url = String(runtimeConfig?.gatewayUrl || "").trim();
+  return /^wss?:\/\//i.test(url);
+}
+
 export function normalizeRuntime(runtime) {
   const key = String(runtime || "generic").trim().toLowerCase();
   return RUNTIME_ALIASES.get(key) || key || "generic";
@@ -3470,6 +3475,13 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident",
     return ["resident-run", "interrupt", "steer"];
   }
 
+  // Hermes with a live tui_gateway WS doesn't need a captured sessionHandle
+  // at register time — the resident-channel controller resolves
+  // session.most_recent at dispatch time. Mirror of the codex
+  // hasCodexLiveAppServer carve-out below.
+  if (normalizedRuntime === "hermes" && hasHermesLiveGateway(runtimeConfig)) {
+    return ["resident-run", "resume", "interrupt", "steer"];
+  }
   if (!resolvedSessionHandle) return [];
   switch (normalizedRuntime) {
     case "codex":
