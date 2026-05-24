@@ -1,10 +1,28 @@
 # Runtime Delivery — Target Architecture
 
-Status: **TARGET MODEL.** Captured from operator + comms-senior-dev-pi
-conversation (2026-05-20). This is the runtime/bridge end-state the
-service is converging toward. Companion to
-[DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md) (correctness gate)
-and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md) (UX direction).
+Status: **TARGET MODEL — DELIVERED FOR HERMES + CODEX (2026-05-25).**
+Captured from operator + comms-senior-dev-pi conversation (2026-05-20).
+Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
+(correctness gate) and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md)
+(UX direction).
+
+**Implementation status:**
+- **Claude:** target shape since the `claude-channel.js` work. Managed
+  claude goes through `claude-aify` PTY + channel notifications.
+- **Hermes + Codex:** unified-backing landed 2026-05-25 (commits
+  `66f6cad` + `f338c01` + `2ecf446`). Opt in with
+  `PUT /api/v1/settings {"managed_via_wrapper": ["hermes", "codex"]}`.
+  The `*-aify` wrapper IS the backing — bridge spawns it in node-pty
+  for managed; wrapper's in-process MCP child claims via
+  `executionModes=["channel","resident"]` and delivers through the
+  wrapper's local backing. Dashboard Console attaches to the real
+  Ink TUI via xterm.js.
+- **Pi:** structurally excluded — `omp --mode rpc` is single-client
+  stdio, the pi-aify watchdog refuses to launch when the bridge owns
+  the RPC mutex. Pi managed stays on the persistent `PiSession` +
+  synth-terminal path. Documented in DECISIONS.md.
+- **OpenCode:** eligible but not yet validated. Same code path as
+  hermes/codex once an operator opts in.
 
 ## The model
 
