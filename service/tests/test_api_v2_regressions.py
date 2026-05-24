@@ -1977,6 +1977,74 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(execution_mode2, None)
         self.assertIn("managed-run", error2 or "")
 
+    def test_resident_hermes_with_gateway_url_does_not_require_session_handle(self):
+        # Operator-reported 2026-05-24: sc-hermes-test-2 → sc-hermes-test-1
+        # ping-pong refused live delivery with "without a bound session
+        # handle. Restart with hermes-aify and a resumable session handle..."
+        # even though sc-hermes-test-1 had registered with a live gatewayUrl
+        # in runtimeConfig (auto-detected from AIFY_HERMES_GATEWAY_URL by
+        # the new hermes-aify wrapper + MCP env propagation).
+        #
+        # Root cause: my earlier resident-run capability carve-out in
+        # mcp/stdio/runtimes.js + the Python capability check at line 946-947
+        # accepted gateway-only hermes, but a SECOND gate at line 989-993
+        # still required session_handle regardless of gatewayUrl. That gate
+        # predates the gateway path and assumed all resident hermes have a
+        # captured sessionHandle (resume-based wake).
+        #
+        # The gateway-channel controller resolves session.most_recent at
+        # dispatch time, so sessionHandle is optional when gatewayUrl is set.
+        # Mirror of the capability-check carve-out, applied to the second gate.
+        from service.routers.api_v2 import _agent_execution_mode
+        class _R(dict):
+            def keys(self): return super().keys()
+
+        # 1. Hermes resident WITH gatewayUrl, WITHOUT sessionHandle — must accept.
+        with_gateway = _R({
+            "id": "sc-hermes-test-1",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt", "steer"]',
+            "runtime_config": '{"gatewayUrl": "ws://127.0.0.1:62260/api/ws?token=secret"}',
+        })
+        mode, error = _agent_execution_mode(with_gateway)
+        self.assertIsNone(error, f"hermes with gatewayUrl must NOT be rejected for missing session_handle; got: {error}")
+        self.assertEqual(mode, "resident")
+
+        # 2. Hermes resident WITHOUT gatewayUrl, WITHOUT sessionHandle — still rejected.
+        # (Capabilities won't include resident-run in real registration since the
+        # bridge's defaultCapabilitiesForRuntime gates on gatewayUrl too, but
+        # validate the gate logic stays restrictive.)
+        without_gateway = _R({
+            "id": "sc-hermes-bare",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt", "steer"]',
+            "runtime_config": "{}",
+        })
+        mode2, error2 = _agent_execution_mode(without_gateway)
+        self.assertIsNone(mode2)
+        self.assertIn("session handle", (error2 or "").lower(),
+                      f"hermes without gatewayUrl AND without session_handle must still error; got: {error2}")
+
+        # 3. Hermes resident WITH sessionHandle (legacy single-shot path), no gateway — must accept.
+        legacy_handle = _R({
+            "id": "sc-hermes-legacy",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "sid-abc-123",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt"]',
+            "runtime_config": "{}",
+        })
+        mode3, error3 = _agent_execution_mode(legacy_handle)
+        self.assertIsNone(error3, f"hermes with sessionHandle (legacy single-shot path) must remain accepted; got: {error3}")
+        self.assertEqual(mode3, "resident")
+
     def test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running(self):
         # Slices 1/2/4: when managed_pty_eager_spawn is on AND
         # managed_terminal_backing_enabled is on, the wrapper PTY is
