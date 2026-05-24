@@ -145,6 +145,16 @@ into the dashboard Console — no visible wrapper PTY is needed for delivery.
 
 ## Persistent ACP session (managed dispatches)
 
+**Opt-in: multi-client gateway backing for managed agents.** Set
+`AIFY_HERMES_MANAGED_USE_GATEWAY=1` in the environment bridge's env to
+route managed dispatches through a per-agent `hermes dashboard --tui`
+backing instead of the default `hermes acp` ACP child. Bridge + dashboard
+Console + optional iframe of the hermes web UI all attach to the same
+`/api/ws` (TeeTransport multi-client). Mid-run insertion via
+`session.steer` works on this path; the ACP path doesn't. Off by default
+until validated; flip the env var to opt in. The rest of this section
+describes the default ACP path.
+
 For managed hermes agents the bridge spawns a single `hermes acp --accept-hooks`
 per agentId on first dispatch, runs the ACP handshake (`initialize` →
 `session/new`), and reuses the same `sessionId` for every subsequent

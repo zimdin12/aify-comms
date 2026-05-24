@@ -19,7 +19,11 @@ Primary upstream references:
 - MCP server registration in `~/.hermes/config.yaml`.
 - Optional post-tool notification hook using `~/.hermes/agent-hooks/aify-notify.sh`.
 
-Managed Hermes dispatch flows through the bridge's `createHermesController` native RPC adapter — for each dispatch the bridge spawns `hermes chat -Q -q "<built prompt>"` (upstream's documented "Programmatic mode" — `-Q` suppresses banner/spinner/tool previews). The agent's stdout is captured as the reply summary. The dashboard's Console pane attaches to a synthesized `terminal_session` row (`command='aify://virtual-rpc/hermes'`, `runtime_state.virtualTerminal=true`) where the bridge pushes request/response frames per dispatch — the operator sees the conversation history without a real PTY behind it. Resident Hermes is still terminal-first: `hermes-aify` opens an interactive `hermes chat` session for human use.
+Managed Hermes dispatch flows through the bridge's `createHermesController` native RPC adapter. By default it uses a persistent `hermes acp --accept-hooks` JSON-RPC child per agent (HermesSession in `mcp/stdio/hermes-session.js`) — initializes once, reuses the same `sessionId` for every subsequent `session/prompt`. ACP is single-client by design, so the dashboard Console attaches to a synthesized `terminal_session` row that mirrors `session/update` notifications into a fake terminal stream.
+
+For multi-client visibility (dashboard Console can attach to the same live session as the bridge, not just see a synth mirror), set `AIFY_HERMES_MANAGED_USE_GATEWAY=1` in the environment bridge's env. Managed dispatches then route through `HermesManagedGatewaySession` which spawns `hermes dashboard --tui --port <free> --no-open --skip-build` per agent and attaches via WebSocket to the multi-client tui_gateway. Bridge + dashboard Console + optional iframe of the hermes web UI all share the same session via TeeTransport. Mid-run insertion (`session.steer`) works on this path; the ACP path doesn't.
+
+Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway for `prompt.submit` / `session.steer` injection.
 
 ## Install Hermes
 
