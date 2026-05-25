@@ -1104,12 +1104,15 @@ EOF
   " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
 }
 
-install_hermes_config() {
-  local config_root="$(hermes_config_root)"
-  local config_file="$config_root/config.yaml"
+_patch_hermes_config_at() {
+  # Patch a single hermes config.yaml with the aify-comms MCP entry.
+  # Idempotent: skips if `aify-comms:` already exists under `mcp_servers:`.
+  local config_file="$1"
+  local config_dir=""
   local node_config_file=""
   local node_server_path=""
-  mkdir -p "$config_root"
+  config_dir="$(dirname "$config_file")"
+  mkdir -p "$config_dir"
   touch "$config_file"
   node_config_file="$(path_for_node "$config_file")"
   node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
@@ -1151,6 +1154,43 @@ install_hermes_config() {
       fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`);
     }
   ' "$node_config_file" "$node_server_path" "$SERVER_URL"
+}
+
+install_hermes_config() {
+  # Hermes reads config from two locations depending on how the binary
+  # was launched: the path reported by `hermes config path` (often
+  # ~/AppData/Local/hermes/config.yaml on Windows under HERMES_HOME) AND
+  # ~/.hermes/config.yaml (the legacy/default fallback many operators
+  # still use). If we only patch one, an operator whose active hermes
+  # reads the other ends up with no AIFY_HERMES_GATEWAY_URL env block
+  # in their MCP entry and the resident-hermes wake fails with
+  # hermes-missing-handle (follow-up #115).
+  #
+  # We dual-write: patch the canonical `hermes_config_root` path and
+  # the secondary `~/.hermes/config.yaml`. Deduplicate by realpath so we
+  # do not double-patch when both targets resolve to the same file.
+  local primary_file="$(hermes_config_root)/config.yaml"
+  local secondary_file="$HOME/.hermes/config.yaml"
+  local primary_real=""
+  local secondary_real=""
+
+  mkdir -p "$(dirname "$primary_file")"
+  touch "$primary_file"
+  mkdir -p "$(dirname "$secondary_file")"
+  touch "$secondary_file"
+
+  if command -v realpath >/dev/null 2>&1; then
+    primary_real="$(realpath "$primary_file" 2>/dev/null || printf '%s' "$primary_file")"
+    secondary_real="$(realpath "$secondary_file" 2>/dev/null || printf '%s' "$secondary_file")"
+  else
+    primary_real="$primary_file"
+    secondary_real="$secondary_file"
+  fi
+
+  _patch_hermes_config_at "$primary_file"
+  if [ "$primary_real" != "$secondary_real" ]; then
+    _patch_hermes_config_at "$secondary_file"
+  fi
 }
 
 migrate_codex_hooks_key() {
