@@ -34,3 +34,13 @@ test("CodexAdapter diagnosticEnv reports (unset) when app-server missing", () =>
   const env = a.diagnosticEnv();
   assert.strictEqual(env.AIFY_CODEX_APP_SERVER_URL, "(unset)");
 });
+
+test("CodexAdapter Plan 2 capabilities", () => {
+  const a = new CodexAdapter();
+  assert.strictEqual(a.supportsResident, true);
+  assert.strictEqual(a.supportsManaged, true);
+  assert.strictEqual(a.supportsSteering, true);
+  assert.strictEqual(a.supportsInterrupt, true);
+  assert.strictEqual(a.supportsMultiClient, true);
+  assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
+});
