@@ -774,6 +774,30 @@ if [ -z "\$HERMES_AIFY_SESSION_MODE" ]; then
 fi
 export AIFY_SESSION_MODE="\$HERMES_AIFY_SESSION_MODE"
 
+# Plan 5 (2026-05-25): when the wrapper falls back to plain \`hermes\`
+# (gateway disabled, port alloc failed, dashboard probe failed, token
+# capture failed) AIFY_HERMES_GATEWAY_URL is NOT exported and every
+# resident-channel wake for this session reports \`hermes-missing-handle\`.
+# Without a visible warning the operator can't tell why their messages
+# never arrive — they just see status='online' with no replies. Print
+# a one-time WARNING block at fallback so the cause is immediately
+# obvious in the shell scrollback, plus point at the dashboard log for
+# the underlying error.
+aify_hermes_fallback() {
+  local reason="\${1:-unknown}"
+  echo "" >&2
+  echo "[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session." >&2
+  echo "[hermes-aify]   Reason: \$reason" >&2
+  if [ -n "\${AIFY_HERMES_DASHBOARD_LOG:-}" ]; then
+    echo "[hermes-aify]   Log:    \$AIFY_HERMES_DASHBOARD_LOG" >&2
+  fi
+  echo "[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'." >&2
+  echo "[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or" >&2
+  echo "[hermes-aify]           inspect the dashboard log above for the underlying error." >&2
+  echo "" >&2
+  exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+}
+
 # Resident-mode bridge-injection path (mirror of codex-aify install.sh:319-424
 # and the claude-channel.js path). When the operator launches hermes-aify
 # interactively, we:
@@ -827,7 +851,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   AIFY_HERMES_PORT="\$(pick_port)"
   if [ -z "\$AIFY_HERMES_PORT" ]; then
     echo "hermes-aify: failed to allocate a local port for the dashboard gateway; falling back to plain hermes." >&2
-    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+    aify_hermes_fallback "port_alloc_failed"
   fi
 
   AIFY_HERMES_DASHBOARD_URL="http://127.0.0.1:\$AIFY_HERMES_PORT"
@@ -854,7 +878,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
     echo "hermes-aify: dashboard at \$AIFY_HERMES_DASHBOARD_URL did not become reachable. Falling back to plain hermes." >&2
     echo "  log: \$AIFY_HERMES_DASHBOARD_LOG" >&2
     cleanup_aify_dashboard
-    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+    aify_hermes_fallback "dashboard_unreachable (likely missing web_dist — run install.sh --client hermes to prebuild)"
   fi
 
   # web_server.py:3688 injects: <script>window.__HERMES_SESSION_TOKEN__="..."
@@ -862,7 +886,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   if [ -z "\$AIFY_HERMES_TOKEN" ]; then
     echo "hermes-aify: could not capture the dashboard session token from \$AIFY_HERMES_DASHBOARD_URL/. Falling back to plain hermes." >&2
     cleanup_aify_dashboard
-    exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+    aify_hermes_fallback "token_capture_failed"
   fi
 
   AIFY_HERMES_GATEWAY="ws://127.0.0.1:\$AIFY_HERMES_PORT/api/ws?token=\$AIFY_HERMES_TOKEN"
@@ -879,7 +903,11 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 fi
 
-exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+# Plan 5 (2026-05-25): explicit AIFY_HERMES_SKIP_GATEWAY=1 fallback. The
+# warning here is lighter than the failure-path banner above — operator
+# opted out, so make sure they know wake/dispatch won't work, but skip
+# the dashboard-log pointer (there is no log; gateway never started).
+aify_hermes_fallback "gateway_disabled (AIFY_HERMES_SKIP_GATEWAY=1)"
 EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
   # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
