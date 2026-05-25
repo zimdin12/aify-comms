@@ -65,3 +65,61 @@ test("startSessionHandleHeartbeat swallows post errors", async () => {
   stop();
   assert.ok(stopCalled, "process did not crash on post failure");
 });
+
+test("Heartbeat falls back to adapter.discoverSessionId when env empty", async () => {
+  const { startSessionHandleHeartbeat } = await import("../session-handle-heartbeat.js");
+  const calls = [];
+  const adapter = {
+    getCurrentSessionId: () => null, // env empty
+    discoverSessionId: async () => "discovered-handle-xyz",
+  };
+  const stop = startSessionHandleHeartbeat({
+    adapter,
+    agentId: "agent-discovery",
+    intervalMs: 10,
+    postFn: async (agentId, handle) => { calls.push({ agentId, handle }); },
+  });
+  await new Promise(r => setTimeout(r, 50));
+  stop();
+  assert.ok(calls.length >= 1, "heartbeat should fall through to discoverSessionId");
+  assert.strictEqual(calls[0].handle, "discovered-handle-xyz");
+});
+
+test("Heartbeat prefers getCurrentSessionId over discoverSessionId", async () => {
+  const { startSessionHandleHeartbeat } = await import("../session-handle-heartbeat.js");
+  const calls = [];
+  let discoverCalled = false;
+  const adapter = {
+    getCurrentSessionId: () => "env-handle",
+    discoverSessionId: async () => { discoverCalled = true; return "discovered-other"; },
+  };
+  const stop = startSessionHandleHeartbeat({
+    adapter,
+    agentId: "agent-env",
+    intervalMs: 10,
+    postFn: async (agentId, handle) => { calls.push({ agentId, handle }); },
+  });
+  await new Promise(r => setTimeout(r, 50));
+  stop();
+  assert.ok(calls.length >= 1);
+  assert.strictEqual(calls[0].handle, "env-handle", "env-read should win when non-null");
+  assert.strictEqual(discoverCalled, false, "discoverSessionId should not be called when env has a value");
+});
+
+test("Heartbeat handles discoverSessionId returning null gracefully", async () => {
+  const { startSessionHandleHeartbeat } = await import("../session-handle-heartbeat.js");
+  const calls = [];
+  const adapter = {
+    getCurrentSessionId: () => null,
+    discoverSessionId: async () => null,
+  };
+  const stop = startSessionHandleHeartbeat({
+    adapter,
+    agentId: "agent-empty",
+    intervalMs: 10,
+    postFn: async (agentId, handle) => { calls.push({ agentId, handle }); },
+  });
+  await new Promise(r => setTimeout(r, 50));
+  stop();
+  assert.strictEqual(calls.length, 0, "should not POST when both sources return null");
+});

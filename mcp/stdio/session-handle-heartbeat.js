@@ -15,7 +15,12 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
   const tick = async () => {
     if (stopped) return;
     let current = null;
-    try { current = adapter.getCurrentSessionId(); } catch { return; }
+    try { current = adapter.getCurrentSessionId(); } catch { /* swallow */ }
+    // Plan 4: fall back to runtime-native discovery when env-read returns null.
+    // Lets fresh managed launches capture session_handle via filesystem/RPC scan.
+    if (!current && typeof adapter.discoverSessionId === "function") {
+      try { current = await adapter.discoverSessionId(); } catch { /* swallow */ }
+    }
     if (!current || current === lastHandle) return;
     try {
       await postFn(agentId, current);
