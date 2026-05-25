@@ -733,7 +733,7 @@ function formatConversationContext(messages = []) {
   return lines.join("\n");
 }
 
-function splitProviderModel(value) {
+export function splitProviderModel(value) {
   const text = String(value || "").trim();
   if (!text || !text.includes("/")) return null;
   const [providerID, ...modelParts] = text.split("/");
@@ -823,7 +823,7 @@ export function codexTurnSandboxPolicy(mode, cwd, networkAccess = true) {
   };
 }
 
-function summarizeOpenCodeParts(parts = []) {
+export function summarizeOpenCodeParts(parts = []) {
   const textChunks = [];
   for (const part of parts) {
     if (!part || typeof part !== "object") continue;
@@ -987,7 +987,7 @@ export function detectPiRuntimeFailure(value) {
 }
 
 
-function requireOpenCodeData(response, fallbackMessage) {
+export function requireOpenCodeData(response, fallbackMessage) {
   if (response?.data) return response.data;
   const errorMessage =
     response?.error?.data?.message ||
@@ -2756,191 +2756,6 @@ function createCodexControllerLegacy({ agentId, agentInfo, run, runtimeState, ca
   };
 }
 
-function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const config = getRuntimeConfig(agentInfo);
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
-  const cwd = agentInfo.cwd || process.cwd();
-  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const model = splitProviderModel(agentInfo.model || config.model || "");
-  const permission = opencodePermissionConfig(config, executionMode);
-  const selectedAgent = String(config.agent || "").trim() || undefined;
-  let sessionId =
-    executionMode === "resident"
-      ? residentSessionId
-      : String(runtimeState?.sessionId || residentSessionId || "").trim();
-
-  if (executionMode === "resident" && !sessionId) {
-    throw new Error(
-      `Resident OpenCode session "${agentId}" has no bound session ID. ` +
-      "Re-register with sessionHandle explicitly or create a persistent environment-managed agent with comms_spawn.",
-    );
-  }
-
-  let interrupted = false;
-  let open = null;
-
-  // Synthesized-terminal feed for opencode (Phase 6 intermediate).
-  // Per-dispatch like hermes; full persistent worker is deferred.
-  let terminalSink = null;
-  let sinkChain = Promise.resolve();
-  const pushTerminalFrame = (text, status = "") => {
-    // Defensive: parity with codex (b6d403c). Called from SDK delta
-    // callbacks; an uncaught throw in this synchronous path can crash
-    // the bridge process. Belt-and-suspenders: guard everything.
-    try {
-      if (!terminalSink || (!text && !status)) return;
-      const body = String(text || "");
-      const stat = String(status || "");
-      sinkChain = sinkChain.then(async () => {
-        try { await terminalSink(body, stat); } catch {}
-      });
-    } catch {
-      // best-effort: don't propagate frame-push failures
-    }
-  };
-  const echoPromptToTerminal = () => {
-    try {
-      const body = String(run?.body || "").trim();
-      if (!body) return;
-      const subject = String(run?.subject || "").trim();
-      const from = String(run?.from || "dashboard").trim() || "dashboard";
-      const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
-      const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
-      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
-    } catch {
-      // best-effort
-    }
-  };
-
-  const promise = new Promise(async (resolve, reject) => {
-    if (typeof callbacks?.terminalSinkProvider === "function") {
-      try {
-        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
-        if (typeof sink === "function") terminalSink = sink;
-      } catch (error) {
-        try { callbacks.onEvent?.("opencode", `OpenCode virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
-      }
-    }
-    echoPromptToTerminal();
-    pushTerminalFrame("\x1b[2m[opencode] connecting...\x1b[0m\r\n");
-
-    const timer = setTimeout(async () => {
-      interrupted = true;
-      try {
-        if (open?.client && sessionId) {
-          await open.client.session.abort({
-            path: { id: sessionId },
-            query: { directory: cwd },
-          });
-        }
-      } catch {
-        // best effort
-      }
-      reject(new Error(`OpenCode run timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    try {
-      open = await createOpencode({
-        port: 0,
-        config: permission ? { permission } : undefined,
-      });
-      const client = open.client;
-
-      if (!sessionId) {
-        const created = await client.session.create({
-          query: { directory: cwd },
-          body: { title: run.subject || `aify:${agentId}` },
-        });
-        sessionId = requireOpenCodeData(created, "Failed to create OpenCode session").id;
-      } else {
-        requireOpenCodeData(await client.session.get({
-          path: { id: sessionId },
-          query: { directory: cwd },
-        }), `OpenCode session "${sessionId}" was not found`);
-      }
-
-      callbacks.onRuntimeState?.({ sessionId });
-      callbacks.onRefs?.({ threadId: sessionId });
-      callbacks.onEvent?.("thread", `Using ${executionMode} OpenCode session ${sessionId}`);
-
-      const response = await client.session.prompt({
-        path: { id: sessionId },
-        query: { directory: cwd },
-        body: {
-          ...(model ? { model } : {}),
-          ...(selectedAgent ? { agent: selectedAgent } : {}),
-          system: buildSystemPrompt(agentId, agentInfo, run),
-          parts: [{ type: "text", text: buildUserPrompt(run) }],
-        },
-      });
-
-      clearTimeout(timer);
-      const data = requireOpenCodeData(response, "OpenCode prompt failed");
-      const info = data.info || {};
-      const parts = data.parts || [];
-      const summary = summarizeOpenCodeParts(parts);
-      const errorMessage =
-        info?.error?.data?.message ||
-        info?.error?.message ||
-        info?.error?.name ||
-        "";
-
-      if (interrupted || /aborted/i.test(errorMessage || "")) {
-        pushTerminalFrame(`\r\n\x1b[93m\x1b[1m⏸ interrupted\x1b[0m\r\n`);
-        resolve({
-          status: "cancelled",
-          summary: summary || errorMessage || "Run interrupted",
-          runtimeState: { sessionId },
-          externalRefs: { threadId: sessionId, turnId: info.id || "" },
-        });
-        return;
-      }
-
-      if (errorMessage) {
-        pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${errorMessage}\x1b[0m\r\n`, "failed");
-        reject(new Error(errorMessage));
-        return;
-      }
-
-      const reply = summary || "(no output)";
-      pushTerminalFrame(`\r\n${reply}\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n`, "running");
-      resolve({
-        status: "completed",
-        summary: reply,
-        runtimeState: { sessionId },
-        externalRefs: { threadId: sessionId, turnId: info.id || "" },
-      });
-    } catch (error) {
-      pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${error?.message || error}\x1b[0m\r\n`, "failed");
-      clearTimeout(timer);
-      reject(error);
-    } finally {
-      try {
-        open?.server?.close?.();
-      } catch {
-        // ignore close errors
-      }
-    }
-  });
-
-  return {
-    capabilities: controlCapabilitiesForRuntime("opencode"),
-    interrupt: async () => {
-      interrupted = true;
-      if (!open?.client || !sessionId) return;
-      await open.client.session.abort({
-        path: { id: sessionId },
-        query: { directory: cwd },
-      });
-    },
-    steer: async () => {
-      throw new Error('Runtime "opencode" does not support steer');
-    },
-    promise,
-  };
-}
-
 function createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const config = getRuntimeConfig(agentInfo);
   const availability = runtimeLaunchAvailability("pi");
@@ -3533,7 +3348,12 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
     }
     if (runtime === "opencode") {
-      return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
+      const adapter = adapterFor("opencode");
+      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks });
+      if (!controller) {
+        return failedRuntimeController(runtime, new Error("Opencode requires managed executionMode."));
+      }
+      return controller.start();
     }
     if (runtime === "pi") {
       return createPiController({ agentId, agentInfo, run, runtimeState, callbacks });
