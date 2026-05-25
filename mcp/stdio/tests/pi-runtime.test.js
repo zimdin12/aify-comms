@@ -480,10 +480,14 @@ const residentDeadHandleController = launchRuntimeRun({
     onSessionHandleChange: (newHandle, meta) => handleChanges.push({ newHandle, meta }),
   },
 });
+// Plan 2 Task 19 (2026-05-25): resident-mode Pi dispatch is rejected at the
+// controller regardless of handle health; the old "Resident Pi session NAME is
+// not resumable" wording belonged to the createPiControllerLegacy path that
+// Plan 2 removes from the dispatch entry table.
 await assert.rejects(
   residentDeadHandleController.promise,
-  /Resident Pi session "dead-session" is not resumable: .*Clear the saved session handle or start a fresh managed Pi session/,
-  "resident Pi dead handles should fail with an actionable message instead of auto-healing",
+  /Pi resident dispatch is no longer supported.*managed-via-wrapper/i,
+  "Plan 2 must reject resident-mode Pi dispatch at the bridge controller (including dead-handle case)",
 );
 
 
@@ -783,6 +787,43 @@ const sinkJoined = sinkFrames.join("").replace(ANSI_RE, "");
 assert(sinkJoined.includes("● pi rpc ready"), `expected ready banner, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
 assert(sinkJoined.includes("> Say hello"), `expected prompt echo, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
 await shutdownAllPiSessions("sink-test");
+
+// Plan 2 Task 19 (2026-05-25): createPiController must reject resident-mode
+// invocation. PiAdapter.supportsResident == false; the bridge graceful drain
+// migrates existing resident-pi agents on next launch, but any race-stragglers
+// that still ask for resident-mode dispatch must be rejected at the controller
+// boundary rather than silently spawning a fresh-worker (the old
+// pi-session-resume path).
+__resetPiSessionPoolForTests();
+const planTwoResidentController = launchRuntimeRun({
+  agentId: "pi-resident-rejected",
+  agentInfo: {
+    agentId: "pi-resident-rejected",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "resident",
+    sessionHandle: "any-handle",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi resident rejected by Plan 2 flip",
+    body: "Say hello",
+    executionMode: "resident",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  planTwoResidentController.promise,
+  /Pi resident dispatch is no longer supported.*managed-via-wrapper/i,
+  "Plan 2 must reject resident-mode Pi dispatch at the bridge controller",
+);
 
 await shutdownAllPiSessions("test final");
 console.log("pi-runtime.test.js: all assertions passed");

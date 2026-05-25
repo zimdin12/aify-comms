@@ -3448,7 +3448,18 @@ function createPiControllerManaged({ agentId, agentInfo, run, runtimeState, call
 function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }) {
   const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
   if (executionMode === "resident") {
-    return createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks });
+    // Plan 2 Task 19 (2026-05-25): pi resident dispatch is removed in favor of
+    // managed-via-wrapper. PiAdapter.supportsResident == false. The server's
+    // graceful drain migrates existing resident-pi agents on the next bridge
+    // launch; any race-stragglers that still reach this entry point are
+    // rejected here rather than silently spawning a fresh-worker (the old
+    // pi-session-resume path). The persistent PiSession pool in pi-session.js
+    // is unaffected — it remains the steering/interrupt substrate for the
+    // wrapper-PTY's pi process.
+    throw new Error(
+      "Pi resident dispatch is no longer supported. Use managed-via-wrapper instead " +
+      "(Plan 2 pi flip 2026-05-25).",
+    );
   }
   return createPiControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks });
 }
