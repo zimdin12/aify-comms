@@ -5082,10 +5082,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         # post-2026-05-22 (managed bridges now supersede each other to
         # prevent the 22-zombie-wrapper leak class — see sibling test
         # test_managed_same_logical_owner_reregister_supersedes_old_bridge).
+        # Plan 2 (2026-05-25): pi no longer supports resident, so the
+        # generic same-logical-owner re-register protection is now tested
+        # via codex (still resident-capable). The bridge-row protection
+        # logic is runtime-agnostic.
         self._heartbeat_environment()
         self._register(
             "resident-logical-owner",
-            runtime="pi",
+            runtime="codex",
             sessionMode="resident",
             launchMode="detached",
             sessionHandle="omp-session-1",
@@ -5130,7 +5134,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "agentId": "resident-logical-owner",
                 "role": "coder",
-                "runtime": "pi",
+                "runtime": "codex",
                 "sessionMode": "resident",
                 "launchMode": "detached",
                 "sessionHandle": "omp-session-1",
@@ -5484,11 +5488,16 @@ class ApiV2RegressionTests(unittest.TestCase):
 
 
     def test_claim_ignores_missing_message_ids_in_buffered_body(self):
+        # Plan 2 (2026-05-25): pi no longer supports a true resident
+        # session — registering pi+resident now marks the row pending-flip
+        # and dispatch returns 409 until the drain helper migrates the
+        # agent. This test exercises generic resident-mode buffered-claim
+        # plumbing, so use codex (which still supports resident) instead.
         self._register(
             "receipt-agent",
-            runtime="pi",
+            runtime="codex",
             sessionMode="resident",
-            sessionHandle="pi-session-visible",
+            sessionHandle="codex-session-visible",
             machineId="linux:test-host",
             bridgeId="resident-bridge",
             capabilities=["resident-run", "resume", "interrupt", "steer"],

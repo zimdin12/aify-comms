@@ -210,5 +210,97 @@ class PiResidentDrainTests(unittest.TestCase):
         )
 
 
+class PiResidentDispatchRejectionTests(unittest.TestCase):
+    """Task 18 — reject new resident pi dispatches with 409 during pending flip.
+
+    When a pi agent is registered with sessionMode=resident, the row is
+    marked pi_resident_pending_flip=True. Until the drain loop migrates
+    the agent to managed, new dispatch attempts must return HTTP 409 with
+    a clear "migrating" / "pending" hint so the operator can retry.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._db_path = Path(self._tmpdir.name) / "aify-test-pi-flip-reject.db"
+        asyncio.run(init_db(self._db_path))
+
+        app = FastAPI()
+        app.state.ws_manager = _DummyWS()
+        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
+        app.state.testing = True
+        app.include_router(router, prefix="/api/v1")
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        self.client.close()
+        self._tmpdir.cleanup()
+
+    def test_resident_pi_dispatch_rejected_during_pending_flip(self):
+        # Register pi resident — gets pi_resident_pending_flip = true
+        resp = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "test-flip-reject",
+                "role": "tester",
+                "runtime": "pi",
+                "sessionMode": "resident",
+                "sessionHandle": "session-handle-q",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        # Attempt a dispatch to this agent
+        dispatch_resp = self.client.post(
+            "/api/v1/dispatch",
+            json={
+                "from_agent": "operator",
+                "to": "test-flip-reject",
+                "subject": "test",
+                "body": "hello",
+            },
+        )
+        self.assertEqual(
+            dispatch_resp.status_code, 409,
+            f"expected 409 during pending pi flip; got {dispatch_resp.status_code}\nbody={dispatch_resp.text}",
+        )
+        lower_text = dispatch_resp.text.lower()
+        self.assertTrue(
+            "migrating" in lower_text or "pending" in lower_text,
+            f"expected 'migrating' or 'pending' in error body; got {dispatch_resp.text}",
+        )
+
+    def test_non_pi_resident_dispatch_not_rejected(self):
+        # Sanity: a non-pi resident must NOT be rejected by this gate.
+        resp = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "test-claude-resident-ok",
+                "role": "tester",
+                "runtime": "claude",
+                "sessionMode": "resident",
+                "sessionHandle": "claude-handle",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        dispatch_resp = self.client.post(
+            "/api/v1/dispatch",
+            json={
+                "from_agent": "operator",
+                "to": "test-claude-resident-ok",
+                "subject": "test",
+                "body": "hello",
+            },
+        )
+        # Must NOT be 409 from the pi-flip gate. (It may legitimately fail
+        # for other reasons like no live wake config, but not 409 with the
+        # pi migrating/pending message.)
+        if dispatch_resp.status_code == 409:
+            lower_text = dispatch_resp.text.lower()
+            self.assertFalse(
+                "migrating" in lower_text and "pi" in lower_text,
+                f"non-pi resident must not hit pi-flip 409 gate; got {dispatch_resp.text}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

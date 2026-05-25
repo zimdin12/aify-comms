@@ -10675,6 +10675,23 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
             if row:
                 recipient_rows[recipient_id] = row
+                # Plan 2 (2026-05-25) pi flip: reject new dispatches to a pi
+                # agent that's currently mid-flip from resident -> managed.
+                # _drain_and_flip_pi_resident_agents will migrate it once
+                # any active runs drain (~5s). The operator should retry
+                # after the flip completes. Without this gate, dispatches
+                # queue against a session_mode the runtime no longer
+                # supports.
+                if _normalize_runtime(row["runtime"] or "") == "pi":
+                    _rs = _json_loads_or(row["runtime_state"], {})
+                    if _rs.get("pi_resident_pending_flip"):
+                        raise HTTPException(
+                            409,
+                            f'Agent "{recipient_id}" is migrating from resident '
+                            f"to managed (pi flip pending). Retry in a few "
+                            f"seconds — the drain loop will flip the agent "
+                            f"once any active runs complete."
+                        )
             execution_mode = None
             reason = None if row else "agent is not registered"
             if row:
