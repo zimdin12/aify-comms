@@ -7014,60 +7014,29 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
 
 
 def _default_console_command(session, workspace: str, *, interactive: bool = False) -> str:
-    # interactive=True is the human-opened browser Console (must be a usable
-    # interactive session). interactive=False (default) is managed headless
-    # PTY dispatch, which keeps native session resume for agent continuity.
+    """Build the dashboard Console launch command for an agent session.
+
+    Plan 3 (2026-05-25): per-runtime tail collapses to
+    `adapter.console_command(...)`. The adapter owns the per-runtime quirks
+    (claude interactive stays fresh, codex always resumes, pi interactive
+    avoids the 026H trap, opencode is plain CLI).
+    """
+    from service.runtimes import adapter_for
+
     agent_id = str(session["agent_id"] or "").strip()
     handle = str(session["session_handle"] or "").strip()
     runtime = _normalize_runtime(session["runtime"] or "")
-    if runtime == "claude-code":
-        if interactive:
-            # Human Console: consistent with codex/pi/hermes — the interactive
-            # wrapper, fresh, no --resume (resuming an arbitrary/odd handle
-            # like "65" into the console is the 026H-class trap). claude-aify
-            # sets up the channel binding itself.
-            return f"claude-aify --aify-agent {agent_id}"
-        # Managed backing uses the same wrapper path as human Console/CLI. The
-        # wrapper owns the Claude channel setup, AIFY_AGENT_ID binding, and any
-        # platform-specific shim behavior; service code should not recreate a
-        # parallel raw `claude --channels ...` launch form.
-        parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]
-        if handle:
-            parts.extend(["--resume", handle])
-        return " ".join(part for part in parts if part)
-    elif runtime == "opencode":
-        return "opencode"
-    elif runtime == "hermes":
-        parts = ["hermes-aify", "--aify-agent", agent_id]
-        if handle:
-            parts.extend(["--resume", handle])
-        return " ".join(part for part in parts if part)
-    elif runtime == "pi":
-        if interactive:
-            # Human Console: fresh INTERACTIVE OMP session (no --mode, no
-            # --resume). Falling through to the shared `--resume <handle>`
-            # tail dragged the managed RPC session id into the PTY, so the
-            # console emitted machine/title control-sequence noise instead
-            # of a usable terminal ("026H and nothing else"). An explicit
-            # "resume saved Pi context" console action can be added later,
-            # but it must never be the default.
-            return f"pi-aify --aify-agent {agent_id}"
-        # Managed headless PTY dispatch keeps native resume for continuity.
-        parts = ["pi-aify", "--aify-agent", agent_id]
-    elif runtime == "codex":
-        # 2026-05-25 Plan 1 of the RuntimeAdapter refactor — the carve-out
-        # that always launched fresh was overcautious. The dashboard Console
-        # uses codex-aify (not raw `codex resume`), and codex-aify gains a
-        # stale-handle fallback (see install.sh) so a missing session file
-        # downgrades to fresh instead of breaking the wrapper. With that in
-        # place, the codex Console resumes its stored handle the same way
-        # claude/hermes/pi do.
-        parts = ["codex-aify", "--aify-agent", agent_id]
-    else:
-        parts = [runtime or "agent", "--aify-agent", agent_id]
-    if handle:
-        parts.extend(["--resume", handle])
-    return " ".join(part for part in parts if part)
+
+    try:
+        adapter = adapter_for(runtime)
+    except ValueError:
+        return f"{runtime or 'agent'} --aify-agent {agent_id}"
+
+    return adapter.console_command(
+        agent_id=agent_id,
+        handle=handle,
+        interactive=interactive,
+    )
 
 
 @router.post("/sessions/{session_id}/console/start")
