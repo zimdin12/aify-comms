@@ -44,3 +44,14 @@ test("PiAdapter normalizeModelOverride strips placeholders (pi-specific regressi
   assert.strictEqual(a.normalizeModelOverride("unknown"), "");
   assert.strictEqual(a.normalizeModelOverride("gpt-5.5"), "gpt-5.5");
 });
+
+test("PiAdapter Plan 2 capabilities — pi flip key declarations", () => {
+  const a = new PiAdapter();
+  // pi is single-client RPC; resident impossible
+  assert.strictEqual(a.supportsResident, false);
+  assert.strictEqual(a.supportsManaged, true);
+  assert.strictEqual(a.supportsSteering, true);
+  assert.strictEqual(a.supportsInterrupt, true);
+  assert.strictEqual(a.supportsMultiClient, false);
+  assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
+});
