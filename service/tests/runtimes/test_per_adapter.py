@@ -75,3 +75,26 @@ def test_hermes_adapter_falls_back_to_HERMES_SESSION(monkeypatch):
     monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
     monkeypatch.setenv("HERMES_SESSION", "fallback-id")
     assert HermesAdapter().get_current_session_id() == "fallback-id"
+
+
+def test_pi_adapter():
+    from service.runtimes.pi import PiAdapter
+    a = PiAdapter()
+    assert a.name == "pi"
+    assert a.display_name == "Pi"
+    assert a.session_env_vars == ["PI_SESSION_ID", "OMP_SESSION_ID", "AIFY_PI_SESSION_ID"]
+    # Plan 2 capability matrix — the critical pi flip declaration:
+    assert a.supports_resident is False, "pi is single-client RPC; resident impossible"
+    assert a.supports_managed is True
+    assert a.supports_steering is True
+    assert a.supports_interrupt is True
+    assert a.supports_multi_client is False
+    assert a.preferred_delivery_mode == "managed-via-wrapper"
+
+
+def test_pi_adapter_session_var_fallback_order(monkeypatch):
+    from service.runtimes.pi import PiAdapter
+    monkeypatch.delenv("PI_SESSION_ID", raising=False)
+    monkeypatch.setenv("OMP_SESSION_ID", "omp-x")
+    monkeypatch.setenv("AIFY_PI_SESSION_ID", "aify-y")
+    assert PiAdapter().get_current_session_id() == "omp-x"
