@@ -4,4 +4,14 @@ export class OpencodeAdapter extends RuntimeAdapter {
   get name() { return "opencode"; }
   get displayName() { return "OpenCode"; }
   get sessionEnvVars() { return ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"]; }
+
+  // Plan 2 capability matrix. aify-comms doesn't wire `opencode serve`
+  // today — capabilities describe current aify-comms delivery surface.
+  // Wiring serve is tracked as separate follow-up.
+  get supportsResident() { return false; }
+  get supportsManaged() { return true; }
+  get supportsSteering() { return false; }
+  get supportsInterrupt() { return true; }
+  get supportsMultiClient() { return false; }
+  get preferredDeliveryMode() { return "managed"; }
 }
