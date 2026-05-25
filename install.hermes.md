@@ -158,6 +158,12 @@ When `hermes-aify` cannot start the dashboard gateway (port allocation failure, 
 
 Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work.
 
+### Session rediscover (added 2026-05-26, Plan 6 B1)
+
+`hermes-aify` no longer trusts whatever `HERMES_SESSION_ID` the parent shell exported. After the dashboard probe succeeds and the gateway token is captured, the wrapper opens a one-shot WebSocket to `ws://127.0.0.1:<port>/api/ws?token=<T>` and calls JSON-RPC `session.most_recent`. If the gateway returns a session id, the wrapper overwrites `HERMES_SESSION_ID` and `AIFY_SESSION_HANDLE` so the inner aify-comms MCP bridge registers with the truthful id — not whatever stale value the operator's shell inherited from a prior hermes session that has long since been cycled.
+
+The rediscover step uses the bundled `ws` module under `mcp/stdio/node_modules/`. 3s hard timeout — local gateway, anything longer means the dashboard is misbehaving. If the call fails (gateway unreachable, no `sessionId` in the response, timeout) the wrapper leaves the env value alone; the bridge's discover-first heartbeat (Plan 6 A1) will correct any drift within 60s. Operator sees a single `[hermes-aify] session id rediscovered: '<old>' -> '<new>' (from gateway)` line only when the id actually changes.
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.

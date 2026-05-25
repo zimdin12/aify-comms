@@ -48,6 +48,10 @@ claude-aify
 
 `claude-aify` accepts `--resident` and `--managed` to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its `mcp/stdio/server.js` child registers with `runtime_config.channelEnabled=true` — that's the precondition for resident-run/interrupt/steer caps to survive `_row_capabilities` strip.
 
+### Session rediscover (added 2026-05-26, Plan 6 B4)
+
+Unlike hermes/codex/pi (which query a live runtime), Claude has no probe endpoint — but its session id maps 1:1 to a JSONL transcript at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. `claude-aify` now validates `CLAUDE_SESSION_ID` against the on-disk transcript: if no `<id>.jsonl` exists anywhere under `~/.claude/projects/`, the env value is stale (prior session GC'd, operator cd'd into a different project, etc.) and the wrapper unsets both `CLAUDE_SESSION_ID` and `CLAUDE_RESUME_ID` so Claude creates a fresh session — the bridge's discover (Plan 4) picks up the truthful id on the first heartbeat (Plan 6 A1). The scan is filename-based, so the Windows-native vs git-bash cwd-encoding mismatch doesn't trip the validator. Failures are non-fatal: a missing transcript triggers a single `[claude-aify] CLAUDE_SESSION_ID '<id>' has no transcript ... clearing` log line and the wrapper continues normally.
+
 ### Wrapper isolates MCP servers (strict-mcp-config)
 
 `claude-aify` always launches Claude with `--strict-mcp-config` and a minimal MCP config containing ONLY `aify-comms` + `aify-comms-channel`. Your broader `~/.claude.json` MCP server list (browsermcp, github, etc.) is NOT loaded inside the `claude-aify` wrapper session — they still work in plain `claude` sessions outside the wrapper.

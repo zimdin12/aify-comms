@@ -76,6 +76,10 @@ Choices when this fires:
 
 The check is fail-open: missing `AIFY_COMMS_URL`, a 2-second curl timeout, or a non-pi runtime all cause the wrapper to proceed normally.
 
+### Session rediscover (added 2026-05-26, Plan 6 B3)
+
+The Phase-4 watchdog above already captures the `pi-session-state` response body. Plan 6 B3 reuses that capture: it parses `"sessionId":"<id>"` from the body and overwrites `PI_SESSION_ID` / `AIFY_SESSION_HANDLE` so the inner aify-comms MCP bridge registers with the runtime's authoritative session id, not whatever stale value the operator's shell inherited from a prior pi run. No second HTTP call — the watchdog and rediscover share one curl. Failures are non-fatal: an empty body (pi not running yet on the resident-start path) or a response without `sessionId` leaves the env value alone, and the bridge's discover-first heartbeat (Plan 6 A1) corrects any drift within 60s.
+
 ## Session-mode flag
 
 `omp-aify` / `pi-aify` accepts `--resident` and `--managed` to declare its session mode explicitly. Order of precedence:

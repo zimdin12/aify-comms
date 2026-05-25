@@ -56,6 +56,10 @@ The wrapper removes `-auto` before launching Codex and adds the best permission 
 
 `codex-aify` accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context (most operators never need it).
 
+### Session rediscover (added 2026-05-26, Plan 6 B2)
+
+Once `codex app-server` is reachable, `codex-aify` scans `~/.codex/sessions/` for the newest `rollout-*.jsonl` and extracts the thread UUID from the filename. It then overwrites `CODEX_THREAD_ID` and `AIFY_SESSION_HANDLE` so the inner aify-comms MCP bridge registers with the truthful id, not a stale value the operator's shell inherited from a prior codex session. Mirrors the Python adapter's `discover_session_id` at `service/runtimes/codex.py` — codex's app-server does not (yet) expose an introspection RPC, so the filesystem scan is the authoritative source. An explicit `--resume <id>` still wins via the existing resume-resolution block. Failures are non-fatal: an empty scan (e.g. fresh install with no prior sessions) leaves the env value alone and the bridge's discover-first heartbeat (Plan 6 A1) corrects any drift within 60s.
+
 ### Delivery path
 
 Managed-codex dispatches flow through the bridge's `createCodexController` native RPC adapter — the bridge connects to the codex app-server (over WebSocket) and drives turns directly. The bridge does NOT need an aify-comms MCP server inside the codex CLI session for delivery to work. This means `codex-aify` does NOT require the `--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to work around the [Claude Code stdio MCP race bug](https://github.com/anthropics/claude-code/issues/38462). Your codex MCP servers (whatever you have configured in `~/.codex/config.toml` or equivalent) load normally inside `codex-aify`.
