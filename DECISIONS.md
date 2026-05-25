@@ -539,3 +539,17 @@ The dashboard Console's `_default_console_command` is simplified to use the stor
 **Trade-off accepted:** The very first turn of a brand-new agent still launches fresh (no handle exists yet); the first heartbeat (≤60s after that turn) captures the new id. Mid-session `/clear` operations (claude) won't update the env var the bridge already has cached — operator must restart the wrapper to recapture. Both are documented as known limitations.
 
 **See also:** `docs/superpowers/specs/2026-05-25-runtime-adapter-design.md`, `docs/superpowers/plans/2026-05-25-plan1-runtime-adapter-session-handle.md`.
+
+## 2026-05-25 — Plan 2: Runtime capabilities + pi delivery flip
+
+**Decision:** Extend the Plan 1 `RuntimeAdapter` foundation with six capability properties (`supportsResident`, `supportsManaged`, `supportsSteering`, `supportsInterrupt`, `supportsMultiClient`, `preferredDeliveryMode`) implemented in both languages — JS adapter classes in `mcp/stdio/adapters/` (Plan 1 location) and a new mirror Python package at `service/runtimes/`. Cross-language consistency enforced by `service/tests/test_runtime_adapter_consistency.py` running `node mcp/stdio/scripts/dump-capabilities.mjs`.
+
+Drop the `pi-session-resume` spawn-fresh-worker delivery pattern. Pi resident agents auto-migrate to managed-via-wrapper on next bridge launch via a graceful drain (waits for active runs to complete; `runtime_state.pi_resident_pending_flip` flag visible to dashboard). New resident pi dispatches during the pending-flip window are rejected with 409 + clear explanation.
+
+Migrate the consumer call sites pi-flip touches: `_managed_via_wrapper_for_runtime`, `_default_capabilities_for`, `defaultCapabilitiesForRuntime`, `controlCapabilitiesForRuntime`. Remaining per-runtime branches in api_v2.py (`_default_console_command`, dispatch dispatcher, delivery shims) defer to Plan 3.
+
+**Why:** Operator-reported recurring pi pain (`--model unknown`, `No API key for cloudflare-ai-gateway`) traced to the spawn-fresh-worker pattern. Pi's single-client RPC mutex makes resident impossible without a multi-client gateway omp doesn't provide. The fix is structural: pi joins the same wrapper-backing pattern as managed claude/hermes/codex.
+
+**Plan 3 (next):** Fill in `consoleCommand`, `injectMessage`, `interrupt`, `steer` on both adapter packages and migrate the remaining per-runtime branches.
+
+**See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`, `docs/superpowers/plans/2026-05-25-plan2-runtime-capabilities-and-pi-flip.md`.
