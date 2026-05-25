@@ -69,13 +69,40 @@ export class RuntimeAdapter {
   get preferredDeliveryMode() { throw new Error("not yet implemented: Plan 2"); }
 
   // ─────────────────── CONSOLE / WRAPPER (Plan 3 — stubbed) ───────────────────
+  // wrapperName + consoleCommand are server-side in this codebase (handled by
+  // the Python adapter package). The JS adapter doesn't need them — Plan 3
+  // specialization decision (Plan 3 spec section "Specialize per language").
+  // Keep throwing so accidental JS callers get a clear error.
 
-  get wrapperName() { throw new Error("not yet implemented: Plan 3"); }
-  consoleCommand(_opts) { throw new Error("not yet implemented: Plan 3"); }
+  get wrapperName() { throw new Error("not yet implemented: Plan 3 — server-side responsibility"); }
+  consoleCommand(_opts) { throw new Error("not yet implemented: Plan 3 — server-side responsibility"); }
 
-  // ─────────────────── DELIVERY (Plan 3 — stubbed) ───────────────────
+  // ─────────────────── DELIVERY (Plan 3) ───────────────────
+  // controllerFor returns the runtime's controller instance for the given
+  // dispatch opts, or null when the mode isn't supported. Subclasses
+  // override; default raises so unimplemented adapters fail loudly.
 
-  async injectMessage(_opts) { throw new Error("not yet implemented: Plan 3"); }
-  async interrupt(_opts) { throw new Error("not yet implemented: Plan 3"); }
-  async steer(_opts) { throw new Error("not yet implemented: Plan 3"); }
+  controllerFor(_opts) {
+    throw new Error(`controllerFor is abstract — ${this.name} adapter must override`);
+  }
+
+  // Delegate methods route through whichever controller controllerFor returns.
+
+  async injectMessage(opts) {
+    const c = this.controllerFor(opts);
+    if (!c) throw new Error(`No controller for runtime=${this.name} executionMode=${opts?.executionMode}`);
+    return c.injectMessage(opts);
+  }
+
+  async interrupt(opts) {
+    const c = this.controllerFor(opts);
+    if (!c) return;
+    return c.interrupt(opts);
+  }
+
+  async steer(opts) {
+    const c = this.controllerFor(opts);
+    if (!c) throw new Error(`Steering not available for runtime=${this.name}`);
+    return c.steer(opts);
+  }
 }

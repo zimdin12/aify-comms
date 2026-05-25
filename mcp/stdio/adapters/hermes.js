@@ -13,6 +13,11 @@ export class HermesAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
+  controllerFor(_opts) {
+    // Concrete wiring lands in Plan 3 Task 7-11.
+    return null;
+  }
+
   diagnosticEnv() {
     const env = super.diagnosticEnv();
     env.AIFY_HERMES_GATEWAY_URL = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim() || "(unset)";

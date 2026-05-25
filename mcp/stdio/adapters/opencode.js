@@ -14,4 +14,9 @@ export class OpencodeAdapter extends RuntimeAdapter {
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return false; }
   get preferredDeliveryMode() { return "managed"; }
+
+  controllerFor(_opts) {
+    // Concrete wiring lands in Plan 3 Task 7-11.
+    return null;
+  }
 }

@@ -13,4 +13,9 @@ export class ClaudeAdapter extends RuntimeAdapter {
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
+
+  controllerFor(_opts) {
+    // Concrete wiring lands in Plan 3 Task 7-11.
+    return null;
+  }
 }

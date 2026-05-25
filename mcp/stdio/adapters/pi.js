@@ -14,4 +14,10 @@ export class PiAdapter extends RuntimeAdapter {
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return false; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
+
+  controllerFor(opts) {
+    // Plan 2 pi flip: resident pi is no longer supported.
+    // Tasks 7-11 will wire managed mode to PiController.
+    return null;
+  }
 }

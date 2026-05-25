@@ -114,11 +114,18 @@ test("Plan 2 capability getters throw 'not yet implemented'", () => {
   assert.throws(() => a.preferredDeliveryMode, /not yet implemented/);
 });
 
-test("Plan 3 console + delivery methods throw 'not yet implemented'", () => {
+test("Plan 3 console + delivery surface enforced on base", () => {
   const a = new TestAdapter();
+  // wrapperName + consoleCommand remain server-side responsibilities; JS base
+  // throws so accidental callers fail loudly.
   assert.throws(() => a.wrapperName, /not yet implemented/);
   assert.throws(() => a.consoleCommand({ agentId: "x", handle: "", interactive: true }), /not yet implemented/);
-  assert.rejects(() => a.injectMessage({ text: "hi" }), /not yet implemented/);
-  assert.rejects(() => a.interrupt({ reason: "x" }), /not yet implemented/);
-  assert.rejects(() => a.steer({ text: "x" }), /not yet implemented/);
+  // controllerFor is abstract on the base — TestAdapter doesn't override it.
+  assert.throws(() => a.controllerFor({}), /abstract/);
+  // injectMessage/interrupt/steer delegate through controllerFor — if
+  // controllerFor itself throws (abstract here), the delegate rejects with
+  // that same error.
+  assert.rejects(() => a.injectMessage({ text: "hi" }), /abstract/);
+  assert.rejects(() => a.interrupt({ reason: "x" }), /abstract/);
+  assert.rejects(() => a.steer({ text: "x" }), /abstract/);
 });
