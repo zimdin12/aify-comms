@@ -40,3 +40,13 @@ test("HermesAdapter diagnosticEnv reports (unset) for gateway when missing", () 
   const env = a.diagnosticEnv();
   assert.strictEqual(env.AIFY_HERMES_GATEWAY_URL, "(unset)");
 });
+
+test("HermesAdapter Plan 2 capabilities", () => {
+  const a = new HermesAdapter();
+  assert.strictEqual(a.supportsResident, true);
+  assert.strictEqual(a.supportsManaged, true);
+  assert.strictEqual(a.supportsSteering, true);
+  assert.strictEqual(a.supportsInterrupt, true);
+  assert.strictEqual(a.supportsMultiClient, true);
+  assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
+});
