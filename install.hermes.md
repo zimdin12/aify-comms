@@ -79,8 +79,10 @@ might be wrong for your shell context.
 
 ## Delivery path
 
-Managed-hermes dispatches flow through the bridge's `createHermesController`
-native RPC adapter. For each dispatch the bridge spawns
+Managed-hermes dispatches flow through the bridge's `HermesController` (in
+`mcp/stdio/controllers/hermes-controller.js`, Plan 3 of the 2026-05-25
+RuntimeAdapter refactor — extracted from the previous `createHermesController`
+factory). For each dispatch the bridge spawns
 `hermes chat -Q -q "<built prompt>"` — upstream's documented "Programmatic
 mode" (`-Q` suppresses the banner/spinner/tool previews so the stdout is
 just the agent's reply text). `--yolo` is added by default for managed runs
@@ -99,7 +101,7 @@ Conversation context across turns is carried in the wire prompt
 (`buildUserPrompt` includes recent `conversationContext` from aify-comms)
 rather than via `--resume`, because upstream Hermes does not yet support
 `-q` combined with session resume. This is the same shape codex uses for
-its per-dispatch `createCodexController` path.
+its per-dispatch path in `mcp/stdio/controllers/codex-controller.js`.
 
 Mid-turn steering is not supported (`hermes chat -q` is single-shot);
 `comms_run_steer` rejects with a clear message. Send a follow-up dispatch
@@ -138,8 +140,9 @@ This is the symmetric equivalent of Claude Code's `notifications/claude/channel`
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive `hermes
-chat` session for human use. Managed Hermes is driven by `createHermesController`
-in the bridge, which keeps a long-lived `hermes acp` JSON-RPC child per agent
+chat` session for human use. Managed Hermes is driven by `HermesController`
+(`mcp/stdio/controllers/hermes-controller.js`), which keeps a long-lived
+`hermes acp` JSON-RPC child per agent
 (see `mcp/stdio/hermes-session.js`) and streams `session/update` notifications
 into the dashboard Console — no visible wrapper PTY is needed for delivery.
 

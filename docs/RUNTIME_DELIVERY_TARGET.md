@@ -1,28 +1,40 @@
 # Runtime Delivery — Target Architecture
 
-Status: **TARGET MODEL — DELIVERED FOR HERMES + CODEX (2026-05-25).**
+Status: **TARGET MODEL — DELIVERED ACROSS ALL RUNTIMES (2026-05-25).**
 Captured from operator + comms-senior-dev-pi conversation (2026-05-20).
 Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 (correctness gate) and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md)
 (UX direction).
 
-**Implementation status:**
-- **Claude:** target shape since the `claude-channel.js` work. Managed
-  claude goes through `claude-aify` PTY + channel notifications.
-- **Hermes + Codex:** unified-backing landed 2026-05-25 (commits
-  `66f6cad` + `f338c01` + `2ecf446`). Opt in with
-  `PUT /api/v1/settings {"managed_via_wrapper": ["hermes", "codex"]}`.
-  The `*-aify` wrapper IS the backing — bridge spawns it in node-pty
-  for managed; wrapper's in-process MCP child claims via
-  `executionModes=["channel","resident"]` and delivers through the
-  wrapper's local backing. Dashboard Console attaches to the real
-  Ink TUI via xterm.js.
-- **Pi:** structurally excluded — `omp --mode rpc` is single-client
-  stdio, the pi-aify watchdog refuses to launch when the bridge owns
-  the RPC mutex. Pi managed stays on the persistent `PiSession` +
-  synth-terminal path. Documented in DECISIONS.md.
-- **OpenCode:** eligible but not yet validated. Same code path as
-  hermes/codex once an operator opts in.
+**Implementation status (post Plans 1+2+3):**
+- **All runtimes go through a unified `RuntimeAdapter` abstraction.** JS
+  adapters at `mcp/stdio/adapters/`, Python mirror at `service/runtimes/`.
+  Each adapter declares capabilities (`supports_resident`,
+  `supports_managed`, `supports_steering`, etc.) and the bridge/server
+  consult those instead of branching on `runtime == "..."`. Cross-language
+  consistency enforced by `service/tests/test_runtime_adapter_consistency.py`.
+- **Per-runtime controllers** live in `mcp/stdio/controllers/` — one file
+  per runtime (plus per-mode subclasses for hermes + codex), each
+  ≤400 lines. Adapter's `controllerFor(opts)` returns the right
+  controller instance; `launchRuntimeRun` collapses to a single
+  `adapter.controllerFor(opts).start(ctx)` call.
+- **Session handles** are captured back into `agents.session_handle` via
+  the bridge's 60s heartbeat (`mcp/stdio/session-handle-heartbeat.js`).
+  Stable across all launch modes; closes the "missing handles all the time"
+  operator pain.
+- **Pi delivery flip:** `pi-session-resume` spawn-fresh-worker pattern
+  removed. Pi resident agents auto-migrate to `managed-via-wrapper` on
+  next bridge launch via a graceful drain (waits for active runs).
+  `PiAdapter.supports_resident == False` is the authoritative declaration.
+- **Codex carve-out removed:** Console now resumes the stored handle for
+  codex too. `codex-aify` wrapper gained a try-resume-then-fresh fallback
+  for stale session files.
+- **OpenCode:** still managed-only (no `opencode serve` integration yet).
+  Adapter declares `preferredDeliveryMode = "managed"`. Tracked follow-up
+  for full integration.
+- **`channelEnabled` per-config gate** restored via `adapter.is_resident_ready(runtime_config)` —
+  claude resident agents must have `channelEnabled=True` before advertising
+  `resident-run`. Hermes resident requires a valid `gatewayUrl`.
 
 ## The model
 
@@ -43,25 +55,31 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 - **Dashboard status** displays backend truth, not client-only guesses
   (the F2 canonical resolver in the parity contract).
 
-## Current mismatches (from pi — runtime/bridge lane)
+## Remaining gaps (post Plans 1+2+3)
 
-1. **Codex/Pi/OpenCode are now being routed through managed terminal
-   backing by default in the flip slice.** Native adapters remain as
-   fallback / feature-off paths; the remaining target gap is making every
-   runtime wrapper emit explicit delivery/status events instead of relying
-   on service-side terminal-control records.
-2. **Claude/Hermes still use service-created terminal input.** Made
-   atomic/safer (the running-contract + safety nets); target is
-   wrapper-owned delivery.
-3. **Console/backing-terminal split is incomplete.** Today Console can
-   become the same terminal used for delivery. Target: backing runtime
-   exists independently; Console attaches/views/controls it.
-4. **Status is partly inferred.** Some status comes from runs/terminal
-   heuristics. Target: `*-aify` wrappers emit explicit turn/status
-   events; backend aggregates.
-5. **Hidden-console / activity-detection is partial.** Backend tracks
-   terminal output, but the "console hidden, backing terminal active"
-   model is not fully formalized.
+Most of the original mismatches are closed by the RuntimeAdapter
+refactor. Surviving items:
+
+1. **runtimes.js still ~2110 lines** — the per-runtime controllers
+   extracted out, but helper functions (codex-config, codex-live-discovery,
+   executable-resolution, RPC clients) still live in the monolith. Plan 3
+   follow-up tracked: split into four per-concern modules so runtimes.js
+   reaches the ≤500 target.
+2. **`service/routers/api_v2.py` is ~13000 lines** — egregious 500-line
+   rule violation. Separate plan (Plan 5 territory). Plans 1+2+3 deliberately
+   did NOT add to its bulk; new code went into the runtimes/ adapter package
+   and the pi-flip helpers stayed surgical.
+3. **Plan 4 (runtime-ready event hook + ready status):** still pending. The
+   adapter declares `supports_resident=true` but doesn't emit a real-time
+   "the runtime is now actually ready" signal — operators see `online` but
+   may attempt dispatch before init completes. Brainstormed; not yet
+   spec'd.
+4. **Opencode multi-client wiring:** opencode supports `opencode serve` for
+   ACP multi-client delivery but aify-comms hasn't integrated. Follow-up.
+5. **codex-aify --remote + resume subcommand ordering:** validation needed
+   live (task #118) — Plan 1 shipped the fallback shape but the exact
+   `codex --remote URL ... resume HANDLE` ordering hasn't been verified
+   on the operator's machine.
 
 ## Lane split
 
