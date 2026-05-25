@@ -670,6 +670,28 @@ if [ "$PI_AIFY_STANDALONE" != true ] && [ -n "$PI_AIFY_AGENT_ID" ] && [ -n "${AI
     AIFY_WATCHDOG_HEADERS+=("-H" "X-API-Key: ${AIFY_API_KEY}")
   fi
   AIFY_WATCHDOG_BODY="$(curl -sS --max-time 2 "${AIFY_WATCHDOG_HEADERS[@]}" "$AIFY_WATCHDOG_URL" 2>/dev/null || true)"
+  # Plan 6 B3 (2026-05-26): the pi-session-state response carries the
+  # runtime's authoritative sessionId (set by Plan 4). Reuse the body we
+  # just captured for the bridgeOwned check — no second HTTP call needed.
+  # Overwrites PI_SESSION_ID / AIFY_SESSION_HANDLE so the inner aify-comms
+  # MCP bridge registers with the truthful id, not a stale value from the
+  # operator's parent shell. Failures non-fatal: empty result leaves env
+  # alone and the bridge heartbeat (Plan 6 A1) corrects drift within 60s.
+  PI_REDISCOVERED_SESSION_ID=""
+  if [ -n "$AIFY_WATCHDOG_BODY" ]; then
+    PI_REDISCOVERED_SESSION_ID="$(printf '%s' "$AIFY_WATCHDOG_BODY" \
+      | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' \
+      | head -1 \
+      | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  fi
+  if [ -n "$PI_REDISCOVERED_SESSION_ID" ]; then
+    if [ "${PI_SESSION_ID:-}" != "$PI_REDISCOVERED_SESSION_ID" ]; then
+      echo "[pi-aify] session id rediscovered: '${PI_SESSION_ID:-}' -> '$PI_REDISCOVERED_SESSION_ID' (from pi-session-state)" >&2
+    fi
+    export PI_SESSION_ID="$PI_REDISCOVERED_SESSION_ID"
+    export AIFY_SESSION_HANDLE="$PI_REDISCOVERED_SESSION_ID"
+    PI_SESSION_HANDLE="$PI_REDISCOVERED_SESSION_ID"
+  fi
   if [ -n "$AIFY_WATCHDOG_BODY" ] && printf '%s' "$AIFY_WATCHDOG_BODY" | grep -q '"bridgeOwned":[[:space:]]*true'; then
     cat >&2 <<EOM
 Agent '${PI_AIFY_AGENT_ID}' is currently driven by aify-comms (visible in dashboard terminal). Stop it from the dashboard or use \`omp-aify --standalone --aify-agent ${PI_AIFY_AGENT_ID}\` to launch a parallel session on a different session-id.
