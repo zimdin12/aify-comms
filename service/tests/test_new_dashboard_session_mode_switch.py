@@ -111,6 +111,28 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             self.script,
             "Plan 6 C4: Details panel (session header card) must render the chip",
         )
+        # Plan 6 C5: same renderer call also appears in the per-session row
+        # body (renderSessionRail) so operators can flip a single session's
+        # mode from the rail without opening Details first. Same data-attrs +
+        # click handler — no new code path needed.
+        # Counting renderModeSwitchChip call sites should be >= 2 (header card + session rail).
+        self.assertGreaterEqual(
+            self.script.count("renderModeSwitchChip(agent)"),
+            2,
+            "Plan 6 C5: Sessions rail must render the chip too (>= 2 call sites total — "
+            "header card + per-session row)",
+        )
+
+    def test_click_handler_stops_propagation_so_chip_does_not_select_session(self):
+        # The session-rail row carries data-session-select. Without
+        # stopPropagation, a chip click would ALSO change the active
+        # session — confusing UX. Verify the handler short-circuits.
+        self.assertIn(
+            "event.stopPropagation()",
+            self.script,
+            "Plan 6 C5: chip click handler must stopPropagation so it doesn't "
+            "also trigger the session-rail row's data-session-select handler",
+        )
 
 
 if __name__ == "__main__":
