@@ -33,6 +33,15 @@ export function terminalChildEnv({
     // is a managed session, not a resident one. Operator-launched
     // wrappers don't have this env set and auto-detect via TTY.
     AIFY_SESSION_MODE: "managed",
+    // Plan 5 follow-up (2026-05-26): mark the inner bridge as a wrapper
+    // child so server.js:2033 adds `channel` + `resident` to its
+    // executionModes for this agent. Without this flag, only the generic
+    // `supportedExecutionModes` path fires and live testing showed the
+    // bridge inside fresh dashboard-spawned hermes-aify / codex-aify /
+    // pi-aify wrappers never claimed channel-mode runs (graph-senior-dev
+    // and friends sat queued indefinitely). Mirrors the explicit-override
+    // shape claude-channel.js uses inside claude-aify.
+    AIFY_MANAGED_VIA_WRAPPER: "1",
   };
   for (const name of sessionEnvVarsForRuntime(key)) {
     env[name] = handle;

@@ -79,4 +79,15 @@ assert.equal(piEnv.AIFY_PI_SESSION_ID, "pi-session");
 assert.equal(env.AIFY_SESSION_MODE, "managed", "bridge-spawned wrapper env must declare AIFY_SESSION_MODE=managed");
 assert.equal(piEnv.AIFY_SESSION_MODE, "managed", "bridge-spawned pi wrapper env must declare AIFY_SESSION_MODE=managed");
 
+// Plan 5 follow-up (2026-05-26): every wrapper PTY spawned by aify-comms
+// must also declare AIFY_MANAGED_VIA_WRAPPER=1 so the inner bridge's
+// dispatch-claim loop (server.js:2033) adds 'channel' + 'resident' to its
+// executionModes. Without this, queued channel-mode runs sit forever
+// because the bridge requests the wrong modes (observed 2026-05-26 with
+// fresh dashboard-spawned hermes-aify / codex-aify / pi-aify sessions).
+assert.equal(env.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned codex wrapper env must declare AIFY_MANAGED_VIA_WRAPPER=1");
+assert.equal(claudeEnv.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned claude wrapper env must declare AIFY_MANAGED_VIA_WRAPPER=1");
+assert.equal(hermesEnv.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned hermes wrapper env must declare AIFY_MANAGED_VIA_WRAPPER=1");
+assert.equal(piEnv.AIFY_MANAGED_VIA_WRAPPER, "1", "bridge-spawned pi wrapper env must declare AIFY_MANAGED_VIA_WRAPPER=1");
+
 console.log("terminal-env.test.js: all assertions passed");
