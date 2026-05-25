@@ -52,6 +52,7 @@ import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runt
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { adapterFor } from "./adapters/index.js";
+import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
@@ -2391,7 +2392,9 @@ server.tool(
     appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
     managedBy: z.string().optional().describe("Owning agent ID for environment-managed sessions"),
   },
-  async ({ agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
+  async (args) => {
+    args = fillSessionHandleFromAdapter(args, __runtimeAdapter);
+    const { agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy } = args;
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     if (IS_MANAGED_DISPATCH) {
       // Allow EXPLICIT resident takeover. Operator-verified 2026-05-22:
