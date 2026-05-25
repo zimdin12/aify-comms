@@ -763,6 +763,87 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Fix.** Rebuild the container so `_enforce_live_worker_gate` (added at `api_v2.py:352` in commits `b58142e` + `f38f57d`) is loaded. On the next `GET /api/v1/agents` or `/agents/{id}` read, the gate validates the live worker and downgrades to `available`; a cache writeback ensures subsequent reads stay consistent. No manual DB patch is needed once Plan 5 is in.
 
+## Stale session handle causing prompt.submit failures (Plan 6 A)
+
+**Symptom.** Dispatch fails at delivery time with `prompt.submit failed: session not found` (hermes) or analogous "session not found" / GC'd-rollout warnings on codex / pi / claude. Bridges look alive, heartbeating, and the dispatch row reports `delivered` — but the runtime rejects the handle. `agents.session_handle` matches a session that no longer exists in the runtime.
+
+**Detection.** Compare the stored handle against the runtime's actual current session id.
+
+1. Get the stored handle from the server:
+   ```bash
+   curl -s http://localhost:8800/api/v1/agents/YOUR-AGENT-ID | python -m json.tool | grep -E '"sessionHandle"|"runtime"'
+   ```
+
+2. Get the runtime's actual current session id, per runtime:
+
+   - **hermes**: query the gateway's `session.most_recent` over WebSocket — the same call `hermes-aify` now uses at launch. If `AIFY_HERMES_GATEWAY_URL` is set in the operator's shell:
+     ```bash
+     # Inside an interactive hermes-aify shell:
+     curl -s "${AIFY_HERMES_GATEWAY_URL/ws:/http:}/api/sessions" | python -m json.tool | head -20
+     ```
+   - **codex**: scan `~/.codex/sessions` for the newest `rollout-*.jsonl` and read the UUID off the filename:
+     ```bash
+     find ~/.codex/sessions -type f -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null \
+       | sort -nr | head -1 | awk '{print $2}' \
+       | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
+       | tail -1
+     ```
+   - **pi**: `~/.omp/agent/sessions/<project-key>/...`, OR ask the bridge directly:
+     ```bash
+     curl -s http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | python -m json.tool
+     ```
+   - **claude**: list transcripts the operator's session might have created:
+     ```bash
+     ls -t ~/.claude/projects/*/*.jsonl | head -5
+     ```
+     If the stored `sessionHandle` (an `<id>.jsonl` basename) doesn't appear, it's stale.
+
+3. If the runtime's truthful id differs from `agents.session_handle`, this is the Plan 6 A gap.
+
+**Fix.**
+- With Plan 6 A1 in place (`mcp/stdio/session-handle-heartbeat.js:25-30`, commit `3167423`) the bridge auto-corrects within one heartbeat tick (~60s). Wait 60s and re-check the stored handle — it should now match the runtime.
+- With Plan 6 A2 in place (`mcp/stdio/server.js` `computeInitialSessionHandle`, commit `edbc374`) the FIRST register call also uses discover over env — fresh agents are correct on first dispatch.
+- If you're running pre-Plan-6 bridge code (verify with `git log mcp/stdio/session-handle-heartbeat.js | head -3` showing the Plan 6 A1 commit), pull + restart the wrapper.
+- One-shot manual recovery without waiting for the heartbeat: re-register the agent with an empty `sessionHandle` and let the bridge's discover fill it:
+  ```
+  comms_register(agentId="YOUR-AGENT-ID", role="...", runtime="...", cwd="...", sessionHandle="")
+  ```
+  OR unset the runtime's session env var in your shell before relaunching the wrapper:
+  ```bash
+  unset HERMES_SESSION_ID    # hermes
+  unset CODEX_THREAD_ID      # codex
+  unset PI_SESSION_ID        # pi
+  unset CLAUDE_SESSION_ID    # claude
+  hermes-aify --aify-agent YOUR-AGENT-ID   # or codex-aify / pi-aify / claude-aify
+  ```
+  Plan 6 B (the wrapper-side rediscover, commits `5e8bcf9` / `842f725` / `11a15ed` / `eba3de0`) does this automatically at start when the wrapper is current.
+
+## Manual mode-switch unavailable in dashboard (Plan 6 C)
+
+**Symptom.** Operator wants to flip an agent from `resident` to `managed` (or back) without killing the wrapper, but no switch button is visible in the dashboard's Details panel or Sessions rail. Chip-style "Switch to managed" / "Switch to resident" controls described in Plan 6 C are documented but don't render on screen.
+
+**Detection.** Check whether the manual-mode toggle is enabled in the service settings:
+
+```bash
+curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep manual_session_mode
+```
+
+If you see `"manual_session_mode": false` (or the key is absent on a pre-Plan-6 build), the switch chips are hidden by design — Plan 6 C3 (`api_v2.py:215`, commit `697d526`) gates `renderModeSwitchChip(agent)` (commit `57c29e8`) on this setting being truthy. Default is off so existing operators on TTY-auto-detect-only workflows see no UI churn.
+
+**Fix.** Enable it one of two ways:
+
+- **Settings page (UI):** open the dashboard's Settings page and toggle "Manual session-mode switching" on (commit `e42f2ec` adds this inline toggle).
+- **API (scripted):**
+  ```bash
+  curl -X PUT http://localhost:8800/api/v1/settings \
+    -H "Content-Type: application/json" \
+    -d '{"manual_session_mode": true}'
+  ```
+
+After flipping, refresh the dashboard. The chip appears in the Session Console header card (Details panel) and on every Sessions-rail row for that agent. Clicking it calls `PATCH /api/v1/agents/{id}/session-mode {mode}` (Plan 6 C1, `api_v2.py:9586`); the response is reflected in the agent's `sessionMode` plus any side-effect terminal state (Plan 6 C2 eager-spawn / PTY release). Roll back by flipping the setting back to `false` — the chips disappear; existing audit-row entries (`dispatch_events.type='mode_switch_<old>_to_<new>'`) stay in the per-agent dispatch history.
+
+If you flipped the setting on and chips still don't appear, the dashboard HTML is stale — rebuild the service (`docker compose up -d --build`) so the post-`57c29e8` `app.js` is served.
+
 ## General escalation
 
 If none of the fixes above resolve the issue:
