@@ -447,6 +447,14 @@ TERMINAL_SESSION_MIGRATIONS = {
     "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
 }
 
+# Plan 4 task 12 (2026-05-25): `ready` distinguishes a worker process that
+# is alive (`online`) from one that has completed its initial handshake and
+# can accept dispatches (`ready`). The bridge PATCHes
+# /agents/{id}/ready after the adapter controller's start() resolves.
+AGENT_TURN_STATE_MIGRATIONS = {
+    "ready": "ALTER TABLE agent_turn_state ADD COLUMN ready INTEGER NOT NULL DEFAULT 0",
+}
+
 
 async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
@@ -517,6 +525,14 @@ async def _migrate_terminal_sessions_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(agent_turn_state)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in AGENT_TURN_STATE_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 # Runtimes the bridge can drive through a native managed integration.
 # Kept in sync with mcp/stdio/runtimes.js defaultCapabilitiesForRuntime and
 # service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES.
@@ -579,6 +595,7 @@ async def init_db(db_path: Path = None):
         await _migrate_agent_sessions_table(db)
         await _migrate_terminal_sessions_table(db)
         await _migrate_bridge_instances_table(db)
+        await _migrate_agent_turn_state_table(db)
         await _backfill_native_managed_capability(db)
         await db.commit()
 

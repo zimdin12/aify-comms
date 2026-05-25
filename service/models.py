@@ -63,6 +63,15 @@ class AgentSessionHandleUpdate(BaseModel):
     requestedBy: Optional[str] = None
 
 
+class AgentReadyUpdate(BaseModel):
+    # Plan 4 task 12 (2026-05-25): set by the bridge after an adapter
+    # controller's start() handshake completes. Surfaces the `ready`
+    # status (between `online` and `working`) so operators can distinguish
+    # "process alive" from "process ready for dispatch".
+    ready: bool = True
+    requestedBy: Optional[str] = None
+
+
 class AgentResidentLostRequest(BaseModel):
     bridgeId: Optional[str] = None
     machineId: Optional[str] = None

@@ -27,7 +27,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -2235,18 +2235,29 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
     turn_busy = False
     turn_runtime = ""
+    # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
+    # handshake-complete signal. Worker alive AND ready AND not turn_busy
+    # surfaces as the `ready` status (between `online` and `working`).
+    turn_state_ready = False
     try:
         _tb = await (await db.execute(
-            "SELECT turn_busy, turn_runtime, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
             (agent_row["id"],),
         )).fetchone()
-        if _tb and int(_tb["turn_busy"] or 0) == 1:
-            _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-            if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
-                turn_busy = True
-                turn_runtime = str(_tb["turn_runtime"] or "").strip()
+        if _tb:
+            if int(_tb["turn_busy"] or 0) == 1:
+                _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
+                    turn_busy = True
+                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
+            try:
+                turn_state_ready = int(_tb["ready"] or 0) == 1
+            except (IndexError, KeyError):
+                # Pre-migration row (column absent on a foreign DB schema).
+                turn_state_ready = False
     except Exception:
         turn_busy = False
+        turn_state_ready = False
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
     environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
     env_row = None
@@ -2319,7 +2330,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         if not has_live_worker and agent_session_mode == "resident":
             has_live_worker = True
     if has_live_worker:
-        effective_status = "online"
+        # Plan 4 task 12 (2026-05-25): `ready` sits between `online` and
+        # `working` — bridge sets it when adapter handshake completes.
+        # Subsequent override branches (blocked/working/turn_busy/channel)
+        # still take priority; ready only differentiates the otherwise-idle
+        # `online` case.
+        effective_status = "ready" if turn_state_ready else "online"
     elif environment_id and env_status not in {"online", "degraded"}:
         # An env IS bound but it's unreachable → offline. Unbound agents
         # (no environment_id yet) fall through to "available" — they can
@@ -2400,7 +2416,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # `available`. Idle-warning only meaningful for `online` (workers
         # that haven't done anything in a while); `available` agents are
         # by definition not working, so the idle marker is redundant.
-        if effective_status in {"online", "available"}:
+        if effective_status in {"online", "ready", "available"}:
             idle_minutes = int(settings.get("idle_minutes", 5) or 5)
             offline_minutes = int(settings.get("offline_minutes", 30) or 30)
             freshness = max(_iso_to_epoch(agent_last_seen), _iso_to_epoch(session_row["last_seen"] if session_row else ""))
@@ -2409,7 +2425,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                 if freshness and age > timedelta(minutes=offline_minutes).total_seconds():
                     effective_status = "offline"
                     reason = "Agent heartbeat is stale."
-                elif effective_status == "online" and freshness and age > timedelta(minutes=idle_minutes).total_seconds():
+                elif effective_status in {"online", "ready"} and freshness and age > timedelta(minutes=idle_minutes).total_seconds():
                     effective_status = "idle"
                     reason = "Agent is idle."
             except Exception:
@@ -9432,6 +9448,54 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             "sessionHandle": session_handle,
             "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
         }
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/ready")
+async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Request):
+    """Plan 4 task 12 (2026-05-25): bridge POSTs here when an adapter
+    controller's start() has completed initial handshake. Surfaces the
+    `ready` status (between `online` and `working`) so operators can
+    tell "worker alive" from "worker ready for dispatch".
+
+    Upsert preserves any existing turn_busy/turn_run_id state — clearing
+    ready does NOT also clear turn_busy and vice versa.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        now = _now()
+        ready_int = 1 if req.ready else 0
+        # Upsert agent_turn_state: insert with ready, or update only ready
+        # (and updated_at) on conflict — turn_busy and run/bridge/runtime
+        # fields are owned by the dispatch path, not by this endpoint.
+        await db.execute(
+            """
+            INSERT INTO agent_turn_state
+                (agent_id, turn_busy, turn_run_id, turn_bridge_id,
+                 turn_runtime, turn_updated_at, ready)
+            VALUES (?, 0, '', '', '', ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                ready = excluded.ready,
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, now, ready_int),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "agent_ready",
+                {"agentId": agent_id, "ready": bool(req.ready)},
+            )
+        return {"ok": True, "agentId": agent_id, "ready": bool(req.ready)}
     finally:
         await db.close()
 
