@@ -23,6 +23,10 @@ const state = {
   sessions: [],
   environments: [],
   stats: {},
+  // Plan 6 C3/C4/C5/C6: server settings snapshot (GET /api/v1/settings).
+  // Mode-switch chips (Plan 6) and any other settings-gated UI consult
+  // state.settings here. Empty object until first refresh completes.
+  settings: {},
   terminalOwners: new Map(),
   activeXterm: null, // { terminalId, agentId, term, fitAddon, container } — xterm.js mounted into Session Console
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
@@ -282,7 +286,7 @@ async function refresh() {
   byId('api-status').textContent = 'refreshing';
   byId('api-status').className = 'status-chip muted';
   try {
-    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, stats] = await Promise.all([
+    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, stats, settings] = await Promise.all([
       api('/agents'),
       api('/contracts?limit=80'),
       api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),
@@ -291,6 +295,9 @@ async function refresh() {
       api('/sessions?limit=80'),
       api('/environments'),
       api('/stats'),
+      // Plan 6 C3/C4: settings drive the resident<->managed mode-switch chip
+      // visibility. Tolerate a failed/empty response — chip stays hidden.
+      api('/settings').catch(() => ({})),
     ]);
     state.agents = asAgentArray(agents);
     state.contracts = contracts.contracts || [];
@@ -299,6 +306,7 @@ async function refresh() {
     state.sessions = asArray(sessions, 'sessions');
     state.environments = asArray(environments, 'environments');
     state.stats = stats || {};
+    state.settings = settings && typeof settings === 'object' ? settings : {};
     state.sessions.forEach((session) => {
       const terminalId = session.terminalId || session.terminal?.id;
       const agentId = session.agentId || session.agent_id;
@@ -1004,6 +1012,55 @@ function codexConsoleSendTurn(agentId, text) {
   codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
 }
 
+// Plan 6 C4 (2026-05-26): resident<->managed mode-switch chip.
+// Gated by state.settings.manual_session_mode — when the operator has
+// the dashboard's manual-mode toggle off (the default), this returns ''
+// so the chip is hidden and today's TTY auto-detect remains the
+// effective source of truth. When on, the chip exposes a one-click
+// flip via PATCH /api/v1/agents/{id}/session-mode (Plan 6 C1).
+function renderModeSwitchChip(agent) {
+  if (!agent || typeof agent !== 'object') return '';
+  if (!state.settings || state.settings.manual_session_mode !== true) return '';
+  const current = String(agent.sessionMode || '').toLowerCase();
+  if (current !== 'resident' && current !== 'managed') return '';
+  const target = current === 'resident' ? 'managed' : 'resident';
+  return `<button class="ghost mode-switch-chip" data-mode-switch="${esc(agent.id)}" data-target-mode="${target}" title="Flip ${esc(agent.id)} to ${target} mode">Switch to ${target}</button>`;
+}
+
+// Optional inline label so operators can see the current sessionMode at a
+// glance in the session header subtitle. Always rendered (even when the
+// switch chip is hidden) — informational only.
+function renderSessionModeLabel(agent) {
+  const mode = String(agent?.sessionMode || '').toLowerCase();
+  if (mode !== 'resident' && mode !== 'managed') return '';
+  return ` · ${esc(mode)}`;
+}
+
+async function switchAgentSessionMode(agentId, targetMode, { force = false } = {}) {
+  if (!agentId || !targetMode) return null;
+  const url = `${apiBase}/agents/${encodeURIComponent(agentId)}/session-mode`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: targetMode, force, requestedBy: 'dashboard' }),
+    });
+  } catch (err) {
+    inspect('Mode switch error', { agentId, targetMode, error: String(err?.message || err) });
+    return null;
+  }
+  let body = null;
+  try { body = await res.json(); } catch {}
+  if (!res.ok) {
+    inspect('Mode switch failed', { agentId, targetMode, status: res.status, body });
+    return null;
+  }
+  inspect('Mode switch ok', { agentId, mode: body?.mode, previousMode: body?.previousMode, sideEffects: body?.sideEffects });
+  refreshSoon();
+  return body;
+}
+
 function renderSessionConsole(session) {
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
@@ -1029,8 +1086,9 @@ function renderSessionConsole(session) {
     <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
       <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown', statusWhyContext('session', session || {}, session?.status || 'unknown'))}</div>
       <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
-      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}</small>
+      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
       <div class="contract-actions">
+        ${renderModeSwitchChip(agent)}
         <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
         <button class="ghost" data-session-control="recover" data-session-id="${esc(id)}">Recover</button>
         ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
@@ -1961,6 +2019,18 @@ document.addEventListener('click', (event) => {
   const sessionControlButton = event.target.closest('[data-session-control]');
   if (sessionControlButton) {
     requestSessionControl(sessionControlButton.dataset.sessionId, sessionControlButton.dataset.sessionControl);
+    return;
+  }
+  // Plan 6 C4/C5 (2026-05-26): resident<->managed mode-switch chip. Same
+  // selector on the Details panel and the per-session action menu so a
+  // single click handler covers both surfaces.
+  const modeSwitchButton = event.target.closest('[data-mode-switch]');
+  if (modeSwitchButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const agentId = modeSwitchButton.dataset.modeSwitch;
+    const targetMode = modeSwitchButton.dataset.targetMode;
+    switchAgentSessionMode(agentId, targetMode);
     return;
   }
   const inspectItem = event.target.closest('[data-kind]');
