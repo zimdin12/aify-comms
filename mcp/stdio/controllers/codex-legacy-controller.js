@@ -76,8 +76,16 @@ export class CodexLegacyController extends BaseController {
     const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
     const sandboxMode = managedCodexSandboxMode(config, executionMode);
     const residentThreadId = String(agentInfo.sessionHandle || "").trim();
+    // Plan 5 (2026-05-25): channel-mode is the new server-side route for
+    // wrapper-backed managed dispatches (api_v2.py:1047). When the in-
+    // process bridge inside codex-aify delivers a channel-mode run for its
+    // own agent, runtimeConfig.appServerUrl is set by server.js:835-837
+    // (read from AIFY_CODEX_APP_SERVER_URL env). Without 'channel' here,
+    // appServerUrl is dropped and CodexLegacyController falls back to
+    // spawning a fresh codex app-server — defeating the wrapper-backed
+    // delivery shape.
     const appServerUrl =
-      executionMode === "resident" && hasCodexLiveAppServer(config)
+      (executionMode === "resident" || executionMode === "channel") && hasCodexLiveAppServer(config)
         ? String(config.appServerUrl || "").trim()
         : "";
     const cwd = resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl });
@@ -89,9 +97,13 @@ export class CodexLegacyController extends BaseController {
     const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
     const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
 
+    // Plan 5 (2026-05-25): channel-mode (wrapper-backed managed) carries the
+    // same session-handle semantic as resident-mode — the wrapper child's
+    // agent registration sets sessionHandle from CODEX_THREAD_ID. Use it as
+    // the active thread so resume-by-handle works on the first turn.
     this._activeThreadId =
-      executionMode === "resident"
-        ? (residentThreadId || null)
+      (executionMode === "resident" || executionMode === "channel")
+        ? (residentThreadId || runtimeState?.threadId || null)
         : (runtimeState?.threadId || null);
 
     // eslint-disable-next-line consistent-this
