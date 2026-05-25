@@ -341,6 +341,45 @@ function renderAll() {
   renderEnvironmentSpawnOptions();
   renderRuntime();
   renderRuns();
+  renderSettings();
+}
+
+// Plan 6 C6 (2026-05-26): the new dashboard's settings page is still a
+// placeholder pointing at the classic dashboard. We expose the single
+// manual_session_mode toggle inline so operators can opt into the C4/C5
+// mode-switch chips without leaving this dashboard.
+function renderSettings() {
+  const toggle = byId('setting-manual-session-mode');
+  if (!toggle) return;
+  toggle.checked = state.settings?.manual_session_mode === true;
+}
+
+async function setManualSessionMode(enabled) {
+  const url = `${apiBase}/settings`;
+  const statusEl = byId('setting-manual-session-mode-status');
+  if (statusEl) statusEl.textContent = 'Saving…';
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manual_session_mode: Boolean(enabled) }),
+    });
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Save failed: ${err?.message || err}`;
+    return;
+  }
+  if (!res.ok) {
+    if (statusEl) statusEl.textContent = `Save failed: HTTP ${res.status}`;
+    return;
+  }
+  try {
+    state.settings = await res.json();
+  } catch {
+    state.settings = { ...(state.settings || {}), manual_session_mode: Boolean(enabled) };
+  }
+  if (statusEl) statusEl.textContent = `manual_session_mode = ${state.settings.manual_session_mode}`;
+  refreshSoon();
 }
 
 function metric(label, value, tone = 'neutral') {
@@ -2155,3 +2194,7 @@ connectRealtimeSocket();
 refresh();
 setInterval(refresh, 15000);
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
+// Plan 6 C6 (2026-05-26): inline manual_session_mode toggle.
+byId('setting-manual-session-mode')?.addEventListener('change', (event) => {
+  setManualSessionMode(event.target.checked);
+});

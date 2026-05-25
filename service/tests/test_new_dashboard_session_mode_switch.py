@@ -16,11 +16,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 APP_JS = ROOT / "service" / "new_dashboard" / "app.js"
+INDEX_HTML = ROOT / "service" / "new_dashboard" / "index.html"
 
 
 class NewDashboardSessionModeSwitchTests(unittest.TestCase):
     def setUp(self):
         self.script = APP_JS.read_text(encoding="utf-8")
+        self.html = INDEX_HTML.read_text(encoding="utf-8")
 
     def test_state_seeds_settings_snapshot(self):
         self.assertIn(
@@ -121,6 +123,49 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             2,
             "Plan 6 C5: Sessions rail must render the chip too (>= 2 call sites total — "
             "header card + per-session row)",
+        )
+
+    # ─── C6 — Settings UI toggle ───────────────────────────────────────────
+
+    def test_settings_page_has_manual_session_mode_toggle(self):
+        self.assertIn(
+            'id="setting-manual-session-mode"',
+            self.html,
+            "Plan 6 C6: Settings page must declare the manual_session_mode toggle input",
+        )
+        self.assertIn(
+            'id="setting-manual-session-mode-status"',
+            self.html,
+            "Plan 6 C6: Settings page must surface a save-status element for the toggle",
+        )
+
+    def test_render_settings_syncs_checkbox_from_state(self):
+        self.assertIn(
+            "function renderSettings()",
+            self.script,
+            "Plan 6 C6: renderSettings() must be defined to mirror state.settings.manual_session_mode into the checkbox",
+        )
+        self.assertIn(
+            "state.settings?.manual_session_mode === true",
+            self.script,
+            "Plan 6 C6: renderSettings must read manual_session_mode from state",
+        )
+
+    def test_change_handler_puts_settings(self):
+        self.assertIn(
+            "async function setManualSessionMode(enabled)",
+            self.script,
+            "Plan 6 C6: setManualSessionMode helper must be defined",
+        )
+        self.assertIn(
+            "method: 'PUT'",
+            self.script,
+            "Plan 6 C6: helper must PUT /api/v1/settings",
+        )
+        self.assertIn(
+            "manual_session_mode: Boolean(enabled)",
+            self.script,
+            "Plan 6 C6: PUT body must carry manual_session_mode",
         )
 
     def test_click_handler_stops_propagation_so_chip_does_not_select_session(self):
