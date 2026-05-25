@@ -302,5 +302,99 @@ class PiResidentDispatchRejectionTests(unittest.TestCase):
             )
 
 
+class PiResidentPreExistingBackfillTests(unittest.TestCase):
+    """Plan 2 backfill — pre-existing pi-resident agents (rows that landed
+    in the DB BEFORE the Task 16 registration marker shipped) must still
+    get flipped by the drain helper. Without the backfill, the operator
+    would have to manually re-register every pre-existing pi-resident
+    agent — which is exactly what Plan 2 was supposed to avoid.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._db_path = Path(self._tmpdir.name) / "aify-test-pi-backfill.db"
+        asyncio.run(init_db(self._db_path))
+
+        app = FastAPI()
+        app.state.ws_manager = _DummyWS()
+        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
+        app.state.testing = True
+        app.include_router(router, prefix="/api/v1")
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        self.client.close()
+        self._tmpdir.cleanup()
+
+    def _agent_row(self, agent_id):
+        async def _run():
+            db = await get_db()
+            try:
+                cur = await db.execute(
+                    "SELECT session_mode, runtime_state, session_handle, capabilities FROM agents WHERE id = ?",
+                    (agent_id,),
+                )
+                return await cur.fetchone()
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_drain_flips_pre_existing_pi_resident_without_marker(self):
+        """A pi-resident agent that exists in the DB WITHOUT the
+        pi_resident_pending_flip marker (i.e., registered before the Plan 2
+        pi-flip rollout) must still get migrated by the drain helper on
+        the next launch. Otherwise the operator has to manually re-register
+        every pre-existing pi-resident agent.
+        """
+        # Insert a pi-resident row directly with NO pi_resident_pending_flip
+        # marker, simulating a pre-existing agent registered before Task 16.
+        async def _insert():
+            db = await get_db()
+            try:
+                now = "2026-05-20T00:00:00Z"
+                await db.execute(
+                    """
+                    INSERT INTO agents (id, role, name, runtime, session_mode,
+                                        session_handle, runtime_state, runtime_config,
+                                        capabilities, status, registered_at, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "pre-existing-pi", "tester", "pre-existing-pi",
+                        "pi", "resident", "handle-existing",
+                        "{}",  # runtime_state has NO pi_resident_pending_flip marker
+                        "{}", "[]", "online", now, now,
+                    ),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_insert())
+
+        from service.routers.api_v2 import _drain_and_flip_pi_resident_agents
+        asyncio.run(_drain_and_flip_pi_resident_agents())
+
+        row = self._agent_row("pre-existing-pi")
+        self.assertIsNotNone(row, "agent row should exist after backfill drain")
+        session_mode = row["session_mode"]
+        runtime_state_json = row["runtime_state"]
+        session_handle = row["session_handle"]
+        self.assertEqual(
+            session_mode, "managed",
+            f"pre-existing pi-resident agent must be flipped by drain helper; row={dict(row)}",
+        )
+        self.assertEqual(
+            session_handle, "handle-existing",
+            "session_handle must be preserved across backfill flip",
+        )
+        rs = json.loads(runtime_state_json or "{}")
+        self.assertTrue(
+            rs.get("flipped_at"),
+            f"flipped_at timestamp should be recorded. runtime_state={rs}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

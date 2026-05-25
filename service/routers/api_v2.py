@@ -3398,8 +3398,12 @@ async def _drain_and_flip_pi_resident_agents() -> None:
 
         for row in rows:
             runtime_state = _json_loads_or(row["runtime_state"], {})
-            if not runtime_state.get("pi_resident_pending_flip"):
-                continue
+            # Plan 2 backfill: any pi-resident agent is flip-eligible by
+            # definition (PiAdapter no longer supports_resident). The
+            # pi_resident_pending_flip marker stays useful as a
+            # "newly-detected" signal but is not the only gate — agents
+            # registered before the Task 16 marker rolled out would
+            # otherwise never flip without manual re-registration.
 
             # Block the flip while any open run is targeting the agent.
             run_cursor = await db.execute(
