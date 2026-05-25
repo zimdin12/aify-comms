@@ -837,42 +837,50 @@ def _default_capabilities_for(
     session_handle: str = "",
     runtime_config: Optional[dict[str, Any]] = None,
 ) -> list[str]:
-    normalized_runtime = _normalize_runtime(runtime)
-    normalized_session_mode = _normalize_session_mode(session_mode)
-    session_handle = str(session_handle or "").strip()
-    if normalized_session_mode == "managed":
-        if normalized_runtime == "codex":
-            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
-        if normalized_runtime == "hermes":
-            return ["managed-run", "resume", "interrupt", "spawn"]
-        if normalized_runtime == "opencode":
-            return ["managed-run", "resume", "interrupt", "spawn"]
-        if normalized_runtime == "pi":
-            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
-        if normalized_runtime == "claude-code":
-            return ["managed-run", "resume", "interrupt", "spawn"]
+    """Build the default capability list for an agent registration.
+
+    Plan 2 (2026-05-25): derives from the runtime adapter's supports_* flags
+    so the per-runtime hardcoded branches collapse into one rule. The session
+    mode + handle + runtime_config still gate per-agent capability (e.g. a
+    hermes resident without a live gatewayUrl gets no `resident-run`).
+    """
+    from service.runtimes import adapter_for
+
+    runtime_n = _normalize_runtime(runtime or "")
+    try:
+        adapter = adapter_for(runtime_n)
+    except ValueError:
         return []
-    if normalized_runtime == "codex":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt", "steer"]
-    if normalized_runtime == "hermes":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt"]
-    if normalized_runtime == "opencode":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt"]
-    if normalized_runtime == "pi":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt", "steer"]
-    if normalized_runtime == "claude-code":
-        if isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True:
-            return ["resident-run", "interrupt", "steer"]
-        return []
-    return []
+
+    caps: list[str] = []
+    session_mode_n = _normalize_session_mode(session_mode or "")
+
+    if session_mode_n == "resident":
+        # Resident-capable only when the adapter declares it AND, for
+        # gateway-backed runtimes, the gateway URL is present.
+        gateway_ok = True
+        if runtime_n == "hermes":
+            gw = str((runtime_config or {}).get("gatewayUrl", "")).strip()
+            gateway_ok = bool(gw)
+        if adapter.supports_resident and gateway_ok:
+            caps.append("resident-run")
+    else:
+        if adapter.supports_managed:
+            caps.append("managed-run")
+
+    if adapter.supports_resident or adapter.supports_managed:
+        caps.append("resume")
+    if adapter.supports_interrupt:
+        caps.append("interrupt")
+    if adapter.supports_steering:
+        caps.append("steer")
+
+    # `spawn` capability is independent — every aify-comms managed-capable
+    # runtime supports being spawned by another agent's environment.
+    if session_mode_n != "resident" and adapter.supports_managed:
+        caps.append("spawn")
+
+    return caps
 
 
 async def _resolve_recipient_ids(db, *, to: Optional[str], to_role: Optional[str], from_agent: str) -> list[str]:
