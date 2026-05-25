@@ -27,6 +27,14 @@ export class RuntimeAdapter {
     return null;
   }
 
+  // Plan 4 (2026-05-25): runtime-native session discovery for fresh managed
+  // launches where the env-read path returns null. Default returns null;
+  // each concrete adapter overrides with its own discovery (filesystem scan,
+  // SQLite query, gateway RPC, etc.).
+  async discoverSessionId() {
+    return null;
+  }
+
   normalizeSessionHandle(raw) {
     const text = String(raw == null ? "" : raw).trim();
     if (!text) return "";
