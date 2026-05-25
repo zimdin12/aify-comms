@@ -204,6 +204,15 @@ DEFAULT_SETTINGS = {
     "managed_pi_model": "",
     "managed_pi_effort": "",
     "resident_lease_seconds": 150,
+    # Plan 6 C3 (2026-05-26): when false (default), the dashboard hides the
+    # resident<->managed switch chips and today's TTY auto-detect in the
+    # *-aify wrappers stays the source of truth. When true, dashboards
+    # expose the chips (Details panel + per-session action menu) and the
+    # operator can flip an agent's session_mode mid-life via PATCH
+    # /api/v1/agents/{id}/session-mode (Plan 6 C1). The wrapper still
+    # auto-detects at launch; this only governs UI visibility of the
+    # override controls.
+    "manual_session_mode": False,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",
