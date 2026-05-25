@@ -296,6 +296,38 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
     return False
 
 
+async def _has_live_terminal_session(db, agent_id: str) -> bool:
+    """Plan 4: True when this agent has a live terminal_session row
+    (managed-via-wrapper path) — status='running' or 'starting'."""
+    if db is None:
+        return False
+    try:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS cnt FROM terminal_sessions
+            WHERE agent_id = ? AND status IN ('running', 'starting')
+            """,
+            (agent_id,),
+        )
+        row = await cursor.fetchone()
+        return bool(row and int(row["cnt"] or 0) > 0)
+    except Exception:
+        return False
+
+
+def _has_live_rpc_controller(agent_id: str) -> bool:
+    """Plan 4: True when an in-memory RPC controller is registered for this
+    agent (managed-RPC synth fallback path). Today aify-comms doesn't
+    maintain such a registry on the server side — the bridge owns RPC
+    lifecycle. Returns False by default; wrapper-PTY backed agents go
+    through _has_live_terminal_session above.
+
+    Future: if a server-side registry of bridge-owned RPC children is
+    introduced, query it here.
+    """
+    return False
+
+
 def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:
     """Plan 4 (2026-05-25): synth-terminal (aify://virtual-rpc/<runtime>) is
     deprecated for wrapper-backed runtimes. The wrapper PTY IS the terminal.
@@ -3297,6 +3329,15 @@ def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
     return value[-max_chars:]
 
 
+def _row_get(row, key, default=None):
+    """Safely fetch a field from either a dict or a sqlite3.Row."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return value if value is not None else default
+
+
 async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db=None):
     # Single source of truth: delegate to the live-state engine that
     # list_agents/get_agent already use, so write endpoints (heartbeat,
@@ -3310,6 +3351,24 @@ async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db
         cache = await _refresh_agent_live_state(db, row["id"])
         if cache:
             return cache["status"]
+
+    # Plan 4 (2026-05-25): db-less fallback. With a db, `_compute_live_status_cache`
+    # already gates `online` on `has_live_worker` (wrapper PTY or RPC child) and
+    # falls back to `available`. Without a db we cannot inspect terminal_sessions,
+    # so a managed agent's persisted `status` column (likely `online`) is a lie
+    # — degrade to `available` so the taxonomy stays honest. The db-less branch
+    # is informational only (used by callers without a connection); db-backed
+    # callers go through _compute_live_status_cache above, which DOES layer the
+    # offline-via-stale-heartbeat check on top.
+    session_mode = str(_row_get(row, "session_mode", "") or "")
+    if session_mode == "managed":
+        agent_id = _row_get(row, "id", "")
+        if agent_id:
+            has_terminal = await _has_live_terminal_session(db, agent_id)
+            has_rpc = _has_live_rpc_controller(agent_id)
+            if not has_terminal and not has_rpc:
+                return "available"
+
     if status != "stale":
         try:
             last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
