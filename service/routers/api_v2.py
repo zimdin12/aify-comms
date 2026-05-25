@@ -9593,6 +9593,19 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
     `mode_switch_<old>_to_<new>` is appended with body
     `agentId=<id> by=<requestedBy>`, providing traceability without a
     new table.
+
+    State-transition side effects (C2):
+    - resident -> managed: best-effort eager-spawn of a wrapper PTY so
+      the next dispatch lands in a ready Console (mirrors the spawn
+      path used by `_ensure_managed_pty_for_dispatch` during /dispatch).
+    - managed -> resident: best-effort release of any active managed
+      PTY by flipping its status to 'stopping' so the bridge reconciles
+      the close cleanly. Operator must launch a resident `*-aify`
+      session themselves for the agent to come back online.
+
+    Side-effect failures do not roll back the mode change itself —
+    operators can always re-attach manually. The `sideEffects` field in
+    the response surfaces what happened (or what failed).
     """
     validate_name(agent_id, "agent ID")
     new_mode = _normalize_session_mode(req.mode)
@@ -9680,6 +9693,46 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             f"agentId={agent_id} by={requested_by}",
         )
 
+        # C2 state-transition side effects. Wrapped in try/except so a side
+        # effect failure (e.g., environment offline, no live agent_sessions
+        # row) does NOT roll back the mode change — operators can still
+        # re-spawn/attach manually. Failures surface in the response's
+        # `sideEffects.error` field.
+        settings = await _load_settings(db)
+        side_effects: dict[str, Any] = {}
+        try:
+            if new_mode == "managed":
+                terminal = await _ensure_managed_pty_for_dispatch(
+                    db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
+                )
+                if terminal is not None:
+                    # `_ensure_managed_pty_for_dispatch` returns either a sqlite
+                    # Row (existing active terminal) or a dict (newly spawned).
+                    try:
+                        side_effects["managedTerminalId"] = terminal["id"] if "id" in terminal.keys() else terminal.get("id")
+                    except Exception:
+                        side_effects["managedTerminalId"] = None
+            else:
+                # managed -> resident: best-effort stop of any active managed PTY.
+                active = await _active_terminal_for_agent(db, agent_id, settings=settings)
+                if active is not None:
+                    terminal_id = active["terminal_id"] if "terminal_id" in active.keys() else None
+                    session_id = active["session_id"] if "session_id" in active.keys() else ""
+                    if terminal_id:
+                        await db.execute(
+                            "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
+                            (now, terminal_id),
+                        )
+                        if session_id:
+                            await db.execute(
+                                "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
+                                (now, session_id),
+                            )
+                        side_effects["stoppedTerminalId"] = terminal_id
+        except Exception as exc:  # pragma: no cover — surface, do not abort
+            logger.warning("session-mode side-effect failed for %s: %s", agent_id, exc)
+            side_effects["error"] = str(exc)
+
         await db.commit()
         ws = await _get_ws(request)
         if ws:
@@ -9693,6 +9746,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "mode": new_mode,
             "previousMode": current_mode,
             "changed": True,
+            "sideEffects": side_effects,
         }
     finally:
         await db.close()

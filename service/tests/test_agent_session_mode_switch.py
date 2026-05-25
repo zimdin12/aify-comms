@@ -262,6 +262,95 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         types = [e["event_type"] for e in events]
         self.assertIn("mode_switch_resident_to_managed", types, f"got events: {[dict(e) for e in events]}")
 
+    # ─── C2 — state-transition side effects ───────────────────────────────
+
+    def _seed_managed_terminal(self, agent_id: str, *, runtime: str = "codex") -> tuple[str, str]:
+        """Seed a 'running' terminal_sessions row + matching agent_sessions row
+        wired up the way `_active_terminal_for_agent` expects. Returns
+        (terminal_id, session_id)."""
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            session_id = f"session_{agent_id}"
+            terminal_id = f"term_{agent_id}"
+            now = "2026-05-26T00:00:00Z"
+            env_row = conn.execute("SELECT id, bridge_id FROM environments LIMIT 1").fetchone()
+            env_id = env_row["id"] if env_row else "linux:test-host:default"
+            bridge_id = env_row["bridge_id"] if env_row else "bridge-current"
+            # agent_sessions row first.
+            conn.execute(
+                """
+                INSERT INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, status, workspace,
+                    started_at, last_seen, terminal_id, terminal_status, owner_mode
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id, agent_id, env_id, runtime, "running",
+                    "/workspace", now, now, terminal_id, "running", "managed",
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime,
+                    workspace, command, status, requested_by, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id, session_id, agent_id, env_id, bridge_id,
+                    runtime, "/workspace", f"{runtime}-aify", "running",
+                    "dashboard", now, now,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return terminal_id, session_id
+
+    def _read_terminal_status(self, terminal_id: str) -> str:
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,)).fetchone()
+        finally:
+            conn.close()
+        return str(row["status"] or "") if row else ""
+
+    def test_switch_managed_to_resident_releases_managed_terminal(self):
+        """C2: when an agent has a live managed PTY and the operator flips
+        to resident, the PTY's status flips to 'stopping' so the bridge
+        side reconciles the close cleanly."""
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-pty", runtime="codex", session_mode="managed")
+        terminal_id, _session_id = self._seed_managed_terminal("codex-pty", runtime="codex")
+        # Touch the environment so its last-seen stays current (>30s tolerance).
+        self._heartbeat_environment("codex")
+        # Sanity: terminal currently active.
+        self.assertEqual(self._read_terminal_status(terminal_id), "running")
+        res = self.client.patch(
+            "/api/v1/agents/codex-pty/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(self._read_terminal_status(terminal_id), "stopping",
+                         "Plan 6 C2: managed -> resident must release the managed PTY")
+        body = res.json()
+        self.assertEqual(body.get("sideEffects", {}).get("stoppedTerminalId"), terminal_id)
+
+    def test_switch_resident_to_managed_reports_side_effects_object(self):
+        """C2: the response includes a sideEffects object. When no agent_sessions
+        row exists, eager-spawn is a no-op but the field must still be present."""
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-noenv", runtime="codex", session_mode="resident")
+        res = self.client.patch(
+            "/api/v1/agents/codex-noenv/session-mode",
+            json={"mode": "managed"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertIn("sideEffects", body)
+
 
 if __name__ == "__main__":
     unittest.main()
