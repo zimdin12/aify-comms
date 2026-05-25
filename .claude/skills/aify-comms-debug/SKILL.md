@@ -546,7 +546,7 @@ c.commit()
 
 **Cause.** Most common: `omp --mode rpc` child accidentally launched a nested `mcp/stdio/server.js` (because `pi-aify` exports the full aify env) that registered as a sibling bridge for the same agent. The nested bridge's registration superseded the parent bridge, the parent's RPC child died, and the wrapper exited.
 
-**Fix.** Already fixed in commit `59c66ff` — `createPiController` spawns the pi RPC child with an explicit per-call env `{AIFY_BRIDGE_DISABLED:"1", AIFY_AGENT_ID:""}` so the nested `mcp/stdio/server.js` exits at startup. The fix is per-spawn, not global, so other wrapper children (claude-aify, codex-aify) keep their full aify env. If you still see this, verify the bridge log shows `AIFY_BRIDGE_DISABLED=1 exit at startup` from the omp RPC child.
+**Fix.** Already fixed in commit `59c66ff` — `PiController` (`mcp/stdio/controllers/pi-controller.js`, originally `createPiController` factory before the Plan 3 extraction) spawns the pi RPC child with an explicit per-call env `{AIFY_BRIDGE_DISABLED:"1", AIFY_AGENT_ID:""}` so the nested `mcp/stdio/server.js` exits at startup. The fix is per-spawn, not global, so other wrapper children (claude-aify, codex-aify) keep their full aify env. If you still see this, verify the bridge log shows `AIFY_BRIDGE_DISABLED=1 exit at startup` from the omp RPC child.
 
 ## Console opens a second time for an already-running wrapper
 
