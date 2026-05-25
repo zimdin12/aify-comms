@@ -250,3 +250,26 @@ test("chooseSessionConsoleWidget keeps synth when only synth exists (no wrapper)
     `expected synth to be used when no wrapper exists; got ${JSON.stringify(r)}`
   );
 });
+
+test("Plan 4: 'ready' status has a color class in the dashboard", () => {
+  const styles = fs.readFileSync(
+    path.join(__dirname, "styles.css"),
+    "utf8"
+  );
+  // CSS dot variant for `ready` must exist (drives the green dot in chips).
+  assert.ok(
+    /\.status-dot\.ready\b/.test(styles),
+    "styles.css must define .status-dot.ready (Plan 4 dot color)"
+  );
+  // Text-color helper class must exist (drives bare `ready` labels).
+  assert.ok(
+    /\.status-ready\b/.test(styles),
+    "styles.css must define .status-ready (Plan 4 text color)"
+  );
+  // app.js STATUS_KINDS must recognize `ready` so renderStatusChip routes it.
+  const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  assert.ok(
+    /ready:\s*\{[^}]*dotKind:\s*'ready'/.test(source),
+    "app.js STATUS_KINDS must map ready → dotKind:'ready' (Plan 4)"
+  );
+});

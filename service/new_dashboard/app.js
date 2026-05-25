@@ -37,9 +37,16 @@ const state = {
   runStatusFilter: '',
 };
 
+// Plan 4 status taxonomy: available (grey, process alive but no handshake) →
+// online (light green, process alive, idle) → ready (green, handshake complete,
+// dispatch-ready) → working (animated, mid-turn). The dotKind drives the CSS
+// dot color/animation in styles.css; tone drives the chip border/background.
 const STATUS_KINDS = {
   active: { label: 'active', dotKind: 'ok', tone: 'ok', inputEnabled: true },
-  online: { label: 'online', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  available: { label: 'available', dotKind: 'available', tone: 'muted', inputEnabled: false },
+  starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
+  online: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
+  ready: { label: 'ready', dotKind: 'ready', tone: 'ok', inputEnabled: true },
   working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
   blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
   queued: { label: 'queued', dotKind: 'queued', tone: 'muted', inputEnabled: false },

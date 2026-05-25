@@ -9,6 +9,7 @@
   --muted: #9eaaa5;
   --soft: #d4ddd8;
   --green: #54c58b;
+  --green-soft: #88c999; /* Plan 4: lighter green used by `online` status (process alive, pre-handshake) */
   --blue: #6fb4ff;
   --amber: #dfb156;
   --red: #ee6a74;
@@ -231,11 +232,29 @@ small, .subtle { color: var(--muted); }
   align-items: center;
 }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
-.status-dot.ok, .status-dot.active, .status-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(84,197,139,.12); }
-.status-dot.working { background: var(--blue); box-shadow: 0 0 0 3px rgba(111,180,255,.12); }
+/* Plan 4 status taxonomy:
+   available (grey) → online (light green) → ready (green, full saturation) → working (animated pulse).
+   `ok` / `active` remain aliases for the saturated green used by completed/active. */
+.status-dot.ok, .status-dot.active, .status-dot.ready { background: var(--green); box-shadow: 0 0 0 3px rgba(84,197,139,.12); }
+.status-dot.online { background: var(--green-soft, #88c999); box-shadow: 0 0 0 3px rgba(136,201,153,.12); }
+.status-dot.available { background: var(--muted); box-shadow: 0 0 0 3px rgba(158,170,165,.12); }
+.status-dot.working {
+  background: var(--blue);
+  box-shadow: 0 0 0 3px rgba(111,180,255,.12);
+  animation: status-working-pulse 1.4s ease-in-out infinite;
+}
+@keyframes status-working-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(111,180,255,.12); }
+  50%      { box-shadow: 0 0 0 6px rgba(111,180,255,.28); }
+}
 .status-dot.blocked, .status-dot.bad, .status-dot.failed, .status-dot.offline { background: var(--red); box-shadow: 0 0 0 3px rgba(238,106,116,.12); }
 .status-dot.queued { background: var(--violet); box-shadow: 0 0 0 3px rgba(169,141,245,.12); }
 .status-dot.unknown, .status-dot.muted { background: var(--muted); }
+/* Plan 4 text-color helpers — used by callers that render bare text labels rather than full chips. */
+.status-ready { color: var(--status-ready, var(--green)); font-weight: 600; }
+.status-online { color: var(--status-online, var(--green-soft, #88c999)); }
+.status-available { color: var(--status-available, var(--muted)); }
+.status-working { color: var(--status-working, var(--blue)); }
 .dot { width: 11px; height: 11px; }
 .status-chip {
   display: inline-flex;
