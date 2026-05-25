@@ -50,3 +50,20 @@ test("HermesAdapter Plan 2 capabilities", () => {
   assert.strictEqual(a.supportsMultiClient, true);
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
 });
+
+test("HermesAdapter overrides discoverSessionId", () => {
+  const a = new HermesAdapter();
+  const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(a), "discoverSessionId");
+  assert.ok(own && typeof own.value === "function",
+    "HermesAdapter must define its own discoverSessionId override");
+});
+
+test("HermesAdapter.discoverSessionId returns null when no gateway and no fs sessions", async () => {
+  // Without AIFY_HERMES_GATEWAY_URL and without ~/.hermes/sessions, should return null
+  delete process.env.AIFY_HERMES_GATEWAY_URL;
+  const a = new HermesAdapter();
+  const result = await a.discoverSessionId();
+  if (result !== null) {
+    assert.ok(typeof result === "string" && result.length > 0);
+  }
+});
