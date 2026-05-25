@@ -319,14 +319,26 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
 
 async def _has_live_terminal_session(db, agent_id: str) -> bool:
     """Plan 4: True when this agent has a live terminal_session row
-    (managed-via-wrapper path) — status='running' or 'starting'."""
+    (managed-via-wrapper path) — status='running' or 'starting'.
+
+    Plan 5 follow-up (2026-05-26): synth/virtual terminals (id prefix
+    `vterm_`) MUST NOT count as live for this check. Plan 4 deprecated
+    synth terminals for wrapper-backed runtimes (see
+    `_synth_terminal_should_be_created`), but pre-Plan-4 rows persist in
+    operator DBs with `status='running'` and no cleanup path. Observed
+    2026-05-26 — sc-coder, sc-architect kept showing `online` after Plan
+    5 deploy because their stale 2026-05-24 `vterm_*` rows hid the dead
+    worker from the gate.
+    """
     if db is None:
         return False
     try:
         cursor = await db.execute(
             """
             SELECT COUNT(*) AS cnt FROM terminal_sessions
-            WHERE agent_id = ? AND status IN ('running', 'starting')
+            WHERE agent_id = ?
+              AND status IN ('running', 'starting')
+              AND id NOT LIKE 'vterm_%'
             """,
             (agent_id,),
         )

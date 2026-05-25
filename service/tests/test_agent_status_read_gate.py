@@ -136,6 +136,41 @@ class AgentStatusReadGateTests(unittest.TestCase):
 
         asyncio.run(_stamp())
 
+    def _insert_stale_synth_terminal(self, agent_id: str, runtime: str = "hermes") -> str:
+        """Insert a stale `vterm_*` (synth/virtual) terminal_sessions row with
+        status='running'. Plan 4 deprecated synth terminals for wrapper-backed
+        runtimes, but pre-Plan-4 rows persist in operator DBs with no cleanup.
+        The Plan 5 gate must NOT treat these as live (observed 2026-05-26 —
+        sc-coder, sc-architect: stale vterm_* rows from 2026-05-24 kept them
+        showing as `online` after Plan 5 deploy)."""
+
+        async def _stamp():
+            from service.db import get_db
+            db = await get_db()
+            try:
+                # Disable FK checks for this insert so we don't have to
+                # synthesize the full agent_sessions parent row — production
+                # rows that exhibit the bug have valid FKs but stale status.
+                await db.execute("PRAGMA foreign_keys = OFF")
+                vterm_id = f"vterm_{agent_id}_stale_synth"
+                await db.execute(
+                    """INSERT INTO terminal_sessions
+                    (id, session_id, agent_id, environment_id, bridge_id,
+                     runtime, workspace, command, status, requested_by,
+                     created_at, updated_at)
+                    VALUES (?, ?, ?, '', '',
+                            ?, '', '', 'running', '',
+                            '2026-05-24T16:05:04Z', '2026-05-24T16:05:04Z')""",
+                    (vterm_id, f"sess-{agent_id}", agent_id, runtime),
+                )
+                await db.commit()
+                await db.execute("PRAGMA foreign_keys = ON")
+                return vterm_id
+            finally:
+                await db.close()
+
+        return asyncio.run(_stamp())
+
     def _read_agent_live_state(self, agent_id: str) -> dict:
         async def _read():
             from service.db import get_db
@@ -224,6 +259,35 @@ class AgentStatusReadGateTests(unittest.TestCase):
             cached.get("status"), "available",
             f"Cache should hold 'available' after gate fires; got {cached!r}",
         )
+
+    # ------------------------------------------------------------------
+    # Plan 5 follow-up (2026-05-26) — stale synth (`vterm_*`) rows must
+    # NOT count as live workers for wrapper-backed runtimes.
+    # ------------------------------------------------------------------
+
+    def test_stale_synth_vterm_row_does_not_keep_agent_online(self):
+        """sc-coder / sc-architect kept showing 'online' after Plan 5 deploy
+        because a pre-Plan-4 `vterm_*` (synth/virtual) terminal_sessions row
+        from 2026-05-24 was still marked status='running'. Plan 4 deprecated
+        synth terminals for wrapper-backed runtimes (see
+        `_synth_terminal_should_be_created`) but did not clean up old DB
+        rows. The Plan 5 gate's `_has_live_terminal_session` must exclude
+        these — only real wrapper PTY rows (`term_*`) should count as live
+        workers for wrapper-backed runtimes."""
+        self._heartbeat_environment("hermes")
+        self._register_managed_agent(agent_id="hermes-stale-synth", runtime="hermes")
+        self._stamp_stale_online_cache("hermes-stale-synth")
+        self._insert_stale_synth_terminal("hermes-stale-synth", runtime="hermes")
+
+        res = self.client.get("/api/v1/agents/hermes-stale-synth")
+        self.assertEqual(res.status_code, 200, res.text)
+        agent = res.json()["agent"]
+        self.assertNotEqual(
+            agent["status"], "online",
+            f"Plan 5 follow-up: a stale vterm_* row must NOT keep "
+            f"a wrapper-backed managed agent showing online. Got {agent['status']!r}",
+        )
+        self.assertEqual(agent["status"], "available")
 
 
 if __name__ == "__main__":
