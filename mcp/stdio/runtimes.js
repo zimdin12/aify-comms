@@ -1,18 +1,12 @@
-import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import os from "os";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
-import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
-import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
-import { acquirePiSession } from "./pi-session.js";
-import { getOrCreateHermesSession } from "./hermes-session.js";
-import { getOrCreateHermesGatewaySession, managedHermesUsesGateway } from "./hermes-managed-gateway-session.js";
-import { getOrCreateCodexSession } from "./codex-session.js";
+import { resolveCodexRequestCwdFor } from "./codex-errors.js";
 import { adapterFor } from "./adapters/index.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
@@ -253,11 +247,6 @@ function quotePowerShellString(value) {
   return `'${String(value || "").replace(/'/g, "''")}'`;
 }
 
-function extractClaudeSessionInUseId(text) {
-  const match = String(text || "").match(/session id\s+([0-9a-f-]{16,})\s+is already in use/i);
-  return match ? match[1] : "";
-}
-
 function claudeProjectNameForCwd(cwd) {
   return String(cwd || process.cwd()).replace(/[^a-zA-Z0-9]/g, "-");
 }
@@ -337,26 +326,6 @@ export function buildManagedClaudeUnlockPowerShell(sessionId, markerPids = []) {
     "  }",
     "}",
   ].join("\n");
-}
-
-function releaseManagedClaudeSessionLock(sessionId, cwd = "") {
-  const normalized = String(sessionId || "").trim();
-  if (!normalized || process.platform !== "win32") return { releasedPids: [], markerPids: [] };
-  const markerPids = listRuntimeMarkers("claude-code", cwd)
-    .map((marker) => Number(marker?.pid || 0))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
-  const script = buildManagedClaudeUnlockPowerShell(normalized, markerPids);
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 10000,
-  });
-  if (result.status !== 0) return { releasedPids: [], markerPids };
-  const releasedPids = String(result.stdout || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return { releasedPids, markerPids };
 }
 
 const ENVIRONMENT_BRIDGE_ENV_KEYS = [
@@ -1517,32 +1486,12 @@ export function runtimeLaunchAvailability(runtime) {
   return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
 }
 
-function canUseDefaultResidentCodexBridge() {
-  if (process.platform !== "win32") return true;
-  const originator = String(process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || "").trim().toLowerCase();
-  if (originator !== "codex desktop") return true;
-  return process.env.AIFY_CODEX_ALLOW_DESKTOP_RESIDENT === "1";
-}
-
-export function hasClaudeLiveChannel(runtimeConfig = {}) {
-  return (
-    runtimeConfig?.channelEnabled === true ||
-    process.env.AIFY_COMMS_CHANNEL_ENABLED === "1" ||
-    process.env.AIFY_CLAUDE_CHANNEL_ENABLED === "1"
-  );
-}
-
 export function getRuntimeConfig(agentInfo) {
   return agentInfo.runtimeConfig || {};
 }
 
 export function hasCodexLiveAppServer(runtimeConfig = {}) {
   const url = String(runtimeConfig?.appServerUrl || "").trim();
-  return /^wss?:\/\//i.test(url);
-}
-
-export function hasHermesLiveGateway(runtimeConfig = {}) {
-  const url = String(runtimeConfig?.gatewayUrl || "").trim();
   return /^wss?:\/\//i.test(url);
 }
 
@@ -2146,25 +2095,6 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
   } catch (error) {
     return failedRuntimeController(runtime, error);
   }
-}
-
-function createTerminalDeliveryController(runtime) {
-  // Runtimes whose only execution surface is the dashboard console/terminal
-  // PTY (not bridge active-dispatch). Returns a controller that rejects an
-  // active-dispatch claim with a clear, actionable message so the run does
-  // not look mysteriously "unsupported".
-  const message =
-    `Runtime "${runtime}" runs via the dashboard Console (terminal/PTY), not bridge active dispatch. ` +
-    `Spawn it from a connected environment and drive it through its Console; ` +
-    `it will not be claimed for managed/resident active-dispatch turns.`;
-  return {
-    capabilities: controlCapabilitiesForRuntime(runtime),
-    interrupt: () => {},
-    steer: async () => {
-      throw new Error(message);
-    },
-    promise: Promise.reject(new Error(message)),
-  };
 }
 
 function failedRuntimeController(runtime, error) {
