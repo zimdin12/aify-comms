@@ -129,7 +129,34 @@ This is the symmetric equivalent of Claude Code's `notifications/claude/channel`
 
 **Cleanup:** `trap cleanup_aify_dashboard EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background dashboard logs go to `$XDG_STATE_HOME/aify-comms/hermes-aify-dashboard-<port>.log` (or `~/.local/state/aify-comms/...` on systems without XDG_STATE_HOME).
 
-**Known limitations.** The dashboard binds to 127.0.0.1 only and uses ephemeral per-process tokens — it's safe to leave running. The `--skip-build` flag relies on hermes having already built the web UI dist once; if you never ran `hermes dashboard` before, the first wrapper invocation may need to build it (skip the flag, or run `hermes dashboard --no-open` once to prime).
+**Known limitations.** The dashboard binds to 127.0.0.1 only and uses ephemeral per-process tokens — it's safe to leave running. The `--skip-build` flag relies on hermes having already built the web UI dist once; **`install.sh --client hermes` now pre-builds this automatically** (see "web_dist prebuild" below). If you skip install.sh's prebuild (e.g. install hermes after running install.sh), you can prime it manually with `hermes dashboard --no-open` once.
+
+### web_dist prebuild (added 2026-05-25)
+
+`install.sh --client hermes` detects whether `<hermes-install-root>/hermes_cli/web_dist/index.html` exists and, if not, runs `npm install && npm run build` once in `<hermes-install-root>/web/`. Without this, fresh hermes installs hit the failure described in the section above: `hermes dashboard --skip-build` dies with `✗ --skip-build was passed but no web dist found at: ...`, the wrapper falls through to plain `hermes`, and every resident-channel wake for the session reports `hermes-missing-handle`.
+
+Detection order for the hermes install root:
+
+1. `AIFY_HERMES_INSTALL_ROOT` env (overrides everything; useful when `hermes` is symlinked to a non-canonical location)
+2. `hermes config path` parsed up to `/hermes_cli/...` (the canonical Windows path is `~/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml`, so the install root is `~/AppData/Local/hermes/hermes-agent`)
+3. Skip with a log line if neither resolves
+
+The prebuild is idempotent — re-running `install.sh --client hermes` after web_dist exists logs `hermes web_dist already present at ...` and skips. Re-run is required only when hermes itself is upgraded.
+
+### Fallback warning (added 2026-05-25)
+
+When `hermes-aify` cannot start the dashboard gateway (port allocation failure, dashboard probe timeout, missing web_dist, token capture failure) or when `AIFY_HERMES_SKIP_GATEWAY=1` is set, it now prints a multi-line WARNING block before exec-ing plain `hermes`:
+
+```
+[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.
+[hermes-aify]   Reason: <one of port_alloc_failed / dashboard_unreachable / token_capture_failed / gateway_disabled>
+[hermes-aify]   Log:    ~/.local/state/aify-comms/hermes-aify-dashboard-<port>.log
+[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'.
+[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or
+[hermes-aify]           inspect the dashboard log above for the underlying error.
+```
+
+Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work.
 
 ## What This Installs
 
