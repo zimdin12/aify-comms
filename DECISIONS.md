@@ -577,3 +577,13 @@ Module-load cycle (`adapters/X → controllers/X → runtimes.js → adapters/in
 **Follow-ups tracked:** runtimes.js helper extraction (the 2110 → ≤500 path is mapped — 4 clusters in `codex-config-helpers.js`, `codex-live-discovery.js`, `executable-resolution.js`, `rpc-clients.js`).
 
 **See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan3-controllers-and-delivery-design.md`, `docs/superpowers/plans/2026-05-25-plan3-controllers-and-delivery.md`.
+
+## 2026-05-25 — Plan 4: Status, session-handle, default-path fixes
+
+**Decision:** Close 12 operator-surfaced gaps from Plans 1+2+3 live testing.
+Flip wrapper-backed delivery to default (`managed_via_wrapper: ["codex","hermes","pi"]` + `managed_pty_eager_spawn: true`). Deprecate synth terminals (`aify://virtual-rpc/*`) for wrapper-backed runtimes — synth stays only for opencode + hard-failure fallback. Per-adapter `discoverSessionId()` closes the "missing handles" gap for fresh managed launches (pi reads `~/.omp/agent/sessions/`, codex walks `~/.codex/sessions/` accepting flat/date-sharded/dir-per-session, hermes queries gateway then `~/.hermes/sessions/`, claude scans `~/.claude/projects/`). Bridge heartbeat falls back to discoverSessionId when env-read returns null. Status taxonomy stops lying — managed agents without a live worker show `available` not `online`; new `ready` status sits between `online` and `working` (handshake-complete signal emitted by each controller). New `mcp/stdio/turn-busy-heartbeat.js` keeps `working` fresh during long turns. codex-aify wrapper probe accepts multi-layout codex session storage. `hermes-session-resume` wake-mode removed entirely (gateway path is the single source). `redeploy.sh` helper auto-detects installed wrappers and refreshes them after pulls.
+
+**Why:** Operator-driven live testing after Plans 1+2+3 surfaced a tight cluster of issues each blocking everyday use. Plan 4 is the "polish layer that makes the architecture deployable."
+
+**See:** `docs/superpowers/specs/2026-05-25-plan4-status-and-session-handle-fixes-design.md`,
+`docs/superpowers/plans/2026-05-25-plan4-status-and-session-handle-fixes.md`.

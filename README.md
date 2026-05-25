@@ -99,6 +99,7 @@ Important starting docs:
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
 | `.claude/skills/aify-comms*/` | Agent-facing usage + debug skills. Mirrored under `.agents/skills/` for Codex. |
 | `install.sh` | Client installer. Targets Claude, Codex, Hermes, OpenCode, or Pi via `--client`. |
+| `redeploy.sh` | Plan 4 helper. Auto-detects installed `*-aify` wrappers at `~/.local/bin/` and re-runs `install.sh --client X SERVER_URL` for each. Run after pulling new aify-comms changes to refresh wrappers. |
 
 ## Setup
 
@@ -121,7 +122,7 @@ bash install.sh --client opencode http://192.168.100.10:8800
 bash install.sh --client pi http://192.168.100.10:8800
 ```
 
-After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills.
+After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills. As a convenience after `git pull`, run `./redeploy.sh` — it auto-detects every `*-aify` wrapper installed at `~/.local/bin/` and re-runs `install.sh --client X` for each, so you don't have to remember which clients are installed on the host.
 
 ## Connect Environments
 
