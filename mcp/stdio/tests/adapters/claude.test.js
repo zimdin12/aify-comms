@@ -27,3 +27,13 @@ test("ClaudeAdapter diagnosticEnv exposes CLAUDE_SESSION_ID", () => {
   assert.deepStrictEqual(a.diagnosticEnv(), { CLAUDE_SESSION_ID: "active-id" });
   delete process.env.CLAUDE_SESSION_ID;
 });
+
+test("ClaudeAdapter Plan 2 capabilities", () => {
+  const a = new ClaudeAdapter();
+  assert.strictEqual(a.supportsResident, true);
+  assert.strictEqual(a.supportsManaged, true);
+  assert.strictEqual(a.supportsSteering, true);
+  assert.strictEqual(a.supportsInterrupt, true);
+  assert.strictEqual(a.supportsMultiClient, true);
+  assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
+});
