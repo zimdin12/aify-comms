@@ -53,7 +53,21 @@ class ApiV2RegressionTests(unittest.TestCase):
         # contracts (consoleDeliveries, terminal-control inputs, idle-
         # prompt closes, etc.) still apply. Individual tests for the new
         # channel-route default set this back to False explicitly.
-        self.client.put("/api/v1/settings", json={"insert_messages_via_console": True})
+        #
+        # Plan 4 (2026-05-25) also flipped managed_via_wrapper and
+        # managed_pty_eager_spawn defaults to ON. Most legacy regressions
+        # predate the wrapper-backed path / eager-spawn behavior; opt
+        # this whole suite back into the pre-Plan-4 defaults so those
+        # historical contracts still apply. Plan-4-specific tests live
+        # in test_default_settings_plan4.py and opt back in explicitly.
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": True,
+                "managed_via_wrapper": False,
+                "managed_pty_eager_spawn": False,
+            },
+        )
 
     def tearDown(self):
         self.client.close()
@@ -1978,14 +1992,16 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("managed-run", error2 or "")
 
     def test_managed_via_wrapper_setting_defaults_to_off(self):
-        # Unified-backing refactor: feature flag must default to off-equivalent
-        # so existing managed flow stays default until the new path is
-        # validated per-runtime.
+        # Plan 4 (2026-05-25): flipped to ON by default ([codex,hermes,pi])
+        # now that wrapper-backed delivery has shipped. This contract
+        # guard was the Plan 2 off-state assertion; the post-Plan-4
+        # default-flip is asserted in test_default_settings_plan4.py.
+        # Kept here so the regression suite still pins the value.
         from service.routers.api_v2 import DEFAULT_SETTINGS
         self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
         val = DEFAULT_SETTINGS["managed_via_wrapper"]
-        self.assertTrue(val is False or val == [] or val is None,
-                        f"managed_via_wrapper must default to off-equivalent; got {val!r}")
+        self.assertEqual(val, ["codex", "hermes", "pi"],
+                         f"managed_via_wrapper Plan-4 default: expected [codex,hermes,pi]; got {val!r}")
 
     def test_managed_via_wrapper_routes_dispatch_as_channel(self):
         # Unified-backing refactor: when managed_via_wrapper includes a runtime,
@@ -2064,9 +2080,12 @@ class ApiV2RegressionTests(unittest.TestCase):
 
     def test_managed_via_wrapper_for_runtime_handles_bool_list_none(self):
         from service.routers.api_v2 import _managed_via_wrapper_for_runtime
-        # Off: returns False for all runtimes.
+        # Off: returns False for all runtimes. (Plan 4 (2026-05-25)
+        # flipped the DEFAULT to ON, so `{}` now resolves via
+        # DEFAULT_SETTINGS to ["codex","hermes","pi"]. The off-state
+        # contract still holds when callers pass an explicit False.)
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
-        self.assertFalse(_managed_via_wrapper_for_runtime({}, "hermes"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "codex"))
         # True: returns True for runtimes whose adapter declares
         # preferred_delivery_mode == "managed-via-wrapper" (codex/hermes/pi).
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
@@ -2181,10 +2200,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(sess["terminal_id"], terminals[0]["id"])
 
     def test_managed_pty_eager_spawn_default_off_preserves_prior_behavior(self):
-        # Contract guard: the flag is OFF by default. Existing behavior
-        # (PTY lazily on first dispatch) must be preserved so we don't
-        # surprise current operators.
-        # NO setting put -> default false.
+        # Pre-Plan-4 contract guard: lazy-PTY behavior with the flag
+        # explicitly OFF. Plan 4 (2026-05-25) flipped the default to
+        # ON; this test now explicitly opts out via settings to keep
+        # the legacy-lazy contract covered. The post-Plan-4 default-ON
+        # assertion lives in test_default_settings_plan4.py.
+        self.client.put("/api/v1/settings", json={"managed_pty_eager_spawn": False})
         session_id = self._create_running_session(terminal=True)
         terminals = self._fetchall(
             "SELECT id FROM terminal_sessions WHERE session_id = ?",

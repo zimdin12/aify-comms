@@ -173,7 +173,7 @@ DEFAULT_SETTINGS = {
     # Default false so existing behavior (PTY lazily on first dispatch)
     # is unchanged. Operator flips on for live-smoke; immediate
     # rollback by flipping back to false.
-    "managed_pty_eager_spawn": False,
+    "managed_pty_eager_spawn": True,                    # Plan 4 (2026-05-25): auto-spawn on dispatch; was False
     # Unified-backing refactor (2026-05-24): when set, managed dispatches for
     # the listed runtimes route through a *-aify wrapper PTY (mirror of how
     # managed claude already works via claude-channel.js inside claude-aify)
@@ -189,7 +189,7 @@ DEFAULT_SETTINGS = {
     # pi is structurally excluded (omp single-client RPC + bridge-owned
     # mutex make the wrapper pattern impossible). pi managed stays on
     # the persistent PiSession synth-terminal path. See DECISIONS.md.
-    "managed_via_wrapper": False,
+    "managed_via_wrapper": ["codex", "hermes", "pi"],  # Plan 4 (2026-05-25): wrapper-backed default; was False
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
     # asked for this 2026-05-22: after sending a message the agent
