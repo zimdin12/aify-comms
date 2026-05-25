@@ -28,7 +28,8 @@ def test_pi_managed_still_advertises_managed_run_and_steer():
 
 
 def test_claude_resident_still_has_resident_run():
-    caps = _default_capabilities_for("claude-code", "resident", "session-x", {})
+    # Plan 3 (#120): claude resident needs channelEnabled=True to get resident-run.
+    caps = _default_capabilities_for("claude-code", "resident", "session-x", {"channelEnabled": True})
     assert "resident-run" in caps
 
 

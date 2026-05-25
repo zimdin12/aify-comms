@@ -839,10 +839,9 @@ def _default_capabilities_for(
 ) -> list[str]:
     """Build the default capability list for an agent registration.
 
-    Plan 2 (2026-05-25): derives from the runtime adapter's supports_* flags
-    so the per-runtime hardcoded branches collapse into one rule. The session
-    mode + handle + runtime_config still gate per-agent capability (e.g. a
-    hermes resident without a live gatewayUrl gets no `resident-run`).
+    Plan 3 (2026-05-25): resident gating routes through adapter.is_resident_ready()
+    which closes the #120 regression — claude resident needs channelEnabled,
+    hermes resident needs a valid gatewayUrl, both rolled into the adapter.
     """
     from service.runtimes import adapter_for
 
@@ -856,13 +855,9 @@ def _default_capabilities_for(
     session_mode_n = _normalize_session_mode(session_mode or "")
 
     if session_mode_n == "resident":
-        # Resident-capable only when the adapter declares it AND, for
-        # gateway-backed runtimes, the gateway URL is present.
-        gateway_ok = True
-        if runtime_n == "hermes":
-            gw = str((runtime_config or {}).get("gatewayUrl", "")).strip()
-            gateway_ok = bool(gw)
-        if adapter.supports_resident and gateway_ok:
+        # Plan 3: adapter.is_resident_ready() encapsulates per-runtime,
+        # per-config gating (channelEnabled for claude, gatewayUrl for hermes).
+        if adapter.supports_resident and adapter.is_resident_ready(runtime_config or {}):
             caps.append("resident-run")
     else:
         if adapter.supports_managed:
