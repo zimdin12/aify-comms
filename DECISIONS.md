@@ -526,6 +526,8 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 
 **Reconsider if.** Upstream Claude Code fixes the MCP init race (#38462 / #21341 close) — at which point the env-var escape hatch becomes dead code and can be removed. Until then, keep both branches.
 
+**Plan 4 Task 15 verification (2026-05-25):** Wrapper redeployed at `~/.local/bin/claude-aify` (May 25 17:47) post-`./install.sh --client claude`. Static check: install.sh's claude-aify wrapper-generation gates `--strict-mcp-config` behind `AIFY_CLAUDE_STRICT_MCP=1` (verified by `mcp/stdio/tests/claude-aify-strict-mcp-env-gate.test.js`). Operator-side live smoke pending — should be done when operator returns: launch fresh `claude-aify` and verify `/mcp` lists the full `~/.claude.json` mcpServers (aify-comms, aify-comms-channel, browsermcp, github, aify-project-graph, etc.). If MCPs are still missing, root cause is deeper than the env-gate and needs investigation.
+
 ## 2026-05-25 — RuntimeAdapter foundation + unified session-handle capture
 
 **Decision:** Introduce a `RuntimeAdapter` abstract class in `mcp/stdio/adapters/` with one concrete subclass per supported runtime (claude-code, codex, hermes, pi, opencode). Plan 1 implements session-lifecycle methods (`getCurrentSessionId`, `resumeArgs`, `normalizeSessionHandle`, `normalizeModelOverride`, `diagnosticEnv`). Bridge consumes the adapter to (a) report the current runtime session id in the startup banner, (b) fill `sessionHandle` in `comms_register` payloads, and (c) PATCH `/api/v2/agents/{id}/session-handle` every 60s when the handle changes.
