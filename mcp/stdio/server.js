@@ -749,9 +749,11 @@ function wakeModeSummary(info = {}) {
   ) {
     // Gateway-channel resident hermes: bridge injects via tui_gateway /api/ws.
     // sessionHandle is optional — controller resolves session.most_recent.
+    // Plan 4 Task 17: gateway is the single source for resident hermes; the
+    // legacy hermes-session-resume mode (spawn-fresh-hermes-with-provider-config)
+    // is dead code now that discoverSessionId reliably captures gatewayUrl.
     return "hermes-live";
   }
-  if (sessionMode === "resident" && runtime === "hermes" && capabilities.includes("resident-run") && info.sessionHandle) return "hermes-session-resume";
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";

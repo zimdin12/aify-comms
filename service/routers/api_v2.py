@@ -726,6 +726,15 @@ def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) 
     return str(runtime_config.get("appServerUrl") or "").strip().lower().startswith(("ws://", "wss://"))
 
 
+def _has_hermes_gateway_url(runtime_config: Optional[dict[str, Any]] = None) -> bool:
+    """Plan 4 Task 17: hermes resident uses the gateway path when a live
+    gatewayUrl is present in runtime_config. Mirrors the bridge-side check
+    in mcp/stdio/server.js."""
+    if not isinstance(runtime_config, dict):
+        return False
+    return str(runtime_config.get("gatewayUrl") or "").strip().lower().startswith(("ws://", "wss://"))
+
+
 def _normalize_channel_history_where(channel_name: str) -> tuple[str, tuple[Any, ...]]:
     return "channel = ? AND to_agent IS NULL", (channel_name,)
 
@@ -991,15 +1000,20 @@ def _agent_wake_mode(row) -> str:
         return "codex-live"
     if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
         return "codex-thread-resume"
-    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and session_handle:
-        return "hermes-session-resume"
+    # Plan 4 Task 17: resident hermes uses gateway path (hermes-live) — the
+    # bridge captures gatewayUrl via discoverSessionId after hermes-aify starts,
+    # so resident hermes wake-mode is always gateway-channel. The legacy
+    # hermes-session-resume mode (spawn fresh hermes with provider config) is
+    # dead code post Plan 4 Task 7; gateway is the single source.
+    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and _has_hermes_gateway_url(runtime_config):
+        return "hermes-live"
     if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
         return "opencode-session-resume"
     if session_mode == "resident" and runtime == "pi" and "resident-run" in capabilities and session_handle:
         return "pi-session-resume"
     if session_mode == "resident" and runtime == "codex" and not session_handle:
         return "codex-missing-handle"
-    if session_mode == "resident" and runtime == "hermes" and not session_handle:
+    if session_mode == "resident" and runtime == "hermes" and not _has_hermes_gateway_url(runtime_config):
         return "hermes-missing-handle"
     if session_mode == "resident" and runtime == "opencode" and not session_handle:
         return "opencode-missing-handle"
