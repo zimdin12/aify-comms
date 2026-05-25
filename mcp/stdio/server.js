@@ -861,6 +861,26 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
   return runtimeConfig;
 }
 
+// Plan 6 A2 (2026-05-26): runtime-authoritative session-handle resolver
+// used at the initial register path (mirrors A1's heartbeat reversal).
+// The wrapper exports HERMES_SESSION_ID / CODEX_THREAD_ID etc. from
+// whatever the operator's parent shell happened to have set — often
+// stale values from a prior runtime session. Discover-first asks the
+// runtime itself (gateway RPC / app-server probe / filesystem scan) for
+// the truth; env-fallback preserves the legacy behavior when the
+// runtime can't be probed (no adapter, discover throws, returns null).
+// Strictly additive: when discover fails, we get exactly the pre-Plan-6
+// behavior. Exported for unit testing.
+export async function computeInitialSessionHandle({ adapter, envHandle }) {
+  if (adapter && typeof adapter.discoverSessionId === "function") {
+    try {
+      const discovered = await adapter.discoverSessionId();
+      if (discovered) return String(discovered).trim();
+    } catch { /* swallow; fall through to env */ }
+  }
+  return String(envHandle || "").trim();
+}
+
 async function autoRegisterConfiguredAgent() {
   if (!IS_REMOTE || IS_MANAGED_DISPATCH || !AIFY_AGENT_ID) return;
   try { validateName(AIFY_AGENT_ID, "agent ID"); } catch (error) {
@@ -870,7 +890,9 @@ async function autoRegisterConfiguredAgent() {
   const runtime = detectRuntime(process.env.AIFY_RUNTIME || "");
   const cwd = normalizeRegistrationCwd(runtime, process.env.AIFY_AGENT_CWD || DEFAULT_CWD);
   let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
-  const initialHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  const envHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  // Plan 6 A2: discover authoritative, env fallback. See computeInitialSessionHandle above.
+  const initialHandle = await computeInitialSessionHandle({ adapter: __runtimeAdapter, envHandle });
   let codexLiveBinding = null;
   if (runtime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
     codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle: initialHandle, cwd });
@@ -4577,7 +4599,18 @@ async function main() {
   await autoRegisterConfiguredAgent();
 }
 
-main().catch((err) => {
+// Plan 6 A2 (2026-05-26): only auto-run main() when this file is the
+// process entrypoint. Tests that import named helpers (e.g.
+// computeInitialSessionHandle) from this module otherwise hang because
+// main() blocks on stdin via StdioServerTransport. The guard is safe —
+// real bridge launches always invoke server.js directly via the wrapper
+// shebang or `node mcp/stdio/server.js`.
+const __isEntrypoint = (() => {
+  try {
+    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+  } catch { return true; }
+})();
+if (__isEntrypoint) main().catch((err) => {
   console.error("Fatal:", err);
   process.exit(1);
 });
