@@ -587,3 +587,33 @@ Flip wrapper-backed delivery to default (`managed_via_wrapper: ["codex","hermes"
 
 **See:** `docs/superpowers/specs/2026-05-25-plan4-status-and-session-handle-fixes-design.md`,
 `docs/superpowers/plans/2026-05-25-plan4-status-and-session-handle-fixes.md`.
+
+## 2026-05-26 — Hermes-aify dashboard probe falls through silently when web_dist missing (Plan 5 Section A)
+
+**Symptom.** Operator launches `hermes-aify`; agent registers but `wakeMode='hermes-missing-handle'`. `AIFY_HERMES_GATEWAY_URL` is unset in the shell. Resident hermes dispatches fail to wake the agent. Tiny (~240 byte) log files in `~/.local/state/aify-comms/hermes-aify-dashboard-*.log` contain only `✗ --skip-build was passed but no web dist found`.
+
+**Architectural gap.** The wrapper invoked `hermes dashboard --tui --skip-build` to obtain a gateway URL, but never pre-built `hermes_cli/web_dist`. The dashboard subcommand exited immediately, `wait_for_http` timed out (30s), and the wrapper silently `exec`'d plain `hermes` without exporting `AIFY_HERMES_GATEWAY_URL`. Inside that plain shell the aify-comms MCP child registered with `runtime_config={}` and the server resolved a non-live wake mode. No visible error.
+
+**Fix.** `install.sh --client hermes` now runs `npm install && npm run build` against the hermes web tree once at install (`install.sh`, commit `5057383`). The wrapper additionally prints a loud WARNING when it falls back to plain hermes (`7a544e8`) instead of failing silently. Right boundary: the build is a one-time install concern, not a per-launch cost; the WARNING is a runtime concern that keeps operator visibility intact when the install step was skipped or partial.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section A.
+
+## 2026-05-26 — Channel-claim must be symmetric across runtimes (Plan 5 Section B)
+
+**Symptom.** After Plan 4 flipped wrapper-backed delivery on for codex/hermes/pi, dashboard sends to graph-senior-dev (codex managed), pi-managed, and hermes-managed agents stayed `status='queued', execution_mode='channel', claim_bridge_id=''` forever. Bridges were alive and heartbeating. Identical symptom across three runtimes.
+
+**Architectural gap.** Plan 4 set the server route to `execution_mode='channel'` for any wrapper-backed runtime (`api_v2.py:1047`), but the claim-side whitelist `_CHANNEL_MANAGED_RUNTIMES` only contained `claude-code`. Bridges for codex/hermes/pi never even requested `'channel'` in their claim poll (`dispatch-execution.js`), and the server would have rejected them at the claim gate anyway. Plan 4 was asymmetric: route added without claim added.
+
+**Fix.** Introduced `_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex","hermes","pi"}` at `api_v2.py:281` (the *claim* whitelist, distinct from the route-routing set) — commit `ec363cf`. Bridges advertise `'channel'` for managed + wrapper-backed runtimes (`3bcbac2`). Controllers route channel-mode claims to the same runtime-native inject path used by resident-channel (`0beab57`). Right boundary: the bridge inside a wrapper-backed managed PTY is structurally identical to a resident bridge — same process, same inject path — so symmetric claim respects that, and a separate `_CHANNEL_CLAIM_RUNTIMES` set preserves the route/claim distinction without conflating concerns.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section B.
+
+## 2026-05-26 — Live-state cache must not lie about 'online' (Plan 5 Section C)
+
+**Symptom.** Dashboard shows a managed agent as `online` indefinitely after its wrapper PTY exited. No Console widget loads. `terminal_sessions` row is `stopped`/`failed`/missing, but `agent_live_state.status='online'` with `refresh_after` long past — and never re-validated on read.
+
+**Architectural gap.** `_compute_live_status_cache` (`api_v2.py:2228-2462`) computed `has_live_worker` correctly when invoked, but the cache's `refresh_after` was keyed off heartbeat freshness, not worker presence. A parallel heartbeat (from a sibling bridge or operator's own session) kept the agent's `last_seen` fresh, so `refresh_after` stayed in the future and the cache was never re-validated. The Plan 4 Task 10 implementer claimed the cache implemented the new taxonomy "correctly" — that claim only covered the db-less fallback path.
+
+**Fix.** Added `_enforce_live_worker_gate` at `api_v2.py:352`, called at every agent read (`api_v2.py:8517, 9017`) — commits `b58142e` + `f38f57d`. Before returning `status='online'` for a managed wrapper-backed agent, the gate validates that a non-`stopped`/`failed` `terminal_sessions` row exists. If not, downgrade to `available` and write back to `agent_live_state` so the next read is also corrected. Right boundary: the API read path is the cheapest, most self-correcting place to enforce the invariant — the cache stays for performance but cannot lie on the way out.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section C.

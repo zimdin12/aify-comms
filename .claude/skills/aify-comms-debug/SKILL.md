@@ -692,6 +692,77 @@ The bridge spawned `hermes acp` but never got an `initialize` response within 45
 
 If hermes asks the bridge to spawn a child process (`terminal/create`, etc.), the bridge replies with method-not-found by design (no in-bridge sandbox). Hermes should fall back to its own sandbox. If hermes errors out instead, configure hermes itself with a sandbox provider — the bridge will not host tool subprocesses.
 
+## Hermes-aify wrapper fell through to plain hermes (Plan 5 Section A)
+
+**Symptom.** A `hermes-aify` resident agent reports `wakeMode='hermes-missing-handle'`. From the operator's hermes shell, `echo $AIFY_HERMES_GATEWAY_URL` prints empty. Dispatches to the agent never wake it; the wrapper appears to have launched ok.
+
+**Detection.**
+
+```bash
+ls -la ~/.local/state/aify-comms/hermes-aify-dashboard-*.log
+# Look for files ~240 bytes, recently modified
+cat ~/.local/state/aify-comms/hermes-aify-dashboard-*.log | head -5
+# Expect: "✗ --skip-build was passed but no web dist found at: .../hermes_cli/web_dist"
+```
+
+If the log shows that line, the wrapper's `hermes dashboard --tui --skip-build` probe died immediately, `wait_for_http` timed out, and the wrapper silently `exec`'d plain `hermes` without exporting the gateway URL. The MCP child then registered with no gateway env.
+
+**Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers also print a visible WARNING when this fallback path triggers (commit `7a544e8`), so subsequent occurrences won't be silent.
+
+## Queued managed run never claimed (Plan 5 Section B)
+
+**Symptom.** A managed codex / hermes / pi agent (e.g. graph-senior-dev, hermes-test, pi-aify managed) is registered, the bridge is alive and heartbeating, the wrapper PTY is running — but `comms_send` messages stay queued indefinitely. No claim event, no controls recorded.
+
+**Detection.** Query the service DB for the agent's dispatch runs:
+
+```bash
+docker exec aify-comms-service python -c "
+import sqlite3, glob
+db = sorted(glob.glob('/data/*.db'))[-1]
+c = sqlite3.connect(db)
+for r in c.execute(\"SELECT id, runtime, status, execution_mode, claim_bridge_id, created_at FROM dispatch_runs WHERE agent_id='YOUR-AGENT-ID' ORDER BY created_at DESC LIMIT 5\"):
+    print(r)
+"
+```
+
+If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_bridge_id=''` more than a few seconds old, this is the Plan 5 Section B gap: the server routed the run to channel-mode but the bridge whitelist (`_CHANNEL_CLAIM_RUNTIMES` in `api_v2.py`) didn't include that runtime, so its bridge can't claim.
+
+**Fix.**
+1. Confirm Plan 5 is deployed — grep the container for `_CHANNEL_CLAIM_RUNTIMES`:
+   ```bash
+   docker exec aify-comms-service grep -n "_CHANNEL_CLAIM_RUNTIMES" /app/service/routers/api_v2.py
+   ```
+   Expect a line defining the set as `_CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes", "pi"}`. Missing → rebuild the service.
+2. Check that the affected runtime is in `managed_via_wrapper`:
+   ```bash
+   curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep -A3 managed_via_wrapper
+   ```
+   Should list `"codex"`, `"hermes"`, `"pi"` (Plan 4 default).
+3. If wrappers are older than commits `3bcbac2` / `0beab57`, run `./redeploy.sh` to refresh installed `*-aify` wrappers and restart any host bridges. Re-dispatch — the queued run should claim within one poll cycle (~3s).
+
+## Agent shows online without a console (Plan 5 Section C)
+
+**Symptom.** Dashboard shows a managed agent as `online`. Clicking through to the agent never loads a Console widget; no live terminal_session attaches. The wrapper PTY exited some time ago, but the agent never downgraded.
+
+**Detection.** Compare cached status against actual worker presence:
+
+```bash
+docker exec aify-comms-service python -c "
+import sqlite3, glob
+db = sorted(glob.glob('/data/*.db'))[-1]
+c = sqlite3.connect(db)
+aid = 'YOUR-AGENT-ID'
+live = c.execute('SELECT status, updated_at, refresh_after FROM agent_live_state WHERE agent_id=?', (aid,)).fetchone()
+terms = c.execute(\"SELECT id, status FROM terminal_sessions WHERE agent_id=? AND status NOT IN ('stopped','failed','exited')\", (aid,)).fetchall()
+print('live:', live)
+print('active terms:', terms)
+"
+```
+
+If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C bug — `agent_live_state` cached `online` and `refresh_after` was keyed off heartbeat freshness rather than worker presence, so a sibling/operator heartbeat kept the lie alive.
+
+**Fix.** Rebuild the container so `_enforce_live_worker_gate` (added at `api_v2.py:352` in commits `b58142e` + `f38f57d`) is loaded. On the next `GET /api/v1/agents` or `/agents/{id}` read, the gate validates the live worker and downgrades to `available`; a cache writeback ensures subsequent reads stay consistent. No manual DB patch is needed once Plan 5 is in.
+
 ## General escalation
 
 If none of the fixes above resolve the issue:
