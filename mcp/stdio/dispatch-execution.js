@@ -32,6 +32,27 @@ export function supportedExecutionModes(info = {}, options = {}) {
   ) {
     modes.push("managed");
   }
+  // Plan 5 (2026-05-25) symmetric channel-claim: when the agent is recorded
+  // as sessionMode='managed' AND the runtime is wrapper-backed
+  // (managed_via_wrapper includes it), the main bridge claims execution
+  // mode 'channel'. This mirrors the server-side route at api_v2.py:1047
+  // which sets execution_mode='channel' for wrapper-backed managed
+  // dispatches. Without this branch, the main bridge requests []
+  // (the legacy 'managed' push above is gated off by !isWrapperBacked),
+  // the wrapper child only polls for its own AIFY_AGENT_ID, and runs
+  // targeting any other managed wrapper-backed agent sit queued forever
+  // (observed 2026-05-25 — graph-senior-dev codex managed, pi managed,
+  // hermes managed). Scope is restricted to {codex,hermes,pi} to match
+  // _CHANNEL_MANAGED_RUNTIMES on the service side; opencode is excluded
+  // (operator policy + opencode adapter declares preferred_delivery_mode
+  // != "managed-via-wrapper").
+  if (
+    sessionMode === "managed" &&
+    isWrapperBacked &&
+    (runtime === "codex" || runtime === "hermes" || runtime === "pi")
+  ) {
+    modes.push("channel");
+  }
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
     if (runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi") {
       modes.push("resident");
