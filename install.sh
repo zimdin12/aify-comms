@@ -169,6 +169,37 @@ done
 if [ -n "\$CLAUDE_RESUME_ID" ]; then
   export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
 fi
+
+# Plan 6 B4 (2026-05-26): validate CLAUDE_SESSION_ID against the on-disk
+# transcript. Claude stores transcripts at
+# ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl; if the operator's
+# shell has a stale CLAUDE_SESSION_ID from a prior session that's been
+# GC'd (or from a different cwd), the inner aify-comms MCP bridge would
+# register with that stale id and dispatch would fail with "session not
+# found" until the next heartbeat cycle (Plan 6 A1) corrected it.
+#
+# We don't try to reconstruct the encoded-cwd from bash — Windows-native
+# Claude encodes "C:\Docker\foo" while git-bash sees "/c/Docker/foo", and
+# matching either reliably is brittle. Instead: scan
+# ~/.claude/projects/*/ for ANY <id>.jsonl. If none exists the env value
+# is stale; unset so claude creates a fresh session and the bridge's
+# discover picks it up.
+validate_claude_session_id() {
+  local id="\$1"
+  [ -z "\$id" ] && return 1
+  local root="\$HOME/.claude/projects"
+  [ -d "\$root" ] || return 1
+  # Cheap glob: any project dir containing <id>.jsonl.
+  local hit
+  hit="\$(find "\$root" -maxdepth 2 -type f -name "\${id}.jsonl" 2>/dev/null | head -1)"
+  [ -n "\$hit" ]
+}
+
+if [ -n "\${CLAUDE_RESUME_ID:-}" ] && ! validate_claude_session_id "\$CLAUDE_RESUME_ID"; then
+  echo "[claude-aify] CLAUDE_SESSION_ID '\$CLAUDE_RESUME_ID' has no transcript under ~/.claude/projects/...; clearing (claude will create a fresh session)" >&2
+  unset CLAUDE_RESUME_ID
+  unset CLAUDE_SESSION_ID
+fi
 export AIFY_RUNTIME="claude-code"
 if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$CLAUDE_AIFY_AGENT_ID"
