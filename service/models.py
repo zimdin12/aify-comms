@@ -72,6 +72,15 @@ class AgentReadyUpdate(BaseModel):
     requestedBy: Optional[str] = None
 
 
+class AgentSessionModeSwitchRequest(BaseModel):
+    # Plan 6 C1 (2026-05-26): operator-driven resident/managed flip.
+    # `mode` must be 'resident' or 'managed'. `force=true` overrides
+    # the active-run guard and the hermes-without-gateway guard.
+    mode: str
+    force: bool = False
+    requestedBy: Optional[str] = None
+
+
 class AgentResidentLostRequest(BaseModel):
     bridgeId: Optional[str] = None
     machineId: Optional[str] = None

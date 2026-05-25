@@ -27,7 +27,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -9569,6 +9569,130 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             "agentId": agent_id,
             "sessionHandle": session_handle,
             "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/session-mode")
+async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRequest, request: Request):
+    """Plan 6 C1 (2026-05-26): operator-driven resident/managed mode flip.
+
+    Today the wrapper auto-detects via `[ -t 0 ]`; this endpoint lets the
+    operator override the agent's `session_mode` regardless of how the
+    wrapper was launched. Edge cases the server protects against (unless
+    `force=true` is passed):
+
+    - Active dispatch run in flight -> 409 (switching mid-turn would
+      stall the run; wait for it to finish).
+    - Hermes managed -> resident without `runtimeConfig.gatewayUrl` ->
+      409 (resident hermes needs the gateway URL to attach; leaving it
+      blank produces an un-wakeable agent).
+
+    Audit log: a `dispatch_events` row of type
+    `mode_switch_<old>_to_<new>` is appended with body
+    `agentId=<id> by=<requestedBy>`, providing traceability without a
+    new table.
+    """
+    validate_name(agent_id, "agent ID")
+    new_mode = _normalize_session_mode(req.mode)
+    requested_raw = str(req.mode or "").strip().lower()
+    if requested_raw not in _SESSION_MODES:
+        raise HTTPException(400, "mode must be 'resident' or 'managed'")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+        current_mode = _normalize_session_mode(row["session_mode"] or "resident")
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+
+        if current_mode == new_mode:
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "mode": new_mode,
+                "previousMode": current_mode,
+                "changed": False,
+            }
+
+        if not req.force:
+            blocking = await _get_blocking_active_run(db, agent_id)
+            if blocking:
+                raise HTTPException(
+                    409,
+                    f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
+                )
+            if new_mode == "resident" and runtime == "hermes":
+                rc = _json_loads_or(row["runtime_config"], {})
+                if not str(rc.get("gatewayUrl") or "").strip():
+                    raise HTTPException(
+                        409,
+                        "Hermes resident requires runtimeConfig.gatewayUrl. Re-launch hermes-aify (which exports AIFY_HERMES_GATEWAY_URL) and re-register, or pass force=true.",
+                    )
+
+        now = _now()
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        await db.execute(
+            "UPDATE agents SET session_mode = ?, last_seen = ? WHERE id = ?",
+            (new_mode, now, agent_id),
+        )
+        # C1 audit log — `dispatch_events.run_id` is a NOT NULL FK to
+        # `dispatch_runs(id)`, so we can't attach an agent-level event with
+        # an empty run_id. Workaround: insert a synthetic anchor row into
+        # `dispatch_runs` with status='completed' (so it never enters the
+        # claim/queue paths) and a recognizable subject. Then attach the
+        # mode_switch event to it. Operators see the audit row in the same
+        # per-agent dispatch history view; no new table needed.
+        event_type = f"mode_switch_{current_mode}_to_{new_mode}"
+        audit_run_id = f"mode_switch_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        await db.execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, status, summary, requested_at, finished_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                audit_run_id,
+                requested_by,
+                agent_id,
+                "audit",
+                "audit",
+                runtime,
+                "audit",
+                "session-mode-switch",
+                f"agentId={agent_id} {current_mode}->{new_mode} by={requested_by}",
+                "completed",
+                event_type,
+                now,
+                now,
+            ),
+        )
+        await _append_dispatch_event(
+            db,
+            audit_run_id,
+            event_type,
+            f"agentId={agent_id} by={requested_by}",
+        )
+
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "agent_session_mode_updated",
+                {"agentId": agent_id, "mode": new_mode, "previousMode": current_mode},
+            )
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "mode": new_mode,
+            "previousMode": current_mode,
+            "changed": True,
         }
     finally:
         await db.close()
