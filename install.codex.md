@@ -174,3 +174,15 @@ For managed codex agents (no `appServerUrl` set), the bridge spawns one `codex a
 - The resident path (with a real WebSocket `codexAppServerUrl`) is unchanged — that's already pooled at the app-server process level.
 
 Verify: open the agent's Console after a managed dispatch — `tasklist | findstr codex` (Windows) or `pgrep -f "codex app-server"` (POSIX) should show one PID that survives a second dispatch. The same threadId persists, so the conversation accumulates context turn-over-turn natively (no wire-prompt context-carry needed).
+
+## Codex session storage layout
+
+`codex-aify` probes `~/.codex/sessions/` for a saved session matching `--resume <id>`. Plan 4 (2026-05-25) supports three layouts in priority order:
+
+1. **Flat** — `~/.codex/sessions/<id>.jsonl` (legacy or simple installs)
+2. **Dir-per-session** — `~/.codex/sessions/<id>/...` (alternative codex versions)
+3. **Date-sharded** — `~/.codex/sessions/YYYY/MM/DD/rollout-<ISO-timestamp>-<id>.jsonl` (current codex default — verified 2026-05-25 in WSL `Ubuntu`)
+
+If none match, the wrapper falls through to fresh codex with a clear stderr message instead of crashing. The bridge's `mcp/stdio/controllers/codex-controller.js` mirrors this probe.
+
+If your codex stores sessions elsewhere (e.g. custom `CODEX_HOME`), the wrapper won't auto-detect — file a feature request or set `AIFY_CODEX_SESSIONS_DIR` env (planned future enhancement).

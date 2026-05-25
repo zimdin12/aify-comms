@@ -443,8 +443,28 @@ fi
 # file has been GC'd by codex itself (os error 2). The wrapper does not
 # abort on a stale handle — the operator gets a fresh codex shell and
 # the bridge heartbeat will report the new session id within 60s.
+#
+# Plan 4 (2026-05-25) — codex's session storage layout varies:
+#   - flat: ~/.codex/sessions/<id>.jsonl
+#   - date-sharded: ~/.codex/sessions/YYYY/MM/DD/rollout-<iso-ts>-<id>.jsonl
+#   - dir-per-session: ~/.codex/sessions/<id>/...
+# Accept any of these layouts when probing for a saved session.
+CODEX_SESSION_FOUND=""
 if [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
+  # Try flat layout first (cheapest check)
   if [ -f "$HOME/.codex/sessions/$CODEX_RESUME_HANDLE.jsonl" ]; then
+    CODEX_SESSION_FOUND="$HOME/.codex/sessions/$CODEX_RESUME_HANDLE.jsonl"
+  # Try dir-per-session
+  elif [ -d "$HOME/.codex/sessions/$CODEX_RESUME_HANDLE" ]; then
+    CODEX_SESSION_FOUND="$HOME/.codex/sessions/$CODEX_RESUME_HANDLE"
+  # Try date-sharded — search recursively for files containing the handle
+  else
+    CODEX_SESSION_FOUND="$(find "$HOME/.codex/sessions" -type f -name "*$CODEX_RESUME_HANDLE*" 2>/dev/null | head -1)"
+  fi
+fi
+
+if [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
+  if [ -n "$CODEX_SESSION_FOUND" ]; then
     exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}" resume --include-non-interactive "$CODEX_RESUME_HANDLE"
   else
     echo "[codex-aify] saved session $CODEX_RESUME_HANDLE not found in codex storage; starting fresh codex" >&2
