@@ -189,3 +189,64 @@ test("none widget when no terminal, no gateway, no codex app-server", () => {
   });
   assert.equal(r.kind, "none");
 });
+
+// Plan 4 Task 18: when an agent has BOTH a wrapper PTY (runtimeState.terminalId,
+// set by managed dispatch at api_v2.py:4462) AND a synth virtual-rpc terminal
+// (runtimeState.virtualTerminalId, set by ensure_virtual_terminal at line 7656)
+// for the same agent, the chooser MUST prefer the wrapper PTY — that's the
+// operator-facing real Ink TUI render, not the synth translation.
+test("chooseSessionConsoleWidget prefers wrapper PTY over synth when both exist for same agent (Plan 4 Task 18)", () => {
+  const cache = new Map();
+  // Agent has BOTH terminalId (wrapper PTY) AND virtualTerminalId (synth).
+  const r = chooseSessionConsoleWidget({
+    agent: {
+      runtime: "codex",
+      runtimeState: {
+        terminalId: "pty-1",          // wrapper PTY — should win
+        virtualTerminalId: "synth-1", // synth virtual-rpc — should NOT win
+      },
+    },
+    sessionId: "sess-both",
+    runtime: "codex",
+    runtimeConfig: {},
+    cache,
+    hermesGatewayHttp: "",
+    codexAppServerUrl: "",
+    codexThreadId: "",
+    codexAttachable: false,
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(
+    r.terminalId,
+    "pty-1",
+    `expected wrapper PTY (terminalId) to win over synth (virtualTerminalId); got ${JSON.stringify(r)}`
+  );
+});
+
+test("chooseSessionConsoleWidget keeps synth when only synth exists (no wrapper) (Plan 4 Task 18)", () => {
+  const cache = new Map();
+  // Only virtualTerminalId set — e.g. opencode native-RPC adapter where
+  // there is no wrapper PTY, only the synth terminal.
+  const r = chooseSessionConsoleWidget({
+    agent: {
+      runtime: "opencode",
+      runtimeState: {
+        virtualTerminalId: "synth-1",
+      },
+    },
+    sessionId: "sess-synth-only",
+    runtime: "opencode",
+    runtimeConfig: {},
+    cache,
+    hermesGatewayHttp: "",
+    codexAppServerUrl: "",
+    codexThreadId: "",
+    codexAttachable: false,
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(
+    r.terminalId,
+    "synth-1",
+    `expected synth to be used when no wrapper exists; got ${JSON.stringify(r)}`
+  );
+});

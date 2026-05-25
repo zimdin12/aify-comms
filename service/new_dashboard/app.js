@@ -728,8 +728,16 @@ function hermesGatewayUrlToHttp(wsUrl) {
 // strips the `export` it expects, and evals — see app.test.mjs for the
 // extract pattern.)
 function chooseSessionConsoleWidget({ agent, sessionId, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
+  // Plan 4 Task 18: prefer the wrapper PTY (runtimeState.terminalId, set by
+  // managed dispatch at api_v2.py:4462) over the synth virtual-rpc terminal
+  // (runtimeState.virtualTerminalId, set by ensure_virtual_terminal at line
+  // 7656). When both exist for the same agent — e.g. codex dispatched via
+  // managed wrapper *and* a synth terminal previously ensured — the wrapper
+  // PTY is the operator-facing real Ink TUI render; the synth is the JSON-RPC
+  // translation shim and is the lower-fidelity fallback. Cache (set below)
+  // remains sticky per session id regardless of which path provided the id.
   const liveTerminalId = String(
-    agent?.runtimeState?.virtualTerminalId || agent?.runtimeState?.terminalId || ''
+    agent?.runtimeState?.terminalId || agent?.runtimeState?.virtualTerminalId || ''
   ).trim();
   if (liveTerminalId && cache && typeof cache.set === 'function') {
     cache.set(String(sessionId || ''), liveTerminalId);
