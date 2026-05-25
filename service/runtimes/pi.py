@@ -8,7 +8,16 @@ router pins pi to the unified wrapper-backing path.
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from .base import RuntimeAdapter
+
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 
 class PiAdapter(RuntimeAdapter):
@@ -32,3 +41,70 @@ class PiAdapter(RuntimeAdapter):
         if handle:
             parts.extend(["--resume", handle])
         return " ".join(parts)
+
+    # Plan 4 (2026-05-25): pi storage at ~/.omp/agent/sessions/<project-key>/
+    # <timestamp>_<uuid>.jsonl. The session id is the UUID embedded in the
+    # filename; the first JSON line of the file also carries an `id` field as
+    # a fallback. We scan one level deep — flat files at the root are also
+    # tolerated for forward compatibility.
+    async def discover_session_id(self) -> str | None:
+        sessions_dir = Path.home() / ".omp" / "agent" / "sessions"
+        candidates = self._collect_candidates(sessions_dir)
+        if candidates is None:
+            return None
+        if not candidates:
+            return None
+        newest = max(candidates, key=lambda c: c[1])  # (path, mtime)
+        newest_path: Path = newest[0]
+        m = _UUID_RE.search(newest_path.name)
+        if m:
+            return m.group(0)
+        try:
+            first_line = newest_path.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if first_line:
+                obj = json.loads(first_line[0])
+                for key in ("id", "session_id", "sessionId"):
+                    val = obj.get(key)
+                    if isinstance(val, str) and val:
+                        return val
+        except (json.JSONDecodeError, OSError):
+            pass
+        return None
+
+    def _collect_candidates(self, root_dir: Path) -> list[tuple[Path, float]] | None:
+        """Return [(path, mtime)] for session files one level deep or at the
+        root. None means the root dir is missing/unreadable.
+        """
+        try:
+            top_entries = list(root_dir.iterdir())
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            return None
+        out: list[tuple[Path, float]] = []
+        for ent in top_entries:
+            try:
+                if ent.is_file():
+                    self._push_if_session(out, ent)
+                elif ent.is_dir():
+                    try:
+                        for sub in ent.iterdir():
+                            if sub.is_file():
+                                self._push_if_session(out, sub)
+                    except (PermissionError, OSError):
+                        continue
+            except OSError:
+                continue
+        return out
+
+    def _push_if_session(self, out: list[tuple[Path, float]], path: Path) -> None:
+        # Only consider files that look like session payloads (jsonl/json)
+        # and carry a uuid in their filename.
+        if path.suffix.lower() not in (".jsonl", ".json"):
+            return
+        if not _UUID_RE.search(path.name):
+            return
+        try:
+            out.append((path, path.stat().st_mtime))
+        except OSError:
+            pass

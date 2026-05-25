@@ -100,6 +100,24 @@ def test_pi_adapter_session_var_fallback_order(monkeypatch):
     assert PiAdapter().get_current_session_id() == "omp-x"
 
 
+def test_pi_adapter_overrides_discover_session_id():
+    from service.runtimes.pi import PiAdapter
+    base = PiAdapter.__mro__[1]
+    assert PiAdapter.discover_session_id is not base.discover_session_id, (
+        "PiAdapter must override discover_session_id"
+    )
+
+
+def test_pi_adapter_discover_session_id_returns_str_or_none():
+    """Functional smoke test — if ~/.omp/agent/sessions/ exists on host with
+    files, returns a string; otherwise returns None gracefully."""
+    import asyncio
+    from service.runtimes.pi import PiAdapter
+    result = asyncio.run(PiAdapter().discover_session_id())
+    if result is not None:
+        assert isinstance(result, str) and len(result) > 0
+
+
 def test_opencode_adapter():
     from service.runtimes.opencode import OpencodeAdapter
     a = OpencodeAdapter()

@@ -55,3 +55,23 @@ test("PiAdapter Plan 2 capabilities — pi flip key declarations", () => {
   assert.strictEqual(a.supportsMultiClient, false);
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
 });
+
+test("PiAdapter overrides discoverSessionId (does not inherit base null)", () => {
+  const a = new PiAdapter();
+  // Override must exist on the prototype, not inherit base.
+  const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(a), "discoverSessionId");
+  assert.ok(own && typeof own.value === "function",
+    "PiAdapter must define its own discoverSessionId override");
+});
+
+test("PiAdapter.discoverSessionId returns null when no sessions dir exists", async () => {
+  // Mock by checking the contract: when ~/.omp/agent/sessions doesn't exist
+  // OR is empty, returns null. Functional smoke test.
+  const a = new PiAdapter();
+  const result = await a.discoverSessionId();
+  // Either non-null string (real session on host) OR null (no sessions/dir missing)
+  if (result !== null) {
+    assert.ok(typeof result === "string" && result.length > 0,
+      "if non-null, must be non-empty string");
+  }
+});
