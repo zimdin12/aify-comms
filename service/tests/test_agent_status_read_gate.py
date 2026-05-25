@@ -196,5 +196,35 @@ class AgentStatusReadGateTests(unittest.TestCase):
             "list_agents must apply the same Plan 5 read-path gate as get_agent",
         )
 
+    # ------------------------------------------------------------------
+    # Task C2 — downgrade is written back to the cache
+    # ------------------------------------------------------------------
+
+    def test_downgrade_writeback_persists_to_agent_live_state(self):
+        """After the read-path gate fires, agent_live_state.status must
+        be updated so the dashboard's next poll sees the corrected value
+        without re-running the live-worker check."""
+        self._heartbeat_environment("codex")
+        self._register_managed_agent(agent_id="codex-writeback", runtime="codex")
+        self._stamp_stale_online_cache("codex-writeback")
+
+        # First read — gate fires and the response is downgraded.
+        res = self.client.get("/api/v1/agents/codex-writeback")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotEqual(res.json()["agent"]["status"], "online")
+
+        # Cache row should reflect the downgrade.
+        cached = self._read_agent_live_state("codex-writeback")
+        self.assertNotEqual(
+            cached.get("status"), "online",
+            f"Plan 5 C2: agent_live_state should reflect downgrade after "
+            f"read-path gate fires; got cached row {cached!r}",
+        )
+        self.assertEqual(
+            cached.get("status"), "available",
+            f"Cache should hold 'available' after gate fires; got {cached!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -375,7 +375,8 @@ async def _enforce_live_worker_gate(
     fresh-enough heartbeat to trigger a recompute.
 
     This gate is a final-step correction at the API boundary. Cache stays
-    for performance.
+    for performance; the writeback below keeps subsequent reads honest
+    without re-running the terminal_sessions check.
     """
     if payload.get("status") != "online":
         return payload
@@ -390,6 +391,24 @@ async def _enforce_live_worker_gate(
     payload["status"] = "available"
     payload["statusRaw"] = "available"
     payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
+    # Task C2 — writeback so the dashboard's next poll sees the downgrade
+    # without re-running the live-worker check. Best-effort: a failure
+    # only means the next read re-runs the gate, which is still cheap.
+    try:
+        await db.execute(
+            """UPDATE agent_live_state
+               SET status = ?, reason = ?, updated_at = ?
+               WHERE agent_id = ?""",
+            (
+                "available",
+                "no-live-worker (Plan 5 read-path gate)",
+                _now(),
+                agent_id,
+            ),
+        )
+        await db.commit()
+    except Exception:
+        pass
     return payload
 
 
