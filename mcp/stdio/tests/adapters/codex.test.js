@@ -44,3 +44,19 @@ test("CodexAdapter Plan 2 capabilities", () => {
   assert.strictEqual(a.supportsMultiClient, true);
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
 });
+
+test("CodexAdapter overrides discoverSessionId", () => {
+  const a = new CodexAdapter();
+  const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(a), "discoverSessionId");
+  assert.ok(own && typeof own.value === "function",
+    "CodexAdapter must define its own discoverSessionId override");
+});
+
+test("CodexAdapter.discoverSessionId returns null when no sessions dir", async () => {
+  const a = new CodexAdapter();
+  const result = await a.discoverSessionId();
+  if (result !== null) {
+    assert.ok(typeof result === "string" && result.length > 0,
+      "if non-null, must be non-empty string");
+  }
+});

@@ -5,9 +5,18 @@ Adds AIFY_CODEX_APP_SERVER_URL to diagnostic_env() for parity with the JS side.
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from pathlib import Path
 
 from .base import RuntimeAdapter
+
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+_MAX_WALK_DEPTH = 4
 
 
 class CodexAdapter(RuntimeAdapter):
@@ -35,3 +44,59 @@ class CodexAdapter(RuntimeAdapter):
         val = os.environ.get("AIFY_CODEX_APP_SERVER_URL", "").strip()
         env["AIFY_CODEX_APP_SERVER_URL"] = val if val else "(unset)"
         return env
+
+    async def discover_session_id(self) -> str | None:
+        """Plan 4 (2026-05-25): codex storage at ~/.codex/sessions/. Recon found
+        the actual layout is date-sharded — YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl
+        — plus a sibling quarantine-oversized/ flat-file dir. We walk up to 4
+        levels deep, find newest .jsonl by mtime, extract uuid from filename,
+        and fall back to first-line JSON metadata for forward compatibility.
+        """
+        root = Path.home() / ".codex" / "sessions"
+        files: list[Path] = []
+        try:
+            self._walk_codex_sessions(root, files, depth=0)
+        except (OSError, RecursionError):
+            return None
+        if not files:
+            return None
+        try:
+            files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        except OSError:
+            return None
+        newest = files[0]
+
+        m = _UUID_RE.search(newest.name)
+        if m:
+            return m.group(0)
+        try:
+            lines = newest.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if lines:
+                obj = json.loads(lines[0])
+                for key in ("id", "session_id", "sessionId", "thread_id", "threadId"):
+                    val = obj.get(key)
+                    if isinstance(val, str) and val:
+                        return val
+        except (json.JSONDecodeError, OSError):
+            pass
+        return None
+
+    def _walk_codex_sessions(
+        self, p: Path, out: list[Path], depth: int
+    ) -> None:
+        if depth > _MAX_WALK_DEPTH:
+            return
+        try:
+            entries = list(p.iterdir())
+        except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
+            return
+        for ent in entries:
+            try:
+                if ent.is_dir():
+                    self._walk_codex_sessions(ent, out, depth + 1)
+                elif ent.is_file() and ent.suffix.lower() in (".jsonl", ".json"):
+                    out.append(ent)
+            except OSError:
+                pass

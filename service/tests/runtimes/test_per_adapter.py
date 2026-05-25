@@ -49,6 +49,22 @@ def test_codex_adapter_diagnostic_env_unset_app_server(monkeypatch):
     assert env["AIFY_CODEX_APP_SERVER_URL"] == "(unset)"
 
 
+def test_codex_adapter_overrides_discover_session_id():
+    from service.runtimes.codex import CodexAdapter
+    base = CodexAdapter.__mro__[1]
+    assert CodexAdapter.discover_session_id is not base.discover_session_id, (
+        "CodexAdapter must override discover_session_id"
+    )
+
+
+def test_codex_adapter_discover_session_id_returns_str_or_none():
+    import asyncio
+    from service.runtimes.codex import CodexAdapter
+    result = asyncio.run(CodexAdapter().discover_session_id())
+    if result is not None:
+        assert isinstance(result, str) and len(result) > 0
+
+
 def test_hermes_adapter():
     from service.runtimes.hermes import HermesAdapter
     a = HermesAdapter()
