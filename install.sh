@@ -848,6 +848,52 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
     return 1
   }
 
+  # Plan 6 B1 (2026-05-26): rediscover the real hermes session id from the
+  # gateway's session.most_recent JSON-RPC over WS. Stdout: the discovered
+  # session id (string), or empty on any failure. Failure is silent — the
+  # caller treats empty as "leave env alone" and the bridge's discover-first
+  # heartbeat (Plan 6 A1) catches drift within 60s.
+  #
+  # Uses node + the \`ws\` module shipped under mcp/stdio/node_modules. The
+  # repo path is baked in at install time from \$SCRIPT_DIR; on Windows git-
+  # bash this is the same MSYS-style path node already resolves for the
+  # main MCP bridge spawn. 3s hard timeout — the gateway is local so any
+  # longer means the dashboard is misbehaving and we should fall back to
+  # the env value.
+  rediscover_hermes_session_id() {
+    local gateway_url="\$1"
+    AIFY_GATEWAY_URL="\$gateway_url" node -e '
+      let WebSocket;
+      try { WebSocket = require("ws"); }
+      catch {
+        try { WebSocket = require("$SCRIPT_DIR/mcp/stdio/node_modules/ws"); }
+        catch { process.exit(0); }
+      }
+      const url = process.env.AIFY_GATEWAY_URL;
+      if (!url) process.exit(0);
+      const ws = new WebSocket(url, { perMessageDeflate: false });
+      let done = false;
+      const finish = () => { if (!done) { done = true; try { ws.terminate(); } catch {} process.exit(0); } };
+      const timer = setTimeout(finish, 3000);
+      ws.on("open", () => {
+        try { ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.most_recent" })); }
+        catch { clearTimeout(timer); finish(); }
+      });
+      ws.on("message", (raw) => {
+        try {
+          const msg = JSON.parse(String(raw));
+          if (msg && msg.id === 1 && msg.result) {
+            const sid = msg.result.sessionId || msg.result.session_id || msg.result.id;
+            if (sid) { process.stdout.write(String(sid)); }
+          }
+        } catch {}
+        clearTimeout(timer);
+        finish();
+      });
+      ws.on("error", () => { clearTimeout(timer); finish(); });
+    ' 2>/dev/null
+  }
+
   AIFY_HERMES_PORT="\$(pick_port)"
   if [ -z "\$AIFY_HERMES_PORT" ]; then
     echo "hermes-aify: failed to allocate a local port for the dashboard gateway; falling back to plain hermes." >&2
@@ -893,6 +939,23 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   export HERMES_TUI_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
   export AIFY_HERMES_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
   export AIFY_HERMES_GATEWAY_TOKEN="\$AIFY_HERMES_TOKEN"
+
+  # Plan 6 B1 (2026-05-26): rediscover the real hermes session id from the
+  # gateway's session.most_recent RPC. Overwrites HERMES_SESSION_ID /
+  # AIFY_SESSION_HANDLE so the inner aify-comms MCP bridge registers with
+  # the truthful id — not whatever stale value the operator's shell
+  # inherited from a prior hermes session. Failures here are non-fatal:
+  # the bridge's discover-first heartbeat (Plan 6 A1) corrects any drift
+  # within 60s.
+  HERMES_REDISCOVERED_SESSION_ID="\$(rediscover_hermes_session_id "\$AIFY_HERMES_GATEWAY" 2>/dev/null || true)"
+  if [ -n "\$HERMES_REDISCOVERED_SESSION_ID" ]; then
+    if [ "\$HERMES_REDISCOVERED_SESSION_ID" != "\$HERMES_SESSION_HANDLE" ]; then
+      echo "[hermes-aify] session id rediscovered: '\$HERMES_SESSION_HANDLE' -> '\$HERMES_REDISCOVERED_SESSION_ID' (from gateway)" >&2
+    fi
+    export HERMES_SESSION_ID="\$HERMES_REDISCOVERED_SESSION_ID"
+    export AIFY_SESSION_HANDLE="\$HERMES_REDISCOVERED_SESSION_ID"
+    HERMES_SESSION_HANDLE="\$HERMES_REDISCOVERED_SESSION_ID"
+  fi
 
   # Default to \`hermes chat --tui\` for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
