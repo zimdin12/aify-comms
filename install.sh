@@ -200,27 +200,23 @@ if [ "\$CLAUDE_AUTO" = true ]; then
   CLAUDE_PERMISSION_FLAGS+=(--dangerously-skip-permissions)
 fi
 
-# Bridge-spawned managed wrappers: write a minimal MCP config with just
-# aify-comms + aify-comms-channel and pass --strict-mcp-config so Claude
-# does NOT try to load the operator's full ~/.claude.json MCP server list.
-# Known Claude Code bug (issues #38462, #21341): when many stdio MCP
-# servers compete for init, slower ones (including aify-comms-channel)
-# get stuck in "still connecting" state and channel notifications are
-# never delivered to the session. Restricting to two servers eliminates
-# the race. Resident operator-launched wrappers keep their full env.
+# MCP server config: default is "load the operator's full ~/.claude.json
+# mcpServers list" (the install_claude_config function has already merged
+# aify-comms + aify-comms-channel into that file at install time, so the
+# wrapper still gets channel wake — it just also gets aify-project-graph,
+# github, browsermcp, and every other server the operator configured).
+#
+# Escape hatch: set AIFY_CLAUDE_STRICT_MCP=1 in the launching shell to
+# revert to the legacy strict two-server config (aify-comms +
+# aify-comms-channel only, via --strict-mcp-config). Use this when the
+# Claude Code MCP init race (upstream issues #38462, #21341) re-bites and
+# channel notifications stop delivering because slower MCP servers leave
+# aify-comms-channel stuck in "still connecting" state. The legacy
+# strict mode trades operator-visible MCP servers inside the wrapper for
+# guaranteed channel wake.
 CLAUDE_MCP_FLAGS=()
 AIFY_MCP_CONFIG=""
-# ALWAYS use strict-mcp-config for claude-aify (both managed and
-# resident). Without this, claude-channel.js loses the stdio MCP
-# init race against the operator's other ~13 servers in
-# ~/.claude.json and silently fails to register the channel listener —
-# every channel-routed dispatch sits queued and never reaches the
-# model. Trade-off: the operator's other MCP servers (browsermcp,
-# github, etc.) are NOT loaded inside the claude-aify wrapper. They
-# stay loaded in plain `claude` sessions outside the wrapper. This
-# is the only configuration where aify-comms-channel reliably wakes
-# the session. Confirmed by GitHub issues #38462 + #21341.
-if true; then
+if [ "\${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
   # Convert install dir to a Windows-native path (C:/Docker/aify-comms)
   # if cygpath is available, otherwise use SCRIPT_DIR as-is. The MSYS
   # path /c/Docker/aify-comms is unreadable by native-Windows Claude
@@ -248,6 +244,8 @@ if true; then
   }
 }
 JSON
+  # Strict mode (AIFY_CLAUDE_STRICT_MCP=1): only the two-server config
+  # above is visible to this claude process.
   CLAUDE_MCP_FLAGS+=(--strict-mcp-config --mcp-config "\$AIFY_MCP_CONFIG")
   trap 'rm -f "\$AIFY_MCP_CONFIG"' EXIT
 fi
