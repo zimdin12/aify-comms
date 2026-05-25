@@ -40,4 +40,20 @@ export {
   terminateProcessTree,
   quoteForDisplay,
   diagnosticsFor,
+
+  // codex-specific (Plan 3 Task 11)
+  defaultCodexCommand,
+  managedCodexEffort,
+  managedCodexSandboxMode,
+  hasCodexLiveAppServer,
+  resolveCodexRequestCwd,
+  codexSpawnCwd,
+  prepareManagedCodexHome,
+  importCodexThreadRollout,
+  codexTurnSandboxPolicy,
+  createRpcClient,
+  createWebSocketRpcClient,
+  describeCodexItem,
+  isAifyCommsMcpToolItem,
+  isFatalCodexRuntimeLog,
 } from "./runtimes.js";
