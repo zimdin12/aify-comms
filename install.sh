@@ -429,25 +429,6 @@ if ! wait_for_port "$PORT"; then
   exit 1
 fi
 
-# Plan 6 B2 (2026-05-26): once app-server is reachable, rediscover the
-# real codex thread id from ~/.codex/sessions. We export this BEFORE the
-# arg parser runs so an explicit `--resume <id>` still wins (the arg
-# parser sets CODEX_RESUME_HANDLE, and the resume-resolution block below
-# prefers that over our rediscovered handle).
-#
-# Rationale: the operator's shell often has a stale CODEX_THREAD_ID from
-# a prior session. Without rediscover the inner aify-comms MCP bridge
-# registers with that stale value and dispatch fails with "session not
-# found" until the next 60s heartbeat (Plan 6 A1) corrects it.
-CODEX_REDISCOVERED_THREAD_ID="$(rediscover_codex_thread_id 2>/dev/null || true)"
-if [ -n "$CODEX_REDISCOVERED_THREAD_ID" ]; then
-  if [ "${CODEX_THREAD_ID:-}" != "$CODEX_REDISCOVERED_THREAD_ID" ]; then
-    echo "[codex-aify] thread id rediscovered: '${CODEX_THREAD_ID:-}' -> '$CODEX_REDISCOVERED_THREAD_ID' (from ~/.codex/sessions)" >&2
-  fi
-  export CODEX_THREAD_ID="$CODEX_REDISCOVERED_THREAD_ID"
-  export AIFY_SESSION_HANDLE="$CODEX_REDISCOVERED_THREAD_ID"
-fi
-
 CODEX_PERMISSION_FLAGS=()
 CODEX_ARGS=()
 CODEX_AUTO=false
@@ -536,6 +517,36 @@ if [ -z "$CODEX_AIFY_SESSION_MODE" ]; then
   fi
 fi
 export AIFY_SESSION_MODE="$CODEX_AIFY_SESSION_MODE"
+
+# Plan 6 B2 (2026-05-26; reordered 2026-05-26 per code review): rediscover
+# the real codex thread id from ~/.codex/sessions AFTER the arg parser has
+# run. The bridge inside the wrapper inherits the same CODEX_THREAD_ID /
+# AIFY_SESSION_HANDLE that `exec codex` will see. When the operator passes
+# an explicit `--resume <id>` on the command line, the parser populates
+# CODEX_RESUME_HANDLE — we honor that as authoritative and skip the
+# rediscover-export so the bridge advertises the same handle that codex
+# is actually attached to. Without explicit resume, the rediscover wins
+# over any stale CODEX_THREAD_ID inherited from the parent shell.
+#
+# Failure mode: rediscover empty (no sessions on disk yet, or the find
+# returns nothing) — leave env as-is, the Plan 6 A1 heartbeat will
+# correct any drift within 60s.
+if [ -z "${CODEX_RESUME_HANDLE:-}" ]; then
+  CODEX_REDISCOVERED_THREAD_ID="$(rediscover_codex_thread_id 2>/dev/null || true)"
+  if [ -n "$CODEX_REDISCOVERED_THREAD_ID" ]; then
+    if [ "${CODEX_THREAD_ID:-}" != "$CODEX_REDISCOVERED_THREAD_ID" ]; then
+      echo "[codex-aify] thread id rediscovered: '${CODEX_THREAD_ID:-}' -> '$CODEX_REDISCOVERED_THREAD_ID' (from ~/.codex/sessions)" >&2
+    fi
+    export CODEX_THREAD_ID="$CODEX_REDISCOVERED_THREAD_ID"
+    export AIFY_SESSION_HANDLE="$CODEX_REDISCOVERED_THREAD_ID"
+  fi
+else
+  # Explicit --resume <id> from operator wins. Make the bridge see the
+  # same handle codex will resume so they don't disagree for the first
+  # 60s after launch.
+  export CODEX_THREAD_ID="$CODEX_RESUME_HANDLE"
+  export AIFY_SESSION_HANDLE="$CODEX_RESUME_HANDLE"
+fi
 
 if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)

@@ -11639,7 +11639,15 @@ async def list_dispatch_runs(
         repaired_active_runs = await _repair_unusable_active_runs(db)
         if repaired_active_runs:
             await db.commit()
-        query = "SELECT * FROM dispatch_runs WHERE 1=1"
+        # Plan 6 follow-up (2026-05-26): Section C's mode-switch audit
+        # inserts synthetic `dispatch_runs` rows with dispatch_mode='audit'
+        # to satisfy the dispatch_events.run_id FK constraint. Those rows
+        # are never claimed/queued/started — they exist only as audit
+        # anchors. Hide them from the listing endpoint so the dashboard's
+        # dispatch history view doesn't fill with mode_switch_* entries.
+        # Audit anchors are still queryable individually via the
+        # per-id endpoint and via dispatch_events.
+        query = "SELECT * FROM dispatch_runs WHERE (dispatch_mode IS NULL OR dispatch_mode != 'audit')"
         params = []
         if agentId:
             query += " AND target_agent = ?"
