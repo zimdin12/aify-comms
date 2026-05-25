@@ -317,6 +317,49 @@ wait_for_port() {
   ' "$port"
 }
 
+# Plan 6 B2 (2026-05-26): rediscover the real codex thread id by walking
+# ~/.codex/sessions for the newest rollout-*.jsonl and extracting the UUID
+# from the filename. Mirrors the Python adapter's discover_session_id at
+# service/runtimes/codex.py — the codex app-server does not (yet) expose
+# an introspection RPC, so the filesystem scan is the authoritative source.
+# Stdout: the discovered uuid (string), or empty on any failure. Caller
+# treats empty as "leave env alone".
+rediscover_codex_thread_id() {
+  local root="$HOME/.codex/sessions"
+  [ -d "$root" ] || return 0
+  # find . -type f -name '*.jsonl' | newest first | first | extract uuid
+  # GNU find supports -printf '%T@ %p\n'; macOS BSD find does not. Use
+  # `stat` for portability — slower but works on both. Limit depth to 5
+  # so the scan stays bounded if codex's layout changes.
+  local newest
+  newest="$(find "$root" -maxdepth 5 -type f -name '*.jsonl' -print 2>/dev/null \
+    | while IFS= read -r f; do
+        # Portable mtime: ls -tr lists oldest first; we'll use perl/python
+        # only as fallback. Cheapest portable: ls --time=mtime -lt + head.
+        printf '%s\t%s\n' "$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)" "$f"
+      done \
+    | sort -nr \
+    | head -1 \
+    | cut -f2-)"
+  [ -n "$newest" ] || return 0
+  # Filename: rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl OR <uuid>.jsonl
+  local base
+  base="$(basename "$newest")"
+  # Strip .jsonl, then extract trailing UUID (8-4-4-4-12 hex).
+  local stem="${base%.jsonl}"
+  # Grep the UUID anywhere in the stem; if absent, output the whole stem
+  # (covers flat-layout <uuid>.jsonl files).
+  local uuid
+  uuid="$(printf '%s' "$stem" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | tail -1)"
+  if [ -z "$uuid" ]; then
+    case "$stem" in
+    rollout-*) ;;  # rollout-<no-uuid> — nothing usable, leave empty
+    *) uuid="$stem" ;;  # flat layout: stem IS the id
+    esac
+  fi
+  [ -n "$uuid" ] && printf '%s' "$uuid"
+}
+
 PORT="$(pick_port)"
 if [ -z "$PORT" ]; then
   echo "Failed to allocate a local port for codex app-server." >&2
@@ -353,6 +396,25 @@ if ! wait_for_port "$PORT"; then
   echo "codex-aify could not reach the local app-server at $APP_SERVER_URL." >&2
   echo "Check $LOG_FILE for details." >&2
   exit 1
+fi
+
+# Plan 6 B2 (2026-05-26): once app-server is reachable, rediscover the
+# real codex thread id from ~/.codex/sessions. We export this BEFORE the
+# arg parser runs so an explicit `--resume <id>` still wins (the arg
+# parser sets CODEX_RESUME_HANDLE, and the resume-resolution block below
+# prefers that over our rediscovered handle).
+#
+# Rationale: the operator's shell often has a stale CODEX_THREAD_ID from
+# a prior session. Without rediscover the inner aify-comms MCP bridge
+# registers with that stale value and dispatch fails with "session not
+# found" until the next 60s heartbeat (Plan 6 A1) corrects it.
+CODEX_REDISCOVERED_THREAD_ID="$(rediscover_codex_thread_id 2>/dev/null || true)"
+if [ -n "$CODEX_REDISCOVERED_THREAD_ID" ]; then
+  if [ "${CODEX_THREAD_ID:-}" != "$CODEX_REDISCOVERED_THREAD_ID" ]; then
+    echo "[codex-aify] thread id rediscovered: '${CODEX_THREAD_ID:-}' -> '$CODEX_REDISCOVERED_THREAD_ID' (from ~/.codex/sessions)" >&2
+  fi
+  export CODEX_THREAD_ID="$CODEX_REDISCOVERED_THREAD_ID"
+  export AIFY_SESSION_HANDLE="$CODEX_REDISCOVERED_THREAD_ID"
 fi
 
 CODEX_PERMISSION_FLAGS=()
