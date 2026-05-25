@@ -296,6 +296,18 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
     return False
 
 
+def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:
+    """Plan 4 (2026-05-25): synth-terminal (aify://virtual-rpc/<runtime>) is
+    deprecated for wrapper-backed runtimes. The wrapper PTY IS the terminal.
+    Synth stays only for opencode (no aify wrapper exists) + hard-failure
+    fallback (wrapper failed to spawn — handled at the spawn-failure site,
+    not here).
+    """
+    if _managed_via_wrapper_for_runtime(settings, runtime):
+        return False
+    return True
+
+
 def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
     """Universal delivery-mode toggle (operator's design).
 
@@ -7484,6 +7496,19 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 "session": _agent_session_to_dict(session_row),
                 "reused": True,
             }
+
+        # Plan 4 (2026-05-25) synth-terminal deprecation: when this runtime
+        # routes through a *-aify wrapper PTY, the wrapper IS the terminal —
+        # don't create a synth row in parallel. Reuse of a pre-existing synth
+        # row (handled above) is still allowed for backwards compatibility
+        # and for the hard-failure fallback path that may seed one explicitly.
+        settings_for_synth_gate = await _load_settings(db)
+        if not _synth_terminal_should_be_created(runtime, settings_for_synth_gate):
+            raise HTTPException(
+                409,
+                f'Synth terminal creation skipped for wrapper-backed runtime "{runtime}" '
+                f'(Plan 4 deprecation — the wrapper PTY is the terminal).',
+            )
 
         workspace = str(req.workspace or session_row["workspace"] or "").strip()
         terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
