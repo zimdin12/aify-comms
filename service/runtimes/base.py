@@ -77,6 +77,13 @@ class RuntimeAdapter:
             out[var] = val if val else "(unset)"
         return out
 
+    async def discover_session_id(self) -> str | None:
+        """Plan 4 (2026-05-25): runtime-native session discovery. Default
+        returns None; subclasses override with filesystem/SQLite/RPC discovery.
+        Called by bridge heartbeat as a fallback when env-read returns None.
+        """
+        return None
+
     # ─────────────────── CONSOLE / WRAPPER (Plan 3) ───────────────────
 
     @property
