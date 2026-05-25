@@ -257,7 +257,28 @@ TURN_BUSY_STALE_SECONDS = 120
 _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # Managed Claude uses a live Claude Code channel bridge. It is not a native
 # managed runtime adapter and must not be claimed by the generic managed loop.
+# Membership controls two distinct behaviors:
+#   1. _agent_execution_mode (line 1063) returns 'channel' unconditionally for
+#      these runtimes' managed dispatches — claude has no headless managed-run,
+#      so all managed claude flows through claude-channel.js.
+#   2. The PTY-spawn carve-outs at 9891/9917 fire only for these runtimes.
+# Codex/hermes/pi support a real native managed-run path and must NOT be
+# auto-routed to channel by membership alone — they route to channel ONLY when
+# wrapper-backed (managed_via_wrapper setting includes them; gate at
+# line 1047). See _CHANNEL_CLAIM_RUNTIMES below for the claim-side whitelist.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
+# Plan 5 (2026-05-25) — claim-side whitelist for execution_mode='channel'
+# runs. A bridge polling /dispatch/claim with executionModes=['channel'] is
+# only allowed to claim a queued channel-mode run if the agent's runtime is
+# in this set. Pre-Plan-5 this used _CHANNEL_MANAGED_RUNTIMES, so codex/
+# hermes/pi wrapper-backed managed runs (whose execution_mode='channel' is
+# set by _agent_execution_mode line 1047) sat queued forever — only the
+# claude-code bridge was permitted to claim them. Symmetric bridge-side
+# change lives in mcp/stdio/dispatch-execution.js supportedExecutionModes
+# (Plan 5 Task B1). opencode is intentionally excluded — its adapter declares
+# preferred_delivery_mode='managed' (not 'managed-via-wrapper'), so wrapper-
+# backed channel routing does not apply.
+_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes", "pi"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
@@ -10829,7 +10850,13 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
                 elif runtime in _NATIVE_MANAGED_RUNTIMES:
-                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                    # Plan 5 (2026-05-25): pass settings so
+                    # _agent_execution_mode can detect wrapper-backed managed
+                    # runtimes (managed_via_wrapper) and return
+                    # execution_mode='channel'. Without settings the helper
+                    # short-circuits to 'managed' (line 1065) and the
+                    # wrapper-backed dispatch path never fires.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
                     if not reason and execution_mode:
                         if _managed_terminal_backing_enabled(settings):
                             console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
@@ -10849,7 +10876,10 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                         else:
                             reason = await _managed_environment_unavailable_reason(db, row)
                 elif runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                    # Plan 5 (2026-05-25): pass settings (parity with the
+                    # NATIVE_MANAGED branch above). _agent_execution_mode
+                    # uses settings to gate the wrapper-backed channel route.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
                     if not reason and execution_mode == "channel":
                         reason = await _managed_environment_unavailable_reason(db, row)
                     if not reason and execution_mode == "channel" and _insert_messages_via_console(settings):
@@ -10888,7 +10918,9 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     if console_terminal:
                         console_recipients[recipient_id] = console_terminal
                     else:
-                        execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                        # Plan 5 (2026-05-25): pass settings — see sibling
+                        # branches above for rationale.
+                        execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
                         if not reason and execution_mode:
                             reason = await _managed_environment_unavailable_reason(db, row)
             if reason or not execution_mode:
@@ -11053,6 +11085,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
+        # Plan 5 (2026-05-25): settings is needed below for the
+        # _agent_execution_mode call (so the wrapper-backed channel route
+        # at line 1047 fires symmetrically with the dispatch-create path).
+        claim_settings = await _load_settings(db)
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         agent = await cursor.fetchone()
         if not agent:
@@ -11160,7 +11196,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         )
         owner_session = await owner_cursor.fetchone()
         supported_modes = {str(mode or "").strip().lower() for mode in (req.executionModes or []) if str(mode or "").strip()}
-        channel_claim = agent_runtime in _CHANNEL_MANAGED_RUNTIMES and "channel" in supported_modes
+        # Plan 5 (2026-05-25): widened from _CHANNEL_MANAGED_RUNTIMES to
+        # _CHANNEL_CLAIM_RUNTIMES so codex/hermes/pi bridges polling with
+        # executionModes=['channel'] (for their wrapper-backed managed runs)
+        # are allowed to claim. See _CHANNEL_CLAIM_RUNTIMES docstring.
+        channel_claim = agent_runtime in _CHANNEL_CLAIM_RUNTIMES and "channel" in supported_modes
         if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console" and not channel_claim:
             blocked_by_console = await _release_stale_console_owner_for_claim(db, owner_session, req)
             if blocked_by_console:
@@ -11221,7 +11261,12 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
                 continue
 
-            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None)
+            # Plan 5 (2026-05-25): pass settings so the wrapper-backed
+            # channel route (line 1047) matches what _agent_execution_mode
+            # returned when the run was created. Without settings here, the
+            # helper short-circuits to 'managed', then line 11258 below sees
+            # run.execution_mode='channel' != 'managed' and cancels the run.
+            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None, settings=claim_settings)
             if reason or not execution_mode:
                 final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
                 await db.execute(
