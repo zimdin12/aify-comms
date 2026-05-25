@@ -10932,7 +10932,16 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     # short-circuits to 'managed' (line 1065) and the
                     # wrapper-backed dispatch path never fires.
                     execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
-                    if not reason and execution_mode:
+                    # Plan 5 follow-up (2026-05-26): the PTY-input
+                    # (console_recipients) downgrade below MUST only fire
+                    # for execution_mode='managed'. When the helper returns
+                    # 'channel' for wrapper-backed codex/hermes/pi, leave
+                    # the run as channel-mode so the symmetric channel-claim
+                    # path (Plan 5 Section B) picks it up. Falling through
+                    # to console_recipients would route the message via raw
+                    # PTY keystrokes — the scrambled-text failure mode the
+                    # operator explicitly banned.
+                    if not reason and execution_mode == "managed":
                         if _managed_terminal_backing_enabled(settings):
                             console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                             if not console_terminal:
