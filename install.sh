@@ -352,6 +352,7 @@ CODEX_AUTO=false
 CODEX_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
 CODEX_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
 CODEX_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
+CODEX_RESUME_HANDLE=""
 PREV_ARG=""
 for ARG in "$@"; do
   if [ "$PREV_ARG" = "--aify-agent" ] || [ "$PREV_ARG" = "--agent-id" ]; then
@@ -361,6 +362,17 @@ for ARG in "$@"; do
   fi
   if [ "$PREV_ARG" = "--aify-role" ]; then
     CODEX_AIFY_ROLE="$ARG"
+    PREV_ARG=""
+    continue
+  fi
+  # Plan 1: pull --resume <handle> out of the arg stream into
+  # CODEX_RESUME_HANDLE. The dashboard Console now passes the stored
+  # codex session id this way (Task 11). We consume the token rather
+  # than forwarding it because codex itself takes the handle as a
+  # subcommand argument (`codex resume --include-non-interactive <id>`),
+  # not as a flag on the top-level `codex --remote` invocation.
+  if [ "$PREV_ARG" = "--resume" ] || [ "$PREV_ARG" = "--session-id" ]; then
+    CODEX_RESUME_HANDLE="$ARG"
     PREV_ARG=""
     continue
   fi
@@ -380,6 +392,10 @@ for ARG in "$@"; do
     PREV_ARG="$ARG"
     continue
   fi
+  if [ "$ARG" = "--resume" ] || [ "$ARG" = "--session-id" ]; then
+    PREV_ARG="$ARG"
+    continue
+  fi
   case "$ARG" in
   --aify-agent=*|--agent-id=*)
     CODEX_AIFY_AGENT_ID="${ARG#*=}"
@@ -387,6 +403,10 @@ for ARG in "$@"; do
     ;;
   --aify-role=*)
     CODEX_AIFY_ROLE="${ARG#*=}"
+    continue
+    ;;
+  --resume=*|--session-id=*)
+    CODEX_RESUME_HANDLE="${ARG#*=}"
     continue
     ;;
   esac
@@ -419,6 +439,17 @@ if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
 
+# Plan 1: try-resume, fall back to fresh codex if the saved session
+# file has been GC'd by codex itself (os error 2). The wrapper does not
+# abort on a stale handle — the operator gets a fresh codex shell and
+# the bridge heartbeat will report the new session id within 60s.
+if [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
+  if [ -f "$HOME/.codex/sessions/$CODEX_RESUME_HANDLE.jsonl" ]; then
+    exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}" resume --include-non-interactive "$CODEX_RESUME_HANDLE"
+  else
+    echo "[codex-aify] saved session $CODEX_RESUME_HANDLE not found in codex storage; starting fresh codex" >&2
+  fi
+fi
 exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
 EOF
   # Substitute the install-time service URL into the wrapper. The
