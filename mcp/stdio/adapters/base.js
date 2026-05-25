@@ -68,11 +68,20 @@ export class RuntimeAdapter {
   get supportsMultiClient() { throw new Error("not yet implemented: Plan 2"); }
   get preferredDeliveryMode() { throw new Error("not yet implemented: Plan 2"); }
 
-  // ─────────────────── CONSOLE / WRAPPER (Plan 3 — stubbed) ───────────────────
-  // wrapperName + consoleCommand are server-side in this codebase (handled by
-  // the Python adapter package). The JS adapter doesn't need them — Plan 3
-  // specialization decision (Plan 3 spec section "Specialize per language").
-  // Keep throwing so accidental JS callers get a clear error.
+  // ─────────────────── CONSOLE / WRAPPER (Plan 3 — server-side only) ───────────────────
+  // wrapperName + consoleCommand are owned by the Python adapter package
+  // (service/runtimes/) — used by service/routers/api_v2.py:_default_console_command
+  // to build the dashboard Console launch command. Per the Plan 3 spec
+  // "Specialize per language" decision (option A), the JS adapter doesn't ship
+  // these. Keep throwing so accidental JS callers get a clear error.
+  //
+  // Same asymmetry for `is_resident_ready`: Python adapter overrides it
+  // (claude checks channelEnabled, hermes checks gatewayUrl). The JS side
+  // does NOT have an isResidentReady method — the server is authoritative
+  // for resident-gate decisions via _default_capabilities_for. JS callers
+  // should not gate on per-config readiness; the bridge's
+  // defaultCapabilitiesForRuntime keeps a minimal inline hermes gateway
+  // check (best-effort) but the canonical decision is server-side.
 
   get wrapperName() { throw new Error("not yet implemented: Plan 3 — server-side responsibility"); }
   consoleCommand(_opts) { throw new Error("not yet implemented: Plan 3 — server-side responsibility"); }

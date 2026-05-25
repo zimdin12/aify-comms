@@ -7,11 +7,12 @@
 // controller can add helpers here without touching runtimes.js itself.
 //
 // The module-load cycle that originally forced a dynamic-import workaround
-// in adapters/opencode.js (Task 7) is now broken at runtimes.js itself via
-// setter-injection of adapterFor (see _registerAdapterFor in runtimes.js).
-// This file does not import from adapters/, so it is safe to statically
-// import from any controller, regardless of whether runtimes.js or
-// adapters/index.js loads first.
+// in adapters/opencode.js (Task 7) is broken in adapters/index.js via lazy
+// REGISTRY construction (see getRegistry() / _ensureRegistry there) — adapter
+// classes are bound only on first call after all top-level evaluation
+// completes. This file does not import from adapters/, so it is safe to
+// statically import from any controller, regardless of whether runtimes.js
+// or adapters/index.js loads first.
 //
 // Future cleanup: actual helper bodies can migrate from runtimes.js into
 // this file, shrinking runtimes.js incrementally.
