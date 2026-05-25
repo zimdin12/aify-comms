@@ -8442,6 +8442,15 @@ async def register_agent(req: AgentRegister, request: Request):
                 "reason": "registered_managed",
                 "at": now,
             }
+        # Plan 2 (2026-05-25) pi flip mechanics: pi-runtime no longer
+        # supports a true resident session, but operators may still try
+        # to register one (e.g. via legacy wrapper). Mark it pending-flip
+        # so _drain_and_flip_pi_resident_agents (Task 17) can migrate it
+        # to managed once any active runs drain. Once flipped, the agent
+        # row's session_mode becomes "managed" and capabilities are
+        # recomputed from PiAdapter (supports_resident=False).
+        if normalized_runtime == "pi" and normalized_session_mode == "resident":
+            fresh_state["pi_resident_pending_flip"] = True
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
             active_run = await _get_blocking_active_run(db, req.agentId)
