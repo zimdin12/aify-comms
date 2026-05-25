@@ -92,6 +92,9 @@ export class PiController extends BaseController {
         }
       }
       if (!session) throw lastError || new Error("Pi session not acquired");
+      // Plan 4 ready: omp --mode rpc has emitted agent_ready (acquirePiSession
+      // blocks on that event). PiSession is fully wired and can accept dispatch.
+      this.markReady();
       // Phase 2: wire up the synthesized terminal sink once per session lifetime.
       // The bridge resolves the virtual terminal id (creating it on first use)
       // and returns a POST-to-/terminals/{id}/output sink. Subsequent dispatches

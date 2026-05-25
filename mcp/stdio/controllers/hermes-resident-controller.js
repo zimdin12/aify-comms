@@ -184,6 +184,9 @@ export class HermesResidentController extends BaseController {
         settle("reject", new Error(`Hermes gateway WS open failed: ${err?.message || err}`));
         return;
       }
+      // Plan 4 ready: tui_gateway WS connection established. Session resolve
+      // and prompt.submit are dispatch-specific and follow.
+      this.markReady();
 
       try {
         // Resolve session id: prefer the registered sessionHandle; otherwise

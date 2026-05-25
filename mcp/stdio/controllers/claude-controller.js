@@ -35,6 +35,12 @@ export class ClaudeController extends BaseController {
     if (!this._started) {
       this._started = true;
       this._capabilities = controlCapabilitiesForRuntime("claude-code");
+      // Plan 4 ready: claude-aify is "ready" by virtue of being launched —
+      // resident delivery flows through the claude-channel.js sidecar, and
+      // managed-via-wrapper rides the wrapper PTY's child bridge. Mark ready
+      // immediately so operators see the same status surface as other
+      // runtimes. See DECISIONS.md.
+      this.markReady();
     }
     return {
       capabilities: this._capabilities,

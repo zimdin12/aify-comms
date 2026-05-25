@@ -54,6 +54,7 @@ import { terminalChildEnv } from "./terminal-env.js";
 import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
+import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
@@ -218,6 +219,28 @@ const __stopHandleHeartbeat = startSessionHandleHeartbeat({
   postFn: makeDefaultHandlePoster(__serverUrl),
 });
 
+// Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
+// start() promise is unresolved (tracked via ACTIVE_CONTROLLER_PROMISES,
+// populated at controller-start time below), POSTs turn_busy=1 every 30s to
+// keep server-side status fresh independent of pre_llm_call / PostToolUse
+// hook firing. Solves the operator-observed "working flapping to online
+// during long turns" issue. No-op when AIFY_AGENT_ID is unset (managed
+// dispatch bridges without an owning agent).
+const ACTIVE_CONTROLLER_PROMISES = new Set();
+function __markControllerStart(promise) {
+  if (!promise || typeof promise.then !== "function") return promise;
+  ACTIVE_CONTROLLER_PROMISES.add(promise);
+  const cleanup = () => { ACTIVE_CONTROLLER_PROMISES.delete(promise); };
+  promise.then(cleanup, cleanup);
+  return promise;
+}
+const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
+  agentId: String(process.env.AIFY_AGENT_ID || "").trim(),
+  intervalMs: 30_000,
+  isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
+  postFn: makeDefaultTurnBusyPoster(__serverUrl),
+});
+
 // Startup diagnostic: surface the env vars the bridge sees so operators
 // can verify env propagation through *-aify → runtime → MCP child.
 // Now adapter-driven (Plan 1 of the RuntimeAdapter refactor): the runtime
@@ -277,6 +300,7 @@ function cleanupOnExit() {
     environmentHeartbeatTimer = null;
   }
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
+  try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
@@ -2127,6 +2151,16 @@ async function runDispatchLoop() {
         runtimeState,
         managedViaWrapper: _isManagedViaWrapper,
         callbacks: {
+          // Plan 4 Task 13 (2026-05-25): controllers fire this when their
+          // initial handshake completes (WS app-server initialize, gateway
+          // connect, pi agent_ready, etc.). Maps to PATCH /agents/{id}/ready
+          // so operators can see "ready" as a distinct state from "online".
+          onReady: () => {
+            httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/ready`, {
+              ready: true,
+              requestedBy: "controller-handshake",
+            }).catch(() => { /* best-effort */ });
+          },
           onEvent: async (eventType, text) => {
             try {
               await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
@@ -2221,6 +2255,9 @@ async function runDispatchLoop() {
       });
 
       ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
+      // Plan 4 Task 13: track this controller's work promise so the
+      // turn-busy heartbeat fires while it's unresolved.
+      __markControllerStart(controller.promise);
       let turnBusyCleared = false;
       const clearTurnBusy = async () => {
         if (turnBusyCleared) return;
@@ -3402,6 +3439,13 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     run,
     runtimeState,
     callbacks: {
+      // Plan 4 Task 13: same ready surface as the main dispatch loop.
+      onReady: () => {
+        httpCall("PATCH", `/agents/${encodeURIComponent(targetId)}/ready`, {
+          ready: true,
+          requestedBy: "controller-handshake",
+        }).catch(() => { /* best-effort */ });
+      },
       onRuntimeState: (nextState) => {
         const merged = { ...(LOCAL_RUNTIME_STATE.get(targetId) || {}), ...nextState };
         LOCAL_RUNTIME_STATE.set(targetId, merged);
@@ -3415,6 +3459,9 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
       onRefs: () => {},
     },
   });
+  // Plan 4 Task 13: track this controller's work promise so the turn-busy
+  // heartbeat fires while it's unresolved.
+  __markControllerStart(controller.promise);
 
   controller.promise
     .then(() => {})

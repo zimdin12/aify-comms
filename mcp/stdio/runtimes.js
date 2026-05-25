@@ -2091,6 +2091,14 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
         new Error(`Runtime "${runtime}" does not support executionMode="${executionMode}".`),
       );
     }
+    // Plan 4 Task 13 (2026-05-25): wire the bridge's onReady callback
+    // BEFORE start() is called — controllers fire markReady() from inside
+    // start() and the listener must already be attached. callbacks.onReady
+    // is an optional hook supplied by server.js; absence is harmless.
+    if (typeof callbacks?.onReady === "function" &&
+        typeof controller.setReadyListener === "function") {
+      try { controller.setReadyListener(callbacks.onReady); } catch { /* best-effort */ }
+    }
     return controller.start();
   } catch (error) {
     return failedRuntimeController(runtime, error);

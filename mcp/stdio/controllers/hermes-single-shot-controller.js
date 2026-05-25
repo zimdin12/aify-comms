@@ -113,6 +113,10 @@ export class HermesSingleShotController extends BaseController {
         const proc = this._proc;
         proc.stdin?.on?.("error", () => {});
         try { proc.stdin?.end?.(); } catch {}
+        // Plan 4 ready: hermes chat -q child process spawned. Single-shot
+        // dispatch — no further handshake before delivery; the controller is
+        // ready the moment the process is up.
+        this.markReady();
 
         proc.stdout?.on?.("data", (chunk) => {
           const text = chunk.toString();

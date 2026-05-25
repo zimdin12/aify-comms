@@ -45,6 +45,11 @@ export class CodexManagedController extends BaseController {
       agentInfo,
       onPoolEvent,
     });
+    // Plan 4 ready: persistent CodexSession is acquired; the pool will
+    // lazily initialize the app-server before runTurn() if not already up.
+    // From the bridge's perspective the controller is ready to accept
+    // dispatch. See DECISIONS.md.
+    this.markReady();
 
     this._promise = (async () => {
       if (typeof callbacks?.terminalSinkProvider === "function") {

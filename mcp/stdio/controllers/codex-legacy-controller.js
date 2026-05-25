@@ -221,6 +221,10 @@ export class CodexLegacyController extends BaseController {
         });
         markActivity("initialize");
         self._rpc.notify("initialized", {});
+        // Plan 4 ready: app-server handshake (initialize + initialized) is
+        // complete — controller can accept work. thread/start + turn/start
+        // are dispatch-specific and follow.
+        self.markReady();
 
         const startThread = async () => {
           const threadStartParams = {

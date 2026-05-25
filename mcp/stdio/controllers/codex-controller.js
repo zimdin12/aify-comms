@@ -36,6 +36,10 @@ class DelegatedManagedController extends BaseController {
   }
 
   start() {
+    // Plan 4 ready: managed-via-wrapper delegates to wrapper PTY child bridge
+    // which has its own handshake. From this bridge's perspective the
+    // controller is "ready" the instant it's started.
+    this.markReady();
     return {
       capabilities: this._capabilities,
       interrupt: async () => {},
@@ -86,4 +90,13 @@ export class CodexController extends BaseController {
   async interrupt(opts) { return this._impl.interrupt(opts); }
   async steer(opts) { return this._impl.steer(opts); }
   get terminalSink() { return this._impl.terminalSink; }
+
+  // Plan 4 ready: forward the listener to the active sub-impl so markReady()
+  // emitted from the per-mode controller reaches the bridge.
+  setReadyListener(fn) {
+    super.setReadyListener(fn);
+    if (this._impl && typeof this._impl.setReadyListener === "function") {
+      this._impl.setReadyListener(fn);
+    }
+  }
 }

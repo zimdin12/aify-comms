@@ -40,4 +40,21 @@ export class BaseController {
   get terminalSink() {
     return null;
   }
+
+  // Plan 4 Task 13 (2026-05-25): subclasses call this.markReady() when their
+  // initial handshake completes (WS app-server initialized, gateway connect,
+  // wrapper PTY spawn, omp agent_ready, etc.). The bridge wires
+  // setReadyListener to POST PATCH /api/v1/agents/{id}/ready so operators
+  // can distinguish "online" (heartbeat alive) from "ready" (handshake done,
+  // can accept dispatch). Best-effort — listener errors are swallowed so a
+  // failing ready-PATCH never breaks the start() path.
+  setReadyListener(fn) {
+    this._readyListener = (typeof fn === "function") ? fn : null;
+  }
+
+  markReady() {
+    if (this._readyListener) {
+      try { this._readyListener(); } catch { /* best-effort */ }
+    }
+  }
 }

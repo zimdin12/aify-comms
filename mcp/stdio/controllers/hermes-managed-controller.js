@@ -65,6 +65,10 @@ export class HermesManagedController extends BaseController {
         agentInfo,
         onPoolEvent,
       });
+      // Plan 4 ready: gateway session pool acquired (or reused). The pool
+      // will lazily spawn `hermes dashboard --tui` and connect WS on first
+      // runTurn() if not already up.
+      this.markReady();
 
       this._promise = (async () => {
         if (typeof callbacks?.terminalSinkProvider === "function") {
@@ -91,6 +95,10 @@ export class HermesManagedController extends BaseController {
         agentInfo,
         onPoolEvent,
       });
+      // Plan 4 ready: persistent ACP session pool acquired (or reused).
+      // The pool lazily spawns `hermes acp` and initializes on first
+      // runTurn() if not already up.
+      this.markReady();
 
       this._promise = (async () => {
         if (typeof callbacks?.terminalSinkProvider === "function") {
