@@ -408,7 +408,11 @@ async def _enforce_live_worker_gate(
         )
         await db.commit()
     except Exception:
-        pass
+        logger.debug(
+            "live-worker writeback failed for agent_id=%s; next read will re-run the gate",
+            agent_id,
+            exc_info=True,
+        )
     return payload
 
 
@@ -11224,8 +11228,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
                 stale_seconds = ACTIVE_RUN_BRIDGE_STALE_SECONDS
                 wait_hint = "A previous bridge claimed this run recently. Waiting avoids killing a run that may still complete."
             else:
-                settings = await _load_settings(db)
-                stale_seconds = max(300, int(settings.get("active_run_stale_minutes", 30) or 30) * 60)
+                stale_seconds = max(300, int(claim_settings.get("active_run_stale_minutes", 30) or 30) * 60)
                 wait_hint = "An unowned terminal turn is still within its stale timeout. Waiting avoids interrupting a visible PTY turn."
             active_age = time.time() - active_since if active_since else stale_seconds + 1
             if active_age < stale_seconds:
