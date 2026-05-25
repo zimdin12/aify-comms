@@ -2110,59 +2110,42 @@ export function defaultMachineId() {
 }
 
 export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
+  // Plan 3 Task 12 (2026-05-25): per-runtime dispatch collapses to a single
+  // adapter.controllerFor call. Each adapter owns its executionMode routing
+  // (e.g. pi rejects resident, codex/hermes route resident vs managed
+  // internally via their controller). Extra opts like managedViaWrapper are
+  // harmless to adapters that don't consume them.
   const runtime = normalizeRuntime(agentInfo.runtime || "generic");
+  let adapter;
   try {
-    if (runtime === "codex") {
-      const adapter = adapterFor("codex");
-      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
-      if (!controller) return failedRuntimeController(runtime, new Error("No controller for codex."));
-      return controller.start();
-    }
-    if (runtime === "opencode") {
-      const adapter = adapterFor("opencode");
-      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks });
-      if (!controller) {
-        return failedRuntimeController(runtime, new Error("Opencode requires managed executionMode."));
-      }
-      return controller.start();
-    }
-    if (runtime === "pi") {
-      const adapter = adapterFor("pi");
-      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks });
-      if (!controller) {
-        return failedRuntimeController(
-          runtime,
-          new Error(
-            "Pi resident dispatch is no longer supported. Use managed-via-wrapper instead " +
-            "(Plan 2 pi flip 2026-05-25).",
-          ),
-        );
-      }
-      return controller.start();
-    }
-    if (runtime === "claude-code") {
-      const adapter = adapterFor("claude-code");
-      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks });
-      if (!controller) return failedRuntimeController(runtime, new Error("No controller for claude-code."));
-      return controller.start();
-    }
-    if (runtime === "hermes") {
-      const adapter = adapterFor("hermes");
-      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
-      if (!controller) return failedRuntimeController(runtime, new Error("No controller for hermes."));
-      return controller.start();
-    }
+    adapter = adapterFor(runtime);
   } catch (error) {
     return failedRuntimeController(runtime, error);
   }
-  return {
-    capabilities: controlCapabilitiesForRuntime(runtime),
-    interrupt: () => {},
-    steer: async () => {
-      throw new Error(`Runtime "${runtime}" does not support active dispatch`);
-    },
-    promise: Promise.reject(new Error(`Runtime "${runtime}" does not support active dispatch`)),
-  };
+  if (!adapter) {
+    return failedRuntimeController(runtime, new Error(`Unknown runtime "${runtime}".`));
+  }
+  const executionMode = run?.executionMode || agentInfo?.session_mode || agentInfo?.sessionMode || "managed";
+  try {
+    const controller = adapter.controllerFor({
+      agentId,
+      agentInfo,
+      run,
+      runtimeState,
+      callbacks,
+      managedViaWrapper,
+      executionMode,
+    });
+    if (!controller) {
+      return failedRuntimeController(
+        runtime,
+        new Error(`Runtime "${runtime}" does not support executionMode="${executionMode}".`),
+      );
+    }
+    return controller.start();
+  } catch (error) {
+    return failedRuntimeController(runtime, error);
+  }
 }
 
 function createTerminalDeliveryController(runtime) {
