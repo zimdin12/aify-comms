@@ -47,3 +47,31 @@ def test_codex_adapter_diagnostic_env_unset_app_server(monkeypatch):
     monkeypatch.delenv("AIFY_CODEX_APP_SERVER_URL", raising=False)
     env = CodexAdapter().diagnostic_env()
     assert env["AIFY_CODEX_APP_SERVER_URL"] == "(unset)"
+
+
+def test_hermes_adapter():
+    from service.runtimes.hermes import HermesAdapter
+    a = HermesAdapter()
+    assert a.name == "hermes"
+    assert a.display_name == "Hermes"
+    assert a.session_env_vars == ["HERMES_SESSION_ID", "HERMES_SESSION"]
+    assert a.supports_resident is True
+    assert a.supports_managed is True
+    assert a.supports_steering is True
+    assert a.supports_interrupt is True
+    assert a.supports_multi_client is True
+    assert a.preferred_delivery_mode == "managed-via-wrapper"
+
+
+def test_hermes_adapter_diagnostic_env_includes_gateway(monkeypatch):
+    from service.runtimes.hermes import HermesAdapter
+    monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
+    env = HermesAdapter().diagnostic_env()
+    assert env["AIFY_HERMES_GATEWAY_URL"] == "ws://127.0.0.1:9999/api/ws?token=x"
+
+
+def test_hermes_adapter_falls_back_to_HERMES_SESSION(monkeypatch):
+    from service.runtimes.hermes import HermesAdapter
+    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+    monkeypatch.setenv("HERMES_SESSION", "fallback-id")
+    assert HermesAdapter().get_current_session_id() == "fallback-id"
