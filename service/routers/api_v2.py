@@ -266,25 +266,28 @@ def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
 def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> bool:
     """True when managed dispatches for this runtime should route through a
     *-aify wrapper PTY (the wrapper's child bridge claims and delivers) instead
-    of the bridge's native RPC adapter. Unified-backing refactor 2026-05-24.
+    of the bridge's native RPC adapter. Unified-backing refactor 2026-05-24,
+    extended in Plan 2 (2026-05-25) to consult the runtime adapter.
 
     claude-code is excluded — it's already wrapper-backed via claude-channel.js
     inside claude-aify regardless of this flag.
 
-    pi is excluded — omp --mode rpc is single-client stdio by upstream design.
-    pi-aify's bridge-owned-mutex (install.sh:539-559) makes the wrapper PTY
-    exit when the persistent PiSession owns the RPC. The wrapper pattern is
-    structurally incompatible with pi; if operator lists "pi" anyway, the
-    dispatch would queue forever waiting for a claimer that can't exist.
-    See DECISIONS.md "Open architectural items".
+    For all other runtimes, eligibility is now driven by the adapter's
+    preferred_delivery_mode == "managed-via-wrapper". Pi adopts this in Plan 2
+    (was hardcoded-excluded prior; the structural mismatch was fixed when
+    pi-session-resume was removed from the dispatch entry table).
     """
+    from service.runtimes import adapter_for
+
     val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
     runtime_n = _normalize_runtime(runtime or "")
     if runtime_n == "claude-code":
         return False
-    if runtime_n == "pi":
+    try:
+        adapter = adapter_for(runtime_n)
+    except ValueError:
         return False
-    if runtime_n not in {"codex", "hermes", "opencode"}:
+    if adapter.preferred_delivery_mode != "managed-via-wrapper":
         return False
     if isinstance(val, bool):
         return val

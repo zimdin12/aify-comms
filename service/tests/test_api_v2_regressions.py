@@ -2067,16 +2067,20 @@ class ApiV2RegressionTests(unittest.TestCase):
         # Off: returns False for all runtimes.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
         self.assertFalse(_managed_via_wrapper_for_runtime({}, "hermes"))
-        # True: returns True for eligible runtimes (codex/hermes/opencode).
+        # True: returns True for runtimes whose adapter declares
+        # preferred_delivery_mode == "managed-via-wrapper" (codex/hermes/pi).
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "codex"))
         # claude-code is already wrapper-backed via claude-channel; not gated by this flag.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "claude-code"))
-        # pi is excluded by architecture (omp single-client RPC + pi-aify
-        # bridge-owned-mutex makes wrapper PTY exit). Listing pi anyway
-        # would queue dispatches forever.
-        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
-        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
+        # Plan 2 (2026-05-25): pi adopts managed-via-wrapper. The prior
+        # structural mismatch (bridge-owned-mutex vs wrapper PTY) was resolved
+        # when pi-session-resume came out of the dispatch entry table.
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
+        # opencode adapter prefers "managed" (native RPC), not "managed-via-wrapper",
+        # so it stays out even when the setting is True.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "opencode"))
         # List: only listed eligible runtimes route via wrapper.
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "hermes"))
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "codex"))
