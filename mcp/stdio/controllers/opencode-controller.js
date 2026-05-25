@@ -16,7 +16,7 @@ import {
   splitProviderModel,
   summarizeOpenCodeParts,
   requireOpenCodeData,
-} from "../runtimes.js";
+} from "../runtimes-helpers.js";
 
 export class OpencodeController extends BaseController {
   constructor(opts) {
