@@ -15,11 +15,18 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
   const tick = async () => {
     if (stopped) return;
     let current = null;
-    try { current = adapter.getCurrentSessionId(); } catch { /* swallow */ }
-    // Plan 4: fall back to runtime-native discovery when env-read returns null.
-    // Lets fresh managed launches capture session_handle via filesystem/RPC scan.
-    if (!current && typeof adapter.discoverSessionId === "function") {
-      try { current = await adapter.discoverSessionId(); } catch { /* swallow */ }
+    // Plan 6 A1 (2026-05-26): runtime discovery is authoritative.
+    // env-read is fallback — operators leave stale env vars in their
+    // shells (HERMES_SESSION_ID etc.), and the prior fallback order
+    // (env first, discover only when env was null) pinned those stale
+    // values in the server's stored handle indefinitely. Discover-first
+    // is self-correcting; env-fallback preserves the legacy behavior
+    // when the runtime can't be probed.
+    if (typeof adapter.discoverSessionId === "function") {
+      try { current = await adapter.discoverSessionId(); } catch { /* swallow; fall through */ }
+    }
+    if (!current) {
+      try { current = adapter.getCurrentSessionId(); } catch { /* swallow */ }
     }
     if (!current || current === lastHandle) return;
     try {

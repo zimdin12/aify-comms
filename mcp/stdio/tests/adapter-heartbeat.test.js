@@ -85,7 +85,11 @@ test("Heartbeat falls back to adapter.discoverSessionId when env empty", async (
   assert.strictEqual(calls[0].handle, "discovered-handle-xyz");
 });
 
-test("Heartbeat prefers getCurrentSessionId over discoverSessionId", async () => {
+test("Heartbeat prefers discoverSessionId over getCurrentSessionId (Plan 6 A1)", async () => {
+  // Plan 6 A1 (2026-05-26): reversed from prior policy. Operators leave
+  // stale HERMES_SESSION_ID / CODEX_THREAD_ID in their shells; env-first
+  // pinned those stale values in the server's stored handle indefinitely.
+  // Runtime discovery is authoritative; env-read is fallback.
   const { startSessionHandleHeartbeat } = await import("../session-handle-heartbeat.js");
   const calls = [];
   let discoverCalled = false;
@@ -102,8 +106,8 @@ test("Heartbeat prefers getCurrentSessionId over discoverSessionId", async () =>
   await new Promise(r => setTimeout(r, 50));
   stop();
   assert.ok(calls.length >= 1);
-  assert.strictEqual(calls[0].handle, "env-handle", "env-read should win when non-null");
-  assert.strictEqual(discoverCalled, false, "discoverSessionId should not be called when env has a value");
+  assert.strictEqual(calls[0].handle, "discovered-other", "discover should win when non-null");
+  assert.strictEqual(discoverCalled, true, "discoverSessionId should always be tried first");
 });
 
 test("Heartbeat handles discoverSessionId returning null gracefully", async () => {
