@@ -484,10 +484,14 @@ const residentDeadHandleController = launchRuntimeRun({
 // controller regardless of handle health; the old "Resident Pi session NAME is
 // not resumable" wording belonged to the createPiControllerLegacy path that
 // Plan 2 removes from the dispatch entry table.
+// Plan 3 Task 12 (2026-05-25): launchRuntimeRun now consults adapter.controllerFor;
+// the rejection is generic ("Runtime \"pi\" does not support executionMode=\"resident\"")
+// since the per-runtime branch is gone. Behavior unchanged — pi resident still
+// rejects.
 await assert.rejects(
   residentDeadHandleController.promise,
-  /Pi resident dispatch is no longer supported.*managed-via-wrapper/i,
-  "Plan 2 must reject resident-mode Pi dispatch at the bridge controller (including dead-handle case)",
+  /Runtime "pi" does not support executionMode="resident"/i,
+  "Plan 3 must reject resident-mode Pi dispatch at the adapter controllerFor() gate (including dead-handle case)",
 );
 
 
@@ -821,8 +825,8 @@ const planTwoResidentController = launchRuntimeRun({
 });
 await assert.rejects(
   planTwoResidentController.promise,
-  /Pi resident dispatch is no longer supported.*managed-via-wrapper/i,
-  "Plan 2 must reject resident-mode Pi dispatch at the bridge controller",
+  /Runtime "pi" does not support executionMode="resident"/i,
+  "Plan 3 must reject resident-mode Pi dispatch at the adapter controllerFor() gate",
 );
 
 // Plan 1 regression (commit 4f0fef7): normalizePiModelOverride strips
