@@ -13,6 +13,7 @@ import { acquirePiSession } from "./pi-session.js";
 import { getOrCreateHermesSession } from "./hermes-session.js";
 import { getOrCreateHermesGatewaySession, managedHermesUsesGateway } from "./hermes-managed-gateway-session.js";
 import { getOrCreateCodexSession } from "./codex-session.js";
+import { adapterFor } from "./adapters/index.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
 function userHomeDir() {
@@ -1555,19 +1556,12 @@ export function canLaunchRuntime(runtime) {
 }
 
 export function controlCapabilitiesForRuntime(runtime) {
-  switch (normalizeRuntime(runtime)) {
-    case "codex":
-      return { interrupt: true, steer: true };
-    case "hermes":
-      return { interrupt: true, steer: false };
-    case "opencode":
-      return { interrupt: true, steer: false };
-    case "pi":
-      return { interrupt: true, steer: true };
-    case "claude-code":
-      return { interrupt: true, steer: false };
-    default:
-      return { interrupt: false, steer: false };
+  const runtimeN = normalizeRuntime(runtime || "");
+  try {
+    const a = adapterFor(runtimeN);
+    return { interrupt: a.supportsInterrupt, steer: a.supportsSteering };
+  } catch {
+    return { interrupt: false, steer: false };
   }
 }
 
@@ -3471,55 +3465,36 @@ export function detectRuntime(explicitRuntime) {
   return "generic";
 }
 
-export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident", sessionHandle = "") {
-  const normalizedRuntime = normalizeRuntime(runtime);
-  const normalizedMode = String(sessionMode || "resident").trim().toLowerCase();
-  const resolvedSessionHandle = String(sessionHandle || defaultSessionHandleForRuntime(normalizedRuntime) || "").trim();
-  const runtimeConfig = arguments.length > 3 ? arguments[3] || {} : {};
+export function defaultCapabilitiesForRuntime(runtime, sessionMode, sessionHandle, runtimeConfig) {
+  // Plan 2 (2026-05-25): derive from RuntimeAdapter instead of hardcoded
+  // per-runtime branches.
+  const runtimeN = normalizeRuntime(runtime || "");
+  let adapter;
+  try { adapter = adapterFor(runtimeN); } catch { return []; }
 
-  if (normalizedMode === "managed") {
-    switch (normalizedRuntime) {
-      case "codex":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
-      case "opencode":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
-      case "pi":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
-      case "hermes":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
-      case "claude-code":
-        return ["resume", "interrupt", "spawn"];
-      default:
-        return [];
+  const caps = [];
+  const sessionModeN = String(sessionMode || "").toLowerCase();
+
+  if (sessionModeN === "resident") {
+    // Resident-capable only when adapter declares it AND, for gateway-backed
+    // runtimes, the gateway URL is present.
+    let gatewayOk = true;
+    if (runtimeN === "hermes") {
+      const gw = String((runtimeConfig || {}).gatewayUrl || "").trim();
+      gatewayOk = !!gw;
     }
+    if (adapter.supportsResident && gatewayOk) caps.push("resident-run");
+  } else {
+    if (adapter.supportsManaged) caps.push("managed-run");
   }
 
-  if (normalizedRuntime === "claude-code") {
-    if (!hasClaudeLiveChannel(runtimeConfig)) return [];
-    return ["resident-run", "interrupt", "steer"];
-  }
+  if (adapter.supportsResident || adapter.supportsManaged) caps.push("resume");
+  if (adapter.supportsInterrupt) caps.push("interrupt");
+  if (adapter.supportsSteering) caps.push("steer");
 
-  // Hermes with a live tui_gateway WS doesn't need a captured sessionHandle
-  // at register time — the resident-channel controller resolves
-  // session.most_recent at dispatch time. Mirror of the codex
-  // hasCodexLiveAppServer carve-out below.
-  if (normalizedRuntime === "hermes" && hasHermesLiveGateway(runtimeConfig)) {
-    return ["resident-run", "resume", "interrupt", "steer"];
-  }
-  if (!resolvedSessionHandle) return [];
-  switch (normalizedRuntime) {
-    case "codex":
-      if (!hasCodexLiveAppServer(runtimeConfig) && !canUseDefaultResidentCodexBridge()) return [];
-      return ["resident-run", "resume", "interrupt", "steer"];
-    case "hermes":
-      return ["resident-run", "resume", "interrupt"];
-    case "opencode":
-      return ["resident-run", "resume", "interrupt"];
-    case "pi":
-      return ["resident-run", "resume", "interrupt", "steer"];
-    default:
-      return [];
-  }
+  if (sessionModeN !== "resident" && adapter.supportsManaged) caps.push("spawn");
+
+  return caps;
 }
 
 export function defaultMachineId() {

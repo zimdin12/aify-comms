@@ -22,14 +22,17 @@ assert.equal(normalizeRuntime("hermes-agent"), "hermes");
 assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
-assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: false });
-// Phase 3 (hermes parity): managed hermes is now a real native-RPC adapter,
-// not a Console-only stub. Capabilities advertise managed-run + native-managed-run.
+// Plan 2 (2026-05-25): controlCapabilitiesForRuntime now derives from
+// HermesAdapter.supports_*. supportsSteering == true, so steer is true.
+assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: true });
+// Plan 2 (2026-05-25): defaultCapabilitiesForRuntime derives from the
+// HermesAdapter supports_* flags. native-managed-run is no longer separate.
+// Hermes resident without a gatewayUrl omits resident-run (gateway gating).
 assert.deepEqual(
   defaultCapabilitiesForRuntime("hermes", "managed"),
-  ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"],
+  ["managed-run", "resume", "interrupt", "steer", "spawn"],
 );
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resident-run", "resume", "interrupt"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
 
 const availability = runtimeLaunchAvailability("hermes");

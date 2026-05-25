@@ -25,8 +25,13 @@ assert.equal(normalizeRuntime("pi-agent"), "pi");
 
 assert.equal(canLaunchRuntime("pi"), true);
 assert.deepEqual(controlCapabilitiesForRuntime("pi"), { interrupt: true, steer: true });
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"]);
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resident-run", "resume", "interrupt", "steer"]);
+// Plan 2 (2026-05-25): defaultCapabilitiesForRuntime now derives from the
+// PiAdapter's supports_* flags. native-managed-run is no longer in the
+// default list, and pi resident omits `resident-run` because
+// PiAdapter.supportsResident == false. interrupt/steer are independent of
+// session mode and still flow through when the adapter declares them.
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "resume", "interrupt", "steer", "spawn"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 
 process.env.PI_SESSION_ID = "pi-session-123";
 assert.equal(defaultSessionHandleForRuntime("pi"), "pi-session-123");
