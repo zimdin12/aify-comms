@@ -1,4 +1,5 @@
 import { RuntimeAdapter } from "./base.js";
+import { HermesController } from "../controllers/hermes-controller.js";
 
 export class HermesAdapter extends RuntimeAdapter {
   get name() { return "hermes"; }
@@ -13,9 +14,8 @@ export class HermesAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
-  controllerFor(_opts) {
-    // Concrete wiring lands in Plan 3 Task 7-11.
-    return null;
+  controllerFor(opts) {
+    return new HermesController(opts);
   }
 
   diagnosticEnv() {

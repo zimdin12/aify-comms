@@ -33,4 +33,11 @@ export {
 
   // pi-specific
   detectPiRuntimeFailure,
+
+  // hermes-specific (Plan 3 Task 10)
+  defaultHermesCommand,
+  spawnProcess,
+  terminateProcessTree,
+  quoteForDisplay,
+  diagnosticsFor,
 } from "./runtimes.js";
