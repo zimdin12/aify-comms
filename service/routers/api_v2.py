@@ -3374,6 +3374,100 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
             )
 
 
+async def _drain_and_flip_pi_resident_agents() -> None:
+    """Pi delivery flip (Plan 2, 2026-05-25).
+
+    Every ~5s the periodic loop calls this helper. For each pi agent
+    marked with runtime_state.pi_resident_pending_flip == True it checks
+    that no active or queued dispatch run is currently targeting the
+    agent. When clear, the agent migrates from sessionMode=resident to
+    sessionMode=managed: session_handle is preserved, capabilities are
+    recomputed via _default_capabilities_for (PiAdapter no longer
+    supports_resident), the pending-flip flag is cleared, and a
+    flipped_at timestamp is recorded.
+    """
+    db = await get_db()
+    try:
+        now_iso = _now()
+        cursor = await db.execute(
+            """
+            SELECT id, session_handle, runtime_state, runtime_config
+            FROM agents
+            WHERE runtime = 'pi'
+              AND session_mode = 'resident'
+            """
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return
+
+        for row in rows:
+            runtime_state = _json_loads_or(row["runtime_state"], {})
+            if not runtime_state.get("pi_resident_pending_flip"):
+                continue
+
+            # Block the flip while any open run is targeting the agent.
+            run_cursor = await db.execute(
+                """
+                SELECT COUNT(*) AS cnt FROM dispatch_runs
+                WHERE target_agent = ?
+                  AND status IN ('queued', 'claimed', 'running')
+                """,
+                (row["id"],),
+            )
+            run_row = await run_cursor.fetchone()
+            if run_row and int(run_row["cnt"] or 0) > 0:
+                continue  # wait until next tick
+
+            runtime_state["pi_resident_pending_flip"] = False
+            runtime_state["flipped_at"] = now_iso
+
+            runtime_config = _json_loads_or(row["runtime_config"], {})
+            new_caps = _default_capabilities_for(
+                "pi",
+                "managed",
+                str(row["session_handle"] or ""),
+                runtime_config,
+            )
+
+            await db.execute(
+                """
+                UPDATE agents
+                SET session_mode = 'managed',
+                    runtime_state = ?,
+                    capabilities = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(runtime_state),
+                    json.dumps(new_caps),
+                    now_iso,
+                    row["id"],
+                ),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def _periodic_pi_resident_flip_loop() -> None:
+    """Background loop — every ~5s drain & flip pi resident agents.
+
+    Best-effort: any exception during a tick is swallowed so the next
+    tick retries. Wired into the FastAPI lifespan in service/main.py.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5.0)
+            await _drain_and_flip_pi_resident_agents()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # next tick retries
+            pass
+
+
 async def _get_recipient_info(db, recipient_id: str):
     if recipient_id == "dashboard":
         return {

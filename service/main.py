@@ -159,6 +159,13 @@ async def lifespan(app: FastAPI):
 
     reconcile_task = asyncio.create_task(_periodic_dispatch_reconcile())
 
+    # Plan 2, Task 17 — periodic pi-resident drain & flip. Pi agents that
+    # registered as sessionMode=resident are marked with a pending-flip
+    # flag; once no open runs are targeting them, the loop migrates them
+    # to sessionMode=managed. 5s tick keeps the flip latency tight.
+    from service.routers.api_v2 import _periodic_pi_resident_flip_loop
+    pi_flip_task = asyncio.create_task(_periodic_pi_resident_flip_loop())
+
     # WebSocket manager
     app.state.ws_manager = ConnectionManager()
 
@@ -206,6 +213,11 @@ async def lifespan(app: FastAPI):
         reconcile_task.cancel()
         try:
             await reconcile_task
+        except asyncio.CancelledError:
+            pass
+        pi_flip_task.cancel()
+        try:
+            await pi_flip_task
         except asyncio.CancelledError:
             pass
 
