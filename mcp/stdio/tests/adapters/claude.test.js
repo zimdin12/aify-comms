@@ -37,3 +37,18 @@ test("ClaudeAdapter Plan 2 capabilities", () => {
   assert.strictEqual(a.supportsMultiClient, true);
   assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
 });
+
+test("ClaudeAdapter overrides discoverSessionId", () => {
+  const a = new ClaudeAdapter();
+  const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(a), "discoverSessionId");
+  assert.ok(own && typeof own.value === "function",
+    "ClaudeAdapter must define its own discoverSessionId override");
+});
+
+test("ClaudeAdapter.discoverSessionId returns null or non-empty string", async () => {
+  const a = new ClaudeAdapter();
+  const result = await a.discoverSessionId();
+  if (result !== null) {
+    assert.ok(typeof result === "string" && result.length > 0);
+  }
+});

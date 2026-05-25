@@ -18,6 +18,22 @@ def test_claude_adapter():
     assert a.preferred_delivery_mode == "managed-via-wrapper"
 
 
+def test_claude_adapter_overrides_discover_session_id():
+    from service.runtimes.claude import ClaudeAdapter
+    base = ClaudeAdapter.__mro__[1]
+    assert ClaudeAdapter.discover_session_id is not base.discover_session_id, (
+        "ClaudeAdapter must override discover_session_id"
+    )
+
+
+def test_claude_adapter_discover_session_id_returns_str_or_none():
+    import asyncio
+    from service.runtimes.claude import ClaudeAdapter
+    result = asyncio.run(ClaudeAdapter().discover_session_id())
+    if result is not None:
+        assert isinstance(result, str) and len(result) > 0
+
+
 def test_codex_adapter():
     from service.runtimes.codex import CodexAdapter
     a = CodexAdapter()
