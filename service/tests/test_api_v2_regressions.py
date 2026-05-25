@@ -2413,17 +2413,22 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(session["terminalId"], "")
         self.assertEqual(session["terminalStatus"], "")
 
-    def test_console_start_builds_fresh_interactive_codex_command(self):
-        # Human Console must launch a FRESH interactive codex, NOT
-        # `resume --include-non-interactive <handle>` (that opens a
-        # managed/headless thread → machine output, the "026H" bug).
+    def test_console_start_builds_interactive_codex_command_resumes_stored_handle(self):
+        # Plan 1 of the RuntimeAdapter refactor (2026-05-25) — the previous
+        # codex carve-out always launched fresh because raw `codex resume
+        # --include-non-interactive <handle>` failed on stale session files.
+        # The dashboard Console goes through codex-aify (NOT raw
+        # `codex resume`), and codex-aify gained a stale-handle fallback so
+        # missing session files downgrade to fresh. With that in place the
+        # interactive Console now resumes the stored handle, matching the
+        # behavior of claude/hermes/pi managed launches.
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
         self.assertIn("codex-aify", command)
         self.assertIn("--aify-agent console-agent", command)
-        self.assertNotIn("resume", command)
+        self.assertIn("--resume thread-1", command)
         self.assertNotIn("--include-non-interactive", command)
 
     def test_console_start_builds_claude_channels_command_without_dev_prompt(self):

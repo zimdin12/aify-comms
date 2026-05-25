@@ -6950,20 +6950,14 @@ def _default_console_command(session, workspace: str, *, interactive: bool = Fal
         # Managed headless PTY dispatch keeps native resume for continuity.
         parts = ["pi-aify", "--aify-agent", agent_id]
     elif runtime == "codex":
-        # Operator-verified 2026-05-22: `codex resume --include-non-interactive
-        # <handle>` fails with "no such file or directory (os error 2)" when
-        # the saved handle is stale relative to codex's session storage
-        # (codex deletes session files independently of aify-comms). And
-        # the bridge's native RPC adapter (createCodexController) already
-        # drives turns through its own app-server connection, so the
-        # Console PTY doesn't need to share that session-id — it can be
-        # a fresh codex-aify shell. Aligns with the interactive path
-        # and the same simplification pi uses.
-        # Native context preservation: the bridge's controller still
-        # passes `runtimeState.sessionId/threadId` on its own app-server
-        # connection — Console is supplementary visibility, not the
-        # delivery surface.
-        return f"codex-aify --aify-agent {agent_id}"
+        # 2026-05-25 Plan 1 of the RuntimeAdapter refactor — the carve-out
+        # that always launched fresh was overcautious. The dashboard Console
+        # uses codex-aify (not raw `codex resume`), and codex-aify gains a
+        # stale-handle fallback (see install.sh) so a missing session file
+        # downgrades to fresh instead of breaking the wrapper. With that in
+        # place, the codex Console resumes its stored handle the same way
+        # claude/hermes/pi do.
+        parts = ["codex-aify", "--aify-agent", agent_id]
     else:
         parts = [runtime or "agent", "--aify-agent", agent_id]
     if handle:
