@@ -53,6 +53,7 @@ import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
+import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 
 // Load env from settings.local.json (user-level + project-level merge)
 loadSettingsEnv();
@@ -208,6 +209,15 @@ try {
   if (__rt) __runtimeAdapter = adapterFor(__rt);
 } catch { /* unknown runtime — bridge continues without adapter */ }
 
+const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") || 60000;
+const __serverUrl = String(process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://127.0.0.1:8800").trim();
+const __stopHandleHeartbeat = startSessionHandleHeartbeat({
+  adapter: __runtimeAdapter,
+  agentId: String(process.env.AIFY_AGENT_ID || "").trim(),
+  intervalMs: __HEARTBEAT_MS,
+  postFn: makeDefaultHandlePoster(__serverUrl),
+});
+
 // Startup diagnostic: surface the env vars the bridge sees so operators
 // can verify env propagation through *-aify → runtime → MCP child.
 // Now adapter-driven (Plan 1 of the RuntimeAdapter refactor): the runtime
@@ -266,6 +276,7 @@ function cleanupOnExit() {
     clearInterval(environmentHeartbeatTimer);
     environmentHeartbeatTimer = null;
   }
+  try { __stopHandleHeartbeat(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
