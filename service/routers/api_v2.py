@@ -349,6 +349,50 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
     return False
 
 
+async def _enforce_live_worker_gate(
+    payload: dict[str, Any],
+    db,
+    settings: dict[str, Any],
+    agent_id: str,
+) -> dict[str, Any]:
+    """Plan 5 Section C (2026-05-25): downgrade cached `online` to `available`
+    for managed wrapper-backed agents that have no non-terminated
+    `terminal_sessions` row.
+
+    Why this lives at the read boundary (not in the cache):
+    `_compute_live_status_cache` already consults `terminal_sessions` when it
+    runs, but `agent_live_state.refresh_after` is keyed on heartbeat
+    freshness via `_status_refresh_after` — NOT worker presence. When the
+    wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g.
+    another bridge polling the same agent), `refresh_after` stays in the
+    future and `_refresh_expired_agent_live_states` never re-validates.
+    Cached `status='online'` then persists indefinitely.
+
+    Observed 2026-05-25: graph-senior-dev (codex managed) —
+    `agent_live_state.status='online'` `terminal_id=''`
+    `updated_at=19:29:10Z` `refresh_after=19:30:28Z` (long past), but the
+    API still returned `online` because the cache row never fell behind a
+    fresh-enough heartbeat to trigger a recompute.
+
+    This gate is a final-step correction at the API boundary. Cache stays
+    for performance.
+    """
+    if payload.get("status") != "online":
+        return payload
+    session_mode = str(payload.get("sessionMode") or "").lower()
+    if session_mode != "managed":
+        return payload
+    runtime = str(payload.get("runtime") or "").lower()
+    if not _managed_via_wrapper_for_runtime(settings, runtime):
+        return payload
+    if await _has_live_terminal_session(db, agent_id):
+        return payload
+    payload["status"] = "available"
+    payload["statusRaw"] = "available"
+    payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
+    return payload
+
+
 def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:
     """Plan 4 (2026-05-25): synth-terminal (aify://virtual-rpc/<runtime>) is
     deprecated for wrapper-backed runtimes. The wrapper PTY IS the terminal.
@@ -8444,7 +8488,11 @@ async def list_agents(request: Request):
         result = {}
         for row in agents:
             aid = row["id"]
-            result[aid] = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
+            payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
+            # Plan 5 Section C: read-path live-worker gate — see
+            # _enforce_live_worker_gate for full rationale.
+            payload = await _enforce_live_worker_gate(payload, db, settings, aid)
+            result[aid] = payload
         return {"agents": result}
     finally:
         await db.close()
@@ -8940,7 +8988,11 @@ async def get_agent(agent_id: str, request: Request):
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         unread_map = await _get_unread_count_map(db, [agent_id])
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
-        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))}
+        payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))
+        # Plan 5 Section C: read-path live-worker gate — see
+        # _enforce_live_worker_gate for full rationale.
+        payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
+        return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()
 
