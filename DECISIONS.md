@@ -617,3 +617,23 @@ Flip wrapper-backed delivery to default (`managed_via_wrapper: ["codex","hermes"
 **Fix.** Added `_enforce_live_worker_gate` at `api_v2.py:352`, called at every agent read (`api_v2.py:8517, 9017`) — commits `b58142e` + `f38f57d`. Before returning `status='online'` for a managed wrapper-backed agent, the gate validates that a non-`stopped`/`failed` `terminal_sessions` row exists. If not, downgrade to `available` and write back to `agent_live_state` so the next read is also corrected. Right boundary: the API read path is the cheapest, most self-correcting place to enforce the invariant — the cache stays for performance but cannot lie on the way out.
 
 **See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section C.
+
+
+## 2026-05-26 — `/dispatch` must respect Plan 5 channel route (extra-check follow-up)
+
+**Symptom.** `comms_dispatch` to a wrapper-backed managed codex/hermes/pi agent routed via raw PTY keystrokes (`console_recipients`) instead of channel-claim. Operator banned this delivery shape: "I do not want pseudo terminal input because i might write while other agent sends message in and it gets scrambled."
+
+**Architectural gap.** `/dispatch` at `api_v2.py:10927-10948` received `execution_mode='channel'` from `_agent_execution_mode` (per Plan 5 Section B), then unconditionally fell through into the PTY-input branch and overwrote `execution_mode=None`. `/messages/send` at `api_v2.py:9923` was already correct (gates the PTY-input branch on `execution_mode=='managed'`). The asymmetry was invisible to spec compliance and code-quality review because both endpoints look mostly identical — surfaced only by the feature-surrounding pass.
+
+**Fix.** Narrow the `/dispatch` PTY-input branch to `execution_mode == "managed"` so wrapper-backed managed dispatches (`execution_mode='channel'`) flow through to channel-claim — commit `d12baae`. Regression test at `service/tests/test_dispatch_endpoint_wrapper_backed.py` asserts the persisted `dispatch_runs.execution_mode='channel'` for codex/hermes/pi.
+
+**See:** `service/tests/test_dispatch_endpoint_wrapper_backed.py`; Plan 5 spec.
+
+
+## 2026-05-26 — Known follow-up: wrapper-child / main-bridge channel-claim race
+
+**Symptom.** Plan 5 Section B widened both ends of the channel-claim path. If two bridges register as the same wrapper-backed managed `agent_id` (rare: operator manually opens a second wrapper with `--aify-agent X`), both ask `/dispatch/claim` for `executionModes=['channel']`. The `BEGIN IMMEDIATE` + FCFS UPDATE in `claim_dispatch` prevents double-delivery, but the winning bridge may not have `appServerUrl` (codex) or `gatewayUrl` (hermes) from the wrapper's local env. If the loser was the in-wrapper bridge, the winner spawns a fresh codex/hermes process and the wrapper PTY becomes orphaned.
+
+**Why we did not fix it now.** In practice the supersession mechanism (`bridge_instances.superseded_by`) kills the older bridge almost immediately, so the race window is small. None of the live traces from the 2026-05-26 debugging session showed multiple non-superseded bridges per agent. Filed as a follow-up; revisit if observed.
+
+**Mitigation idea.** Reject channel-claims when the request's bridge is not the agent's "current" `runtimeState.bridgeInstanceId` — symmetric with the `_bridge_claim_block_reason` gate already in place for managed claims.
