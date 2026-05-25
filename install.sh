@@ -15,6 +15,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
+# Plan 5 (2026-05-25): --prebuild-dry-run exits after running the hermes
+# web_dist prebuild branch (no npm invocation, no wrapper writes). Used by
+# service/tests/test_install_hermes_prebuild.py to verify the branch's
+# detection logic without touching the operator's environment.
+PREBUILD_DRY_RUN=false
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
 
 usage() {
@@ -40,6 +45,10 @@ while [ $# -gt 0 ]; do
       ;;
     --with-hook)
       WITH_HOOK=true
+      shift
+      ;;
+    --prebuild-dry-run)
+      PREBUILD_DRY_RUN=true
       shift
       ;;
     --help|-h)
@@ -618,6 +627,62 @@ EOF
   chmod +x "$alias_path"
   install_windows_cmd_shim "pi-aify" "$wrapper_dir"
   install_windows_cmd_shim "omp-aify" "$wrapper_dir"
+}
+
+# Plan 5 (2026-05-25): pre-build hermes web_dist at install time.
+#
+# Without this, `hermes-aify` spawns `hermes dashboard --tui --skip-build`
+# which dies with "✗ --skip-build was passed but no web dist found at: ..."
+# on every fresh hermes install. The wrapper then falls through to plain
+# `hermes`, AIFY_HERMES_GATEWAY_URL is never exported, and every resident
+# hermes wake reports `hermes-missing-handle` (observed 2026-05-25 —
+# see ~/.local/state/aify-comms/hermes-aify-dashboard-*.log).
+#
+# Detection order: AIFY_HERMES_INSTALL_ROOT > `hermes config path` parsed
+# up to /hermes_cli > skip cleanly. Idempotent: noop if web_dist/index.html
+# exists. Dry-run (--prebuild-dry-run) logs intent but skips npm.
+prebuild_hermes_web_dist() {
+  local hermes_install_root="${AIFY_HERMES_INSTALL_ROOT:-}"
+  if [ -z "$hermes_install_root" ]; then
+    # `hermes config path` reports something like
+    # /c/Users/Administrator/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml
+    # — strip from /hermes_cli/ onward to recover the install root.
+    if command -v hermes >/dev/null 2>&1; then
+      local cfg_path
+      cfg_path="$(hermes config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+      if [ -n "$cfg_path" ]; then
+        hermes_install_root="${cfg_path%%/hermes_cli/*}"
+      fi
+    fi
+  fi
+  if [ -z "$hermes_install_root" ] || [ ! -d "$hermes_install_root" ]; then
+    echo "[install.sh] hermes install root not found; skipping web_dist prebuild" >&2
+    return 0
+  fi
+  local web_dist="$hermes_install_root/hermes_cli/web_dist"
+  local web_src="$hermes_install_root/web"
+  if [ -f "$web_dist/index.html" ]; then
+    echo "[install.sh] hermes web_dist already present at $web_dist" >&2
+    return 0
+  fi
+  if [ ! -d "$web_src" ]; then
+    echo "[install.sh] hermes web source not found at $web_src; cannot prebuild" >&2
+    return 0
+  fi
+  echo "[install.sh] prebuilding hermes web_dist (one-time; runs npm install + npm run build)" >&2
+  if [ "$PREBUILD_DRY_RUN" = true ]; then
+    echo "[install.sh] --prebuild-dry-run: skipping npm invocation; would have run cd '$web_src' && npm install && npm run build" >&2
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[install.sh] npm not on PATH; hermes web_dist prebuild requires Node.js. Install Node and re-run install.sh." >&2
+    return 1
+  fi
+  (cd "$web_src" && npm install && npm run build) || {
+    echo "[install.sh] hermes web_dist prebuild failed — hermes-aify dashboard probe will continue to fall back. Re-run install.sh after fixing." >&2
+    return 1
+  }
+  echo "[install.sh] hermes web_dist prebuilt at $web_dist" >&2
 }
 
 install_hermes_wrapper() {
@@ -1729,6 +1794,22 @@ echo "Repo: $SCRIPT_DIR"
 echo "Client: $CLIENT"
 echo "Server: ${SERVER_URL:-local mode (no shared server)}"
 echo ""
+
+# Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
+# steps so a fresh hermes install doesn't fall through to plain `hermes`
+# (which leaves AIFY_HERMES_GATEWAY_URL unexported and every resident
+# wake mode reporting `hermes-missing-handle`). Also handles
+# --prebuild-dry-run, used by tests to exercise just this branch without
+# mutating the operator's env.
+if [ "$CLIENT" = "hermes" ]; then
+  prebuild_hermes_web_dist || true
+  if [ "$PREBUILD_DRY_RUN" = true ]; then
+    # Dry-run: only the prebuild branch was exercised. Skip wrapper writes,
+    # MCP registration, and post-install steps so tests don't touch the
+    # operator's environment or invoke npm/hermes.
+    exit 0
+  fi
+fi
 
 require_cmd node
 require_cmd npm
