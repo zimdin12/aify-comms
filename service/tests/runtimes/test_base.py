@@ -96,6 +96,9 @@ def test_plan_3_methods_raise_not_implemented():
         _ = a.wrapper_name
     with pytest.raises(NotImplementedError):
         a.console_command(agent_id="x", handle="", interactive=True)
+    # is_resident_ready is now a concrete default (Plan 3), not a stub.
+    # Default impl returns self.supports_resident.
+    assert a.is_resident_ready({}) is True  # _TestAdapter.supports_resident=True
 
 
 def test_plan_3_async_methods_raise_not_implemented():

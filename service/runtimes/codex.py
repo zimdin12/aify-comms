@@ -21,6 +21,15 @@ class CodexAdapter(RuntimeAdapter):
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"
 
+    # Plan 3 additions
+    wrapper_name = "codex-aify"
+
+    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+        parts = ["codex-aify", "--aify-agent", agent_id]
+        if handle:
+            parts.extend(["--resume", handle])
+        return " ".join(parts)
+
     def diagnostic_env(self) -> dict[str, str]:
         env = super().diagnostic_env()
         val = os.environ.get("AIFY_CODEX_APP_SERVER_URL", "").strip()

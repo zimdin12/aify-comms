@@ -77,14 +77,19 @@ class RuntimeAdapter:
             out[var] = val if val else "(unset)"
         return out
 
-    # ─────────────────── CONSOLE / WRAPPER (Plan 3 — stubbed) ───────────────────
+    # ─────────────────── CONSOLE / WRAPPER (Plan 3) ───────────────────
 
     @property
     def wrapper_name(self) -> str:
-        raise NotImplementedError("Plan 3 — not yet implemented")
+        raise NotImplementedError("Plan 3 — subclass must override wrapper_name")
 
     def console_command(self, **opts: Any) -> str:
-        raise NotImplementedError("Plan 3 — not yet implemented")
+        raise NotImplementedError("Plan 3 — subclass must override console_command")
+
+    # Plan 3 — default implementation. Subclasses with extra per-config gates
+    # (claude channelEnabled, hermes gatewayUrl) override.
+    def is_resident_ready(self, runtime_config: dict) -> bool:
+        return self.supports_resident
 
     # ─────────────────── DELIVERY (Plan 3 — stubbed) ───────────────────
 

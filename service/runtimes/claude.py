@@ -18,3 +18,20 @@ class ClaudeAdapter(RuntimeAdapter):
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"
+
+    # Plan 3 additions
+    wrapper_name = "claude-aify"
+
+    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+        if interactive:
+            return f"claude-aify --aify-agent {agent_id}"
+        parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]
+        if handle:
+            parts.extend(["--resume", handle])
+        return " ".join(parts)
+
+    def is_resident_ready(self, runtime_config: dict) -> bool:
+        # Restores Plan 2 Task 14 dropped gate (#120).
+        if not runtime_config:
+            return False
+        return runtime_config.get("channelEnabled") is True

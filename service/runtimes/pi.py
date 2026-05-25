@@ -21,3 +21,14 @@ class PiAdapter(RuntimeAdapter):
     supports_interrupt = True
     supports_multi_client = False
     preferred_delivery_mode = "managed-via-wrapper"
+
+    # Plan 3 additions
+    wrapper_name = "pi-aify"
+
+    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+        if interactive:
+            return f"pi-aify --aify-agent {agent_id}"
+        parts = ["pi-aify", "--aify-agent", agent_id]
+        if handle:
+            parts.extend(["--resume", handle])
+        return " ".join(parts)

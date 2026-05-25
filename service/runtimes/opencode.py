@@ -22,3 +22,9 @@ class OpencodeAdapter(RuntimeAdapter):
     supports_interrupt = True
     supports_multi_client = False
     preferred_delivery_mode = "managed"
+
+    # Plan 3 additions
+    wrapper_name = "opencode"
+
+    def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+        return "opencode"
