@@ -28,7 +28,12 @@ await assert.rejects(
   /Claude Code managed Messenger no longer uses claude -p/,
 );
 
+// Capabilities now derive from ClaudeAdapter (Plan 2 capability matrix):
+// supportsInterrupt=true, supportsSteering=true. The controller's start()
+// still rejects the dispatch promise (claude -p delivery is disabled in
+// favor of claude-aify wrapper + channel bridge), but the adapter-reported
+// surface capabilities are unchanged.
 assert.equal(controller.capabilities.interrupt, true);
-assert.equal(controller.capabilities.steer, false);
+assert.equal(controller.capabilities.steer, true);
 
 console.log("claude-print-disabled.test.js: all assertions passed");

@@ -1,4 +1,5 @@
 import { RuntimeAdapter } from "./base.js";
+import { ClaudeController } from "../controllers/claude-controller.js";
 
 export class ClaudeAdapter extends RuntimeAdapter {
   get name() { return "claude-code"; }
@@ -14,8 +15,7 @@ export class ClaudeAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
-  controllerFor(_opts) {
-    // Concrete wiring lands in Plan 3 Task 7-11.
-    return null;
+  controllerFor(opts) {
+    return new ClaudeController(opts);
   }
 }

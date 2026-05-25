@@ -2042,13 +2042,6 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
   return null;
 }
 
-function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  throw new Error(
-    "Claude Code managed Messenger no longer uses claude -p. " +
-    "Start or attach a Claude PTY/channel runtime with claude-aify, then deliver Messenger work through the resident channel bridge.",
-  );
-}
-
 export function isClaudeSessionInUseError(text) {
   return /session id(?:\s+[0-9a-f-]+)?\s+is already in use/i.test(String(text || ""));
 }
@@ -2847,7 +2840,10 @@ export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callba
       return controller.start();
     }
     if (runtime === "claude-code") {
-      return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
+      const adapter = adapterFor("claude-code");
+      const controller = adapter.controllerFor({ agentId, agentInfo, run, runtimeState, callbacks });
+      if (!controller) return failedRuntimeController(runtime, new Error("No controller for claude-code."));
+      return controller.start();
     }
     if (runtime === "hermes") {
       return createHermesController({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper });
