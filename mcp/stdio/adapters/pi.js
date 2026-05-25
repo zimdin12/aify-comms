@@ -1,4 +1,5 @@
 import { RuntimeAdapter } from "./base.js";
+import { PiController } from "../controllers/pi-controller.js";
 
 export class PiAdapter extends RuntimeAdapter {
   get name() { return "pi"; }
@@ -16,8 +17,15 @@ export class PiAdapter extends RuntimeAdapter {
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
   controllerFor(opts) {
-    // Plan 2 pi flip: resident pi is no longer supported.
-    // Tasks 7-11 will wire managed mode to PiController.
-    return null;
+    // Plan 2 pi flip: resident pi is no longer supported — return null
+    // so launchRuntimeRun rejects with a clear error.
+    const mode = String(
+      opts?.executionMode ||
+      opts?.run?.executionMode ||
+      opts?.agentInfo?.sessionMode ||
+      "managed",
+    ).trim().toLowerCase();
+    if (mode === "resident") return null;
+    return new PiController(opts);
   }
 }

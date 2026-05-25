@@ -30,4 +30,7 @@ export {
   splitProviderModel,
   summarizeOpenCodeParts,
   requireOpenCodeData,
+
+  // pi-specific
+  detectPiRuntimeFailure,
 } from "./runtimes.js";

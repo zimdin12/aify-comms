@@ -2196,9 +2196,9 @@ async function runDispatchLoop() {
           // RPC controller. Pi (Phase 2): persistent omp --mode rpc child
           // streams its event feed through this sink. Hermes: per-dispatch
           // `hermes chat -q -Q` controller pushes request/response frames.
-          // createPiController ignores this for resident-mode pi (legacy
-          // per-dispatch spawn). Other runtimes return null and stay on
-          // their existing visibility surface.
+          // PiController (managed mode only post-Plan-2 flip) wires this
+          // sink via session.attachTerminalSink. Other runtimes return null
+          // and stay on their existing visibility surface.
           terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
             const rt = normalizeRuntime(agentInfo?.runtime || "");
             // Phases 2 + 7 + 5/6: pi (persistent), hermes (per-dispatch
