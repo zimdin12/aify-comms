@@ -553,3 +553,25 @@ Migrate the consumer call sites pi-flip touches: `_managed_via_wrapper_for_runti
 **Plan 3 (next):** Fill in `consoleCommand`, `injectMessage`, `interrupt`, `steer` on both adapter packages and migrate the remaining per-runtime branches.
 
 **See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`, `docs/superpowers/plans/2026-05-25-plan2-runtime-capabilities-and-pi-flip.md`.
+
+## 2026-05-25 — Plan 3: Controllers + delivery migration
+
+**Decision:** Complete the `RuntimeAdapter` foundation by adding remaining Plan 3 methods (Python: `console_command`, `wrapper_name`, `is_resident_ready`; JS: `controllerFor` + delegate methods), extracting per-runtime controllers from `mcp/stdio/runtimes.js` into individual `mcp/stdio/controllers/<runtime>-controller.js` files, and migrating `_default_console_command`, `_default_capabilities_for`, and `launchRuntimeRun` to consume the adapter contract.
+
+Closes #120 — restores the `channelEnabled` per-config resident gate that Plan 2 Task 14 simplification dropped. Claude resident agents now correctly require `runtime_config.channelEnabled=True` before advertising `resident-run`.
+
+11 controller files now live under `mcp/stdio/controllers/`:
+- `base-controller.js` (abstract)
+- `opencode-controller.js`, `pi-controller.js`, `claude-controller.js`
+- `hermes-controller.js` + `hermes-resident-controller.js` + `hermes-managed-controller.js` + `hermes-single-shot-controller.js`
+- `codex-controller.js` + `codex-managed-controller.js` + `codex-legacy-controller.js` + `codex-legacy-helpers.js`
+
+All ≤400 lines per the 500-line rule. `mcp/stdio/runtimes.js` shrank from 4106 → 2110 lines (still above the ≤350 target — the remaining 2110 are reusable helpers, follow-up tracked).
+
+Module-load cycle (`adapters/X → controllers/X → runtimes.js → adapters/index.js → adapters/X`) was broken in Plan 3 Task 7.5 via lazy REGISTRY construction in `adapters/index.js` plus a `runtimes-helpers.js` re-export boundary for controllers.
+
+**Why:** Operator's 500-line file rule + clean-architecture-always preference. `runtimes.js` was a 4100-line monolith — the worst in the codebase. Plan 3 splits the per-runtime delivery code into testable per-file modules. Adapter consumers (`_default_console_command` etc.) had per-runtime if-branches that grew quadratically with each new feature; Plan 3 collapses them to one rule.
+
+**Follow-ups tracked:** runtimes.js helper extraction (the 2110 → ≤500 path is mapped — 4 clusters in `codex-config-helpers.js`, `codex-live-discovery.js`, `executable-resolution.js`, `rpc-clients.js`).
+
+**See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan3-controllers-and-delivery-design.md`, `docs/superpowers/plans/2026-05-25-plan3-controllers-and-delivery.md`.
