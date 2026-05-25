@@ -98,3 +98,20 @@ def test_pi_adapter_session_var_fallback_order(monkeypatch):
     monkeypatch.setenv("OMP_SESSION_ID", "omp-x")
     monkeypatch.setenv("AIFY_PI_SESSION_ID", "aify-y")
     assert PiAdapter().get_current_session_id() == "omp-x"
+
+
+def test_opencode_adapter():
+    from service.runtimes.opencode import OpencodeAdapter
+    a = OpencodeAdapter()
+    assert a.name == "opencode"
+    assert a.display_name == "OpenCode"
+    assert a.session_env_vars == ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"]
+    # aify-comms doesn't wire `opencode serve` today — tracked as separate
+    # follow-up. Capability flags reflect aify-comms's current delivery
+    # surface, not what opencode CAN do in principle.
+    assert a.supports_resident is False
+    assert a.supports_managed is True
+    assert a.supports_steering is False
+    assert a.supports_interrupt is True
+    assert a.supports_multi_client is False
+    assert a.preferred_delivery_mode == "managed"
