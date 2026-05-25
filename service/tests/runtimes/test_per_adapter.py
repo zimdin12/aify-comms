@@ -16,3 +16,34 @@ def test_claude_adapter():
     assert a.supports_interrupt is True
     assert a.supports_multi_client is True
     assert a.preferred_delivery_mode == "managed-via-wrapper"
+
+
+def test_codex_adapter():
+    from service.runtimes.codex import CodexAdapter
+    a = CodexAdapter()
+    assert a.name == "codex"
+    assert a.display_name == "Codex"
+    assert a.session_env_vars == ["CODEX_THREAD_ID"]
+    assert a.supports_resident is True
+    assert a.supports_managed is True
+    assert a.supports_steering is True
+    assert a.supports_interrupt is True
+    assert a.supports_multi_client is True
+    assert a.preferred_delivery_mode == "managed-via-wrapper"
+
+
+def test_codex_adapter_diagnostic_env_includes_app_server(monkeypatch):
+    from service.runtimes.codex import CodexAdapter
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-x")
+    monkeypatch.setenv("AIFY_CODEX_APP_SERVER_URL", "ws://127.0.0.1:1234")
+    env = CodexAdapter().diagnostic_env()
+    assert env["CODEX_THREAD_ID"] == "thread-x"
+    assert env["AIFY_CODEX_APP_SERVER_URL"] == "ws://127.0.0.1:1234"
+
+
+def test_codex_adapter_diagnostic_env_unset_app_server(monkeypatch):
+    from service.runtimes.codex import CodexAdapter
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    monkeypatch.delenv("AIFY_CODEX_APP_SERVER_URL", raising=False)
+    env = CodexAdapter().diagnostic_env()
+    assert env["AIFY_CODEX_APP_SERVER_URL"] == "(unset)"
