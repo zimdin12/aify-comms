@@ -87,6 +87,17 @@ Important starting docs:
 - [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — historical staged plan plus current status notes.
 - [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — historical Slice 1 task, retained for context.
 
+## Repo layout
+
+| Path | What |
+|------|------|
+| `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |
+| `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, etc.). Restart the `*-aify` client wrapper after changes. |
+| `mcp/stdio/adapters/` | Per-runtime `RuntimeAdapter` classes — session-id capture, resume args, diagnostic env. See `docs/superpowers/specs/2026-05-25-runtime-adapter-design.md`. |
+| `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
+| `.claude/skills/aify-comms*/` | Agent-facing usage + debug skills. Mirrored under `.agents/skills/` for Codex. |
+| `install.sh` | Client installer. Targets Claude, Codex, Hermes, OpenCode, or Pi via `--client`. |
+
 ## Setup
 
 ```bash

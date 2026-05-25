@@ -525,3 +525,17 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 **Residual risk.** When the init race re-bites, channel-routed dispatches stop reaching the model — they queue at the service and never surface. Symptom: `comms_send` returns success, the dashboard shows a queued turn, but the receiving claude-aify session never wakes. Recovery: set `AIFY_CLAUDE_STRICT_MCP=1` in the launching shell and relaunch the wrapper. The two-server config restores guaranteed channel wake at the cost of the other MCP servers.
 
 **Reconsider if.** Upstream Claude Code fixes the MCP init race (#38462 / #21341 close) — at which point the env-var escape hatch becomes dead code and can be removed. Until then, keep both branches.
+
+## 2026-05-25 — RuntimeAdapter foundation + unified session-handle capture
+
+**Decision:** Introduce a `RuntimeAdapter` abstract class in `mcp/stdio/adapters/` with one concrete subclass per supported runtime (claude-code, codex, hermes, pi, opencode). Plan 1 implements session-lifecycle methods (`getCurrentSessionId`, `resumeArgs`, `normalizeSessionHandle`, `normalizeModelOverride`, `diagnosticEnv`). Bridge consumes the adapter to (a) report the current runtime session id in the startup banner, (b) fill `sessionHandle` in `comms_register` payloads, and (c) PATCH `/api/v2/agents/{id}/session-handle` every 60s when the handle changes.
+
+The dashboard Console's `_default_console_command` is simplified to use the stored handle for `--resume` across all runtimes. The codex carve-out (always-fresh) is removed; codex-aify gains a try-resume-then-fresh fallback so a stale session file degrades gracefully instead of breaking the wrapper.
+
+**Why:** Operator-reported "missing handles all the time" — `agents.session_handle` stayed empty for wrapper-backed managed agents because nothing was reporting back the runtime-created session id after first launch. Each runtime had its own ad-hoc capture path (`extractPiSessionState`, codex app-server events, hermes gateway query, claude channel sidecar) and the new `managed_via_wrapper` flow bypassed them all. The adapter pattern collapses every future per-runtime quirk to one method per runtime.
+
+**Plans 2 and 3 (not yet implemented):** Plan 2 fills in the capability flags (`supportsResident`, `supportsManaged`, `supportsSteering`, `supportsInterrupt`, `supportsMultiClient`, `preferredDeliveryMode`) and routes pi delivery away from `pi-session-resume`'s spawn-fresh-worker pattern into `managed_via_wrapper`. Plan 3 extracts a Python `service/runtimes/` package and migrates `_default_console_command`, the dispatch dispatcher, and the delivery shims to consume adapter calls instead of branching on `runtime == "..."`.
+
+**Trade-off accepted:** The very first turn of a brand-new agent still launches fresh (no handle exists yet); the first heartbeat (≤60s after that turn) captures the new id. Mid-session `/clear` operations (claude) won't update the env var the bridge already has cached — operator must restart the wrapper to recapture. Both are documented as known limitations.
+
+**See also:** `docs/superpowers/specs/2026-05-25-runtime-adapter-design.md`, `docs/superpowers/plans/2026-05-25-plan1-runtime-adapter-session-handle.md`.
