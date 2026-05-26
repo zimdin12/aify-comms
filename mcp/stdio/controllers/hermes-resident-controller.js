@@ -189,35 +189,56 @@ export class HermesResidentController extends BaseController {
       this.markReady();
 
       try {
-        // Plan 6 follow-up (2026-05-26): resolve session id by ALWAYS
-        // asking the gateway for its live session list first. The
-        // registered handle (and session.most_recent) commonly point at
-        // a session id that's been GC'd or replaced — hermes silently
-        // creates a fresh session when HERMES_SESSION_ID resume fails,
-        // and the gateway's session.most_recent returns disk-stored
-        // entries, not the currently-loaded one. session.list reflects
-        // in-memory state; pickFreshestSessionFromList sorts by
-        // createdAt so we pick the truly active session.
+        // Plan 6 follow-up (2026-05-26): hermes tui_gateway has a sid /
+        // session_key duality. `prompt.submit` looks up in-memory
+        // `_sessions[sid]` (short uuid bound to ONE transport). External
+        // WS clients (us) can't see the operator's TUI sid. `session.list`
+        // and `session.most_recent` return persisted session_keys, NOT
+        // active sids — so prompt.submit on those fails with 4001.
         //
-        // Fallback chain: gateway live list > registered handle >
-        // session.most_recent. If all return nothing, surface a
-        // clear actionable error.
+        // Recipe (see tui_gateway/server.py:2386 session.resume):
+        //   1. Resolve a session_key (gateway live list → registered handle
+        //      → session.most_recent).
+        //   2. Call session.resume(session_id=<key>) → gateway loads the
+        //      persisted session into a NEW in-memory sid bound to OUR ws.
+        //   3. prompt.submit(session_id=<new sid>) is now legal.
+        //
+        // The operator's TUI keeps its own sid; both write to the same DB
+        // session_key. For aify-comms purposes (one-shot dispatch +
+        // streamed reply) this is sufficient — the bridge captures the
+        // reply, completes the run, and posts the response to comms chat.
+        let sessionKey = resolvedSessionId; // may be the registered handle
         const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
         const freshFromList = proto.pickFreshestSessionFromList(liveList);
-        if (freshFromList) {
-          if (resolvedSessionId && freshFromList !== resolvedSessionId) {
-            callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${freshFromList}' (gateway live list)`);
-          }
-          resolvedSessionId = freshFromList;
-        }
-        if (!resolvedSessionId) {
+        if (freshFromList) sessionKey = freshFromList;
+        if (!sessionKey) {
           const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
-          resolvedSessionId = String(mostRecent?.session_id || mostRecent?.sessionId || "").trim();
+          sessionKey = String(mostRecent?.session_id || mostRecent?.sessionId || "").trim();
         }
-        if (!resolvedSessionId) {
+        if (!sessionKey) {
           throw new Error("Hermes gateway has no resolvable session — operator should open hermes chat first");
         }
-        try { callbacks.onRefs?.({ sessionId: resolvedSessionId }); } catch {}
+
+        // Resume the persisted session_key into a fresh in-memory sid bound
+        // to THIS ws. session.resume returns { session_id: <new sid>,
+        // resumed: <session_key>, ... } per tui_gateway/server.py:2418.
+        let resumed = null;
+        try {
+          resumed = await sendRpc(proto.buildSessionResumeFrame({ sessionKey }));
+        } catch (err) {
+          throw new Error(`Hermes session.resume(session_id=${sessionKey}) failed: ${err?.message || JSON.stringify(err)}`);
+        }
+        const newSid = String(resumed?.session_id || resumed?.sessionId || "").trim();
+        if (!newSid) {
+          throw new Error(`Hermes session.resume returned no in-memory session_id (response: ${JSON.stringify(resumed)})`);
+        }
+        if (resolvedSessionId && resolvedSessionId !== newSid) {
+          callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${newSid}' (session.resume on ${sessionKey})`);
+        } else {
+          callbacks.onEvent?.("hermes", `session.resume on ${sessionKey} -> sid ${newSid}`);
+        }
+        resolvedSessionId = newSid;
+        try { callbacks.onRefs?.({ sessionId: resolvedSessionId, sessionKey }); } catch {}
 
         const body = String(run?.body || "").trim();
         const subject = String(run?.subject || "").trim();
@@ -234,26 +255,26 @@ export class HermesResidentController extends BaseController {
           // No immediate settle — the agent.message.end event in the socket
           // 'message' handler closes the promise after streaming completes.
         } catch (err) {
-          // Plan 6 follow-up: stale session id → refresh from gateway and
-          // retry once. Distinct from the busy/steer path below.
+          // Plan 6 follow-up: if prompt.submit still fails with 4001 even
+          // after our session.resume above (e.g. the freshly-allocated sid
+          // got reaped between resume and submit, or the gateway returned
+          // a sid bound to a different transport), do a single re-resume
+          // and retry.
           if (proto.isSessionNotFoundError(err)) {
-            const refreshedList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
-            const refreshed = proto.pickFreshestSessionFromList(refreshedList);
-            if (refreshed && refreshed !== resolvedSessionId) {
-              callbacks.onEvent?.("hermes", `prompt.submit session_not_found; refreshed '${resolvedSessionId}' -> '${refreshed}' and retrying`);
-              resolvedSessionId = refreshed;
-              try { callbacks.onRefs?.({ sessionId: resolvedSessionId }); } catch {}
-              try {
-                await submitOnce(resolvedSessionId);
-              } catch (retryErr) {
-                clearTimeout(overallTimer);
-                settle("reject", new Error(`Hermes prompt.submit failed after refresh: ${retryErr?.message || JSON.stringify(retryErr)}`));
-                return;
-              }
+            try {
+              const reresumeList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+              const reresumeKey = proto.pickFreshestSessionFromList(reresumeList) || sessionKey;
+              const retried = await sendRpc(proto.buildSessionResumeFrame({ sessionKey: reresumeKey }));
+              const retriedSid = String(retried?.session_id || retried?.sessionId || "").trim();
+              if (!retriedSid) throw new Error("session.resume retry returned no sid");
+              callbacks.onEvent?.("hermes", `prompt.submit session_not_found; re-resumed ${reresumeKey} -> sid ${retriedSid} and retrying`);
+              resolvedSessionId = retriedSid;
+              try { callbacks.onRefs?.({ sessionId: resolvedSessionId, sessionKey: reresumeKey }); } catch {}
+              await submitOnce(resolvedSessionId);
               // Retry succeeded — fall through to wait for streaming end.
-            } else {
+            } catch (retryErr) {
               clearTimeout(overallTimer);
-              settle("reject", new Error(`Hermes prompt.submit failed (no live sessions to retry against): ${err?.message || JSON.stringify(err)}`));
+              settle("reject", new Error(`Hermes prompt.submit failed after re-resume: ${retryErr?.message || JSON.stringify(retryErr)}`));
               return;
             }
           } else if (proto.isSessionBusyError(err)) {

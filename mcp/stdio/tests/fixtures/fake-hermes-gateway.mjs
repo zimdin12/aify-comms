@@ -58,6 +58,15 @@ wss.on("connection", (socket, req) => {
       send({ jsonrpc: "2.0", id: msg.id, result: { sessions: [{ id: FIXED_SESSION_ID, title: "fake" }] } });
       return;
     }
+    if (msg.method === "session.resume") {
+      // Mirror tui_gateway/server.py:2386 session.resume: produce a fresh
+      // in-memory short uuid sid bound to this WS connection. `resumed`
+      // is the persisted session_key the caller passed in.
+      const target = String(msg.params?.session_id || "").trim();
+      const sid = `mem-${Math.random().toString(16).slice(2, 10)}`;
+      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: sid, resumed: target || FIXED_SESSION_ID, message_count: 0, messages: [] } });
+      return;
+    }
     if (msg.method === "session.steer") {
       send({ jsonrpc: "2.0", id: msg.id, result: { status: "queued", text: msg.params?.text || "" } });
       return;

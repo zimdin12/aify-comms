@@ -133,20 +133,22 @@ test("resident hermes falls back to session.steer when prompt.submit returns 400
   assert.ok(steerEvents.length >= 1, "expected at least one steer-related onEvent emission");
 });
 
-test("resident hermes prefers gateway's live session list over a stale registered sessionHandle (Plan 6 follow-up)", async (t) => {
-  // Plan 6 follow-up (2026-05-26): the registered handle is treated as
-  // metadata, not authority. The gateway's session.list reflects what's
-  // actually loaded in hermes — that wins. Operators routinely have
-  // stale *_SESSION_ID env vars in their shells; without this the
-  // controller called prompt.submit on the stale id and got
-  // "session not found" (observed live with sc-hermes-test-1 and
-  // hermes-test on 2026-05-26).
+test("resident hermes resumes the persisted session_key into a fresh in-memory sid before prompt.submit (Plan 6 follow-up)", async (t) => {
+  // Plan 6 follow-up (2026-05-26): the tui_gateway has sid/session_key
+  // duality. prompt.submit looks up in-memory `_sessions[sid]` only,
+  // never by persisted session_key. External WS clients (us) can't see
+  // the operator's TUI sid. session.resume(persisted_key) returns a
+  // fresh in-memory sid bound to OUR ws — that sid is then legal for
+  // prompt.submit. Observed live 2026-05-26 with sc-hermes-test-1 and
+  // hermes-test: prompt.submit on session_key (or any list-derived id)
+  // failed with 4001 "session not found".
   const { url, token } = await startFake(t);
   const wsUrl = attachUrl(url, token);
 
   const { launchRuntimeRun } = await import("../runtimes.js");
   let capturedSessionId = "";
-  let correctedEvent = "";
+  let capturedSessionKey = "";
+  let resumeEvent = "";
   const controller = launchRuntimeRun({
     agentId: "hermes-resident-handle",
     agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
@@ -154,16 +156,21 @@ test("resident hermes prefers gateway's live session list over a stale registere
     runtimeState: {},
     callbacks: {
       onEvent: (kind, msg) => {
-        if (/session id corrected/.test(String(msg || ""))) correctedEvent = String(msg);
+        const s = String(msg || "");
+        if (/session\.resume on .* -> sid /.test(s) || /session id corrected/.test(s)) resumeEvent = s;
       },
-      onRefs: (refs) => { if (refs?.sessionId) capturedSessionId = refs.sessionId; },
+      onRefs: (refs) => {
+        if (refs?.sessionId) capturedSessionId = refs.sessionId;
+        if (refs?.sessionKey) capturedSessionKey = refs.sessionKey;
+      },
     },
   });
 
   const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
   assert.ok(!result.failed, `expected hermes dispatch to succeed: ${result.error || ""}`);
-  assert.equal(capturedSessionId, "sess-fake-001", "controller should adopt the gateway's live session id, not the stale registered handle");
-  assert.match(correctedEvent, /'operator-sid-42' -> 'sess-fake-001'/, "controller should announce the correction via onEvent");
+  assert.match(capturedSessionId, /^mem-/, "controller should adopt the fresh in-memory sid returned by session.resume");
+  assert.equal(capturedSessionKey, "sess-fake-001", "controller should remember the resolved session_key alongside the sid");
+  assert.match(resumeEvent, /session\.resume on sess-fake-001/, "controller should announce the resume via onEvent");
 });
 
 test("resident hermes rejects connection when token is wrong", async (t) => {

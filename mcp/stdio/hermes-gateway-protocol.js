@@ -44,6 +44,24 @@ export function buildSessionListFrame({ id }) {
   };
 }
 
+// Plan 6 follow-up (2026-05-26): session.resume creates a NEW in-memory
+// `sid` bound to this WS connection for the given persisted `session_key`.
+// Without this dance prompt.submit returns 4001 "session not found" — the
+// gateway looks up by short in-memory sid, not by persisted session_key,
+// and external WS clients (like our aify-comms bridge) have no access to
+// the operator's TUI sid. Returns { session_id: <fresh sid>, resumed:
+// <session_key>, ... }; the bridge must use the new sid for all
+// subsequent prompt.submit / session.steer / session.interrupt calls on
+// this connection.
+export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "session.resume",
+    params: { session_id: String(sessionKey || ""), cols: Number(cols) || 80 },
+  };
+}
+
 export function buildSessionInterruptFrame({ id, sessionId }) {
   return {
     jsonrpc: "2.0",
