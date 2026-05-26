@@ -178,12 +178,12 @@ The environment bridge is enough for dashboard-managed spawns. Resident visible 
 - Codex: install Codex support, start with `codex-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
 - Claude Code: install Claude support, start with `claude-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
 - OpenCode: register with a real `sessionHandle` for resident resume, or use managed dashboard spawns.
-- Oh My Pi: install Pi support, start with `omp-aify` or `pi-aify`, then register from that session or pass `--aify-agent <agentId>` for automatic resident registration.
+- Oh My Pi: install Pi support and use managed dashboard spawns for triggerable delivery. `omp-aify` / `pi-aify` can register presence or a standalone operator session, but OMP is single-client and does not support live resident injection into an open TUI.
 
 Choose the mode intentionally:
 
 - **Managed mode:** keep `aify-comms` running as the host bridge, spawn agents from the dashboard, and let the dashboard own lifecycle. This is the normal persistent team mode.
-- **Resident mode:** open `claude-aify`, `codex-aify`, or `omp-aify` / `pi-aify` yourself when you want a visible terminal to own the session temporarily. Bind it with `--aify-agent <agentId>` or call `comms_register(...)` from inside the session.
+- **Resident mode:** open `claude-aify`, `codex-aify`, or `hermes-aify` yourself when you want a visible terminal to own live delivery temporarily. Bind it with `--aify-agent <agentId>` or call `comms_register(...)` from inside the session. Pi is the exception: `omp-aify` / `pi-aify` can register presence/standalone terminals, but triggerable Pi messages go through managed RPC.
 
 Stopping a resident from the dashboard disables wake/dispatch in the control plane and, when the live resident bridge is still polling, asks that bridge to terminate its host CLI/app process. If the resident bridge is already gone, stop is only a control-plane state change. Managed sessions spawned through the bridge can be stopped or restarted through their stored spawn spec; Recreate is the explicit fresh-context reset.
 
@@ -223,12 +223,12 @@ Managed -> resident CLI:
    - `claude-aify --aify-agent <agentId> --resume <session-id>`
    - `codex-aify --aify-agent <agentId> resume --include-non-interactive <thread-id>`
    - `hermes-aify --aify-agent <agentId> --resume <session-id>`
-   - `omp-aify --aify-agent <agentId> --resume <session-id>`
-3. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle so the dashboard has a resident candidate.
+   - `omp-aify --aify-agent <agentId> --resume <session-id>` for Pi presence/standalone only; use managed mode for triggerable Pi delivery.
+3. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle so the dashboard has a resident candidate. Do not switch Pi identities to resident expecting dashboard injection; switch Pi back to managed for triggerable delivery.
 4. Do the direct terminal work.
 5. Use **Switch to managed** when dashboard control should return. Close the CLI when done, or use **Stop wake** / session **Stop** to ask the resident process to terminate.
 
-`claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. `hermes-aify --resume <id>` exports `HERMES_SESSION_ID=<id>`. `omp-aify --resume <id>` and `pi-aify --resume <id>` export `PI_SESSION_ID=<id>`. Registration updates the saved Claude session ID, Codex thread ID, Hermes session ID, OpenCode session ID, or Pi session handle. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
+`claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. `hermes-aify --resume <id>` exports `HERMES_SESSION_ID=<id>`. `omp-aify --resume <id>` and `pi-aify --resume <id>` export `PI_SESSION_ID=<id>` for presence/standalone metadata, while triggerable Pi delivery remains managed RPC. Registration updates the saved Claude session ID, Codex thread ID, Hermes session ID, OpenCode session ID, or Pi session handle. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
 
 If you know the correct native ID and only need to repair the saved handle, use Dashboard **Chat details -> Runtime Session -> Set handle** or **Sessions -> Actions -> Set handle**. This updates the identity, runtime state, and latest session record without creating a fresh context. Use it only for known-good handles; a wrong value binds the identity to the wrong native memory.
 

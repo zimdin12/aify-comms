@@ -244,10 +244,10 @@ Use when a human-visible CLI session already exists:
 
 - `codex-aify`
 - `claude-aify`
-- `omp-aify` / `pi-aify`
+- `hermes-aify`
 - existing `aify-comms` live wake model
 
-This is still useful, but it is not the default dashboard spawn path. It is for agents the user wants to personally use through the CLI.
+This is still useful, but it is not the default dashboard spawn path. It is for agents the user wants to personally use through the CLI. `omp-aify` / `pi-aify` can register presence and standalone terminals, but triggerable Pi delivery is managed RPC because OMP is single-client.
 
 ### Run Once
 

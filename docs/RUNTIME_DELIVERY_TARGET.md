@@ -45,10 +45,10 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 - **Console** = operator attach/control/view into the agent's backing
   runtime terminal. Hidden consoles don't need to render; the backend
   still tracks output/state.
-- **Message delivery** goes through the runtime wrapper attached to the
-  agent backing process — `claude-aify`, `codex-aify`, `hermes-aify`,
-  `omp/pi-aify`. **Not** ad-hoc service injection into a human console
-  pane.
+- **Message delivery** goes through the runtime backing process: `claude-aify`,
+  `codex-aify`, and `hermes-aify` wrapper PTYs for the runtimes with
+  multi-client injection, or the persistent OMP RPC virtual terminal for Pi.
+  **Not** ad-hoc service injection into a human console pane.
 - **Status** is reported by the `*-aify` wrapper where possible: turn
   start/end, blocked/awaiting-input, idle prompt, fatal/error, session
   changed.
@@ -71,11 +71,9 @@ refactor. Surviving items:
    rule violation. Separate plan (Plan 5 territory). Plans 1+2+3 deliberately
    did NOT add to its bulk; new code went into the runtimes/ adapter package
    and the pi-flip helpers stayed surgical.
-3. **Plan 4 (runtime-ready event hook + ready status):** still pending. The
-   adapter declares `supports_resident=true` but doesn't emit a real-time
-   "the runtime is now actually ready" signal — operators see `online` but
-   may attempt dispatch before init completes. Brainstormed; not yet
-   spec'd.
+3. **Runtime-ready event hook + ready status:** delivered. `ready` now means
+   the worker emitted its handshake-complete signal and is idle; `online`
+   means a worker exists but has not fully initialized yet.
 4. **Opencode multi-client wiring:** opencode supports `opencode serve` for
    ACP multi-client delivery but aify-comms hasn't integrated. Follow-up.
 5. **codex-aify --remote + resume subcommand ordering:** validation needed

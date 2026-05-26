@@ -181,10 +181,9 @@ Resident visible is for human-open CLI sessions:
 - `codex-aify`
 - `claude-aify`
 - `hermes-aify`
-- `omp-aify` / `pi-aify`
 - explicit OpenCode registration with a real session handle
 
-Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it.
+Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it. Pi is the exception: `omp-aify` / `pi-aify` can register presence and standalone operator sessions, but triggerable Pi delivery is managed RPC because OMP is single-client and cannot safely share one live TUI session with the bridge.
 
 Resident visible sessions are not the default for dashboard-spawned agents. They are an attach/register mode for visible humans and debugging.
 
@@ -214,7 +213,7 @@ Examples:
 - To match managed Claude's unattended permission behavior in a resumed CLI, use `claude-aify --dangerously-skip-permissions --resume <session-id>`. `--permanently-skip-permissions` is not a Claude Code CLI option.
 - Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
 - Hermes managed-warm uses the same PTY delivery path; open a visible resident terminal with `hermes-aify --aify-agent <agent-id> --resume <session-id>` when a real Hermes session ID is known.
-- Pi managed-warm can be opened with `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` when a real Oh My Pi session handle is recorded.
+- Pi managed-warm should stay managed for triggerable dashboard delivery. `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` is a presence/standalone takeover command; do not run it against the same session id while the bridge owns the managed RPC child.
 
 Dashboard rule:
 

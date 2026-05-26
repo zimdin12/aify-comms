@@ -651,9 +651,9 @@ curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | py
 # {"ok": true, "bridgeOwned": true|false, "virtualTerminalId": "vterm_..."}
 ```
 
-## Codex persistent app-server session
+## Codex native fallback persistent app-server session
 
-Managed codex dispatches go through a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
+Managed Codex defaults to a wrapper-backed `codex-aify` PTY. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/codex`: the native fallback keeps a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
 
 ### Dispatch sits at `[codex] working...` forever
 
@@ -675,9 +675,9 @@ The bridge tried to resume a previously-saved threadId but codex says no rollout
 
 **Fix.** Either flip the agent to `resumePolicy=fresh_context` (Dashboard → Sessions → Recreate) or restore the rollout file in the active CODEX_HOME and retry.
 
-## Hermes ACP persistent session
+## Hermes native fallback ACP persistent session
 
-Managed hermes dispatches go through a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
+Managed Hermes defaults to a wrapper-backed `hermes-aify` PTY that delivers through the visible-session gateway bind path. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/hermes`: the native fallback keeps a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
 
 ### Dispatch sits at `[hermes] thinking...` forever
 
@@ -741,7 +741,7 @@ If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_b
    ```bash
    curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep -A3 managed_via_wrapper
    ```
-   Should list `"codex"`, `"hermes"`, `"pi"` (Plan 4 default).
+   Should list `"codex"` and `"hermes"` (current default). Pi is intentionally excluded from wrapper mode and uses managed RPC.
 3. If wrappers are older than commits `3bcbac2` / `0beab57`, run `./redeploy.sh` to refresh installed `*-aify` wrappers and restart any host bridges. Re-dispatch — the queued run should claim within one poll cycle (~3s).
 
 ## Agent shows online without a console (Plan 5 Section C)

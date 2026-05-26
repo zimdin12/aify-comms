@@ -27,7 +27,7 @@ If every feature fits this model, the product stays coherent.
 - Dashboard-spawned agents do not require manual registration.
 - Managed warm is the default agent mode.
 - Run-once is advanced/internal, not the main agent model.
-- Resident visible is for human-open CLI sessions such as `codex-aify`, `claude-aify`, or `omp-aify` / `pi-aify`.
+- Resident visible is for human-open CLI sessions with a tested multi-client injection path such as `codex-aify`, `claude-aify`, or `hermes-aify`; Pi wrapper sessions are presence/standalone because triggerable Pi delivery is managed RPC.
 - Every managed warm agent is persistent/backed.
 - Persistent/backed does not imply CLI-attachable.
 - Handoff compaction creates a new backed session from a portable compaction packet; it is not native resume or native in-place compact.

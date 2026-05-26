@@ -23,22 +23,22 @@ aify-comms
 
 On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The installer configures OMP's user MCP file at `~/.omp/agent/mcp.json`, installs the `aify-comms` bridge launcher, and installs resident wrappers: `omp-aify` and its `pi-aify` alias.
 
-## Resident Pi
+## Pi Wrapper Sessions
 
-Use `omp-aify` when a terminal you opened should own the visible Pi session. `pi-aify` is kept as an alias:
+Use `omp-aify` when you want a human-open Pi terminal that still has aify-comms tools and presence metadata. `pi-aify` is kept as an alias:
 
 ```bash
 cd /path/to/project
 omp-aify --aify-agent my-pi --aify-role coder
 ```
 
-If you are resuming a known Pi session, pass the resume handle so aify-comms can bind resident dispatch to the same native session:
+If you are resuming a known Pi session, pass the resume handle so aify-comms can record the same native session for presence/debug metadata:
 
 ```bash
 omp-aify --aify-agent my-pi --resume <session-id-or-prefix>
 ```
 
-If no Pi session handle is available, the resident session can still use MCP tools and register for presence, but active resident dispatch will remain unavailable until it is rebound with a handle.
+OMP's RPC channel is single-client, so aify-comms does not inject dashboard messages into an already-open Pi TUI. Triggerable Pi delivery is managed RPC (`omp --mode rpc`) through the environment bridge. If no Pi session handle is available, the wrapper can still use MCP tools and register for presence, but dashboard sends should target a managed Pi identity.
 
 ## Managed Pi
 
@@ -46,7 +46,7 @@ Managed Pi agents are spawned from the dashboard or `comms_spawn(..., runtime="p
 
 Current Pi note:
 - Runtime aliases `pi`, `omp`, `oh-my-pi`, and `pi-agent` normalize to `pi`.
-- Managed Pi supports persistent managed work, resume handles when OMP exposes them, active-run steer, and interrupt.
+- Managed Pi supports persistent managed work, resume handles when OMP exposes them, active-run steer, and interrupt. It is the triggerable delivery path for Pi.
 - The dashboard's Console pane shows a synthesized terminal stream for the persistent RPC child — see *Delivery path*.
 - Managed Pi captures streamed `text_delta` output and final assistant text from RPC completion events such as `message_end` / `agent_end`.
 - A blank model, or a stored model value of `default`, means no `--model` override; Oh My Pi then uses `~/.omp/agent/config.yml`.
@@ -88,7 +88,7 @@ The Phase-4 watchdog above already captures the `pi-session-state` response body
 2. `--resident` / `--managed` flag on the wrapper command line.
 3. TTY auto-detect via `[ -t 0 ]` — interactive operator launches default `resident`; non-TTY launches default `managed`.
 
-Most operators don't need the flag — running `omp-aify` from a terminal Just Works as `resident`, and the bridge spawns managed wrappers with the env pre-set. Use `--managed` when you want a backing PTY in a TTY-shaped context (debug). Use `--resident` to force resident in a context where TTY detection might be wrong.
+Most operators don't need the flag — running `omp-aify` from a terminal Just Works as a presence/standalone operator session, and managed dashboard delivery uses the bridge's persistent RPC child. Use `--resident` or `--managed` only when debugging wrapper metadata; it does not turn an open OMP TUI into a multi-client resident injection target.
 
 ## Quick Start
 

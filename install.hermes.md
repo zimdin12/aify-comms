@@ -163,27 +163,25 @@ environment bridge owns the `hermes-aify` PTY and the dashboard Console renders
 that real TUI. Native `HermesController` / ACP fallback remains available when
 wrapper-backed delivery is disabled or unavailable.
 
-## Persistent ACP session (managed dispatches)
+## Native fallback ACP session (managed dispatches)
 
 **Re-running `install.sh --client hermes` does NOT update an existing `aify-comms` block in `config.yaml`.** The installer's idempotency check (`install_hermes_config` in install.sh) exits early if the `aify-comms:` entry already exists under `mcp_servers:`. After upgrading aify-comms (e.g. to pick up new env-var propagation entries like `AIFY_HERMES_GATEWAY_URL`), you need to either:
 - Manually edit `~/.hermes/config.yaml` (or `%LOCALAPPDATA%\hermes\config.yaml`) and add the new `env:` entries under the existing `aify-comms:` block
 - OR delete the `aify-comms:` block entirely and rerun `bash install.sh --client hermes` to regenerate it
 
-**Opt-in: multi-client gateway backing for managed agents.** Set
-`AIFY_HERMES_MANAGED_USE_GATEWAY=1` in the environment bridge's env to
-route managed dispatches through a per-agent `hermes dashboard --tui`
-backing instead of the default `hermes acp` ACP child. Bridge + dashboard
-Console + optional iframe of the hermes web UI all attach to the same
-`/api/ws` (TeeTransport multi-client). Mid-run insertion via
-`session.steer` works on this path; the ACP path doesn't. Off by default
-until validated; flip the env var to opt in. The rest of this section
-describes the default ACP path.
+Current managed Hermes defaults to wrapper-backed `hermes-aify` PTY delivery
+(`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY,
+the wrapper starts the local dashboard gateway, and the child bridge delivers
+through `aify.session.bind_transport` plus `prompt.submit` / `session.steer`.
+The rest of this section describes the native controller fallback used only
+when wrapper-backed delivery is disabled or unavailable.
 
-For managed hermes agents the bridge spawns a single `hermes acp --accept-hooks`
+On the fallback path, the bridge spawns a single `hermes acp --accept-hooks`
 per agentId on first dispatch, runs the ACP handshake (`initialize` →
 `session/new`), and reuses the same `sessionId` for every subsequent
 `session/prompt`. This gives native conversation continuity and token-level
-streaming.
+streaming in a synthesized dashboard terminal, but it does not provide the
+same visible TUI symmetry as wrapper-backed delivery.
 
 - Default launcher: `hermes acp --accept-hooks` (looked up on PATH).
 - Override: `AIFY_HERMES_ACP_COMMAND="/abs/path/to/hermes acp --accept-hooks"` (quote-aware, so `AIFY_HERMES_ACP_COMMAND='"C:\Program Files\hermes\hermes.exe" acp --accept-hooks'` works for paths-with-spaces)
@@ -200,13 +198,13 @@ streaming.
 
 **Permission auto-approve uses an allow-list.** The bridge auto-selects only options whose `kind` is `allow_once` or `allow_always`. If hermes presents only escalation-kind options, the bridge returns `outcome.cancelled` instead of picking option[0]. The hook lives in `_handleClientRequest` in `mcp/stdio/hermes-session.js` if you need a different policy.
 
-To verify the persistent child is alive: open the agent's Console after a
-managed dispatch — status should go `available → working → available` while
-the same `hermes acp` PID stays up between turns (`tasklist | findstr hermes`
-on Windows, `pgrep -f "hermes acp"` on POSIX). A second dispatch reuses the
-same PID. The bridge declines hermes's `terminal/*` callbacks (no in-bridge
-sandbox), so configure hermes itself to use its own sandbox if you need
-tool-driven child processes.
+To verify this fallback child is alive: open the agent's Console after a
+managed dispatch whose command is `aify://virtual-rpc/hermes` — status should
+go `available → working → available` while the same `hermes acp` PID stays up
+between turns (`tasklist | findstr hermes` on Windows, `pgrep -f "hermes acp"`
+on POSIX). A second dispatch reuses the same PID. The bridge declines
+hermes's `terminal/*` callbacks (no in-bridge sandbox), so configure hermes
+itself to use its own sandbox if you need tool-driven child processes.
 
 See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for the full
 integration guide, hooks details, MCP config shape, resident mode, and current

@@ -123,7 +123,7 @@ If the debug skill isn't loaded in your session, see `.claude/skills/aify-comms-
 Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
-- If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. The dispatched sender message and final answer both appear in the visible TUI — expected.
+- If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. Current upstream Codex may not render externally injected `turn/start` traffic live in the `--remote` TUI (see issue #15320); the dashboard Console is the source of truth for those wake events until upstream renders them in the visible TUI.
 - `codex-aify -auto` adds `--dangerously-bypass-approvals-and-sandbox`. The wrapper does not use the older `--full-auto` alias. Without `-auto`, `codex-aify` preserves normal visible CLI permission behavior.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stale/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
@@ -167,9 +167,9 @@ comms_inbox(agentId="my-agent", mode="headers")
 comms_inbox(agentId="my-agent", messageId="<message id>")
 ```
 
-## Persistent app-server (managed dispatches)
+## Native fallback persistent app-server (managed dispatches)
 
-For managed codex agents (no `appServerUrl` set), the bridge spawns one `codex app-server` per agentId on first dispatch and reuses it across turns. Mirror of the persistent ACP path that managed hermes uses. Benefits: no per-turn spawn cost, native conversation continuity via the cached `threadId`, one PID per agent that the dashboard can surface.
+Managed Codex defaults to the wrapper-backed path described above: the bridge owns a `codex-aify` PTY and the wrapper's child bridge delivers through its local app-server. If wrapper-backed delivery is disabled or unavailable, the bridge falls back to a native app-server controller: one `codex app-server` per agentId on first dispatch, reused across turns. Benefits of the fallback: no per-turn spawn cost, native conversation continuity via the cached `threadId`, one PID per agent that the dashboard can surface as synthesized terminal output.
 
 - Default launcher: platform-native (`wsl.exe -e codex app-server` on Windows, `codex app-server` on POSIX). Override with `AIFY_CODEX_COMMAND="/abs/path/to/codex app-server"` if your binary isn't on PATH or you want to point the bridge at a wrapper script. (The fake test fixture uses this same env var.) The override is quote-aware so paths-with-spaces work: `AIFY_CODEX_COMMAND='"C:\Program Files\codex\codex.exe" app-server'`.
 - **Fresh-context behavior:** if you trigger a fresh context (Dashboard → Sessions → Recreate, which writes a new `sessionHandle`), the next dispatch detects the threadId mismatch against the running CodexSession, tears the session down with a clear error (`threadId hint mismatch`), and the dispatch-after-that spawns a fresh `codex app-server` on the new thread. Operator-visible as one "failed" dispatch in the trail, then normal behavior resumes.

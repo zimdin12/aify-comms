@@ -651,9 +651,9 @@ curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | py
 # {"ok": true, "bridgeOwned": true|false, "virtualTerminalId": "vterm_..."}
 ```
 
-## Codex persistent app-server session
+## Codex native fallback persistent app-server session
 
-Managed codex dispatches go through a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
+Managed Codex defaults to a wrapper-backed `codex-aify` PTY. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/codex`: the native fallback keeps a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
 
 ### Dispatch sits at `[codex] working...` forever
 
@@ -675,9 +675,9 @@ The bridge tried to resume a previously-saved threadId but codex says no rollout
 
 **Fix.** Either flip the agent to `resumePolicy=fresh_context` (Dashboard → Sessions → Recreate) or restore the rollout file in the active CODEX_HOME and retry.
 
-## Hermes ACP persistent session
+## Hermes native fallback ACP persistent session
 
-Managed hermes dispatches go through a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
+Managed Hermes defaults to a wrapper-backed `hermes-aify` PTY that delivers through the visible-session gateway bind path. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/hermes`: the native fallback keeps a long-lived `hermes acp --accept-hooks` child per agent (`mcp/stdio/hermes-session.js`). Some symptoms specific to this path:
 
 ### Dispatch sits at `[hermes] thinking...` forever
 
@@ -741,7 +741,7 @@ If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_b
    ```bash
    curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep -A3 managed_via_wrapper
    ```
-   Should list `"codex"`, `"hermes"`, `"pi"` (Plan 4 default).
+   Should list `"codex"` and `"hermes"` (current default). Pi is intentionally excluded from wrapper mode and uses managed RPC.
 3. If wrappers are older than commits `3bcbac2` / `0beab57`, run `./redeploy.sh` to refresh installed `*-aify` wrappers and restart any host bridges. Re-dispatch — the queued run should claim within one poll cycle (~3s).
 
 ## Agent shows online without a console (Plan 5 Section C)
@@ -766,6 +766,14 @@ print('active terms:', terms)
 If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C bug — `agent_live_state` cached `online` and `refresh_after` was keyed off heartbeat freshness rather than worker presence, so a sibling/operator heartbeat kept the lie alive.
 
 **Fix.** Rebuild the container so `_enforce_live_worker_gate` (added at `api_v2.py:352` in commits `b58142e` + `f38f57d`) is loaded. On the next `GET /api/v1/agents` or `/agents/{id}` read, the gate validates the live worker and downgrades to `available`; a cache writeback ensures subsequent reads stay consistent. No manual DB patch is needed once Plan 5 is in.
+
+## Hermes dispatch completes but open console does not move
+
+**Symptom.** `hermes` resident or wrapper-backed runs show `prompt.submit` and may even complete in aify-comms, but the open `hermes-aify` terminal does not show the incoming message or reply. Older events may mention `session.resume`, `session.create`, `session id corrected`, or short `mem-*` gateway ids.
+
+**Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
+
+**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport`. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`. If the bind method is missing, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
 ## Stale session handle causing prompt.submit failures (Plan 6 A)
 
