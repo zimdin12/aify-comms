@@ -1513,7 +1513,7 @@ async def _bridge_claim_block_reason(
         }
 
     runtime = _normalize_runtime((agent_row["runtime"] if agent_row else "") or "generic")
-    if runtime not in {"codex", "opencode", "pi"}:
+    if runtime not in {"codex", "opencode", "pi", "hermes"}:
         return None
 
     # Plan 6 follow-up (2026-05-26): wrapper-child bridges (the in-process
