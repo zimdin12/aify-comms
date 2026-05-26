@@ -569,7 +569,19 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "[mcp_servers.aify-comms.env]",
     `AIFY_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
     `CLAUDE_MCP_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
-    'AIFY_MANAGED_DISPATCH = "1"',
+    // Plan 6 follow-up (2026-05-26): AIFY_MANAGED_DISPATCH used to be
+    // hard-set to "1" here to mark legacy managed-codex MCP children
+    // as "tool-only, don't autoregister" (server.js IS_MANAGED_DISPATCH
+    // gate at line 885). With Plan 5/6 wrapper-backed managed codex,
+    // the inner MCP MUST register and claim channel-mode runs. So we
+    // now LET IT INHERIT from the wrapper PTY's env — terminal-env.js
+    // sets AIFY_MANAGED_DISPATCH="0" for wrapper PTYs, which means the
+    // inner MCP runs the normal autoRegisterConfiguredAgent path and
+    // claims dispatches. The legacy native-managed codex path (where
+    // the bridge connects directly to a codex app-server without a
+    // wrapper PTY) doesn't use this config file at all — its env is
+    // set per-spawn by createCodexController, which still sets
+    // AIFY_MANAGED_DISPATCH="1" via runtimeChildEnv.
   ];
   if (workspace) {
     lines.push("", `[projects.${tomlString(workspace)}]`, 'trust_level = "trusted"');

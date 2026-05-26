@@ -559,7 +559,7 @@ fi
 # aify-comms MCP server — every dispatch sits queued forever (observed
 # 2026-05-26 with graph-senior-dev). Bypass hook-trust on managed wrappers
 # only. Operator-launched resident codex-aify keeps its normal trust UX.
-if [ "\${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
+if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-hook-trust)
 fi
 
