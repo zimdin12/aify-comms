@@ -67,6 +67,13 @@ wss.on("connection", (socket, req) => {
       send({ jsonrpc: "2.0", id: msg.id, result: { session_id: sid, resumed: target || FIXED_SESSION_ID, message_count: 0, messages: [] } });
       return;
     }
+    if (msg.method === "session.create") {
+      // Mirror tui_gateway/server.py:2237 session.create: allocate a fresh
+      // in-memory session. Used as fallback when resume can't find the key.
+      const sid = `mem-${Math.random().toString(16).slice(2, 10)}`;
+      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: sid } });
+      return;
+    }
     if (msg.method === "session.steer") {
       send({ jsonrpc: "2.0", id: msg.id, result: { status: "queued", text: msg.params?.text || "" } });
       return;

@@ -222,20 +222,39 @@ export class HermesResidentController extends BaseController {
         // Resume the persisted session_key into a fresh in-memory sid bound
         // to THIS ws. session.resume returns { session_id: <new sid>,
         // resumed: <session_key>, ... } per tui_gateway/server.py:2418.
-        let resumed = null;
+        //
+        // Fallback: session.create when resume fails (operator's session_key
+        // is stale OR never existed). Always succeeds, creating a fresh
+        // session in hermes' DB. We then submit to its sid.
+        let newSid = "";
+        let resumeError = null;
         try {
-          resumed = await sendRpc(proto.buildSessionResumeFrame({ sessionKey }));
+          const resumed = await sendRpc(proto.buildSessionResumeFrame({ sessionKey }));
+          newSid = String(resumed?.session_id || resumed?.sessionId || "").trim();
         } catch (err) {
-          throw new Error(`Hermes session.resume(session_id=${sessionKey}) failed: ${err?.message || JSON.stringify(err)}`);
+          resumeError = err;
         }
-        const newSid = String(resumed?.session_id || resumed?.sessionId || "").trim();
         if (!newSid) {
-          throw new Error(`Hermes session.resume returned no in-memory session_id (response: ${JSON.stringify(resumed)})`);
-        }
-        if (resolvedSessionId && resolvedSessionId !== newSid) {
-          callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${newSid}' (session.resume on ${sessionKey})`);
+          // session.resume failed (stale key, GC'd, etc) — create a fresh
+          // session so prompt.submit ALWAYS has a valid sid to target.
+          const cwd = String(agentInfo?.cwd || "").trim();
+          try {
+            const created = await sendRpc(proto.buildSessionCreateFrame({ cwd }));
+            newSid = String(created?.session_id || created?.sessionId || "").trim();
+            const reason = resumeError ? (resumeError?.message || JSON.stringify(resumeError)) : "no session_id in resume response";
+            callbacks.onEvent?.("hermes", `session.resume failed (${reason.slice(0,80)}); fell back to session.create -> sid ${newSid}`);
+          } catch (createErr) {
+            throw new Error(`Hermes session.resume(${sessionKey}) AND session.create both failed; resume: ${resumeError?.message || resumeError || 'no sid'}; create: ${createErr?.message || createErr}`);
+          }
         } else {
-          callbacks.onEvent?.("hermes", `session.resume on ${sessionKey} -> sid ${newSid}`);
+          if (resolvedSessionId && resolvedSessionId !== newSid) {
+            callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${newSid}' (session.resume on ${sessionKey})`);
+          } else {
+            callbacks.onEvent?.("hermes", `session.resume on ${sessionKey} -> sid ${newSid}`);
+          }
+        }
+        if (!newSid) {
+          throw new Error("Hermes: no sid obtained from session.resume or session.create");
         }
         resolvedSessionId = newSid;
         try { callbacks.onRefs?.({ sessionId: resolvedSessionId, sessionKey }); } catch {}

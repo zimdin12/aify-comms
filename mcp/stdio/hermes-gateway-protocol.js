@@ -62,6 +62,24 @@ export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
   };
 }
 
+// Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
+// because the persisted key has been GC'd (or never existed), session.create
+// allocates a BRAND NEW session in hermes' DB + in-memory _sessions. Always
+// available regardless of the bridge's stored handle truth. Returns
+// { session_id: <fresh sid>, ... }. We then submit to that sid.
+export function buildSessionCreateFrame({ id, cwd = "", cols = 80, title = "" }) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "session.create",
+    params: {
+      cwd: String(cwd || ""),
+      cols: Number(cols) || 80,
+      title: String(title || ""),
+    },
+  };
+}
+
 export function buildSessionInterruptFrame({ id, sessionId }) {
   return {
     jsonrpc: "2.0",
