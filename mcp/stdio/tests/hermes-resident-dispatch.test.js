@@ -244,6 +244,8 @@ test("resident hermes resumes the persisted session_key into a fresh in-memory s
   assert.ok(!result.failed, `expected hermes dispatch to succeed: ${result.error || ""}`);
   assert.match(capturedSessionId, /^mem-/, "controller should adopt the fresh in-memory sid returned by session.resume");
   assert.equal(capturedSessionKey, "operator-sid-42", "registered sessionHandle must win over gateway session.list");
+  assert.equal(result.runtimeState?.sessionId, "operator-sid-42", "durable runtimeState.sessionId must remain the persisted Hermes session key");
+  assert.match(result.runtimeState?.gatewaySessionId || "", /^mem-/, "short gateway sid should be stored separately from the durable session key");
   assert.match(resumeEvent, /session\.resume on operator-sid-42/, "controller should announce the resume via onEvent");
 });
 

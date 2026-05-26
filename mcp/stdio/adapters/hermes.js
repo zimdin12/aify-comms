@@ -36,6 +36,11 @@ export class HermesAdapter extends RuntimeAdapter {
   // JSON-RPC first (when AIFY_HERMES_GATEWAY_URL is set + ws:/wss:), then fall back
   // to a filesystem scan of ~/.hermes/sessions/ for the newest file.
   async discoverSessionId() {
+    // `session.resume` returns a short in-memory gateway sid for the bridge's
+    // WebSocket. That sid is not a durable Hermes session key, so never let
+    // gateway discovery overwrite the wrapper's real HERMES_SESSION_ID.
+    const envSession = this.getCurrentSessionId();
+    if (envSession) return envSession;
     const gw = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
     if (gw && /^wss?:\/\//i.test(gw)) {
       const id = await this._queryGatewayMostRecent(gw);

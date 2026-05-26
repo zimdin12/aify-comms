@@ -43,6 +43,7 @@ export class HermesResidentController extends BaseController {
     let rejectPromise = null;
     let finalText = "";
     let resolvedSessionId = residentSessionId;
+    let sessionKey = residentSessionId;
 
     let terminalSink = null;
     let sinkChain = Promise.resolve();
@@ -166,8 +167,14 @@ export class HermesResidentController extends BaseController {
           settle("resolve", {
             status: "completed",
             summary: finalText.trim() || "(no output)",
-            runtimeState: resolvedSessionId ? { sessionId: resolvedSessionId } : {},
-            externalRefs: resolvedSessionId ? { sessionId: resolvedSessionId } : {},
+            runtimeState: {
+              ...(sessionKey ? { sessionId: sessionKey } : {}),
+              ...(resolvedSessionId ? { gatewaySessionId: resolvedSessionId } : {}),
+            },
+            externalRefs: {
+              ...(sessionKey ? { sessionId: sessionKey } : {}),
+              ...(resolvedSessionId ? { gatewaySessionId: resolvedSessionId } : {}),
+            },
           });
         } else if (ev.kind === "tool_started") {
           callbacks.onEvent?.("hermes", `tool started: ${ev.label}`);
@@ -240,7 +247,7 @@ export class HermesResidentController extends BaseController {
         // session_key. For aify-comms purposes (one-shot dispatch +
         // streamed reply) this is sufficient — the bridge captures the
         // reply, completes the run, and posts the response to comms chat.
-        let sessionKey = resolvedSessionId; // may be the registered handle
+        sessionKey = resolvedSessionId; // may be the registered handle
         if (!sessionKey) {
           const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
           sessionKey = proto.pickFreshestSessionFromList(liveList);
@@ -347,8 +354,14 @@ export class HermesResidentController extends BaseController {
             settle("resolve", {
               status: "completed",
               summary: `Steered into running turn: ${body.slice(0, 80)}${body.length > 80 ? "..." : ""}`,
-              runtimeState: { sessionId: resolvedSessionId },
-              externalRefs: { sessionId: resolvedSessionId },
+              runtimeState: {
+                ...(sessionKey ? { sessionId: sessionKey } : {}),
+                ...(resolvedSessionId ? { gatewaySessionId: resolvedSessionId } : {}),
+              },
+              externalRefs: {
+                ...(sessionKey ? { sessionId: sessionKey } : {}),
+                ...(resolvedSessionId ? { gatewaySessionId: resolvedSessionId } : {}),
+              },
             });
           } else {
             clearTimeout(overallTimer);

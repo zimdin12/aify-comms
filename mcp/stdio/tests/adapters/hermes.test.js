@@ -26,6 +26,22 @@ test("HermesAdapter falls back to HERMES_SESSION when HERMES_SESSION_ID empty", 
   delete process.env.HERMES_SESSION;
 });
 
+test("HermesAdapter.discoverSessionId prefers durable env session over gateway sid", async () => {
+  const previousSessionId = process.env.HERMES_SESSION_ID;
+  const previousGatewayUrl = process.env.AIFY_HERMES_GATEWAY_URL;
+  try {
+    process.env.HERMES_SESSION_ID = "20260526_190639_eebd50";
+    process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:1/api/ws?token=x";
+    const a = new HermesAdapter();
+    assert.strictEqual(await a.discoverSessionId(), "20260526_190639_eebd50");
+  } finally {
+    if (previousSessionId === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = previousSessionId;
+    if (previousGatewayUrl === undefined) delete process.env.AIFY_HERMES_GATEWAY_URL;
+    else process.env.AIFY_HERMES_GATEWAY_URL = previousGatewayUrl;
+  }
+});
+
 test("HermesAdapter diagnosticEnv includes gateway URL", () => {
   process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:9999/api/ws?token=x";
   const a = new HermesAdapter();
