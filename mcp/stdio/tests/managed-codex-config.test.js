@@ -26,6 +26,15 @@ assert.match(text, /tool_timeout_sec = 25/);
 assert.match(text, /disabled_tools = \["comms_listen"\]/);
 assert.match(text, /AIFY_SERVER_URL = "http:\/\/localhost:8800"/);
 assert.match(text, /AIFY_MANAGED_DISPATCH = "1"/);
+// Plan 6 follow-up (2026-05-26): the managed-codex config must include
+// `env_vars` so the inner aify-comms MCP child inherits AIFY_AGENT_ID
+// and the other wrapper-spawn vars from the parent codex process.
+// Without this, codex's per-child env REPLACES the inherited environment
+// and the inner MCP registers without an agent id — managed-via-wrapper
+// dispatch sits queued forever.
+assert.match(text, /env_vars = \[[^\]]*"AIFY_AGENT_ID"[^\]]*\]/);
+assert.match(text, /env_vars = \[[^\]]*"AIFY_MANAGED_VIA_WRAPPER"[^\]]*\]/);
+assert.match(text, /env_vars = \[[^\]]*"AIFY_SESSION_MODE"[^\]]*\]/);
 assert.match(text, /\[projects\."\/mnt\/c\/Users\/Administrator\/sand_castle"\]/);
 assert.doesNotMatch(text, /openmemory/);
 assert.doesNotMatch(text, /host\.docker\.internal/);

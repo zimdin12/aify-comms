@@ -552,6 +552,17 @@ if [ "$CODEX_AUTO" = true ]; then
   CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
 
+# Plan 6 follow-up (2026-05-26): dashboard-spawned managed codex wrappers
+# must boot without operator approval gates. The TUI's hooks-trust gate
+# blocks startup until "Trust all hooks and continue" is selected manually,
+# which leaves the wrapper PTY visible+attached but never loads the inner
+# aify-comms MCP server — every dispatch sits queued forever (observed
+# 2026-05-26 with graph-senior-dev). Bypass hook-trust on managed wrappers
+# only. Operator-launched resident codex-aify keeps its normal trust UX.
+if [ "\${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
+  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-hook-trust)
+fi
+
 # Plan 1: try-resume, fall back to fresh codex if the saved session
 # file has been GC'd by codex itself (os error 2). The wrapper does not
 # abort on a stale handle — the operator gets a fresh codex shell and

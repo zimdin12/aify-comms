@@ -1638,7 +1638,14 @@ async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
     return bool((row["superseded_by"] or "").strip())
 
 
-async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent_row) -> Optional[dict[str, Any]]:
+async def _bridge_claim_block_reason(
+    db,
+    *,
+    bridge_id: str,
+    agent_id: str,
+    agent_row,
+    execution_modes: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
     """Return a blockedBy payload when an old stdio bridge should not claim work."""
     if not bridge_id:
         return None
@@ -1659,6 +1666,28 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
     runtime = _normalize_runtime((agent_row["runtime"] if agent_row else "") or "generic")
     if runtime not in {"codex", "opencode", "pi"}:
         return None
+
+    # Plan 6 follow-up (2026-05-26): wrapper-child bridges (the in-process
+    # mcp/stdio/server.js that runs INSIDE a *-aify wrapper PTY) legitimately
+    # have a different bridge_id from the environment bridge. They claim
+    # channel-mode runs for managed-via-wrapper agents (see _CHANNEL_CLAIM_RUNTIMES
+    # at line 290 and dispatch-execution.js supportedExecutionModes). Without
+    # this carve-out, every wrapper-child claim hits "environment_bridge_not_current"
+    # at line 1701 because the env bridge_id != the wrapper-child bridge_id —
+    # and managed codex/hermes/pi dispatches sit queued forever even when the
+    # wrapper PTY is alive and its inner MCP server has registered. Detect a
+    # wrapper-child claim by: (a) the request includes 'channel' in executionModes;
+    # (b) the runtime is in _CHANNEL_CLAIM_RUNTIMES (managed-via-wrapper-eligible);
+    # (c) the claimant bridge is registered for this agent (in bridge_instances).
+    # Operator-observed 2026-05-26 with graph-tester-pi: inner MCP bridge
+    # `2e8b7d91-...` registered fine, but its claims were silently rejected
+    # against the env bridge `e1ef4cae-...`.
+    supported_modes = {str(m or "").strip().lower() for m in (execution_modes or []) if str(m or "").strip()}
+    is_wrapper_child_claim = (
+        "channel" in supported_modes
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
+        and bool(row)  # bridge is registered for this agent
+    )
 
     session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "resident")
     runtime_state = _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {}
@@ -1698,7 +1727,7 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
                 env_row,
                 offline_seconds=settings.get("environment_offline_seconds", 90),
             ) if env_row else "offline"
-            if current_environment_bridge and current_environment_bridge != bridge_id:
+            if current_environment_bridge and current_environment_bridge != bridge_id and not is_wrapper_child_claim:
                 return {
                     "reason": "environment_bridge_not_current",
                     "bridgeId": bridge_id,
@@ -11397,6 +11426,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             bridge_id=req.bridgeId or "",
             agent_id=req.agentId,
             agent_row=agent,
+            execution_modes=req.executionModes or [],
         )
         if blocked_by:
             await db.commit()

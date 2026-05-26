@@ -521,6 +521,31 @@ function installManagedCodexSkills(sourceHome, targetHome) {
 
 export function managedCodexConfigText({ workspace = "", serverUrl = "", model = "", effort = "" } = {}) {
   const resolvedModel = String(model || "").trim();
+  // Plan 6 follow-up (2026-05-26): include `env_vars` (codex's passthrough
+  // mechanism) so the inner aify-comms MCP child inherits AIFY_AGENT_ID /
+  // AIFY_SESSION_MODE / AIFY_MANAGED_VIA_WRAPPER / etc. from the wrapper
+  // PTY's codex process. Without this, codex's per-child env REPLACES the
+  // inherited environment (codex-rs/rmcp-client/src/utils.rs
+  // create_env_for_mcp_server) and the inner MCP registers without an
+  // agent id — no bridge advertises `channel` for the wrapper-backed
+  // managed codex agent, and dispatches sit queued forever. Symmetric
+  // with install.sh install_codex_mcp_env_vars for the operator's
+  // ~/.codex/config.toml.
+  const envVarPassthrough = [
+    "AIFY_AGENT_ID",
+    "AIFY_AGENT_ROLE",
+    "AIFY_AGENT_CWD",
+    "AIFY_SESSION_MODE",
+    "AIFY_SESSION_HANDLE",
+    "AIFY_RUNTIME",
+    "AIFY_TERMINAL_ID",
+    "AIFY_MANAGED_VIA_WRAPPER",
+    "AIFY_COMMS_AGENT_ID",
+    "AIFY_COMMS_URL",
+    "AIFY_API_KEY",
+    "CODEX_THREAD_ID",
+    "AIFY_CODEX_APP_SERVER_URL",
+  ];
   const lines = [
     `model_reasoning_effort = ${tomlString(effort || "high")}`,
     "",
@@ -539,6 +564,7 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "startup_timeout_sec = 10",
     "tool_timeout_sec = 25",
     'disabled_tools = ["comms_listen"]',
+    `env_vars = [${envVarPassthrough.map((n) => tomlString(n)).join(", ")}]`,
     "",
     "[mcp_servers.aify-comms.env]",
     `AIFY_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
