@@ -1039,6 +1039,12 @@ for ARG in "\$@"; do
     PREV_ARG=""
     continue
   fi
+  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
+    HERMES_SESSION_HANDLE="\$ARG"
+    HERMES_EXPLICIT_SESSION_HANDLE="true"
+    PREV_ARG=""
+    continue
+  fi
   if [ "\$ARG" = "--resident" ]; then
     HERMES_AIFY_SESSION_MODE="resident"
     continue
@@ -1063,17 +1069,19 @@ for ARG in "\$@"; do
   --resume=*|--session-id=*)
     HERMES_SESSION_HANDLE="\${ARG#*=}"
     HERMES_EXPLICIT_SESSION_HANDLE="true"
+    continue
     ;;
   -r=*)
     HERMES_SESSION_HANDLE="\${ARG#*=}"
     HERMES_EXPLICIT_SESSION_HANDLE="true"
+    continue
     ;;
   esac
-  HERMES_ARGS+=("\$ARG")
-  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
-    HERMES_SESSION_HANDLE="\$ARG"
-    HERMES_EXPLICIT_SESSION_HANDLE="true"
+  if [ "\$ARG" = "--resume" ] || [ "\$ARG" = "--session-id" ] || [ "\$ARG" = "-r" ]; then
+    PREV_ARG="\$ARG"
+    continue
   fi
+  HERMES_ARGS+=("\$ARG")
   PREV_ARG="\$ARG"
 done
 

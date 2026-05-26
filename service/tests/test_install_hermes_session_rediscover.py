@@ -46,6 +46,14 @@ def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
     assert 'if [ -n "$HERMES_SESSION_HANDLE" ]; then' not in text
 
 
+def test_hermes_wrapper_consumes_resume_args_for_tui_default():
+    """`hermes-aify --resume id` must exec `chat --tui --resume id`."""
+    text = _read_install_sh()
+    assert 'if [ "\\$PREV_ARG" = "--resume" ] || [ "\\$PREV_ARG" = "--session-id" ] || [ "\\$PREV_ARG" = "-r" ]; then' in text
+    assert 'HERMES_ARGS+=("\\$ARG")\n  if [ "\\$PREV_ARG" = "--resume" ]' not in text
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+
+
 def test_hermes_installer_patches_visible_session_bind():
     """Hermes resident delivery must bind to the open TUI session, not resume
     a hidden sid."""
