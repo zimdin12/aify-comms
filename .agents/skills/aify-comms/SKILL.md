@@ -49,10 +49,10 @@ Windows paths passed to tools should use forward slashes (`C:/Users/you/project`
 For live Codex, prefer exact binding from the same `codex-aify` session:
 
 ```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+comms_register(agentId="my-agent", role="coder", runtime="codex", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
 
-If you skip `sessionHandle`/`appServerUrl` and the bridge can't auto-discover them, the agent registers but `wakeMode` will be `codex-missing-handle` and `comms_send` will refuse with "agent capabilities do not include resident-run". Re-register with both fields from the same `codex-aify` session to flip the wake mode to `codex-live`.
+Add `sessionHandle="$CODEX_THREAD_ID"` only when that variable is non-empty, usually after an explicit `codex-aify --resume <id>` or after the current Codex CLI has exposed a real thread ID. Fresh `codex-aify` must not invent a handle from old `~/.codex/sessions` rollouts. If you skip `appServerUrl` and the bridge can't auto-discover it, the agent registers but `wakeMode` will be `codex-missing-handle` and `comms_send` will refuse with "agent capabilities do not include resident-run". Re-register with `appServerUrl` from the same `codex-aify` session to flip the wake mode to `codex-live`.
 
 For live Hermes, launch `hermes-aify` (which spawns a local `hermes dashboard --tui --no-open` and exports `AIFY_HERMES_GATEWAY_URL`), then register:
 

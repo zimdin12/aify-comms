@@ -368,49 +368,6 @@ wait_for_port() {
   ' "$port"
 }
 
-# Plan 6 B2 (2026-05-26): rediscover the real codex thread id by walking
-# ~/.codex/sessions for the newest rollout-*.jsonl and extracting the UUID
-# from the filename. Mirrors the Python adapter's discover_session_id at
-# service/runtimes/codex.py — the codex app-server does not (yet) expose
-# an introspection RPC, so the filesystem scan is the authoritative source.
-# Stdout: the discovered uuid (string), or empty on any failure. Caller
-# treats empty as "leave env alone".
-rediscover_codex_thread_id() {
-  local root="$HOME/.codex/sessions"
-  [ -d "$root" ] || return 0
-  # find . -type f -name '*.jsonl' | newest first | first | extract uuid
-  # GNU find supports -printf '%T@ %p\n'; macOS BSD find does not. Use
-  # `stat` for portability — slower but works on both. Limit depth to 5
-  # so the scan stays bounded if codex's layout changes.
-  local newest
-  newest="$(find "$root" -maxdepth 5 -type f -name '*.jsonl' -print 2>/dev/null \
-    | while IFS= read -r f; do
-        # Portable mtime: ls -tr lists oldest first; we'll use perl/python
-        # only as fallback. Cheapest portable: ls --time=mtime -lt + head.
-        printf '%s\t%s\n' "$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)" "$f"
-      done \
-    | sort -nr \
-    | head -1 \
-    | cut -f2-)"
-  [ -n "$newest" ] || return 0
-  # Filename: rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl OR <uuid>.jsonl
-  local base
-  base="$(basename "$newest")"
-  # Strip .jsonl, then extract trailing UUID (8-4-4-4-12 hex).
-  local stem="${base%.jsonl}"
-  # Grep the UUID anywhere in the stem; if absent, output the whole stem
-  # (covers flat-layout <uuid>.jsonl files).
-  local uuid
-  uuid="$(printf '%s' "$stem" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | tail -1)"
-  if [ -z "$uuid" ]; then
-    case "$stem" in
-    rollout-*) ;;  # rollout-<no-uuid> — nothing usable, leave empty
-    *) uuid="$stem" ;;  # flat layout: stem IS the id
-    esac
-  fi
-  [ -n "$uuid" ] && printf '%s' "$uuid"
-}
-
 PORT="$(pick_port)"
 if [ -z "$PORT" ]; then
   echo "Failed to allocate a local port for codex app-server." >&2
@@ -538,28 +495,12 @@ if [ -z "$CODEX_AIFY_SESSION_MODE" ]; then
 fi
 export AIFY_SESSION_MODE="$CODEX_AIFY_SESSION_MODE"
 
-# Plan 6 B2 (2026-05-26; reordered 2026-05-26 per code review): rediscover
-# the real codex thread id from ~/.codex/sessions AFTER the arg parser has
-# run. The bridge inside the wrapper inherits the same CODEX_THREAD_ID /
-# AIFY_SESSION_HANDLE that `exec codex` will see. When the operator passes
-# an explicit `--resume <id>` on the command line, the parser populates
-# CODEX_RESUME_HANDLE — we honor that as authoritative and skip the
-# rediscover-export so the bridge advertises the same handle that codex
-# is actually attached to. Without explicit resume, the rediscover wins
-# over any stale CODEX_THREAD_ID inherited from the parent shell.
-#
-# Failure mode: rediscover empty (no sessions on disk yet, or the find
-# returns nothing) — leave env as-is, the Plan 6 A1 heartbeat will
-# correct any drift within 60s.
+# Fresh codex-aify launch must not infer a current thread from historical
+# ~/.codex/sessions files. That scan can only find an old rollout, not the
+# thread this just-started --remote TUI is attached to. Explicit --resume
+# remains authoritative and is exported below so the bridge and Codex agree.
 if [ -z "${CODEX_RESUME_HANDLE:-}" ]; then
-  CODEX_REDISCOVERED_THREAD_ID="$(rediscover_codex_thread_id 2>/dev/null || true)"
-  if [ -n "$CODEX_REDISCOVERED_THREAD_ID" ]; then
-    if [ "${CODEX_THREAD_ID:-}" != "$CODEX_REDISCOVERED_THREAD_ID" ]; then
-      echo "[codex-aify] thread id rediscovered: '${CODEX_THREAD_ID:-}' -> '$CODEX_REDISCOVERED_THREAD_ID' (from ~/.codex/sessions)" >&2
-    fi
-    export CODEX_THREAD_ID="$CODEX_REDISCOVERED_THREAD_ID"
-    export AIFY_SESSION_HANDLE="$CODEX_REDISCOVERED_THREAD_ID"
-  fi
+  : # Fresh codex-aify launch: leave CODEX_THREAD_ID/AIFY_SESSION_HANDLE unset.
 else
   # Explicit --resume <id> from operator wins. Make the bridge see the
   # same handle codex will resume so they don't disagree for the first
@@ -2513,8 +2454,9 @@ fi
 echo ""
 echo "Quick start:"
 if [ "$CLIENT" = "codex" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\", sessionHandle=\"\$CODEX_THREAD_ID\", appServerUrl=\"\$AIFY_CODEX_APP_SERVER_URL\")"
-  echo "  # If those live env vars are unavailable, fall back to: comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\")"
+  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\", appServerUrl=\"\$AIFY_CODEX_APP_SERVER_URL\")"
+  echo "  # Add sessionHandle=\"\$CODEX_THREAD_ID\" only when CODEX_THREAD_ID is non-empty in this same session."
+  echo "  # If the live app-server env var is unavailable, fall back to: comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\")"
 elif [ "$CLIENT" = "claude" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")"
 elif [ "$CLIENT" = "pi" ]; then

@@ -113,7 +113,7 @@ For the websocket frame-limit case the reason is `oversized_rollout`. For manage
 3. Delete the stale runtime markers.
 4. `cd` into the target project directory.
 5. Launch a fresh `codex-aify` from there.
-6. Re-register with the new `$CODEX_THREAD_ID` from the fresh session.
+6. Re-register with `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` from the fresh session; add `sessionHandle="$CODEX_THREAD_ID"` only if that variable is non-empty.
 
 The full commands are right below.
 
@@ -144,10 +144,11 @@ comms_register(
   role="coder",
   runtime="codex",
   cwd="C:/Users/you/project",
-  sessionHandle="$CODEX_THREAD_ID",
   appServerUrl="$AIFY_CODEX_APP_SERVER_URL"
 )
 ```
+
+Add `sessionHandle="$CODEX_THREAD_ID"` only when `CODEX_THREAD_ID` is non-empty in this same session, usually after `codex-aify --resume <id>`.
 
 Verify **before** dispatching:
 
@@ -155,7 +156,7 @@ Verify **before** dispatching:
 comms_agent_info(agentId="coder")
 ```
 
-Confirm `wakeMode: codex-live`, a non-empty `sessionHandle`, and the expected `machineId`. If any of those are wrong, the session is still bound to stale state.
+Confirm `wakeMode: codex-live`, the expected `machineId`, and either an explicitly resumed `sessionHandle` or a live `runtimeConfig.appServerUrl`. If any of those are wrong, the session is still bound to stale state.
 
 Repeat for every Codex agent on the machine.
 
@@ -358,7 +359,7 @@ Afterwards, restart the affected wrapper to bring a live bridge back online.
 **Causes.**
 - Multiple `codex-aify` sessions are open on the same machine — the bridge sees ambiguous live markers and refuses to pick one.
 - The wrapper was launched from a different directory than the `cwd` you passed to `comms_register` and auto-discovery can't resolve it.
-- The live env vars `$CODEX_THREAD_ID` / `$AIFY_CODEX_APP_SERVER_URL` were not available inside the session at register time.
+- The live app-server env var `$AIFY_CODEX_APP_SERVER_URL` was not available inside the session at register time. `$CODEX_THREAD_ID` can be empty on a fresh `codex-aify`; do not fill it from historical rollout files.
 
 **Fix (deterministic):** re-register from that same live session with explicit binding:
 
@@ -368,13 +369,12 @@ comms_register(
   role="coder",
   runtime="codex",
   cwd="C:/your/exact/project",
-  sessionHandle="$CODEX_THREAD_ID",
   appServerUrl="$AIFY_CODEX_APP_SERVER_URL"
 )
 comms_agent_info(agentId="my-agent")
 ```
 
-If only the thread ID is available, pass `sessionHandle` without `appServerUrl`. If neither is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
+Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same session, usually after explicit `codex-aify --resume <id>`. If neither app-server URL nor thread ID is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
 
 ## Closed resident Codex still receives dashboard work
 
@@ -847,13 +847,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
      # Inside an interactive hermes-aify shell:
      curl -s "${AIFY_HERMES_GATEWAY_URL/ws:/http:}/api/sessions" | python -m json.tool | head -20
      ```
-   - **codex**: scan `~/.codex/sessions` for the newest `rollout-*.jsonl` and read the UUID off the filename:
-     ```bash
-     find ~/.codex/sessions -type f -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null \
-       | sort -nr | head -1 | awk '{print $2}' \
-       | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
-       | tail -1
-     ```
+   - **codex**: for a fresh `codex-aify`, do **not** scan `~/.codex/sessions`; the newest rollout may be an unrelated historical thread. Use `$CODEX_THREAD_ID` only if this exact session exported it, usually after `codex-aify --resume <id>`.
    - **pi**: `~/.omp/agent/sessions/<project-key>/...`, OR ask the bridge directly:
      ```bash
      curl -s http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | python -m json.tool
@@ -882,7 +876,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
   unset CLAUDE_SESSION_ID    # claude
   hermes-aify --aify-agent YOUR-AGENT-ID   # or codex-aify / pi-aify / claude-aify
   ```
-  Plan 6 B (the wrapper-side rediscover, commits `5e8bcf9` / `842f725` / `11a15ed` / `eba3de0`) does this automatically at start when the wrapper is current.
+  Current `codex-aify` deliberately does not rediscover from historical rollout files on fresh launch; explicit `--resume <id>` is the only wrapper-side Codex handle export.
 
 ## Manual mode-switch unavailable in dashboard
 

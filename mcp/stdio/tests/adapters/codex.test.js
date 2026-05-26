@@ -60,3 +60,35 @@ test("CodexAdapter.discoverSessionId returns null when no sessions dir", async (
       "if non-null, must be non-empty string");
   }
 });
+
+test("CodexAdapter.discoverSessionId does not scan old rollouts for fresh app-server sessions", async () => {
+  const previousAppServer = process.env.AIFY_CODEX_APP_SERVER_URL;
+  const previousThread = process.env.CODEX_THREAD_ID;
+  process.env.AIFY_CODEX_APP_SERVER_URL = "ws://127.0.0.1:65535";
+  delete process.env.CODEX_THREAD_ID;
+  try {
+    const a = new CodexAdapter();
+    assert.strictEqual(await a.discoverSessionId(), null);
+  } finally {
+    if (previousAppServer === undefined) delete process.env.AIFY_CODEX_APP_SERVER_URL;
+    else process.env.AIFY_CODEX_APP_SERVER_URL = previousAppServer;
+    if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
+    else process.env.CODEX_THREAD_ID = previousThread;
+  }
+});
+
+test("CodexAdapter.discoverSessionId uses explicit thread env for app-server resume sessions", async () => {
+  const previousAppServer = process.env.AIFY_CODEX_APP_SERVER_URL;
+  const previousThread = process.env.CODEX_THREAD_ID;
+  process.env.AIFY_CODEX_APP_SERVER_URL = "ws://127.0.0.1:65535";
+  process.env.CODEX_THREAD_ID = "explicit-thread";
+  try {
+    const a = new CodexAdapter();
+    assert.strictEqual(await a.discoverSessionId(), "explicit-thread");
+  } finally {
+    if (previousAppServer === undefined) delete process.env.AIFY_CODEX_APP_SERVER_URL;
+    else process.env.AIFY_CODEX_APP_SERVER_URL = previousAppServer;
+    if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
+    else process.env.CODEX_THREAD_ID = previousThread;
+  }
+});

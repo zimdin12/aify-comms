@@ -1,15 +1,10 @@
-"""Plan 6 B2 — codex-aify wrapper rediscovers the real thread id.
+"""codex-aify wrapper session-handle contract.
 
-After `codex app-server` is reachable, the wrapper should learn the most
-recent codex thread id (the runtime's authoritative session handle) and
-export it as CODEX_THREAD_ID / AIFY_SESSION_HANDLE before exec'ing codex.
-This guards against stale CODEX_THREAD_ID env vars inherited from prior
-sessions — the same drift class Plan 6 A1/A2 fixed on the bridge side.
-
-The actual implementation does a filesystem scan of ~/.codex/sessions —
-mirroring the Python adapter's `discover_session_id` (codex's app-server
-has no introspection RPC at present; if/when one ships we can swap the
-strategy and the env-export contract still holds).
+Fresh `codex-aify` launches must not bind themselves to the newest historical
+rollout under ~/.codex/sessions. That scan can only tell us "some old Codex
+thread existed"; it cannot prove the freshly opened TUI is attached to that
+thread. Explicit `--resume <id>` remains authoritative and must be exported so
+the aify-comms bridge and Codex CLI agree on the chosen thread.
 
 These are static-text smoke checks on install.sh — no bash exec.
 """
@@ -26,63 +21,30 @@ def _read_install_sh() -> str:
     return INSTALL_SH.read_text(encoding="utf-8")
 
 
-def test_codex_wrapper_defines_rediscover_helper():
-    """install.sh codex branch must define rediscover_codex_thread_id."""
+def test_codex_wrapper_does_not_rediscover_from_historical_sessions():
+    """Fresh codex-aify must not export newest historical ~/.codex/sessions id."""
     text = _read_install_sh()
-    assert "rediscover_codex_thread_id" in text, (
-        "Plan 6 B2: install.sh codex branch must define "
-        "rediscover_codex_thread_id helper"
-    )
+    assert "CODEX_REDISCOVERED_THREAD_ID" not in text
+    assert "rediscover_codex_thread_id" not in text
+    assert "thread id rediscovered" not in text
 
 
-def test_codex_wrapper_scans_sessions_dir():
-    """The helper must consult ~/.codex/sessions to find the newest thread."""
+def test_codex_wrapper_exports_explicit_resume_handle():
+    """When the operator passed --resume <id>, that exact handle is exported."""
     text = _read_install_sh()
-    # The helper scans for rollout-*.jsonl files. The Python adapter at
-    # service/runtimes/codex.py uses the same shape.
-    assert ".codex/sessions" in text, (
-        "Plan 6 B2: codex rediscover must scan ~/.codex/sessions"
-    )
-
-
-def test_codex_wrapper_overwrites_thread_env_after_rediscover():
-    """After rediscover yields a non-empty id, the wrapper must overwrite
-    CODEX_THREAD_ID and AIFY_SESSION_HANDLE."""
-    text = _read_install_sh()
-    idx = text.find("rediscover_codex_thread_id")
+    idx = text.find('else\n  # Explicit --resume <id> from operator wins.')
     assert idx > 0
-    later = text[idx:]
-    assert "export CODEX_THREAD_ID=" in later, (
-        "Plan 6 B2: wrapper must `export CODEX_THREAD_ID=...` from rediscover"
-    )
-    assert "export AIFY_SESSION_HANDLE=" in later, (
-        "Plan 6 B2: wrapper must `export AIFY_SESSION_HANDLE=...` from rediscover"
-    )
+    window = text[idx : idx + 500]
+    assert 'export CODEX_THREAD_ID="$CODEX_RESUME_HANDLE"' in window
+    assert 'export AIFY_SESSION_HANDLE="$CODEX_RESUME_HANDLE"' in window
 
 
-def test_codex_wrapper_rediscover_is_non_fatal():
-    """Empty rediscover must NOT abort — bridge heartbeat (A1) is the safety net."""
+def test_codex_wrapper_leaves_fresh_launch_handle_empty():
+    """The no-resume branch must leave CODEX_THREAD_ID unset for fresh launches."""
     text = _read_install_sh()
-    idx = text.find("CODEX_REDISCOVERED_THREAD_ID")
-    assert idx > 0, "Plan 6 B2: wrapper must capture rediscover output"
-    window = text[idx : idx + 800]
-    assert "if [ -n " in window, (
-        "Plan 6 B2: rediscover must be optional — wrapper must gate on "
-        "non-empty result, not abort on failure"
-    )
-
-
-def test_codex_wrapper_respects_explicit_resume_handle():
-    """When the operator passed --resume <id>, that handle takes priority —
-    rediscover should NOT clobber an explicit resume choice."""
-    text = _read_install_sh()
-    idx = text.find("CODEX_REDISCOVERED_THREAD_ID")
-    assert idx > 0
-    window = text[idx : idx + 800]
-    # The rediscover-export block must inspect CODEX_RESUME_HANDLE — either
-    # by skipping export when it's set, or by being placed after the
-    # resume-resolution block. We pin: the rediscover override is gated on
-    # an empty CODEX_RESUME_HANDLE.
-    assert "CODEX_RESUME_HANDLE" in window, (
-        "Plan 6 B2: rediscover must respect operator-provided --resume handle"
-    )
+    assert 'if [ -z "${CODEX_RESUME_HANDLE:-}" ]; then' in text
+    idx = text.find('if [ -z "${CODEX_RESUME_HANDLE:-}" ]; then')
+    window = text[idx : idx + 300]
+    assert "Fresh codex-aify launch" in window
+    assert "export CODEX_THREAD_ID" not in window
+    assert "export AIFY_SESSION_HANDLE" not in window

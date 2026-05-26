@@ -37,6 +37,11 @@ export class CodexAdapter extends RuntimeAdapter {
   // levels deep, find newest .jsonl by mtime, extract uuid from filename, and
   // fall back to first-line JSON metadata for forward compatibility.
   async discoverSessionId() {
+    const appServerUrl = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim();
+    if (appServerUrl) {
+      return this.getCurrentSessionId() || null;
+    }
+
     let newest = null;
 
     async function walk(p, depth) {

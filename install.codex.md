@@ -56,9 +56,11 @@ The wrapper removes `-auto` before launching Codex and adds the best permission 
 
 `codex-aify` accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context (most operators never need it).
 
-### Session rediscover (added 2026-05-26, Plan 6 B2)
+### Session handle binding
 
-Once `codex app-server` is reachable, `codex-aify` scans `~/.codex/sessions/` for the newest `rollout-*.jsonl` and extracts the thread UUID from the filename. It then overwrites `CODEX_THREAD_ID` and `AIFY_SESSION_HANDLE` so the inner aify-comms MCP bridge registers with the truthful id, not a stale value the operator's shell inherited from a prior codex session. Mirrors the Python adapter's `discover_session_id` at `service/runtimes/codex.py` — codex's app-server does not (yet) expose an introspection RPC, so the filesystem scan is the authoritative source. An explicit `--resume <id>` still wins via the existing resume-resolution block. Failures are non-fatal: an empty scan (e.g. fresh install with no prior sessions) leaves the env value alone and the bridge's discover-first heartbeat (Plan 6 A1) corrects any drift within 60s.
+Fresh `codex-aify` launches do **not** scan `~/.codex/sessions/` to invent `CODEX_THREAD_ID`. The newest rollout file can be an unrelated historical thread, and binding a fresh visible TUI to that ID makes resident/channel delivery target the wrong session. For fresh launches, `CODEX_THREAD_ID` and `AIFY_SESSION_HANDLE` stay unset until Codex exposes a real current thread.
+
+An explicit `--resume <id>` is authoritative. In that path, `codex-aify` exports `CODEX_THREAD_ID=<id>` and `AIFY_SESSION_HANDLE=<id>` before launching Codex so the inner aify-comms MCP bridge and `codex resume` agree on the same thread. The wrapper still probes `~/.codex/sessions/` only to verify that the requested `--resume` handle exists; if it is stale, the wrapper starts a fresh Codex TUI instead of aborting.
 
 ### Delivery path
 
@@ -80,8 +82,10 @@ Windows note:
 Recommended registration from inside `codex-aify`:
 
 ```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", cwd="<native-path-to-project>", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+comms_register(agentId="my-agent", role="coder", runtime="codex", cwd="<native-path-to-project>", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 ```
+
+Add `sessionHandle="$CODEX_THREAD_ID"` only when that variable is non-empty, usually after an explicit `codex-aify --resume <id>` or after the current Codex CLI has exposed a real thread ID.
 
 Use a native path for the runtime you are actually running:
 - WSL/Linux Codex: `/mnt/...` or other native Linux paths
@@ -90,8 +94,8 @@ Use a native path for the runtime you are actually running:
 Fallback order if that does not flip to `codex-live`:
 
 1. Drop `sessionHandle` + `appServerUrl`: `comms_register(..., runtime="codex")`.
-2. Re-add `sessionHandle="$CODEX_THREAD_ID"` from the same session.
-3. Add back `appServerUrl` when multiple `codex-aify` sessions run on the same machine or the wrapper was launched from a different directory than the `cwd` you registered.
+2. If `$CODEX_THREAD_ID` is non-empty in that same session, re-add `sessionHandle="$CODEX_THREAD_ID"`.
+3. Keep `appServerUrl` explicit when multiple `codex-aify` sessions run on the same machine or the wrapper was launched from a different directory than the `cwd` you registered.
 
 ### Windows `cwd` trap
 
@@ -159,7 +163,7 @@ Current Codex CLI note:
 ## Quick Start
 
 ```text
-comms_register(agentId="my-agent", role="coder", runtime="codex", sessionHandle="$CODEX_THREAD_ID", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
+comms_register(agentId="my-agent", role="coder", runtime="codex", appServerUrl="$AIFY_CODEX_APP_SERVER_URL")
 comms_agents()
 comms_agent_info(agentId="my-agent")
 comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there")
@@ -181,7 +185,7 @@ Verify: open the agent's Console after a managed dispatch — `tasklist | findst
 
 ## Codex session storage layout
 
-`codex-aify` probes `~/.codex/sessions/` for a saved session matching `--resume <id>`. Plan 4 (2026-05-25) supports three layouts in priority order:
+When `--resume <id>` is explicit, `codex-aify` probes `~/.codex/sessions/` for a saved session matching that handle. Plan 4 (2026-05-25) supports three layouts in priority order:
 
 1. **Flat** — `~/.codex/sessions/<id>.jsonl` (legacy or simple installs)
 2. **Dir-per-session** — `~/.codex/sessions/<id>/...` (alternative codex versions)
