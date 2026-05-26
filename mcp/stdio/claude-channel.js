@@ -3,6 +3,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadSettingsEnv } from "./load-env.js";
@@ -58,6 +59,7 @@ const CHANNEL_BRIDGE_ID = `channel-${MACHINE_ID}`;
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+const IS_MAIN = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // Write our claude-code runtime marker from this long-lived bridge process.
 // This must happen here, not in the wrapper's bash CLI call, because on
@@ -65,13 +67,15 @@ const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS |
 // node cannot see it — listRuntimeMarkers would auto-delete the wrapper's
 // marker on first read. node's process.pid is a real Windows PID.
 const MARKER_CWD = process.cwd();
-try {
-  writeRuntimeMarker("claude-code", MARKER_CWD, {
-    channelEnabled: true,
-    parentPid: process.ppid || "",
-  });
-} catch (error) {
-  console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+if (IS_MAIN) {
+  try {
+    writeRuntimeMarker("claude-code", MARKER_CWD, {
+      channelEnabled: true,
+      parentPid: process.ppid || "",
+    });
+  } catch (error) {
+    console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+  }
 }
 
 function removeOwnMarker() {
@@ -81,9 +85,11 @@ function removeOwnMarker() {
     // best effort — a dead PID will get auto-cleaned on next listRuntimeMarkers anyway
   }
 }
-process.on("exit", removeOwnMarker);
-process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
-process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
+if (IS_MAIN) {
+  process.on("exit", removeOwnMarker);
+  process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
+  process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
+}
 
 // No activeRunId tracking. The channel bridge claims a dispatch, delivers
 // it to the Claude session via MCP notification, and marks the run delivered
@@ -489,8 +495,10 @@ async function pollLoop() {
   }
 }
 
-await mcp.connect(new StdioServerTransport());
-pollLoop().catch((error) => {
-  console.error("[aify-channel] fatal:", error);
-  process.exit(1);
-});
+if (IS_MAIN) {
+  await mcp.connect(new StdioServerTransport());
+  pollLoop().catch((error) => {
+    console.error("[aify-channel] fatal:", error);
+    process.exit(1);
+  });
+}

@@ -47,18 +47,24 @@ const state = {
 // dot color/animation in styles.css; tone drives the chip border/background.
 const STATUS_KINDS = {
   active: { label: 'active', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  idle: { label: 'idle', dotKind: 'online', tone: 'ok', inputEnabled: true },
   available: { label: 'available', dotKind: 'available', tone: 'muted', inputEnabled: false },
   starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
+  recovering: { label: 'recovering', dotKind: 'working', tone: 'warn', inputEnabled: false },
   online: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   ready: { label: 'ready', dotKind: 'ready', tone: 'ok', inputEnabled: true },
   working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
   blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
+  stale: { label: 'stale', dotKind: 'available', tone: 'muted', inputEnabled: false },
   queued: { label: 'queued', dotKind: 'queued', tone: 'muted', inputEnabled: false },
   claimed: { label: 'claimed', dotKind: 'working', tone: 'warn', inputEnabled: false },
   running: { label: 'running', dotKind: 'working', tone: 'warn', inputEnabled: false },
   completed: { label: 'completed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
+  stopped: { label: 'stopped', dotKind: 'available', tone: 'muted', inputEnabled: false },
   failed: { label: 'failed', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },
+  lost: { label: 'lost', dotKind: 'bad', tone: 'bad', inputEnabled: false },
+  unreachable: { label: 'unreachable', dotKind: 'bad', tone: 'bad', inputEnabled: false },
   offline: { label: 'offline', dotKind: 'bad', tone: 'bad', inputEnabled: false },
   unknown: { label: 'unknown', dotKind: 'unknown', tone: 'muted', inputEnabled: false },
 };
@@ -781,7 +787,10 @@ function hermesGatewayUrlToHttp(wsUrl) {
 // classic <script>, not a module. The test in app.test.mjs reads the source,
 // strips the `export` it expects, and evals — see app.test.mjs for the
 // extract pattern.)
-function chooseSessionConsoleWidget({ agent, sessionId, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
+function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
+  const normalizedSessionMode = String(sessionMode || agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
+  const normalizedTerminalStatus = String(terminalStatus || agent?.terminalStatus || agent?.terminal_status || '').trim().toLowerCase();
+  const terminalCanRepresentCurrentOwner = normalizedSessionMode !== 'resident' && !['stopping', 'stopped', 'failed'].includes(normalizedTerminalStatus);
   // Plan 4 Task 18: prefer the wrapper PTY (runtimeState.terminalId, set by
   // managed dispatch at api_v2.py:4462) over the synth virtual-rpc terminal
   // (runtimeState.virtualTerminalId, set by ensure_virtual_terminal at line
@@ -790,16 +799,16 @@ function chooseSessionConsoleWidget({ agent, sessionId, runtime, runtimeConfig, 
   // PTY is the operator-facing real Ink TUI render; the synth is the JSON-RPC
   // translation shim and is the lower-fidelity fallback. Cache (set below)
   // remains sticky per session id regardless of which path provided the id.
-  const liveTerminalId = String(
-    agent?.runtimeState?.terminalId || agent?.runtimeState?.virtualTerminalId || ''
-  ).trim();
+  const liveTerminalId = terminalCanRepresentCurrentOwner
+    ? String(agent?.runtimeState?.terminalId || agent?.runtimeState?.virtualTerminalId || '').trim()
+    : '';
   if (liveTerminalId && cache && typeof cache.set === 'function') {
     cache.set(String(sessionId || ''), liveTerminalId);
   }
   const cachedTerminalId = (cache && typeof cache.get === 'function')
     ? String(cache.get(String(sessionId || '')) || '').trim()
     : '';
-  const effectiveTerminalId = liveTerminalId || cachedTerminalId;
+  const effectiveTerminalId = terminalCanRepresentCurrentOwner ? (liveTerminalId || cachedTerminalId) : '';
 
   if (effectiveTerminalId) {
     return {
@@ -1147,6 +1156,8 @@ function renderSessionConsole(session) {
   const widgetChoice = chooseSessionConsoleWidget({
     agent,
     sessionId: id,
+    sessionMode: agent?.sessionMode || session?.sessionMode || session?.session_mode,
+    terminalStatus: session?.terminalStatus || session?.terminal_status || session?.terminal?.status,
     runtime,
     runtimeConfig,
     cache: state.sessionTerminals,

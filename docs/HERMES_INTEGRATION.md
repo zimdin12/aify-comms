@@ -145,7 +145,7 @@ Hermes shell hooks are configured under `hooks:` in `~/.hermes/config.yaml`. Wit
 hooks:
   post_tool_call:
     - matcher: ".*"
-      command: "~/.hermes/agent-hooks/aify-notify.sh"
+      command: "bash \"$HOME/.hermes/agent-hooks/aify-notify.sh\""
       timeout: 3
 ```
 

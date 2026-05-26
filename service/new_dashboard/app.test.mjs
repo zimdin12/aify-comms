@@ -273,3 +273,47 @@ test("Plan 4: 'ready' status has a color class in the dashboard", () => {
     "app.js STATUS_KINDS must map ready → dotKind:'ready' (Plan 4)"
   );
 });
+
+test("Dashboard Next composer defaults to live send instead of queue", () => {
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const queueInput = html.match(/<input[^>]+id="composer-queue"[^>]*>/);
+  assert.ok(queueInput, "composer queue checkbox must exist");
+  assert.ok(
+    !/\schecked(\s|>|=)/.test(queueInput[0]),
+    "normal Send should not default queueIfBusy=true; Queue is an explicit operator choice",
+  );
+});
+
+test("Dashboard Next recognizes backend lifecycle status names", () => {
+  const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  for (const status of ["idle", "stale", "stopped", "lost", "recovering", "unreachable"]) {
+    assert.match(
+      source,
+      new RegExp(`${status}:\\s*\\{`),
+      `STATUS_KINDS must map backend status '${status}' instead of rendering unknown`,
+    );
+  }
+});
+
+test("resident session with cached/stopping terminal does not render managed xterm", () => {
+  const cache = new Map([["sess-resident", "old-managed-pty"]]);
+  const r = chooseSessionConsoleWidget({
+    agent: {
+      runtime: "hermes",
+      sessionMode: "resident",
+      runtimeState: {},
+    },
+    sessionId: "sess-resident",
+    sessionMode: "resident",
+    terminalStatus: "stopping",
+    runtime: "hermes",
+    runtimeConfig: { gatewayUrl: "ws://127.0.0.1:9119/api/ws?token=t" },
+    cache,
+    hermesGatewayHttp: "http://127.0.0.1:9119/?token=t",
+    codexAppServerUrl: "",
+    codexThreadId: "",
+    codexAttachable: false,
+  });
+  assert.equal(r.kind, "hermes-iframe");
+  assert.equal(r.terminalId, "");
+});

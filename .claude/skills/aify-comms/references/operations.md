@@ -65,7 +65,7 @@ Wrapper auto mode:
 - Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
 - If the saved handle is wrong and the correct native ID is known, use Dashboard **Chat details -> Runtime Session -> Set handle**, **Sessions -> Actions -> Set handle**, or the `/api/v1/agents/{id}/session-handle` endpoint. This updates the saved `sessionHandle`, runtime state, and latest session record without creating a fresh context.
 
-Browser Console is current behavior when an environment advertises terminal/PTY support for the runtime. It is an attachment to the bridge-owned PTY, not a separate resident takeover. Messenger sends while Console is open are forwarded into the active PTY; Stop Console stops that terminal backing and returns the session to managed delivery. Use **Pause for CLI** only when you intentionally want a separate native terminal to own delivery.
+Browser Console is current behavior when an environment advertises terminal/PTY support for the runtime. It is an attachment to the bridge-owned PTY, not a separate resident takeover. Messenger sends while Console is open are forwarded into the active PTY; Stop Console stops that terminal backing and returns the session to managed delivery. Dashboard Next hides stale managed PTY widgets while the identity is in `resident` mode, so a resident agent should show a resident attach surface or an explicit unavailable state rather than an old managed buffer. Use **Pause for CLI** only when you intentionally want a separate native terminal to own delivery.
 
 ## Multi-Instance Rules
 
@@ -88,6 +88,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 - Settings is grouped into Appearance, Runtime, Work Loop, and Maintenance.
 - The stable dashboard/API stays on `8800`. The replacement dashboard preview, when enabled by compose, is on `8801` and must read/write through the existing `8800` API rather than inventing duplicate message, run, session, or Work Loop state.
 - Chat Peek mode lets an operator watch without marking messages read.
+- Chat composer Queue is opt-in. A normal unchecked send follows ordinary live `comms_send` semantics; checking Queue sets `queueIfBusy=true`.
 - Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
 - Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
 - Sessions hide ended/completed/cancelled rows by default; show ended/debug rows when investigating lifecycle history.

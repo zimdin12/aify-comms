@@ -220,7 +220,7 @@ const __stopHandleHeartbeat = startSessionHandleHeartbeat({
   adapter: __runtimeAdapter,
   agentId: AIFY_AGENT_ID,
   intervalMs: __HEARTBEAT_MS,
-  postFn: makeDefaultHandlePoster(__serverUrl),
+  postFn: makeDefaultHandlePoster(__serverUrl, API_KEY),
 });
 
 // Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
@@ -242,7 +242,7 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
-  postFn: makeDefaultTurnBusyPoster(__serverUrl),
+  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY),
 });
 
 // Startup diagnostic: surface the env vars the bridge sees so operators

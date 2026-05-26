@@ -1658,7 +1658,11 @@ export function createRpcClient(proc, { onNotification, onStderr } = {}) {
     failPending(new Error("rpc client closed"));
     activeNotificationHandler = null;
     activeStderrHandler = null;
+    try { stdout.close(); } catch {}
+    try { stderr.close(); } catch {}
     try { proc.stdin?.end?.(); } catch {}
+    try { proc.stdout?.destroy?.(); } catch {}
+    try { proc.stderr?.destroy?.(); } catch {}
   }
 
   return { request, notify, setOnNotification, setOnStderr, close };

@@ -32,13 +32,16 @@ export function startTurnBusyHeartbeat({ agentId, intervalMs, isActive, postFn }
 }
 
 // Default poster: POST /api/v1/agents/{id}/turn-start with body.source = "bridge-heartbeat"
-export function makeDefaultTurnBusyPoster(baseUrl) {
+export function makeDefaultTurnBusyPoster(baseUrl, apiKey = "") {
   const root = String(baseUrl || "").replace(/\/+$/, "");
+  const key = String(apiKey || "").trim();
   return async (agentId) => {
     const url = `${root}/api/v1/agents/${encodeURIComponent(agentId)}/turn-start`;
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers["X-API-Key"] = key;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ source: "bridge-heartbeat" }),
     });
     if (!res.ok && res.status !== 404) {

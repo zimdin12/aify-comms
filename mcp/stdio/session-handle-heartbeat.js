@@ -50,13 +50,16 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
 }
 
 // Default poster: PATCH /api/v2/agents/{id}/session-handle
-export function makeDefaultHandlePoster(baseUrl) {
+export function makeDefaultHandlePoster(baseUrl, apiKey = "") {
   const root = String(baseUrl || "").replace(/\/+$/, "");
+  const key = String(apiKey || "").trim();
   return async (agentId, sessionHandle) => {
     const url = `${root}/api/v2/agents/${encodeURIComponent(agentId)}/session-handle`;
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers["X-API-Key"] = key;
     const res = await fetch(url, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ sessionHandle, requestedBy: "bridge-heartbeat" }),
     });
     if (!res.ok) {

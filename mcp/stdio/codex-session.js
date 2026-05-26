@@ -203,17 +203,28 @@ export class CodexSession {
 
     const startupMs = startupTimeoutFor(this.agentInfo);
     const deferred = this._startupDeferred;
+    let startupTimer = null;
     try {
       await Promise.race([
         this._handshake({ cwd, model, approvalPolicy, sandboxMode, runtimeState, callbacks }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error(`codex handshake timeout (${startupMs}ms)`)), startupMs)),
+        new Promise((_, rej) => {
+          startupTimer = setTimeout(() => rej(new Error(`codex handshake timeout (${startupMs}ms)`)), startupMs);
+        }),
       ]);
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
+      }
       this._state = "ready";
       this._armIdleTimer();
       this._startupDeferred = null;
       deferred.resolve();
       this._emit("ready", { agentId: this.agentId, threadId: this.threadId });
     } catch (error) {
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
+      }
       this._state = "failed";
       try { this._rpc?.close?.(); } catch {}
       try { terminateProcessTree(this._proc); } catch {}
