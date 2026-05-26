@@ -829,6 +829,13 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport` and Hermes `hermes_cli/main.py` so the TUI preserves the wrapper-provided active-session file. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway has exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
+If two Hermes resident agents run in the same cwd, they must still register
+with different `runtimeConfig.gatewayUrl` values. Current bridges prefer the
+current MCP process env over cwd runtime markers for Hermes. If both agents
+show the same gateway URL, the bridge is old or one registration happened from
+the wrong terminal; update/restart both wrappers and re-register each from its
+own visible TUI.
+
 ## Stale session handle causing prompt.submit failures (Plan 6 A)
 
 **Symptom.** Dispatch fails at delivery time with `prompt.submit failed: session not found` (hermes) or analogous "session not found" / GC'd-rollout warnings on codex / pi / claude. Bridges look alive, heartbeating, and the dispatch row reports `delivered` — but the runtime rejects the handle. `agents.session_handle` matches a session that no longer exists in the runtime.

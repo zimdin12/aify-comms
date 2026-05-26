@@ -42,6 +42,7 @@ def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
     window = text[idx : idx + 350]
     assert 'export HERMES_SESSION_ID="\\$HERMES_SESSION_HANDLE"' in window
     assert 'export AIFY_SESSION_HANDLE="\\$HERMES_SESSION_HANDLE"' in window
+    assert 'export AIFY_EXPLICIT_SESSION_HANDLE="true"' in window
     assert 'if [ -n "$HERMES_SESSION_HANDLE" ]; then' not in text
 
 

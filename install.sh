@@ -1092,8 +1092,10 @@ fi
 if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
   export HERMES_SESSION_ID="\$HERMES_SESSION_HANDLE"
   export AIFY_SESSION_HANDLE="\$HERMES_SESSION_HANDLE"
+  export AIFY_EXPLICIT_SESSION_HANDLE="true"
 else
   unset HERMES_SESSION_ID HERMES_SESSION AIFY_SESSION_HANDLE
+  unset AIFY_EXPLICIT_SESSION_HANDLE
 fi
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
@@ -1609,6 +1611,7 @@ _patch_hermes_config_at() {
       `      AIFY_AGENT_CWD: \"\${AIFY_AGENT_CWD}\"`,
       `      AIFY_SESSION_MODE: \"\${AIFY_SESSION_MODE}\"`,
       `      AIFY_SESSION_HANDLE: \"\${AIFY_SESSION_HANDLE}\"`,
+      `      AIFY_EXPLICIT_SESSION_HANDLE: \"\${AIFY_EXPLICIT_SESSION_HANDLE}\"`,
       `      AIFY_RUNTIME: \"\${AIFY_RUNTIME}\"`,
       `      AIFY_TERMINAL_ID: \"\${AIFY_TERMINAL_ID}\"`,
       `      AIFY_MANAGED_VIA_WRAPPER: \"\${AIFY_MANAGED_VIA_WRAPPER}\"`,

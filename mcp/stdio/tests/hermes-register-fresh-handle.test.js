@@ -28,4 +28,10 @@ assert.match(
   "Previous handle reuse should be gated by allowPreviousSessionHandle",
 );
 
+assert.match(
+  serverText,
+  /const rawGatewayUrl = String\(process\.env\.AIFY_HERMES_GATEWAY_URL \|\| marker\?\.gatewayUrl \|\| ""\)\.trim\(\)/,
+  "Hermes registration must prefer the current MCP process gateway over cwd runtime markers",
+);
+
 console.log("hermes-register-fresh-handle.test.js: all assertions passed");

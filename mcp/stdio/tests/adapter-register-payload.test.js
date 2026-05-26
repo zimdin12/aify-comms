@@ -26,6 +26,31 @@ test("fillSessionHandleFromAdapter fills empty sessionHandle from adapter env", 
   delete process.env.CLAUDE_SESSION_ID;
 });
 
+test("fillSessionHandleFromAdapter ignores Hermes env handle for fresh live gateway", () => {
+  process.env.HERMES_SESSION_ID = "historical-visible-looking-session";
+  process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:9999/api/ws?token=x";
+  delete process.env.AIFY_EXPLICIT_SESSION_HANDLE;
+  const adapter = adapterFor("hermes");
+  const args = { agentId: "h" };
+  const out = fillSessionHandleFromAdapter(args, adapter);
+  assert.strictEqual(out.sessionHandle || "", "");
+  delete process.env.HERMES_SESSION_ID;
+  delete process.env.AIFY_HERMES_GATEWAY_URL;
+});
+
+test("fillSessionHandleFromAdapter keeps explicit Hermes resume handle", () => {
+  process.env.HERMES_SESSION_ID = "explicit-resume-session";
+  process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:9999/api/ws?token=x";
+  process.env.AIFY_EXPLICIT_SESSION_HANDLE = "true";
+  const adapter = adapterFor("hermes");
+  const args = { agentId: "h" };
+  const out = fillSessionHandleFromAdapter(args, adapter);
+  assert.strictEqual(out.sessionHandle, "explicit-resume-session");
+  delete process.env.HERMES_SESSION_ID;
+  delete process.env.AIFY_HERMES_GATEWAY_URL;
+  delete process.env.AIFY_EXPLICIT_SESSION_HANDLE;
+});
+
 test("fillSessionHandleFromAdapter leaves empty when env has no handle", () => {
   delete process.env.CLAUDE_SESSION_ID;
   const adapter = adapterFor("claude-code");

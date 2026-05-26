@@ -844,7 +844,7 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
     else delete runtimeConfig.remoteAuthTokenEnv;
   } else if (normalizedRuntime === "hermes") {
-    const rawGatewayUrl = String(marker?.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+    const rawGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || marker?.gatewayUrl || "").trim();
     // Reject unresolved hermes YAML interpolation placeholders. Operator-
     // reported 2026-05-25: hermes config.yaml env: AIFY_HERMES_GATEWAY_URL:
     // "${AIFY_HERMES_GATEWAY_URL}" — when hermes's own env doesn't have the
