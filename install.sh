@@ -736,10 +736,19 @@ if [ "$PI_AIFY_STANDALONE" != true ] && [ -n "$PI_AIFY_AGENT_ID" ] && [ -n "${AI
   # alone and the bridge heartbeat (Plan 6 A1) corrects drift within 60s.
   PI_REDISCOVERED_SESSION_ID=""
   if [ -n "$AIFY_WATCHDOG_BODY" ]; then
+    # Plan 6 follow-up (2026-05-26): the pi-session-state body legitimately
+    # omits the sessionId key when no PTY is live yet (e.g. fresh
+    # dashboard-spawned managed wrapper) — grep returns 1, and `set -euo
+    # pipefail` then kills the whole wrapper SILENTLY before exec'ing omp.
+    # That's the "pi-aify exits in 2s with no output" bug operators observed
+    # 2026-05-26 with graph-tester-pi. Disable pipefail JUST around this
+    # capture so a missing sessionId is empty (the intended behavior).
+    set +o pipefail
     PI_REDISCOVERED_SESSION_ID="$(printf '%s' "$AIFY_WATCHDOG_BODY" \
       | grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' \
       | head -1 \
       | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    set -o pipefail
   fi
   if [ -n "$PI_REDISCOVERED_SESSION_ID" ]; then
     if [ "${PI_SESSION_ID:-}" != "$PI_REDISCOVERED_SESSION_ID" ]; then
@@ -1069,7 +1078,12 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   fi
 
   # web_server.py:3688 injects: <script>window.__HERMES_SESSION_TOKEN__="..."
+  # Disable pipefail around the capture so a missing token is empty
+  # instead of killing the wrapper silently (same shape as the pi-aify
+  # rediscover fix shipped 2026-05-26).
+  set +o pipefail
   AIFY_HERMES_TOKEN="\$(curl -s "\$AIFY_HERMES_DASHBOARD_URL/" | grep -oE '__HERMES_SESSION_TOKEN__="[^"]+"' | head -1 | sed -E 's/.*="([^"]+)"\$/\1/')"
+  set -o pipefail
   if [ -z "\$AIFY_HERMES_TOKEN" ]; then
     echo "hermes-aify: could not capture the dashboard session token from \$AIFY_HERMES_DASHBOARD_URL/. Falling back to plain hermes." >&2
     cleanup_aify_dashboard
@@ -2029,6 +2043,89 @@ register_stdio_server() {
       "${scope_args[@]}" \
       -- node "$SCRIPT_DIR/mcp/stdio/server.js"
   fi
+
+  # Plan 6 follow-up (2026-05-26): for codex, the `[mcp_servers.X.env]` block
+  # written by `codex mcp add --env` REPLACES the inherited environment for
+  # the spawned MCP server (per codex-rs/rmcp-client/src/utils.rs
+  # create_env_for_mcp_server). Without env-passthrough, the inner
+  # mcp/stdio/server.js never sees AIFY_AGENT_ID / AIFY_SESSION_MODE /
+  # AIFY_MANAGED_VIA_WRAPPER etc. and either registers under the wrong
+  # agent_id or fails to advertise channel-mode in executionModes. Use
+  # codex's `env_vars` mechanism (TOML array of names; passes values
+  # through from parent codex's env) to forward what the wrapper exports.
+  # Symmetric with the hermes install_hermes_config env-block (commit
+  # aca4391). Idempotent: replaces an existing env_vars line if present.
+  if [ "$cli" = "codex" ]; then
+    install_codex_mcp_env_vars
+  fi
+}
+
+install_codex_mcp_env_vars() {
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local config_file="$codex_home/config.toml"
+  local node_config_file=""
+  [ -f "$config_file" ] || return 0
+  node_config_file="$(path_for_node "$config_file")"
+
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    // Names of env vars the wrapper exports that the inner aify-comms MCP
+    // server child needs to register correctly. Kept in sync with the
+    // codex-aify wrapper exports (install.sh:186-237) + the bridge spawn
+    // env in mcp/stdio/terminal-env.js (AIFY_MANAGED_VIA_WRAPPER, etc.).
+    // PATH/HOME are forwarded by codex by default (DEFAULT_ENV_VARS in
+    // codex-rs/rmcp-client/src/utils.rs), so we do not list them here.
+    const desired = [
+      "AIFY_AGENT_ID",
+      "AIFY_AGENT_ROLE",
+      "AIFY_AGENT_CWD",
+      "AIFY_SESSION_MODE",
+      "AIFY_SESSION_HANDLE",
+      "AIFY_RUNTIME",
+      "AIFY_TERMINAL_ID",
+      "AIFY_MANAGED_VIA_WRAPPER",
+      "AIFY_COMMS_AGENT_ID",
+      "AIFY_COMMS_URL",
+      "AIFY_API_KEY",
+      "CODEX_THREAD_ID",
+      "AIFY_CODEX_APP_SERVER_URL",
+    ];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) { process.exit(0); }
+    const lines = text.split(/\r?\n/);
+    const headerRe = /^\[mcp_servers\.aify-comms\]\s*$/;
+    let headerIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (headerRe.test(lines[i])) { headerIdx = i; break; }
+    }
+    if (headerIdx < 0) process.exit(0);
+    // section end = next "[..." section OR EOF
+    let endIdx = lines.length;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (/^\[/.test(lines[i])) { endIdx = i; break; }
+    }
+    // Remove any existing env_vars line (handles multi-line inline arrays too)
+    for (let i = headerIdx + 1; i < endIdx; i++) {
+      if (/^\s*env_vars\s*=/.test(lines[i])) {
+        let j = i;
+        let bracketBalance = 0;
+        for (; j < endIdx; j++) {
+          for (const ch of lines[j]) {
+            if (ch === "[") bracketBalance++;
+            else if (ch === "]") bracketBalance--;
+          }
+          if (bracketBalance <= 0 && j >= i) break;
+        }
+        lines.splice(i, j - i + 1);
+        endIdx -= (j - i + 1);
+        i--;
+      }
+    }
+    const envVarsLine = "env_vars = [" + desired.map((n) => JSON.stringify(n)).join(", ") + "]";
+    lines.splice(headerIdx + 1, 0, envVarsLine);
+    fs.writeFileSync(file, lines.join("\n"));
+  ' "$node_config_file"
 }
 
 register_claude_channel_server() {
