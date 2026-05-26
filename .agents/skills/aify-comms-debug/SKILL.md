@@ -827,7 +827,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
 
-**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport`. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`. If the bind method is missing, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
+**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport`. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway had exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
 ## Stale session handle causing prompt.submit failures (Plan 6 A)
 

@@ -88,6 +88,14 @@ def test_hermes_installer_patches_visible_session_bind():
     assert "TeeTransport(primary, bridge_transport)" in text
 
 
+def test_hermes_visible_bind_falls_back_to_single_active_session():
+    """If the saved handle is stale but this wrapper gateway has exactly one
+    visible session, bind to that session instead of failing or forking hidden."""
+    text = _read_install_sh()
+    assert "visible session fallback: saved handle not active; using sole active session" in text
+    assert "active_candidates" in text
+
+
 def test_hermes_wrapper_exports_active_session_file():
     """The TUI active-session file lets the bridge repair stale parent env."""
     text = _read_install_sh()

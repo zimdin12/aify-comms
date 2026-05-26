@@ -246,6 +246,35 @@ test("resident hermes binds to the visible TUI session instead of resuming a hid
   assert.match(bindEvent, /visible session bound: operator-sid-42 -> live-sid-001/, "controller should announce visible-session binding");
 });
 
+test("resident hermes updates durable key from visible bind when saved handle is stale", async (t) => {
+  const { url, token } = await startFake(t, { script: "bind_actual_key" });
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  let capturedSessionId = "";
+  let capturedSessionKey = "";
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-stale-handle",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "stale-saved-key" }),
+    run: makeRun({ id: "run_h_stale_handle" }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: () => {},
+      onRefs: (refs) => {
+        if (refs?.sessionId) capturedSessionId = refs.sessionId;
+        if (refs?.sessionKey) capturedSessionKey = refs.sessionKey;
+      },
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected stale saved handle to bind to the actual visible session: ${result.error || ""}`);
+  assert.equal(capturedSessionId, "live-sid-001");
+  assert.equal(capturedSessionKey, "actual-visible-key");
+  assert.equal(result.runtimeState?.sessionId, "actual-visible-key");
+  assert.equal(result.runtimeState?.gatewaySessionId, "live-sid-001");
+});
+
 test("resident hermes fails visibly when the gateway lacks visible-session binding", async (t) => {
   const { url, token } = await startFake(t, { script: "no_visible_bind" });
   const wsUrl = attachUrl(url, token);

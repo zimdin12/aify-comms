@@ -896,20 +896,19 @@ const file = process.argv[2];
 let text = fs.readFileSync(file, "utf8");
 let changed = false;
 
-if (!text.includes("aify.session.bind_transport")) {
-  const importNeedle = "    StdioTransport,\n    Transport,\n";
-  if (text.includes(importNeedle) && !text.includes("    TeeTransport,\n")) {
-    text = text.replace(importNeedle, "    StdioTransport,\n    TeeTransport,\n    Transport,\n");
-    changed = true;
-  }
+const importNeedle = "    StdioTransport,\n    Transport,\n";
+if (text.includes(importNeedle) && !text.includes("    TeeTransport,\n")) {
+  text = text.replace(importNeedle, "    StdioTransport,\n    TeeTransport,\n    Transport,\n");
+  changed = true;
+}
 
-  const sectionNeedle = "# ── Methods: session ";
-  const idx = text.indexOf(sectionNeedle);
-  if (idx < 0) {
-    console.error("[install.sh] could not locate Hermes session method section");
-    process.exit(0);
-  }
-  const patch = String.raw`
+const sectionNeedle = "# ── Methods: session ";
+const sectionIdx = text.indexOf(sectionNeedle);
+if (sectionIdx < 0) {
+  console.error("[install.sh] could not locate Hermes session method section");
+  process.exit(0);
+}
+const patch = String.raw`
 @method("aify.session.bind_transport")
 def _(rid, params: dict) -> dict:
     """Bind current WS as a mirror for an already-visible TUI session.
@@ -935,7 +934,30 @@ def _(rid, params: dict) -> dict:
             found_session = session
             break
     if not found_sid or found_session is None:
-        return _err(rid, 4010, "visible session not found")
+        active_candidates = [
+            (sid, session)
+            for sid, session in snapshot
+            if isinstance(session, dict)
+        ]
+        if len(active_candidates) == 1:
+            found_sid, found_session = active_candidates[0]
+            logger.info(
+                "aify visible session fallback: saved handle not active; using sole active session %s key=%s target=%s",
+                found_sid,
+                found_session.get("session_key") or "",
+                target,
+            )
+        else:
+            active_labels = [
+                f"{sid}:{session.get('session_key') or ''}"
+                for sid, session in active_candidates
+            ]
+            return _err(
+                rid,
+                4010,
+                "visible session not found"
+                + (f"; active sessions: {', '.join(active_labels)}" if active_labels else ""),
+            )
 
     bridge_transport = current_transport()
     primary = found_session.get("transport") or _stdio_transport
@@ -954,7 +976,13 @@ def _(rid, params: dict) -> dict:
 
 
 `;
-  text = text.slice(0, idx) + patch + text.slice(idx);
+const methodNeedle = '@method("aify.session.bind_transport")';
+const methodIdx = text.indexOf(methodNeedle);
+if (methodIdx < 0) {
+  text = text.slice(0, sectionIdx) + patch + text.slice(sectionIdx);
+  changed = true;
+} else if (!text.includes("active_candidates")) {
+  text = text.slice(0, methodIdx) + patch + text.slice(sectionIdx);
   changed = true;
 }
 

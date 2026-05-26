@@ -251,6 +251,11 @@ export class HermesResidentController extends BaseController {
         try {
           const bound = await sendRpc(proto.buildAifySessionBindTransportFrame({ sessionKey }));
           visibleSid = String(bound?.session_id || bound?.sessionId || "").trim();
+          const actualSessionKey = String(bound?.session_key || bound?.sessionKey || "").trim();
+          if (actualSessionKey && actualSessionKey !== sessionKey) {
+            callbacks.onEvent?.("hermes", `visible session key corrected: ${sessionKey} -> ${actualSessionKey}`);
+            sessionKey = actualSessionKey;
+          }
         } catch (err) {
           throw new Error(`Hermes visible-session binding failed for ${sessionKey}: ${err?.message || JSON.stringify(err)}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
         }

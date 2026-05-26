@@ -12,6 +12,7 @@
 //   - busy           : prompt.submit returns 4009 "session busy"; session.steer accepted
 //   - refuse         : prompt.submit returns 5000 error
 //   - no_visible_bind : aify.session.bind_transport is unavailable
+//   - bind_actual_key : visible bind succeeds but returns a different live session_key
 
 import { WebSocketServer } from "ws";
 
@@ -78,7 +79,8 @@ wss.on("connection", (socket, req) => {
         return;
       }
       const target = String(msg.params?.session_id || "").trim() || FIXED_SESSION_ID;
-      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: ACTIVE_SESSION_ID, session_key: target, mirrored: true } });
+      const sessionKey = SCRIPT === "bind_actual_key" ? "actual-visible-key" : target;
+      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: ACTIVE_SESSION_ID, session_key: sessionKey, mirrored: true } });
       return;
     }
     if (msg.method === "session.create") {
