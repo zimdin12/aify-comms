@@ -705,6 +705,21 @@ export AIFY_SESSION_MODE="$PI_AIFY_SESSION_MODE"
 # that fails open (timeout / network error / non-pi runtime → exec normally).
 # Override with --standalone if you intentionally want a parallel session
 # on a different session-id (pass --resume <other-id> too).
+#
+# Plan 6 follow-up (2026-05-26): when the dashboard's TerminalProcessManager
+# spawns this wrapper as the managed backing (AIFY_MANAGED_VIA_WRAPPER=1),
+# the bridgeOwned=true response is the DASHBOARD itself. Skipping the
+# watchdog in that case lets the wrapper-managed PTY actually start —
+# without this, the dashboard-spawned pi-aify exits within ~1s and the
+# operator sees a Console widget that never attaches. (Observed
+# 2026-05-26 with graph-tester-pi: 4 spawn attempts in 3 minutes, each
+# stopped after 1s.) Rediscover still runs so the bridge's stored session
+# id stays truthful.
+if [ "${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ]; then
+  PI_AIFY_SKIP_BRIDGE_GUARD=true
+else
+  PI_AIFY_SKIP_BRIDGE_GUARD=false
+fi
 if [ "$PI_AIFY_STANDALONE" != true ] && [ -n "$PI_AIFY_AGENT_ID" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then
   AIFY_WATCHDOG_URL="${AIFY_COMMS_URL%/}/api/v1/agents/${PI_AIFY_AGENT_ID}/pi-session-state"
   AIFY_WATCHDOG_HEADERS=()
@@ -734,7 +749,7 @@ if [ "$PI_AIFY_STANDALONE" != true ] && [ -n "$PI_AIFY_AGENT_ID" ] && [ -n "${AI
     export AIFY_SESSION_HANDLE="$PI_REDISCOVERED_SESSION_ID"
     PI_SESSION_HANDLE="$PI_REDISCOVERED_SESSION_ID"
   fi
-  if [ -n "$AIFY_WATCHDOG_BODY" ] && printf '%s' "$AIFY_WATCHDOG_BODY" | grep -q '"bridgeOwned":[[:space:]]*true'; then
+  if [ "$PI_AIFY_SKIP_BRIDGE_GUARD" != true ] && [ -n "$AIFY_WATCHDOG_BODY" ] && printf '%s' "$AIFY_WATCHDOG_BODY" | grep -q '"bridgeOwned":[[:space:]]*true'; then
     cat >&2 <<EOM
 Agent '${PI_AIFY_AGENT_ID}' is currently driven by aify-comms (visible in dashboard terminal). Stop it from the dashboard or use \`omp-aify --standalone --aify-agent ${PI_AIFY_AGENT_ID}\` to launch a parallel session on a different session-id.
 EOM
@@ -1426,9 +1441,6 @@ _patch_hermes_config_at() {
     const serverUrl = process.argv[3] || "";
     let text = "";
     try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
-    if (/^[ \t]*aify-comms:[ \t]*$/m.test(text) && /^[ \t]*mcp_servers:[ \t]*$/m.test(text)) {
-      process.exit(0);
-    }
     // Hermes filters env-vars to stdio MCP children: only PATH HOME etc
     // pass through by default (tools/mcp_tool.py _SAFE_ENV_KEYS). The
     // hermes-aify wrapper exports the gateway vars to hermes itself but
@@ -1436,20 +1448,62 @@ _patch_hermes_config_at() {
     // aify-comms MCP server child. Hermes does support templated env
     // resolution at MCP-spawn time so we use that to inject the
     // current value of each var per launch.
+    //
+    // Plan 6 follow-up (2026-05-26): AIFY_AGENT_ID + AIFY_SESSION_MODE
+    // + AIFY_MANAGED_VIA_WRAPPER added — without them the inner bridge
+    // never registers in bridge_instances and dispatch sits queued
+    // forever (observed 2026-05-26 with hermes-test managed:
+    // wrapper PTY attached, hermes TUI rendered, MCP server loaded,
+    // but no /agents POST). AIFY_COMMS_AGENT_ID + AIFY_TERMINAL_ID kept
+    // in sync for symmetry with terminalChildEnv.
     const entry = [
       "  aify-comms:",
       "    command: \"node\"",
       "    args:",
       `      - ${JSON.stringify(serverPath)}`,
       "    env:",
+      `      AIFY_AGENT_ID: \"\${AIFY_AGENT_ID}\"`,
+      `      AIFY_COMMS_AGENT_ID: \"\${AIFY_COMMS_AGENT_ID}\"`,
+      `      AIFY_AGENT_ROLE: \"\${AIFY_AGENT_ROLE}\"`,
+      `      AIFY_AGENT_CWD: \"\${AIFY_AGENT_CWD}\"`,
+      `      AIFY_SESSION_MODE: \"\${AIFY_SESSION_MODE}\"`,
+      `      AIFY_SESSION_HANDLE: \"\${AIFY_SESSION_HANDLE}\"`,
+      `      AIFY_RUNTIME: \"\${AIFY_RUNTIME}\"`,
+      `      AIFY_TERMINAL_ID: \"\${AIFY_TERMINAL_ID}\"`,
+      `      AIFY_MANAGED_VIA_WRAPPER: \"\${AIFY_MANAGED_VIA_WRAPPER}\"`,
+      `      HERMES_SESSION_ID: \"\${HERMES_SESSION_ID}\"`,
       `      AIFY_HERMES_GATEWAY_URL: \"\${AIFY_HERMES_GATEWAY_URL}\"`,
       `      AIFY_HERMES_GATEWAY_TOKEN: \"\${AIFY_HERMES_GATEWAY_TOKEN}\"`,
       `      HERMES_TUI_GATEWAY_URL: \"\${HERMES_TUI_GATEWAY_URL}\"`,
       ...(serverUrl ? [`      AIFY_SERVER_URL: ${JSON.stringify(serverUrl)}`, `      CLAUDE_MCP_SERVER_URL: ${JSON.stringify(serverUrl)}`] : []),
     ];
+    // Plan 6 follow-up: rewrite the aify-comms entry in place when it
+    // exists, so re-running install.sh refreshes the env block. The
+    // previous skip-if-exists guard meant operators who installed
+    // before the env-block expansion never picked up the new keys
+    // (only AIFY_HERMES_GATEWAY_URL was propagated, breaking managed
+    // delivery).
     const lines = text.replace(/\s*$/, "").split(/\r?\n/);
     const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
-    if (mcpIndex >= 0) {
+    let existingStart = -1;
+    let existingEnd = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^[ \t]+aify-comms:[ \t]*$/.test(lines[i])) {
+        existingStart = i;
+        const baseIndent = (lines[i].match(/^[ \t]+/) || [""])[0].length;
+        existingEnd = lines.length;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() === "") continue;
+          const indent = (lines[j].match(/^[ \t]*/) || [""])[0].length;
+          if (indent <= baseIndent) { existingEnd = j; break; }
+        }
+        break;
+      }
+    }
+    if (existingStart >= 0) {
+      lines.splice(existingStart, existingEnd - existingStart, ...entry);
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+    } else if (mcpIndex >= 0) {
       lines.splice(mcpIndex + 1, 0, ...entry);
       fs.writeFileSync(file, lines.join("\n") + "\n");
     } else {
