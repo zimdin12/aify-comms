@@ -827,7 +827,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
 
-**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport`. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway had exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
+**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport` and Hermes `hermes_cli/main.py` so the TUI preserves the wrapper-provided active-session file. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway has exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
 ## Stale session handle causing prompt.submit failures (Plan 6 A)
 
@@ -842,10 +842,9 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 2. Get the runtime's actual current session id, per runtime:
 
-   - **hermes**: query the gateway's `session.most_recent` over WebSocket — the same call `hermes-aify` now uses at launch. If `AIFY_HERMES_GATEWAY_URL` is set in the operator's shell:
+   - **hermes**: do **not** use gateway `session.most_recent` as the current visible session. It can be historical DB state. Prefer the wrapper active-session file (`$AIFY_HERMES_ACTIVE_SESSION_FILE`) or `comms_agent_info`; only an explicit `hermes-aify --resume <id>` should seed `HERMES_SESSION_ID` before launch. If `AIFY_HERMES_ACTIVE_SESSION_FILE` is set in the operator's shell:
      ```bash
-     # Inside an interactive hermes-aify shell:
-     curl -s "${AIFY_HERMES_GATEWAY_URL/ws:/http:}/api/sessions" | python -m json.tool | head -20
+     cat "$AIFY_HERMES_ACTIVE_SESSION_FILE"
      ```
    - **codex**: for a fresh `codex-aify`, do **not** scan `~/.codex/sessions`; the newest rollout may be an unrelated historical thread. Use `$CODEX_THREAD_ID` only if this exact session exported it, usually after `codex-aify --resume <id>`.
    - **pi**: `~/.omp/agent/sessions/<project-key>/...`, OR ask the bridge directly:
@@ -876,7 +875,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
   unset CLAUDE_SESSION_ID    # claude
   hermes-aify --aify-agent YOUR-AGENT-ID   # or codex-aify / pi-aify / claude-aify
   ```
-  Current `codex-aify` deliberately does not rediscover from historical rollout files on fresh launch; explicit `--resume <id>` is the only wrapper-side Codex handle export.
+  Current `codex-aify` and `hermes-aify` deliberately do not rediscover from historical runtime state on fresh launch; explicit `--resume <id>` is the only wrapper-side handle export. For Hermes, a fresh visible session becomes wakeable after the TUI writes the active-session file and the live bridge registers/heartbeats it.
 
 ## Manual mode-switch unavailable in dashboard
 

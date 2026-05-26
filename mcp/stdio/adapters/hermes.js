@@ -32,9 +32,14 @@ export class HermesAdapter extends RuntimeAdapter {
     return env;
   }
 
-  // Plan 4 (2026-05-25): hermes session discovery — try gateway session.most_recent
-  // JSON-RPC first (when AIFY_HERMES_GATEWAY_URL is set + ws:/wss:), then fall back
-  // to a filesystem scan of ~/.hermes/sessions/ for the newest file.
+  // Hermes session discovery:
+  // - active-session file: current visible TUI wrote this after create/resume
+  // - env handle: explicit --resume / bridge-owned managed wrapper handle
+  // - filesystem fallback: legacy non-gateway sessions only
+  //
+  // Do not use gateway session.most_recent for live gateway sessions. It reads
+  // historical DB state before the visible TUI has necessarily attached and can
+  // bind a resident identity to a session that cannot be visibly woken.
   async discoverSessionId() {
     // The visible TUI writes this file after its real session create/resume.
     // Prefer it over parent-shell env, which can be stale before the TUI has
@@ -50,8 +55,7 @@ export class HermesAdapter extends RuntimeAdapter {
     if (envSession) return envSession;
     const gw = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
     if (gw && /^wss?:\/\//i.test(gw)) {
-      const id = await this._queryGatewayMostRecent(gw);
-      if (id) return id;
+      return null;
     }
     return this._scanHermesSessionsDir();
   }

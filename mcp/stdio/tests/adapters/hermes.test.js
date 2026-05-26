@@ -45,6 +45,31 @@ test("HermesAdapter.discoverSessionId prefers durable env session over gateway s
   }
 });
 
+test("HermesAdapter.discoverSessionId does not use gateway history for fresh live sessions", async () => {
+  const previousSessionId = process.env.HERMES_SESSION_ID;
+  const previousSession = process.env.HERMES_SESSION;
+  const previousGatewayUrl = process.env.AIFY_HERMES_GATEWAY_URL;
+  const previousActiveFile = process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    delete process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
+    process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:1/api/ws?token=x";
+    const a = new HermesAdapter();
+    a._queryGatewayMostRecent = async () => "historical-db-session";
+    assert.strictEqual(await a.discoverSessionId(), null);
+  } finally {
+    if (previousSessionId === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = previousSessionId;
+    if (previousSession === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = previousSession;
+    if (previousGatewayUrl === undefined) delete process.env.AIFY_HERMES_GATEWAY_URL;
+    else process.env.AIFY_HERMES_GATEWAY_URL = previousGatewayUrl;
+    if (previousActiveFile === undefined) delete process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
+    else process.env.AIFY_HERMES_ACTIVE_SESSION_FILE = previousActiveFile;
+  }
+});
+
 test("HermesAdapter.discoverSessionId prefers TUI active-session file over stale env", async () => {
   const previousSessionId = process.env.HERMES_SESSION_ID;
   const previousActiveFile = process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;

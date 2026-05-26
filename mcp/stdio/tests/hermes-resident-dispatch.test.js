@@ -4,8 +4,8 @@
 // Bridge → /dispatch/claim returns a resident hermes run → launchRuntimeRun
 // routes to createHermesController → resident + runtimeConfig.gatewayUrl is
 // set → createHermesResidentChannelController → opens WS to the local
-// gateway → session.most_recent (or registered sessionHandle) → prompt.submit
-// → agent.message.delta + agent.message.end → mark dispatch completed.
+// gateway → aify.session.bind_transport(active visible TUI) → prompt.submit →
+// agent.message.delta + agent.message.end → mark dispatch completed.
 //
 // Pinned by the fake-hermes-gateway.mjs fixture so the wire protocol can't
 // silently drift.

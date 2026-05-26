@@ -752,7 +752,8 @@ function wakeModeSummary(info = {}) {
     /^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))
   ) {
     // Gateway-channel resident hermes: bridge injects via tui_gateway /api/ws.
-    // sessionHandle is optional — controller resolves session.most_recent.
+    // sessionHandle is optional; controller binds to the active visible TUI
+    // session through the patched aify.session.bind_transport method.
     // Plan 4 Task 17: gateway is the single source for resident hermes; the
     // legacy hermes-session-resume mode (spawn-fresh-hermes-with-provider-config)
     // is dead code now that discoverSessionId reliably captures gatewayUrl.
@@ -2503,12 +2504,17 @@ server.tool(
     const resolvedSessionMode = normalizeSessionMode(sessionMode);
     const previousInfo = REMOTE_AGENT_STATE.get(agentId)?.info;
     const resolvedCwd = normalizeRegistrationCwd(resolvedRuntime, cwd || DEFAULT_CWD);
+    let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
+    const hermesGatewayRegistration =
+      resolvedRuntime === "hermes" &&
+      /^wss?:\/\//i.test(String(runtimeConfig?.gatewayUrl || ""));
+    const allowPreviousSessionHandle =
+      !(hermesGatewayRegistration && !String(sessionHandle || "").trim());
     const initialSessionHandle =
       sessionHandle ||
       defaultSessionHandleForRuntime(resolvedRuntime) ||
-      previousInfo?.sessionHandle ||
+      (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
       "";
-    let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
     const explicitAppServerUrl = String(appServerUrl || "").trim();
     if (resolvedRuntime === "codex" && explicitAppServerUrl) {
       runtimeConfig = { ...runtimeConfig, appServerUrl: explicitAppServerUrl };
@@ -2531,7 +2537,7 @@ server.tool(
       sessionHandle ||
       discoveredCodexThreadId ||
       initialSessionHandle ||
-      previousInfo?.sessionHandle ||
+      (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
       "";
     const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle, runtimeConfig);
 

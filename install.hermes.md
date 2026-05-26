@@ -151,11 +151,28 @@ When `hermes-aify` cannot start the dashboard gateway (port allocation failure, 
 
 Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work.
 
-### Session rediscover (added 2026-05-26, Plan 6 B1)
+### Session handle binding
 
-`hermes-aify` no longer trusts whatever `HERMES_SESSION_ID` the parent shell exported. After the dashboard probe succeeds and the gateway token is captured, the wrapper opens a one-shot WebSocket to `ws://127.0.0.1:<port>/api/ws?token=<T>` and calls JSON-RPC `session.most_recent`. If the gateway returns a session id, the wrapper overwrites `HERMES_SESSION_ID` and `AIFY_SESSION_HANDLE` so the inner aify-comms MCP bridge registers with the truthful id — not whatever stale value the operator's shell inherited from a prior hermes session that has long since been cycled.
+Fresh `hermes-aify` launches do not trust inherited `HERMES_SESSION_ID`,
+`HERMES_SESSION`, or `AIFY_SESSION_HANDLE`, and they do not use gateway
+`session.most_recent` as the current visible session. `session.most_recent`
+can report historical Hermes DB state before the terminal TUI has attached,
+which binds the agent to a session that cannot visibly receive aify-comms
+delivery.
 
-The rediscover step uses the bundled `ws` module under `mcp/stdio/node_modules/`. 3s hard timeout — local gateway, anything longer means the dashboard is misbehaving. If the call fails (gateway unreachable, no `sessionId` in the response, timeout) the wrapper leaves the env value alone; the bridge's discover-first heartbeat (Plan 6 A1) will correct any drift within 60s. Operator sees a single `[hermes-aify] session id rediscovered: '<old>' -> '<new>' (from gateway)` line only when the id actually changes.
+Only an explicit `--resume <session-id>` / `--session-id <session-id>` seeds
+`HERMES_SESSION_ID` and `AIFY_SESSION_HANDLE` before launch. Fresh launches
+wait for Hermes TUI to write the active-session file exported as
+`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`; the
+aify-comms bridge uses that file as the current visible handle when it
+registers or heartbeats. `install.sh --client hermes` patches Hermes
+`hermes_cli/main.py` so it preserves the wrapper-provided active-session file
+instead of replacing it with a private temp file.
+
+If dispatch says `visible session not found`, the open terminal was started
+with an old wrapper/Hermes patch set or registered before the visible TUI wrote
+its active session. Re-run `install.sh --client hermes`, restart that
+`hermes-aify` terminal, and re-register from inside the same visible session.
 
 ## What This Installs
 

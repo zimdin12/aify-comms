@@ -935,6 +935,75 @@ if (changed) {
   console.error(`[install.sh] Hermes visible-session bind already present in ${file}`);
 }
 NODE
+  patch_hermes_tui_active_session_file "$hermes_install_root"
+}
+
+patch_hermes_tui_active_session_file() {
+  local hermes_install_root="$1"
+  local main_py="$hermes_install_root/hermes_cli/main.py"
+  if [ ! -f "$main_py" ]; then
+    echo "[install.sh] hermes main.py not found at $main_py; skipping active-session-file patch" >&2
+    return 0
+  fi
+  node - "$main_py" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+let text = fs.readFileSync(file, "utf8");
+let changed = false;
+
+const oldBlock = `    active_session_fd, active_session_file = tempfile.mkstemp(
+        prefix="hermes-tui-active-session-", suffix=".json"
+    )
+    os.close(active_session_fd)
+    env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
+`;
+const newBlock = `    active_session_file = env.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()
+    created_active_session_file = False
+    if active_session_file:
+        try:
+            Path(active_session_file).parent.mkdir(parents=True, exist_ok=True)
+            Path(active_session_file).write_text("", encoding="utf-8")
+        except Exception:
+            active_session_file = ""
+    if not active_session_file:
+        active_session_fd, active_session_file = tempfile.mkstemp(
+            prefix="hermes-tui-active-session-", suffix=".json"
+        )
+        os.close(active_session_fd)
+        env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
+        created_active_session_file = True
+`;
+if (text.includes(oldBlock)) {
+  text = text.replace(oldBlock, newBlock);
+  changed = true;
+}
+
+const oldUnlink = `        try:
+            os.unlink(active_session_file)
+        except OSError:
+            pass
+`;
+const newUnlink = `        if created_active_session_file:
+            try:
+                os.unlink(active_session_file)
+            except OSError:
+                pass
+`;
+if (text.includes(oldUnlink)) {
+  text = text.replace(oldUnlink, newUnlink);
+  changed = true;
+}
+
+if (changed) {
+  fs.copyFileSync(file, `${file}.aify-active-session-bak`);
+  fs.writeFileSync(file, text);
+  console.error(`[install.sh] patched Hermes TUI active-session file preservation in ${file}`);
+} else if (text.includes("created_active_session_file")) {
+  console.error(`[install.sh] Hermes TUI active-session file preservation already present in ${file}`);
+} else {
+  console.error(`[install.sh] could not patch Hermes TUI active-session file preservation in ${file}`);
+}
+NODE
 }
 
 install_hermes_wrapper() {
@@ -949,7 +1018,13 @@ set -euo pipefail
 HERMES_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
 HERMES_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 HERMES_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
-HERMES_SESSION_HANDLE="\${HERMES_SESSION_ID:-\${HERMES_SESSION:-\${AIFY_SESSION_HANDLE:-}}}"
+HERMES_INHERITED_SESSION_HANDLE="\${HERMES_SESSION_ID:-\${HERMES_SESSION:-\${AIFY_SESSION_HANDLE:-}}}"
+HERMES_SESSION_HANDLE=""
+HERMES_EXPLICIT_SESSION_HANDLE="false"
+if [ "\${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ] && [ -n "\$HERMES_INHERITED_SESSION_HANDLE" ]; then
+  HERMES_SESSION_HANDLE="\$HERMES_INHERITED_SESSION_HANDLE"
+  HERMES_EXPLICIT_SESSION_HANDLE="true"
+fi
 HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
 HERMES_ARGS=()
 PREV_ARG=""
@@ -987,14 +1062,17 @@ for ARG in "\$@"; do
     ;;
   --resume=*|--session-id=*)
     HERMES_SESSION_HANDLE="\${ARG#*=}"
+    HERMES_EXPLICIT_SESSION_HANDLE="true"
     ;;
   -r=*)
     HERMES_SESSION_HANDLE="\${ARG#*=}"
+    HERMES_EXPLICIT_SESSION_HANDLE="true"
     ;;
   esac
   HERMES_ARGS+=("\$ARG")
   if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
     HERMES_SESSION_HANDLE="\$ARG"
+    HERMES_EXPLICIT_SESSION_HANDLE="true"
   fi
   PREV_ARG="\$ARG"
 done
@@ -1011,9 +1089,11 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
 fi
-if [ -n "\$HERMES_SESSION_HANDLE" ]; then
+if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
   export HERMES_SESSION_ID="\$HERMES_SESSION_HANDLE"
   export AIFY_SESSION_HANDLE="\$HERMES_SESSION_HANDLE"
+else
+  unset HERMES_SESSION_ID HERMES_SESSION AIFY_SESSION_HANDLE
 fi
 
 # Session-mode resolution: explicit flag/env > TTY auto-detect.
@@ -1100,52 +1180,6 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
     return 1
   }
 
-  # Plan 6 B1 (2026-05-26): rediscover the real hermes session id from the
-  # gateway's session.most_recent JSON-RPC over WS. Stdout: the discovered
-  # session id (string), or empty on any failure. Failure is silent — the
-  # caller treats empty as "leave env alone" and the bridge's discover-first
-  # heartbeat (Plan 6 A1) catches drift within 60s.
-  #
-  # Uses node + the \`ws\` module shipped under mcp/stdio/node_modules. The
-  # repo path is baked in at install time from \$SCRIPT_DIR; on Windows git-
-  # bash this is the same MSYS-style path node already resolves for the
-  # main MCP bridge spawn. 3s hard timeout — the gateway is local so any
-  # longer means the dashboard is misbehaving and we should fall back to
-  # the env value.
-  rediscover_hermes_session_id() {
-    local gateway_url="\$1"
-    AIFY_GATEWAY_URL="\$gateway_url" node -e '
-      let WebSocket;
-      try { WebSocket = require("ws"); }
-      catch {
-        try { WebSocket = require("$SCRIPT_DIR/mcp/stdio/node_modules/ws"); }
-        catch { process.exit(0); }
-      }
-      const url = process.env.AIFY_GATEWAY_URL;
-      if (!url) process.exit(0);
-      const ws = new WebSocket(url, { perMessageDeflate: false });
-      let done = false;
-      const finish = () => { if (!done) { done = true; try { ws.terminate(); } catch {} process.exit(0); } };
-      const timer = setTimeout(finish, 3000);
-      ws.on("open", () => {
-        try { ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.most_recent" })); }
-        catch { clearTimeout(timer); finish(); }
-      });
-      ws.on("message", (raw) => {
-        try {
-          const msg = JSON.parse(String(raw));
-          if (msg && msg.id === 1 && msg.result) {
-            const sid = msg.result.sessionId || msg.result.session_id || msg.result.id;
-            if (sid) { process.stdout.write(String(sid)); }
-          }
-        } catch {}
-        clearTimeout(timer);
-        finish();
-      });
-      ws.on("error", () => { clearTimeout(timer); finish(); });
-    ' 2>/dev/null
-  }
-
   AIFY_HERMES_PORT="\$(pick_port)"
   if [ -z "\$AIFY_HERMES_PORT" ]; then
     echo "hermes-aify: failed to allocate a local port for the dashboard gateway; falling back to plain hermes." >&2
@@ -1183,8 +1217,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
 
   # web_server.py:3688 injects: <script>window.__HERMES_SESSION_TOKEN__="..."
   # Disable pipefail around the capture so a missing token is empty
-  # instead of killing the wrapper silently (same shape as the pi-aify
-  # rediscover fix shipped 2026-05-26).
+  # instead of killing the wrapper silently.
   set +o pipefail
   AIFY_HERMES_TOKEN="\$(curl -s "\$AIFY_HERMES_DASHBOARD_URL/" | grep -oE '__HERMES_SESSION_TOKEN__="[^"]+"' | head -1 | sed -E 's/.*="([^"]+)"\$/\1/')"
   set -o pipefail
@@ -1201,27 +1234,13 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   export HERMES_TUI_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
   export AIFY_HERMES_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
 
-  # Plan 6 B1 (2026-05-26): rediscover the real hermes session id from the
-  # gateway's session.most_recent RPC. Overwrites HERMES_SESSION_ID /
-  # AIFY_SESSION_HANDLE so the inner aify-comms MCP bridge registers with
-  # the truthful id — not whatever stale value the operator's shell
-  # inherited from a prior hermes session. Failures here are non-fatal:
-  # the bridge's discover-first heartbeat (Plan 6 A1) corrects any drift
-  # within 60s.
-  HERMES_REDISCOVERED_SESSION_ID="\$(rediscover_hermes_session_id "\$AIFY_HERMES_GATEWAY" 2>/dev/null || true)"
-  if [ -n "\$HERMES_REDISCOVERED_SESSION_ID" ]; then
-    if [ "\$HERMES_REDISCOVERED_SESSION_ID" != "\$HERMES_SESSION_HANDLE" ]; then
-      echo "[hermes-aify] session id rediscovered: '\$HERMES_SESSION_HANDLE' -> '\$HERMES_REDISCOVERED_SESSION_ID' (from gateway)" >&2
-    fi
-    export HERMES_SESSION_ID="\$HERMES_REDISCOVERED_SESSION_ID"
-    export AIFY_SESSION_HANDLE="\$HERMES_REDISCOVERED_SESSION_ID"
-    HERMES_SESSION_HANDLE="\$HERMES_REDISCOVERED_SESSION_ID"
-  fi
-
   # Default to \`hermes chat --tui\` for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
   # (e.g. \`hermes-aify model list\`), pass them through unchanged.
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+    if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
+      exec "\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\$HERMES_SESSION_HANDLE"
+    fi
     exec "\$HERMES_RUNTIME_COMMAND" chat --tui
   fi
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
@@ -2463,8 +2482,8 @@ elif [ "$CLIENT" = "pi" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"pi\", sessionHandle=\"\$PI_SESSION_ID\")"
   echo "  # If PI_SESSION_ID is unavailable, omit sessionHandle; resident Pi will be visible but not resumable until bound."
 elif [ "$CLIENT" = "hermes" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"hermes\", sessionHandle=\"\$HERMES_SESSION_ID\")"
-  echo "  # If HERMES_SESSION_ID is unavailable, omit sessionHandle; resident Hermes will be visible but not resumable until bound."
+  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"hermes\")"
+  echo "  # Add sessionHandle=\"\$HERMES_SESSION_ID\" only after explicit hermes-aify --resume <id> in this same terminal."
 else
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\")"
 fi
