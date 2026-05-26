@@ -88,3 +88,48 @@ export function isSessionBusyError(error) {
   const message = String(error.message || "");
   return code === 4009 || /session busy/i.test(message);
 }
+
+// Plan 6 follow-up (2026-05-26): the gateway returns this when
+// prompt.submit / session.steer / session.interrupt is called against a
+// session_id that's no longer loaded in memory (operator killed the chat
+// TUI, hermes process restarted, etc.). Distinct from isSessionBusyError —
+// here the right recovery is to refresh the session list and retry against
+// whatever is currently active, NOT to steer into a "running" turn.
+export function isSessionNotFoundError(error) {
+  if (!error) return false;
+  const code = Number(error.code);
+  const message = String(error.message || "");
+  // tui_gateway/server.py uses 4010 for not-found per current convention;
+  // accept the textual signature as a safety net for older gateway builds.
+  return code === 4010 || /session not found|no such session|unknown session/i.test(message);
+}
+
+// Plan 6 follow-up (2026-05-26): pick the freshest session id from
+// session.list response. Tries `createdAt` / `created_at` / `started_at`
+// in order; falls back to the first entry's id when no timestamp field is
+// present. Returns null when the response shape isn't recognizable.
+export function pickFreshestSessionFromList(response) {
+  if (!response) return null;
+  const sessions = Array.isArray(response)
+    ? response
+    : Array.isArray(response.sessions)
+    ? response.sessions
+    : Array.isArray(response.items)
+    ? response.items
+    : [];
+  if (!sessions.length) return null;
+  const stamp = (s) =>
+    Number(Date.parse(s?.createdAt || s?.created_at || s?.startedAt || s?.started_at || 0)) || 0;
+  let best = null;
+  let bestStamp = -1;
+  for (const s of sessions) {
+    const id = String(s?.id || s?.session_id || s?.sessionId || "").trim();
+    if (!id) continue;
+    const t = stamp(s);
+    if (t > bestStamp) {
+      bestStamp = t;
+      best = id;
+    }
+  }
+  return best;
+}

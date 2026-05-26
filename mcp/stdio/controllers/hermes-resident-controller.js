@@ -189,12 +189,30 @@ export class HermesResidentController extends BaseController {
       this.markReady();
 
       try {
-        // Resolve session id: prefer the registered sessionHandle; otherwise
-        // ask the gateway for its most recent session (which is the chat the
-        // operator is currently in).
+        // Plan 6 follow-up (2026-05-26): resolve session id by ALWAYS
+        // asking the gateway for its live session list first. The
+        // registered handle (and session.most_recent) commonly point at
+        // a session id that's been GC'd or replaced — hermes silently
+        // creates a fresh session when HERMES_SESSION_ID resume fails,
+        // and the gateway's session.most_recent returns disk-stored
+        // entries, not the currently-loaded one. session.list reflects
+        // in-memory state; pickFreshestSessionFromList sorts by
+        // createdAt so we pick the truly active session.
+        //
+        // Fallback chain: gateway live list > registered handle >
+        // session.most_recent. If all return nothing, surface a
+        // clear actionable error.
+        const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+        const freshFromList = proto.pickFreshestSessionFromList(liveList);
+        if (freshFromList) {
+          if (resolvedSessionId && freshFromList !== resolvedSessionId) {
+            callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${freshFromList}' (gateway live list)`);
+          }
+          resolvedSessionId = freshFromList;
+        }
         if (!resolvedSessionId) {
           const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
-          resolvedSessionId = String(mostRecent?.session_id || "").trim();
+          resolvedSessionId = String(mostRecent?.session_id || mostRecent?.sessionId || "").trim();
         }
         if (!resolvedSessionId) {
           throw new Error("Hermes gateway has no resolvable session — operator should open hermes chat first");
@@ -206,13 +224,39 @@ export class HermesResidentController extends BaseController {
         const from = String(run?.from || "dashboard").trim() || "dashboard";
         const wireText = subject ? `[aify-comms wake from ${from}]\nSubject: ${subject}\n\n${body}` : `[aify-comms wake from ${from}]\n\n${body}`;
 
+        const submitOnce = async (sid) => {
+          callbacks.onEvent?.("hermes", `prompt.submit on session ${sid}`);
+          await sendRpc(proto.buildPromptSubmitFrame({ sessionId: sid, text: wireText }));
+        };
+
         try {
-          callbacks.onEvent?.("hermes", `prompt.submit on session ${resolvedSessionId}`);
-          await sendRpc(proto.buildPromptSubmitFrame({ sessionId: resolvedSessionId, text: wireText }));
+          await submitOnce(resolvedSessionId);
           // No immediate settle — the agent.message.end event in the socket
           // 'message' handler closes the promise after streaming completes.
         } catch (err) {
-          if (proto.isSessionBusyError(err)) {
+          // Plan 6 follow-up: stale session id → refresh from gateway and
+          // retry once. Distinct from the busy/steer path below.
+          if (proto.isSessionNotFoundError(err)) {
+            const refreshedList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+            const refreshed = proto.pickFreshestSessionFromList(refreshedList);
+            if (refreshed && refreshed !== resolvedSessionId) {
+              callbacks.onEvent?.("hermes", `prompt.submit session_not_found; refreshed '${resolvedSessionId}' -> '${refreshed}' and retrying`);
+              resolvedSessionId = refreshed;
+              try { callbacks.onRefs?.({ sessionId: resolvedSessionId }); } catch {}
+              try {
+                await submitOnce(resolvedSessionId);
+              } catch (retryErr) {
+                clearTimeout(overallTimer);
+                settle("reject", new Error(`Hermes prompt.submit failed after refresh: ${retryErr?.message || JSON.stringify(retryErr)}`));
+                return;
+              }
+              // Retry succeeded — fall through to wait for streaming end.
+            } else {
+              clearTimeout(overallTimer);
+              settle("reject", new Error(`Hermes prompt.submit failed (no live sessions to retry against): ${err?.message || JSON.stringify(err)}`));
+              return;
+            }
+          } else if (proto.isSessionBusyError(err)) {
             callbacks.onEvent?.("hermes", `prompt.submit busy; session.steer on ${resolvedSessionId}`);
             await sendRpc(proto.buildSessionSteerFrame({ sessionId: resolvedSessionId, text: wireText }));
             callbacks.onEvent?.("hermes", `session.steer queued on ${resolvedSessionId}`);

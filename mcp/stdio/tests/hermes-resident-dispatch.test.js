@@ -133,26 +133,37 @@ test("resident hermes falls back to session.steer when prompt.submit returns 400
   assert.ok(steerEvents.length >= 1, "expected at least one steer-related onEvent emission");
 });
 
-test("resident hermes uses the registered sessionHandle when present", async (t) => {
+test("resident hermes prefers gateway's live session list over a stale registered sessionHandle (Plan 6 follow-up)", async (t) => {
+  // Plan 6 follow-up (2026-05-26): the registered handle is treated as
+  // metadata, not authority. The gateway's session.list reflects what's
+  // actually loaded in hermes — that wins. Operators routinely have
+  // stale *_SESSION_ID env vars in their shells; without this the
+  // controller called prompt.submit on the stale id and got
+  // "session not found" (observed live with sc-hermes-test-1 and
+  // hermes-test on 2026-05-26).
   const { url, token } = await startFake(t);
   const wsUrl = attachUrl(url, token);
 
   const { launchRuntimeRun } = await import("../runtimes.js");
   let capturedSessionId = "";
+  let correctedEvent = "";
   const controller = launchRuntimeRun({
     agentId: "hermes-resident-handle",
     agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
     run: makeRun({ id: "run_h_handle" }),
     runtimeState: {},
     callbacks: {
-      onEvent: () => {},
+      onEvent: (kind, msg) => {
+        if (/session id corrected/.test(String(msg || ""))) correctedEvent = String(msg);
+      },
       onRefs: (refs) => { if (refs?.sessionId) capturedSessionId = refs.sessionId; },
     },
   });
 
   const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
   assert.ok(!result.failed, `expected hermes dispatch to succeed: ${result.error || ""}`);
-  assert.equal(capturedSessionId, "operator-sid-42", "controller should report the registered sessionHandle as the active sessionId");
+  assert.equal(capturedSessionId, "sess-fake-001", "controller should adopt the gateway's live session id, not the stale registered handle");
+  assert.match(correctedEvent, /'operator-sid-42' -> 'sess-fake-001'/, "controller should announce the correction via onEvent");
 });
 
 test("resident hermes rejects connection when token is wrong", async (t) => {
