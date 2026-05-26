@@ -161,7 +161,11 @@ function computeBridgeBuildTag() {
 const BRIDGE_BUILD_TAG = computeBridgeBuildTag();
 // Log to stderr on startup so users can see which code is running.
 console.error(`[aify-comms bridge] version=${BRIDGE_VERSION} build=${BRIDGE_BUILD_TAG} instance=${BRIDGE_INSTANCE_ID} pid=${process.pid} cwd=${process.cwd()} script=${fileURLToPath(import.meta.url)}`);
-const AIFY_AGENT_ID = String(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "").trim();
+function cleanEnvPlaceholder(value) {
+  const s = String(value || "").trim();
+  return /^\$\{[^}]+\}$/.test(s) ? "" : s;
+}
+const AIFY_AGENT_ID = cleanEnvPlaceholder(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "");
 const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
 
 // Write the Codex runtime marker from this long-lived bridge process when
@@ -214,7 +218,7 @@ const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") 
 const __serverUrl = String(process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://127.0.0.1:8800").trim();
 const __stopHandleHeartbeat = startSessionHandleHeartbeat({
   adapter: __runtimeAdapter,
-  agentId: String(process.env.AIFY_AGENT_ID || "").trim(),
+  agentId: AIFY_AGENT_ID,
   intervalMs: __HEARTBEAT_MS,
   postFn: makeDefaultHandlePoster(__serverUrl),
 });
@@ -235,7 +239,7 @@ function __markControllerStart(promise) {
   return promise;
 }
 const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
-  agentId: String(process.env.AIFY_AGENT_ID || "").trim(),
+  agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
   postFn: makeDefaultTurnBusyPoster(__serverUrl),
@@ -247,9 +251,9 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
 // adapter knows which env vars to report for its runtime.
 try {
   const _runtime = String(process.env.AIFY_RUNTIME || "").trim();
-  const _agentId = String(process.env.AIFY_AGENT_ID || "").trim();
-  const _sessionMode = String(process.env.AIFY_SESSION_MODE || "").trim();
-  const _wrapperFlag = String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim();
+  const _agentId = AIFY_AGENT_ID;
+  const _sessionMode = cleanEnvPlaceholder(process.env.AIFY_SESSION_MODE || "");
+  const _wrapperFlag = cleanEnvPlaceholder(process.env.AIFY_MANAGED_VIA_WRAPPER || "");
   let _diag = "(no adapter)";
   let _handle = "(none)";
   if (__runtimeAdapter) {

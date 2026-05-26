@@ -80,6 +80,26 @@ require_cmd() {
   fi
 }
 
+hermes_cmd() {
+  local configured="${AIFY_HERMES_COMMAND:-${HERMES_COMMAND:-}}"
+  if [ -n "$configured" ]; then
+    if command -v "$configured" >/dev/null 2>&1; then
+      printf '%s\n' "$configured"
+      return 0
+    fi
+    return 1
+  fi
+  command -v hermes 2>/dev/null
+}
+
+require_hermes_cmd() {
+  if ! hermes_cmd >/dev/null 2>&1; then
+    echo "Missing required command: hermes"
+    echo "Set AIFY_HERMES_COMMAND to the Hermes executable path if Hermes is not on PATH."
+    exit 1
+  fi
+}
+
 copy_claude_assets() {
   local skill_dst="$HOME/.claude/skills/aify-comms"
   local debug_skill_dst="$HOME/.claude/skills/aify-comms-debug"
@@ -808,9 +828,11 @@ prebuild_hermes_web_dist() {
     # `hermes config path` reports something like
     # /c/Users/Administrator/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml
     # — strip from /hermes_cli/ onward to recover the install root.
-    if command -v hermes >/dev/null 2>&1; then
+    local hermes_bin=""
+    hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+    if [ -n "$hermes_bin" ]; then
       local cfg_path
-      cfg_path="$(hermes config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+      cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
       if [ -n "$cfg_path" ]; then
         hermes_install_root="${cfg_path%%/hermes_cli/*}"
       fi
@@ -1250,9 +1272,11 @@ hermes_config_root() {
     printf '%s\n' "$HERMES_HOME"
     return
   fi
-  if command -v hermes >/dev/null 2>&1; then
+  local hermes_bin=""
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  if [ -n "$hermes_bin" ]; then
     local cfg_path=""
-    cfg_path="$(hermes config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+    cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
     if [ -n "$cfg_path" ]; then
       dirname "$cfg_path"
       return
@@ -1693,6 +1717,8 @@ install_hermes_hook() {
   local hook_dir="$config_root/agent-hooks"
   local hook_path="$hook_dir/aify-notify.sh"
   local node_notify_script=""
+  local hook_command_path=""
+  local hook_command=""
   mkdir -p "$hook_dir"
   touch "$config_file"
   node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
@@ -1702,20 +1728,34 @@ install_hermes_hook() {
 node $(shell_quote "$node_notify_script")
 EOF
   chmod +x "$hook_path"
+  hook_command_path="$(path_for_node "$hook_path" | sed 's#\\\\#/#g')"
+  hook_command="bash \"$hook_command_path\""
 
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
     const file = process.argv[1];
-    const hookPath = process.argv[2];
+    const hookCommand = process.argv[2];
     let text = "";
     try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
-    if (text.includes("aify-notify.sh")) process.exit(0);
+    let lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
+    let replaced = false;
+    lines = lines.map((line) => {
+      if (/^[ \t]*command:[ \t]*.*aify-notify\.sh/.test(line)) {
+        replaced = true;
+        return commandLine;
+      }
+      return line;
+    });
+    if (replaced) {
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
     const entry = [
       "    - matcher: \".*\"",
-      `      command: ${JSON.stringify(hookPath)}`,
+      commandLine,
       "      timeout: 3",
     ];
-    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
     const postIndex = lines.findIndex((line) => /^[ \t]*post_tool_call:[ \t]*$/.test(line));
     if (postIndex >= 0) {
       lines.splice(postIndex + 1, 0, ...entry);
@@ -1729,7 +1769,7 @@ EOF
       process.exit(0);
     }
     fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  post_tool_call:\n${entry.join("\n")}\n`);
-  ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
+  ' "$(path_for_node "$config_file")" "$hook_command"
 }
 
 install_codex_turn_hooks() {
@@ -1801,6 +1841,8 @@ install_hermes_turn_hooks() {
   local config_file="$config_root/config.yaml"
   local hook_dir="$config_root/agent-hooks"
   local hook_path="$hook_dir/aify-turn-start.sh"
+  local hook_command_path=""
+  local hook_command=""
   mkdir -p "$hook_dir"
   touch "$config_file"
   cat > "$hook_path" <<EOF
@@ -1810,19 +1852,33 @@ if [ -n "\${AIFY_AGENT_ID:-}" ] && [ -n "\${AIFY_COMMS_URL:-}" ]; then
 fi
 EOF
   chmod +x "$hook_path"
+  hook_command_path="$(path_for_node "$hook_path" | sed 's#\\\\#/#g')"
+  hook_command="bash \"$hook_command_path\""
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
     const file = process.argv[1];
-    const hookPath = process.argv[2];
+    const hookCommand = process.argv[2];
     let text = "";
     try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
-    if (text.includes("aify-turn-start.sh")) process.exit(0);
+    let lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
+    let replaced = false;
+    lines = lines.map((line) => {
+      if (/^[ \t]*command:[ \t]*.*aify-turn-start\.sh/.test(line)) {
+        replaced = true;
+        return commandLine;
+      }
+      return line;
+    });
+    if (replaced) {
+      fs.writeFileSync(file, lines.join("\n") + "\n");
+      process.exit(0);
+    }
     const entry = [
       "    - matcher: \".*\"",
-      `      command: ${JSON.stringify(hookPath)}`,
+      commandLine,
       "      timeout: 3",
     ];
-    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
     const preIndex = lines.findIndex((line) => /^[ \t]*pre_llm_call:[ \t]*$/.test(line));
     if (preIndex >= 0) {
       lines.splice(preIndex + 1, 0, ...entry);
@@ -1836,7 +1892,7 @@ EOF
       process.exit(0);
     }
     fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  pre_llm_call:\n${entry.join("\n")}\n`);
-  ' "$(path_for_node "$config_file")" "$(path_for_node "$hook_path")"
+  ' "$(path_for_node "$config_file")" "$hook_command"
 }
 
 install_claude_turn_start_hook() {
@@ -2194,6 +2250,8 @@ require_cmd node
 require_cmd npm
 if [ "$CLIENT" = "pi" ]; then
   require_cmd omp
+elif [ "$CLIENT" = "hermes" ]; then
+  require_hermes_cmd
 else
   require_cmd "$CLIENT"
 fi

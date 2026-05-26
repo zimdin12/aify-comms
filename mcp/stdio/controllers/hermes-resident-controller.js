@@ -155,6 +155,7 @@ export class HermesResidentController extends BaseController {
           pushTerminalFrame(String(ev.text));
         } else if (ev.kind === "final") {
           finalText = ev.text || finalText;
+          callbacks.onEvent?.("hermes", `turn completed (${String(ev.status || "complete")})`);
           pushTerminalFrame(`\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n`);
           clearTimeout(overallTimer);
           const finalStatus = String(ev.status || "").trim().toLowerCase();
@@ -169,9 +170,13 @@ export class HermesResidentController extends BaseController {
             externalRefs: resolvedSessionId ? { sessionId: resolvedSessionId } : {},
           });
         } else if (ev.kind === "tool_started") {
+          callbacks.onEvent?.("hermes", `tool started: ${ev.label}`);
           pushTerminalFrame(`\r\n\x1b[33m→ ${ev.label}\x1b[0m\r\n`);
         } else if (ev.kind === "tool_completed") {
+          callbacks.onEvent?.("hermes", `tool completed: ${ev.label}`);
           pushTerminalFrame(`\x1b[32m✓ ${ev.label}\x1b[0m\r\n`);
+        } else if (ev.kind === "start") {
+          callbacks.onEvent?.("hermes", "turn started");
         } else if (ev.kind === "error") {
           pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m ${ev.text}\r\n`);
           clearTimeout(overallTimer);
@@ -291,7 +296,16 @@ export class HermesResidentController extends BaseController {
         const body = String(run?.body || "").trim();
         const subject = String(run?.subject || "").trim();
         const from = String(run?.from || "dashboard").trim() || "dashboard";
-        const wireText = subject ? `[aify-comms wake from ${from}]\nSubject: ${subject}\n\n${body}` : `[aify-comms wake from ${from}]\n\n${body}`;
+        const deliveryNotes = [
+          "AIFY-COMMS DELIVERY INSTRUCTIONS:",
+          "- This prompt was delivered by the aify-comms bridge.",
+          "- Your final assistant response is captured and posted back to the sender automatically.",
+          "- Do not call comms_send, local HTTP, curl, browser, or terminal tools just to acknowledge or reply.",
+          "- If the request can be answered directly, answer directly in final text.",
+          "",
+        ].join("\n");
+        const messageText = subject ? `[aify-comms wake from ${from}]\nSubject: ${subject}\n\n${body}` : `[aify-comms wake from ${from}]\n\n${body}`;
+        const wireText = `${deliveryNotes}${messageText}`;
 
         const submitOnce = async (sid) => {
           callbacks.onEvent?.("hermes", `prompt.submit on session ${sid}`);

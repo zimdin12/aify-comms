@@ -122,3 +122,31 @@ def test_install_hermes_skips_prebuild_when_install_root_unset_and_undetectable(
         f"install.sh --prebuild-dry-run should exit 0 even when nothing to do; "
         f"rc={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
+
+
+def test_install_hermes_detects_install_root_from_aify_hermes_command(tmp_path):
+    """AIFY_HERMES_COMMAND is the supported path when hermes is not on PATH."""
+    fake_root = tmp_path / "hermes-agent"
+    config_file = fake_root / "hermes_cli" / "config.yaml"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("mcp_servers: {}\n")
+    (fake_root / "web").mkdir(parents=True)
+    fake_cmd = tmp_path / "hermes"
+    fake_cmd.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"${1:-}\" = config ] && [ \"${2:-}\" = path ]; then\n"
+        f"  printf '%s\\n' {config_file}\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 2\n"
+    )
+    fake_cmd.chmod(0o755)
+
+    result = _run_install_sh({"AIFY_HERMES_COMMAND": str(fake_cmd)})
+
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert "prebuilding hermes web_dist" in combined.lower(), (
+        "Expected install.sh to call AIFY_HERMES_COMMAND config path and "
+        f"discover fake install root; got rc={result.returncode}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )

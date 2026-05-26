@@ -138,6 +138,30 @@ test("resident hermes dispatch resolves on real tui_gateway event envelopes", as
   assert.match(frames.map((f) => f.text).join(""), /hello from hermes/);
 });
 
+test("resident hermes wake prompt tells Hermes final text is the comms reply", async (t) => {
+  const { url, token } = await startFake(t, { script: "echo_prompt" });
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const events = [];
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-prompt-contract",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl }),
+    run: makeRun({ id: "run_h_prompt_contract", body: "Please ping back." }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: (kind, msg) => events.push({ kind, msg }),
+      onRefs: () => {},
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected prompt-contract dispatch to succeed: ${result.error || ""}`);
+  assert.match(result.summary || "", /Your final assistant response is captured and posted back/);
+  assert.match(result.summary || "", /Do not call comms_send, local HTTP, curl, browser, or terminal tools/);
+  assert.ok(events.some((e) => /turn completed/i.test(String(e.msg || ""))), "expected a visible completion event");
+});
+
 test("resident hermes dispatch fails promptly on message.complete status=error", async (t) => {
   const { url, token } = await startFake(t, { script: "turn_error" });
   const wsUrl = attachUrl(url, token);

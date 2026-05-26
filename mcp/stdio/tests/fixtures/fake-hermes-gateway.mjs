@@ -8,6 +8,7 @@
 //   - hello (default): one prompt.submit → "hello from hermes" stream → end
 //   - enveloped       : same stream using real tui_gateway event envelopes
 //   - turn_error      : prompt.submit accepted, then message.complete status=error
+//   - echo_prompt     : message.complete contains the submitted prompt text
 //   - busy           : prompt.submit returns 4009 "session busy"; session.steer accepted
 //   - refuse         : prompt.submit returns 5000 error
 
@@ -91,6 +92,19 @@ wss.on("connection", (socket, req) => {
       }
       send({ jsonrpc: "2.0", id: msg.id, result: { status: "streaming" } });
       const sid = msg.params?.session_id || FIXED_SESSION_ID;
+      if (SCRIPT === "echo_prompt") {
+        await delay(DELAY_MS);
+        send({
+          jsonrpc: "2.0",
+          method: "event",
+          params: {
+            type: "message.complete",
+            session_id: sid,
+            payload: { text: String(msg.params?.text || ""), status: "complete" },
+          },
+        });
+        return;
+      }
       if (SCRIPT === "turn_error") {
         await delay(DELAY_MS);
         send({
