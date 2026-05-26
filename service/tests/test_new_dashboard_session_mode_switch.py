@@ -44,17 +44,17 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             "Plan 6 C3/C4: refresh() must persist the settings snapshot into state",
         )
 
-    def test_render_mode_switch_chip_helper_exists_and_gates_on_setting(self):
+    def test_render_mode_switch_chip_helper_exists_without_settings_gate(self):
         self.assertIn(
             "function renderModeSwitchChip(agent)",
             self.script,
             "Plan 6 C4: renderModeSwitchChip helper must be defined",
         )
-        self.assertIn(
+        self.assertNotIn(
             "state.settings.manual_session_mode !== true",
             self.script,
-            "Plan 6 C4: renderModeSwitchChip must short-circuit when "
-            "manual_session_mode is not true (visibility gate)",
+            "Manual session switching must always be visible in Sessions/chat details; "
+            "manual_session_mode must not gate the chip",
         )
 
     def test_chip_emits_data_attributes_for_click_handler(self):

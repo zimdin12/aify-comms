@@ -504,6 +504,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("table-wrap", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
+        self.assertIn("function agentModeSwitchAction(agentId, agentInfo = {})", dashboard.text)
+        self.assertIn("switchAgentSessionMode(agentId, targetMode", dashboard.text)
+        self.assertIn("agentModeSwitchAction(meta.id, agentInfo)", dashboard.text)
+        self.assertIn("agentModeSwitchAction(session.agentId, agentInfo)", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
@@ -936,7 +940,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = listed.json()["agents"]["managed-coder"]
         self.assertEqual(agent["statusRaw"], "offline")
 
-    def test_lost_resident_bridge_returns_to_managed_backing(self):
+    def test_lost_resident_bridge_stops_until_manual_switch(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
             bridgeId="env-bridge",
@@ -980,6 +984,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
         )
+        switched_resident = self.client.patch("/api/v1/agents/dual-mode-coder/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched_resident.status_code, 200, switched_resident.text)
         resident = self.client.get("/api/v1/agents/dual-mode-coder").json()
         self.assertEqual(resident["agent"]["sessionMode"], "resident")
         self.assertEqual(resident["agent"]["wakeMode"], "codex-live")
@@ -990,16 +996,23 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(lost.status_code, 200, lost.text)
         payload = lost.json()
-        self.assertEqual(payload["transition"], "resident_to_managed")
-        self.assertEqual(payload["agent"]["sessionMode"], "managed")
-        self.assertEqual(payload["agent"]["wakeMode"], "managed-worker")
+        self.assertEqual(payload["transition"], "resident_to_stopped")
+        self.assertEqual(payload["agent"]["sessionMode"], "resident")
+        self.assertNotEqual(payload["agent"]["wakeMode"], "managed-worker")
         self.assertEqual(payload["agent"]["sessionHandle"], "thread-managed")
-        self.assertEqual(payload["agent"]["runtimeState"]["environmentId"], "wsl:test-host:default")
-        self.assertEqual(payload["agent"]["runtimeState"]["ownership"]["reason"], "resident_runtime_lost")
-        self.assertNotIn("appServerUrl", payload["agent"]["runtimeConfig"])
+        self.assertIn("appServerUrl", payload["agent"]["runtimeConfig"])
 
         bridge = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("resident-bridge",))
         self.assertEqual(bridge["superseded_by"], "resident-lost")
+
+        switched = self.client.patch(
+            "/api/v1/agents/dual-mode-coder/session-mode",
+            json={"mode": "managed", "requestedBy": "dashboard-test"},
+        )
+        self.assertEqual(switched.status_code, 200, switched.text)
+        restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-coder",))
+        self.assertEqual(restored["session_mode"], "managed")
+        self.assertEqual(restored["launch_mode"], "managed")
 
         heartbeat = self.client.post(
             "/api/v1/agents/dual-mode-coder/heartbeat",
@@ -1793,12 +1806,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         sess = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(sess["terminal_id"], "", f"agent_session terminal_id binding must be cleared; got {sess['terminal_id']!r}")
 
-    def test_resident_register_stops_existing_managed_pty_for_same_agent(self):
-        # Universal rule: launching a *-aify wrapper for an agent
-        # registers it as resident — the operator's real terminal owns
-        # the session. ANY managed wrapper PTY that exists for that
-        # agent must be torn down at that moment (event-driven, no
-        # timers).
+    def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
+        # Manual ownership rule: launching a *-aify wrapper records resident
+        # bridge metadata, but it does not take over a managed agent or kill
+        # the managed PTY. The operator must press Switch to resident.
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -1825,45 +1836,21 @@ class ApiV2RegressionTests(unittest.TestCase):
             "bridgeId": "resident-bridge-1",
         })
         self.assertEqual(register.status_code, 200, register.text)
-        # No blocking active run → takeover should not be pending.
-        self.assertNotEqual(
-            register.json().get("ownershipTransition"), "pending_resident_takeover",
-            f"test invariant: no blocking active run; got {register.json()}",
-        )
-        # Managed PTY must now be stopped + binding cleared.
+        self.assertEqual(register.json().get("ownershipTransition"), "manual_switch_required", register.json())
+
+        # Managed PTY is still live until the manual switch endpoint is used.
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
+        self.assertIn(term["status"], {"starting", "running"}, f"resident register must not stop managed PTY; got {term['status']}")
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(sess["terminal_id"], managed_terminal_id)
+
+        switched = self.client.patch(f"/api/v1/agents/{agent_id}/session-mode", json={"mode": "resident", "force": True})
+        self.assertEqual(switched.status_code, 200, switched.text)
+        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalId"), managed_terminal_id)
         term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
         self.assertEqual(
-            term["status"], "stopped",
-            f"managed PTY must be stopped after resident takeover; got {term['status']}",
-        )
-        self.assertIn(
-            "superseded_by_resident_takeover", str(term["error"] or ""),
-            f"stopped reason must record the takeover event; got {term['error']!r}",
-        )
-        # agent_sessions.terminal_id binding cleared.
-        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(sess["terminal_id"], "", f"terminal_id binding must be cleared; got {sess['terminal_id']!r}")
-        # A 'stop' terminal_control was enqueued for the bridge to kill the wrapper subprocess.
-        # Read ALL controls for the terminal — _now() is second-precision so multiple
-        # controls inserted in the same second tie on requested_at; we just need
-        # to confirm a stop exists.
-        ctl = self._fetchall(
-            "SELECT action, requested_by FROM terminal_controls WHERE terminal_id = ?",
-            (managed_terminal_id,),
-        )
-        self.assertTrue(
-            any(r["action"] == "stop" and r["requested_by"] == "resident-takeover" for r in ctl),
-            f"a 'stop' control with requested_by='resident-takeover' must be enqueued; got {[dict(r) for r in ctl]}",
-        )
-        # Audit event recorded.
-        events = self._fetchall(
-            "SELECT event_type FROM terminal_events WHERE terminal_id = ?",
-            (managed_terminal_id,),
-        )
-        self.assertIn(
-            "superseded_by_resident_takeover",
-            [r["event_type"] for r in events],
-            f"audit event must be appended; got {[r['event_type'] for r in events]}",
+            term["status"], "stopping",
+            f"managed PTY must be stopping after manual resident switch; got {term['status']}",
         )
 
     def test_dev_channel_auto_confirm_requires_both_signals_and_fresh_terminal(self):
@@ -1992,7 +1979,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("managed-run", error2 or "")
 
     def test_managed_via_wrapper_setting_defaults_to_off(self):
-        # Plan 4 (2026-05-25): flipped to ON by default ([codex,hermes,pi])
+        # Plan 4 (2026-05-25): flipped to ON by default ([codex,hermes])
         # now that wrapper-backed delivery has shipped. This contract
         # guard was the Plan 2 off-state assertion; the post-Plan-4
         # default-flip is asserted in test_default_settings_plan4.py.
@@ -2000,8 +1987,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         from service.routers.api_v2 import DEFAULT_SETTINGS
         self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
         val = DEFAULT_SETTINGS["managed_via_wrapper"]
-        self.assertEqual(val, ["codex", "hermes", "pi"],
-                         f"managed_via_wrapper Plan-4 default: expected [codex,hermes,pi]; got {val!r}")
+        self.assertEqual(val, ["codex", "hermes"],
+                         f"managed_via_wrapper Plan-4 default: expected [codex,hermes]; got {val!r}")
 
     def test_managed_via_wrapper_routes_dispatch_as_channel(self):
         # Unified-backing refactor: when managed_via_wrapper includes a runtime,
@@ -2087,16 +2074,16 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "codex"))
         # True: returns True for runtimes whose adapter declares
-        # preferred_delivery_mode == "managed-via-wrapper" (codex/hermes/pi).
+        # preferred_delivery_mode == "managed-via-wrapper" (codex/hermes).
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
         self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "codex"))
         # claude-code is already wrapper-backed via claude-channel; not gated by this flag.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "claude-code"))
-        # Plan 2 (2026-05-25): pi adopts managed-via-wrapper. The prior
-        # structural mismatch (bridge-owned-mutex vs wrapper PTY) was resolved
-        # when pi-session-resume came out of the dispatch entry table.
-        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
-        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
+        # Pi/OMP stays native RPC because OMP is single-client and the
+        # dashboard Console must attach to the same virtual RPC stream that
+        # chat dispatch uses, not a sibling pi-aify PTY.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
         # opencode adapter prefers "managed" (native RPC), not "managed-via-wrapper",
         # so it stays out even when the setting is True.
         self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "opencode"))
@@ -2266,6 +2253,30 @@ class ApiV2RegressionTests(unittest.TestCase):
             "console_attach_reused_existing", event_types,
             f"reuse event must be appended; got {event_types}",
         )
+
+    def test_pi_console_start_creates_virtual_rpc_terminal_not_wrapper_pty(self):
+        session_id = self._create_running_session(
+            agent_id="pi-console-agent",
+            terminal=True,
+            runtime="pi",
+            terminal_runtimes=["pi"],
+            session_handle="pi-session-1",
+        )
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        body = started.json()
+        self.assertTrue(body.get("virtual"), body)
+        self.assertTrue(body["terminal"]["id"].startswith("vterm_"), body)
+        self.assertEqual(body["terminal"]["command"], "aify://virtual-rpc/pi")
+        self.assertNotIn("pi-aify", body["terminal"]["command"])
+
+        session = self._fetchone("SELECT terminal_id, terminal_command FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["terminal_id"], body["terminal"]["id"])
+        self.assertEqual(session["terminal_command"], "aify://virtual-rpc/pi")
 
     def test_console_start_rejects_environment_without_terminal_support(self):
         session_id = self._create_running_session(terminal=False)
@@ -5277,6 +5288,132 @@ class ApiV2RegressionTests(unittest.TestCase):
         latest = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-B",))
         self.assertEqual(latest["superseded_by"], "", "newest managed bridge stays primary")
 
+    def test_managed_wrapper_child_same_logical_owner_reregister_does_not_fail_inflight_run(self):
+        # Wrapper-backed managed runtimes (Plan 4/6 console mode) are
+        # bridge-spawned PTYs whose in-process MCP bridge claims via the
+        # channel/resident route. They are managed for operator ownership,
+        # but same-handle fresh re-registers are still the same live wrapper
+        # owner class. Treating them like generic managed bridges kills the
+        # active run mid-turn; this is the Hermes "WS closed before turn
+        # completed" duplicate-registration failure observed on 2026-05-26.
+        self._heartbeat_environment()
+        self._register(
+            "managed-wrapper-logical-owner",
+            runtime="hermes",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="hermes-session-1",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            terminalId="term-wrapper-1",
+            capabilities=["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="managed-wrapper-logical-owner",
+            type="request",
+            subject="in flight",
+            body="must survive wrapper-child re-register",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertTrue(dispatched["runs"], dispatched)
+        run_id = dispatched["runs"][0]["runId"]
+        self.client.post(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "running", "bridgeId": "bridge-A", "machineId": "linux:test-host"},
+        )
+        self._execute(
+            "UPDATE dispatch_runs SET status='running', claim_bridge_id=?, claim_machine_id=? WHERE id=?",
+            ("bridge-A", "linux:test-host", run_id),
+        )
+
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "managed-wrapper-logical-owner",
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "managed",
+                "launchMode": "managed",
+                "sessionHandle": "hermes-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "terminalId": "term-wrapper-1",
+                "capabilities": ["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "", "fresh managed wrapper-child same-owner re-register must not supersede the prior bridge")
+        run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertEqual(run["status"], "running", f"in-flight wrapper-managed run was killed by same-session re-register: {dict(run)}")
+
+    def test_claim_poll_does_not_auto_heal_fresh_wrapper_child_active_run(self):
+        self._heartbeat_environment(
+            bridgeId="env-bridge",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(
+            "wrapper-active-owner",
+            runtime="hermes",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="hermes-session-1",
+            bridgeId="wrapper-bridge",
+            machineId="linux:test-host",
+            terminalId="term-wrapper-owner",
+            capabilities=["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+        )
+        old_started_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply,
+                requested_at, claimed_at, started_at, claim_machine_id, claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_wrapper_fresh_active",
+                None,
+                "dashboard",
+                "wrapper-active-owner",
+                "start_if_possible",
+                "channel",
+                "request",
+                "already running",
+                "keep going",
+                "normal",
+                "running",
+                1,
+                old_started_at,
+                old_started_at,
+                old_started_at,
+                "linux:test-host",
+                "wrapper-bridge",
+            ),
+        )
+
+        claimed = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "wrapper-active-owner",
+                "bridgeId": "env-bridge",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel"],
+            },
+        )
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertIsNone(claimed.json().get("run"))
+        self.assertEqual(claimed.json().get("blockedBy", {}).get("runId"), "run_wrapper_fresh_active")
+
+        run = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id=?", ("run_wrapper_fresh_active",))
+        self.assertEqual(run["status"], "running", f"fresh wrapper-child active run must not be auto-healed: {dict(run)}")
+        events = self._fetchall("SELECT event_type FROM dispatch_events WHERE run_id=?", ("run_wrapper_fresh_active",))
+        self.assertNotIn("auto_heal", [row["event_type"] for row in events])
+
     def test_default_channel_routing_for_managed_claude(self):
         # Operator design: managed Claude should deliver via channels by
         # default, NOT via service-created terminal-input injection.
@@ -5563,7 +5700,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertIsNone(missing_receipt)
 
-    def test_resident_register_defers_takeover_until_active_managed_run_ends(self):
+    def test_resident_register_does_not_auto_takeover_managed_agent(self):
         self._heartbeat_environment()
         self._register("defer-owner", runtime="codex", sessionMode="managed", launchMode="managed", capabilities=["managed-run", "resume", "interrupt", "steer"])
         run = self._dispatch(from_agent="dashboard", to="defer-owner", subject="active", body="work", mode="start_if_possible")
@@ -5585,17 +5722,24 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
         agent = self._fetchone("SELECT session_mode, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
         self.assertEqual(agent["session_mode"], "managed")
-        self.assertIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+        state = json.loads(agent["runtime_state"])
+        self.assertNotIn("pendingResidentTakeover", state)
+        self.assertEqual(state["manualResidentCandidate"]["sessionHandle"], "resident-thread")
 
         patched = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={"status": "completed", "summary": "done"})
         self.assertEqual(patched.status_code, 200, patched.text)
         agent = self._fetchone("SELECT session_mode, session_handle, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertNotEqual(agent["session_handle"], "resident-thread")
+        self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+        switched = self.client.patch("/api/v1/agents/defer-owner/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
+        agent = self._fetchone("SELECT session_mode, session_handle FROM agents WHERE id = ?", ("defer-owner",))
         self.assertEqual(agent["session_mode"], "resident")
         self.assertEqual(agent["session_handle"], "resident-thread")
-        self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
 
     def test_pending_resident_runtime_patch_does_not_clobber_managed_bridge(self):
         self._heartbeat_environment()
@@ -5630,7 +5774,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
 
         patched = self.client.patch(
             "/api/v1/agents/pending-owner/runtime-state",
@@ -5640,11 +5784,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         state = patched.json()["runtimeState"]
         self.assertEqual(state["bridgeInstanceId"], "managed-bridge")
         self.assertEqual(state["environmentId"], "linux:test-host:default")
-        self.assertEqual(state["pendingResidentTakeover"]["bridgeId"], "resident-bridge")
+        self.assertEqual(state["manualResidentCandidate"]["sessionHandle"], "resident-thread")
+        self.assertNotIn("pendingResidentTakeover", state)
         agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("pending-owner",))
         self.assertEqual(agent["session_mode"], "managed")
 
-    def test_stale_resident_auto_returns_to_managed_on_send(self):
+    def test_stale_resident_send_does_not_auto_return_to_managed(self):
         self._heartbeat_environment()
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -5664,16 +5809,17 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
         )
+        switched = self.client.patch("/api/v1/agents/return-owner/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
         self._execute("UPDATE agents SET last_seen = ?, runtime_state = ? WHERE id = ?", ("2000-01-01T00:00:00Z", json.dumps({"bridgeInstanceId": "resident-bridge"}), "return-owner"))
         self._execute("UPDATE bridge_instances SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "resident-bridge"))
 
         sent = self._send_message(from_agent="dashboard", to="return-owner", type="request", subject="resume managed", body="hello", trigger=True)
-        self.assertTrue(sent["ok"])
-        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (sent["dispatchRuns"][0]["runId"],))
-        self.assertEqual(run["execution_mode"], "managed")
+        self.assertFalse(sent["ok"])
+        self.assertFalse(sent.get("dispatchRuns"))
         agent = self._fetchone("SELECT session_mode, launch_mode, session_handle FROM agents WHERE id = ?", ("return-owner",))
-        self.assertEqual(agent["session_mode"], "managed")
-        self.assertEqual(agent["launch_mode"], "managed")
+        self.assertEqual(agent["session_mode"], "resident")
+        self.assertEqual(agent["launch_mode"], "detached")
         self.assertEqual(agent["session_handle"], "resident-thread")
 
     def test_session_stop_marks_resident_owner_for_bridge_termination(self):

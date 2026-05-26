@@ -79,38 +79,23 @@ might be wrong for your shell context.
 
 ## Delivery path
 
-Managed-hermes dispatches flow through the bridge's `HermesController` (in
-`mcp/stdio/controllers/hermes-controller.js`, Plan 3 of the 2026-05-25
-RuntimeAdapter refactor — extracted from the previous `createHermesController`
-factory). For each dispatch the bridge spawns
-`hermes chat -Q -q "<built prompt>"` — upstream's documented "Programmatic
-mode" (`-Q` suppresses the banner/spinner/tool previews so the stdout is
-just the agent's reply text). `--yolo` is added by default for managed runs
-so unattended approval prompts don't stall the turn. There is no visible
-wrapper PTY for managed dispatches under this path.
+Managed-hermes dispatches default to the wrapper-backed path
+(`managed_via_wrapper=["codex","hermes"]`). The environment bridge owns a
+`hermes-aify` PTY; that wrapper starts a local Hermes dashboard gateway; and
+the wrapper's in-process aify-comms bridge claims dashboard dispatches with
+`executionModes=["channel","resident"]`. Delivery goes through
+`prompt.submit` / `session.steer` on the wrapper's local gateway, and the
+dashboard Console renders the real wrapper TUI via xterm.js.
 
-Operator visibility comes from a synthesized `terminal_session` row tied
-to the agent (`command='aify://virtual-rpc/hermes'`). Each dispatch echoes
-the request as `> [dashboard] <subject>` plus body lines, a `[hermes]
-thinking...` marker while the spawn runs, and the captured reply when it
-arrives. The dashboard's Console pane attaches to this synthesized stream
-the same way it attaches to managed Pi's `aify://virtual-rpc/pi` virtual
-terminal (Phase 2 architecture).
+If wrapper-backed delivery is disabled or unavailable, the bridge can fall
+back to native Hermes controllers (`HermesController` /
+`HermesManagedGatewaySession`) and synthesized `aify://virtual-rpc/hermes`
+terminal output for operator visibility. That fallback does not provide the
+same live TUI symmetry as wrapper mode.
 
-Conversation context across turns is carried in the wire prompt
-(`buildUserPrompt` includes recent `conversationContext` from aify-comms)
-rather than via `--resume`, because upstream Hermes does not yet support
-`-q` combined with session resume. This is the same shape codex uses for
-its per-dispatch path in `mcp/stdio/controllers/codex-controller.js`.
-
-Mid-turn steering is not supported (`hermes chat -q` is single-shot);
-`comms_run_steer` rejects with a clear message. Send a follow-up dispatch
-instead — the next-turn prompt carries the prior context automatically.
-
-The bridge does NOT depend on aify-comms loading as an MCP server inside
-the hermes session for delivery. So `hermes-aify` does NOT require the
-`--strict-mcp-config` + minimal-MCP isolation that `claude-aify` needs to
-work around the Claude Code stdio MCP race bug.
+`hermes-aify` does NOT require the `--strict-mcp-config` + minimal-MCP
+isolation that `claude-aify` needs to work around the Claude Code stdio MCP
+race bug.
 
 ### Resident dispatch delivery (operator-launched `hermes-aify`)
 
@@ -172,12 +157,11 @@ The rediscover step uses the bundled `ws` module under `mcp/stdio/node_modules/`
 - A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. No matching turn-end shell hook exists upstream; the 120s server-side `turn_busy` stale window handles cleanup.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
-Resident Hermes is terminal-first — `hermes-aify` opens an interactive `hermes
-chat` session for human use. Managed Hermes is driven by `HermesController`
-(`mcp/stdio/controllers/hermes-controller.js`), which keeps a long-lived
-`hermes acp` JSON-RPC child per agent
-(see `mcp/stdio/hermes-session.js`) and streams `session/update` notifications
-into the dashboard Console — no visible wrapper PTY is needed for delivery.
+Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes
+TUI for human use. Managed Hermes defaults to the same wrapper shape, but the
+environment bridge owns the `hermes-aify` PTY and the dashboard Console renders
+that real TUI. Native `HermesController` / ACP fallback remains available when
+wrapper-backed delivery is disabled or unavailable.
 
 ## Persistent ACP session (managed dispatches)
 

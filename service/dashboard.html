@@ -1587,19 +1587,17 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
 
       <h3>Move Between Dashboard And CLI</h3>
       <div class="guide-flow">Managed dashboard control
+  -> Switch to resident
   -> copy/open resume command with --aify-agent
-  -> wrapper auto-registers resident owner
   -> do direct terminal work
-  -> close CLI
-  -> resident lease expires
-  -> dashboard sends resume through managed backing</div>
+  -> Switch to managed when dashboard should own delivery again</div>
       <div class="guide-steps">
         <div class="guide-card">
           <h4>Managed → Resident CLI</h4>
           <ol>
             <li>Open <b>Sessions</b> for the agent.</li>
-            <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper auto-registers the live owner.</li>
-            <li>If the managed run is still active, takeover waits until that turn finishes.</li>
+            <li>Use <b>Actions → Switch to resident</b> to hand ownership to the visible CLI path.</li>
+            <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper can register bridge metadata.</li>
             <li>Use manual <code>comms_register(...)</code> only when the wrapper was launched without <code>--aify-agent</code> or when you are binding a new ID.</li>
           </ol>
         </div>
@@ -1609,12 +1607,12 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
             <li>Open <b>Sessions</b>, then <b>Identity Directory</b>.</li>
             <li>Use <b>Edit</b> or the identity row's <b>Actions → Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
-            <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
-            <li>Reopen with <code>--aify-agent</code> to make the visible CLI the resident owner again.</li>
+            <li>Use <b>Actions → Switch to managed</b> when dashboard sends should use the managed backing again.</li>
+            <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process.</li>
           </ol>
         </div>
       </div>
-      <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
+      <p>Adoption creates managed backing for future dashboard work. Ownership changes are manual: resident registrations record bridge metadata, but they do not silently take over managed delivery, and stale resident bridges do not silently switch back to managed. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
       <p>Pi CLI note: for resident live wakeups, start Oh My Pi through <code>omp-aify</code> or <code>pi-aify</code>. Resume a known Pi session when you need resident dispatch to target the same native session handle.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
@@ -4551,6 +4549,37 @@ async function setAgentSessionHandle(agentId, currentHandle = '') {
   }
 }
 
+function agentModeSwitchAction(agentId, agentInfo = {}) {
+  const current = String(agentInfo?.sessionMode || '').toLowerCase();
+  if (!agentId || (current !== 'resident' && current !== 'managed')) return '';
+  const target = current === 'resident' ? 'managed' : 'resident';
+  return actionButtonFn(
+    `Switch to ${target}`,
+    `Manually switch ${agentId} from ${current} to ${target} ownership`,
+    () => switchAgentSessionMode(agentId, target),
+  );
+}
+
+async function switchAgentSessionMode(agentId, targetMode, force = false) {
+  if (!agentId || !targetMode) return;
+  const current = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {}).sessionMode || '';
+  if (!confirm(`Switch ${agentId} from ${current || 'current'} to ${targetMode} mode?\n\nThis is manual ownership control. Dashboard will not automatically switch back.`)) return;
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session-mode`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: targetMode, force, requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Mode switch failed');
+    const effect = res.sideEffects?.managedTerminalId ? ` Terminal ${res.sideEffects.managedTerminalId}` : (res.sideEffects?.stoppedTerminalId ? ` Stopped ${res.sideEffects.stoppedTerminalId}` : '');
+    toast(`Switched ${agentId} to ${res.mode || targetMode}.${effect}`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Mode switch failed', '#f85149');
+  }
+}
+
 function openEnvironmentEditor(environmentId) {
   const env = (window._environments || []).find(item => item.id === environmentId);
   if (!env) {
@@ -5436,13 +5465,13 @@ function renderConsoleChat(meta) {
   // that operator-local CLI. Hide the Console actions and explain instead
   // of showing buttons that would spawn a sibling managed PTY for an agent
   // whose owner is already the resident wrapper. When the resident wrapper
-  // disconnects (session_mode flips back to managed or session ends),
-  // normal Console actions return.
+  // is manually switched back to managed or the session ends, normal Console
+  // actions return.
   const agentSessionMode = String(agentInfo?.sessionMode || session?.mode || '').toLowerCase();
   const isResidentOwned = agentSessionMode === 'resident'
     || String(session?.status || '').toLowerCase() === 'cli-takeover';
   if (isResidentOwned) {
-    body = `<div class="banner"><div class="banner-row"><span>This agent is currently running as a resident <code>${esc(runtime + '-aify')}</code> in the operator's terminal. The dashboard cannot stream a local CLI session, and a parallel managed Console would conflict with resident ownership. Close the resident wrapper to let dashboard-managed Console return.</span></div></div>`;
+    body = `<div class="banner"><div class="banner-row"><span>This agent is currently running as a resident <code>${esc(runtime + '-aify')}</code> in the operator's terminal. The dashboard cannot stream a local CLI session, and a parallel managed Console would conflict with resident ownership. Use <b>Switch to managed</b> when dashboard-managed Console should own delivery again.</span>${agentModeSwitchAction(meta.id, agentInfo)}</div></div>`;
   } else if (!session) {
     body = '<div class="banner"><div class="banner-row"><span>No managed session is recorded for this identity. Spawn or recover a session before opening Console.</span></div></div>';
   } else if (!canConsole) {
@@ -5978,6 +6007,7 @@ function renderChatInspector(meta, messages) {
         sessionResumeCommandBlock(resumeCommand) +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
+        agentModeSwitchAction(meta.id, agentInfo) +
         ((environmentSupportsConsoleForSession(environment, session)
           && String(agentInfo?.sessionMode || session?.mode || '').toLowerCase() !== 'resident'
           && String(session.status || '').toLowerCase() !== 'cli-takeover')
@@ -6536,6 +6566,7 @@ function renderSessions(sessions) {
         : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
       const sessionActions = [
         actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
+        agentModeSwitchAction(session.agentId, agentInfo),
         actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(session.agentId, runtimeHandle)),
         activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
         spawnControl,

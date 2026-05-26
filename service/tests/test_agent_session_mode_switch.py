@@ -110,6 +110,14 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
             conn.close()
         return str(row["session_mode"] or "") if row else ""
 
+    def _read_agent_row(self, agent_id: str) -> sqlite3.Row | None:
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        finally:
+            conn.close()
+
     def _seed_active_run(self, agent_id: str) -> str:
         """Insert a synthetic 'running' dispatch_runs row to simulate an in-flight run."""
         conn = sqlite3.connect(str(self._db_path))
@@ -167,6 +175,9 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         self.assertEqual(body.get("previousMode"), "resident")
         self.assertTrue(body.get("changed"))
         self.assertEqual(self._read_agent_mode("codex-r1"), "managed")
+        agent = self._read_agent_row("codex-r1")
+        self.assertEqual(agent["launch_mode"], "managed")
+        self.assertIn("managed-run", agent["capabilities"])
 
     def test_switch_invalid_mode_returns_400(self):
         self._heartbeat_environment("codex")
@@ -217,6 +228,7 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(self._read_agent_mode("codex-force"), "managed")
+        self.assertEqual(self._read_agent_row("codex-force")["launch_mode"], "managed")
 
     def test_switch_hermes_managed_to_resident_without_gateway_returns_409(self):
         self._heartbeat_environment("hermes")
@@ -249,6 +261,42 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(self._read_agent_mode("hermes-force"), "resident")
 
+    def test_switch_hermes_to_registered_resident_candidate_uses_gateway(self):
+        self._heartbeat_environment("hermes")
+        self._register_agent(
+            agent_id="hermes-candidate",
+            runtime="hermes",
+            session_mode="managed",
+            runtime_config={},
+        )
+        registered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "hermes-candidate",
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "resident",
+                "sessionHandle": "resident-hermes-session",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+                "runtimeConfig": {"gatewayUrl": "ws://127.0.0.1:9999/api/ws?token=test"},
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json().get("ownershipTransition"), "manual_switch_required")
+
+        res = self.client.patch(
+            "/api/v1/agents/hermes-candidate/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        agent = self._read_agent_row("hermes-candidate")
+        self.assertEqual(agent["session_mode"], "resident")
+        self.assertEqual(agent["session_handle"], "resident-hermes-session")
+        self.assertIn("gatewayUrl", agent["runtime_config"])
+        self.assertIn("resident-run", agent["capabilities"])
+
     def test_switch_appends_dispatch_event(self):
         """C1 audit log: dispatch_events row referencing agent id + transition type."""
         self._heartbeat_environment("codex")
@@ -273,7 +321,7 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         try:
             session_id = f"session_{agent_id}"
             terminal_id = f"term_{agent_id}"
-            now = "2026-05-26T00:00:00Z"
+            now = "2099-01-01T00:00:00Z"
             env_row = conn.execute("SELECT id, bridge_id FROM environments LIMIT 1").fetchone()
             env_id = env_row["id"] if env_row else "linux:test-host:default"
             bridge_id = env_row["bridge_id"] if env_row else "bridge-current"
@@ -337,6 +385,9 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
                          "Plan 6 C2: managed -> resident must release the managed PTY")
         body = res.json()
         self.assertEqual(body.get("sideEffects", {}).get("stoppedTerminalId"), terminal_id)
+        agent = self._read_agent_row("codex-pty")
+        self.assertEqual(agent["launch_mode"], "detached")
+        self.assertIn("resident-run", agent["capabilities"])
 
     def test_switch_resident_to_managed_reports_side_effects_object(self):
         """C2: the response includes a sideEffects object. When no agent_sessions

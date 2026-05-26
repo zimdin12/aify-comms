@@ -209,12 +209,12 @@ Resident -> managed:
 1. Open **Sessions -> Identity Directory**.
 2. Choose **Edit** or **Actions -> Adopt env**.
 3. Assign an online environment, runtime, and workspace.
-4. Close the old resident CLI tab, or use dashboard **Stop wake** / session **Stop** if you want the resident host process terminated.
-5. The next dashboard send returns the identity to its managed environment automatically after the resident bridge lease expires. **Sessions -> Restart** remains available when you want to force a managed run immediately. Reopening the native CLI with `--aify-agent` switches ownership back to resident once the current turn boundary allows it.
+4. Use **Sessions -> Actions -> Switch to managed** or the Chat details switch when dashboard sends should use the managed backing.
+5. Close the old resident CLI tab, or use dashboard **Stop wake** / session **Stop** if you want the resident host process terminated.
 
-This creates or updates managed backing for the same agent identity. It does not invent a new native handle. If the CLI is still heartbeating, resident ownership wins; when the CLI goes away, the saved environment backing can resume future dashboard work.
+This creates or updates managed backing for the same agent identity. It does not invent a new native handle. Closing the CLI does not switch ownership by itself; stale resident sends fail visibly until the operator switches to managed or restarts the resident wrapper.
 
-Current resident Codex bridges also verify that their live app-server is reachable before heartbeating or claiming work. If a visible `codex-aify` CLI closes but an MCP child process is orphaned, the backend marks that resident bridge lost and returns the identity to managed backing when a spawn spec exists.
+Current resident Codex bridges also verify that their live app-server is reachable before heartbeating or claiming work. If a visible `codex-aify` CLI closes but an MCP child process is orphaned, the backend marks that resident bridge lost and leaves the identity resident/stopped until the operator switches to managed.
 
 Managed -> resident CLI:
 
@@ -224,15 +224,15 @@ Managed -> resident CLI:
    - `codex-aify --aify-agent <agentId> resume --include-non-interactive <thread-id>`
    - `hermes-aify --aify-agent <agentId> --resume <session-id>`
    - `omp-aify --aify-agent <agentId> --resume <session-id>`
-3. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle.
+3. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery. If you do not pass `--aify-agent`, call `comms_register(...)` from that same CLI with the same `agentId` and runtime handle so the dashboard has a resident candidate.
 4. Do the direct terminal work.
-5. Close the CLI when done. Dashboard control returns automatically after the resident lease expires; use **Restart** only when you want to force a managed run now.
+5. Use **Switch to managed** when dashboard control should return. Close the CLI when done, or use **Stop wake** / session **Stop** to ask the resident process to terminate.
 
 `claude-aify --resume <id>` exports `CLAUDE_SESSION_ID=<id>` for the MCP process, so auto-register and normal `comms_register` can capture it. `codex-aify` exposes its live app-server to the MCP process and auto-discovery binds the current thread when available. `hermes-aify --resume <id>` exports `HERMES_SESSION_ID=<id>`. `omp-aify --resume <id>` and `pi-aify --resume <id>` export `PI_SESSION_ID=<id>`. Registration updates the saved Claude session ID, Codex thread ID, Hermes session ID, OpenCode session ID, or Pi session handle. Fresh native handles should come from a new spawn or explicit **Recreate**, not from ordinary adopt/restart.
 
 If you know the correct native ID and only need to repair the saved handle, use Dashboard **Chat details -> Runtime Session -> Set handle** or **Sessions -> Actions -> Set handle**. This updates the identity, runtime state, and latest session record without creating a fresh context. Use it only for known-good handles; a wrong value binds the identity to the wrong native memory.
 
-Ownership transfer is turn-boundary safe. If a resident CLI registers while a managed run is active, the backend records a pending resident takeover and applies it only after the active run reaches a terminal state. If dashboard sends to a stale resident that has managed backing, the backend switches queued future work back to managed mode before creating the run. Queued but unclaimed work is safe to retarget; claimed/running work is not interrupted by ownership transfer.
+Ownership transfer is manual and turn-boundary guarded. If a resident CLI registers while an identity is managed, the backend records a `manualResidentCandidate` but keeps the current managed owner. The operator switches with **Switch to resident/managed**; active runs block the switch unless forced. If dashboard sends to a stale resident that has managed backing, the send fails visibly instead of silently retargeting work.
 
 Claude Code has two different native continuation flags: `--session-id` creates a specific new session, while `--resume <id>` continues an existing transcript. The bridge now checks for the transcript under `.claude/projects/...` and uses `--resume` after the first managed turn, so dashboard messages keep native Claude memory instead of colliding with the already-created session file.
 

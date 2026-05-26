@@ -221,8 +221,8 @@ Dashboard rule:
 - Show **Open in CLI** only when `cliAttach=true`.
 - Show the CLI resume command as a copyable code block when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
-- Resident takeover is automatic but turn-boundary safe: if a managed run is active, the backend records a pending resident takeover and applies it only after that run ends.
-- Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path. Reopening a wrapper with `--aify-agent` returns the identity to resident ownership once safe.
+- Resident/managed ownership is manual. A resident wrapper registration against an existing managed identity records a `manualResidentCandidate` for later use, but does not take over the identity or stop the managed PTY.
+- Operators switch ownership from **Sessions -> Actions -> Switch to resident/managed** or the Chat details switch. Active runs block the switch unless the operator explicitly forces it. Stale resident bridges do not silently return to managed; dashboard sends fail visibly until the operator switches to managed or restarts the resident wrapper.
 - Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or recreate path.
 - **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.

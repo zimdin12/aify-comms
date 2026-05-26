@@ -161,7 +161,7 @@ Then restart the Windows `aify-comms` bridge and recover/restart the dashboard s
 
 If you want the resumed CLI to match managed-agent permissions, use `--dangerously-skip-permissions`. Do not use `--permanently-skip-permissions`; Claude Code rejects it as an unknown option.
 
-Prefer the dashboard resume command or `claude-aify --aify-agent <agentId> --resume <session-id>` when opening a managed Claude session directly. The wrapper auto-registers the resident owner. If a managed run is active, takeover is deferred until that turn ends; after closing the CLI, dashboard sends can return to the saved managed backing once the resident lease expires. **Pause for CLI** remains an explicit safety control when you want dashboard sends to fail fast while the terminal owns the session.
+Prefer the dashboard resume command or `claude-aify --aify-agent <agentId> --resume <session-id>` when opening a managed Claude session directly. The wrapper auto-registers a resident candidate, but ownership does not move automatically. Use dashboard **Switch to resident** when the visible CLI should own delivery, and **Switch to managed** when dashboard sends should return to the managed backing. **Pause for CLI** remains an explicit safety control when you want dashboard sends to fail fast while the terminal owns the session.
 
 After opening the native CLI, re-register from that same session with the same `agentId`. That is how the dashboard learns the current native handle. If the agent forgets CLI conversation after returning to dashboard, check whether the session's stored handle changed or was recreated during adopt/restart. Current code should preserve handles across same-runtime adopt/recover/restart; a new handle should only appear after a new spawn or explicit **Recreate**.
 
@@ -818,31 +818,21 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
   ```
   Plan 6 B (the wrapper-side rediscover, commits `5e8bcf9` / `842f725` / `11a15ed` / `eba3de0`) does this automatically at start when the wrapper is current.
 
-## Manual mode-switch unavailable in dashboard (Plan 6 C)
+## Manual mode-switch unavailable in dashboard
 
 **Symptom.** Operator wants to flip an agent from `resident` to `managed` (or back) without killing the wrapper, but no switch button is visible in the dashboard's Details panel or Sessions rail. Chip-style "Switch to managed" / "Switch to resident" controls described in Plan 6 C are documented but don't render on screen.
 
-**Detection.** Check whether the manual-mode toggle is enabled in the service settings:
+**Current behavior.** The switch is no longer gated by `manual_session_mode`. It should be visible for agents whose `sessionMode` is `resident` or `managed` in Chat details and Sessions actions.
+
+**Detection.** Confirm the agent exposes a switchable mode:
 
 ```bash
-curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep manual_session_mode
+curl -s http://localhost:8800/api/v1/agents/AGENT_ID | python -m json.tool | grep sessionMode
 ```
 
-If you see `"manual_session_mode": false` (or the key is absent on a pre-Plan-6 build), the switch chips are hidden by design — Plan 6 C3 (`api_v2.py:215`, commit `697d526`) gates `renderModeSwitchChip(agent)` (commit `57c29e8`) on this setting being truthy. Default is off so existing operators on TTY-auto-detect-only workflows see no UI churn.
+If the value is not `resident` or `managed`, no switch is rendered. If it is switchable and still missing, the dashboard assets are stale or the browser has cached old JS.
 
-**Fix.** Enable it one of two ways:
-
-- **Settings page (UI):** open the dashboard's Settings page and toggle "Manual session-mode switching" on (commit `e42f2ec` adds this inline toggle).
-- **API (scripted):**
-  ```bash
-  curl -X PUT http://localhost:8800/api/v1/settings \
-    -H "Content-Type: application/json" \
-    -d '{"manual_session_mode": true}'
-  ```
-
-After flipping, refresh the dashboard. The chip appears in the Session Console header card (Details panel) and on every Sessions-rail row for that agent. Clicking it calls `PATCH /api/v1/agents/{id}/session-mode {mode}` (Plan 6 C1, `api_v2.py:9586`); the response is reflected in the agent's `sessionMode` plus any side-effect terminal state (Plan 6 C2 eager-spawn / PTY release). Roll back by flipping the setting back to `false` — the chips disappear; existing audit-row entries (`dispatch_events.type='mode_switch_<old>_to_<new>'`) stay in the per-agent dispatch history.
-
-If you flipped the setting on and chips still don't appear, the dashboard HTML is stale — rebuild the service (`docker compose up -d --build`) so the post-`57c29e8` `app.js` is served.
+**Fix.** Rebuild/redeploy the service (`docker compose up -d --build`) and hard-refresh the browser. Clicking the switch calls `PATCH /api/v1/agents/{id}/session-mode {mode}`; the response updates `sessionMode`, launch mode, capabilities, runtime state, and any side-effect terminal state.
 
 ## General escalation
 

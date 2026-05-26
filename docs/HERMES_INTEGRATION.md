@@ -19,9 +19,9 @@ Primary upstream references:
 - MCP server registration in `~/.hermes/config.yaml`.
 - Optional post-tool notification hook using `~/.hermes/agent-hooks/aify-notify.sh`.
 
-Managed Hermes dispatch flows through the bridge's `HermesController` (in `mcp/stdio/controllers/hermes-controller.js`, Plan 3 of the 2026-05-25 RuntimeAdapter refactor — extracted from the previous `createHermesController` factory). By default it uses a persistent `hermes acp --accept-hooks` JSON-RPC child per agent (HermesSession in `mcp/stdio/hermes-session.js`) — initializes once, reuses the same `sessionId` for every subsequent `session/prompt`. ACP is single-client by design, so the dashboard Console attaches to a synthesized `terminal_session` row that mirrors `session/update` notifications into a fake terminal stream.
+Managed Hermes defaults to the wrapper-backed path (`managed_via_wrapper=["codex","hermes"]`): the bridge owns a `hermes-aify` PTY, the wrapper starts a local Hermes dashboard gateway, and the wrapper's in-process aify-comms bridge claims dashboard dispatches with `executionModes=["channel","resident"]`. The browser Console renders the real wrapper TUI. This is the same operator-visible shape as a resident `hermes-aify`, except the bridge owns the PTY.
 
-For multi-client visibility (dashboard Console can attach to the same live session as the bridge, not just see a synth mirror), set `AIFY_HERMES_MANAGED_USE_GATEWAY=1` in the environment bridge's env. Managed dispatches then route through `HermesManagedGatewaySession` which spawns `hermes dashboard --tui --port <free> --no-open --skip-build` per agent and attaches via WebSocket to the multi-client tui_gateway. Bridge + dashboard Console + optional iframe of the hermes web UI all share the same session via TeeTransport. Mid-run insertion (`session.steer`) works on this path; the ACP path doesn't.
+If wrapper-backed delivery is disabled, the bridge can fall back to native Hermes controllers: a persistent ACP JSON-RPC child or gateway controller, with synthesized terminal output for dashboard visibility. The gateway path gives multi-client visibility; the ACP path is single-client and mirrors `session/update` notifications into a virtual terminal.
 
 Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway for `prompt.submit` / `session.steer` injection.
 
@@ -112,7 +112,7 @@ In the dashboard:
 4. Pick a workspace under that bridge's roots.
 5. Send a normal chat message.
 
-Managed dispatch invokes `hermes chat -Q -q` per turn through `createHermesController`. There is no visible wrapper PTY for managed Hermes; the bridge surfaces the request/response cycle as a synthesized terminal stream in the dashboard's Console pane (`command='aify://virtual-rpc/hermes'`). Conversation context across turns is carried in the wire prompt (`buildUserPrompt` includes recent context from aify-comms) because upstream Hermes does not currently combine `-q` with `--resume`. `--yolo` is added by default so unattended approval prompts don't stall the turn; flip via `runtimeConfig.yolo=false`.
+Managed dispatch normally starts or reuses the bridge-owned `hermes-aify` wrapper PTY. The wrapper's child bridge submits dashboard prompts through the local Hermes gateway (`prompt.submit` / `session.steer`), and dashboard Console renders the same live TUI through xterm.js. Native controller fallback may use synthesized `aify://virtual-rpc/hermes` output when wrapper mode is disabled or unavailable.
 
 ## Resident Hermes
 

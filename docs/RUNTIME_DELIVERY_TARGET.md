@@ -23,9 +23,11 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
   Stable across all launch modes; closes the "missing handles all the time"
   operator pain.
 - **Pi delivery flip:** `pi-session-resume` spawn-fresh-worker pattern
-  removed. Pi resident agents auto-migrate to `managed-via-wrapper` on
-  next bridge launch via a graceful drain (waits for active runs).
-  `PiAdapter.supports_resident == False` is the authoritative declaration.
+  removed. Pi managed delivery uses one persistent bridge-owned
+  `omp --mode rpc` child per agent plus a virtual terminal stream. Pi is
+  excluded from `managed_via_wrapper` because OMP is single-client and the
+  dashboard Console must share the same native RPC controller. Ownership
+  changes are manual through the dashboard switch controls.
 - **Codex carve-out removed:** Console now resumes the stored handle for
   codex too. `codex-aify` wrapper gained a try-resume-then-fresh fallback
   for stale session files.

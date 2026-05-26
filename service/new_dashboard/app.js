@@ -295,8 +295,8 @@ async function refresh() {
       api('/sessions?limit=80'),
       api('/environments'),
       api('/stats'),
-      // Plan 6 C3/C4: settings drive the resident<->managed mode-switch chip
-      // visibility. Tolerate a failed/empty response — chip stays hidden.
+      // Settings are still loaded for legacy controls; mode-switch chips are
+      // always visible for managed/resident agents.
       api('/settings').catch(() => ({})),
     ]);
     state.agents = asAgentArray(agents);
@@ -344,10 +344,8 @@ function renderAll() {
   renderSettings();
 }
 
-// Plan 6 C6 (2026-05-26): the new dashboard's settings page is still a
-// placeholder pointing at the classic dashboard. We expose the single
-// manual_session_mode toggle inline so operators can opt into the C4/C5
-// mode-switch chips without leaving this dashboard.
+// Legacy setting mirror. Mode-switch chips are now always visible; ownership
+// changes are manual-only and no longer gated by this setting.
 function renderSettings() {
   const toggle = byId('setting-manual-session-mode');
   if (!toggle) return;
@@ -1052,15 +1050,10 @@ function codexConsoleSendTurn(agentId, text) {
   codexConsoleAppendLine(entry.container, `> ${trimmed}`, 'user');
 }
 
-// Plan 6 C4 (2026-05-26): resident<->managed mode-switch chip.
-// Gated by state.settings.manual_session_mode — when the operator has
-// the dashboard's manual-mode toggle off (the default), this returns ''
-// so the chip is hidden and today's TTY auto-detect remains the
-// effective source of truth. When on, the chip exposes a one-click
-// flip via PATCH /api/v1/agents/{id}/session-mode (Plan 6 C1).
+// Manual resident<->managed mode-switch chip. Ownership changes are
+// operator-driven only, so the switch is always visible for valid agents.
 function renderModeSwitchChip(agent) {
   if (!agent || typeof agent !== 'object') return '';
-  if (!state.settings || state.settings.manual_session_mode !== true) return '';
   const current = String(agent.sessionMode || '').toLowerCase();
   if (current !== 'resident' && current !== 'managed') return '';
   const target = current === 'resident' ? 'managed' : 'resident';
@@ -1068,8 +1061,7 @@ function renderModeSwitchChip(agent) {
 }
 
 // Optional inline label so operators can see the current sessionMode at a
-// glance in the session header subtitle. Always rendered (even when the
-// switch chip is hidden) — informational only.
+// glance in the session header subtitle. Informational only.
 function renderSessionModeLabel(agent) {
   const mode = String(agent?.sessionMode || '').toLowerCase();
   if (mode !== 'resident' && mode !== 'managed') return '';
@@ -2194,7 +2186,7 @@ connectRealtimeSocket();
 refresh();
 setInterval(refresh, 15000);
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
-// Plan 6 C6 (2026-05-26): inline manual_session_mode toggle.
+// Legacy manual_session_mode toggle; chips stay visible regardless.
 byId('setting-manual-session-mode')?.addEventListener('change', (event) => {
   setManualSessionMode(event.target.checked);
 });

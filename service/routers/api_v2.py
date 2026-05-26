@@ -183,13 +183,13 @@ DEFAULT_SETTINGS = {
     # wrapper's local backing. Dashboard Session Console renders the real
     # Ink TUI of the wrapper via xterm.js.
     #   false (default): existing managed dispatch flow.
-    #   true: all codex / hermes / pi / opencode managed runs route via wrapper.
+    #   true: eligible codex / hermes managed runs route via wrapper.
     #   ["hermes", "codex"]: per-runtime opt-in during rollout.
     # claude-code is always wrapper-backed (claude-channel.js); not gated.
     # pi is structurally excluded (omp single-client RPC + bridge-owned
     # mutex make the wrapper pattern impossible). pi managed stays on
     # the persistent PiSession synth-terminal path. See DECISIONS.md.
-    "managed_via_wrapper": ["codex", "hermes", "pi"],  # Plan 4 (2026-05-25): wrapper-backed default; was False
+    "managed_via_wrapper": ["codex", "hermes"],  # Plan 4 (2026-05-25): wrapper-backed default; was False
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
     # asked for this 2026-05-22: after sending a message the agent
@@ -273,21 +273,22 @@ _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 #   2. The PTY-spawn carve-outs at 9891/9917 fire only for these runtimes.
 # Codex/hermes/pi support a real native managed-run path and must NOT be
 # auto-routed to channel by membership alone — they route to channel ONLY when
-# wrapper-backed (managed_via_wrapper setting includes them; gate at
-# line 1047). See _CHANNEL_CLAIM_RUNTIMES below for the claim-side whitelist.
+# wrapper-backed (managed_via_wrapper setting includes codex/hermes; gate at
+# line 1047). Pi stays native RPC. See _CHANNEL_CLAIM_RUNTIMES below for the
+# claim-side whitelist.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 # Plan 5 (2026-05-25) — claim-side whitelist for execution_mode='channel'
 # runs. A bridge polling /dispatch/claim with executionModes=['channel'] is
 # only allowed to claim a queued channel-mode run if the agent's runtime is
 # in this set. Pre-Plan-5 this used _CHANNEL_MANAGED_RUNTIMES, so codex/
-# hermes/pi wrapper-backed managed runs (whose execution_mode='channel' is
+# hermes wrapper-backed managed runs (whose execution_mode='channel' is
 # set by _agent_execution_mode line 1047) sat queued forever — only the
 # claude-code bridge was permitted to claim them. Symmetric bridge-side
 # change lives in mcp/stdio/dispatch-execution.js supportedExecutionModes
 # (Plan 5 Task B1). opencode is intentionally excluded — its adapter declares
 # preferred_delivery_mode='managed' (not 'managed-via-wrapper'), so wrapper-
 # backed channel routing does not apply.
-_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes", "pi"}
+_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
@@ -302,16 +303,18 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
     claude-code is excluded — it's already wrapper-backed via claude-channel.js
     inside claude-aify regardless of this flag.
 
-    For all other runtimes, eligibility is now driven by the adapter's
-    preferred_delivery_mode == "managed-via-wrapper". Pi adopts this in Plan 2
-    (was hardcoded-excluded prior; the structural mismatch was fixed when
-    pi-session-resume was removed from the dispatch entry table).
+    For all other runtimes, eligibility is driven by the adapter's
+    preferred_delivery_mode == "managed-via-wrapper". Pi is explicitly
+    excluded because OMP is single-client RPC; dashboard chat and Console must
+    share the same native managed controller and virtual terminal stream.
     """
     from service.runtimes import adapter_for
 
     val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
     runtime_n = _normalize_runtime(runtime or "")
     if runtime_n == "claude-code":
+        return False
+    if runtime_n == "pi":
         return False
     try:
         adapter = adapter_for(runtime_n)
@@ -427,6 +430,7 @@ async def _enforce_live_worker_gate(
                 agent_id,
             ),
         )
+        await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
     except Exception:
         logger.debug(
@@ -1458,171 +1462,16 @@ async def _auto_return_resident_to_managed_if_possible(
     force: bool = False,
     reason: str = "resident_lease_expired",
 ):
-    if not row or _normalize_session_mode(row["session_mode"] or "resident") != "resident":
-        return row, ""
-    if str(row["status"] or "").strip().lower() == "stopped" or (row["launch_mode"] or "detached") == "none":
-        return row, ""
-    runtime_state = _json_loads_or(row["runtime_state"], {})
-    if runtime_state.get("pendingResidentTakeover"):
-        return row, ""
-    if await _get_blocking_active_run(db, row["id"]):
-        return row, ""
-    if not force and await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
-        return row, ""
-
-    spec = await _latest_spawn_spec(db, row["id"])
-    if not spec:
-        return row, ""
-    env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (spec["environment_id"],))).fetchone()
-    if not env:
-        return row, ""
-    env_status = _environment_effective_status(env, offline_seconds=settings.get("environment_offline_seconds", 90))
-    if env_status not in {"online", "degraded"}:
-        return row, ""
-
-    now = _now()
-    runtime = _normalize_runtime(spec["runtime"] or row["runtime"] or "generic")
-    runtime_config = _json_loads_or(row["runtime_config"], {})
-    spec_meta = _json_loads_or(spec["metadata"], {})
-    if isinstance(spec_meta.get("runtimeConfig"), dict):
-        runtime_config = {**runtime_config, **spec_meta["runtimeConfig"]}
-    # Resident Codex live bindings store a localhost app-server URL. Managed
-    # recovery must not keep that dead resident URL in the agent's policy.
-    runtime_config.pop("appServerUrl", None)
-    session_handle = str(row["session_handle"] or "").strip()
-    if not session_handle:
-        latest_session = await (await db.execute(
-            """
-            SELECT session_handle
-            FROM agent_sessions
-            WHERE agent_id = ? AND runtime = ?
-            ORDER BY
-              CASE WHEN COALESCE(NULLIF(session_handle, ''), '') != '' THEN 0 ELSE 1 END,
-              last_seen DESC
-            LIMIT 1
-            """,
-            (row["id"], runtime),
-        )).fetchone()
-        session_handle = str((latest_session["session_handle"] if latest_session else "") or "").strip()
-    capabilities = _default_capabilities_for(runtime, "managed", session_handle, runtime_config)
-    next_state = _runtime_state_with_handle(runtime, {}, session_handle)
-    next_state.update({
-        "environmentId": spec["environment_id"],
-        "ownership": {
-            "mode": "managed",
-            "previousMode": "resident",
-            "reason": reason or "resident_lease_expired",
-            "at": now,
-        },
-    })
-    await db.execute(
-        """
-        UPDATE agents
-        SET cwd = ?,
-            model = COALESCE(NULLIF(model, ''), ?),
-            runtime = ?,
-            machine_id = ?,
-            launch_mode = 'managed',
-            session_mode = 'managed',
-            session_handle = ?,
-            capabilities = ?,
-            runtime_config = ?,
-            runtime_state = ?,
-            status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END,
-            status_note = ?,
-            last_seen = ?
-        WHERE id = ?
-        """,
-        (
-            spec["workspace"] or row["cwd"] or "",
-            spec["model"] or row["model"] or "",
-            runtime,
-            env["machine_id"] or "",
-            session_handle,
-            json.dumps(capabilities),
-            json.dumps(runtime_config),
-            json.dumps(next_state),
-            (
-                "Resident runtime was lost; future work will use the managed environment backing."
-                if force else
-                "Resident CLI lease expired; future work will use the managed environment backing."
-            ),
-            now,
-            row["id"],
-        ),
-    )
-    await db.execute(
-        "UPDATE dispatch_runs SET execution_mode = 'managed' WHERE target_agent = ? AND status = 'queued'",
-        (row["id"],),
-    )
-    return await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["id"],))).fetchone(), "resident_to_managed"
+    # Manual ownership model: resident<->managed changes happen only through
+    # PATCH /agents/{id}/session-mode. Keep the helper as a compatibility
+    # no-op for older call sites while the automatic paths are removed.
+    return row, ""
 
 
 async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
-    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-    if not row:
-        return False
-    state = _json_loads_or(row["runtime_state"], {})
-    pending = state.get("pendingResidentTakeover")
-    if not isinstance(pending, dict):
-        return False
-    if await _get_blocking_active_run(db, agent_id):
-        return False
-    now = _now()
-    runtime = _normalize_runtime(pending.get("runtime") or row["runtime"] or "generic")
-    runtime_config = pending.get("runtimeConfig") if isinstance(pending.get("runtimeConfig"), dict) else {}
-    session_handle = str(pending.get("sessionHandle") or "").strip()
-    next_state = _runtime_state_with_handle(runtime, {k: v for k, v in state.items() if k != "pendingResidentTakeover"}, session_handle)
-    next_state["bridgeInstanceId"] = str(pending.get("bridgeId") or "").strip()
-    next_state["ownership"] = {"mode": "resident", "previousMode": "managed", "reason": "registered_cli", "at": now}
-    capabilities = pending.get("capabilities") if isinstance(pending.get("capabilities"), list) else _default_capabilities_for(runtime, "resident", session_handle, runtime_config)
-    await db.execute(
-        """
-        UPDATE agents
-        SET cwd = ?,
-            runtime = ?,
-            machine_id = ?,
-            launch_mode = ?,
-            session_mode = 'resident',
-            session_handle = ?,
-            capabilities = ?,
-            runtime_config = ?,
-            runtime_state = ?,
-            status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
-            status_note = ?,
-            last_seen = ?
-        WHERE id = ?
-        """,
-        (
-            pending.get("cwd") or row["cwd"] or "",
-            runtime,
-            pending.get("machineId") or row["machine_id"] or "",
-            pending.get("launchMode") or "detached",
-            session_handle,
-            json.dumps(capabilities),
-            json.dumps(runtime_config),
-            json.dumps(next_state),
-            "Resident CLI took ownership after the previous managed turn finished.",
-            now,
-            agent_id,
-        ),
-    )
-    await db.execute(
-        """
-        UPDATE agent_sessions
-        SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
-            ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
-            session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-            last_seen = ?
-        WHERE agent_id = ?
-        """,
-        (now, session_handle, session_handle, now, agent_id),
-    )
-    await db.execute(
-        "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
-        (agent_id,),
-    )
-    return True
+    # Manual ownership model: a resident CLI registration must not take over a
+    # managed identity at a turn boundary. Operators use /session-mode.
+    return False
 
 
 async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
@@ -1674,12 +1523,13 @@ async def _bridge_claim_block_reason(
     # at line 290 and dispatch-execution.js supportedExecutionModes). Without
     # this carve-out, every wrapper-child claim hits "environment_bridge_not_current"
     # at line 1701 because the env bridge_id != the wrapper-child bridge_id —
-    # and managed codex/hermes/pi dispatches sit queued forever even when the
+    # and managed codex/hermes dispatches sit queued forever even when the
     # wrapper PTY is alive and its inner MCP server has registered. Detect a
     # wrapper-child claim by: (a) the request includes 'channel' in executionModes;
     # (b) the runtime is in _CHANNEL_CLAIM_RUNTIMES (managed-via-wrapper-eligible);
     # (c) the claimant bridge is registered for this agent (in bridge_instances).
-    # Operator-observed 2026-05-26 with graph-tester-pi: inner MCP bridge
+    # Operator-observed 2026-05-26 with graph-tester-pi before Pi was moved
+    # back to native RPC: inner MCP bridge
     # `2e8b7d91-...` registered fine, but its claims were silently rejected
     # against the env bridge `e1ef4cae-...`.
     supported_modes = {str(m or "").strip().lower() for m in (execution_modes or []) if str(m or "").strip()}
@@ -1835,27 +1685,28 @@ async def _record_bridge_registration(
     runtime: str,
     session_mode: str,
     session_handle: str,
+    managed_wrapper_child: bool = False,
     now: str,
 ) -> None:
     """Single source of truth for register-time bridge_instances writes.
 
     Inserts/updates the bridge_instance row carrying the new bridge_id and
-    its full logical identity, then supersedes only the bridges whose
-    logical identity DIFFERS from this one (different runtime, session_mode,
-    or session_handle on the same agent_id+machine_id). In-flight runs are
-    failed only for the bridges actually superseded — same-logical-owner
-    re-registers are metadata refreshes that do not kill any work.
+    its logical identity, then supersedes older rows according to the
+    runtime ownership model. Generic managed bridges use latest-wins;
+    resident bridges and managed wrapper-child bridges protect fresh
+    same-logical-owner rows so duplicate registration does not kill work.
     """
     normalized_machine = str(machine_id or "")
     normalized_runtime_value = str(runtime or "")
     normalized_session_mode_value = str(session_mode or "")
     normalized_session_handle_value = str(session_handle or "").strip()
+    bridge_kind = "managed-wrapper-child" if managed_wrapper_child else ""
     await db.execute(
         """
         INSERT OR REPLACE INTO bridge_instances (
             id, agent_id, machine_id, runtime, session_mode, session_handle,
-            registered_at, last_seen, superseded_by, superseded_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             bridge_id,
@@ -1864,30 +1715,28 @@ async def _record_bridge_registration(
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
+            bridge_kind,
             now,
             now,
             "",
             None,
         ),
     )
-    # Supersession carve-out applies ONLY to resident session_mode
-    # (operator-side multi-window CLI scenarios where two
-    # human-launched shells legitimately coexist for the same
-    # identity). For MANAGED session_mode, at most ONE bridge should
-    # claim per (agent, machine, runtime) at any time — latest
-    # registration wins, older managed bridges with the same handle
-    # are superseded. Operator-reported 2026-05-22: sc-manager had
-    # 22+ live managed bridge_instances all sharing the same
-    # session_handle, never superseded, all running old code with the
-    # turn_busy feedback loop. The pre-fix carve-out included managed
-    # sessions, which is why they accumulated.
+    # Supersession carve-out applies to resident session_mode and to
+    # managed wrapper children. Resident covers operator-side multi-window
+    # CLI scenarios where two human-launched shells legitimately coexist
+    # for the same identity. Managed wrapper children are bridge-spawned
+    # PTYs whose in-process bridge claims channel/resident work; a fresh
+    # same-logical-owner re-register is the same wrapper-owner class and
+    # must not kill its active turn. Generic MANAGED bridges still use
+    # latest-registration-wins to prevent leaked zombies.
     #
     # IMPORTANT: `_fail_active_runs_for_superseded_bridges` will fail
-    # in-flight runs owned by the superseded bridges. For managed
-    # mode that's correct — only one bridge should be driving an
-    # active run, and if a new bridge registers, the old in-flight
-    # one is presumed orphaned. For resident mode the carve-out is
-    # what protects parent in-flight runs from RPC-child re-registers.
+    # in-flight runs owned by the superseded bridges. For generic managed
+    # mode that's correct — only one bridge should be driving an active
+    # run, and if a new bridge registers, the old in-flight one is
+    # presumed orphaned. Resident and wrapper-child carve-outs protect
+    # parent/wrapper in-flight runs from duplicate same-owner registrations.
     # Heartbeat-aware carve-out (operator-reported 2026-05-23: 10+ leaked
     # bridge_instances for comms-tech-lead from May 21–22 claude-aify
     # restarts, never superseded). The resident-mode carve-out only
@@ -1905,7 +1754,10 @@ async def _record_bridge_registration(
             OR NOT (
               runtime = ? AND session_mode = ?
               AND COALESCE(session_handle, '') = ?
-              AND ? = 'resident'
+              AND (
+                ? = 'resident'
+                OR (? = 'managed-wrapper-child' AND COALESCE(bridge_kind, '') = 'managed-wrapper-child')
+              )
             )
           )
         """,
@@ -1917,6 +1769,7 @@ async def _record_bridge_registration(
             normalized_session_mode_value,
             normalized_session_handle_value,
             normalized_session_mode_value,
+            bridge_kind,
         ),
     )
     superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]
@@ -3758,6 +3611,12 @@ async def _preflight_live_send_recipients(
             not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
             continue
         row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
+        if _normalize_session_mode(row["session_mode"] or "resident") == "resident":
+            if not await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
+                hint = _dispatch_fix_hint(recipient_id, row, "resident bridge is stale; switch to managed or restart the resident wrapper")
+                hint["recipientStatus"] = "stale"
+                not_started.append(hint)
+                continue
 
         dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
         active = dispatch_state.get("activeRun")
@@ -7403,6 +7262,88 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                             "virtual": True,
                         }
 
+        runtime = _normalize_runtime(session["runtime"] or "")
+        if runtime == "pi":
+            environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+            if str(environment.get("status") or "").lower() != "online":
+                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
+            if not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
+                raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
+            workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
+            terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            now = _now()
+            bridge_id = str(environment.get("bridgeId") or "").strip()
+            virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
+            requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+            await db.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                    output, status, requested_by, created_at, updated_at, stopped_at, error
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id,
+                    session_id,
+                    session["agent_id"],
+                    session["environment_id"],
+                    bridge_id,
+                    session["runtime"],
+                    workspace,
+                    virtual_command,
+                    "",
+                    "running",
+                    requested_by,
+                    now,
+                    now,
+                    None,
+                    "",
+                ),
+            )
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "virtual_pi_rpc_console_started",
+                json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace}),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET owner_mode = 'managed',
+                    owner_bridge_id = ?,
+                    terminal_id = ?,
+                    terminal_status = 'running',
+                    terminal_command = ?,
+                    terminal_workspace = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (bridge_id, terminal_id, virtual_command, workspace, now, session_id),
+            )
+            next_runtime_state = _json_loads_or((agent_row_for_virtual["runtime_state"] if agent_row_for_virtual else "") or "{}", {}) or {}
+            next_runtime_state["virtualTerminal"] = True
+            next_runtime_state["virtualTerminalId"] = terminal_id
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(next_runtime_state), now, session["agent_id"]),
+            )
+            await db.commit()
+            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+            ws_for_virtual = await _get_ws(request)
+            if ws_for_virtual:
+                await ws_for_virtual.broadcast(
+                    "terminal_started",
+                    {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"], "virtual": True},
+                )
+            return {
+                "ok": True,
+                "terminal": _terminal_session_to_dict(terminal),
+                "session": _agent_session_to_dict(updated_session),
+                "reused": False,
+                "virtual": True,
+            }
+
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
@@ -7430,7 +7371,6 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     f'Spawn/select a supported runtime, or update that bridge.'
                 )
             raise HTTPException(409, detail)
-        runtime = _normalize_runtime(session["runtime"] or "")
         if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
             raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
 
@@ -8610,7 +8550,6 @@ async def register_agent(req: AgentRegister, request: Request):
             await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
-        pending_resident_takeover = False
         # Re-register is a full state refresh: sessionHandle and runtime_state come
         # from the new request only. Preserving them across re-register let stale
         # Codex thread IDs survive a fresh codex-aify start, which then made
@@ -8628,6 +8567,11 @@ async def register_agent(req: AgentRegister, request: Request):
             capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
         bridge_id = (req.bridgeId or "").strip()
         terminal_id = str(req.terminalId or "").strip()
+        managed_wrapper_child = bool(req.managedWrapperChild) or (
+            normalized_session_mode == "managed"
+            and bool(terminal_id)
+            and normalized_runtime in _CHANNEL_CLAIM_RUNTIMES
+        )
         console_terminal = None
         if terminal_id and normalized_session_mode == "resident":
             console_terminal = await (
@@ -8772,71 +8716,71 @@ async def register_agent(req: AgentRegister, request: Request):
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
             active_run = await _get_blocking_active_run(db, req.agentId)
-            if active_run:
-                existing_state = _json_loads_or(row["runtime_state"], {})
-                pending_payload = {
-                    "runtime": normalized_runtime,
-                    "machineId": req.machineId or "",
-                    "bridgeId": bridge_id,
-                    "launchMode": req.launchMode or "detached",
-                    "sessionHandle": session_handle,
-                    "cwd": resolved_cwd,
-                    "runtimeConfig": runtime_config,
-                    "capabilities": capabilities or [],
-                    "registeredAt": now,
-                    "blockedByRunId": active_run.get("runId") or "",
-                }
-                existing_state["pendingResidentTakeover"] = pending_payload
-                await db.execute(
-                    """
-                    UPDATE agents
-                    SET runtime_state = ?,
-                        status_note = ?,
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
+            existing_state_dict = _json_loads_or(row["runtime_state"], {})
+            existing_state_dict.pop("pendingResidentTakeover", None)
+            existing_state_dict["manualResidentCandidate"] = {
+                "bridgeId": bridge_id,
+                "machineId": req.machineId or "",
+                "runtime": normalized_runtime,
+                "sessionHandle": session_handle,
+                "runtimeConfig": runtime_config,
+                "capabilities": capabilities or [],
+                "cwd": resolved_cwd,
+                "launchMode": req.launchMode or "detached",
+                "registeredAt": now,
+            }
+            await db.execute(
+                """
+                UPDATE agents
+                SET runtime_state = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(existing_state_dict),
                     (
-                        json.dumps(existing_state),
-                        f"Resident CLI registered and will take ownership after active run {active_run.get('runId') or ''} finishes.",
-                        now,
-                        req.agentId,
+                        f"Resident CLI registered, but agent remains managed. Use Switch to resident when ready."
+                        + (f" Active run {active_run.get('runId') or ''} is still running." if active_run else "")
                     ),
+                    now,
+                    req.agentId,
+                ),
+            )
+            if bridge_id:
+                await _record_bridge_registration(
+                    db,
+                    bridge_id=bridge_id,
+                    agent_id=req.agentId,
+                    machine_id=req.machineId or "",
+                    runtime=normalized_runtime,
+                    session_mode="resident",
+                    session_handle=session_handle,
+                    now=now,
                 )
-                if bridge_id:
-                    await _record_bridge_registration(
-                        db,
-                        bridge_id=bridge_id,
-                        agent_id=req.agentId,
-                        machine_id=req.machineId or "",
-                        runtime=normalized_runtime,
-                        session_mode="resident",
-                        session_handle=session_handle,
-                        now=now,
-                    )
-                await db.commit()
-                ws = await _get_ws(request)
-                if ws:
-                    await ws.broadcast("agent_registered", {
-                        "agentId": req.agentId,
-                        "role": req.role,
-                        "runtime": normalized_runtime,
-                        "machineId": req.machineId or "",
-                        "sessionMode": "managed",
-                        "pendingSessionMode": "resident",
-                    })
-                return {
-                    "ok": True,
+            await db.commit()
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_registered", {
                     "agentId": req.agentId,
                     "role": req.role,
-                    "status": row["status"] or "active",
                     "runtime": normalized_runtime,
                     "machineId": req.machineId or "",
-                    "bridgeId": bridge_id,
                     "sessionMode": "managed",
-                    "ownershipTransition": "pending_resident_takeover",
-                    "blockedByRun": active_run,
-                }
-            pending_resident_takeover = True
+                    "residentBridgeId": bridge_id,
+                })
+            return {
+                "ok": True,
+                "agentId": req.agentId,
+                "role": req.role,
+                "status": row["status"] or "active",
+                "runtime": normalized_runtime,
+                "machineId": req.machineId or "",
+                "bridgeId": bridge_id,
+                "sessionMode": "managed",
+                "ownershipTransition": "manual_switch_required",
+                "blockedByRun": active_run,
+            }
         await db.execute(
             """
             INSERT INTO agents (
@@ -8923,23 +8867,8 @@ async def register_agent(req: AgentRegister, request: Request):
                 runtime=normalized_runtime,
                 session_mode=normalized_session_mode,
                 session_handle=session_handle,
+                managed_wrapper_child=managed_wrapper_child,
                 now=now,
-            )
-        if pending_resident_takeover:
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
-                    ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
-                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                    last_seen = ?
-                WHERE agent_id = ?
-                """,
-                (now, session_handle, session_handle, now, req.agentId),
-            )
-            await db.execute(
-                "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
-                (req.agentId,),
             )
         # Universal rule: when a *-aify wrapper registers an agent as
         # resident, the operator's real terminal owns it. ANY managed
@@ -9661,6 +9590,22 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
 
         current_mode = _normalize_session_mode(row["session_mode"] or "resident")
         runtime = _normalize_runtime(row["runtime"] or "generic")
+        current_runtime_state = _json_loads_or(row["runtime_state"], {})
+        resident_candidate = current_runtime_state.get("manualResidentCandidate")
+        if not isinstance(resident_candidate, dict):
+            resident_candidate = {}
+        row_runtime_config = _json_loads_or(row["runtime_config"], {})
+        candidate_runtime_config = resident_candidate.get("runtimeConfig") if isinstance(resident_candidate.get("runtimeConfig"), dict) else {}
+        switch_runtime_config = (
+            {**row_runtime_config, **candidate_runtime_config}
+            if new_mode == "resident" and candidate_runtime_config
+            else row_runtime_config
+        )
+        switch_session_handle = str(
+            (resident_candidate.get("sessionHandle") if new_mode == "resident" else "")
+            or row["session_handle"]
+            or ""
+        ).strip()
 
         if current_mode == new_mode:
             return {
@@ -9679,8 +9624,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
                 )
             if new_mode == "resident" and runtime == "hermes":
-                rc = _json_loads_or(row["runtime_config"], {})
-                if not str(rc.get("gatewayUrl") or "").strip():
+                if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
                     raise HTTPException(
                         409,
                         "Hermes resident requires runtimeConfig.gatewayUrl. Re-launch hermes-aify (which exports AIFY_HERMES_GATEWAY_URL) and re-register, or pass force=true.",
@@ -9688,9 +9632,69 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
 
         now = _now()
         requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        runtime_config = switch_runtime_config
+        runtime_state = dict(current_runtime_state)
+        runtime_state.pop("pendingResidentTakeover", None)
+        if new_mode == "resident":
+            if resident_candidate.get("bridgeId"):
+                runtime_state["bridgeInstanceId"] = str(resident_candidate.get("bridgeId") or "")
+            if resident_candidate:
+                runtime_state["manualResidentCandidate"] = resident_candidate
+        else:
+            runtime_state.pop("manualResidentCandidate", None)
+        runtime_state["ownership"] = {
+            "mode": new_mode,
+            "previousMode": current_mode,
+            "reason": "manual_session_mode_switch",
+            "requestedBy": requested_by,
+            "at": now,
+        }
+        next_launch_mode = "managed" if new_mode == "managed" else "detached"
+        capabilities = _default_capabilities_for(
+            runtime,
+            new_mode,
+            switch_session_handle,
+            runtime_config,
+        )
+        next_machine_id = (
+            str(resident_candidate.get("machineId") or row["machine_id"] or "")
+            if new_mode == "resident"
+            else str(row["machine_id"] or "")
+        )
+        next_cwd = (
+            str(resident_candidate.get("cwd") or row["cwd"] or "")
+            if new_mode == "resident"
+            else str(row["cwd"] or "")
+        )
         await db.execute(
-            "UPDATE agents SET session_mode = ?, last_seen = ? WHERE id = ?",
-            (new_mode, now, agent_id),
+            """
+            UPDATE agents
+            SET session_mode = ?,
+                launch_mode = ?,
+                session_handle = ?,
+                machine_id = ?,
+                cwd = ?,
+                capabilities = ?,
+                runtime_config = ?,
+                runtime_state = ?,
+                status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                new_mode,
+                next_launch_mode,
+                switch_session_handle,
+                next_machine_id,
+                next_cwd,
+                json.dumps(capabilities),
+                json.dumps(runtime_config),
+                json.dumps(runtime_state),
+                f"Manually switched from {current_mode} to {new_mode} by {requested_by}.",
+                now,
+                agent_id,
+            ),
         )
         # C1 audit log — `dispatch_events.run_id` is a NOT NULL FK to
         # `dispatch_runs(id)`, so we can't attach an agent-level event with
@@ -9856,31 +9860,24 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
         # the dashboard Console-reattach then looks up a stale pointer.
         # Bridges that genuinely need to clear these should send
         # explicit null (handled below).
-        SERVICE_MANAGED_RUNTIME_STATE_KEYS = ("virtualTerminal", "virtualTerminalId")
+        SERVICE_MANAGED_RUNTIME_STATE_KEYS = ("virtualTerminal", "virtualTerminalId", "manualResidentCandidate")
         for key in SERVICE_MANAGED_RUNTIME_STATE_KEYS:
             if key not in next_state and key in current_state:
                 next_state[key] = current_state[key]
             elif next_state.get(key) is None and key in next_state:
                 # Caller explicitly passed null → honor the clear.
                 next_state.pop(key, None)
-        pending = current_state.get("pendingResidentTakeover")
-        if (
-            _normalize_session_mode(current["session_mode"] or "resident") == "managed"
-            and isinstance(pending, dict)
-            and str(next_state.get("bridgeInstanceId") or "").strip() == str(pending.get("bridgeId") or "").strip()
-        ):
-            # A pending resident bridge is allowed to heartbeat while a managed
-            # turn owns the agent, but it must not overwrite the current
-            # managed bridge identity until the pending takeover is applied at
-            # the turn boundary.
-            managed_bridge_id = str(current_state.get("bridgeInstanceId") or "").strip()
-            if managed_bridge_id:
-                next_state["bridgeInstanceId"] = managed_bridge_id
-            else:
-                next_state.pop("bridgeInstanceId", None)
-            if current_state.get("environmentId"):
-                next_state["environmentId"] = current_state["environmentId"]
-            next_state["pendingResidentTakeover"] = pending
+        if _normalize_session_mode(current["session_mode"] or "resident") == "managed":
+            current_bridge = str(current_state.get("bridgeInstanceId") or "").strip()
+            next_bridge = str(next_state.get("bridgeInstanceId") or "").strip()
+            if current_bridge and next_bridge and current_bridge != next_bridge:
+                next_state["bridgeInstanceId"] = current_bridge
+                if current_state.get("environmentId"):
+                    next_state["environmentId"] = current_state.get("environmentId")
+        # Automatic resident takeover is disabled. A resident bridge heartbeat
+        # must not stash or preserve pending takeover state; operators flip
+        # ownership explicitly with PATCH /agents/{id}/session-mode.
+        next_state.pop("pendingResidentTakeover", None)
         reported_handle = _runtime_handle_from_state(current["runtime"], next_state)
         if reported_handle:
             capabilities = _default_capabilities_for(
@@ -11163,7 +11160,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     # Plan 5 follow-up (2026-05-26): the PTY-input
                     # (console_recipients) downgrade below MUST only fire
                     # for execution_mode='managed'. When the helper returns
-                    # 'channel' for wrapper-backed codex/hermes/pi, leave
+                    # 'channel' for wrapper-backed codex/hermes, leave
                     # the run as channel-mode so the symmetric channel-claim
                     # path (Plan 5 Section B) picks it up. Falling through
                     # to console_recipients would route the message via raw
@@ -11447,13 +11444,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         #
         # The bridge-side gate (ACTIVE_RUNS in server.js) prevents a live
         # bridge from calling /dispatch/claim while it has work in flight.
-        # Therefore: if this bridge IS calling claim, it has no local active
-        # run. Any DB-level "active" row for this agent is either:
-        #   (a) owned by THIS bridge (same bridgeId) — a bridge-side bug;
-        #       return blockedBy as a safety net.
-        #   (b) owned by a DIFFERENT bridge (or unowned) — stale by
-        #       definition, because the owning bridge would not be polling
-        #       if it were alive and busy. Clean it up and proceed.
+        # That only proves the *polling* bridge is idle. Wrapper-backed
+        # managed agents have two bridge identities in play: the environment
+        # bridge keeps polling, while the wrapper-child bridge owns the
+        # active turn. Treat a different owner as stale only after the owner
+        # bridge itself stops heartbeating or is superseded.
         active_state = await _get_dispatch_state_for_agent(db, req.agentId)
         active_run = active_state.get("activeRun")
         if active_run:
@@ -11461,6 +11456,39 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             if owner and owner == req.bridgeId:
                 await db.commit()
                 return {"ok": True, "run": None, "blockedBy": active_run}
+            if owner:
+                owner_cursor = await db.execute(
+                    """
+                    SELECT last_seen, superseded_by, bridge_kind
+                    FROM bridge_instances
+                    WHERE id = ? AND agent_id = ?
+                    """,
+                    (owner, req.agentId),
+                )
+                owner_bridge = await owner_cursor.fetchone()
+                owner_superseded_by = str((owner_bridge["superseded_by"] if owner_bridge else "") or "").strip()
+                owner_last_seen = _iso_to_epoch(str((owner_bridge["last_seen"] if owner_bridge else "") or ""))
+                owner_heartbeat_age = time.time() - owner_last_seen if owner_last_seen else None
+                if (
+                    owner_bridge
+                    and not owner_superseded_by
+                    and owner_heartbeat_age is not None
+                    and owner_heartbeat_age < ACTIVE_RUN_BRIDGE_STALE_SECONDS
+                ):
+                    await db.commit()
+                    return {
+                        "ok": True,
+                        "run": None,
+                        "blockedBy": {
+                            **active_run,
+                            "reason": "active_run_owner_bridge_still_heartbeating",
+                            "ownerBridgeId": owner,
+                            "ownerBridgeKind": str(owner_bridge["bridge_kind"] or ""),
+                            "currentBridgeId": req.bridgeId or "",
+                            "retryAfterSeconds": max(1, int(ACTIVE_RUN_BRIDGE_STALE_SECONDS - owner_heartbeat_age)),
+                            "hint": "The active run owner bridge is still heartbeating; waiting avoids killing a live wrapper-managed turn.",
+                        },
+                    }
             active_since = _iso_to_epoch(active_run.get("startedAt") or active_run.get("requestedAt"))
             if owner:
                 stale_seconds = ACTIVE_RUN_BRIDGE_STALE_SECONDS
@@ -11509,7 +11537,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         owner_session = await owner_cursor.fetchone()
         supported_modes = {str(mode or "").strip().lower() for mode in (req.executionModes or []) if str(mode or "").strip()}
         # Plan 5 (2026-05-25): widened from _CHANNEL_MANAGED_RUNTIMES to
-        # _CHANNEL_CLAIM_RUNTIMES so codex/hermes/pi bridges polling with
+        # _CHANNEL_CLAIM_RUNTIMES so codex/hermes bridges polling with
         # executionModes=['channel'] (for their wrapper-backed managed runs)
         # are allowed to claim. See _CHANNEL_CLAIM_RUNTIMES docstring.
         channel_claim = agent_runtime in _CHANNEL_CLAIM_RUNTIMES and "channel" in supported_modes
