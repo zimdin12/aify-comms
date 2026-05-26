@@ -207,22 +207,19 @@ test("resident hermes falls back to session.steer when prompt.submit returns 400
   assert.ok(steerEvents.length >= 1, "expected at least one steer-related onEvent emission");
 });
 
-test("resident hermes resumes the persisted session_key into a fresh in-memory sid before prompt.submit (Plan 6 follow-up)", async (t) => {
-  // Plan 6 follow-up (2026-05-26): the tui_gateway has sid/session_key
-  // duality. prompt.submit looks up in-memory `_sessions[sid]` only,
-  // never by persisted session_key. External WS clients (us) can't see
-  // the operator's TUI sid. session.resume(persisted_key) returns a
-  // fresh in-memory sid bound to OUR ws — that sid is then legal for
-  // prompt.submit. Observed live 2026-05-26 with sc-hermes-test-1 and
-  // hermes-test: prompt.submit on session_key (or any list-derived id)
-  // failed with 4001 "session not found".
+test("resident hermes binds to the visible TUI session instead of resuming a hidden sid", async (t) => {
+  // Harness console contract: resident delivery must wake the session the
+  // operator is watching. The bridge asks the patched Hermes gateway to bind
+  // its WS as a mirror on the active TUI sid, then submits to that sid. It
+  // must not call session.resume/session.create because those fork hidden
+  // in-memory sessions that never render in the open terminal.
   const { url, token } = await startFake(t);
   const wsUrl = attachUrl(url, token);
 
   const { launchRuntimeRun } = await import("../runtimes.js");
   let capturedSessionId = "";
   let capturedSessionKey = "";
-  let resumeEvent = "";
+  let bindEvent = "";
   const controller = launchRuntimeRun({
     agentId: "hermes-resident-handle",
     agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
@@ -231,7 +228,7 @@ test("resident hermes resumes the persisted session_key into a fresh in-memory s
     callbacks: {
       onEvent: (kind, msg) => {
         const s = String(msg || "");
-        if (/session\.resume on .* -> sid /.test(s) || /session id corrected/.test(s)) resumeEvent = s;
+        if (/visible session bound/.test(s)) bindEvent = s;
       },
       onRefs: (refs) => {
         if (refs?.sessionId) capturedSessionId = refs.sessionId;
@@ -242,11 +239,29 @@ test("resident hermes resumes the persisted session_key into a fresh in-memory s
 
   const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
   assert.ok(!result.failed, `expected hermes dispatch to succeed: ${result.error || ""}`);
-  assert.match(capturedSessionId, /^mem-/, "controller should adopt the fresh in-memory sid returned by session.resume");
+  assert.equal(capturedSessionId, "live-sid-001", "controller should submit to the active visible TUI sid");
   assert.equal(capturedSessionKey, "operator-sid-42", "registered sessionHandle must win over gateway session.list");
   assert.equal(result.runtimeState?.sessionId, "operator-sid-42", "durable runtimeState.sessionId must remain the persisted Hermes session key");
-  assert.match(result.runtimeState?.gatewaySessionId || "", /^mem-/, "short gateway sid should be stored separately from the durable session key");
-  assert.match(resumeEvent, /session\.resume on operator-sid-42/, "controller should announce the resume via onEvent");
+  assert.equal(result.runtimeState?.gatewaySessionId, "live-sid-001", "short gateway sid should be stored separately from the durable session key");
+  assert.match(bindEvent, /visible session bound: operator-sid-42 -> live-sid-001/, "controller should announce visible-session binding");
+});
+
+test("resident hermes fails visibly when the gateway lacks visible-session binding", async (t) => {
+  const { url, token } = await startFake(t, { script: "no_visible_bind" });
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-no-bind",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
+    run: makeRun({ id: "run_h_no_bind" }),
+    runtimeState: {},
+    callbacks: { onEvent: () => {}, onRefs: () => {} },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.equal(result.failed, true, "expected old Hermes gateway to fail instead of forking a hidden session");
+  assert.match(result.error || "", /visible-session binding/i);
 });
 
 test("resident hermes rejects connection when token is wrong", async (t) => {

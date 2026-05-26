@@ -62,6 +62,20 @@ export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
   };
 }
 
+// aify-comms Hermes gateway extension installed by `install.sh --client hermes`.
+// It finds the active visible TUI sid for a durable Hermes session key and
+// mirrors this bridge WS onto that session's transport. After this succeeds,
+// prompt.submit/session.steer against the returned sid renders in the open
+// Hermes TUI and still streams back to the aify bridge for run accounting.
+export function buildAifySessionBindTransportFrame({ id, sessionKey }) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "aify.session.bind_transport",
+    params: { session_id: String(sessionKey || "") },
+  };
+}
+
 // Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
 // because the persisted key has been GC'd (or never existed), session.create
 // allocates a BRAND NEW session in hermes' DB + in-memory _sessions. Always

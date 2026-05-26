@@ -868,6 +868,106 @@ prebuild_hermes_web_dist() {
   echo "[install.sh] hermes web_dist prebuilt at $web_dist" >&2
 }
 
+patch_hermes_gateway_visible_bind() {
+  local hermes_install_root="${AIFY_HERMES_INSTALL_ROOT:-}"
+  if [ -z "$hermes_install_root" ]; then
+    local hermes_bin=""
+    hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+    if [ -n "$hermes_bin" ]; then
+      local cfg_path
+      cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+      if [ -n "$cfg_path" ]; then
+        hermes_install_root="${cfg_path%%/hermes_cli/*}"
+      fi
+    fi
+  fi
+  if [ -z "$hermes_install_root" ] || [ ! -d "$hermes_install_root" ]; then
+    echo "[install.sh] hermes install root not found; skipping visible-session gateway patch" >&2
+    return 0
+  fi
+  local server_py="$hermes_install_root/tui_gateway/server.py"
+  if [ ! -f "$server_py" ]; then
+    echo "[install.sh] hermes tui_gateway/server.py not found at $server_py; skipping visible-session gateway patch" >&2
+    return 0
+  fi
+  node - "$server_py" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+let text = fs.readFileSync(file, "utf8");
+let changed = false;
+
+if (!text.includes("aify.session.bind_transport")) {
+  const importNeedle = "    StdioTransport,\n    Transport,\n";
+  if (text.includes(importNeedle) && !text.includes("    TeeTransport,\n")) {
+    text = text.replace(importNeedle, "    StdioTransport,\n    TeeTransport,\n    Transport,\n");
+    changed = true;
+  }
+
+  const sectionNeedle = "# ── Methods: session ";
+  const idx = text.indexOf(sectionNeedle);
+  if (idx < 0) {
+    console.error("[install.sh] could not locate Hermes session method section");
+    process.exit(0);
+  }
+  const patch = String.raw`
+@method("aify.session.bind_transport")
+def _(rid, params: dict) -> dict:
+    """Bind current WS as a mirror for an already-visible TUI session.
+
+    aify-comms resident delivery must target the console the operator is
+    watching. session.resume/session.create allocate hidden in-memory sessions,
+    so the bridge asks for the active sid matching a durable session_key and
+    tees the bridge transport into that visible session before prompt.submit.
+    """
+    target = str(params.get("session_id") or params.get("session_key") or "").strip()
+    if not target:
+        return _err(rid, 4006, "session_id required")
+    try:
+        snapshot = list(_sessions.items())
+    except Exception as e:
+        return _err(rid, 5000, f"could not enumerate active sessions: {e}")
+
+    found_sid = ""
+    found_session = None
+    for sid, session in snapshot:
+        if sid == target or str(session.get("session_key") or "") == target:
+            found_sid = sid
+            found_session = session
+            break
+    if not found_sid or found_session is None:
+        return _err(rid, 4010, "visible session not found")
+
+    bridge_transport = current_transport()
+    primary = found_session.get("transport") or _stdio_transport
+    if bridge_transport is not None and bridge_transport is not primary:
+        found_session["transport"] = TeeTransport(primary, bridge_transport)
+
+    return _ok(
+        rid,
+        {
+            "session_id": found_sid,
+            "session_key": found_session.get("session_key") or "",
+            "mirrored": bridge_transport is not None,
+            "running": bool(found_session.get("running")),
+        },
+    )
+
+
+`;
+  text = text.slice(0, idx) + patch + text.slice(idx);
+  changed = true;
+}
+
+if (changed) {
+  fs.copyFileSync(file, `${file}.aify-bak`);
+  fs.writeFileSync(file, text);
+  console.error(`[install.sh] patched Hermes visible-session bind in ${file}`);
+} else {
+  console.error(`[install.sh] Hermes visible-session bind already present in ${file}`);
+}
+NODE
+}
+
 install_hermes_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/hermes-aify"
@@ -1087,6 +1187,8 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   LOG_ROOT="\${XDG_STATE_HOME:-\$HOME/.local/state}/aify-comms"
   mkdir -p "\$LOG_ROOT"
   AIFY_HERMES_DASHBOARD_LOG="\$LOG_ROOT/hermes-aify-dashboard-\$AIFY_HERMES_PORT.log"
+  AIFY_HERMES_ACTIVE_SESSION_FILE="\$LOG_ROOT/hermes-aify-active-session-\$AIFY_HERMES_PORT.json"
+  rm -f "\$AIFY_HERMES_ACTIVE_SESSION_FILE" 2>/dev/null || true
 
   if command -v setsid >/dev/null 2>&1; then
     setsid "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
@@ -1127,6 +1229,8 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   export HERMES_TUI_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
   export AIFY_HERMES_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
   export AIFY_HERMES_GATEWAY_TOKEN="\$AIFY_HERMES_TOKEN"
+  export HERMES_TUI_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
+  export AIFY_HERMES_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
 
   # Plan 6 B1 (2026-05-26): rediscover the real hermes session id from the
   # gateway's session.most_recent RPC. Overwrites HERMES_SESSION_ID /
@@ -2319,6 +2423,7 @@ elif [ "$CLIENT" = "codex" ]; then
   # version doesn't recognize the events yet.
   install_codex_turn_hooks
 elif [ "$CLIENT" = "hermes" ]; then
+  patch_hermes_gateway_visible_bind
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because

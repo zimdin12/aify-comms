@@ -3,11 +3,10 @@
 // /api/ws.
 //
 // The bridge connects a SECOND WebSocket to the local hermes dashboard gateway
-// (the first WS belongs to the operator's `hermes chat --tui` Ink TUI) and
-// injects prompt.submit (idle session) or session.steer (mid-run, when
-// prompt.submit returns 4009). TeeTransport in tui_gateway/transport.py mirrors
-// dispatcher events to all attached clients — operator sees the bridge-injected
-// turn + model reply in their live terminal TUI.
+// (the first WS belongs to the operator's `hermes chat --tui` Ink TUI). It must
+// bind that bridge transport onto the active visible TUI session before
+// prompt.submit/session.steer. Calling session.resume/session.create here forks
+// hidden in-memory sessions that do not render in the operator console.
 //
 // File budget per 500-line rule: <=400 lines.
 
@@ -229,24 +228,12 @@ export class HermesResidentController extends BaseController {
       this.markReady();
 
       try {
-        // Plan 6 follow-up (2026-05-26): hermes tui_gateway has a sid /
-        // session_key duality. `prompt.submit` looks up in-memory
-        // `_sessions[sid]` (short uuid bound to ONE transport). External
-        // WS clients (us) can't see the operator's TUI sid. `session.list`
-        // and `session.most_recent` return persisted session_keys, NOT
-        // active sids — so prompt.submit on those fails with 4001.
-        //
-        // Recipe (see tui_gateway/server.py:2386 session.resume):
-        //   1. Resolve a session_key (registered handle → gateway live list
-        //      → session.most_recent).
-        //   2. Call session.resume(session_id=<key>) → gateway loads the
-        //      persisted session into a NEW in-memory sid bound to OUR ws.
-        //   3. prompt.submit(session_id=<new sid>) is now legal.
-        //
-        // The operator's TUI keeps its own sid; both write to the same DB
-        // session_key. For aify-comms purposes (one-shot dispatch +
-        // streamed reply) this is sufficient — the bridge captures the
-        // reply, completes the run, and posts the response to comms chat.
+        // Hermes has a durable session_key / short active-sid split.
+        // session.list and session.most_recent return durable keys; the TUI
+        // renders events only for its active sid. The aify extension installed
+        // into tui_gateway resolves the durable key to the already-visible sid
+        // and tees this bridge transport into that session. If the extension is
+        // unavailable, fail visibly instead of resuming/creating a hidden sid.
         sessionKey = resolvedSessionId; // may be the registered handle
         if (!sessionKey) {
           const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
@@ -260,44 +247,18 @@ export class HermesResidentController extends BaseController {
           throw new Error("Hermes gateway has no resolvable session — operator should open hermes chat first");
         }
 
-        // Resume the persisted session_key into a fresh in-memory sid bound
-        // to THIS ws. session.resume returns { session_id: <new sid>,
-        // resumed: <session_key>, ... } per tui_gateway/server.py:2418.
-        //
-        // Fallback: session.create when resume fails (operator's session_key
-        // is stale OR never existed). Always succeeds, creating a fresh
-        // session in hermes' DB. We then submit to its sid.
-        let newSid = "";
-        let resumeError = null;
+        let visibleSid = "";
         try {
-          const resumed = await sendRpc(proto.buildSessionResumeFrame({ sessionKey }));
-          newSid = String(resumed?.session_id || resumed?.sessionId || "").trim();
+          const bound = await sendRpc(proto.buildAifySessionBindTransportFrame({ sessionKey }));
+          visibleSid = String(bound?.session_id || bound?.sessionId || "").trim();
         } catch (err) {
-          resumeError = err;
+          throw new Error(`Hermes visible-session binding failed for ${sessionKey}: ${err?.message || JSON.stringify(err)}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
         }
-        if (!newSid) {
-          // session.resume failed (stale key, GC'd, etc) — create a fresh
-          // session so prompt.submit ALWAYS has a valid sid to target.
-          const cwd = String(agentInfo?.cwd || "").trim();
-          try {
-            const created = await sendRpc(proto.buildSessionCreateFrame({ cwd }));
-            newSid = String(created?.session_id || created?.sessionId || "").trim();
-            const reason = resumeError ? (resumeError?.message || JSON.stringify(resumeError)) : "no session_id in resume response";
-            callbacks.onEvent?.("hermes", `session.resume failed (${reason.slice(0,80)}); fell back to session.create -> sid ${newSid}`);
-          } catch (createErr) {
-            throw new Error(`Hermes session.resume(${sessionKey}) AND session.create both failed; resume: ${resumeError?.message || resumeError || 'no sid'}; create: ${createErr?.message || createErr}`);
-          }
-        } else {
-          if (resolvedSessionId && resolvedSessionId !== newSid) {
-            callbacks.onEvent?.("hermes", `session id corrected: '${resolvedSessionId}' -> '${newSid}' (session.resume on ${sessionKey})`);
-          } else {
-            callbacks.onEvent?.("hermes", `session.resume on ${sessionKey} -> sid ${newSid}`);
-          }
+        if (!visibleSid) {
+          throw new Error(`Hermes visible-session binding returned no active sid for ${sessionKey}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
         }
-        if (!newSid) {
-          throw new Error("Hermes: no sid obtained from session.resume or session.create");
-        }
-        resolvedSessionId = newSid;
+        resolvedSessionId = visibleSid;
+        callbacks.onEvent?.("hermes", `visible session bound: ${sessionKey} -> ${visibleSid}`);
         try { callbacks.onRefs?.({ sessionId: resolvedSessionId, sessionKey }); } catch {}
 
         const body = String(run?.body || "").trim();
@@ -325,27 +286,13 @@ export class HermesResidentController extends BaseController {
           // 'message' handler closes the promise after streaming completes.
         } catch (err) {
           // Plan 6 follow-up: if prompt.submit still fails with 4001 even
-          // after our session.resume above (e.g. the freshly-allocated sid
-          // got reaped between resume and submit, or the gateway returned
-          // a sid bound to a different transport), do a single re-resume
-          // and retry.
+          // after visible binding, fail visibly. Falling back to
+          // session.resume/session.create would fork a hidden session and
+          // break harness-console delivery.
           if (proto.isSessionNotFoundError(err)) {
-            try {
-              const reresumeList = sessionKey ? null : await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
-              const reresumeKey = sessionKey || proto.pickFreshestSessionFromList(reresumeList);
-              const retried = await sendRpc(proto.buildSessionResumeFrame({ sessionKey: reresumeKey }));
-              const retriedSid = String(retried?.session_id || retried?.sessionId || "").trim();
-              if (!retriedSid) throw new Error("session.resume retry returned no sid");
-              callbacks.onEvent?.("hermes", `prompt.submit session_not_found; re-resumed ${reresumeKey} -> sid ${retriedSid} and retrying`);
-              resolvedSessionId = retriedSid;
-              try { callbacks.onRefs?.({ sessionId: resolvedSessionId, sessionKey: reresumeKey }); } catch {}
-              await submitOnce(resolvedSessionId);
-              // Retry succeeded — fall through to wait for streaming end.
-            } catch (retryErr) {
-              clearTimeout(overallTimer);
-              settle("reject", new Error(`Hermes prompt.submit failed after re-resume: ${retryErr?.message || JSON.stringify(retryErr)}`));
-              return;
-            }
+            clearTimeout(overallTimer);
+            settle("reject", new Error(`Hermes visible session ${resolvedSessionId} disappeared before prompt.submit; restart hermes-aify and re-register. Refusing hidden session fallback.`));
+            return;
           } else if (proto.isSessionBusyError(err)) {
             callbacks.onEvent?.("hermes", `prompt.submit busy; session.steer on ${resolvedSessionId}`);
             await sendRpc(proto.buildSessionSteerFrame({ sessionId: resolvedSessionId, text: wireText }));

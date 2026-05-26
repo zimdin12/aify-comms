@@ -23,7 +23,7 @@ Managed Hermes defaults to the wrapper-backed path (`managed_via_wrapper=["codex
 
 If wrapper-backed delivery is disabled, the bridge can fall back to native Hermes controllers: a persistent ACP JSON-RPC child or gateway controller, with synthesized terminal output for dashboard visibility. The gateway path gives multi-client visibility; the ACP path is single-client and mirrors `session/update` notifications into a virtual terminal.
 
-Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. For dispatched work, the bridge resumes the durable Hermes session key into its own short gateway sid and uses `prompt.submit` / `session.steer`; delivery evidence is the aify-comms run/chat output, not whether the operator's original TUI redraws the injected turn.
+Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. Current installs patch Hermes with `aify.session.bind_transport`; dispatched work binds the bridge transport to the active visible TUI sid and uses `prompt.submit` / `session.steer` there. Dispatch must render in the open `hermes-aify` console; missing bind support fails visibly instead of forking a hidden resumed session.
 
 ## Install Hermes
 
@@ -112,7 +112,7 @@ In the dashboard:
 4. Pick a workspace under that bridge's roots.
 5. Send a normal chat message.
 
-Managed dispatch normally starts or reuses the bridge-owned `hermes-aify` wrapper PTY. The wrapper's child bridge submits dashboard prompts through the local Hermes gateway (`session.resume` plus `prompt.submit` / `session.steer`), and dashboard Console renders the wrapper PTY plus dispatched-run synth frames. Native controller fallback may use synthesized `aify://virtual-rpc/hermes` output when wrapper mode is disabled or unavailable.
+Managed dispatch normally starts or reuses the bridge-owned `hermes-aify` wrapper PTY. The wrapper's child bridge submits dashboard prompts through the local Hermes gateway (`aify.session.bind_transport` plus `prompt.submit` / `session.steer`), and dashboard Console renders the wrapper PTY plus dispatched-run synth frames. Native controller fallback may use synthesized `aify://virtual-rpc/hermes` output when wrapper mode is disabled or unavailable.
 
 ## Resident Hermes
 

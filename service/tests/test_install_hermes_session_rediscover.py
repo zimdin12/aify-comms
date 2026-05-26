@@ -77,3 +77,19 @@ def test_hermes_wrapper_rediscover_is_non_fatal():
         "Plan 6 B1: rediscover must be optional — wrapper must gate on "
         "non-empty result, not abort on failure"
     )
+
+
+def test_hermes_installer_patches_visible_session_bind():
+    """Hermes resident delivery must bind to the open TUI session, not resume
+    a hidden sid."""
+    text = _read_install_sh()
+    assert "patch_hermes_gateway_visible_bind" in text
+    assert "aify.session.bind_transport" in text
+    assert "TeeTransport(primary, bridge_transport)" in text
+
+
+def test_hermes_wrapper_exports_active_session_file():
+    """The TUI active-session file lets the bridge repair stale parent env."""
+    text = _read_install_sh()
+    assert "HERMES_TUI_ACTIVE_SESSION_FILE" in text
+    assert "AIFY_HERMES_ACTIVE_SESSION_FILE" in text

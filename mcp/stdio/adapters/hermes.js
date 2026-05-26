@@ -36,6 +36,13 @@ export class HermesAdapter extends RuntimeAdapter {
   // JSON-RPC first (when AIFY_HERMES_GATEWAY_URL is set + ws:/wss:), then fall back
   // to a filesystem scan of ~/.hermes/sessions/ for the newest file.
   async discoverSessionId() {
+    // The visible TUI writes this file after its real session create/resume.
+    // Prefer it over parent-shell env, which can be stale before the TUI has
+    // actually attached. The value may be a durable key (resume) or active sid
+    // (new session); the resident controller's visible bind accepts both.
+    const activeFileSession = await this._readActiveSessionFile();
+    if (activeFileSession) return activeFileSession;
+
     // `session.resume` returns a short in-memory gateway sid for the bridge's
     // WebSocket. That sid is not a durable Hermes session key, so never let
     // gateway discovery overwrite the wrapper's real HERMES_SESSION_ID.
@@ -47,6 +54,22 @@ export class HermesAdapter extends RuntimeAdapter {
       if (id) return id;
     }
     return this._scanHermesSessionsDir();
+  }
+
+  async _readActiveSessionFile() {
+    const file = String(process.env.AIFY_HERMES_ACTIVE_SESSION_FILE || "").trim();
+    if (!file) return null;
+    let raw = "";
+    try { raw = await fs.readFile(file, "utf8"); }
+    catch { return null; }
+    try {
+      const parsed = JSON.parse(raw);
+      const id = parsed?.session_id || parsed?.sessionId || parsed?.id;
+      return typeof id === "string" && id.trim() ? id.trim() : null;
+    } catch {
+      const id = raw.trim();
+      return id ? id : null;
+    }
   }
 
   async _queryGatewayMostRecent(gatewayUrl) {

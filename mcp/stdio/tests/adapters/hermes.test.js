@@ -1,5 +1,8 @@
 import assert from "assert";
 import test from "node:test";
+import os from "node:os";
+import path from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../../adapters/hermes.js";
 
 test("HermesAdapter identity", () => {
@@ -39,6 +42,26 @@ test("HermesAdapter.discoverSessionId prefers durable env session over gateway s
     else process.env.HERMES_SESSION_ID = previousSessionId;
     if (previousGatewayUrl === undefined) delete process.env.AIFY_HERMES_GATEWAY_URL;
     else process.env.AIFY_HERMES_GATEWAY_URL = previousGatewayUrl;
+  }
+});
+
+test("HermesAdapter.discoverSessionId prefers TUI active-session file over stale env", async () => {
+  const previousSessionId = process.env.HERMES_SESSION_ID;
+  const previousActiveFile = process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
+  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-active-"));
+  const file = path.join(dir, "active.json");
+  try {
+    process.env.HERMES_SESSION_ID = "stale-parent-shell-session";
+    process.env.AIFY_HERMES_ACTIVE_SESSION_FILE = file;
+    writeFileSync(file, JSON.stringify({ session_id: "visible-live-sid" }));
+    const a = new HermesAdapter();
+    assert.strictEqual(await a.discoverSessionId(), "visible-live-sid");
+  } finally {
+    if (previousSessionId === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = previousSessionId;
+    if (previousActiveFile === undefined) delete process.env.AIFY_HERMES_ACTIVE_SESSION_FILE;
+    else process.env.AIFY_HERMES_ACTIVE_SESSION_FILE = previousActiveFile;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

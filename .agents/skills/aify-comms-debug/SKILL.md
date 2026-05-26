@@ -767,6 +767,14 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Fix.** Rebuild the container so `_enforce_live_worker_gate` (added at `api_v2.py:352` in commits `b58142e` + `f38f57d`) is loaded. On the next `GET /api/v1/agents` or `/agents/{id}` read, the gate validates the live worker and downgrades to `available`; a cache writeback ensures subsequent reads stay consistent. No manual DB patch is needed once Plan 5 is in.
 
+## Hermes dispatch completes but open console does not move
+
+**Symptom.** `hermes` resident or wrapper-backed runs show `prompt.submit` and may even complete in aify-comms, but the open `hermes-aify` terminal does not show the incoming message or reply. Older events may mention `session.resume`, `session.create`, `session id corrected`, or short `mem-*` gateway ids.
+
+**Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
+
+**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport`. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`. If the bind method is missing, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
+
 ## Stale session handle causing prompt.submit failures (Plan 6 A)
 
 **Symptom.** Dispatch fails at delivery time with `prompt.submit failed: session not found` (hermes) or analogous "session not found" / GC'd-rollout warnings on codex / pi / claude. Bridges look alive, heartbeating, and the dispatch row reports `delivered` — but the runtime rejects the handle. `agents.session_handle` matches a session that no longer exists in the runtime.

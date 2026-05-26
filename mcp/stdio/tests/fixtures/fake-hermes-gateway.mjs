@@ -11,12 +11,14 @@
 //   - echo_prompt     : message.complete contains the submitted prompt text
 //   - busy           : prompt.submit returns 4009 "session busy"; session.steer accepted
 //   - refuse         : prompt.submit returns 5000 error
+//   - no_visible_bind : aify.session.bind_transport is unavailable
 
 import { WebSocketServer } from "ws";
 
 const SCRIPT = String(process.env.FAKE_HERMES_SCRIPT || "hello");
 const DELAY_MS = Number(process.env.FAKE_HERMES_DELAY_MS || 5);
 const FIXED_SESSION_ID = process.env.FAKE_HERMES_SESSION_ID || "sess-fake-001";
+const ACTIVE_SESSION_ID = process.env.FAKE_HERMES_ACTIVE_SESSION_ID || "live-sid-001";
 const TOKEN = process.env.FAKE_HERMES_TOKEN || "test-token";
 
 const cliArgs = process.argv.slice(2);
@@ -68,6 +70,15 @@ wss.on("connection", (socket, req) => {
       const target = String(msg.params?.session_id || "").trim();
       const sid = `mem-${Math.random().toString(16).slice(2, 10)}`;
       send({ jsonrpc: "2.0", id: msg.id, result: { session_id: sid, resumed: target || FIXED_SESSION_ID, message_count: 0, messages: [] } });
+      return;
+    }
+    if (msg.method === "aify.session.bind_transport") {
+      if (SCRIPT === "no_visible_bind") {
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "unknown method: aify.session.bind_transport" } });
+        return;
+      }
+      const target = String(msg.params?.session_id || "").trim() || FIXED_SESSION_ID;
+      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: ACTIVE_SESSION_ID, session_key: target, mirrored: true } });
       return;
     }
     if (msg.method === "session.create") {
