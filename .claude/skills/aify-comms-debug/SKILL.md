@@ -15,10 +15,42 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Claude wake-mode and `Session ID already in use`
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
+- Resident Hermes/Claude/Codex says live but `comms_send` reports stale bridge
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
 - General escalation
+
+## Resident send rejected: `resident bridge is stale`
+
+**Symptom.** `comms_agent_info` or the dashboard shows a resident Hermes,
+Claude, or Codex agent with live-looking metadata (`wakeMode: hermes-live`,
+`claude-live`, or `codex-live`), but sending returns `ok: false`,
+`recipientStatus: stale`, and a reason like `resident bridge is stale; switch
+to managed or restart the resident wrapper`. In Hermes, the open terminal does
+not receive the prompt.
+
+**Cause.** The agent record was updated without a current wrapper bridge. The
+common bad workaround is a raw Node/curl `POST /api/v1/agents` that passes
+`runtimeConfig.gatewayUrl` or a session handle. That writes metadata, but it
+does not start the MCP stdio bridge inside the visible `*-aify` wrapper, does
+not create `runtimeState.bridgeInstanceId`, and does not heartbeat
+`bridge_instances`. Current servers mark this as `stale` and refuse live
+delivery instead of forking hidden work.
+
+**Fix.** Restart the exact visible wrapper that should own delivery, then
+register from inside that same session with the MCP tool:
+
+```
+comms_register(agentId="target", role="tester", runtime="hermes")
+comms_agent_info(agentId="target")
+```
+
+For Claude/Codex use the matching runtime and handle fields documented in the
+main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP
+child auto-registers with its real bridge id. Do not repair this by posting to
+`/api/v1/agents` manually; use dashboard **Switch to managed** if the open
+resident terminal should not own delivery.
 
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 

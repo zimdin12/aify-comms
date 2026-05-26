@@ -29,6 +29,13 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
+Do not emulate registration with raw `POST /api/v1/agents` from a shell or
+Node snippet. Raw HTTP can write metadata such as `runtimeConfig.gatewayUrl`,
+but it does not create the live resident bridge heartbeat/claim loop. A
+resident agent without that bridge is `stale` and cannot receive live sends.
+Use the `comms_register` MCP tool from the real `*-aify` session, or launch the
+wrapper with `--aify-agent <id>` so the wrapper's MCP child registers itself.
+
 When opening a known agent directly, wrappers can register the live resident owner automatically: `claude-aify --aify-agent my-agent --resume <session-id>`, `codex-aify --aify-agent my-agent ...`, `hermes-aify --aify-agent my-agent --resume <session-id>`, or `omp-aify --aify-agent my-agent --resume <session-id>` (`pi-aify` alias, presence/standalone only for triggerability). Manual `comms_register(...)` remains the fallback and is required for a new ID when the wrapper was launched without an ID. If only the saved native handle is wrong and the operator knows the correct ID, use dashboard **Set handle** instead of re-registering unrelated fields.
 
 All `*-aify` wrappers accept explicit `--resident` and `--managed` flags to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env > flag > TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). Operators almost never need the flag — running a wrapper from a terminal defaults to resident; bridge-spawned wrappers inherit `managed` from `terminalChildEnv`. `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its register call carries `runtime_config.channelEnabled=true` (the precondition for resident-run/interrupt/steer caps surviving the server-side strip).
@@ -53,7 +60,7 @@ For live Hermes, launch `hermes-aify` (which spawns a local `hermes dashboard --
 comms_register(agentId="my-agent", role="tester", runtime="hermes")
 ```
 
-The bridge auto-detects `gatewayUrl` from the env var the wrapper set — no explicit field needed. After registration, `wakeMode` should be `hermes-live`. If it shows `hermes-missing-handle` instead, the wrapper didn't export `AIFY_HERMES_GATEWAY_URL` (you're either on the old wrapper or didn't restart hermes-aify after the wrapper update). Verify with `head -30 ~/.local/bin/hermes-aify | grep pick_port` — the new wrapper has that function; the old one doesn't.
+The bridge auto-detects `gatewayUrl` from the env var the wrapper set — no explicit field needed. After registration, `wakeMode` should be `hermes-live` and status should not be `stale`. If status is `stale`, the agent record was not registered by a live bridge, the bridge heartbeat expired, or the wrapper was restarted without re-registering; restart `hermes-aify` and run `comms_register` from that same visible session. If it shows `hermes-missing-handle` instead, the wrapper didn't export `AIFY_HERMES_GATEWAY_URL` (you're either on the old wrapper or didn't restart hermes-aify after the wrapper update). Verify with `head -30 ~/.local/bin/hermes-aify | grep pick_port` — the new wrapper has that function; the old one doesn't.
 
 For Oh My Pi (OMP), triggerable delivery is the managed persistent RPC path. `omp-aify --aify-agent <id> --resume <session-id>` (`pi-aify` alias) can register presence/metadata for a human-open or standalone OMP terminal, but OMP does not expose a multi-client resident injection surface like Claude channels, Codex app-server, or Hermes gateway. When registering manually for presence, bind the real resumable session handle from that same wrapper session:
 

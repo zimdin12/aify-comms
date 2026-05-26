@@ -11,6 +11,11 @@ After every install/update:
 3. Re-register from the exact live session you want other agents to trigger, or launch with `--aify-agent <agentId>` so the wrapper registers it automatically.
 4. Confirm with `comms_agent_info(agentId="...")`.
 
+Never replace `comms_register` with raw `curl`/Node `POST /api/v1/agents` for
+resident agents. That endpoint can update metadata, but it cannot create the
+wrapper's bridge heartbeat or dispatch claim loop. A resident record without a
+fresh bridge is `stale` and live sends are rejected.
+
 Wrapper auto mode:
 
 - `codex-aify -auto` adds Codex's supported bypass flag.
@@ -60,6 +65,10 @@ Wrapper auto mode:
 
 - Prefer wrapper auto-registration when opening a managed session directly: `claude-aify --aify-agent <agentId> --resume <id>`, the dashboard-provided `codex-aify --aify-agent <agentId> ...` resume command, or `hermes-aify --aify-agent <agentId> --resume <id>`. For Pi, `omp-aify --aify-agent <agentId> --resume <id>` is presence/standalone only; use managed RPC for triggerable dashboard delivery.
 - Manual `comms_register(...)` from the opened CLI remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
+- A resident live-wake identity needs both runtime wake config and a fresh
+  wrapper bridge row. `wakeMode: hermes-live` or `claude-live` alone is not
+  enough if `status: stale`; restart the visible wrapper and re-register from
+  that same session.
 - Ownership transfer is manual. A resident wrapper registration records a candidate for later use but does not take over a managed identity or kill a managed PTY. Operators use **Switch to resident/managed** from Sessions or Chat details; active runs block the switch unless forced. Stale resident sends fail visibly until switched or restarted.
 - Dashboard **Stop wake** / session **Stop** on a resident identity asks the live resident bridge to terminate its host CLI/app process where the OS allows it.
 - Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary adopt/restart should preserve the stored handle when runtime is unchanged.
@@ -73,7 +82,7 @@ Browser Console is current behavior when an environment advertises terminal/PTY 
 |---|---|---|
 | `claude-code` | OK with distinct `agentId`s; each `claude-aify` sidecar polls only its bound agent. | OK |
 | `codex` | Register with `sessionHandle="$CODEX_THREAD_ID"` and `appServerUrl="$AIFY_CODEX_APP_SERVER_URL"` to avoid ambiguous live markers. | OK |
-| `hermes` | Resident: launch `hermes-aify`, then `comms_register(agentId=..., runtime="hermes")` — the bridge auto-detects `gatewayUrl` from `AIFY_HERMES_GATEWAY_URL` exported by the wrapper, flipping wake mode to `hermes-live`. If you see `hermes-missing-handle`, the wrapper is the old one or wasn't restarted after today's update. | OK |
+| `hermes` | Resident: launch `hermes-aify`, then `comms_register(agentId=..., runtime="hermes")` — the bridge auto-detects `gatewayUrl` from `AIFY_HERMES_GATEWAY_URL` exported by the wrapper, flipping wake mode to `hermes-live`. `status: stale` means the wrapper bridge is missing/expired; raw `/api/v1/agents` registration is not sufficient. If you see `hermes-missing-handle`, the wrapper is the old one or wasn't restarted after today's update. | OK |
 | `opencode` | OK with explicit `sessionHandle` per session. | OK |
 | `pi` | Triggerable delivery is managed RPC only; `omp-aify` / `pi-aify` registration is presence/standalone and must not share a session id with a bridge-owned RPC child. | OK with distinct session handles or `--standalone` |
 
@@ -105,6 +114,7 @@ Status is computed by a single live-state engine (the same one the dashboard, `c
 | `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Plan 4's `mcp/stdio/turn-busy-heartbeat.js` keeps this fresh during long turns. Managed Claude PTY turns are tracked as running until their reply closes the run; if Claude visibly returns to an idle prompt without a chat reply, reconcile closes the turn as completed-without-reply so it becomes audit debt instead of live work. |
 | `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
 | `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
+| `stale` | Resident wrapper bridge heartbeat is missing/expired, or a stored resident binding points at a bridge that no longer owns delivery. Restart the visible wrapper and re-register from it, or switch the identity back to managed. |
 | `blocked` | Agent-reported note state, not necessarily unreachable. |
 | `stopped` | Wake/dispatch disabled until restart or re-register. |
 

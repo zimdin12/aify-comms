@@ -108,6 +108,14 @@ race bug.
 
 This is the Hermes equivalent to Claude Code channel delivery for the harness-console feature: the prompt and reply should render in the open `hermes-aify` terminal, while the same streamed events complete the aify-comms run/chat accounting.
 
+Resident Hermes registration must come from the wrapper's MCP bridge. Do not
+repair or create resident Hermes agents with raw `POST /api/v1/agents` scripts:
+those can write `runtimeConfig.gatewayUrl`, but they cannot create the live
+`bridgeInstanceId` heartbeat or the dispatch claim loop. A record in that state
+is reported as `stale` and dashboard/chat sends are rejected until you restart
+`hermes-aify` and run `comms_register` from the visible session, or switch the
+identity back to managed.
+
 **Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
 
 **Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.

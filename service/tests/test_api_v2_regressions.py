@@ -7251,6 +7251,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             "claude",
             runtime="claude-code",
             sessionMode="resident",
+            machineId="linux:test-host",
+            bridgeId="bridge-claude",
             runtimeConfig={"channelEnabled": True},
         )
         info = self.client.get("/api/v1/agents/claude")

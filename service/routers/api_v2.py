@@ -1275,6 +1275,25 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["fix"] = "Register the target agent first, then try triggering again."
         return hint
 
+    if session_mode == "resident" and "resident bridge is stale" in reason:
+        runtime_name = {
+            "claude-code": "Claude",
+            "codex": "Codex",
+            "hermes": "Hermes",
+            "opencode": "OpenCode",
+            "pi": "Oh My Pi",
+        }.get(runtime, runtime)
+        hint["fix"] = (
+            f"Restart the visible resident wrapper for this {runtime_name} session, then re-register from inside that same wrapper with comms_register. "
+            "Raw /api/v1/agents metadata updates do not create the resident bridge heartbeat. "
+            "Use Dashboard Switch to managed if the visible resident terminal should not own delivery."
+        )
+        hint["suggestedCommands"] = [
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="{runtime}")',
+            f'comms_agent_info(agentId="{recipient_id}")',
+        ]
+        return hint
+
     if runtime == "codex" and session_mode == "resident" and not session_handle:
         hint["fix"] = "Restart Codex, then re-register from the exact live Codex session you want to wake."
         hint["suggestedCommands"] = [
@@ -1434,16 +1453,16 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
 
 async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
-    if bridge_id:
-        cursor = await db.execute(
-            "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
-            (bridge_id, row["id"]),
-        )
-        bridge = await cursor.fetchone()
-        seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
-        if seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)):
-            return True
-    seen_s = _iso_to_epoch(row["last_seen"] or "")
+    if not bridge_id:
+        return False
+    cursor = await db.execute(
+        "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (bridge_id, row["id"]),
+    )
+    bridge = await cursor.fetchone()
+    if not bridge or str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
+        return False
+    seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
     return bool(seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)))
 
 
@@ -2307,6 +2326,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # stopped, session row stale-running, agent should be `available`
     # not `online`).
     agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    resident_bridge_stale = False
+    if agent_session_mode == "resident" and "resident-run" in _row_capabilities(agent_row):
+        resident_bridge_stale = not await _resident_bridge_is_fresh(
+            db,
+            agent_row,
+            lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150),
+        )
     has_live_worker = False
     if live_session:
         worker_row = await (await db.execute(
@@ -2382,6 +2408,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
+    elif resident_bridge_stale and not active_run and not turn_busy and not channel_pending_reply_run:
+        effective_status = "stale"
+        reason = "Resident bridge heartbeat is stale or missing."
     # A console terminal reaching an end state returns ownership to managed (the
     # runtime contract reverts owner_mode to managed on stop/fail). So it is a
     # fallback-to-managed candidate, not final unavailability: fall through to

@@ -25,6 +25,13 @@ If wrapper-backed delivery is disabled, the bridge can fall back to native Herme
 
 Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. Current installs patch Hermes with `aify.session.bind_transport`; dispatched work binds the bridge transport to the active visible TUI sid and uses `prompt.submit` / `session.steer` there. Dispatch must render in the open `hermes-aify` console; missing bind support fails visibly instead of forking a hidden resumed session.
 
+Live resident delivery also requires the wrapper's MCP bridge heartbeat. A raw
+HTTP `POST /api/v1/agents` can update Hermes metadata, but it cannot create the
+`bridgeInstanceId` heartbeat or dispatch claim loop that makes the visible TUI
+wakeable. Use `hermes-aify --aify-agent <id>` or run `comms_register` from
+inside the visible `hermes-aify` session; otherwise the server reports the
+resident identity as `stale` and refuses dashboard/chat sends.
+
 ## Install Hermes
 
 Install Hermes first, following the upstream guide.
@@ -136,6 +143,12 @@ The wrapper sets:
 - `HERMES_SESSION_ID=<session-id>` when provided
 
 If no session ID is known, the resident session can still register and chat while alive, but it is not resumable through a saved native handle until you set one.
+
+If `comms_agent_info` shows `wakeMode: hermes-live` but `status: stale`, the
+stored gateway metadata exists but the live wrapper bridge is missing or
+expired. Restart the visible `hermes-aify` session and register through the MCP
+tool from that same terminal; do not use a raw `/api/v1/agents` script as a
+substitute.
 
 ## Hooks
 
