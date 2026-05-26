@@ -301,6 +301,43 @@ class PiResidentDispatchRejectionTests(unittest.TestCase):
                 f"non-pi resident must not hit pi-flip 409 gate; got {dispatch_resp.text}",
             )
 
+    def test_messages_send_trigger_rejected_during_pending_pi_flip(self):
+        # /messages/send trigger=true is a second live-dispatch entrypoint.
+        # It must honor the same pending-flip gate as /dispatch; otherwise
+        # chat can enqueue work against a Pi resident mode that is already
+        # being migrated away.
+        resp = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "test-flip-message-reject",
+                "role": "tester",
+                "runtime": "pi",
+                "sessionMode": "resident",
+                "sessionHandle": "session-handle-msg",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        send_resp = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "operator",
+                "to": "test-flip-message-reject",
+                "type": "request",
+                "subject": "test",
+                "body": "hello",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(send_resp.status_code, 200, send_resp.text)
+        body = send_resp.json()
+        self.assertFalse(body.get("ok"), body)
+        self.assertEqual(body.get("dispatchRuns"), [], body)
+        not_started = body.get("notStarted") or []
+        self.assertEqual(len(not_started), 1, body)
+        reason = json.dumps(not_started[0]).lower()
+        self.assertIn("pi flip pending", reason, body)
+
 
 class PiResidentPreExistingBackfillTests(unittest.TestCase):
     """Plan 2 backfill — pre-existing pi-resident agents (rows that landed

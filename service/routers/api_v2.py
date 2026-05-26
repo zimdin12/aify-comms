@@ -402,7 +402,7 @@ async def _enforce_live_worker_gate(
     for performance; the writeback below keeps subsequent reads honest
     without re-running the terminal_sessions check.
     """
-    if payload.get("status") != "online":
+    if payload.get("status") not in {"online", "ready"}:
         return payload
     session_mode = str(payload.get("sessionMode") or "").lower()
     if session_mode != "managed":
@@ -430,7 +430,6 @@ async def _enforce_live_worker_gate(
                 agent_id,
             ),
         )
-        await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
     except Exception:
         logger.debug(
@@ -3640,6 +3639,21 @@ async def _preflight_live_send_recipients(
             not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
             continue
         row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
+        if _normalize_runtime(row["runtime"] or "") == "pi":
+            runtime_state = _json_loads_or(row["runtime_state"], {})
+            if runtime_state.get("pi_resident_pending_flip"):
+                hint = _dispatch_fix_hint(
+                    recipient_id,
+                    row,
+                    "agent is migrating from resident to managed (pi flip pending)",
+                )
+                hint["recipientStatus"] = "migrating"
+                hint["fix"] = (
+                    f'Agent "{recipient_id}" is migrating from resident to managed. '
+                    "Retry after the drain loop flips the agent once active runs complete."
+                )
+                not_started.append(hint)
+                continue
         if _normalize_session_mode(row["session_mode"] or "resident") == "resident":
             if not await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
                 hint = _dispatch_fix_hint(recipient_id, row, "resident bridge is stale; switch to managed or restart the resident wrapper")
@@ -8694,6 +8708,7 @@ async def register_agent(req: AgentRegister, request: Request):
                     session_handle=session_handle,
                     now=now,
                 )
+            await _invalidate_agent_live_state(db, req.agentId)
             await db.commit()
             ws = await _get_ws(request)
             if ws:
@@ -8776,6 +8791,34 @@ async def register_agent(req: AgentRegister, request: Request):
                     req.agentId,
                 ),
             )
+            if session_handle:
+                await db.execute(
+                    """
+                    UPDATE agent_sessions
+                    SET session_handle = ?,
+                        telemetry = CASE
+                            WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
+                            ELSE telemetry
+                        END,
+                        last_seen = ?
+                    WHERE id = (
+                        SELECT id
+                        FROM agent_sessions
+                        WHERE agent_id = ?
+                          AND runtime = ?
+                          AND status = 'cli-takeover'
+                        ORDER BY last_seen DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (
+                        session_handle,
+                        json.dumps({"registeredHandle": _runtime_state_with_handle(normalized_runtime, {}, session_handle)}),
+                        now,
+                        req.agentId,
+                        normalized_runtime,
+                    ),
+                )
             if bridge_id:
                 await _record_bridge_registration(
                     db,
@@ -8787,6 +8830,7 @@ async def register_agent(req: AgentRegister, request: Request):
                     session_handle=session_handle,
                     now=now,
                 )
+            await _invalidate_agent_live_state(db, req.agentId)
             await db.commit()
             ws = await _get_ws(request)
             if ws:
@@ -8899,6 +8943,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 managed_wrapper_child=managed_wrapper_child,
                 now=now,
             )
+        await _invalidate_agent_live_state(db, req.agentId)
         # Universal rule: when a *-aify wrapper registers an agent as
         # resident, the operator's real terminal owns it. ANY managed
         # wrapper PTY that exists for this agent must be torn down at
@@ -9859,6 +9904,7 @@ async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Requ
             """,
             (agent_id, now, ready_int),
         )
+        await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         ws = await _get_ws(request)
         if ws:

@@ -61,7 +61,7 @@ class AgentStatusReadGateTests(unittest.TestCase):
         # Plan 4 defaults are on; confirm via no-op PUT for explicitness.
         self.client.put(
             "/api/v1/settings",
-            json={"managed_via_wrapper": ["codex", "hermes", "pi"]},
+            json={"managed_via_wrapper": ["codex", "hermes"]},
         )
 
     def tearDown(self):
@@ -128,6 +128,31 @@ class AgentStatusReadGateTests(unittest.TestCase):
                     VALUES (?, 'online', 'stale-cache-for-test', '',
                             'sess-fake', '', '',
                             '2099-01-01T00:00:00Z', '2026-05-25T19:29:10Z')""",
+                    (agent_id,),
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_stamp())
+
+    def _stamp_stale_ready_cache(self, agent_id: str) -> None:
+        """Same stale-cache shape as `_stamp_stale_online_cache`, but for
+        `ready`. A ready worker still needs a live wrapper PTY; otherwise the
+        dashboard shows a dispatchable worker that cannot actually receive a
+        turn."""
+
+        async def _stamp():
+            from service.db import get_db
+            db = await get_db()
+            try:
+                await db.execute(
+                    """INSERT OR REPLACE INTO agent_live_state
+                    (agent_id, status, reason, environment_id, session_id,
+                     terminal_id, active_run_id, refresh_after, updated_at)
+                    VALUES (?, 'ready', 'stale-ready-cache-for-test', '',
+                            'sess-fake', '', '',
+                            '2099-01-01T00:00:00Z', '2026-05-26T19:29:10Z')""",
                     (agent_id,),
                 )
                 await db.commit()
@@ -259,6 +284,21 @@ class AgentStatusReadGateTests(unittest.TestCase):
             cached.get("status"), "available",
             f"Cache should hold 'available' after gate fires; got {cached!r}",
         )
+
+    def test_ready_cache_without_live_worker_is_downgraded_and_written_back(self):
+        """`ready` is just as wrong as `online` when the wrapper PTY is gone:
+        operators can click/send to it, but no worker exists to take the turn."""
+        self._heartbeat_environment("hermes")
+        self._register_managed_agent(agent_id="hermes-stale-ready", runtime="hermes")
+        self._stamp_stale_ready_cache("hermes-stale-ready")
+
+        res = self.client.get("/api/v1/agents/hermes-stale-ready")
+        self.assertEqual(res.status_code, 200, res.text)
+        agent = res.json()["agent"]
+        self.assertEqual(agent["status"], "available", res.text)
+
+        cached = self._read_agent_live_state("hermes-stale-ready")
+        self.assertEqual(cached.get("status"), "available", cached)
 
     # ------------------------------------------------------------------
     # Plan 5 follow-up (2026-05-26) — stale synth (`vterm_*`) rows must

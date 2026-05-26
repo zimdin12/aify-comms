@@ -16,6 +16,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
 - Resident Hermes/Claude/Codex says live but `comms_send` reports stale bridge
+- Agent shows `online`/`ready` but the Console/worker is gone
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
@@ -51,6 +52,27 @@ main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP
 child auto-registers with its real bridge id. Do not repair this by posting to
 `/api/v1/agents` manually; use dashboard **Switch to managed** if the open
 resident terminal should not own delivery.
+
+## Agent shows `online` or `ready`, but no live worker exists
+
+**Symptom.** Dashboard or `comms_agent_info` reports a managed Codex/Hermes
+agent as `online` or `ready`, but its Console is gone, sends do not visibly
+land in a real worker, or the session only has an old `vterm_*`/historical
+terminal row.
+
+**Cause.** Older service builds cached `agent_live_state.status` using
+heartbeat freshness, not live worker presence. A wrapper PTY could exit while
+another heartbeat kept the cache row fresh, so the UI kept showing
+`online`/`ready`. A related bug invalidated the corrected writeback
+immediately, and ready/registration changes could leave future-dated cache
+rows in place.
+
+**Fix.** Update and restart/rebuild the service. Current builds downgrade
+managed wrapper-backed agents with no live `terminal_sessions` row to
+`available`, persist that downgrade, invalidate live-state cache on
+`PATCH /agents/{id}/ready`, and invalidate cache on registration. After
+updating, restart the affected environment bridge or wrapper so a real worker
+can re-register and recreate the backing terminal.
 
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 

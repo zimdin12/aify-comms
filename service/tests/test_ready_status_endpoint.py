@@ -152,6 +152,43 @@ class ReadyStatusEndpointTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_patch_ready_invalidates_cached_live_state(self):
+        """Ready changes must invalidate agent_live_state; otherwise the
+        dashboard can keep showing a future cached ready/online status after
+        the bridge has explicitly changed readiness."""
+        import sqlite3
+        self._register("ready-cache", runtime="codex", sessionMode="managed")
+        conn = sqlite3.connect(self._db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO agent_live_state
+                    (agent_id, status, reason, updated_at, refresh_after)
+                VALUES (?, 'ready', 'future-cache', '2026-05-26T00:00:00Z',
+                        '2099-01-01T00:00:00Z')
+                """,
+                ("ready-cache",),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = self.client.patch(
+            "/api/v1/agents/ready-cache/ready",
+            json={"ready": False},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        conn = sqlite3.connect(self._db_path)
+        try:
+            row = conn.execute(
+                "SELECT status FROM agent_live_state WHERE agent_id = ?",
+                ("ready-cache",),
+            ).fetchone()
+            self.assertIsNone(row, "ready PATCH must invalidate cached live state")
+        finally:
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
