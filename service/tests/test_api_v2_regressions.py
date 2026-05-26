@@ -6677,6 +6677,51 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(mid_run.json()["run"]["replyState"], "sent")
         self.assertFalse(mid_run.json()["run"]["replyPending"])
 
+    def test_resident_running_reply_closes_dispatch_run(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register(
+            "coder",
+            runtime="hermes",
+            sessionMode="resident",
+            sessionHandle="hermes-key",
+            runtimeConfig={"gatewayUrl": "ws://127.0.0.1:1/api/ws?token=t"},
+        )
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="ping",
+            body="reply when received",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        source_message_id = created["messageId"]
+
+        started = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "running"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+
+        reply = self._send_message(
+            from_agent="coder",
+            to="lead",
+            type="response",
+            subject="pong",
+            body="received",
+            inReplyTo=source_message_id,
+            trigger=False,
+        )
+
+        final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
+        self.assertEqual(final.status_code, 200, final.text)
+        self.assertEqual(final.json()["run"]["status"], "completed")
+        self.assertEqual(final.json()["run"]["resultMessageId"], reply["messageId"])
+        self.assertEqual(final.json()["run"]["replyState"], "sent")
+        self.assertFalse(final.json()["run"]["replyPending"])
+
     def test_unthreaded_response_links_latest_pending_run_for_pair(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")

@@ -6,6 +6,8 @@
 //
 // Scripts (env FAKE_HERMES_SCRIPT):
 //   - hello (default): one prompt.submit → "hello from hermes" stream → end
+//   - enveloped       : same stream using real tui_gateway event envelopes
+//   - turn_error      : prompt.submit accepted, then message.complete status=error
 //   - busy           : prompt.submit returns 4009 "session busy"; session.steer accepted
 //   - refuse         : prompt.submit returns 5000 error
 
@@ -89,12 +91,36 @@ wss.on("connection", (socket, req) => {
       }
       send({ jsonrpc: "2.0", id: msg.id, result: { status: "streaming" } });
       const sid = msg.params?.session_id || FIXED_SESSION_ID;
+      if (SCRIPT === "turn_error") {
+        await delay(DELAY_MS);
+        send({
+          jsonrpc: "2.0",
+          method: "event",
+          params: {
+            type: "message.complete",
+            session_id: sid,
+            payload: { text: "provider unavailable", status: "error" },
+          },
+        });
+        return;
+      }
+      const enveloped = SCRIPT === "enveloped";
+      const emit = (type, payload) => {
+        if (enveloped) {
+          send({ jsonrpc: "2.0", method: "event", params: { type, session_id: sid, payload } });
+        } else if (type === "message.delta") {
+          send({ jsonrpc: "2.0", method: "agent.message.delta", params: { session_id: sid, delta: payload.text || "" } });
+        } else if (type === "message.complete") {
+          send({ jsonrpc: "2.0", method: "agent.message.end", params: { session_id: sid, text: payload.text || "" } });
+        }
+      };
+      emit("message.start", {});
       for (const chunk of ["hello", " ", "from", " ", "hermes"]) {
         await delay(DELAY_MS);
-        send({ jsonrpc: "2.0", method: "agent.message.delta", params: { session_id: sid, delta: chunk } });
+        emit("message.delta", { text: chunk });
       }
       await delay(DELAY_MS);
-      send({ jsonrpc: "2.0", method: "agent.message.end", params: { session_id: sid, text: "hello from hermes" } });
+      emit("message.complete", { text: "hello from hermes", status: "complete" });
       return;
     }
     if (msg.id !== undefined) {

@@ -94,20 +94,33 @@ export function buildSessionInterruptFrame({ id, sessionId }) {
 // care about (e.g. gateway.ready handshake, UI metadata).
 export function translateGatewayEvent(message) {
   const method = String(message?.method || "");
-  const params = message?.params || {};
-  if (method === "agent.message.delta") {
-    return { kind: "delta", text: String(params.delta || "") };
+  const rawParams = message?.params || {};
+  const eventType = method === "event" ? String(rawParams.type || "") : method;
+  const params = method === "event" && rawParams.payload && typeof rawParams.payload === "object"
+    ? rawParams.payload
+    : rawParams;
+
+  if (eventType === "message.start") {
+    return { kind: "start" };
   }
-  if (method === "agent.message.end") {
-    return { kind: "final", text: String(params.text || "") };
+  if (eventType === "agent.message.delta" || eventType === "message.delta") {
+    return { kind: "delta", text: String(params.delta || params.text || "") };
   }
-  if (method === "tool.started") {
+  if (eventType === "agent.message.end" || eventType === "message.complete") {
+    return {
+      kind: "final",
+      text: String(params.text || ""),
+      status: String(params.status || ""),
+      warning: String(params.warning || ""),
+    };
+  }
+  if (eventType === "tool.started" || eventType === "tool.start" || eventType === "tool.progress") {
     return { kind: "tool_started", label: String(params.tool || params.name || "tool") };
   }
-  if (method === "tool.completed") {
+  if (eventType === "tool.completed" || eventType === "tool.complete") {
     return { kind: "tool_completed", label: String(params.tool || params.name || "tool") };
   }
-  if (method === "error") {
+  if (eventType === "error") {
     return { kind: "error", text: String(params.message || "") };
   }
   return null;

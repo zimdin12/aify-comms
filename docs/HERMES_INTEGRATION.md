@@ -23,7 +23,7 @@ Managed Hermes defaults to the wrapper-backed path (`managed_via_wrapper=["codex
 
 If wrapper-backed delivery is disabled, the bridge can fall back to native Hermes controllers: a persistent ACP JSON-RPC child or gateway controller, with synthesized terminal output for dashboard visibility. The gateway path gives multi-client visibility; the ACP path is single-client and mirrors `session/update` notifications into a virtual terminal.
 
-Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway for `prompt.submit` / `session.steer` injection.
+Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. For dispatched work, the bridge resumes the durable Hermes session key into its own short gateway sid and uses `prompt.submit` / `session.steer`; delivery evidence is the aify-comms run/chat output, not whether the operator's original TUI redraws the injected turn.
 
 ## Install Hermes
 
@@ -112,7 +112,7 @@ In the dashboard:
 4. Pick a workspace under that bridge's roots.
 5. Send a normal chat message.
 
-Managed dispatch normally starts or reuses the bridge-owned `hermes-aify` wrapper PTY. The wrapper's child bridge submits dashboard prompts through the local Hermes gateway (`prompt.submit` / `session.steer`), and dashboard Console renders the same live TUI through xterm.js. Native controller fallback may use synthesized `aify://virtual-rpc/hermes` output when wrapper mode is disabled or unavailable.
+Managed dispatch normally starts or reuses the bridge-owned `hermes-aify` wrapper PTY. The wrapper's child bridge submits dashboard prompts through the local Hermes gateway (`session.resume` plus `prompt.submit` / `session.steer`), and dashboard Console renders the wrapper PTY plus dispatched-run synth frames. Native controller fallback may use synthesized `aify://virtual-rpc/hermes` output when wrapper mode is disabled or unavailable.
 
 ## Resident Hermes
 
@@ -169,4 +169,4 @@ When Hermes is launched through `hermes-aify`, the wrapper exports the server UR
 
 - Mid-turn steering is not supported on managed Hermes — `hermes chat -q` is single-shot per upstream's documented programmatic mode. `comms_run_steer` rejects with a clear message; send a follow-up dispatch instead (the next turn's prompt carries the prior context via `buildUserPrompt`).
 - Conversation state across managed turns lives in the wire prompt, not in a persistent Hermes session, because upstream doesn't expose `-q` combined with `--resume`. If Hermes upstream adds either a true RPC daemon or session-resume on programmatic mode, the controller will be upgradeable to a persistent shape similar to managed Pi's Phase 2 architecture.
-- Resident Hermes uses the real `hermes chat` TUI under `hermes-aify` and supports operator-driven multi-turn interactively. The bridge will not auto-discover a Hermes session ID created during a resident TUI session; copy it manually if you want durable resume and use dashboard **Set handle** or `hermes-aify --resume <session-id>`.
+- Resident Hermes uses the real `hermes chat` TUI under `hermes-aify` and supports operator-driven multi-turn interactively. Bridge-dispatched work runs through a resumed gateway sid and may not appear in the operator's original TUI live. The bridge will not auto-discover a Hermes session ID created during a resident TUI session; copy it manually if you want durable resume and use dashboard **Set handle** or `hermes-aify --resume <session-id>`.

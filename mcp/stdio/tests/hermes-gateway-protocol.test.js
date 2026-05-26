@@ -53,13 +53,40 @@ test("translateGatewayEvent maps agent.message.delta to a delta event", () => {
   assert.deepEqual(out, { kind: "delta", text: "abc" });
 });
 
+test("translateGatewayEvent maps real tui_gateway message.delta envelope", () => {
+  const out = translateGatewayEvent({
+    jsonrpc: "2.0",
+    method: "event",
+    params: { type: "message.delta", session_id: "sid", payload: { text: "abc" } },
+  });
+  assert.deepEqual(out, { kind: "delta", text: "abc" });
+});
+
 test("translateGatewayEvent maps agent.message.end to a final event with text", () => {
   const out = translateGatewayEvent({ jsonrpc: "2.0", method: "agent.message.end", params: { text: "done" } });
-  assert.deepEqual(out, { kind: "final", text: "done" });
+  assert.deepEqual(out, { kind: "final", text: "done", status: "", warning: "" });
+});
+
+test("translateGatewayEvent maps real tui_gateway message.complete envelope", () => {
+  const out = translateGatewayEvent({
+    jsonrpc: "2.0",
+    method: "event",
+    params: { type: "message.complete", session_id: "sid", payload: { text: "done", status: "complete" } },
+  });
+  assert.deepEqual(out, { kind: "final", text: "done", status: "complete", warning: "" });
 });
 
 test("translateGatewayEvent maps tool.started to a tool_started event", () => {
   const out = translateGatewayEvent({ jsonrpc: "2.0", method: "tool.started", params: { tool: "bash" } });
+  assert.deepEqual(out, { kind: "tool_started", label: "bash" });
+});
+
+test("translateGatewayEvent maps real tui_gateway tool.start envelope", () => {
+  const out = translateGatewayEvent({
+    jsonrpc: "2.0",
+    method: "event",
+    params: { type: "tool.start", session_id: "sid", payload: { name: "bash" } },
+  });
   assert.deepEqual(out, { kind: "tool_started", label: "bash" });
 });
 
@@ -68,8 +95,26 @@ test("translateGatewayEvent maps tool.completed to a tool_completed event", () =
   assert.deepEqual(out, { kind: "tool_completed", label: "edit" });
 });
 
+test("translateGatewayEvent maps real tui_gateway tool.complete envelope", () => {
+  const out = translateGatewayEvent({
+    jsonrpc: "2.0",
+    method: "event",
+    params: { type: "tool.complete", session_id: "sid", payload: { name: "edit" } },
+  });
+  assert.deepEqual(out, { kind: "tool_completed", label: "edit" });
+});
+
 test("translateGatewayEvent maps error to an error event", () => {
   const out = translateGatewayEvent({ jsonrpc: "2.0", method: "error", params: { message: "boom" } });
+  assert.deepEqual(out, { kind: "error", text: "boom" });
+});
+
+test("translateGatewayEvent maps real tui_gateway error envelope", () => {
+  const out = translateGatewayEvent({
+    jsonrpc: "2.0",
+    method: "event",
+    params: { type: "error", session_id: "sid", payload: { message: "boom" } },
+  });
   assert.deepEqual(out, { kind: "error", text: "boom" });
 });
 

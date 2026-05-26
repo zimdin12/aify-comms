@@ -5479,7 +5479,7 @@ async def _mark_dispatch_run_answered(
     dispatch_mode = str((target_row["dispatch_mode"] if target_row and "dispatch_mode" in target_row.keys() else "") or "").strip().lower()
     if (
         status == "delivered"
-        or (mode == "channel" and status in {"claimed", "running"})
+        or (mode in {"channel", "resident"} and status in {"claimed", "running"})
         or (dispatch_mode == "terminal" and status in {"claimed", "running"})
     ):
         await db.execute(

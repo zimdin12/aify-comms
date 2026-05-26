@@ -226,6 +226,12 @@ export class HermesManagedGatewaySession {
       this._pushTerminalFrame(ev.text);
     } else if (ev.kind === "final") {
       turn.finalText = ev.text || turn.finalText;
+      if (String(ev.status || "").trim().toLowerCase() === "error") {
+        turn.finalError = turn.finalText || "Hermes turn failed";
+      }
+      if (ev.warning) {
+        turn.finalError = turn.finalError || ev.warning;
+      }
       this._pushTerminalFrame("\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n");
       turn.settled = true;
     } else if (ev.kind === "tool_started") {
@@ -235,6 +241,7 @@ export class HermesManagedGatewaySession {
     } else if (ev.kind === "error") {
       turn.finalError = ev.text;
       this._pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m ${ev.text}\r\n`);
+      turn.settled = true;
     }
   }
 

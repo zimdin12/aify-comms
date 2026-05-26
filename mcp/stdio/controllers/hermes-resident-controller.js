@@ -60,7 +60,15 @@ export class HermesResidentController extends BaseController {
       if (settled) return;
       settled = true;
       this._settled = true;
-      try { if (socket && socket.readyState === socket.OPEN) socket.close(); } catch {}
+      try {
+        if (socket && socket.readyState !== socket.CLOSED) {
+          socket.close();
+          const closeKiller = setTimeout(() => {
+            try { if (socket.readyState !== socket.CLOSED) socket.terminate(); } catch {}
+          }, 1000);
+          if (typeof closeKiller.unref === "function") closeKiller.unref();
+        }
+      } catch {}
       if (kind === "resolve") resolvePromise?.(valueOrError);
       else rejectPromise?.(valueOrError);
     };
@@ -149,6 +157,11 @@ export class HermesResidentController extends BaseController {
           finalText = ev.text || finalText;
           pushTerminalFrame(`\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n`);
           clearTimeout(overallTimer);
+          const finalStatus = String(ev.status || "").trim().toLowerCase();
+          if (finalStatus === "error") {
+            settle("reject", new Error(finalText.trim() || "Hermes turn failed"));
+            return;
+          }
           settle("resolve", {
             status: "completed",
             summary: finalText.trim() || "(no output)",
@@ -161,6 +174,8 @@ export class HermesResidentController extends BaseController {
           pushTerminalFrame(`\x1b[32m✓ ${ev.label}\x1b[0m\r\n`);
         } else if (ev.kind === "error") {
           pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m ${ev.text}\r\n`);
+          clearTimeout(overallTimer);
+          settle("reject", new Error(ev.text || "Hermes gateway error"));
         }
       });
       socket.on("close", (code, reason) => {
@@ -176,11 +191,24 @@ export class HermesResidentController extends BaseController {
 
       try {
         await new Promise((res, rej) => {
-          socket.once("open", res);
-          socket.once("error", rej);
+          const cleanup = () => {
+            socket.off("open", onOpen);
+            socket.off("error", onError);
+            socket.off("close", onClose);
+          };
+          const onOpen = () => { cleanup(); res(); };
+          const onError = (err) => { cleanup(); rej(err); };
+          const onClose = (code, reason) => {
+            cleanup();
+            rej(new Error(`Hermes gateway WS closed before open (code=${code} reason=${String(reason || "")})`));
+          };
+          socket.once("open", onOpen);
+          socket.once("error", onError);
+          socket.once("close", onClose);
         });
       } catch (err) {
         clearTimeout(overallTimer);
+        if (settled) return;
         settle("reject", new Error(`Hermes gateway WS open failed: ${err?.message || err}`));
         return;
       }
@@ -197,7 +225,7 @@ export class HermesResidentController extends BaseController {
         // active sids — so prompt.submit on those fails with 4001.
         //
         // Recipe (see tui_gateway/server.py:2386 session.resume):
-        //   1. Resolve a session_key (gateway live list → registered handle
+        //   1. Resolve a session_key (registered handle → gateway live list
         //      → session.most_recent).
         //   2. Call session.resume(session_id=<key>) → gateway loads the
         //      persisted session into a NEW in-memory sid bound to OUR ws.
@@ -208,9 +236,10 @@ export class HermesResidentController extends BaseController {
         // streamed reply) this is sufficient — the bridge captures the
         // reply, completes the run, and posts the response to comms chat.
         let sessionKey = resolvedSessionId; // may be the registered handle
-        const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
-        const freshFromList = proto.pickFreshestSessionFromList(liveList);
-        if (freshFromList) sessionKey = freshFromList;
+        if (!sessionKey) {
+          const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+          sessionKey = proto.pickFreshestSessionFromList(liveList);
+        }
         if (!sessionKey) {
           const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
           sessionKey = String(mostRecent?.session_id || mostRecent?.sessionId || "").trim();
@@ -281,8 +310,8 @@ export class HermesResidentController extends BaseController {
           // and retry.
           if (proto.isSessionNotFoundError(err)) {
             try {
-              const reresumeList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
-              const reresumeKey = proto.pickFreshestSessionFromList(reresumeList) || sessionKey;
+              const reresumeList = sessionKey ? null : await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+              const reresumeKey = sessionKey || proto.pickFreshestSessionFromList(reresumeList);
               const retried = await sendRpc(proto.buildSessionResumeFrame({ sessionKey: reresumeKey }));
               const retriedSid = String(retried?.session_id || retried?.sessionId || "").trim();
               if (!retriedSid) throw new Error("session.resume retry returned no sid");
