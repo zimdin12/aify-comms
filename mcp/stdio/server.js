@@ -14,9 +14,6 @@
 //   - Local: filesystem-based message bus in .messages/ directory
 //
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import fs from "fs";
@@ -51,9 +48,11 @@ import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
-
-// Load env from settings.local.json (user-level + project-level merge)
-loadSettingsEnv();
+import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
+import { adapterFor } from "./adapters/index.js";
+import { fillSessionHandleFromAdapter } from "./register-helpers.js";
+import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
+import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -68,6 +67,13 @@ if (String(process.env.AIFY_BRIDGE_DISABLED || "").trim() === "1") {
   // need an MCP server — it talks to the parent bridge via stdio pipes.
   process.exit(0);
 }
+
+const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+const { z } = await import("zod");
+
+// Load env from settings.local.json (user-level + project-level merge)
+loadSettingsEnv();
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -157,7 +163,11 @@ function computeBridgeBuildTag() {
 const BRIDGE_BUILD_TAG = computeBridgeBuildTag();
 // Log to stderr on startup so users can see which code is running.
 console.error(`[aify-comms bridge] version=${BRIDGE_VERSION} build=${BRIDGE_BUILD_TAG} instance=${BRIDGE_INSTANCE_ID} pid=${process.pid} cwd=${process.cwd()} script=${fileURLToPath(import.meta.url)}`);
-const AIFY_AGENT_ID = String(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "").trim();
+function cleanEnvPlaceholder(value) {
+  const s = String(value || "").trim();
+  return /^\$\{[^}]+\}$/.test(s) ? "" : s;
+}
+const AIFY_AGENT_ID = cleanEnvPlaceholder(process.env.AIFY_AGENT_ID || process.env.AIFY_COMMS_AGENT_ID || "");
 const AIFY_AGENT_ROLE = String(process.env.AIFY_AGENT_ROLE || process.env.AIFY_COMMS_AGENT_ROLE || "coder").trim();
 
 // Write the Codex runtime marker from this long-lived bridge process when
@@ -179,6 +189,96 @@ if (AIFY_CODEX_APP_SERVER_URL) {
   } catch (error) {
     console.error("[aify] failed to write codex runtime marker:", error?.message || String(error));
     codexMarkerCwd = "";
+  }
+}
+
+// Write the Hermes runtime marker from this long-lived bridge process when
+// we detect we are running inside a hermes-aify wrapper (which sets the
+// AIFY_HERMES_GATEWAY_URL environment variable before launching `hermes
+// chat --tui`). Mirror of the codex marker block above — same long-lived-
+// PID rationale: the wrapper's bash PID isn't a real Windows PID under
+// Git Bash, so the marker MUST be written from this Node process.
+// Validate the env var: hermes's YAML ${VAR} interpolation falls back to the
+// LITERAL placeholder string when the var isn't set in hermes's own env
+// (tools/mcp_tool.py _interpolate_env_vars). We MUST NOT propagate a
+// "${AIFY_HERMES_GATEWAY_URL}" literal into the agent's runtime_config —
+// operator-reported 2026-05-25: sc-hermes-test-1 had that literal stored
+// as gatewayUrl, capability check failed, ping-pong rejected.
+const _rawHermesGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
+const AIFY_HERMES_GATEWAY_URL = /^wss?:\/\//i.test(_rawHermesGatewayUrl) ? _rawHermesGatewayUrl : "";
+if (_rawHermesGatewayUrl && !AIFY_HERMES_GATEWAY_URL) {
+  console.error(`[aify] ignoring unresolved AIFY_HERMES_GATEWAY_URL placeholder: ${_rawHermesGatewayUrl.slice(0, 60)}. Hermes MCP config interpolation failed — relaunch hermes-aify so the env var is set in hermes's own env before MCP child spawn.`);
+}
+
+let __runtimeAdapter = null;
+try {
+  const __rt = String(process.env.AIFY_RUNTIME || "").trim();
+  if (__rt) __runtimeAdapter = adapterFor(__rt);
+} catch { /* unknown runtime — bridge continues without adapter */ }
+
+const __HEARTBEAT_MS = Number(process.env.AIFY_SESSION_HEARTBEAT_MS || "60000") || 60000;
+const __serverUrl = String(process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://127.0.0.1:8800").trim();
+const __stopHandleHeartbeat = startSessionHandleHeartbeat({
+  adapter: __runtimeAdapter,
+  agentId: AIFY_AGENT_ID,
+  intervalMs: __HEARTBEAT_MS,
+  postFn: makeDefaultHandlePoster(__serverUrl, API_KEY),
+});
+
+// Plan 4 Task 13 (2026-05-25): turn-busy heartbeat. While any controller's
+// start() promise is unresolved (tracked via ACTIVE_CONTROLLER_PROMISES,
+// populated at controller-start time below), POSTs turn_busy=1 every 30s to
+// keep server-side status fresh independent of pre_llm_call / PostToolUse
+// hook firing. Solves the operator-observed "working flapping to online
+// during long turns" issue. No-op when AIFY_AGENT_ID is unset (managed
+// dispatch bridges without an owning agent).
+const ACTIVE_CONTROLLER_PROMISES = new Set();
+function __markControllerStart(promise) {
+  if (!promise || typeof promise.then !== "function") return promise;
+  ACTIVE_CONTROLLER_PROMISES.add(promise);
+  const cleanup = () => { ACTIVE_CONTROLLER_PROMISES.delete(promise); };
+  promise.then(cleanup, cleanup);
+  return promise;
+}
+const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
+  agentId: AIFY_AGENT_ID,
+  intervalMs: 30_000,
+  isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
+  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY),
+});
+
+// Startup diagnostic: surface the env vars the bridge sees so operators
+// can verify env propagation through *-aify → runtime → MCP child.
+// Now adapter-driven (Plan 1 of the RuntimeAdapter refactor): the runtime
+// adapter knows which env vars to report for its runtime.
+try {
+  const _runtime = String(process.env.AIFY_RUNTIME || "").trim();
+  const _agentId = AIFY_AGENT_ID;
+  const _sessionMode = cleanEnvPlaceholder(process.env.AIFY_SESSION_MODE || "");
+  const _wrapperFlag = cleanEnvPlaceholder(process.env.AIFY_MANAGED_VIA_WRAPPER || "");
+  let _diag = "(no adapter)";
+  let _handle = "(none)";
+  if (__runtimeAdapter) {
+    try {
+      _handle = __runtimeAdapter.getCurrentSessionId() || "(none)";
+      _diag = JSON.stringify(__runtimeAdapter.diagnosticEnv());
+    } catch (err) {
+      _diag = `(adapter read failed: ${err?.message || err})`;
+    }
+  }
+  console.error(`[aify] bridge startup: runtime=${_runtime || "(unset)"} agentId=${_agentId || "(unset)"} sessionMode=${_sessionMode || "(unset)"} wrapperChild=${_wrapperFlag || "0"} sessionId=${_handle} env=${_diag}`);
+} catch { /* best effort */ }
+const AIFY_HERMES_GATEWAY_TOKEN_ENV = String(process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "AIFY_HERMES_GATEWAY_TOKEN").trim();
+let hermesMarkerCwd = "";
+if (AIFY_HERMES_GATEWAY_URL) {
+  hermesMarkerCwd = DEFAULT_CWD;
+  try {
+    const markerData = { gatewayUrl: AIFY_HERMES_GATEWAY_URL };
+    if (AIFY_HERMES_GATEWAY_TOKEN_ENV) markerData.gatewayTokenEnv = AIFY_HERMES_GATEWAY_TOKEN_ENV;
+    writeRuntimeMarker("hermes", hermesMarkerCwd, markerData);
+  } catch (error) {
+    console.error("[aify] failed to write hermes runtime marker:", error?.message || String(error));
+    hermesMarkerCwd = "";
   }
 }
 
@@ -205,6 +305,8 @@ function cleanupOnExit() {
     clearInterval(environmentHeartbeatTimer);
     environmentHeartbeatTimer = null;
   }
+  try { __stopHandleHeartbeat(); } catch { /* best effort */ }
+  try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
@@ -217,6 +319,10 @@ function cleanupOnExit() {
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
+  }
+  // Remove hermes runtime marker
+  if (hermesMarkerCwd) {
+    try { removeRuntimeMarker("hermes", hermesMarkerCwd); } catch { /* best effort */ }
   }
   // Remove agent binding temp file
   removeAgentBindingFile({ pid: process.ppid || process.pid, bridgeId: BRIDGE_INSTANCE_ID });
@@ -641,11 +747,24 @@ function wakeModeSummary(info = {}) {
     return "codex-live";
   }
   if (sessionMode === "resident" && runtime === "codex" && capabilities.includes("resident-run") && info.sessionHandle) return "codex-thread-resume";
-  if (sessionMode === "resident" && runtime === "hermes" && capabilities.includes("resident-run") && info.sessionHandle) return "hermes-session-resume";
+  if (
+    sessionMode === "resident" &&
+    runtime === "hermes" &&
+    capabilities.includes("resident-run") &&
+    /^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))
+  ) {
+    // Gateway-channel resident hermes: bridge injects via tui_gateway /api/ws.
+    // sessionHandle is optional; controller binds to the active visible TUI
+    // session through the patched aify.session.bind_transport method.
+    // Plan 4 Task 17: gateway is the single source for resident hermes; the
+    // legacy hermes-session-resume mode (spawn-fresh-hermes-with-provider-config)
+    // is dead code now that discoverSessionId reliably captures gatewayUrl.
+    return "hermes-live";
+  }
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
-  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle) return "hermes-missing-handle";
+  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle && !/^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))) return "hermes-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
@@ -726,12 +845,47 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     else delete runtimeConfig.appServerUrl;
     if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
     else delete runtimeConfig.remoteAuthTokenEnv;
+  } else if (normalizedRuntime === "hermes") {
+    const rawGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || marker?.gatewayUrl || "").trim();
+    // Reject unresolved hermes YAML interpolation placeholders. Operator-
+    // reported 2026-05-25: hermes config.yaml env: AIFY_HERMES_GATEWAY_URL:
+    // "${AIFY_HERMES_GATEWAY_URL}" — when hermes's own env doesn't have the
+    // var set (because operator's hermes wasn't relaunched through the new
+    // hermes-aify wrapper), interpolation falls back to the literal
+    // placeholder string, which would pass through to runtime_config and
+    // make the resident-channel controller fail later.
+    const gatewayUrl = /^wss?:\/\//i.test(rawGatewayUrl) ? rawGatewayUrl : "";
+    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
+    if (gatewayUrl) runtimeConfig.gatewayUrl = gatewayUrl;
+    else delete runtimeConfig.gatewayUrl;
+    if (gatewayTokenEnv) runtimeConfig.gatewayTokenEnv = gatewayTokenEnv;
+    else delete runtimeConfig.gatewayTokenEnv;
   } else if (normalizedRuntime === "claude-code") {
     if (marker?.channelEnabled) runtimeConfig.channelEnabled = true;
     else delete runtimeConfig.channelEnabled;
   }
 
   return runtimeConfig;
+}
+
+// Plan 6 A2 (2026-05-26): runtime-authoritative session-handle resolver
+// used at the initial register path (mirrors A1's heartbeat reversal).
+// The wrapper exports HERMES_SESSION_ID / CODEX_THREAD_ID etc. from
+// whatever the operator's parent shell happened to have set — often
+// stale values from a prior runtime session. Discover-first asks the
+// runtime itself (gateway RPC / app-server probe / filesystem scan) for
+// the truth; env-fallback preserves the legacy behavior when the
+// runtime can't be probed (no adapter, discover throws, returns null).
+// Strictly additive: when discover fails, we get exactly the pre-Plan-6
+// behavior. Exported for unit testing.
+export async function computeInitialSessionHandle({ adapter, envHandle }) {
+  if (adapter && typeof adapter.discoverSessionId === "function") {
+    try {
+      const discovered = await adapter.discoverSessionId();
+      if (discovered) return String(discovered).trim();
+    } catch { /* swallow; fall through to env */ }
+  }
+  return String(envHandle || "").trim();
 }
 
 async function autoRegisterConfiguredAgent() {
@@ -743,7 +897,9 @@ async function autoRegisterConfiguredAgent() {
   const runtime = detectRuntime(process.env.AIFY_RUNTIME || "");
   const cwd = normalizeRegistrationCwd(runtime, process.env.AIFY_AGENT_CWD || DEFAULT_CWD);
   let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
-  const initialHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  const envHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  // Plan 6 A2: discover authoritative, env fallback. See computeInitialSessionHandle above.
+  const initialHandle = await computeInitialSessionHandle({ adapter: __runtimeAdapter, envHandle });
   let codexLiveBinding = null;
   if (runtime === "codex" && !hasCodexLiveAppServer(runtimeConfig)) {
     codexLiveBinding = await discoverCodexLiveBinding({ sessionHandle: initialHandle, cwd });
@@ -782,7 +938,8 @@ async function autoRegisterConfiguredAgent() {
     sessionHandle,
     capabilities,
     runtimeConfig: effectiveRuntimeConfig,
-    terminalId: process.env.AIFY_TERMINAL_ID || "",
+    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || ""),
+    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1",
     restoreDeleted: true,
     autoRegister: true,
   };
@@ -1037,7 +1194,8 @@ async function reregisterAgentFromState(agentId, state) {
     // R8: mirror the initial /agents register so a 404 auto-re-register does
     // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
     // stable for the bridge process lifetime; fall back to cached info.
-    terminalId: process.env.AIFY_TERMINAL_ID || info.terminalId || "",
+    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || info.terminalId || ""),
+    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" || !!info.managedWrapperChild,
     autoRegister: true,
   };
   try {
@@ -1195,6 +1353,7 @@ function baseAgentHeartbeatFields(state = {}) {
   return {
     bridgeId: BRIDGE_INSTANCE_ID,
     machineId: state?.info?.machineId || MACHINE_ID,
+      terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || state?.info?.terminalId || ""),
   };
 }
 
@@ -1205,6 +1364,24 @@ function currentTurnHeartbeatFields(state = {}, activeRun = null) {
     ...base,
     activeRun,
   });
+}
+
+// Unified-backing refactor 2026-05-24: read the `managed_via_wrapper` setting
+// so the dispatch loop knows which runtimes to skip claiming for (the
+// wrapper's child bridge claims those). 5s cache to avoid hammering /settings.
+let _managedViaWrapperCache = { fetchedAt: 0, runtimes: new Set() };
+async function readManagedViaWrapperRuntimes() {
+  if (Date.now() - _managedViaWrapperCache.fetchedAt < 5000) {
+    return _managedViaWrapperCache.runtimes;
+  }
+  try {
+    const resp = await httpCall("GET", "/settings");
+    const set = managedViaWrapperRuntimesFromSettingsResponse(resp);
+    _managedViaWrapperCache = { fetchedAt: Date.now(), runtimes: set };
+    return set;
+  } catch (_) {
+    return _managedViaWrapperCache.runtimes; // best-effort: return stale cache
+  }
 }
 
 async function reportAgentHeartbeat(agentId, state = {}, activeRun = null) {
@@ -1459,11 +1636,27 @@ async function runTerminalControlLoop() {
           const command = terminal.command || control.body || "";
           const runtime = normalizeRuntime(terminal.runtime || "");
           const sessionHandle = extractTerminalSessionHandle(runtime, command);
+          let agentInfo = {};
+          if (terminal.agentId) {
+            try {
+              const agentResp = await httpCall("GET", `/agents/${encodeURIComponent(terminal.agentId)}`);
+              agentInfo = agentResp?.agent || {};
+            } catch {
+              agentInfo = {};
+            }
+          }
+          let managedViaWrapper = runtime === "claude-code";
+          try {
+            const _wrapperRuntimes = await readManagedViaWrapperRuntimes();
+            managedViaWrapper = managedViaWrapper || Boolean(_wrapperRuntimes && _wrapperRuntimes.has?.(runtime));
+          } catch { /* best effort */ }
+          const wrapperEnv = terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId, agentInfo, managedViaWrapper });
+          if (managedViaWrapper && terminal.agentId) wrapperEnv.AIFY_AGENT_ID = String(terminal.agentId);
           const started = await TERMINAL_MANAGER.start({
             id: terminalId,
             command,
             cwd: workspace,
-            env: terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId }),
+            env: wrapperEnv,
             cols: control.cols || 100,
             rows: control.rows || 28,
             runtime,
@@ -1854,7 +2047,21 @@ async function runDispatchLoop() {
       // orphaned MCP child processes keeping a closed resident CLI "active".
       reportAgentHeartbeat(agentId, state).catch(() => {});
 
-      const executionModes = supportedExecutionModes(state.info);
+      const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => null);
+      let executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
+      // When this bridge IS the wrapper child for a managed agent (env
+      // AIFY_MANAGED_VIA_WRAPPER=1 set by server.js when it spawned the
+      // wrapper PTY), claim channel + resident regardless of the agent's
+      // recorded session_mode. The wrapper IS the backing — its in-process
+      // bridge owns delivery via the runtime's local backing (gateway / app-
+      // server / RPC). Mirror of how claude-channel.js polls for channel +
+      // resident from inside claude-aify. Operator-stated 2026-05-25:
+      // "managed workers are just pseudo terminals running resident sessions
+      // in them".
+      if (String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" && String(state.info?.agentId || agentId || "") === (process.env.AIFY_AGENT_ID || "")) {
+        if (!executionModes.includes("channel")) executionModes = [...executionModes, "channel"];
+        if (!executionModes.includes("resident")) executionModes = [...executionModes, "resident"];
+      }
       if (!executionModes.length) continue;
 
       // Claim all available dispatches and merge into one turn. The server
@@ -1953,12 +2160,37 @@ async function runDispatchLoop() {
         throw error;
       }
 
+      // Pass managedViaWrapper into the controller so native RPC adapters
+      // (CodexController / HermesController) can short-circuit to a delegated
+      // marker when the wrapper's child bridge owns delivery. Defensive: if
+      // the main bridge dispatch loop's executionMode gate (Task A4) somehow
+      // misses a wrapper-backed managed run, the controller still no-ops
+      // rather than competing with the wrapper.
+      //
+      // BUT: when THIS bridge IS the wrapper child (AIFY_MANAGED_VIA_WRAPPER=1),
+      // it IS the wrapper — it should NOT short-circuit. The wrapper child
+      // needs to actually deliver via the runtime's local backing (gateway /
+      // app-server). Only the main bridge should short-circuit.
+      const _runRuntime = normalizeRuntime(state.info?.runtime || "");
+      const _isWrapperChild = String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1";
+      const _isManagedViaWrapper = !_isWrapperChild && Boolean(_runRuntime && managedViaWrapperRuntimes && managedViaWrapperRuntimes.has?.(_runRuntime));
       const controller = launchRuntimeRun({
         agentId,
         agentInfo: state.info,
         run,
         runtimeState,
+        managedViaWrapper: _isManagedViaWrapper,
         callbacks: {
+          // Plan 4 Task 13 (2026-05-25): controllers fire this when their
+          // initial handshake completes (WS app-server initialize, gateway
+          // connect, pi agent_ready, etc.). Maps to PATCH /agents/{id}/ready
+          // so operators can see "ready" as a distinct state from "online".
+          onReady: () => {
+            httpCall("PATCH", `/agents/${encodeURIComponent(agentId)}/ready`, {
+              ready: true,
+              requestedBy: "controller-handshake",
+            }).catch(() => { /* best-effort */ });
+          },
           onEvent: async (eventType, text) => {
             try {
               await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
@@ -2028,9 +2260,9 @@ async function runDispatchLoop() {
           // RPC controller. Pi (Phase 2): persistent omp --mode rpc child
           // streams its event feed through this sink. Hermes: per-dispatch
           // `hermes chat -q -Q` controller pushes request/response frames.
-          // createPiController ignores this for resident-mode pi (legacy
-          // per-dispatch spawn). Other runtimes return null and stay on
-          // their existing visibility surface.
+          // PiController (managed mode only post-Plan-2 flip) wires this
+          // sink via session.attachTerminalSink. Other runtimes return null
+          // and stay on their existing visibility surface.
           terminalSinkProvider: async ({ agentId: provId, agentInfo }) => {
             const rt = normalizeRuntime(agentInfo?.runtime || "");
             // Phases 2 + 7 + 5/6: pi (persistent), hermes (per-dispatch
@@ -2053,6 +2285,9 @@ async function runDispatchLoop() {
       });
 
       ACTIVE_RUNS.set(agentId, { runId: run.id, runtime, controller });
+      // Plan 4 Task 13: track this controller's work promise so the
+      // turn-busy heartbeat fires while it's unresolved.
+      __markControllerStart(controller.promise);
       let turnBusyCleared = false;
       const clearTurnBusy = async () => {
         if (turnBusyCleared) return;
@@ -2235,7 +2470,9 @@ server.tool(
     appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
     managedBy: z.string().optional().describe("Owning agent ID for environment-managed sessions"),
   },
-  async ({ agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy }) => {
+  async (args) => {
+    args = fillSessionHandleFromAdapter(args, __runtimeAdapter);
+    const { agentId, role, name, cwd, model, description, instructions, runtime, machineId, launchMode, sessionMode, sessionHandle, appServerUrl, managedBy } = args;
     try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
     if (IS_MANAGED_DISPATCH) {
       // Allow EXPLICIT resident takeover. Operator-verified 2026-05-22:
@@ -2268,12 +2505,17 @@ server.tool(
     const resolvedSessionMode = normalizeSessionMode(sessionMode);
     const previousInfo = REMOTE_AGENT_STATE.get(agentId)?.info;
     const resolvedCwd = normalizeRegistrationCwd(resolvedRuntime, cwd || DEFAULT_CWD);
+    let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
+    const hermesGatewayRegistration =
+      resolvedRuntime === "hermes" &&
+      /^wss?:\/\//i.test(String(runtimeConfig?.gatewayUrl || ""));
+    const allowPreviousSessionHandle =
+      !(hermesGatewayRegistration && !String(sessionHandle || "").trim());
     const initialSessionHandle =
       sessionHandle ||
       defaultSessionHandleForRuntime(resolvedRuntime) ||
-      previousInfo?.sessionHandle ||
+      (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
       "";
-    let runtimeConfig = resolvedRuntimeConfigForRegistration(resolvedRuntime, previousInfo, resolvedCwd);
     const explicitAppServerUrl = String(appServerUrl || "").trim();
     if (resolvedRuntime === "codex" && explicitAppServerUrl) {
       runtimeConfig = { ...runtimeConfig, appServerUrl: explicitAppServerUrl };
@@ -2296,7 +2538,7 @@ server.tool(
       sessionHandle ||
       discoveredCodexThreadId ||
       initialSessionHandle ||
-      previousInfo?.sessionHandle ||
+      (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
       "";
     const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle, runtimeConfig);
 
@@ -3232,6 +3474,13 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
     run,
     runtimeState,
     callbacks: {
+      // Plan 4 Task 13: same ready surface as the main dispatch loop.
+      onReady: () => {
+        httpCall("PATCH", `/agents/${encodeURIComponent(targetId)}/ready`, {
+          ready: true,
+          requestedBy: "controller-handshake",
+        }).catch(() => { /* best-effort */ });
+      },
       onRuntimeState: (nextState) => {
         const merged = { ...(LOCAL_RUNTIME_STATE.get(targetId) || {}), ...nextState };
         LOCAL_RUNTIME_STATE.set(targetId, merged);
@@ -3245,6 +3494,9 @@ function spawnTriggeredAgent({ targetId, targetInfo, from, type, subject, body }
       onRefs: () => {},
     },
   });
+  // Plan 4 Task 13: track this controller's work promise so the turn-busy
+  // heartbeat fires while it's unresolved.
+  __markControllerStart(controller.promise);
 
   controller.promise
     .then(() => {})
@@ -4358,7 +4610,18 @@ async function main() {
   await autoRegisterConfiguredAgent();
 }
 
-main().catch((err) => {
+// Plan 6 A2 (2026-05-26): only auto-run main() when this file is the
+// process entrypoint. Tests that import named helpers (e.g.
+// computeInitialSessionHandle) from this module otherwise hang because
+// main() blocks on stdin via StdioServerTransport. The guard is safe —
+// real bridge launches always invoke server.js directly via the wrapper
+// shebang or `node mcp/stdio/server.js`.
+const __isEntrypoint = (() => {
+  try {
+    return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+  } catch { return true; }
+})();
+if (__isEntrypoint) main().catch((err) => {
   console.error("Fatal:", err);
   process.exit(1);
 });

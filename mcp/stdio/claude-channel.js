@@ -3,12 +3,14 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
+import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 
 loadSettingsEnv();
 
@@ -58,6 +60,7 @@ const CHANNEL_BRIDGE_ID = `channel-${MACHINE_ID}`;
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
+const IS_MAIN = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // Write our claude-code runtime marker from this long-lived bridge process.
 // This must happen here, not in the wrapper's bash CLI call, because on
@@ -65,13 +68,15 @@ const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS |
 // node cannot see it — listRuntimeMarkers would auto-delete the wrapper's
 // marker on first read. node's process.pid is a real Windows PID.
 const MARKER_CWD = process.cwd();
-try {
-  writeRuntimeMarker("claude-code", MARKER_CWD, {
-    channelEnabled: true,
-    parentPid: process.ppid || "",
-  });
-} catch (error) {
-  console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+if (IS_MAIN) {
+  try {
+    writeRuntimeMarker("claude-code", MARKER_CWD, {
+      channelEnabled: true,
+      parentPid: process.ppid || "",
+    });
+  } catch (error) {
+    console.error("[aify-channel] failed to write runtime marker:", error?.message || String(error));
+  }
 }
 
 function removeOwnMarker() {
@@ -81,9 +86,11 @@ function removeOwnMarker() {
     // best effort — a dead PID will get auto-cleaned on next listRuntimeMarkers anyway
   }
 }
-process.on("exit", removeOwnMarker);
-process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
-process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
+if (IS_MAIN) {
+  process.on("exit", removeOwnMarker);
+  process.on("SIGINT", () => { removeOwnMarker(); process.exit(130); });
+  process.on("SIGTERM", () => { removeOwnMarker(); process.exit(143); });
+}
 
 // No activeRunId tracking. The channel bridge claims a dispatch, delivers
 // it to the Claude session via MCP notification, and marks the run delivered
@@ -157,7 +164,7 @@ async function httpCall(method, endpoint, body = null) {
   throw lastError || new Error(`HTTP ${method} ${endpoint} failed`);
 }
 
-function dispatchContent(agentId, run) {
+export function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
   const priority = (run.priority || "normal").toLowerCase();
   const priorityLabel =
@@ -169,6 +176,7 @@ function dispatchContent(agentId, run) {
     priority === "high" ? "Read before continuing current work." :
     "Handle when you reach a natural break.";
   return [
+    claudeAifyReceiptLine(),
     `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
     actionLine,
     `From: ${run.from}`,
@@ -217,6 +225,18 @@ const mcp = new Server(
       "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically.",
   },
 );
+
+// Pure decision: given a /agents/{id} snapshot, should the channel
+// bridge re-pulse turn_busy on this poll cycle? Exported for tests.
+// Returns { repulse: boolean, runId: string }. See the call site +
+// 2026-05-23 feedback-loop discussion in pollLoop for rationale.
+export function decideRepulse(agentSnapshot = {}) {
+  const dispatchState = agentSnapshot.dispatchState || {};
+  const hasActiveRun = Boolean(dispatchState.hasActiveRun);
+  if (!hasActiveRun) return { repulse: false, runId: "" };
+  const activeRunId = String(dispatchState.activeRun?.runId || "");
+  return { repulse: true, runId: activeRunId };
+}
 
 async function emitChannel(content, meta = {}) {
   await mcp.notification({
@@ -357,13 +377,35 @@ async function pollLoop() {
         if (LAST_DELIVERED_AT_PER_AGENT.has(agentId)) {
           try {
             const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
-            const serverStatus = String(agentRes?.agent?.status || "").toLowerCase();
-            const serverBusy = Boolean(agentRes?.agent?.dispatchState?.hasActiveRun);
-            if (serverStatus === "working" || serverBusy) {
-              await reportTurnBusy(agentId, { busy: true }).catch(() => {});
+            const decision = decideRepulse(agentRes?.agent || {});
+            // Re-pulse condition: ONLY if there's an actual unsettled
+            // dispatch run (hasActiveRun = require_reply=true awaiting
+            // reply, or status=running). NOT based on serverStatus alone,
+            // which is DERIVED from turn_busy=1 — using it as a re-pulse
+            // trigger creates the self-reinforcing feedback loop
+            // (operator-reported 2026-05-23 "your and sc-coder status
+            // were stuck at working"):
+            //   1. dispatch delivered → turn_busy=1, LAST_DELIVERED set
+            //   2. dispatch marked completed (require_reply=false case)
+            //     → hasActiveRun=false but turn_busy still 1 fresh
+            //   3. server derives status='working' from turn_busy=1
+            //   4. bridge GET → reads 'working' → re-pulses turn_busy=1
+            //   5. step 3 keeps holding → infinite loop until
+            //      TURN_REFRESH_MAX_AGE_MS (10 min) clears the tracker.
+            //
+            // Why hasActiveRun is the right anchor: it's POSITIVE
+            // evidence the agent owes work (a delivered run that hasn't
+            // been replied to, or a claimed/running run still in flight).
+            // For UserPromptSubmit-initiated turns (no dispatch),
+            // turn_busy relies on the server-side TURN_BUSY_STALE_SECONDS
+            // window + the authoritative Stop hook clear. Brief flicker
+            // for >120s assistant turns is acceptable; stuck-working-
+            // forever is not.
+            if (decision.repulse) {
+              await reportTurnBusy(agentId, { busy: true, runId: decision.runId }).catch(() => {});
             } else {
-              // Server says not working — Stop hook fired or run
-              // completed externally. Drop tracking.
+              // No unsettled run — agent is genuinely idle (Stop hook
+              // fired, run completed externally, etc.). Drop tracking.
               LAST_DELIVERED_AT_PER_AGENT.delete(agentId);
             }
           } catch {
@@ -455,8 +497,10 @@ async function pollLoop() {
   }
 }
 
-await mcp.connect(new StdioServerTransport());
-pollLoop().catch((error) => {
-  console.error("[aify-channel] fatal:", error);
-  process.exit(1);
-});
+if (IS_MAIN) {
+  await mcp.connect(new StdioServerTransport());
+  pollLoop().catch((error) => {
+    console.error("[aify-channel] fatal:", error);
+    process.exit(1);
+  });
+}

@@ -147,8 +147,8 @@ Runtime model defaults and overrides:
 - managed Oh My Pi supports active-run steering by sending OMP's native RPC `steer` command; explicit queueing remains available with `queueIfBusy=true`
 - managed Hermes uses the terminal-capable PTY path; resumable IDs can be stored when known, but an active managed PTY is the primary warm backing while it is alive
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
-- Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
-- Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set
+- Bridge-spawned `claude-aify` receives model/effort through managed wrapper env and passes them to Claude as `--model` / `--effort` at wrapper launch; existing running PTYs need restart after a policy change
+- Codex uses the managed `CODEX_HOME` plus explicit turn effort values, and only sends thread/turn model values when the global model override is set
 
 Codex target model:
 
@@ -181,10 +181,8 @@ Resident visible is for human-open CLI sessions:
 - `codex-aify`
 - `claude-aify`
 - `hermes-aify`
-- `omp-aify` / `pi-aify`
-- explicit OpenCode registration with a real session handle
 
-Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it.
+Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it. Pi and OpenCode are exceptions: `omp-aify` / `pi-aify` and manual OpenCode registration can record presence and standalone operator sessions, but triggerable delivery is managed because those current resident surfaces do not provide the multi-client injection point that Claude/Codex/Hermes expose.
 
 Resident visible sessions are not the default for dashboard-spawned agents. They are an attach/register mode for visible humans and debugging.
 
@@ -214,15 +212,15 @@ Examples:
 - To match managed Claude's unattended permission behavior in a resumed CLI, use `claude-aify --dangerously-skip-permissions --resume <session-id>`. `--permanently-skip-permissions` is not a Claude Code CLI option.
 - Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
 - Hermes managed-warm uses the same PTY delivery path; open a visible resident terminal with `hermes-aify --aify-agent <agent-id> --resume <session-id>` when a real Hermes session ID is known.
-- Pi managed-warm can be opened with `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` when a real Oh My Pi session handle is recorded.
+- Pi managed-warm should stay managed for triggerable dashboard delivery. `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` is a presence/standalone takeover command; do not run it against the same session id while the bridge owns the managed RPC child.
 
 Dashboard rule:
 
 - Show **Open in CLI** only when `cliAttach=true`.
 - Show the CLI resume command as a copyable code block when a runtime handle is known but attach is not guaranteed. This is a takeover/resume command, not proof that the dashboard and human CLI can safely write the same session concurrently.
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
-- Resident takeover is automatic but turn-boundary safe: if a managed run is active, the backend records a pending resident takeover and applies it only after that run ends.
-- Returning to managed is automatic when the resident bridge lease expires and the identity has saved environment backing. Dashboard **Restart** remains the explicit force-now path. Reopening a wrapper with `--aify-agent` returns the identity to resident ownership once safe.
+- Resident/managed ownership is manual. A resident wrapper registration against an existing managed identity records a `manualResidentCandidate` for later use, but does not take over the identity or stop the managed PTY.
+- Operators switch ownership from **Sessions -> Actions -> Switch to resident/managed** or the Chat details switch. Active runs block the switch unless the operator explicitly forces it. Stale resident bridges do not silently return to managed; dashboard sends fail visibly until the operator switches to managed or restarts the resident wrapper.
 - Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or recreate path.
 - **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.

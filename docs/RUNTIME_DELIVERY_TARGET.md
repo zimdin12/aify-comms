@@ -1,10 +1,42 @@
 # Runtime Delivery — Target Architecture
 
-Status: **TARGET MODEL.** Captured from operator + comms-senior-dev-pi
-conversation (2026-05-20). This is the runtime/bridge end-state the
-service is converging toward. Companion to
-[DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md) (correctness gate)
-and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md) (UX direction).
+Status: **TARGET MODEL — DELIVERED ACROSS ALL RUNTIMES (2026-05-25).**
+Captured from operator + comms-senior-dev-pi conversation (2026-05-20).
+Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
+(correctness gate) and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md)
+(UX direction).
+
+**Implementation status (post Plans 1+2+3):**
+- **All runtimes go through a unified `RuntimeAdapter` abstraction.** JS
+  adapters at `mcp/stdio/adapters/`, Python mirror at `service/runtimes/`.
+  Each adapter declares capabilities (`supports_resident`,
+  `supports_managed`, `supports_steering`, etc.) and the bridge/server
+  consult those instead of branching on `runtime == "..."`. Cross-language
+  consistency enforced by `service/tests/test_runtime_adapter_consistency.py`.
+- **Per-runtime controllers** live in `mcp/stdio/controllers/` — one file
+  per runtime (plus per-mode subclasses for hermes + codex), each
+  ≤400 lines. Adapter's `controllerFor(opts)` returns the right
+  controller instance; `launchRuntimeRun` collapses to a single
+  `adapter.controllerFor(opts).start(ctx)` call.
+- **Session handles** are captured back into `agents.session_handle` via
+  the bridge's 60s heartbeat (`mcp/stdio/session-handle-heartbeat.js`).
+  Stable across all launch modes; closes the "missing handles all the time"
+  operator pain.
+- **Pi delivery flip:** `pi-session-resume` spawn-fresh-worker pattern
+  removed. Pi managed delivery uses one persistent bridge-owned
+  `omp --mode rpc` child per agent plus a virtual terminal stream. Pi is
+  excluded from `managed_via_wrapper` because OMP is single-client and the
+  dashboard Console must share the same native RPC controller. Ownership
+  changes are manual through the dashboard switch controls.
+- **Codex carve-out removed:** Console now resumes the stored handle for
+  codex too. `codex-aify` wrapper gained a try-resume-then-fresh fallback
+  for stale session files.
+- **OpenCode:** still managed-only (no `opencode serve` integration yet).
+  Adapter declares `preferredDeliveryMode = "managed"`. Tracked follow-up
+  for full integration.
+- **`channelEnabled` per-config gate** restored via `adapter.is_resident_ready(runtime_config)` —
+  claude resident agents must have `channelEnabled=True` before advertising
+  `resident-run`. Hermes resident requires a valid `gatewayUrl`.
 
 ## The model
 
@@ -13,10 +45,10 @@ and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md) (UX direction).
 - **Console** = operator attach/control/view into the agent's backing
   runtime terminal. Hidden consoles don't need to render; the backend
   still tracks output/state.
-- **Message delivery** goes through the runtime wrapper attached to the
-  agent backing process — `claude-aify`, `codex-aify`, `hermes-aify`,
-  `omp/pi-aify`. **Not** ad-hoc service injection into a human console
-  pane.
+- **Message delivery** goes through the runtime backing process: `claude-aify`,
+  `codex-aify`, and `hermes-aify` wrapper PTYs for the runtimes with
+  multi-client injection, or the persistent OMP RPC virtual terminal for Pi.
+  **Not** ad-hoc service injection into a human console pane.
 - **Status** is reported by the `*-aify` wrapper where possible: turn
   start/end, blocked/awaiting-input, idle prompt, fatal/error, session
   changed.
@@ -25,25 +57,27 @@ and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md) (UX direction).
 - **Dashboard status** displays backend truth, not client-only guesses
   (the F2 canonical resolver in the parity contract).
 
-## Current mismatches (from pi — runtime/bridge lane)
+## Remaining gaps (post Plans 1+2+3)
 
-1. **Codex/Pi/OpenCode are now being routed through managed terminal
-   backing by default in the flip slice.** Native adapters remain as
-   fallback / feature-off paths; the remaining target gap is making every
-   runtime wrapper emit explicit delivery/status events instead of relying
-   on service-side terminal-control records.
-2. **Claude/Hermes still use service-created terminal input.** Made
-   atomic/safer (the running-contract + safety nets); target is
-   wrapper-owned delivery.
-3. **Console/backing-terminal split is incomplete.** Today Console can
-   become the same terminal used for delivery. Target: backing runtime
-   exists independently; Console attaches/views/controls it.
-4. **Status is partly inferred.** Some status comes from runs/terminal
-   heuristics. Target: `*-aify` wrappers emit explicit turn/status
-   events; backend aggregates.
-5. **Hidden-console / activity-detection is partial.** Backend tracks
-   terminal output, but the "console hidden, backing terminal active"
-   model is not fully formalized.
+Most of the original mismatches are closed by the RuntimeAdapter
+refactor. Surviving items:
+
+1. **runtimes.js still ~2110 lines** — the per-runtime controllers
+   extracted out, but helper functions (codex-config, codex-live-discovery,
+   executable-resolution, RPC clients) still live in the monolith. Plan 3
+   follow-up tracked: split into four per-concern modules so runtimes.js
+   reaches the ≤500 target.
+2. **`service/routers/api_v2.py` is ~13000 lines** — egregious 500-line
+   rule violation. Separate plan (Plan 5 territory). Plans 1+2+3 deliberately
+   did NOT add to its bulk; new code went into the runtimes/ adapter package
+   and the pi-flip helpers stayed surgical.
+3. **Runtime-ready event hook:** delivered. `ready` is now an internal bridge readiness bit; public agent status uses `online` for live idle workers and `available` for spawnable idle identities.
+4. **Opencode multi-client wiring:** opencode supports `opencode serve` for
+   ACP multi-client delivery but aify-comms hasn't integrated. Follow-up.
+5. **codex-aify --remote + resume subcommand ordering:** validation needed
+   live (task #118) — Plan 1 shipped the fallback shape but the exact
+   `codex --remote URL ... resume HANDLE` ordering hasn't been verified
+   on the operator's machine.
 
 ## Lane split
 

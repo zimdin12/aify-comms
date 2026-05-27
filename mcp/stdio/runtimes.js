@@ -1,15 +1,13 @@
-import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import os from "os";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
-import { createOpencode } from "@opencode-ai/sdk";
 import WebSocket from "ws";
 import { listRuntimeMarkers } from "./runtime-markers.js";
-import { detectCodexResumeFailure, resolveCodexRequestCwdFor } from "./codex-errors.js";
-import { acquirePiSession } from "./pi-session.js";
+import { resolveCodexRequestCwdFor } from "./codex-errors.js";
+import { adapterFor } from "./adapters/index.js";
 
 const DEFAULT_CLAUDE_MAX_TURNS = 50;
 function userHomeDir() {
@@ -53,6 +51,60 @@ function spawnRawProcess(command, args, options = {}, { forceNode = false } = {}
     detached: !forceNode && process.platform !== "win32",
     windowsHide: true,
   });
+}
+
+// Tokenize a command string with shell-style quoting so paths containing
+// spaces survive an env-var override. Supports double-quote and single-
+// quote groupings. Backslash escapes the next char ONLY when not inside
+// quotes — inside double quotes backslash is literal (POSIX-ish but
+// Windows-path-friendly: `"C:\Program Files\hermes\hermes.exe"` parses
+// to the literal Windows path without losing backslashes).
+// Returns { command, args }. Empty input → { command: "", args: [] }.
+// Used by AIFY_HERMES_ACP_COMMAND, AIFY_CODEX_COMMAND, and any future
+// shell-style env override (fixes I7 from 2026-05-23 code review).
+export function tokenizeCommandString(raw) {
+  const text = String(raw || "");
+  const tokens = [];
+  let current = "";
+  let inDouble = false;
+  let inSingle = false;
+  let hasToken = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length && !inDouble && !inSingle && /\s/.test(text[i + 1])) {
+      // Outside quotes: backslash ONLY escapes whitespace (so `foo\ bar`
+      // is a single token). Anywhere else outside quotes (including
+      // Windows path separators like `C:\Program Files\…`), backslash is
+      // literal — otherwise an unquoted Windows path would lose its
+      // separators.
+      current += text[i + 1];
+      hasToken = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      hasToken = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      hasToken = true;
+      continue;
+    }
+    if (/\s/.test(ch) && !inDouble && !inSingle) {
+      if (hasToken) {
+        tokens.push(current);
+        current = "";
+        hasToken = false;
+      }
+      continue;
+    }
+    current += ch;
+    hasToken = true;
+  }
+  if (hasToken) tokens.push(current);
+  return { command: tokens[0] || "", args: tokens.slice(1) };
 }
 
 export function spawnProcess(command, args, options = {}) {
@@ -195,11 +247,6 @@ function quotePowerShellString(value) {
   return `'${String(value || "").replace(/'/g, "''")}'`;
 }
 
-function extractClaudeSessionInUseId(text) {
-  const match = String(text || "").match(/session id\s+([0-9a-f-]{16,})\s+is already in use/i);
-  return match ? match[1] : "";
-}
-
 function claudeProjectNameForCwd(cwd) {
   return String(cwd || process.cwd()).replace(/[^a-zA-Z0-9]/g, "-");
 }
@@ -279,26 +326,6 @@ export function buildManagedClaudeUnlockPowerShell(sessionId, markerPids = []) {
     "  }",
     "}",
   ].join("\n");
-}
-
-function releaseManagedClaudeSessionLock(sessionId, cwd = "") {
-  const normalized = String(sessionId || "").trim();
-  if (!normalized || process.platform !== "win32") return { releasedPids: [], markerPids: [] };
-  const markerPids = listRuntimeMarkers("claude-code", cwd)
-    .map((marker) => Number(marker?.pid || 0))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
-  const script = buildManagedClaudeUnlockPowerShell(normalized, markerPids);
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 10000,
-  });
-  if (result.status !== 0) return { releasedPids: [], markerPids };
-  const releasedPids = String(result.stdout || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return { releasedPids, markerPids };
 }
 
 const ENVIRONMENT_BRIDGE_ENV_KEYS = [
@@ -494,6 +521,31 @@ function installManagedCodexSkills(sourceHome, targetHome) {
 
 export function managedCodexConfigText({ workspace = "", serverUrl = "", model = "", effort = "" } = {}) {
   const resolvedModel = String(model || "").trim();
+  // Plan 6 follow-up (2026-05-26): include `env_vars` (codex's passthrough
+  // mechanism) so the inner aify-comms MCP child inherits AIFY_AGENT_ID /
+  // AIFY_SESSION_MODE / AIFY_MANAGED_VIA_WRAPPER / etc. from the wrapper
+  // PTY's codex process. Without this, codex's per-child env REPLACES the
+  // inherited environment (codex-rs/rmcp-client/src/utils.rs
+  // create_env_for_mcp_server) and the inner MCP registers without an
+  // agent id — no bridge advertises `channel` for the wrapper-backed
+  // managed codex agent, and dispatches sit queued forever. Symmetric
+  // with install.sh install_codex_mcp_env_vars for the operator's
+  // ~/.codex/config.toml.
+  const envVarPassthrough = [
+    "AIFY_AGENT_ID",
+    "AIFY_AGENT_ROLE",
+    "AIFY_AGENT_CWD",
+    "AIFY_SESSION_MODE",
+    "AIFY_SESSION_HANDLE",
+    "AIFY_RUNTIME",
+    "AIFY_TERMINAL_ID",
+    "AIFY_MANAGED_VIA_WRAPPER",
+    "AIFY_COMMS_AGENT_ID",
+    "AIFY_COMMS_URL",
+    "AIFY_API_KEY",
+    "CODEX_THREAD_ID",
+    "AIFY_CODEX_APP_SERVER_URL",
+  ];
   const lines = [
     `model_reasoning_effort = ${tomlString(effort || "high")}`,
     "",
@@ -512,11 +564,24 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "startup_timeout_sec = 10",
     "tool_timeout_sec = 25",
     'disabled_tools = ["comms_listen"]',
+    `env_vars = [${envVarPassthrough.map((n) => tomlString(n)).join(", ")}]`,
     "",
     "[mcp_servers.aify-comms.env]",
     `AIFY_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
     `CLAUDE_MCP_SERVER_URL = ${tomlString(serverUrl || process.env.AIFY_SERVER_URL || process.env.CLAUDE_MCP_SERVER_URL || "http://localhost:8800")}`,
-    'AIFY_MANAGED_DISPATCH = "1"',
+    // Plan 6 follow-up (2026-05-26): AIFY_MANAGED_DISPATCH used to be
+    // hard-set to "1" here to mark legacy managed-codex MCP children
+    // as "tool-only, don't autoregister" (server.js IS_MANAGED_DISPATCH
+    // gate at line 885). With Plan 5/6 wrapper-backed managed codex,
+    // the inner MCP MUST register and claim channel-mode runs. So we
+    // now LET IT INHERIT from the wrapper PTY's env — terminal-env.js
+    // sets AIFY_MANAGED_DISPATCH="0" for wrapper PTYs, which means the
+    // inner MCP runs the normal autoRegisterConfiguredAgent path and
+    // claims dispatches. The legacy native-managed codex path (where
+    // the bridge connects directly to a codex app-server without a
+    // wrapper PTY) doesn't use this config file at all — its env is
+    // set per-spawn by createCodexController, which still sets
+    // AIFY_MANAGED_DISPATCH="1" via runtimeChildEnv.
   ];
   if (workspace) {
     lines.push("", `[projects.${tomlString(workspace)}]`, 'trust_level = "trusted"');
@@ -546,7 +611,7 @@ export function quoteForDisplay(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
-function describeCodexItem(item = {}) {
+export function describeCodexItem(item = {}) {
   const type = String(item?.type || item?.kind || "item").trim() || "item";
   const name =
     String(item?.name || item?.toolName || item?.call?.name || item?.function?.name || "").trim();
@@ -675,7 +740,7 @@ function formatConversationContext(messages = []) {
   return lines.join("\n");
 }
 
-function splitProviderModel(value) {
+export function splitProviderModel(value) {
   const text = String(value || "").trim();
   if (!text || !text.includes("/")) return null;
   const [providerID, ...modelParts] = text.split("/");
@@ -765,7 +830,7 @@ export function codexTurnSandboxPolicy(mode, cwd, networkAccess = true) {
   };
 }
 
-function summarizeOpenCodeParts(parts = []) {
+export function summarizeOpenCodeParts(parts = []) {
   const textChunks = [];
   for (const part of parts) {
     if (!part || typeof part !== "object") continue;
@@ -824,9 +889,10 @@ export function extractPiSessionState(value) {
   return { sessionId, sessionFile };
 }
 
+const PI_MODEL_PLACEHOLDER_VALUES = new Set(["default", "unknown", "auto"]);
 export function normalizePiModelOverride(value) {
   const text = String(value || "").trim();
-  return text.toLowerCase() === "default" ? "" : text;
+  return PI_MODEL_PLACEHOLDER_VALUES.has(text.toLowerCase()) ? "" : text;
 }
 
 export const RUNTIME_SESSION_ENV_VARS = Object.freeze({
@@ -928,7 +994,7 @@ export function detectPiRuntimeFailure(value) {
 }
 
 
-function requireOpenCodeData(response, fallbackMessage) {
+export function requireOpenCodeData(response, fallbackMessage) {
   if (response?.data) return response.data;
   const errorMessage =
     response?.error?.data?.message ||
@@ -937,7 +1003,13 @@ function requireOpenCodeData(response, fallbackMessage) {
   throw new Error(errorMessage);
 }
 
-function defaultCodexCommand() {
+export function defaultCodexCommand() {
+  // Test/operator override: full command line incl. args. Quote-aware so
+  // paths with spaces survive (fix I7 — '"C:\Program Files\codex\codex.exe" app-server').
+  const override = String(process.env.AIFY_CODEX_COMMAND || "").trim();
+  if (override) {
+    return tokenizeCommandString(override);
+  }
   if (process.platform === "win32") {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
@@ -975,7 +1047,7 @@ function codexWorkingPath(launcher, cwd) {
   return toWslPath(cwd);
 }
 
-function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
+export function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
   return resolveCodexRequestCwdFor({
     hostCwd,
     appServerUrl,
@@ -983,7 +1055,7 @@ function resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl }) {
   });
 }
 
-function codexSpawnCwd(launcher, cwd) {
+export function codexSpawnCwd(launcher, cwd) {
   if (!isWslCodexLauncher(launcher)) return cwd;
   return process.env.USERPROFILE || process.env.HOMEDRIVE && process.env.HOMEPATH
     ? `${process.env.HOMEDRIVE || "C:"}${process.env.HOMEPATH || "\\Users\\Default"}`
@@ -1390,47 +1462,28 @@ export function runtimeLaunchAvailability(runtime) {
     };
   }
   if (normalized === "codex") {
-    const launcher = defaultCodexCommand();
-    const available = hasExecutable(launcher.command);
+    const expected = String(process.env.AIFY_CODEX_AIFY_COMMAND || "").trim() || "codex-aify";
+    const resolved = resolveExecutable(expected);
+    const available = Boolean(resolved);
     return {
       available,
       message: available
-        ? `Codex launcher available (${launcher.command})`
-        : `Runtime "codex" is not launchable from this bridge because "${launcher.command}" is not available. ` +
-          `Diagnostic: ${diagnosticsFor(launcher.command)}`,
+        ? `Codex aify wrapper available (resolved to ${resolved})`
+        : `Runtime "codex" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+          `Install/update with install.sh --client codex, ensure raw Codex is installed for this OS/user, or set AIFY_CODEX_AIFY_COMMAND to an absolute codex-aify-compatible wrapper path and restart the bridge. ` +
+          `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
   if (normalized === "hermes") {
-    // Use the same resolution path as defaultHermesCommand so the
-    // availability advertised on /api/v1/environments matches what the
-    // controller will actually find at spawn time. defaultHermesCommand
-    // probes known Windows install locations (User AppData) when PATH
-    // lookup fails — that's the operator-friendly fallback for shells
-    // started before the Hermes installer populated User PATH. Without
-    // this, the bridge advertised hermes as unavailable even though the
-    // controller would have been able to spawn it.
-    const launcher = defaultHermesCommand();
-    const configured = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "").trim();
-    const cmd = launcher?.command || "";
-    let available = false;
-    if (cmd) {
-      try {
-        if (/[\\/]/.test(cmd) && fs.existsSync(cmd) && fs.statSync(cmd).isFile()) {
-          available = true;
-        } else if (hasExecutable(cmd)) {
-          available = true;
-        }
-      } catch {
-        available = false;
-      }
-    }
-    const expected = configured || cmd || "hermes";
+    const expected = String(process.env.AIFY_HERMES_AIFY_COMMAND || "").trim() || "hermes-aify";
+    const resolved = resolveExecutable(expected);
+    const available = Boolean(resolved);
     return {
       available,
       message: available
-        ? `Hermes launcher available (resolved to ${cmd})`
-        : `Runtime "hermes" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
-          `Install Hermes Agent for this OS/user, or set AIFY_HERMES_COMMAND to an absolute path and restart the bridge. ` +
+        ? `Hermes aify wrapper available (resolved to ${resolved})`
+        : `Runtime "hermes" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+          `Install/update with install.sh --client hermes, ensure Hermes Agent is installed for this OS/user, or set AIFY_HERMES_AIFY_COMMAND to an absolute hermes-aify-compatible wrapper path and restart the bridge. ` +
           `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
@@ -1452,21 +1505,6 @@ export function runtimeLaunchAvailability(runtime) {
   return { available: false, message: `Runtime "${normalized}" is not launchable from this bridge.` };
 }
 
-function canUseDefaultResidentCodexBridge() {
-  if (process.platform !== "win32") return true;
-  const originator = String(process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || "").trim().toLowerCase();
-  if (originator !== "codex desktop") return true;
-  return process.env.AIFY_CODEX_ALLOW_DESKTOP_RESIDENT === "1";
-}
-
-export function hasClaudeLiveChannel(runtimeConfig = {}) {
-  return (
-    runtimeConfig?.channelEnabled === true ||
-    process.env.AIFY_COMMS_CHANNEL_ENABLED === "1" ||
-    process.env.AIFY_CLAUDE_CHANNEL_ENABLED === "1"
-  );
-}
-
 export function getRuntimeConfig(agentInfo) {
   return agentInfo.runtimeConfig || {};
 }
@@ -1486,19 +1524,12 @@ export function canLaunchRuntime(runtime) {
 }
 
 export function controlCapabilitiesForRuntime(runtime) {
-  switch (normalizeRuntime(runtime)) {
-    case "codex":
-      return { interrupt: true, steer: true };
-    case "hermes":
-      return { interrupt: true, steer: false };
-    case "opencode":
-      return { interrupt: true, steer: false };
-    case "pi":
-      return { interrupt: true, steer: true };
-    case "claude-code":
-      return { interrupt: true, steer: false };
-    default:
-      return { interrupt: false, steer: false };
+  const runtimeN = normalizeRuntime(runtime || "");
+  try {
+    const a = adapterFor(runtimeN);
+    return { interrupt: a.supportsInterrupt, steer: a.supportsSteering };
+  } catch {
+    return { interrupt: false, steer: false };
   }
 }
 
@@ -1510,10 +1541,15 @@ export function defaultSessionHandleForRuntime(runtime) {
   return "";
 }
 
-function createRpcClient(proc, { onNotification, onStderr }) {
+export function createRpcClient(proc, { onNotification, onStderr } = {}) {
   const pending = new Map();
   let nextId = 1;
   let processError = null;
+  // Mutable notification handler so a pooled RPC (CodexSession) can swap
+  // it per turn without rebuilding the client. Defaults to the
+  // constructor-time `onNotification`; null disables forwarding.
+  let activeNotificationHandler = onNotification || null;
+  let activeStderrHandler = onStderr || null;
 
   function failPending(error) {
     for (const [id, pendingRequest] of pending.entries()) {
@@ -1525,7 +1561,7 @@ function createRpcClient(proc, { onNotification, onStderr }) {
   proc.on("error", (error) => {
     processError = error instanceof Error ? error : new Error(String(error));
     failPending(processError);
-    if (onStderr) onStderr(processError.message || String(processError));
+    if (activeStderrHandler) activeStderrHandler(processError.message || String(processError));
   });
 
   const stdout = readline.createInterface({ input: proc.stdout });
@@ -1548,14 +1584,14 @@ function createRpcClient(proc, { onNotification, onStderr }) {
       return;
     }
 
-    if (message.method && onNotification) {
-      onNotification(message);
+    if (message.method && activeNotificationHandler) {
+      activeNotificationHandler(message);
     }
   });
 
   const stderr = readline.createInterface({ input: proc.stderr });
   stderr.on("line", (line) => {
-    if (onStderr) onStderr(line);
+    if (activeStderrHandler) activeStderrHandler(line);
   });
 
   function send(payload) {
@@ -1591,16 +1627,37 @@ function createRpcClient(proc, { onNotification, onStderr }) {
     send({ jsonrpc: "2.0", method, params });
   }
 
-  return { request, notify };
+  function setOnNotification(handler) {
+    activeNotificationHandler = typeof handler === "function" ? handler : null;
+  }
+
+  function setOnStderr(handler) {
+    activeStderrHandler = typeof handler === "function" ? handler : null;
+  }
+
+  function close() {
+    failPending(new Error("rpc client closed"));
+    activeNotificationHandler = null;
+    activeStderrHandler = null;
+    try { stdout.close(); } catch {}
+    try { stderr.close(); } catch {}
+    try { proc.stdin?.end?.(); } catch {}
+    try { proc.stdout?.destroy?.(); } catch {}
+    try { proc.stderr?.destroy?.(); } catch {}
+  }
+
+  return { request, notify, setOnNotification, setOnStderr, close };
 }
 
-function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
+export function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {}) {
   return new Promise((resolve, reject) => {
     const pending = new Map();
     let nextId = 1;
     let opened = false;
     let closed = false;
 
+    let activeNotificationHandler = onNotification || null;
+    let activeStderrHandler = onStderr || null;
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     const socket = new WebSocket(url, Object.keys(headers).length ? { headers } : undefined);
@@ -1670,9 +1727,19 @@ function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {})
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
           socket.close();
         }
+        activeNotificationHandler = null;
+        activeStderrHandler = null;
       }
 
-      resolve({ request, notify, close });
+      function setOnNotification(handler) {
+        activeNotificationHandler = typeof handler === "function" ? handler : null;
+      }
+
+      function setOnStderr(handler) {
+        activeStderrHandler = typeof handler === "function" ? handler : null;
+      }
+
+      resolve({ request, notify, close, setOnNotification, setOnStderr });
     });
 
     socket.on("message", (data) => {
@@ -1692,8 +1759,8 @@ function createWebSocketRpcClient(url, { token, onNotification, onStderr } = {})
         return;
       }
 
-      if (message.method && onNotification) {
-        onNotification(message);
+      if (message.method && activeNotificationHandler) {
+        activeNotificationHandler(message);
       }
     });
 
@@ -1759,7 +1826,9 @@ function normalizePathForCompare(value) {
 }
 
 function pickNewestCodexThreadId(listResult, cwd) {
-  const threads = Array.isArray(listResult?.threads) ? listResult.threads : [];
+  const threads = Array.isArray(listResult?.threads)
+    ? listResult.threads
+    : (Array.isArray(listResult?.data) ? listResult.data : []);
   if (!threads.length) return "";
 
   // Normalize both sides: Codex stores Windows thread cwds with backslashes,
@@ -1947,1326 +2016,10 @@ export async function discoverCodexLiveBinding({ sessionHandle = "", cwd = proce
   return null;
 }
 
-function createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  throw new Error(
-    "Claude Code managed Messenger no longer uses claude -p. " +
-    "Start or attach a Claude PTY/channel runtime with claude-aify, then deliver Messenger work through the resident channel bridge.",
-  );
-}
-
 export function isClaudeSessionInUseError(text) {
   return /session id(?:\s+[0-9a-f-]+)?\s+is already in use/i.test(String(text || ""));
 }
 
-function createCodexController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const config = getRuntimeConfig(agentInfo);
-  const launcher = defaultCodexCommand();
-  const resumePolicy = String(runtimeState?.resumePolicy || agentInfo?.runtimeState?.resumePolicy || "native_first").trim().toLowerCase();
-  const allowFreshContext = resumePolicy === "fresh_context";
-  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const configuredQuietTimeout = Number(config.quietTimeoutMs ?? config.silenceTimeoutMs ?? 30 * 60 * 1000);
-  const quietTimeoutMs = configuredQuietTimeout <= 0
-    ? 0
-    : Math.max(10 * 60 * 1000, configuredQuietTimeout);
-  const configuredAifyMcpToolTimeout = Number(config.mcpToolTimeoutMs ?? config.commsToolTimeoutMs ?? 90 * 1000);
-  const aifyMcpToolTimeoutMs = configuredAifyMcpToolTimeout <= 0
-    ? 0
-    : Math.max(10 * 1000, configuredAifyMcpToolTimeout);
-  const hostCwd = agentInfo.cwd || process.cwd();
-  const model = String(agentInfo.model || config.model || "").trim();
-  const effort = managedCodexEffort(config);
-  const summaryMode = config.summary || "concise";
-  const approvalPolicy = config.approvalPolicy || "never";
-  const networkAccess = config.networkAccess !== false;
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  const sandboxMode = managedCodexSandboxMode(config, executionMode);
-  const residentThreadId = String(agentInfo.sessionHandle || "").trim();
-  const appServerUrl =
-    executionMode === "resident" && hasCodexLiveAppServer(config)
-      ? String(config.appServerUrl || "").trim()
-      : "";
-  const cwd = resolveCodexRequestCwd({ hostCwd, launcher, appServerUrl });
-  const spawnCwd = codexSpawnCwd(launcher, hostCwd);
-  const managedCodexHome =
-    executionMode === "managed"
-      ? prepareManagedCodexHome({ workspace: cwd, model, effort })
-      : "";
-  const remoteAuthTokenEnv = String(config.remoteAuthTokenEnv || "").trim();
-  const remoteAuthToken = remoteAuthTokenEnv ? String(process.env[remoteAuthTokenEnv] || "").trim() : "";
-
-  let activeTurnId = null;
-  let activeThreadId =
-    executionMode === "resident"
-      ? (residentThreadId || null)
-      : (runtimeState?.threadId || null);
-  let finalText = "";
-  let finalStatus = "failed";
-  let finalError = "";
-  let settled = false;
-  let rejectPromise;
-  let interrupted = false;
-  let rpc = null;
-  let proc = null;
-  let lastActivityAt = Date.now();
-  let activityLabel = "runtime launch";
-  const activeItems = new Map();
-
-  // Synthesized-terminal feed (Phase 5 intermediate — codex stays per-
-  // dispatch but operators see Console activity for each turn). Mirror
-  // of the hermes/pi pattern: terminalSink resolves async at start,
-  // pushTerminalFrame serializes via the sinkChain.
-  let terminalSink = null;
-  let sinkChain = Promise.resolve();
-  const pushTerminalFrame = (text, status = "") => {
-    // Defensive: this is called from RPC notification handlers, often
-    // at high frequency for agentMessage deltas. Any throw here would
-    // propagate up through the RPC client's event dispatch and could
-    // crash the bridge. Belt-and-suspenders: guard everything.
-    try {
-      if (!terminalSink || (!text && !status)) return;
-      const frame = { text: String(text || ""), status: String(status || "") };
-      sinkChain = sinkChain.then(async () => {
-        try {
-          await terminalSink(frame.text, frame.status);
-        } catch {
-          // best-effort
-        }
-      });
-    } catch {
-      // best-effort: don't propagate frame-push failures
-    }
-  };
-  const echoPromptToTerminal = () => {
-    try {
-      const body = String(run?.body || "").trim();
-      if (!body) return;
-      const subject = String(run?.subject || "").trim();
-      const from = String(run?.from || "dashboard").trim() || "dashboard";
-      const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
-      const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
-      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
-    } catch {
-      // best-effort
-    }
-  };
-
-  const markActivity = (label = "runtime event") => {
-    lastActivityAt = Date.now();
-    activityLabel = label;
-  };
-
-  const handleNotification = (message) => {
-    markActivity(message.method || "runtime notification");
-    const params = message.params || {};
-    if (message.method === "turn/started" && params.turn?.id) {
-      activeTurnId = params.turn.id;
-      callbacks.onRefs?.({ turnId: activeTurnId });
-      callbacks.onEvent?.("turn", `Started turn ${activeTurnId}`);
-      pushTerminalFrame(`\r\n\x1b[96m\x1b[1m▶ turn started\x1b[0m\r\n`);
-    } else if (message.method === "turn/completed") {
-      finalStatus = params.turn?.status || "completed";
-      if (params.turn?.error?.message) {
-        finalError = params.turn.error.message;
-      }
-      const usage = params.turn?.usage || params.usage;
-      const usageStr = usage && (usage.input_tokens || usage.output_tokens)
-        ? ` \x1b[2m(in=${usage.input_tokens || 0} out=${usage.output_tokens || 0})\x1b[0m`
-        : "";
-      pushTerminalFrame(`\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m${usageStr}\r\n`);
-      if (finalStatus === "completed" || finalStatus === "interrupted" || finalStatus === "failed") {
-        settled = true;
-      }
-    } else if (message.method === "item/agentMessage/delta") {
-      const delta = params.delta || "";
-      if (delta) {
-        finalText += delta;
-        pushTerminalFrame(String(delta));
-      }
-    } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
-      finalText = params.item.text || finalText;
-      if (params.item?.id) activeItems.delete(params.item.id);
-    } else if (message.method === "item/started" && params.item?.id) {
-      const itemType = describeCodexItem(params.item);
-      activeItems.set(params.item.id, { label: itemType, startedAt: Date.now() });
-      callbacks.onEvent?.("codex", `Started ${itemType}`);
-      pushTerminalFrame(`\r\n\x1b[33m→ ${itemType}\x1b[0m\r\n`);
-    } else if (message.method === "item/completed" && params.item?.id) {
-      const itemType = activeItems.get(params.item.id)?.label || describeCodexItem(params.item);
-      activeItems.delete(params.item.id);
-      callbacks.onEvent?.("codex", `Completed ${itemType}`);
-      pushTerminalFrame(`\x1b[32m✓ ${itemType}\x1b[0m\r\n`);
-    } else if (message.method === "error" && params.error?.message) {
-      finalError = params.error.message;
-      pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${params.error.message}\x1b[0m\r\n`);
-    }
-  };
-
-  const handleRuntimeLog = (line) => {
-    const text = quoteForDisplay(line);
-    if (text) {
-      markActivity("stderr");
-      callbacks.onEvent?.("stderr", text);
-    }
-    if (text && isFatalCodexRuntimeLog(text) && !settled) {
-      finalStatus = "failed";
-      finalError = `Codex runtime fatal error: ${text}`;
-      settled = true;
-      try {
-        terminateProcessTree(proc);
-      } catch {
-        // ignore shutdown errors
-      }
-      try {
-        rpc?.close?.();
-      } catch {
-        // ignore close errors
-      }
-      if (rejectPromise) rejectPromise(new Error(finalError));
-    }
-  };
-
-  const promise = new Promise(async (resolve, reject) => {
-    rejectPromise = reject;
-    // Resolve the synthesized-terminal sink once for this dispatch
-    // (terminalSinkProvider is owned by server.js's dispatch loop).
-    // Awaiting here lets us echo the prompt before any RPC events fire.
-    // Wrap broadly so a synchronous helper error (provider lookup,
-    // ensureVirtualTerminal HTTP failure, etc.) can't crash the
-    // controller — operator-reported 2026-05-22 "running codex crashes
-    // aify-comms" possibly traces here. Managed dispatches only;
-    // resident codex has the operator's own visible terminal.
-    if (executionMode === "managed" && typeof callbacks?.terminalSinkProvider === "function") {
-      try {
-        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
-        if (typeof sink === "function") terminalSink = sink;
-      } catch (error) {
-        try { callbacks.onEvent?.("codex", `Codex virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
-      }
-    }
-    try { echoPromptToTerminal(); } catch {}
-    try { pushTerminalFrame("\x1b[2m[codex] connecting...\x1b[0m\r\n"); } catch {}
-    let quietTimer = null;
-    let mcpToolTimer = null;
-    const timer = setTimeout(() => {
-      if (!settled) {
-        clearInterval(quietTimer);
-        clearInterval(mcpToolTimer);
-        try {
-          terminateProcessTree(proc);
-        } catch {
-          // ignore shutdown errors
-        }
-        try {
-          rpc?.close?.();
-        } catch {
-          // ignore close errors
-        }
-        reject(new Error(`Codex run timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-    if (quietTimeoutMs > 0) {
-      quietTimer = setInterval(() => {
-        // Outer try-catch: a setInterval callback that throws becomes
-        // an uncaughtException in Node — would crash the bridge.
-        // Code-review B-C2 (2026-05-22).
-        try {
-        if (settled) return;
-        const idleFor = Date.now() - lastActivityAt;
-        if (idleFor < quietTimeoutMs) return;
-        const activeLabel = activeItems.size
-          ? ` Active Codex item(s): ${[...new Set([...activeItems.values()].map(item => item.label))].join(", ")}.`
-          : "";
-        const message =
-          `Codex run produced no runtime activity for ${quietTimeoutMs}ms after ${activityLabel}.` +
-          activeLabel +
-          ` The turn was treated as stalled and terminated. Retry the message, or restart/recover the session if this repeats.`;
-        finalStatus = "failed";
-        finalError = message;
-        settled = true;
-        clearTimeout(timer);
-        clearInterval(quietTimer);
-        clearInterval(mcpToolTimer);
-        try {
-          callbacks.onEvent?.("stalled", message);
-        } catch {
-          // best effort
-        }
-        try {
-          terminateProcessTree(proc);
-        } catch {
-          // ignore shutdown errors
-        }
-        try {
-          rpc?.close?.();
-        } catch {
-          // ignore close errors
-        }
-        reject(new Error(message));
-        } catch (_) {
-          // best-effort: never let a setInterval throw crash the bridge
-        }
-      }, Math.min(60 * 1000, Math.max(10 * 1000, Math.floor(quietTimeoutMs / 6))));
-    }
-    if (aifyMcpToolTimeoutMs > 0) {
-      mcpToolTimer = setInterval(() => {
-        try {
-        if (settled) return;
-        const now = Date.now();
-        const stuck = [...activeItems.values()].find(item => (
-          isAifyCommsMcpToolItem(item.label) && now - item.startedAt >= aifyMcpToolTimeoutMs
-        ));
-        if (!stuck) return;
-        const message =
-          `Codex aify-comms MCP tool call produced no completion for ${aifyMcpToolTimeoutMs}ms. ` +
-          `The turn was terminated before the general quiet-stall timeout. Retry the message after the bridge is updated/restarted; if it repeats, inspect the aify-comms MCP server logs.`;
-        finalStatus = "failed";
-        finalError = message;
-        settled = true;
-        clearTimeout(timer);
-        clearInterval(quietTimer);
-        clearInterval(mcpToolTimer);
-        try {
-          callbacks.onEvent?.("mcp_tool_stalled", message);
-        } catch {
-          // best effort
-        }
-        try {
-          terminateProcessTree(proc);
-        } catch {
-          // ignore shutdown errors
-        }
-        try {
-          rpc?.close?.();
-        } catch {
-          // ignore close errors
-        }
-        reject(new Error(message));
-        } catch (_) {
-          // best-effort: never let a setInterval throw crash the bridge
-        }
-      }, Math.min(10 * 1000, Math.max(2 * 1000, Math.floor(aifyMcpToolTimeoutMs / 6))));
-    }
-
-    try {
-      if (appServerUrl) {
-        callbacks.onEvent?.("runtime", `Connecting to shared Codex app-server ${appServerUrl}`);
-        rpc = await createWebSocketRpcClient(appServerUrl, {
-          token: remoteAuthToken || undefined,
-          onNotification: handleNotification,
-          onStderr: handleRuntimeLog,
-        });
-      } else {
-        proc = spawnProcess(launcher.command, launcher.args, {
-          cwd: spawnCwd,
-          env: managedCodexHome ? { CODEX_HOME: managedCodexHome } : {},
-        });
-        rpc = createRpcClient(proc, {
-          onNotification: handleNotification,
-          onStderr: handleRuntimeLog,
-        });
-      }
-
-      await rpc.request("initialize", {
-        clientInfo: {
-          name: "aify-comms",
-          title: "aify-comms dispatch bridge",
-        version: "4.0.0",
-        },
-      });
-      markActivity("initialize");
-      rpc.notify("initialized", {});
-
-      const startThread = async () => {
-        const threadStartParams = {
-          cwd,
-          approvalPolicy,
-          personality: "friendly",
-          serviceName: "aify-comms",
-        };
-        if (model) threadStartParams.model = model;
-        let started;
-        try {
-          started = await rpc.request("thread/start", {
-            ...threadStartParams,
-            sandbox: sandboxMode,
-          }, 60000);
-        } catch (error) {
-          const message = error?.message || "";
-          if (sandboxMode !== "workspace-write" || !message.includes("unknown variant `workspace-write`")) {
-            throw error;
-          }
-          started = await rpc.request("thread/start", {
-            ...threadStartParams,
-            sandbox: "workspaceWrite",
-          }, 60000);
-        }
-        return started.thread?.id;
-      };
-
-      if (!activeThreadId) {
-        if (executionMode === "resident") {
-          throw new Error(
-            `Resident Codex session "${agentId}" has no bound thread ID. Re-register from the live Codex session or provide sessionHandle explicitly.`,
-          );
-        }
-        callbacks.onEvent?.("thread", `No thread bound yet; calling thread/start with cwd="${cwd}"`);
-        try {
-          activeThreadId = await startThread();
-        } catch (error) {
-          throw new Error(
-            `Codex thread/start failed for fresh thread (cwd="${cwd}"): ${error?.message || error}`,
-            { cause: error },
-          );
-        }
-      } else {
-        callbacks.onEvent?.("thread", `Attempting thread/resume for ${activeThreadId}`);
-        try {
-          const resumed = await rpc.request("thread/resume", {
-            threadId: activeThreadId,
-            personality: "friendly",
-          }, 60000);
-          activeThreadId = resumed.thread?.id || activeThreadId;
-        } catch (error) {
-          // Classification lives in detectCodexResumeFailure so it can be
-          // unit-tested without a live Codex.
-          const failure = detectCodexResumeFailure(error);
-          const resumeMessage = String(error?.message || "").trim();
-          if (!failure.shouldHeal) {
-            // Unknown error — surface it with the step name so the dashboard
-            // run log tells us exactly which RPC call failed.
-            throw new Error(
-              `Codex thread/resume failed for thread ${activeThreadId} with unhandled error: ${resumeMessage}`,
-              { cause: error },
-            );
-          }
-
-          let resumedAfterImport = false;
-          if (executionMode === "managed" && failure.noRollout && managedCodexHome) {
-            const imported = importCodexThreadRollout({
-              threadId: activeThreadId,
-              targetHome: managedCodexHome,
-            });
-            if (imported.imported) {
-              callbacks.onEvent?.(
-                "thread",
-                `Imported Codex rollout for ${activeThreadId} from ${imported.sourceHome}; retrying thread/resume`,
-              );
-              try {
-                const resumed = await rpc.request("thread/resume", {
-                  threadId: activeThreadId,
-                  personality: "friendly",
-                }, 60000);
-                activeThreadId = resumed.thread?.id || activeThreadId;
-                callbacks.onEvent?.(
-                  "thread",
-                  `Resumed imported Codex thread ${activeThreadId} (${imported.rollouts.length} rollout file(s), ${imported.shellSnapshots.length} shell snapshot(s))`,
-                );
-                markActivity("thread/resume imported rollout");
-                resumedAfterImport = true;
-              } catch (retryError) {
-                throw new Error(
-                  `Codex thread/resume failed for saved thread ${activeThreadId} after importing its rollout from ${imported.sourceHome}: ` +
-                  `${retryError?.message || retryError}`,
-                  { cause: retryError },
-                );
-              }
-            }
-          }
-
-          if (resumedAfterImport) {
-            // The native rollout was found in another Codex home and the
-            // retry succeeded. Keep the saved handle unchanged and continue.
-          } else if (!allowFreshContext) {
-            throw new Error(
-              `Codex thread/resume failed for saved thread ${activeThreadId} (${failure.healReason}: ${resumeMessage}). ` +
-              `The bridge did not create a fresh thread because that would discard native chat memory. ` +
-              `Use Dashboard -> Sessions -> Recreate only when you intentionally want a new context.`,
-              { cause: error },
-            );
-          } else {
-            // Only explicit fresh-context requests may create a replacement
-            // thread. Ordinary restart/recovery must fail loudly instead of
-            // silently discarding native chat memory.
-            const previousThreadId = activeThreadId;
-            const reasonLabel = failure.corruptRollout
-              ? `Rollout for thread ${previousThreadId} is corrupt (${resumeMessage})`
-              : `Thread ${previousThreadId} has no rollout`;
-            const modeLabel = executionMode === "resident"
-              ? "; healing resident session with a fresh thread (visibility in the live TUI is lost until the user relaunches codex-aify from a clean environment)"
-              : "; starting a fresh thread";
-            callbacks.onEvent?.("thread", reasonLabel + modeLabel);
-            try {
-              activeThreadId = await startThread();
-            } catch (healError) {
-              throw new Error(
-                `Codex thread/resume for ${previousThreadId} failed with ${failure.healReason} (${resumeMessage}), ` +
-                `and the auto-heal fallback thread/start also failed: ${healError?.message || healError}. ` +
-                `This usually means Codex's app-server itself is in a bad state — kill the codex app-server process ` +
-                `and relaunch codex-aify from the target project directory. See the aify-comms-debug skill.`,
-                { cause: healError },
-              );
-            }
-            // Push the new thread id back to the caller so the backend's
-            // stored sessionHandle gets updated. Without this, the very next
-            // dispatch would try to resume the same poisoned thread and hit
-            // the exact same error.
-            if (activeThreadId && activeThreadId !== previousThreadId) {
-              try {
-                await callbacks.onSessionHandleChange?.(activeThreadId, {
-                  previous: previousThreadId,
-                  reason: failure.healReason,
-                });
-                callbacks.onEvent?.("thread", `Healed: ${previousThreadId} → ${activeThreadId} (${failure.healReason})`);
-              } catch (cbError) {
-                console.error(
-                  `[aify] onSessionHandleChange callback failed after healing thread: ${cbError?.message || cbError}`,
-                );
-              }
-            }
-          }
-        }
-      }
-
-      callbacks.onRuntimeState?.({ threadId: activeThreadId });
-      callbacks.onRefs?.({ threadId: activeThreadId });
-      callbacks.onEvent?.("thread", `Using ${executionMode} thread ${activeThreadId}`);
-      markActivity("thread ready");
-
-      callbacks.onEvent?.("turn", `Calling turn/start on thread ${activeThreadId} with cwd="${cwd}", writableRoots=["${cwd}"]`);
-      let turn;
-      try {
-        const turnStartParams = {
-          threadId: activeThreadId,
-          input: [{ type: "text", text: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}` }],
-          cwd,
-          approvalPolicy,
-          sandboxPolicy: codexTurnSandboxPolicy(sandboxMode, cwd, networkAccess),
-          effort,
-          summary: summaryMode,
-          personality: "friendly",
-        };
-        if (model) turnStartParams.model = model;
-        turn = await rpc.request("turn/start", turnStartParams, 60000);
-      } catch (error) {
-        // turn/start sends cwd + writableRoots — if AbsolutePathBuf fires
-        // here, it's one of those two fields. Label the error so the run
-        // log shows us unambiguously which RPC tripped.
-        throw new Error(
-          `Codex turn/start failed for thread ${activeThreadId} (cwd="${cwd}"): ${error?.message || error}`,
-          { cause: error },
-        );
-      }
-
-      activeTurnId = turn.turn?.id || activeTurnId;
-      callbacks.onRefs?.({ threadId: activeThreadId, turnId: activeTurnId });
-      markActivity("turn/start");
-
-      const poll = setInterval(() => {
-        if (!settled) return;
-        clearInterval(poll);
-        clearTimeout(timer);
-        clearInterval(quietTimer);
-        clearInterval(mcpToolTimer);
-        if (finalStatus === "completed") {
-          resolve({
-            status: "completed",
-            summary: finalText.trim() || "(no output)",
-            runtimeState: { threadId: activeThreadId },
-            externalRefs: { threadId: activeThreadId, turnId: activeTurnId },
-          });
-          try {
-            terminateProcessTree(proc);
-          } catch {
-            // ignore shutdown errors
-          }
-          try {
-            rpc?.close?.();
-          } catch {
-            // ignore close errors
-          }
-          return;
-        }
-        if (finalStatus === "interrupted" || interrupted) {
-          resolve({
-            status: "cancelled",
-            summary: finalText.trim() || finalError || "Run interrupted",
-            runtimeState: { threadId: activeThreadId },
-            externalRefs: { threadId: activeThreadId, turnId: activeTurnId },
-          });
-          try {
-            terminateProcessTree(proc);
-          } catch {
-            // ignore shutdown errors
-          }
-          try {
-            rpc?.close?.();
-          } catch {
-            // ignore close errors
-          }
-          return;
-        }
-        const detail = finalError || finalText || `Codex turn finished with status ${finalStatus}`;
-        reject(new Error(detail));
-        try {
-          terminateProcessTree(proc);
-        } catch {
-          // ignore shutdown errors
-        }
-        try {
-          rpc?.close?.();
-        } catch {
-          // ignore close errors
-        }
-      }, 250);
-    } catch (error) {
-      clearTimeout(timer);
-      clearInterval(quietTimer);
-      clearInterval(mcpToolTimer);
-      reject(error);
-      try {
-        terminateProcessTree(proc);
-      } catch {
-        // ignore shutdown errors
-      }
-      try {
-        rpc?.close?.();
-      } catch {
-        // ignore close errors
-      }
-    }
-  });
-
-  return {
-    capabilities: controlCapabilitiesForRuntime("codex"),
-    interrupt: async () => {
-      interrupted = true;
-      if (!activeThreadId || !activeTurnId) {
-        terminateProcessTree(proc);
-        return;
-      }
-      try {
-        await rpc.request("turn/interrupt", {
-          threadId: activeThreadId,
-          turnId: activeTurnId,
-        }, 30000);
-      } catch (error) {
-        if (rejectPromise) rejectPromise(error);
-      }
-    },
-    steer: async (text) => {
-      if (!activeThreadId || !activeTurnId) {
-        throw new Error("No active Codex turn to steer");
-      }
-      if (!text || !String(text).trim()) {
-        throw new Error("Steer body is required");
-      }
-      await rpc.request("turn/steer", {
-        threadId: activeThreadId,
-        input: [{ type: "text", text: String(text) }],
-        expectedTurnId: activeTurnId,
-      }, 30000);
-      callbacks.onEvent?.("steer", `Steer applied to ${activeTurnId}`);
-    },
-    promise,
-  };
-}
-
-function createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const config = getRuntimeConfig(agentInfo);
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
-  const cwd = agentInfo.cwd || process.cwd();
-  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const model = splitProviderModel(agentInfo.model || config.model || "");
-  const permission = opencodePermissionConfig(config, executionMode);
-  const selectedAgent = String(config.agent || "").trim() || undefined;
-  let sessionId =
-    executionMode === "resident"
-      ? residentSessionId
-      : String(runtimeState?.sessionId || residentSessionId || "").trim();
-
-  if (executionMode === "resident" && !sessionId) {
-    throw new Error(
-      `Resident OpenCode session "${agentId}" has no bound session ID. ` +
-      "Re-register with sessionHandle explicitly or create a persistent environment-managed agent with comms_spawn.",
-    );
-  }
-
-  let interrupted = false;
-  let open = null;
-
-  // Synthesized-terminal feed for opencode (Phase 6 intermediate).
-  // Per-dispatch like hermes; full persistent worker is deferred.
-  let terminalSink = null;
-  let sinkChain = Promise.resolve();
-  const pushTerminalFrame = (text, status = "") => {
-    // Defensive: parity with codex (b6d403c). Called from SDK delta
-    // callbacks; an uncaught throw in this synchronous path can crash
-    // the bridge process. Belt-and-suspenders: guard everything.
-    try {
-      if (!terminalSink || (!text && !status)) return;
-      const body = String(text || "");
-      const stat = String(status || "");
-      sinkChain = sinkChain.then(async () => {
-        try { await terminalSink(body, stat); } catch {}
-      });
-    } catch {
-      // best-effort: don't propagate frame-push failures
-    }
-  };
-  const echoPromptToTerminal = () => {
-    try {
-      const body = String(run?.body || "").trim();
-      if (!body) return;
-      const subject = String(run?.subject || "").trim();
-      const from = String(run?.from || "dashboard").trim() || "dashboard";
-      const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
-      const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
-      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
-    } catch {
-      // best-effort
-    }
-  };
-
-  const promise = new Promise(async (resolve, reject) => {
-    if (typeof callbacks?.terminalSinkProvider === "function") {
-      try {
-        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
-        if (typeof sink === "function") terminalSink = sink;
-      } catch (error) {
-        try { callbacks.onEvent?.("opencode", `OpenCode virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
-      }
-    }
-    echoPromptToTerminal();
-    pushTerminalFrame("\x1b[2m[opencode] connecting...\x1b[0m\r\n");
-
-    const timer = setTimeout(async () => {
-      interrupted = true;
-      try {
-        if (open?.client && sessionId) {
-          await open.client.session.abort({
-            path: { id: sessionId },
-            query: { directory: cwd },
-          });
-        }
-      } catch {
-        // best effort
-      }
-      reject(new Error(`OpenCode run timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    try {
-      open = await createOpencode({
-        port: 0,
-        config: permission ? { permission } : undefined,
-      });
-      const client = open.client;
-
-      if (!sessionId) {
-        const created = await client.session.create({
-          query: { directory: cwd },
-          body: { title: run.subject || `aify:${agentId}` },
-        });
-        sessionId = requireOpenCodeData(created, "Failed to create OpenCode session").id;
-      } else {
-        requireOpenCodeData(await client.session.get({
-          path: { id: sessionId },
-          query: { directory: cwd },
-        }), `OpenCode session "${sessionId}" was not found`);
-      }
-
-      callbacks.onRuntimeState?.({ sessionId });
-      callbacks.onRefs?.({ threadId: sessionId });
-      callbacks.onEvent?.("thread", `Using ${executionMode} OpenCode session ${sessionId}`);
-
-      const response = await client.session.prompt({
-        path: { id: sessionId },
-        query: { directory: cwd },
-        body: {
-          ...(model ? { model } : {}),
-          ...(selectedAgent ? { agent: selectedAgent } : {}),
-          system: buildSystemPrompt(agentId, agentInfo, run),
-          parts: [{ type: "text", text: buildUserPrompt(run) }],
-        },
-      });
-
-      clearTimeout(timer);
-      const data = requireOpenCodeData(response, "OpenCode prompt failed");
-      const info = data.info || {};
-      const parts = data.parts || [];
-      const summary = summarizeOpenCodeParts(parts);
-      const errorMessage =
-        info?.error?.data?.message ||
-        info?.error?.message ||
-        info?.error?.name ||
-        "";
-
-      if (interrupted || /aborted/i.test(errorMessage || "")) {
-        pushTerminalFrame(`\r\n\x1b[93m\x1b[1m⏸ interrupted\x1b[0m\r\n`);
-        resolve({
-          status: "cancelled",
-          summary: summary || errorMessage || "Run interrupted",
-          runtimeState: { sessionId },
-          externalRefs: { threadId: sessionId, turnId: info.id || "" },
-        });
-        return;
-      }
-
-      if (errorMessage) {
-        pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${errorMessage}\x1b[0m\r\n`, "failed");
-        reject(new Error(errorMessage));
-        return;
-      }
-
-      const reply = summary || "(no output)";
-      pushTerminalFrame(`\r\n${reply}\r\n\x1b[36m\x1b[1m■ turn ended\x1b[0m\r\n`, "running");
-      resolve({
-        status: "completed",
-        summary: reply,
-        runtimeState: { sessionId },
-        externalRefs: { threadId: sessionId, turnId: info.id || "" },
-      });
-    } catch (error) {
-      pushTerminalFrame(`\r\n\x1b[31m\x1b[1m✗ error\x1b[0m \x1b[31m${error?.message || error}\x1b[0m\r\n`, "failed");
-      clearTimeout(timer);
-      reject(error);
-    } finally {
-      try {
-        open?.server?.close?.();
-      } catch {
-        // ignore close errors
-      }
-    }
-  });
-
-  return {
-    capabilities: controlCapabilitiesForRuntime("opencode"),
-    interrupt: async () => {
-      interrupted = true;
-      if (!open?.client || !sessionId) return;
-      await open.client.session.abort({
-        path: { id: sessionId },
-        query: { directory: cwd },
-      });
-    },
-    steer: async () => {
-      throw new Error('Runtime "opencode" does not support steer');
-    },
-    promise,
-  };
-}
-
-function createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const config = getRuntimeConfig(agentInfo);
-  const availability = runtimeLaunchAvailability("pi");
-  if (!availability.available) throw new Error(availability.message);
-  const launcher = defaultPiCommand();
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  const residentSessionId = String(agentInfo.sessionHandle || "").trim();
-  const cwd = agentInfo.cwd || process.cwd();
-  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const model = normalizePiModelOverride(agentInfo.model || config.model || "");
-  const thinking = String(config.thinking || config.effort || "").trim();
-  let sessionId =
-    executionMode === "resident"
-      ? residentSessionId
-      : String(runtimeState?.sessionId || runtimeState?.sessionFile || residentSessionId || "").trim();
-
-  if (executionMode === "resident" && !sessionId) {
-    throw new Error(
-      `Resident Pi session "${agentId}" has no bound session ID. ` +
-      "Start omp-aify or pi-aify with a resumable session or pass sessionHandle explicitly when registering.",
-    );
-  }
-
-  // 45s default: omp cold-start under the bridge regularly exceeds 15s and
-  // false-failed (operator confirmed `omp` works fine manually). Real auth/
-  // provider errors still fail IMMEDIATELY via the stdout/stderr classifier
-  // (detected.authFailure on the output handler) regardless of this window —
-  // raising it only extends the "no readiness signal yet" slow-start case.
-  // Override with AIFY_PI_STARTUP_TIMEOUT_MS / config.startupTimeoutMs.
-  const startupTimeoutMs = Number(config.startupTimeoutMs || process.env.AIFY_PI_STARTUP_TIMEOUT_MS || 45000);
-
-  let interrupted = false;
-  let settled = false;
-  let proc = null;
-  let attemptTimer = null;
-  let startupTimer = null;
-  let promptAcked = false;
-  let finalText = "";
-  let finalSnapshotText = "";
-  let finalError = "";
-  let stderrText = "";
-  let sessionFile = String(runtimeState?.sessionFile || "").trim();
-  let initialPromptSent = false;
-  let requestCounter = 1;
-  let healAttempted = false;
-  const pendingCommandAcks = new Map();
-  const MAX_PI_ASSISTANT_CAPTURE_CHARS = 262144;
-  const MAX_PI_ERROR_CAPTURE_CHARS = 65536;
-  const PI_TRUNCATION_MARKER = "\n...[aify truncated middle output]...\n";
-  const boundText = (value, limit, { preserveEdges = false } = {}) => {
-    const text = String(value || "");
-    if (text.length <= limit) return text;
-    if (!preserveEdges) return text.slice(text.length - limit);
-    const marker = PI_TRUNCATION_MARKER;
-    const payloadLimit = Math.max(0, limit - marker.length);
-    const headLength = Math.ceil(payloadLimit / 2);
-    const tailLength = Math.floor(payloadLimit / 2);
-    return `${text.slice(0, headLength)}${marker}${text.slice(text.length - tailLength)}`;
-  };
-  const appendBounded = (current, chunk, options = {}) => {
-    const limit = options.limit || MAX_PI_ERROR_CAPTURE_CHARS;
-    return boundText(`${String(current || "")}${String(chunk || "")}`, limit, options);
-  };
-
-  const nextRequestId = (prefix) => `aify-${prefix}-${requestCounter++}`;
-  const resolvedText = () => finalText.trim() || finalSnapshotText.trim();
-  const runtimeSessionHandle = () => sessionId || sessionFile;
-  const runtimeStateSnapshot = () => ({
-    ...(sessionId ? { sessionId } : {}),
-    ...(sessionFile ? { sessionFile } : {}),
-  });
-  const failureText = () => [finalError, finalText, stderrText].filter(Boolean).join("\n").trim();
-  const runtimeFailureText = () => [finalError, stderrText].filter(Boolean).join("\n").trim();
-  const buildArgs = () => {
-    const nextArgs = [...launcher.args, "--mode", "rpc"];
-    if (sessionId) nextArgs.push("--resume", sessionId);
-    if (model) nextArgs.push("--model", model);
-    if (thinking) nextArgs.push("--thinking", thinking);
-    return nextArgs;
-  };
-  const clearAttemptTimers = () => {
-    if (attemptTimer) clearTimeout(attemptTimer);
-    if (startupTimer) clearTimeout(startupTimer);
-    attemptTimer = null;
-    startupTimer = null;
-  };
-  const resetAttemptState = () => {
-    promptAcked = false;
-    finalText = "";
-    finalSnapshotText = "";
-    finalError = "";
-    stderrText = "";
-    initialPromptSent = false;
-    rejectPendingCommandAcks(new Error("Pi runtime restarting with a fresh session"));
-  };
-  const publishPiSessionState = (event) => {
-    const next = extractPiSessionState(event);
-    let changed = false;
-    if (next.sessionId && next.sessionId !== sessionId) {
-      sessionId = next.sessionId;
-      changed = true;
-    }
-    if (next.sessionFile && next.sessionFile !== sessionFile) {
-      sessionFile = next.sessionFile;
-      changed = true;
-    }
-    if (changed || next.sessionId || next.sessionFile) {
-      const handle = runtimeSessionHandle();
-      callbacks.onRuntimeState?.(runtimeStateSnapshot());
-      if (handle) callbacks.onRefs?.({ threadId: handle });
-    }
-  };
-
-  function send(payload) {
-    if (!proc || !proc.stdin?.writable || proc.stdin.destroyed) return false;
-    try {
-      proc.stdin.write(`${JSON.stringify(payload)}\n`);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function sendInitialPrompt() {
-    if (initialPromptSent) return;
-    initialPromptSent = true;
-    send({
-      id: nextRequestId("prompt"),
-      type: "prompt",
-      message: `${buildSystemPrompt(agentId, agentInfo, run)}\n\n${buildUserPrompt(run)}`,
-    });
-  }
-
-  function rejectPendingCommandAcks(error) {
-    for (const pending of pendingCommandAcks.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    pendingCommandAcks.clear();
-  }
-
-  function sendCommandWithAck(payload, prefix = payload?.type || "command", timeoutMs = 30000) {
-    const id = nextRequestId(prefix);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingCommandAcks.delete(id);
-        reject(new Error(`Pi ${String(payload?.type || "command")} acknowledgement timed out`));
-      }, timeoutMs);
-      pendingCommandAcks.set(id, { resolve, reject, timer, command: String(payload?.type || "command") });
-      if (!send({ id, ...payload })) {
-        clearTimeout(timer);
-        pendingCommandAcks.delete(id);
-        reject(new Error(`Pi ${String(payload?.type || "command")} could not be sent because the runtime stdin is closed`));
-      }
-    });
-  }
-
-  const promise = new Promise((resolve, reject) => {
-    const fail = (error) => {
-      if (settled) return;
-      settled = true;
-      clearAttemptTimers();
-      rejectPendingCommandAcks(error);
-      try {
-        terminateProcessTree(proc);
-      } catch {
-        // best effort
-      }
-      reject(error);
-    };
-
-    const maybeHealMissingSession = () => {
-      const detected = detectPiRuntimeFailure(runtimeFailureText());
-      if (!detected.shouldHeal || !sessionId || healAttempted || executionMode === "resident") return false;
-      const previous = sessionId;
-      healAttempted = true;
-      callbacks.onEvent?.("thread", `Pi session "${previous}" is not resumable (${detected.message}); starting fresh.`);
-      clearAttemptTimers();
-      sessionId = "";
-      sessionFile = "";
-      callbacks.onRuntimeState?.({});
-      callbacks.onSessionHandleChange?.("", { reason: detected.healReason, previous });
-      resetAttemptState();
-      startAttempt();
-      return true;
-    };
-
-    const startAttempt = () => {
-      const args = buildArgs();
-      // Pi RPC child (omp --mode rpc) accidentally launches a nested
-      // mcp/stdio/server.js that would otherwise register as a sibling
-      // bridge for the same agent and supersede the resident bridge
-      // while its run is in flight. Set AIFY_BRIDGE_DISABLED=1 + clear
-      // AIFY_AGENT_ID for THIS spawn only — server.js exits cleanly at
-      // startup with the flag (see server.js startup guard). Do NOT
-      // apply this to other runtimes' wrapper spawns: claude-aify,
-      // codex-aify, hermes-aify, opencode legitimately host MCP
-      // servers that need the aify env to function.
-      proc = spawnProcess(launcher.command, args, {
-        cwd,
-        env: { AIFY_BRIDGE_DISABLED: "1", AIFY_AGENT_ID: "" },
-      });
-      proc.stdin?.on?.("error", () => {});
-      callbacks.onEvent?.("thread", `Started ${executionMode} Pi RPC runtime${sessionId ? ` for session ${sessionId}` : ""}`);
-
-      attemptTimer = setTimeout(() => {
-        if (!settled) {
-          interrupted = true;
-          try {
-            send({ id: nextRequestId("abort"), type: "abort" });
-          } catch {
-            // best effort
-          }
-          terminateProcessTree(proc);
-          fail(new Error(`Pi run timed out after ${timeoutMs}ms`));
-        }
-      }, timeoutMs);
-
-      startupTimer = setTimeout(() => {
-        if (settled || initialPromptSent) return;
-        const detected = detectPiRuntimeFailure(runtimeFailureText());
-        if (detected.authFailure) {
-          fail(new Error(`Pi authentication failed fast: ${detected.message}`));
-          return;
-        }
-        fail(new Error(`Pi did not become ready within ${startupTimeoutMs}ms. Check Oh My Pi authentication/provider configuration and run "omp" manually in this environment.`));
-      }, Math.max(250, startupTimeoutMs));
-
-      proc.on("error", (error) => {
-        clearAttemptTimers();
-        rejectPendingCommandAcks(error);
-        if (error && error.code === "ENOENT") {
-          const piTarget = String(process.env.AIFY_PI_COMMAND || process.env.PI_COMMAND || "omp").trim();
-          const enriched = new Error(
-            `spawn "${launcher.command}" ENOENT — this bridge resolved Oh My Pi to "${launcher.command}" ` +
-            `but Node could not execute it. Common causes: missing exec bit, broken shebang interpreter ` +
-            `(e.g., the script's #!/usr/bin/env node points at a node that isn't on the bridge's PATH), ` +
-            `or a stale symlink. Also verify the runtime cwd exists: "${cwd}". ` +
-            `Fix: set AIFY_PI_COMMAND to an absolute path to a real "omp" binary and ` +
-            `restart aify-comms. Diagnostic: ${diagnosticsFor(piTarget)}`,
-          );
-          enriched.code = error.code;
-          enriched.originalError = error.message;
-          fail(enriched);
-          return;
-        }
-        fail(error);
-      });
-
-      const stdout = readline.createInterface({ input: proc.stdout });
-      stdout.on("line", (line) => {
-        const text = String(line || "").trim();
-        if (!text) return;
-        let event;
-        try {
-          event = JSON.parse(text);
-        } catch {
-          finalText = appendBounded(finalText, `${text}\n`, { limit: MAX_PI_ASSISTANT_CAPTURE_CHARS, preserveEdges: true });
-          const detected = detectPiRuntimeFailure(text);
-          if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
-          return;
-        }
-
-        publishPiSessionState(event);
-
-        if (event.type === "ready") {
-          if (startupTimer) clearTimeout(startupTimer);
-          startupTimer = null;
-          sendCommandWithAck({ type: "get_state" }, "get-state", 2500)
-            .then((stateEvent) => publishPiSessionState(stateEvent))
-            .catch((error) => callbacks.onEvent?.("pi", `Pi get_state unavailable: ${quoteForDisplay(error?.message || error)}`))
-            .finally(() => sendInitialPrompt());
-          return;
-        }
-
-        if (event.type === "response") {
-          const pending = pendingCommandAcks.get(event.id);
-          if (pending) {
-            pendingCommandAcks.delete(event.id);
-            clearTimeout(pending.timer);
-            if (event.success === false) {
-              pending.reject(new Error(String(event.error || `Pi ${pending.command} failed`)));
-            } else {
-              publishPiSessionState(event);
-              pending.resolve(event);
-            }
-            return;
-          }
-          if (event.command === "prompt") {
-            promptAcked = event.success !== false;
-            if (event.success === false) {
-              finalError = appendBounded("", String(event.error || "Pi prompt failed"));
-              const detected = detectPiRuntimeFailure(finalError);
-              if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
-              if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
-            }
-          }
-          return;
-        }
-
-        if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-          finalText = appendBounded(finalText, String(event.assistantMessageEvent.delta || ""), { limit: MAX_PI_ASSISTANT_CAPTURE_CHARS, preserveEdges: true });
-          return;
-        }
-
-        if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_end") {
-          finalSnapshotText = boundText(String(event.assistantMessageEvent.content || finalSnapshotText || ""), MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
-          return;
-        }
-
-        if (event.type === "message_end" || event.type === "turn_end") {
-          const text = extractPiAssistantText(event.message);
-          if (text) finalSnapshotText = boundText(text, MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
-          return;
-        }
-
-        if (event.type === "agent_start") {
-          callbacks.onEvent?.("pi", "Started Pi agent turn");
-          return;
-        }
-
-        if (event.type === "agent_end") {
-          const text = extractPiAssistantText(event.messages);
-          if (text) finalSnapshotText = boundText(text, MAX_PI_ASSISTANT_CAPTURE_CHARS, { preserveEdges: true });
-          settled = true;
-          clearAttemptTimers();
-          rejectPendingCommandAcks(new Error("Pi run ended before steer acknowledgement"));
-          callbacks.onRuntimeState?.(runtimeStateSnapshot());
-          if (runtimeSessionHandle()) callbacks.onRefs?.({ threadId: runtimeSessionHandle() });
-          resolve({
-            status: interrupted ? "cancelled" : "completed",
-            summary: resolvedText() || "(no output)",
-            runtimeState: runtimeStateSnapshot(),
-            externalRefs: { threadId: runtimeSessionHandle(), turnId: String(event.id || "") },
-          });
-          try {
-            terminateProcessTree(proc);
-          } catch {
-            // ignore shutdown errors
-          }
-          return;
-        }
-
-        if (event.type === "error") {
-          finalError = appendBounded("", String(event.error || event.message || "Pi runtime error"));
-          const detected = detectPiRuntimeFailure(finalError);
-          if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
-          if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
-        }
-      });
-
-      const stderr = readline.createInterface({ input: proc.stderr });
-      stderr.on("line", (line) => {
-        const text = quoteForDisplay(line);
-        if (!text) return;
-        stderrText = appendBounded(stderrText, `${text}\n`);
-        callbacks.onEvent?.("stderr", text);
-        const detected = detectPiRuntimeFailure(text);
-        if (detected.authFailure) fail(new Error(`Pi authentication failed fast: ${detected.message}`));
-        if (detected.fatalRuntime) fail(new Error(`Pi runtime crashed: ${detected.message}`));
-      });
-
-      proc.on("close", (code) => {
-        if (settled) return;
-        if (maybeHealMissingSession()) return;
-        settled = true;
-        clearAttemptTimers();
-        rejectPendingCommandAcks(new Error(finalError || finalText.trim() || stderrText.trim() || `Pi exited with code ${code}`));
-        if (interrupted) {
-          resolve({
-            status: "cancelled",
-            summary: resolvedText() || finalError || "Run interrupted",
-            runtimeState: runtimeStateSnapshot(),
-            externalRefs: { threadId: runtimeSessionHandle() },
-          });
-          return;
-        }
-        if (code === 0 && promptAcked && !finalError) {
-          resolve({
-            status: "completed",
-            summary: resolvedText() || "(no output)",
-            runtimeState: runtimeStateSnapshot(),
-            externalRefs: { threadId: runtimeSessionHandle() },
-          });
-          return;
-        }
-        const detected = detectPiRuntimeFailure(runtimeFailureText());
-        if (detected.authFailure) {
-          reject(new Error(`Pi authentication failed fast: ${detected.message}`));
-          return;
-        }
-        if (detected.fatalRuntime) {
-          reject(new Error(`Pi runtime crashed: ${detected.message}`));
-          return;
-        }
-        if (detected.missingSession && executionMode === "resident") {
-          reject(new Error(`Resident Pi session "${sessionId}" is not resumable: ${detected.message}. Clear the saved session handle or start a fresh managed Pi session.`));
-          return;
-        }
-        reject(new Error(finalError || finalText.trim() || stderrText.trim() || `Pi exited with code ${code}`));
-      });
-    };
-
-    startAttempt();
-  });
-
-  return {
-    capabilities: controlCapabilitiesForRuntime("pi"),
-    interrupt: async () => {
-      interrupted = true;
-      send({ id: nextRequestId("abort"), type: "abort" });
-      terminateProcessTree(proc);
-    },
-    steer: async (text) => {
-      const message = String(text || "");
-      if (!message.trim()) {
-        throw new Error("Steer body is required");
-      }
-      if (!proc || !proc.stdin?.writable || settled) {
-        throw new Error("No active Pi turn to steer");
-      }
-      await sendCommandWithAck({ type: "steer", message }, "steer");
-      callbacks.onEvent?.("steer", "Steer sent to active Pi RPC run");
-    },
-    promise,
-  };
-}
-
-function createPiControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const hintSession = String(runtimeState?.sessionId || runtimeState?.sessionFile || "").trim();
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  let turnHandle = null;
-  let acquireError = null;
-  const promise = (async () => {
-    let session;
-    let attemptSessionId = hintSession;
-    let lastError;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        session = await acquirePiSession({
-          agentId,
-          agentInfo,
-          sessionId: attemptSessionId,
-          cwd: agentInfo.cwd || process.cwd(),
-          onPoolEvent: (level, message) => {
-            try { callbacks.onEvent?.(level, message); } catch {}
-          },
-        });
-        break;
-      } catch (error) {
-        lastError = error;
-        const detected = error?.detected || detectPiRuntimeFailure(error?.message || "");
-        if (
-          attempt === 0 &&
-          detected.shouldHeal &&
-          attemptSessionId &&
-          executionMode !== "resident"
-        ) {
-          try { callbacks.onEvent?.("thread", `Pi session "${attemptSessionId}" is not resumable (${detected.message}); starting fresh.`); } catch {}
-          try { callbacks.onRuntimeState?.({}); } catch {}
-          try { callbacks.onSessionHandleChange?.("", { reason: detected.healReason, previous: attemptSessionId }); } catch {}
-          attemptSessionId = "";
-          continue;
-        }
-        if (detected.missingSession && executionMode === "resident") {
-          acquireError = new Error(
-            `Resident Pi session "${attemptSessionId}" is not resumable: ${detected.message}. Clear the saved session handle or start a fresh managed Pi session.`,
-          );
-          throw acquireError;
-        }
-        acquireError = error;
-        throw error;
-      }
-    }
-    if (!session) throw lastError || new Error("Pi session not acquired");
-    // Phase 2: wire up the synthesized terminal sink once per session lifetime.
-    // The bridge resolves the virtual terminal id (creating it on first use)
-    // and returns a POST-to-/terminals/{id}/output sink. Subsequent dispatches
-    // re-attach idempotently — attachTerminalSink replaces the previous sink.
-    if (typeof callbacks?.terminalSinkProvider === "function") {
-      try {
-        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo, session });
-        if (typeof sink === "function") session.attachTerminalSink(sink);
-      } catch (error) {
-        try { callbacks.onEvent?.("pi", `Pi virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
-      }
-    }
-    turnHandle = session.runTurn(run, callbacks);
-    return turnHandle.promise;
-  })();
-  return {
-    capabilities: controlCapabilitiesForRuntime("pi"),
-    interrupt: async () => {
-      if (turnHandle) await turnHandle.interrupt();
-    },
-    steer: async (text) => {
-      if (acquireError) throw acquireError;
-      if (!turnHandle) throw new Error("No active Pi turn to steer");
-      await turnHandle.steer(text);
-    },
-    promise,
-  };
-}
-
-function createPiController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  const executionMode = String(run.executionMode || agentInfo.sessionMode || "managed").trim().toLowerCase();
-  if (executionMode === "resident") {
-    return createPiControllerLegacy({ agentId, agentInfo, run, runtimeState, callbacks });
-  }
-  return createPiControllerManaged({ agentId, agentInfo, run, runtimeState, callbacks });
-}
 
 export function detectRuntime(explicitRuntime) {
   if (explicitRuntime) return normalizeRuntime(explicitRuntime);
@@ -3280,48 +2033,36 @@ export function detectRuntime(explicitRuntime) {
   return "generic";
 }
 
-export function defaultCapabilitiesForRuntime(runtime, sessionMode = "resident", sessionHandle = "") {
-  const normalizedRuntime = normalizeRuntime(runtime);
-  const normalizedMode = String(sessionMode || "resident").trim().toLowerCase();
-  const resolvedSessionHandle = String(sessionHandle || defaultSessionHandleForRuntime(normalizedRuntime) || "").trim();
-  const runtimeConfig = arguments.length > 3 ? arguments[3] || {} : {};
+export function defaultCapabilitiesForRuntime(runtime, sessionMode, sessionHandle, runtimeConfig) {
+  // Plan 2 (2026-05-25): derive from RuntimeAdapter instead of hardcoded
+  // per-runtime branches.
+  const runtimeN = normalizeRuntime(runtime || "");
+  let adapter;
+  try { adapter = adapterFor(runtimeN); } catch { return []; }
 
-  if (normalizedMode === "managed") {
-    switch (normalizedRuntime) {
-      case "codex":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
-      case "opencode":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
-      case "pi":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"];
-      case "hermes":
-        return ["managed-run", "native-managed-run", "resume", "interrupt", "spawn"];
-      case "claude-code":
-        return ["resume", "interrupt", "spawn"];
-      default:
-        return [];
+  const caps = [];
+  const sessionModeN = String(sessionMode || "").toLowerCase();
+
+  if (sessionModeN === "resident") {
+    // Resident-capable only when adapter declares it AND, for gateway-backed
+    // runtimes, the gateway URL is present.
+    let gatewayOk = true;
+    if (runtimeN === "hermes") {
+      const gw = String((runtimeConfig || {}).gatewayUrl || "").trim();
+      gatewayOk = !!gw;
     }
+    if (adapter.supportsResident && gatewayOk) caps.push("resident-run");
+  } else {
+    if (adapter.supportsManaged) caps.push("managed-run");
   }
 
-  if (normalizedRuntime === "claude-code") {
-    if (!hasClaudeLiveChannel(runtimeConfig)) return [];
-    return ["resident-run", "interrupt", "steer"];
-  }
+  if (adapter.supportsResident || adapter.supportsManaged) caps.push("resume");
+  if (adapter.supportsInterrupt) caps.push("interrupt");
+  if (adapter.supportsSteering) caps.push("steer");
 
-  if (!resolvedSessionHandle) return [];
-  switch (normalizedRuntime) {
-    case "codex":
-      if (!hasCodexLiveAppServer(runtimeConfig) && !canUseDefaultResidentCodexBridge()) return [];
-      return ["resident-run", "resume", "interrupt", "steer"];
-    case "hermes":
-      return ["resident-run", "resume", "interrupt"];
-    case "opencode":
-      return ["resident-run", "resume", "interrupt"];
-    case "pi":
-      return ["resident-run", "resume", "interrupt", "steer"];
-    default:
-      return [];
-  }
+  if (sessionModeN !== "resident" && adapter.supportsManaged) caps.push("spawn");
+
+  return caps;
 }
 
 export function defaultMachineId() {
@@ -3342,238 +2083,51 @@ export function defaultMachineId() {
   return `${wsl}:${host}`;
 }
 
-export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks }) {
+export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
+  // Plan 3 Task 12 (2026-05-25): per-runtime dispatch collapses to a single
+  // adapter.controllerFor call. Each adapter owns its executionMode routing
+  // (e.g. pi rejects resident, codex/hermes route resident vs managed
+  // internally via their controller). Extra opts like managedViaWrapper are
+  // harmless to adapters that don't consume them.
   const runtime = normalizeRuntime(agentInfo.runtime || "generic");
+  let adapter;
   try {
-    if (runtime === "codex") {
-      return createCodexController({ agentId, agentInfo, run, runtimeState, callbacks });
-    }
-    if (runtime === "opencode") {
-      return createOpenCodeController({ agentId, agentInfo, run, runtimeState, callbacks });
-    }
-    if (runtime === "pi") {
-      return createPiController({ agentId, agentInfo, run, runtimeState, callbacks });
-    }
-    if (runtime === "claude-code") {
-      return createClaudeController({ agentId, agentInfo, run, runtimeState, callbacks });
-    }
-    if (runtime === "hermes") {
-      return createHermesController({ agentId, agentInfo, run, runtimeState, callbacks });
-    }
+    adapter = adapterFor(runtime);
   } catch (error) {
     return failedRuntimeController(runtime, error);
   }
-  return {
-    capabilities: controlCapabilitiesForRuntime(runtime),
-    interrupt: () => {},
-    steer: async () => {
-      throw new Error(`Runtime "${runtime}" does not support active dispatch`);
-    },
-    promise: Promise.reject(new Error(`Runtime "${runtime}" does not support active dispatch`)),
-  };
-}
-
-function createHermesController({ agentId, agentInfo, run, runtimeState, callbacks }) {
-  // Per-dispatch native controller for managed hermes.
-  //
-  // Phase 7 attempted `--continue aify-<agentId>` for upstream session
-  // continuity, but operator-verified 2026-05-22: Hermes's
-  // `--continue <name>` requires the session to already exist and
-  // refuses with "No session found matching '<name>'" on first
-  // dispatch — there's no upstream way to auto-create a named session
-  // from -q mode. So conversation context is carried in the wire
-  // prompt instead (buildUserPrompt includes recent conversationContext
-  // from aify-comms), identical to codex/opencode managed adapters.
-  // The synthesized terminal_session row still survives across
-  // dispatches as the operator-visibility surface — the `hermes`
-  // process is short-lived per turn but the dashboard-visible
-  // "conversation" is durable through the synthesized feed + the
-  // wire-prompt context-carry.
-  const config = getRuntimeConfig(agentInfo);
-  const launcher = defaultHermesCommand();
-  const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
-  const hostCwd = agentInfo.cwd || process.cwd();
-  const model = String(agentInfo.model || config.model || "").trim();
-  const provider = String(config.provider || "").trim();
-  const skipApprovals = config.yolo !== false; // default on for managed (no operator at the wheel)
-
-  const systemPrompt = buildSystemPrompt(agentId, agentInfo, run);
-  const userPrompt = buildUserPrompt(run);
-  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
-
-  const args = [...launcher.args, "chat", "-Q", "-q", fullPrompt];
-  if (model) args.push("-m", model);
-  if (provider) args.push("--provider", provider);
-  if (skipApprovals) args.push("--yolo");
-
-  let proc = null;
-  let stdoutBuf = "";
-  let stderrBuf = "";
-  let interrupted = false;
-  let settled = false;
-  let timeoutTimer = null;
-  let terminalSink = null;
-  let sinkChain = Promise.resolve();
-
-  const pushTerminalFrame = (text, status = "") => {
-    // Defensive: parity with codex/opencode (b6d403c). Called from
-    // child process stdout/exit callbacks; uncaught throws can crash
-    // the bridge process. Guard everything.
-    try {
-      if (!terminalSink || (!text && !status)) return;
-      const body = String(text || "");
-      const stat = String(status || "");
-      sinkChain = sinkChain.then(async () => {
-        try { await terminalSink(body, stat); } catch {}
-      });
-    } catch {
-      // best-effort: don't propagate frame-push failures
-    }
-  };
-
-  const echoPromptToTerminal = () => {
-    try {
-      const body = String(run?.body || "").trim();
-      if (!body) return;
-      const subject = String(run?.subject || "").trim();
-      const from = String(run?.from || "dashboard").trim() || "dashboard";
-      const header = subject ? `\r\n> [${from}] ${subject}\r\n` : `\r\n> [${from}]\r\n`;
-      const prefixed = body
-        .split(/\r?\n/)
-        .map((line) => `> ${line}`)
-        .join("\r\n");
-      pushTerminalFrame(`${header}${prefixed}\r\n`, "running");
-    } catch {
-      // best-effort
-    }
-  };
-
-  const promise = (async () => {
-    if (typeof callbacks?.terminalSinkProvider === "function") {
-      try {
-        const sink = await callbacks.terminalSinkProvider({ agentId, agentInfo });
-        if (typeof sink === "function") terminalSink = sink;
-      } catch (error) {
-        try { callbacks.onEvent?.("hermes", `Hermes virtual-terminal sink unavailable: ${error?.message || error}`); } catch {}
-      }
-    }
-    echoPromptToTerminal();
-    pushTerminalFrame("[hermes] thinking...\r\n");
-
-    return new Promise((resolve, reject) => {
-      proc = spawnProcess(launcher.command, args, {
-        cwd: hostCwd,
-        env: { AIFY_BRIDGE_DISABLED: "1", AIFY_AGENT_ID: "" },
-      });
-      proc.stdin?.on?.("error", () => {});
-      try { proc.stdin?.end?.(); } catch {}
-
-      proc.stdout?.on?.("data", (chunk) => {
-        const text = chunk.toString();
-        stdoutBuf += text;
-        try { callbacks.onEvent?.("hermes", quoteForDisplay(text).slice(0, 200)); } catch {}
-      });
-      proc.stderr?.on?.("data", (chunk) => {
-        const text = chunk.toString();
-        stderrBuf += text;
-        try { callbacks.onEvent?.("stderr", quoteForDisplay(text).slice(0, 200)); } catch {}
-      });
-
-      timeoutTimer = setTimeout(() => {
-        if (settled) return;
-        interrupted = true;
-        try { terminateProcessTree(proc); } catch {}
-      }, timeoutMs);
-      if (typeof timeoutTimer.unref === "function") timeoutTimer.unref();
-
-      proc.on("error", (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutTimer);
-        if (error?.code === "ENOENT") {
-          const target = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "hermes").trim();
-          const enriched = new Error(
-            `spawn "${launcher.command}" ENOENT — the bridge resolved Hermes to "${launcher.command}" but Node could not execute it. ` +
-              `Set AIFY_HERMES_COMMAND to an absolute path to a real "hermes" binary and restart aify-comms. ` +
-              `Diagnostic: ${diagnosticsFor(target)}`,
-          );
-          pushTerminalFrame(`\r\n[error] ${enriched.message}\r\n`, "failed");
-          reject(enriched);
-          return;
-        }
-        const msg = error?.message || String(error || "Hermes spawn error");
-        pushTerminalFrame(`\r\n[error] ${msg}\r\n`, "failed");
-        reject(new Error(msg));
-      });
-
-      proc.on("close", (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutTimer);
-
-        if (interrupted) {
-          pushTerminalFrame("\r\n[interrupted]\r\n", "running");
-          resolve({
-            status: "cancelled",
-            summary: stdoutBuf.trim() || "Run interrupted",
-            runtimeState: {},
-            externalRefs: {},
-          });
-          return;
-        }
-
-        if (code !== 0) {
-          const errMsg = stderrBuf.trim() || stdoutBuf.trim() || `Hermes exited with code ${code}`;
-          pushTerminalFrame(`\r\n[error] ${errMsg}\r\n`, "failed");
-          reject(new Error(errMsg));
-          return;
-        }
-
-        const reply = stdoutBuf.trim() || "(no output)";
-        pushTerminalFrame(`\r\n${reply}\r\n`, "running");
-        resolve({
-          status: "completed",
-          summary: reply,
-          runtimeState: {},
-          externalRefs: {},
-        });
-      });
+  if (!adapter) {
+    return failedRuntimeController(runtime, new Error(`Unknown runtime "${runtime}".`));
+  }
+  const executionMode = run?.executionMode || agentInfo?.session_mode || agentInfo?.sessionMode || "managed";
+  try {
+    const controller = adapter.controllerFor({
+      agentId,
+      agentInfo,
+      run,
+      runtimeState,
+      callbacks,
+      managedViaWrapper,
+      executionMode,
     });
-  })();
-
-  return {
-    capabilities: controlCapabilitiesForRuntime("hermes"),
-    interrupt: async () => {
-      if (settled || !proc) return;
-      interrupted = true;
-      try { terminateProcessTree(proc); } catch {}
-    },
-    steer: async () => {
-      // Hermes `chat -q` is single-shot — no mid-turn steering surface.
-      // Use a follow-up dispatch instead.
-      throw new Error("Hermes managed runs do not support mid-turn steer (hermes chat -q is single-shot). Send a follow-up dispatch instead.");
-    },
-    promise,
-  };
-}
-
-function createTerminalDeliveryController(runtime) {
-  // Runtimes whose only execution surface is the dashboard console/terminal
-  // PTY (not bridge active-dispatch). Returns a controller that rejects an
-  // active-dispatch claim with a clear, actionable message so the run does
-  // not look mysteriously "unsupported".
-  const message =
-    `Runtime "${runtime}" runs via the dashboard Console (terminal/PTY), not bridge active dispatch. ` +
-    `Spawn it from a connected environment and drive it through its Console; ` +
-    `it will not be claimed for managed/resident active-dispatch turns.`;
-  return {
-    capabilities: controlCapabilitiesForRuntime(runtime),
-    interrupt: () => {},
-    steer: async () => {
-      throw new Error(message);
-    },
-    promise: Promise.reject(new Error(message)),
-  };
+    if (!controller) {
+      return failedRuntimeController(
+        runtime,
+        new Error(`Runtime "${runtime}" does not support executionMode="${executionMode}".`),
+      );
+    }
+    // Plan 4 Task 13 (2026-05-25): wire the bridge's onReady callback
+    // BEFORE start() is called — controllers fire markReady() from inside
+    // start() and the listener must already be attached. callbacks.onReady
+    // is an optional hook supplied by server.js; absence is harmless.
+    if (typeof callbacks?.onReady === "function" &&
+        typeof controller.setReadyListener === "function") {
+      try { controller.setReadyListener(callbacks.onReady); } catch { /* best-effort */ }
+    }
+    return controller.start();
+  } catch (error) {
+    return failedRuntimeController(runtime, error);
+  }
 }
 
 function failedRuntimeController(runtime, error) {

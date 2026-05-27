@@ -25,8 +25,13 @@ assert.equal(normalizeRuntime("pi-agent"), "pi");
 
 assert.equal(canLaunchRuntime("pi"), true);
 assert.deepEqual(controlCapabilitiesForRuntime("pi"), { interrupt: true, steer: true });
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"]);
-assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resident-run", "resume", "interrupt", "steer"]);
+// Plan 2 (2026-05-25): defaultCapabilitiesForRuntime now derives from the
+// PiAdapter's supports_* flags. native-managed-run is no longer in the
+// default list, and pi resident omits `resident-run` because
+// PiAdapter.supportsResident == false. interrupt/steer are independent of
+// session mode and still flow through when the adapter declares them.
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "managed"), ["managed-run", "resume", "interrupt", "steer", "spawn"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("pi", "resident", "session-123"), ["resume", "interrupt", "steer"]);
 
 process.env.PI_SESSION_ID = "pi-session-123";
 assert.equal(defaultSessionHandleForRuntime("pi"), "pi-session-123");
@@ -475,10 +480,18 @@ const residentDeadHandleController = launchRuntimeRun({
     onSessionHandleChange: (newHandle, meta) => handleChanges.push({ newHandle, meta }),
   },
 });
+// Plan 2 Task 19 (2026-05-25): resident-mode Pi dispatch is rejected at the
+// controller regardless of handle health; the old "Resident Pi session NAME is
+// not resumable" wording belonged to the createPiControllerLegacy path that
+// Plan 2 removes from the dispatch entry table.
+// Plan 3 Task 12 (2026-05-25): launchRuntimeRun now consults adapter.controllerFor;
+// the rejection is generic ("Runtime \"pi\" does not support executionMode=\"resident\"")
+// since the per-runtime branch is gone. Behavior unchanged — pi resident still
+// rejects.
 await assert.rejects(
   residentDeadHandleController.promise,
-  /Resident Pi session "dead-session" is not resumable: .*Clear the saved session handle or start a fresh managed Pi session/,
-  "resident Pi dead handles should fail with an actionable message instead of auto-healing",
+  /Runtime "pi" does not support executionMode="resident"/i,
+  "Plan 3 must reject resident-mode Pi dispatch at the adapter controllerFor() gate (including dead-handle case)",
 );
 
 
@@ -778,6 +791,89 @@ const sinkJoined = sinkFrames.join("").replace(ANSI_RE, "");
 assert(sinkJoined.includes("● pi rpc ready"), `expected ready banner, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
 assert(sinkJoined.includes("> Say hello"), `expected prompt echo, got ${JSON.stringify(sinkJoined.slice(0, 300))}`);
 await shutdownAllPiSessions("sink-test");
+
+// Plan 2 Task 19 (2026-05-25): createPiController must reject resident-mode
+// invocation. PiAdapter.supportsResident == false; the bridge graceful drain
+// migrates existing resident-pi agents on next launch, but any race-stragglers
+// that still ask for resident-mode dispatch must be rejected at the controller
+// boundary rather than silently spawning a fresh-worker (the old
+// pi-session-resume path).
+__resetPiSessionPoolForTests();
+const planTwoResidentController = launchRuntimeRun({
+  agentId: "pi-resident-rejected",
+  agentInfo: {
+    agentId: "pi-resident-rejected",
+    role: "coder",
+    runtime: "pi",
+    sessionMode: "resident",
+    sessionHandle: "any-handle",
+    cwd: process.cwd(),
+    runtimeConfig: { timeoutMs: 5000, startupTimeoutMs: 1000 },
+  },
+  run: {
+    from: "dashboard",
+    subject: "Pi resident rejected by Plan 2 flip",
+    body: "Say hello",
+    executionMode: "resident",
+  },
+  runtimeState: {},
+  callbacks: {
+    onEvent: () => {},
+    onRuntimeState: () => {},
+    onRefs: () => {},
+  },
+});
+await assert.rejects(
+  planTwoResidentController.promise,
+  /Runtime "pi" does not support executionMode="resident"/i,
+  "Plan 3 must reject resident-mode Pi dispatch at the adapter controllerFor() gate",
+);
+
+// Plan 1 regression (commit 4f0fef7): normalizePiModelOverride strips
+// "unknown" as well as "default" and "auto". Pin the "unknown" path so a
+// future change cannot silently re-introduce the `pi --model unknown`
+// launch failure operator hit on 2026-05-25.
+{
+  const { normalizePiModelOverride } = await import("../runtimes.js");
+  assert.strictEqual(normalizePiModelOverride("unknown"), "");
+  assert.strictEqual(normalizePiModelOverride("Unknown"), "");
+  assert.strictEqual(normalizePiModelOverride("UNKNOWN"), "");
+  assert.strictEqual(normalizePiModelOverride("  unknown  "), "");
+  assert.strictEqual(normalizePiModelOverride("auto"), "");
+  assert.strictEqual(normalizePiModelOverride("default"), "");
+  // Real model names preserved.
+  assert.strictEqual(normalizePiModelOverride("gpt-5.5"), "gpt-5.5");
+  assert.strictEqual(normalizePiModelOverride("claude-sonnet-4-5"), "claude-sonnet-4-5");
+}
+
+// Verify PiSession._buildArgs() omits --model when _model is the empty
+// string produced by normalizePiModelOverride("unknown"). We construct
+// the session directly (no spawn) and pin the _model invariant so a
+// future refactor of _buildArgs cannot silently re-introduce the bug.
+{
+  const { PiSession } = await import("../pi-session.js");
+  const { normalizePiModelOverride } = await import("../runtimes.js");
+  const session = new PiSession({
+    agentId: "pi-unknown-buildargs",
+    agentInfo: { agentId: "pi-unknown-buildargs", runtime: "pi", runtimeConfig: {} },
+  });
+  session._launcher = { command: "pi", args: [] };
+  session._model = normalizePiModelOverride("unknown");
+  session._thinking = "";
+  session.sessionId = "";
+  assert.strictEqual(session._model, "", 'normalizePiModelOverride("unknown") must collapse to ""');
+  const argsUnknown = session._buildArgs();
+  assert.ok(
+    !argsUnknown.includes("--model"),
+    `expected --model omitted when _model is "" (from "unknown"); got ${JSON.stringify(argsUnknown)}`,
+  );
+  // Sanity: a real model name still threads through.
+  session._model = "gpt-5.5";
+  const argsReal = session._buildArgs();
+  const modelIdx = argsReal.indexOf("--model");
+  assert.ok(modelIdx >= 0, `expected --model present for real model; got ${JSON.stringify(argsReal)}`);
+  assert.strictEqual(argsReal[modelIdx + 1], "gpt-5.5");
+}
 
 await shutdownAllPiSessions("test final");
 console.log("pi-runtime.test.js: all assertions passed");

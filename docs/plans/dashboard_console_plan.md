@@ -263,7 +263,7 @@ Initial setting should be conservative: detach but show an obvious “Detached t
 
 ## Implementation Slices
 
-Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Runtime delivery is symmetric at the dashboard contract but adapter-specific underneath: managed Claude Code, Codex, OpenCode, Pi, and Hermes start or reuse bridge-owned terminal backing by default, with native managed/steer paths retained as fallback where supported. Console attaches to the backing PTY where one exists. Real resident terminal mirroring remains a follow-up capability.
+Current branch status: slices 1-6 are implemented on `feature/dashboard-console-mode` as an initial end-to-end Console mode. The backend owns policy/audit, environment bridges own PTYs via `node-pty`, and the dashboard exposes Messenger/Console switching with start/input/stop controls. Runtime delivery is symmetric at the dashboard contract but adapter-specific underneath: managed Claude Code, Codex, and Hermes use wrapper PTYs where configured, while Pi and OpenCode use native managed controllers with synthesized Console streams. Native managed/steer paths are retained as fallback where supported. Console attaches to the runtime backing where one exists. Real resident terminal mirroring remains a follow-up capability.
 
 ### Slice 1: Data Model And Read-Only UI
 
@@ -350,7 +350,7 @@ Tests:
 2. Should Console mode be allowed for agents with no native session handle as a fresh terminal, or should it require explicit **Recreate/Fresh Console**?
 3. Should real resident terminal output be mirrored to dashboard when possible, or should dashboard only show status unless the terminal was opened through Console mode?
 4. Should Console output be stored long-term, short-term buffered, or only streamed live?
-5. Resolved for the current implementation: Messenger sends during active managed PTY attachment use the runtime's terminal-backed delivery contract by default. Native Codex/OpenCode/Pi adapters remain fallback paths when terminal backing is disabled or unavailable.
+5. Resolved for the current implementation: Messenger sends use the runtime's delivery owner by default. Wrapper-backed Codex/Hermes route through the wrapper child bridge; Pi/OpenCode stay on native controller delivery with synthesized Console output; native Codex/Hermes adapters remain fallback paths when wrapper backing is disabled or unavailable. Raw PTY-input delivery is an explicit legacy setting (`insert_messages_via_console=true`).
 6. Which host should get the first PTY implementation: native Windows ConPTY or WSL/Linux PTY?
 
 ## Recommended First Decision

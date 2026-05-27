@@ -149,8 +149,8 @@ tr:hover{background:#19212a}
 .t-info{background:var(--accent-soft);color:var(--accent-text)}.t-error{background:#ff6b6636;color:var(--state-error)}
 .t-review{background:#a371f733;color:#b997ff}.t-approval{background:#55c47524;color:var(--state-online)}
 .t-channel{background:#e2b04424;color:var(--state-working)}
-.st-active{color:var(--state-online)}.st-online{color:var(--state-online)}.st-available{color:var(--state-online)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--state-error)}
-.st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--state-error)}.st-offline{color:var(--subtle)}
+.st-active{color:var(--state-online)}.st-online,.st-ready{color:var(--state-online)}.st-available{color:var(--state-info)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--muted)}
+.st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--muted)}.st-offline{color:var(--subtle)}
 .st-queued{color:var(--muted)}.st-claimed{color:var(--state-working)}.st-running{color:var(--state-info)}.st-failed{color:var(--state-error)}.st-cancelled{color:var(--state-working)}.st-cli-takeover{color:var(--state-info)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -438,6 +438,9 @@ a{color:var(--accent-text)}
 .chat-field-label{display:grid;gap:5px;color:var(--muted);font-size:.72em;font-weight:850;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .chat-field-label select{width:100%;min-width:0;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font-size:1.08em;text-transform:none;letter-spacing:0;font-weight:650}
 .chat-compact-toggle{margin-top:8px!important}
+.chat-filter-actions{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}
+.chat-filter-actions .chat-compact-toggle{margin:8px 0 0!important}
+.chat-filter-actions .btn{margin-top:8px}
 .chat-global-results{display:none;margin-top:9px;border-top:1px solid var(--line-soft);padding-top:8px;max-height:220px;overflow:auto}
 .chat-global-results.active{display:block}
 .chat-global-hit{display:block;border:1px solid transparent;border-radius:8px;padding:8px;text-decoration:none;color:var(--text);cursor:pointer}
@@ -460,8 +463,10 @@ a{color:var(--accent-text)}
 .chat-status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}
 .chat-status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .chat-status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.chat-status-dot.active,.chat-status-dot.online,.chat-status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
-.chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
+.chat-status-dot.active,.chat-status-dot.online,.chat-status-dot.ready{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
+.chat-status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
+.chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
+.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 @keyframes terminalActivityPulse{0%,100%{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}45%{background:#ff8a2a;box-shadow:0 0 0 6px #ff8a2a36}}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
@@ -646,9 +651,10 @@ tr:hover{background:#1b1f21}
 .status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15620}
 .status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.status-dot.active,.status-dot.online,.status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
+.status-dot.active,.status-dot.online,.status-dot.ready{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
+.status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.idle,.status-dot.recovering,.status-dot.starting{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
-.status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
+.status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
 .status-dot.cli-takeover{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .mini-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}
 .mini-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border:1px solid #282d30;border-radius:10px;background:#101214}
@@ -1260,9 +1266,11 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
           <div class="chat-rail-panel" data-chat-tool-panel="filters">
             <label class="chat-field-label">Viewing as<select id="chat-from" onchange="changeChatIdentity()"></select></label>
             <label class="chat-field-label">Sort<select id="chat-sort" onchange="setChatSort(this.value)">
-              <option value="activity">Activity</option>
-              <option value="unread">Unread first</option>
-              <option value="name">Name</option>
+              <option value="activity">Recent activity</option>
+              <option value="oldest">Oldest activity</option>
+              <option value="name">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="runtime">Runtime</option>
               <option value="status">Status</option>
             </select></label>
             <div class="chat-filter-row">
@@ -1278,11 +1286,22 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
                 <span>Peek mode</span>
               </label>
+              <label class="chat-toggle" title="Keep unread conversations above read conversations without changing the selected sort inside each group">
+                <input type="checkbox" id="chat-unread-up" onchange="setChatUnreadUp(this.checked)">
+                <span>Unread up</span>
+              </label>
+              <label class="chat-toggle" title="Keep working, blocked, or queued conversations above idle conversations without changing the selected sort inside each group">
+                <input type="checkbox" id="chat-working-up" onchange="setChatWorkingUp(this.checked)">
+                <span>Working up</span>
+              </label>
             </div>
-            <label class="chat-toggle chat-compact-toggle" title="Use denser conversation rows and a narrower chat rail">
-              <input type="checkbox" id="chat-compact-toggle" onchange="setChatCompactMode(this.checked)">
-              <span>Compact list</span>
-            </label>
+            <div class="chat-filter-actions">
+              <label class="chat-toggle chat-compact-toggle" title="Use denser conversation rows and a narrower chat rail">
+                <input type="checkbox" id="chat-compact-toggle" onchange="setChatCompactMode(this.checked)">
+                <span>Compact list</span>
+              </label>
+              <button type="button" class="btn btn-sm" title="Reset search, sort, and chat filters. Viewing as, Peek mode, and Compact list stay unchanged." onclick="resetChatViewFilters()">Reset view</button>
+            </div>
           </div>
           <div class="chat-rail-panel" data-chat-tool-panel="channels">
             <div class="chat-create-channel">
@@ -1482,7 +1501,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         <div>
           <section class="instruction-panel active" data-instruction-panel="overview">
       <h3>What is this?</h3>
-      <p>This is the <b>aify-comms</b> control plane: a dashboard for connected Windows, WSL, Linux, Docker, and remote bridges. Use it to spawn managed agents into chosen workspaces, chat with them, inspect runs, stop/restart sessions, and keep old manual CLI bindings visible only when they matter.</p>
+      <p>This is the <b>aify-comms</b> control plane: a dashboard for connected Windows, WSL, Linux, macOS, Docker, and remote bridges. Use it to spawn managed agents into chosen workspaces, chat with them, inspect runs, stop/restart sessions, and keep old manual CLI bindings visible only when they matter.</p>
 
       <div class="guide-flow">Dashboard / MCP service (:8800)
         |
@@ -1490,9 +1509,9 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         v
 Environment bridge: aify-comms
         |
-        | claims managed work for one host/WSL/Windows environment
+        | claims managed work for one host/runtime environment
         v
-Runtime adapter: Claude Code / Codex / OpenCode / Pi
+Runtime adapter: Claude Code / Codex / Hermes / OpenCode / Pi
         |
         v
 Agent session in a specific workspace</div>
@@ -1504,7 +1523,7 @@ Agent session in a specific workspace</div>
         </div>
         <div class="guide-card">
           <h4>Resident Mode</h4>
-          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, <code>omp-aify</code> / <code>pi-aify</code>, or explicit OpenCode registration when a terminal you opened should temporarily own the live session.</p>
+          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, or <code>hermes-aify</code> when a terminal you opened should temporarily own the live session. Pi and OpenCode remain managed/debug paths until they have a validated multi-client resident surface.</p>
         </div>
         <div class="guide-card">
           <h4>Debug Path</h4>
@@ -1539,18 +1558,19 @@ bash install.sh --client codex http://192.168.100.10:8800 --with-hook</pre>
         </div>
         <div class="guide-card">
           <h4>OpenCode</h4>
-          <pre>cd /path/to/aify-comms
-bash install.sh --client opencode http://192.168.100.10:8800</pre>
-      <p><b>Oh My Pi / Pi:</b></p>
-      <pre>bash install.sh --client pi http://192.168.100.10:8800</pre>
+          <p>Wrapper/config install is intentionally disabled until OpenCode gets focused validation. Use a normal <code>aify-comms</code> environment bridge for future managed testing.</p>
+        </div>
+        <div class="guide-card">
+          <h4>Oh My Pi / Pi</h4>
+          <p>Wrapper install is intentionally disabled. Managed Pi uses the environment bridge's persistent <code>omp --mode rpc</code> child, not <code>omp-aify</code>.</p>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
       <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or the <b>Sessions</b> header.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
-      <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://192.168.100.10:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
-      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
+      <p>On Linux, macOS, or WSL use <code>aify-comms</code>. On native Windows PowerShell/cmd, use <code>aify-comms.cmd</code>. The service URL defaults to <code>http://192.168.100.10:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
+      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
       <h3>Run Resident Mode</h3>
       <p>Resident mode is for a real terminal session you want to watch or drive directly. Start the runtime through the wrapper and bind it to an agent ID. The wrapper auto-registers that live owner; if you omit <code>--aify-agent</code>, register manually from inside the session.</p>
       <div class="guide-grid">
@@ -1577,7 +1597,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         </div>
         <div class="guide-card">
           <h4>Resident CLI</h4>
-          <p>A terminal session you opened yourself through <code>claude-aify</code>, <code>codex-aify</code>, or <code>omp-aify</code> / <code>pi-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
+          <p>A terminal session you opened yourself through <code>claude-aify</code>, <code>codex-aify</code>, or <code>hermes-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
         </div>
         <div class="guide-card">
           <h4>Session</h4>
@@ -1587,19 +1607,17 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
 
       <h3>Move Between Dashboard And CLI</h3>
       <div class="guide-flow">Managed dashboard control
+  -> Switch to resident
   -> copy/open resume command with --aify-agent
-  -> wrapper auto-registers resident owner
   -> do direct terminal work
-  -> close CLI
-  -> resident lease expires
-  -> dashboard sends resume through managed backing</div>
+  -> Switch to managed when dashboard should own delivery again</div>
       <div class="guide-steps">
         <div class="guide-card">
           <h4>Managed → Resident CLI</h4>
           <ol>
             <li>Open <b>Sessions</b> for the agent.</li>
-            <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper auto-registers the live owner.</li>
-            <li>If the managed run is still active, takeover waits until that turn finishes.</li>
+            <li>Use <b>Actions → Switch to resident</b> to hand ownership to the visible CLI path.</li>
+            <li>Run the shown resume command. It includes <code>--aify-agent</code> so the wrapper can register bridge metadata.</li>
             <li>Use manual <code>comms_register(...)</code> only when the wrapper was launched without <code>--aify-agent</code> or when you are binding a new ID.</li>
           </ol>
         </div>
@@ -1609,14 +1627,14 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
             <li>Open <b>Sessions</b>, then <b>Identity Directory</b>.</li>
             <li>Use <b>Edit</b> or the identity row's <b>Actions → Adopt env</b>.</li>
             <li>Assign an online environment, runtime, and workspace.</li>
-            <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process. Future dashboard sends return to managed backing after the lease expires.</li>
-            <li>Reopen with <code>--aify-agent</code> to make the visible CLI the resident owner again.</li>
+            <li>Use <b>Actions → Switch to managed</b> when dashboard sends should use the managed backing again.</li>
+            <li>Close the CLI, or use <b>Stop wake</b> / session <b>Stop</b> to ask the live resident bridge to terminate the host process.</li>
           </ol>
         </div>
       </div>
-      <p>Adoption creates managed backing for future dashboard work. Ownership changes only between turns: active managed work defers resident takeover, and stale resident leases can return to managed mode without inventing a new native handle. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
+      <p>Adoption creates managed backing for future dashboard work. Ownership changes are manual: resident registrations record bridge metadata, but they do not silently take over managed delivery, and stale resident bridges do not silently switch back to managed. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
-      <p>Pi CLI note: for resident live wakeups, start Oh My Pi through <code>omp-aify</code> or <code>pi-aify</code>. Resume a known Pi session when you need resident dispatch to target the same native session handle.</p>
+      <p>Pi CLI note: triggerable Pi delivery is managed through the environment bridge's persistent <code>omp --mode rpc</code> child. Legacy <code>omp-aify</code>/<code>pi-aify</code> presence wrappers are not installed by default because OMP is single-client.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
@@ -1646,7 +1664,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; busy or blocked turns are deferred so reminders do not inject text into an agent that is already handling work, and a due reminder is retried when that agent returns idle. Reminder notices do not create new reply debt. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; busy or blocked turns are deferred so reminders do not inject text into an agent that is already handling work, and a due reminder is retried when that agent returns idle. Reminder notices do not create new reply debt. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model/effort policy and delivery toggles; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1795,6 +1813,26 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
         <div class="hint">When enabled, rotation expires old messages/files and marks stale agents using the settings above.</div>
       </div>
+      <div class="form-group">
+        <label>Environment offline threshold (seconds)</label>
+        <input type="number" id="s-env-offline" min="30" max="3600">
+        <div class="hint">An environment bridge is treated as offline when its heartbeat is older than this. Default: 90</div>
+      </div>
+      <div class="form-group">
+        <label>Terminal run stale cleanup (minutes)</label>
+        <input type="number" id="s-active-run-stale" min="5" max="240">
+        <div class="hint">Cleanup window for terminal-backed active runs that stopped reporting progress. Default: 30</div>
+      </div>
+      <div class="form-group">
+        <label>Managed run stale cleanup (minutes)</label>
+        <input type="number" id="s-active-managed-stale" min="1" max="120">
+        <div class="hint">Cleanup window for managed runs whose bridge claim or failure update was lost. Default: 5</div>
+      </div>
+      <div class="form-group">
+        <label>Resident bridge lease (seconds)</label>
+        <input type="number" id="s-resident-lease" min="30" max="3600">
+        <div class="hint">How long a resident wrapper heartbeat remains fresh for live wake decisions. Default: 150</div>
+      </div>
           </section>
           <section class="settings-panel" data-settings-panel="runtime">
       <h3>Managed Runtime Policy</h3>
@@ -1812,6 +1850,31 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <label>Claude dev-channel auto-confirm</label>
         <select id="s-claude-auto-confirm"><option value="false">Off — operator confirms in Console</option><option value="true">On — send Enter automatically</option></select>
         <div class="hint">Controls the one startup Enter used to accept Claude Code development-channel prompts for managed Claude PTY turns. Leave off to prevent surprise Console input.</div>
+      </div>
+      <div class="form-group">
+        <label>Manual resident/managed switch</label>
+        <select id="s-manual-session-mode"><option value="true">Show switch actions</option><option value="false">Hide switch actions</option></select>
+        <div class="hint">Shows explicit Switch to resident / Switch to managed controls in Chat and Sessions. Default: shown.</div>
+      </div>
+      <div class="form-group">
+        <label>Managed terminal backing</label>
+        <select id="s-managed-terminal-backing"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+        <div class="hint">Allows dashboard-managed agents to keep a bridge-owned terminal backing for Console and wrapper delivery. Default: enabled.</div>
+      </div>
+      <div class="form-group">
+        <label>Eager managed PTY spawn</label>
+        <select id="s-managed-pty-eager"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+        <div class="hint">Starts wrapper PTYs during spawn/recover instead of waiting for the first message when terminal backing is enabled. Default: enabled.</div>
+      </div>
+      <div class="form-group">
+        <label>Wrapper-backed managed runtimes</label>
+        <input id="s-managed-wrapper-runtimes" placeholder="codex, hermes">
+        <div class="hint">Comma-separated runtimes that should use their <code>*-aify</code> wrapper PTY for managed delivery. Leave blank to use native controllers. Default: <code>codex, hermes</code>.</div>
+      </div>
+      <div class="form-group">
+        <label>Legacy Console injection</label>
+        <select id="s-insert-console"><option value="false">Off — use runtime channels</option><option value="true">On — type messages into PTY</option></select>
+        <div class="hint">Debug fallback only. When on, managed sends are inserted as terminal input instead of using Claude channels, Codex/Hermes wrapper channels, or Pi RPC. Default: off.</div>
       </div>
       <div class="form-group">
         <label>Managed Codex Model</label>
@@ -1834,9 +1897,14 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="hint">Optional thinking/effort value passed to Oh My Pi as <code>--thinking</code>.</div>
       </div>
       <div class="form-group">
-        <label>Auto-close idle worker (minutes)</label>
+        <label>Auto-close idle managed workers</label>
+        <select id="s-worker-idle-enabled"><option value="false">Disabled</option><option value="true">Enabled</option></select>
+        <div class="hint">When enabled, the reconciler stops managed worker terminals that have no in-flight runs and have been idle longer than the window below.</div>
+      </div>
+      <div class="form-group">
+        <label>Idle worker close window (minutes)</label>
         <input id="s-worker-idle-close" type="number" min="0" max="1440" step="1" placeholder="0 = disabled">
-        <div class="hint">Auto-close persistent workers (managed pi/hermes virtual rpc terminals) idle longer than this many minutes. The reconciler only acts on workers with no in-flight dispatch_runs. <code>0</code> disables. Recommended: <code>10</code>.</div>
+        <div class="hint">Applies to managed wrapper PTYs and native virtual RPC workers. <code>0</code> also disables auto-close. Recommended: <code>10</code>.</div>
       </div>
           </section>
           <section class="settings-panel" data-settings-panel="work">
@@ -3081,7 +3149,8 @@ function isManagedWorker(info) {
 
 function agentDisplayStatus(info) {
   const displayStatus = info?.status || 'idle';
-  const rawStatus = info?.statusRaw || displayStatus.split(':')[0].trim() || 'idle';
+  let rawStatus = info?.statusRaw || displayStatus.split(':')[0].trim() || 'idle';
+  if (String(rawStatus).toLowerCase() === 'ready') rawStatus = 'online';
   const statusNote = info?.statusNote || '';
   return {displayStatus, rawStatus, statusKind: rawStatus.toLowerCase(), statusNote};
 }
@@ -3225,7 +3294,7 @@ function runtimeAttachNote(session) {
     return 'Headless managed Codex uses the bridge app-server and managed CODEX_HOME. Resume by ID with the generated command when a resume ID is recorded.';
   }
   if (runtime === 'pi') {
-    return 'Managed Pi uses OMP RPC. When a resume ID is recorded, open the same context with the generated omp-aify / pi-aify command; Pause for CLI first, then Restart to return dashboard control.';
+    return 'Managed Pi uses OMP RPC through the environment bridge. Resident omp-aify/pi-aify wrapper install is disabled by default because OMP is single-client; use dashboard-managed Console for triggerable delivery.';
   }
   return 'This managed backing is recoverable from the dashboard, but it is not advertised as attachable in the official CLI.';
 }
@@ -4422,7 +4491,9 @@ function environmentStartCommand(env) {
     const args = extras.map(quote).join(' ');
     return `${cd}\naify-comms.cmd${args ? ' ' + args : ''}`;
   }
-  const cd = firstRoot ? `cd ${quote(firstRoot)}` : 'cd /mnt/c/Docker';
+  const cd = firstRoot
+    ? `cd ${quote(firstRoot)}`
+    : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
   const args = extras.map(quote).join(' ');
   return `${cd}\naify-comms${args ? ' ' + args : ''}`;
 }
@@ -4457,31 +4528,85 @@ function sessionResumeCommand(session, agentInfo = {}) {
   const osText = String(environment.os || environment.kind || session.environmentId || '').toLowerCase();
   const workspace = session.workspace || agentInfo.cwd || '';
   const windows = osText.includes('win') || /^[A-Za-z]:[\\/]/.test(workspace);
+  const prefix = (command) => {
+    if (!workspace) return command;
+    return windows ? `cd /d ${quoteCmd(workspace)}\n${command}` : `cd ${quoteShell(workspace)}\n${command}`;
+  };
   const agentFlag = session.agentId ? ` --aify-agent ${windows ? quoteCmd(session.agentId) : quoteShell(session.agentId)}` : '';
   if (runtime === 'claude-code') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nclaude-aify.cmd${agentFlag} --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nclaude-aify${agentFlag} --dangerously-skip-permissions --resume ${quoteShell(handle)}`;
+    return prefix(windows
+      ? `claude-aify.cmd${agentFlag} --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
+      : `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${quoteShell(handle)}`);
   }
   if (runtime === 'codex') {
     const envPrefix = windows
       ? `set "CODEX_HOME=%USERPROFILE%\\.local\\state\\aify-comms\\managed-codex-home" && set "AIFY_RUNTIME=codex" && set "AIFY_AGENT_ID=${quoteCmd(session.agentId || '')}" && set "AIFY_SESSION_HANDLE=${quoteCmd(handle)}" && set "CODEX_THREAD_ID=${quoteCmd(handle)}" && `
       : `AIFY_RUNTIME=codex AIFY_AGENT_ID=${quoteShell(session.agentId || '')} AIFY_SESSION_HANDLE=${quoteShell(handle)} CODEX_THREAD_ID=${quoteShell(handle)} CODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" `;
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\n${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\n${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteShell(handle)}`;
+    return prefix(windows
+      ? `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteCmd(handle)}`
+      : `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteShell(handle)}`);
   }
   if (runtime === 'opencode') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nopencode`
-      : `cd ${quoteShell(workspace)}\nopencode`;
+    return prefix('opencode');
   }
   if (runtime === 'pi') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nomp-aify.cmd${agentFlag} --resume ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nomp-aify${agentFlag} --resume ${quoteShell(handle)}`;
+    return '';
   }
   return '';
+}
+
+function agentResidentLaunchCommand(agentId, agentInfo = {}) {
+  const id = String(agentId || '').trim();
+  if (!id) return '';
+  const runtime = String(agentInfo.runtime || '').toLowerCase();
+  const workspace = String(agentInfo.cwd || '').trim();
+  const handle = String(agentInfo.sessionHandle || '').trim();
+  const role = String(agentInfo.role || 'coder').trim() || 'coder';
+  const windows = /^[A-Za-z]:[\\/]/.test(workspace);
+  const cd = workspace
+    ? (windows ? `cd /d ${quoteCmd(workspace)}` : `cd ${quoteShell(workspace)}`)
+    : '';
+  const bin = (name) => windows ? `${name}.cmd` : name;
+  const q = windows ? quoteCmd : quoteShell;
+  const common = ` --aify-agent ${q(id)} --aify-role ${q(role)}`;
+  const resume = handle ? ` --resume ${q(handle)}` : '';
+  let command = '';
+  if (runtime === 'claude-code' || runtime === 'claude') command = `${bin('claude-aify')}${common}${resume}`;
+  if (runtime === 'codex') command = `${bin('codex-aify')}${common}${resume}`;
+  if (runtime === 'hermes') command = `${bin('hermes-aify')}${common}${resume}`;
+  if (!command) return '';
+  return cd ? `${cd}\n${command}` : command;
+}
+
+function residentWrapperName(runtime) {
+  const normalized = String(runtime || '').toLowerCase();
+  if (normalized === 'claude-code' || normalized === 'claude') return 'claude-aify';
+  if (normalized === 'codex') return 'codex-aify';
+  if (normalized === 'hermes') return 'hermes-aify';
+  return `${normalized || 'runtime'}-aify`;
+}
+
+function showResidentSwitchNotice(agentId, agentInfo = {}, result = {}) {
+  const candidate = agentInfo?.runtimeState?.manualResidentCandidate || {};
+  const hasCandidate = !!(candidate && (candidate.bridgeId || candidate.runtimeConfig || candidate.sessionHandle));
+  const command = agentResidentLaunchCommand(agentId, agentInfo);
+  const runtime = String(agentInfo.runtime || 'runtime');
+  const wrapperName = residentWrapperName(runtime);
+  const commandBlock = command
+    ? sessionResumeCommandBlock(command, 'Resident launch / re-register command')
+    : '<p class="em">No resident wrapper command is available for this runtime. Use managed mode unless this runtime has a validated resident wrapper.</p>';
+  openModal(`Resident mode: ${agentId}`, `
+    <div class="modal-form">
+      <div class="banner muted"><div class="banner-row"><span>${hasCandidate
+        ? 'A resident wrapper has already registered as a candidate for this identity. No extra registration should be needed if that visible terminal is still open and healthy.'
+        : 'The mode switch changed dashboard ownership, but no live resident wrapper candidate is recorded yet. Start the resident wrapper now, or re-register from the visible CLI session.'}</span></div></div>
+      <p>Resident delivery requires the visible <code>${esc(wrapperName)}</code> wrapper to register this exact agent ID. Launching with <code>--aify-agent</code> lets the wrapper register itself. Manual <code>comms_register</code> is only needed if the wrapper was launched without <code>--aify-agent</code> or if the live wake status becomes stale/missing-handle.</p>
+      ${commandBlock}
+      <div class="btn-row">
+        ${command ? actionButtonFn('Copy command', 'Copy the resident launch command', () => copyText(command, 'Resident launch command copied')) : ''}
+        ${actionButtonFn('Close', 'Close this notice', () => closeModal())}
+      </div>
+    </div>`);
 }
 
 function sessionResumeCommandBlock(command, label = 'CLI resume command') {
@@ -4548,6 +4673,42 @@ async function setAgentSessionHandle(agentId, currentHandle = '') {
     await refreshDashboard();
   } catch (e) {
     toast(e.message || 'Set handle failed', '#f85149');
+  }
+}
+
+function agentModeSwitchAction(agentId, agentInfo = {}) {
+  if (window._dashboardSettings?.manual_session_mode === false) return '';
+  const current = String(agentInfo?.sessionMode || '').toLowerCase();
+  if (!agentId || (current !== 'resident' && current !== 'managed')) return '';
+  const target = current === 'resident' ? 'managed' : 'resident';
+  return actionButtonFn(
+    `Switch to ${target}`,
+    `Manually switch ${agentId} from ${current} to ${target} ownership`,
+    () => switchAgentSessionMode(agentId, target),
+  );
+}
+
+async function switchAgentSessionMode(agentId, targetMode, force = false) {
+  if (!agentId || !targetMode) return;
+  const current = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {}).sessionMode || '';
+  if (!confirm(`Switch ${agentId} from ${current || 'current'} to ${targetMode} mode?\n\nThis is manual ownership control. Dashboard will not automatically switch back.`)) return;
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session-mode`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: targetMode, force, requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Mode switch failed');
+    const effect = res.sideEffects?.managedTerminalId ? ` Terminal ${res.sideEffects.managedTerminalId}` : (res.sideEffects?.stoppedTerminalId ? ` Stopped ${res.sideEffects.stoppedTerminalId}` : '');
+    toast(`Switched ${agentId} to ${res.mode || targetMode}.${effect}`);
+    await refreshDashboard();
+    if ((res.mode || targetMode) === 'resident') {
+      const agentInfo = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {});
+      showResidentSwitchNotice(agentId, agentInfo, res);
+    }
+  } catch (e) {
+    toast(e.message || 'Mode switch failed', '#f85149');
   }
 }
 
@@ -4756,6 +4917,24 @@ function setChatOnlineOnly(value) {
   renderChat();
 }
 
+function chatUnreadUp() {
+  return localStorage.getItem('aifyChatUnreadUp') === '1';
+}
+
+function setChatUnreadUp(value) {
+  localStorage.setItem('aifyChatUnreadUp', value ? '1' : '0');
+  renderChat();
+}
+
+function chatWorkingUp() {
+  return localStorage.getItem('aifyChatWorkingUp') === '1';
+}
+
+function setChatWorkingUp(value) {
+  localStorage.setItem('aifyChatWorkingUp', value ? '1' : '0');
+  renderChat();
+}
+
 function chatPeekMode() {
   return localStorage.getItem('aifyChatPeekMode') === '1';
 }
@@ -4767,11 +4946,29 @@ function setChatPeekMode(value) {
 
 function chatSortMode() {
   const value = localStorage.getItem('aifyChatSortMode') || 'activity';
-  return ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity';
+  if (value === 'unread') {
+    localStorage.setItem('aifyChatUnreadUp', '1');
+    localStorage.setItem('aifyChatSortMode', 'activity');
+    return 'activity';
+  }
+  return ['activity', 'oldest', 'name', 'name-desc', 'runtime', 'status'].includes(value) ? value : 'activity';
 }
 
 function setChatSort(value) {
-  localStorage.setItem('aifyChatSortMode', ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity');
+  localStorage.setItem('aifyChatSortMode', ['activity', 'oldest', 'name', 'name-desc', 'runtime', 'status'].includes(value) ? value : 'activity');
+  renderChat();
+}
+
+function resetChatViewFilters() {
+  const filter = document.getElementById('chat-filter');
+  const global = document.getElementById('chat-global-search');
+  if (filter) filter.value = '';
+  if (global) global.value = '';
+  localStorage.setItem('aifyChatSortMode', 'activity');
+  localStorage.setItem('aifyChatOpenOnly', '0');
+  localStorage.setItem('aifyChatOnlineOnly', '0');
+  localStorage.setItem('aifyChatUnreadUp', '0');
+  localStorage.setItem('aifyChatWorkingUp', '0');
   renderChat();
 }
 
@@ -4833,7 +5030,8 @@ function chatPresenceForAgent(info = {}) {
   // enriches the LABEL — it must never override the dot kind, or the dot
   // says "working" (yellow) while the status says "active" (a merely
   // queued run is not working; that disagreement is the reported bug).
-  const raw = String(info.statusRaw || info.status || '').toLowerCase();
+  let raw = String(info.statusRaw || info.status || '').toLowerCase();
+  if (raw === 'ready') raw = 'online';
   const activeRun = info.dispatchState?.activeRun;
   const queuedRuns = Number(info.dispatchState?.queuedRuns || 0);
   const issue = liveIssueForAgent('', info);
@@ -4860,25 +5058,40 @@ function chatConversations() {
   const openOnly = chatOpenOnly();
   const onlineOnly = chatOnlineOnly();
   const sortMode = chatSortMode();
+  const unreadUp = chatUnreadUp();
+  const workingUp = chatWorkingUp();
   const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, available: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
+    if (unreadUp) {
+      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
+      if (unreadDiff) return unreadDiff;
+    }
+    if (workingUp) {
+      const workingDiff = (b.workRank || 0) - (a.workRank || 0);
+      if (workingDiff) return workingDiff;
+    }
     if (sortMode === 'name') return a.title.localeCompare(b.title);
+    if (sortMode === 'name-desc') return b.title.localeCompare(a.title);
+    if (sortMode === 'runtime') {
+      const runtimeDiff = String(a.runtime || '').localeCompare(String(b.runtime || ''));
+      if (runtimeDiff) return runtimeDiff;
+      return a.title.localeCompare(b.title);
+    }
+    if (sortMode === 'oldest') {
+      const timeDiff = (a.ts || 0) - (b.ts || 0);
+      if (timeDiff) return timeDiff;
+      return a.title.localeCompare(b.title);
+    }
     if (sortMode === 'activity') {
       const timeDiff = (b.ts || 0) - (a.ts || 0);
       if (timeDiff) return timeDiff;
-      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
-      if (unreadDiff) return unreadDiff;
       return a.title.localeCompare(b.title);
     }
     if (sortMode === 'status') {
       const statusDiff = statusRank(b) - statusRank(a);
       if (statusDiff) return statusDiff;
-      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
-      if (unreadDiff) return unreadDiff;
       return a.title.localeCompare(b.title);
     }
-    const unreadDiff = (b.unread || 0) - (a.unread || 0);
-    if (unreadDiff) return unreadDiff;
     const timeDiff = (b.ts || 0) - (a.ts || 0);
     if (timeDiff) return timeDiff;
     return a.title.localeCompare(b.title);
@@ -4904,6 +5117,8 @@ function chatConversations() {
       title: id,
       meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`,
       presence,
+      runtime: info.runtime || '',
+      workRank: ({blocked: 3, working: 3, recovering: 2, starting: 2, 'cli-takeover': 2}[presence?.kind || ''] || 0) + (Number(info.dispatchState?.queuedRuns || 0) > 0 ? 1 : 0),
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
       // Server-managed star (PATCH /agents/{id}/favorite). Used by
@@ -4926,6 +5141,8 @@ function chatConversations() {
       title: `#${ch.name}`,
       meta: `${ch.memberCount || 0} members · ${ch.messageCount || 0} messages`,
       unread: ch.unreadCount || 0,
+      runtime: 'channel',
+      workRank: 0,
       ts: timeValue(ch.lastMessageAt || ch.updatedAt || latestCached?.timestamp || ch.createdAt),
     };
   }));
@@ -4938,11 +5155,15 @@ function renderChatRail() {
   if (!el) return;
   const openToggle = document.getElementById('chat-open-only');
   const onlineToggle = document.getElementById('chat-online-only');
+  const unreadUpToggle = document.getElementById('chat-unread-up');
+  const workingUpToggle = document.getElementById('chat-working-up');
   const peekToggle = document.getElementById('chat-peek-mode');
   const compactToggle = document.getElementById('chat-compact-toggle');
   const sortSelect = document.getElementById('chat-sort');
   if (openToggle) openToggle.checked = chatOpenOnly();
   if (onlineToggle) onlineToggle.checked = chatOnlineOnly();
+  if (unreadUpToggle) unreadUpToggle.checked = chatUnreadUp();
+  if (workingUpToggle) workingUpToggle.checked = chatWorkingUp();
   if (peekToggle) peekToggle.checked = chatPeekMode();
   if (compactToggle) compactToggle.checked = chatCompactMode();
   if (sortSelect) sortSelect.value = chatSortMode();
@@ -5436,13 +5657,13 @@ function renderConsoleChat(meta) {
   // that operator-local CLI. Hide the Console actions and explain instead
   // of showing buttons that would spawn a sibling managed PTY for an agent
   // whose owner is already the resident wrapper. When the resident wrapper
-  // disconnects (session_mode flips back to managed or session ends),
-  // normal Console actions return.
+  // is manually switched back to managed or the session ends, normal Console
+  // actions return.
   const agentSessionMode = String(agentInfo?.sessionMode || session?.mode || '').toLowerCase();
   const isResidentOwned = agentSessionMode === 'resident'
     || String(session?.status || '').toLowerCase() === 'cli-takeover';
   if (isResidentOwned) {
-    body = `<div class="banner"><div class="banner-row"><span>This agent is currently running as a resident <code>${esc(runtime + '-aify')}</code> in the operator's terminal. The dashboard cannot stream a local CLI session, and a parallel managed Console would conflict with resident ownership. Close the resident wrapper to let dashboard-managed Console return.</span></div></div>`;
+    body = `<div class="banner"><div class="banner-row"><span>This agent is currently running as a resident <code>${esc(runtime + '-aify')}</code> in the operator's terminal. The dashboard cannot stream a local CLI session, and a parallel managed Console would conflict with resident ownership. Use <b>Switch to managed</b> when dashboard-managed Console should own delivery again.</span>${agentModeSwitchAction(meta.id, agentInfo)}</div></div>`;
   } else if (!session) {
     body = '<div class="banner"><div class="banner-row"><span>No managed session is recorded for this identity. Spawn or recover a session before opening Console.</span></div></div>';
   } else if (!canConsole) {
@@ -5630,6 +5851,7 @@ function chatLiveWarning(meta) {
 }
 
 function humanStatusLabel(status) {
+  if (String(status || '').toLowerCase() === 'ready') return 'Online';
   const text = String(status || 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -5651,6 +5873,33 @@ function humanCapabilityLabel(key) {
     interrupt: 'Interrupt',
     streaming: 'Streaming',
   })[key] || key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()).trim();
+}
+
+function sessionPresenceForSession(session = {}, agentInfo = {}) {
+  const presence = agentInfo && (agentInfo.status || agentInfo.statusRaw)
+    ? chatPresenceForAgent(agentInfo)
+    : chatPresenceForAgent({status: session.status || session.terminalStatus || ''});
+  const sessionStatus = String(session.status || '').toLowerCase();
+  const terminalStatus = String(session.terminalStatus || '').toLowerCase();
+  if (sessionStatus === 'cli-takeover') return {kind: 'cli-takeover', label: 'paused for CLI'};
+  if (terminalStatus === 'stopping') return {kind: 'recovering', label: 'stopping'};
+  return presence;
+}
+
+function sessionModeSummary(session = {}, agentInfo = {}) {
+  const ownerMode = String(session.ownerMode || agentInfo.sessionMode || '').toLowerCase();
+  const mode = String(session.mode || '').toLowerCase();
+  const caps = session.capabilities || {};
+  const parts = [];
+  if (ownerMode === 'resident' || mode === 'resident' || String(agentInfo.sessionMode || '').toLowerCase() === 'resident') {
+    parts.push('resident');
+  } else {
+    parts.push('managed');
+  }
+  if (session.status === 'cli-takeover') parts.push('paused for CLI');
+  else if (caps.cliAttach) parts.push('console');
+  else parts.push('headless');
+  return parts.join(' · ');
 }
 
 function conversationHealthText({meta, messages, agentInfo, session, environment, latestRun}) {
@@ -5978,6 +6227,7 @@ function renderChatInspector(meta, messages) {
         sessionResumeCommandBlock(resumeCommand) +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
+        agentModeSwitchAction(meta.id, agentInfo) +
         ((environmentSupportsConsoleForSession(environment, session)
           && String(agentInfo?.sessionMode || session?.mode || '').toLowerCase() !== 'resident'
           && String(session.status || '').toLowerCase() !== 'cli-takeover')
@@ -6521,9 +6771,20 @@ function renderSessions(sessions) {
       `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th class="session-select-col"><input type="checkbox" ${groupSelected ? 'checked' : ''} onchange="toggleSessionGroupSelection(${jsArg(environmentId)}, this.checked)"></th><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
     for (const session of groupSessions) {
       const caps = session.capabilities || {};
-      const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
-      const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
+      const allCapLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
+      const visibleCapLabels = ['cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
       const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+      const presence = sessionPresenceForSession(session, agentInfo);
+      const presenceClass = `${presence.kind || 'unknown'}${terminalActivityClassForAgent(session.agentId)}`;
+      const presenceText = presence.kind === 'cli-takeover'
+        ? (presence.label || 'paused for CLI')
+        : humanStatusLabel(presence.kind || session.status || 'unknown');
+      const modeLabel = sessionModeSummary(session, agentInfo);
+      const modeTitle = [
+        `session mode: ${session.mode || 'unknown'}`,
+        `owner: ${session.ownerMode || 'unknown'}`,
+        session.terminalStatus ? `terminal: ${session.terminalStatus}` : '',
+      ].filter(Boolean).join(' · ');
       const resumeCommand = sessionResumeCommand(session, agentInfo);
       const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
       const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
@@ -6536,6 +6797,7 @@ function renderSessions(sessions) {
         : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
       const sessionActions = [
         actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
+        agentModeSwitchAction(session.agentId, agentInfo),
         actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(session.agentId, runtimeHandle)),
         activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
         spawnControl,
@@ -6550,10 +6812,10 @@ function renderSessions(sessions) {
       html += `<tr>` +
         `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''}></td>` +
         `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
-        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
+        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(`${runtimeAttachNote(session)} ${modeTitle}`.trim())}>${esc(modeLabel)}</span></td>` +
         `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
-        `<td><span class="st-${esc(session.status || '')}">${esc(session.status || '')}</span></td>` +
-        `<td class="t"${titleAttr(capLabels)}><span class="clip-2">${esc(capLabels || 'none')}</span></td>` +
+        `<td><span class="status-dot ${esc(presenceClass)}"${titleAttr(presence.label)}></span>${esc(presenceText)}<br><span class="t"${titleAttr(`session: ${session.status || 'unknown'}${session.terminalStatus ? ` · terminal: ${session.terminalStatus}` : ''}`)}>${esc(session.status || 'unknown')}</span></td>` +
+        `<td class="t"${titleAttr(allCapLabels || 'No recorded capabilities')}><span class="clip-2">${esc(visibleCapLabels || 'none')}</span></td>` +
         `<td class="t">${esc(session.lastSeen || '')}</td>` +
         `<td><div class="run-controls">` +
         actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
@@ -7598,6 +7860,32 @@ async function purgeOrphanUnread() {
 
 // ─── Settings ──────────────────────────────
 
+function settingsNumber(id, fallback, {min = null, max = null} = {}) {
+  let value = Number.parseInt(document.getElementById(id)?.value, 10);
+  if (!Number.isFinite(value)) value = fallback;
+  if (min !== null) value = Math.max(min, value);
+  if (max !== null) value = Math.min(max, value);
+  return value;
+}
+
+function settingsBool(id) {
+  return document.getElementById(id)?.value === 'true';
+}
+
+function formatRuntimeListSetting(value) {
+  if (Array.isArray(value)) return value.join(', ');
+  if (value === true) return 'true';
+  return '';
+}
+
+function parseRuntimeListSetting(id) {
+  const raw = String(document.getElementById(id)?.value || '').trim();
+  if (!raw) return [];
+  if (/^true$/i.test(raw)) return true;
+  if (/^false$/i.test(raw)) return false;
+  return raw.split(',').map(item => item.trim()).filter(Boolean);
+}
+
 async function loadSettings() {
   const s = await apiFetch(API + '/settings').then(r=>r.json());
   applyDashboardSettings(s);
@@ -7614,13 +7902,23 @@ async function loadSettings() {
   document.getElementById('s-offline').value = s.offline_minutes;
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
+  document.getElementById('s-env-offline').value = Number(s.environment_offline_seconds || 90);
+  document.getElementById('s-active-run-stale').value = Number(s.active_run_stale_minutes || 30);
+  document.getElementById('s-active-managed-stale').value = Number(s.active_managed_run_stale_minutes || 5);
+  document.getElementById('s-resident-lease').value = Number(s.resident_lease_seconds || 150);
   document.getElementById('s-claude-model').value = s.managed_claude_model || '';
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
   document.getElementById('s-claude-auto-confirm').value = String(!!s.console_auto_confirm_claude_dev_channels);
+  document.getElementById('s-manual-session-mode').value = String(s.manual_session_mode !== false);
+  document.getElementById('s-managed-terminal-backing').value = String(s.managed_terminal_backing_enabled !== false);
+  document.getElementById('s-managed-pty-eager').value = String(!!s.managed_pty_eager_spawn);
+  document.getElementById('s-managed-wrapper-runtimes').value = formatRuntimeListSetting(s.managed_via_wrapper);
+  document.getElementById('s-insert-console').value = String(!!s.insert_messages_via_console);
   document.getElementById('s-codex-model').value = s.managed_codex_model || '';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
   document.getElementById('s-pi-effort').value = s.managed_pi_effort || '';
+  document.getElementById('s-worker-idle-enabled').value = String(!!s.worker_idle_close_enabled);
   document.getElementById('s-worker-idle-close').value = Number(s.worker_idle_close_minutes || 0);
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
@@ -7644,27 +7942,37 @@ async function saveSettings(e) {
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
       dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
       ...palettePayload,
-      retention_days: parseInt(document.getElementById('s-retention').value),
-      max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
-      max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
-      dashboard_refresh_seconds: parseInt(document.getElementById('s-refresh').value),
-      idle_minutes: parseInt(document.getElementById('s-idle').value),
-      offline_minutes: parseInt(document.getElementById('s-offline').value),
-      stale_agent_hours: parseInt(document.getElementById('s-stale').value),
-      rotation_enabled: document.getElementById('s-rotation').value === 'true',
+      retention_days: settingsNumber('s-retention', 90, {min: 1, max: 3650}),
+      max_messages_per_agent: settingsNumber('s-max-msgs', 1000, {min: 10, max: 100000}),
+      max_shared_size_mb: settingsNumber('s-max-shared', 500, {min: 10, max: 100000}),
+      dashboard_refresh_seconds: settingsNumber('s-refresh', 15, {min: 5, max: 300}),
+      idle_minutes: settingsNumber('s-idle', 5, {min: 1, max: 120}),
+      offline_minutes: settingsNumber('s-offline', 30, {min: 5, max: 1440}),
+      stale_agent_hours: settingsNumber('s-stale', 24, {min: 1, max: 720}),
+      rotation_enabled: settingsBool('s-rotation'),
+      environment_offline_seconds: settingsNumber('s-env-offline', 90, {min: 30, max: 3600}),
+      active_run_stale_minutes: settingsNumber('s-active-run-stale', 30, {min: 5, max: 240}),
+      active_managed_run_stale_minutes: settingsNumber('s-active-managed-stale', 5, {min: 1, max: 120}),
+      resident_lease_seconds: settingsNumber('s-resident-lease', 150, {min: 30, max: 3600}),
       managed_claude_model: document.getElementById('s-claude-model').value.trim(),
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
-      console_auto_confirm_claude_dev_channels: document.getElementById('s-claude-auto-confirm').value === 'true',
+      console_auto_confirm_claude_dev_channels: settingsBool('s-claude-auto-confirm'),
+      manual_session_mode: settingsBool('s-manual-session-mode'),
+      managed_terminal_backing_enabled: settingsBool('s-managed-terminal-backing'),
+      managed_pty_eager_spawn: settingsBool('s-managed-pty-eager'),
+      managed_via_wrapper: parseRuntimeListSetting('s-managed-wrapper-runtimes'),
+      insert_messages_via_console: settingsBool('s-insert-console'),
       managed_codex_model: document.getElementById('s-codex-model').value.trim(),
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),
       managed_pi_effort: document.getElementById('s-pi-effort').value || '',
-      worker_idle_close_minutes: Math.max(0, parseInt(document.getElementById('s-worker-idle-close').value) || 0),
-      reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
-      reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
-      reply_reminder_repeat_minutes: parseInt(document.getElementById('s-reply-repeat').value),
-      reply_reminder_max_count: parseInt(document.getElementById('s-reply-max').value),
-      contract_stale_hours: parseInt(document.getElementById('s-contract-stale').value),
+      worker_idle_close_enabled: settingsBool('s-worker-idle-enabled'),
+      worker_idle_close_minutes: settingsNumber('s-worker-idle-close', 0, {min: 0, max: 1440}),
+      reply_contracts_enabled: settingsBool('s-reply-contracts'),
+      reply_reminder_minutes: settingsNumber('s-reply-minutes', 10, {min: 1, max: 240}),
+      reply_reminder_repeat_minutes: settingsNumber('s-reply-repeat', 10, {min: 1, max: 1440}),
+      reply_reminder_max_count: settingsNumber('s-reply-max', 0, {min: 0, max: 20}),
+      contract_stale_hours: settingsNumber('s-contract-stale', 24, {min: 1, max: 720}),
     })});
   saveLocalDashboardPalette(palettePayload);
   toast('Settings saved'); loadSettings();

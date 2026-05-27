@@ -53,7 +53,21 @@ class ApiV2RegressionTests(unittest.TestCase):
         # contracts (consoleDeliveries, terminal-control inputs, idle-
         # prompt closes, etc.) still apply. Individual tests for the new
         # channel-route default set this back to False explicitly.
-        self.client.put("/api/v1/settings", json={"insert_messages_via_console": True})
+        #
+        # Plan 4 (2026-05-25) also flipped managed_via_wrapper and
+        # managed_pty_eager_spawn defaults to ON. Most legacy regressions
+        # predate the wrapper-backed path / eager-spawn behavior; opt
+        # this whole suite back into the pre-Plan-4 defaults so those
+        # historical contracts still apply. Plan-4-specific tests live
+        # in test_default_settings_plan4.py and opt back in explicitly.
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": True,
+                "managed_via_wrapper": False,
+                "managed_pty_eager_spawn": False,
+            },
+        )
 
     def tearDown(self):
         self.client.close()
@@ -65,6 +79,19 @@ class ApiV2RegressionTests(unittest.TestCase):
         response = self.client.post("/api/v1/agents", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def _register_live_codex_resident(self, agent_id: str, *, session_handle: str, bridge_id: str, port: int, role: str = "coder"):
+        return self._register(
+            agent_id,
+            role=role,
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle=session_handle,
+            machineId="linux:test-host",
+            bridgeId=bridge_id,
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": f"ws://127.0.0.1:{port}"},
+        )
 
     def _send_message(self, **payload):
         response = self.client.post("/api/v1/messages/send", json=payload)
@@ -454,11 +481,26 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("instructions-tabs", dashboard.text)
         self.assertIn("showInstructionsTab('daily')", dashboard.text)
         self.assertIn("data-instruction-panel=\"sessions\"", dashboard.text)
+        self.assertIn("Windows, WSL, Linux, macOS, Docker", dashboard.text)
+        self.assertIn("On Linux, macOS, or WSL use <code>aify-comms</code>", dashboard.text)
+        self.assertIn("Wrapper/config install is intentionally disabled", dashboard.text)
+        self.assertIn("Wrapper install is intentionally disabled", dashboard.text)
+        self.assertIn("Pi and OpenCode remain managed/debug paths", dashboard.text)
+        self.assertIn("Legacy <code>omp-aify</code>/<code>pi-aify</code> presence wrappers are not installed by default", dashboard.text)
+        self.assertNotIn("bash install.sh --client opencode http://192.168.100.10:8800", dashboard.text)
+        self.assertNotIn("bash install.sh --client pi http://192.168.100.10:8800", dashboard.text)
+        self.assertNotIn("<code>omp-aify</code> / <code>pi-aify</code>", dashboard.text)
         self.assertIn("chat-channel-add-member", dashboard.text)
         self.assertIn("Add member", dashboard.text)
         self.assertIn("data-channel-member-select", dashboard.text)
         self.assertIn("chat-online-only", dashboard.text)
-        self.assertIn("Online only", dashboard.text)
+        self.assertIn("Hide offline", dashboard.text)
+        self.assertIn("chat-unread-up", dashboard.text)
+        self.assertIn("Unread up", dashboard.text)
+        self.assertIn("chat-working-up", dashboard.text)
+        self.assertIn("Working up", dashboard.text)
+        self.assertIn("resetChatViewFilters()", dashboard.text)
+        self.assertIn("Reset view", dashboard.text)
         self.assertIn("chat-peek-mode", dashboard.text)
         self.assertIn("Peek mode", dashboard.text)
         self.assertIn("markSelectedChatRead()", dashboard.text)
@@ -490,6 +532,20 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("table-wrap", dashboard.text)
         self.assertIn("Click command to copy", dashboard.text)
         self.assertIn("Pause for CLI", dashboard.text)
+        self.assertIn("function agentModeSwitchAction(agentId, agentInfo = {})", dashboard.text)
+        self.assertIn("switchAgentSessionMode(agentId, targetMode", dashboard.text)
+        self.assertIn("function agentResidentLaunchCommand(agentId, agentInfo = {})", dashboard.text)
+        self.assertIn("function showResidentSwitchNotice(agentId, agentInfo = {}, result = {})", dashboard.text)
+        self.assertIn("Resident launch / re-register command", dashboard.text)
+        self.assertIn("No extra registration should be needed", dashboard.text)
+        self.assertIn("no live resident wrapper candidate is recorded yet", dashboard.text)
+        self.assertIn("agentModeSwitchAction(meta.id, agentInfo)", dashboard.text)
+        self.assertIn("agentModeSwitchAction(session.agentId, agentInfo)", dashboard.text)
+        self.assertIn("function sessionPresenceForSession(session = {}, agentInfo = {})", dashboard.text)
+        self.assertIn("function sessionModeSummary(session = {}, agentInfo = {})", dashboard.text)
+        self.assertIn("status-dot ${esc(presenceClass)}", dashboard.text)
+        self.assertIn("session: ${session.status || 'unknown'}", dashboard.text)
+        self.assertIn("visibleCapLabels", dashboard.text)
         self.assertIn("data-agent-edit-env", dashboard.text)
         self.assertIn("Edit workspace roots", dashboard.text)
         self.assertIn("Edit identity ID", dashboard.text)
@@ -528,6 +584,19 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("s-claude-effort", dashboard.text)
         self.assertIn("s-codex-model", dashboard.text)
         self.assertIn("s-codex-effort", dashboard.text)
+        self.assertIn("s-worker-idle-enabled", dashboard.text)
+        self.assertIn("Idle worker close window", dashboard.text)
+        self.assertIn("s-env-offline", dashboard.text)
+        self.assertIn("s-active-run-stale", dashboard.text)
+        self.assertIn("s-active-managed-stale", dashboard.text)
+        self.assertIn("s-resident-lease", dashboard.text)
+        self.assertIn("s-manual-session-mode", dashboard.text)
+        self.assertIn("s-managed-terminal-backing", dashboard.text)
+        self.assertIn("s-managed-pty-eager", dashboard.text)
+        self.assertIn("s-managed-wrapper-runtimes", dashboard.text)
+        self.assertIn("s-insert-console", dashboard.text)
+        self.assertIn("settingsNumber", dashboard.text)
+        self.assertIn("parseRuntimeListSetting", dashboard.text)
         self.assertNotIn("env-spawn-effort", dashboard.text)
         self.assertNotIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
@@ -544,6 +613,19 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
+        self.assertTrue(api_v2.DEFAULT_SETTINGS["managed_pty_eager_spawn"])
+        self.assertEqual(api_v2.DEFAULT_SETTINGS["managed_via_wrapper"], ["codex", "hermes"])
+        self.assertFalse(settings.json()["managed_pty_eager_spawn"])
+        self.assertFalse(settings.json()["managed_via_wrapper"])
+        self.assertFalse(api_v2.DEFAULT_SETTINGS["insert_messages_via_console"])
+        self.assertTrue(settings.json()["insert_messages_via_console"])
+        self.assertTrue(settings.json()["manual_session_mode"])
+        self.assertEqual(settings.json()["environment_offline_seconds"], 90)
+        self.assertEqual(settings.json()["active_run_stale_minutes"], 30)
+        self.assertEqual(settings.json()["active_managed_run_stale_minutes"], 5)
+        self.assertEqual(settings.json()["resident_lease_seconds"], 150)
+        self.assertFalse(settings.json()["worker_idle_close_enabled"])
+        self.assertEqual(settings.json()["worker_idle_close_minutes"], 0)
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
 
         updated = self.client.put(
@@ -554,6 +636,15 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "dashboard_primary_color": "#f2b76e",
                 "dashboard_secondary_color": "#8ebaf1",
                 "dashboard_tertiary_color": "#e78776",
+                "manual_session_mode": False,
+                "managed_terminal_backing_enabled": False,
+                "managed_pty_eager_spawn": False,
+                "managed_via_wrapper": ["hermes"],
+                "insert_messages_via_console": True,
+                "environment_offline_seconds": 123,
+                "active_run_stale_minutes": 31,
+                "active_managed_run_stale_minutes": 6,
+                "resident_lease_seconds": 180,
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
@@ -562,6 +653,15 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(updated.json()["dashboard_primary_color"], "#f2b76e")
         self.assertEqual(updated.json()["dashboard_secondary_color"], "#8ebaf1")
         self.assertEqual(updated.json()["dashboard_tertiary_color"], "#e78776")
+        self.assertFalse(updated.json()["manual_session_mode"])
+        self.assertFalse(updated.json()["managed_terminal_backing_enabled"])
+        self.assertFalse(updated.json()["managed_pty_eager_spawn"])
+        self.assertEqual(updated.json()["managed_via_wrapper"], ["hermes"])
+        self.assertTrue(updated.json()["insert_messages_via_console"])
+        self.assertEqual(updated.json()["environment_offline_seconds"], 123)
+        self.assertEqual(updated.json()["active_run_stale_minutes"], 31)
+        self.assertEqual(updated.json()["active_managed_run_stale_minutes"], 6)
+        self.assertEqual(updated.json()["resident_lease_seconds"], 180)
 
     def test_analytics_range_filters_run_mix_and_all_time_series(self):
         self._register("lead")
@@ -648,6 +748,72 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-claude",))
         self.assertEqual(agent["model"], "opus")
         self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
+
+    def test_managed_wrapper_child_reregister_preserves_runtime_policy(self):
+        self._register(
+            "policy-claude",
+            role="manager",
+            runtime="claude-code",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="claude-session-1",
+            model="opus",
+            runtimeConfig={"effort": "medium", "maxTurns": 50},
+        )
+
+        refreshed = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "policy-claude",
+                "role": "manager",
+                "runtime": "claude-code",
+                "sessionMode": "managed",
+                "sessionHandle": "claude-session-1",
+                "terminalId": "term-policy-claude",
+                "managedWrapperChild": True,
+                "runtimeConfig": {"channelEnabled": True},
+            },
+        )
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+
+        row = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("policy-claude",))
+        self.assertEqual(row["model"], "opus")
+        runtime_config = json.loads(row["runtime_config"])
+        self.assertEqual(runtime_config["effort"], "medium")
+        self.assertEqual(runtime_config["maxTurns"], 50)
+        self.assertIs(runtime_config["channelEnabled"], True)
+
+        self._register(
+            "policy-codex",
+            role="coder",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="codex-thread-1",
+            model="gpt-test",
+            runtimeConfig={"effort": "xhigh", "quietTimeoutMs": 0},
+        )
+
+        refreshed = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "policy-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "managed",
+                "sessionHandle": "codex-thread-1",
+                "terminalId": "term-policy-codex",
+                "managedWrapperChild": True,
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:9999"},
+            },
+        )
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        row = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("policy-codex",))
+        self.assertEqual(row["model"], "gpt-test")
+        runtime_config = json.loads(row["runtime_config"])
+        self.assertEqual(runtime_config["effort"], "xhigh")
+        self.assertEqual(runtime_config["quietTimeoutMs"], 0)
+        self.assertEqual(runtime_config["appServerUrl"], "ws://127.0.0.1:9999")
 
     def test_managed_spawn_blank_model_uses_runtime_default_latest(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
@@ -922,7 +1088,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = listed.json()["agents"]["managed-coder"]
         self.assertEqual(agent["statusRaw"], "offline")
 
-    def test_lost_resident_bridge_returns_to_managed_backing(self):
+    def test_lost_resident_bridge_stops_until_manual_switch(self):
         self._heartbeat_environment(
             id="wsl:test-host:default",
             bridgeId="env-bridge",
@@ -966,6 +1132,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
         )
+        switched_resident = self.client.patch("/api/v1/agents/dual-mode-coder/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched_resident.status_code, 200, switched_resident.text)
         resident = self.client.get("/api/v1/agents/dual-mode-coder").json()
         self.assertEqual(resident["agent"]["sessionMode"], "resident")
         self.assertEqual(resident["agent"]["wakeMode"], "codex-live")
@@ -976,16 +1144,23 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(lost.status_code, 200, lost.text)
         payload = lost.json()
-        self.assertEqual(payload["transition"], "resident_to_managed")
-        self.assertEqual(payload["agent"]["sessionMode"], "managed")
-        self.assertEqual(payload["agent"]["wakeMode"], "managed-worker")
+        self.assertEqual(payload["transition"], "resident_to_stopped")
+        self.assertEqual(payload["agent"]["sessionMode"], "resident")
+        self.assertNotEqual(payload["agent"]["wakeMode"], "managed-worker")
         self.assertEqual(payload["agent"]["sessionHandle"], "thread-managed")
-        self.assertEqual(payload["agent"]["runtimeState"]["environmentId"], "wsl:test-host:default")
-        self.assertEqual(payload["agent"]["runtimeState"]["ownership"]["reason"], "resident_runtime_lost")
-        self.assertNotIn("appServerUrl", payload["agent"]["runtimeConfig"])
+        self.assertIn("appServerUrl", payload["agent"]["runtimeConfig"])
 
         bridge = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id = ?", ("resident-bridge",))
         self.assertEqual(bridge["superseded_by"], "resident-lost")
+
+        switched = self.client.patch(
+            "/api/v1/agents/dual-mode-coder/session-mode",
+            json={"mode": "managed", "requestedBy": "dashboard-test"},
+        )
+        self.assertEqual(switched.status_code, 200, switched.text)
+        restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-coder",))
+        self.assertEqual(restored["session_mode"], "managed")
+        self.assertEqual(restored["launch_mode"], "managed")
 
         heartbeat = self.client.post(
             "/api/v1/agents/dual-mode-coder/heartbeat",
@@ -1779,12 +1954,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         sess = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(sess["terminal_id"], "", f"agent_session terminal_id binding must be cleared; got {sess['terminal_id']!r}")
 
-    def test_resident_register_stops_existing_managed_pty_for_same_agent(self):
-        # Universal rule: launching a *-aify wrapper for an agent
-        # registers it as resident — the operator's real terminal owns
-        # the session. ANY managed wrapper PTY that exists for that
-        # agent must be torn down at that moment (event-driven, no
-        # timers).
+    def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
+        # Manual ownership rule: launching a *-aify wrapper records resident
+        # bridge metadata, but it does not take over a managed agent or kill
+        # the managed PTY. The operator must press Switch to resident.
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -1811,45 +1984,21 @@ class ApiV2RegressionTests(unittest.TestCase):
             "bridgeId": "resident-bridge-1",
         })
         self.assertEqual(register.status_code, 200, register.text)
-        # No blocking active run → takeover should not be pending.
-        self.assertNotEqual(
-            register.json().get("ownershipTransition"), "pending_resident_takeover",
-            f"test invariant: no blocking active run; got {register.json()}",
-        )
-        # Managed PTY must now be stopped + binding cleared.
+        self.assertEqual(register.json().get("ownershipTransition"), "manual_switch_required", register.json())
+
+        # Managed PTY is still live until the manual switch endpoint is used.
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
+        self.assertIn(term["status"], {"starting", "running"}, f"resident register must not stop managed PTY; got {term['status']}")
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(sess["terminal_id"], managed_terminal_id)
+
+        switched = self.client.patch(f"/api/v1/agents/{agent_id}/session-mode", json={"mode": "resident", "force": True})
+        self.assertEqual(switched.status_code, 200, switched.text)
+        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalId"), managed_terminal_id)
         term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
         self.assertEqual(
-            term["status"], "stopped",
-            f"managed PTY must be stopped after resident takeover; got {term['status']}",
-        )
-        self.assertIn(
-            "superseded_by_resident_takeover", str(term["error"] or ""),
-            f"stopped reason must record the takeover event; got {term['error']!r}",
-        )
-        # agent_sessions.terminal_id binding cleared.
-        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(sess["terminal_id"], "", f"terminal_id binding must be cleared; got {sess['terminal_id']!r}")
-        # A 'stop' terminal_control was enqueued for the bridge to kill the wrapper subprocess.
-        # Read ALL controls for the terminal — _now() is second-precision so multiple
-        # controls inserted in the same second tie on requested_at; we just need
-        # to confirm a stop exists.
-        ctl = self._fetchall(
-            "SELECT action, requested_by FROM terminal_controls WHERE terminal_id = ?",
-            (managed_terminal_id,),
-        )
-        self.assertTrue(
-            any(r["action"] == "stop" and r["requested_by"] == "resident-takeover" for r in ctl),
-            f"a 'stop' control with requested_by='resident-takeover' must be enqueued; got {[dict(r) for r in ctl]}",
-        )
-        # Audit event recorded.
-        events = self._fetchall(
-            "SELECT event_type FROM terminal_events WHERE terminal_id = ?",
-            (managed_terminal_id,),
-        )
-        self.assertIn(
-            "superseded_by_resident_takeover",
-            [r["event_type"] for r in events],
-            f"audit event must be appended; got {[r['event_type'] for r in events]}",
+            term["status"], "stopping",
+            f"managed PTY must be stopping after manual resident switch; got {term['status']}",
         )
 
     def test_dev_channel_auto_confirm_requires_both_signals_and_fresh_terminal(self):
@@ -1903,6 +2052,87 @@ class ApiV2RegressionTests(unittest.TestCase):
             120,
             "WARNING: Loading development channels\nI am using this for local development\n",
         ))
+
+    def test_claude_dev_channel_reactive_auto_confirm_enqueues_choice(self):
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_claude_dev_confirm",
+                session_id,
+                "console-agent",
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                "",
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            from unittest.mock import patch
+
+            captured = []
+
+            async def _fake_sleep(_seconds):
+                return None
+
+            db = await _get_db()
+            try:
+                terminal = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    ("term_claude_dev_confirm",),
+                )).fetchone()
+                output = (
+                    "WARNING: Loading development channels\n"
+                    "Channels: server:aify-comms-channel\n"
+                    "❯ 1. I am using this for local development\n"
+                    "Enter to confirm · Esc to cancel\n"
+                )
+                with patch("service.routers.api_v2.asyncio.create_task", side_effect=lambda coro: captured.append(coro) or None), \
+                     patch("service.routers.api_v2.asyncio.sleep", side_effect=_fake_sleep):
+                    await api_v2._maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, output)
+                    await db.commit()
+                    self.assertEqual(len(captured), 1)
+                    await captured[0]
+                    await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            ("term_claude_dev_confirm", "dev_channel_prompt_auto_confirmed"),
+        )
+        self.assertIsNotNone(event)
+        control = self._fetchone(
+            "SELECT action, body, requested_by FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at DESC, id DESC LIMIT 1",
+            ("term_claude_dev_confirm",),
+        )
+        self.assertEqual(control["action"], "input")
+        self.assertEqual(control["body"], "1\r")
+        self.assertEqual(control["requested_by"], "dev-channel-auto-confirm")
 
     def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
         # Operator-caught bug: channel-bridge PATCH writes a summary of
@@ -1977,6 +2207,191 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(execution_mode2, None)
         self.assertIn("managed-run", error2 or "")
 
+    def test_managed_via_wrapper_setting_defaults_to_off(self):
+        # Plan 4 (2026-05-25): flipped to ON by default ([codex,hermes])
+        # now that wrapper-backed delivery has shipped. This contract
+        # guard was the Plan 2 off-state assertion; the post-Plan-4
+        # default-flip is asserted in test_default_settings_plan4.py.
+        # Kept here so the regression suite still pins the value.
+        from service.routers.api_v2 import DEFAULT_SETTINGS
+        self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
+        val = DEFAULT_SETTINGS["managed_via_wrapper"]
+        self.assertEqual(val, ["codex", "hermes"],
+                         f"managed_via_wrapper Plan-4 default: expected [codex,hermes]; got {val!r}")
+
+    def test_managed_via_wrapper_routes_dispatch_as_channel(self):
+        # Unified-backing refactor: when managed_via_wrapper includes a runtime,
+        # _agent_execution_mode returns 'channel' for managed dispatches so the
+        # wrapper's child bridge (claiming with executionModes=['channel',
+        # 'resident']) picks it up. Main bridge's dispatch loop has been
+        # gated off for this runtime (Task A4).
+        from service.routers.api_v2 import _agent_execution_mode
+        class _R(dict):
+            def keys(self): return super().keys()
+        managed_hermes = _R({
+            "id": "h-managed-wrapped",
+            "runtime": "hermes",
+            "session_mode": "managed",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["managed-run","native-managed-run","resume","interrupt","spawn"]',
+            "runtime_config": "{}",
+        })
+        # Without settings: existing behavior (returns 'managed').
+        mode_default, _ = _agent_execution_mode(managed_hermes)
+        self.assertEqual(mode_default, "managed", "default behavior unchanged when no settings passed")
+        # With settings flagging hermes wrapper-backed: returns 'channel'.
+        settings = {"managed_via_wrapper": ["hermes"]}
+        mode_wrapped, error = _agent_execution_mode(managed_hermes, settings=settings)
+        self.assertIsNone(error)
+        self.assertEqual(mode_wrapped, "channel",
+                         f"wrapper-backed hermes managed must route as channel; got {mode_wrapped}")
+        # Codex NOT in the wrapper list: still managed (mixed runtime opt-in).
+        managed_codex = _R({**managed_hermes, "id": "c-managed", "runtime": "codex"})
+        mode_codex, _ = _agent_execution_mode(managed_codex, settings=settings)
+        self.assertEqual(mode_codex, "managed", "codex unflagged stays on managed")
+
+    def test_managed_via_wrapper_forces_eager_pty_spawn(self):
+        # Unified-backing refactor: when managed_via_wrapper includes a runtime,
+        # the wrapper PTY must pre-exist at spawn-request running transition.
+        # Otherwise the main bridge stops claiming managed runs for that
+        # runtime (Task A4 gate) AND the wrapper child bridge doesn't exist
+        # yet → dispatches queue forever.
+        self.client.put("/api/v1/settings", json={
+            "managed_terminal_backing_enabled": True,
+            "managed_pty_eager_spawn": False,  # NOT relying on the general eager flag
+            "managed_via_wrapper": ["hermes"],
+        })
+        session_id = self._create_running_session(terminal=True, runtime="hermes")
+        rows = self._fetchall("SELECT id FROM terminal_sessions WHERE session_id = ?", (session_id,))
+        self.assertGreaterEqual(
+            len(rows), 1,
+            "wrapper-backed managed must eagerly spawn the PTY even when managed_pty_eager_spawn is false",
+        )
+
+    def test_ensure_managed_pty_writes_terminal_id_into_agent_runtime_state(self):
+        # The wrapper PTY's terminal_session id must land in agents.runtime_state.terminalId
+        # so the dashboard's chooseSessionConsoleWidget renders xterm against it.
+        # Before this fix only the native-RPC ensure_virtual_terminal path published
+        # virtualTerminalId (api_v2.py:7396); the wrapper PTY's row was orphaned from
+        # the dashboard POV (operator-reported 2026-05-24).
+        self.client.put("/api/v1/settings", json={
+            "managed_terminal_backing_enabled": True,
+            "managed_pty_eager_spawn": True,
+        })
+        session_id = self._create_running_session(terminal=True, runtime="hermes")
+        # The spawn-request running transition with eager_spawn=True triggers
+        # _ensure_managed_pty_for_dispatch which inserts a terminal_session row.
+        # After this fix, the agent row's runtime_state should also carry terminalId.
+        agent_row = self._fetchone(
+            "SELECT a.runtime_state FROM agents a JOIN agent_sessions s ON s.agent_id = a.id WHERE s.id = ?",
+            (session_id,),
+        )
+        self.assertIsNotNone(agent_row, "agent row must exist for the spawned session")
+        rs = json.loads(agent_row["runtime_state"] or "{}")
+        self.assertIn("terminalId", rs,
+                      "_ensure_managed_pty_for_dispatch must publish terminalId in agents.runtime_state")
+        self.assertTrue(rs["terminalId"].startswith("term_"),
+                        f"terminalId must be a real terminal_session id, got {rs['terminalId']!r}")
+
+    def test_managed_via_wrapper_for_runtime_handles_bool_list_none(self):
+        from service.routers.api_v2 import _managed_via_wrapper_for_runtime
+        # Off: returns False for all runtimes. (Plan 4 (2026-05-25)
+        # flipped the DEFAULT to ON, so `{}` now resolves via
+        # DEFAULT_SETTINGS to ["codex","hermes","pi"]. The off-state
+        # contract still holds when callers pass an explicit False.)
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "hermes"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": False}, "codex"))
+        # True: returns True for runtimes whose adapter declares
+        # preferred_delivery_mode == "managed-via-wrapper" (codex/hermes).
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "hermes"))
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "codex"))
+        # claude-code is already wrapper-backed via claude-channel; not gated by this flag.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "claude-code"))
+        # Pi/OMP stays native RPC because OMP is single-client and the
+        # dashboard Console must attach to the same virtual RPC stream that
+        # chat dispatch uses, not a sibling pi-aify PTY.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "pi"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["pi"]}, "pi"))
+        # opencode adapter prefers "managed" (native RPC), not "managed-via-wrapper",
+        # so it stays out even when the setting is True.
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "opencode"))
+        # List: only listed eligible runtimes route via wrapper.
+        self.assertTrue(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "hermes"))
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": ["hermes"]}, "codex"))
+        # Unknown runtime: always False (defensive).
+        self.assertFalse(_managed_via_wrapper_for_runtime({"managed_via_wrapper": True}, "unknown"))
+
+    def test_resident_hermes_with_gateway_url_does_not_require_session_handle(self):
+        # Operator-reported 2026-05-24: sc-hermes-test-2 → sc-hermes-test-1
+        # ping-pong refused live delivery with "without a bound session
+        # handle. Restart with hermes-aify and a resumable session handle..."
+        # even though sc-hermes-test-1 had registered with a live gatewayUrl
+        # in runtimeConfig (auto-detected from AIFY_HERMES_GATEWAY_URL by
+        # the new hermes-aify wrapper + MCP env propagation).
+        #
+        # Root cause: my earlier resident-run capability carve-out in
+        # mcp/stdio/runtimes.js + the Python capability check at line 946-947
+        # accepted gateway-only hermes, but a SECOND gate at line 989-993
+        # still required session_handle regardless of gatewayUrl. That gate
+        # predates the gateway path and assumed all resident hermes have a
+        # captured sessionHandle (resume-based wake).
+        #
+        # The gateway-channel controller resolves session.most_recent at
+        # dispatch time, so sessionHandle is optional when gatewayUrl is set.
+        # Mirror of the capability-check carve-out, applied to the second gate.
+        from service.routers.api_v2 import _agent_execution_mode
+        class _R(dict):
+            def keys(self): return super().keys()
+
+        # 1. Hermes resident WITH gatewayUrl, WITHOUT sessionHandle — must accept.
+        with_gateway = _R({
+            "id": "sc-hermes-test-1",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt", "steer"]',
+            "runtime_config": '{"gatewayUrl": "ws://127.0.0.1:62260/api/ws?token=secret"}',
+        })
+        mode, error = _agent_execution_mode(with_gateway)
+        self.assertIsNone(error, f"hermes with gatewayUrl must NOT be rejected for missing session_handle; got: {error}")
+        self.assertEqual(mode, "resident")
+
+        # 2. Hermes resident WITHOUT gatewayUrl, WITHOUT sessionHandle — still rejected.
+        # (Capabilities won't include resident-run in real registration since the
+        # bridge's defaultCapabilitiesForRuntime gates on gatewayUrl too, but
+        # validate the gate logic stays restrictive.)
+        without_gateway = _R({
+            "id": "sc-hermes-bare",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt", "steer"]',
+            "runtime_config": "{}",
+        })
+        mode2, error2 = _agent_execution_mode(without_gateway)
+        self.assertIsNone(mode2)
+        self.assertIn("gatewayurl", (error2 or "").lower(),
+                      f"hermes without gatewayUrl AND without session_handle must still error; got: {error2}")
+
+        # 3. Hermes resident WITH sessionHandle but no gateway — still rejected.
+        # Hidden resume/session-create fallback is intentionally disabled; Hermes
+        # resident wake must bind to the visible TUI gateway.
+        legacy_handle = _R({
+            "id": "sc-hermes-legacy",
+            "runtime": "hermes",
+            "session_mode": "resident",
+            "session_handle": "sid-abc-123",
+            "launch_mode": "detached",
+            "capabilities": '["resident-run", "resume", "interrupt"]',
+            "runtime_config": "{}",
+        })
+        mode3, error3 = _agent_execution_mode(legacy_handle)
+        self.assertIsNone(mode3)
+        self.assertIn("gatewayurl", (error3 or "").lower())
+
     def test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running(self):
         # Slices 1/2/4: when managed_pty_eager_spawn is on AND
         # managed_terminal_backing_enabled is on, the wrapper PTY is
@@ -2003,10 +2418,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(sess["terminal_id"], terminals[0]["id"])
 
     def test_managed_pty_eager_spawn_default_off_preserves_prior_behavior(self):
-        # Contract guard: the flag is OFF by default. Existing behavior
-        # (PTY lazily on first dispatch) must be preserved so we don't
-        # surprise current operators.
-        # NO setting put -> default false.
+        # Pre-Plan-4 contract guard: lazy-PTY behavior with the flag
+        # explicitly OFF. Plan 4 (2026-05-25) flipped the default to
+        # ON; this test now explicitly opts out via settings to keep
+        # the legacy-lazy contract covered. The post-Plan-4 default-ON
+        # assertion lives in test_default_settings_plan4.py.
+        self.client.put("/api/v1/settings", json={"managed_pty_eager_spawn": False})
         session_id = self._create_running_session(terminal=True)
         terminals = self._fetchall(
             "SELECT id FROM terminal_sessions WHERE session_id = ?",
@@ -2067,6 +2484,30 @@ class ApiV2RegressionTests(unittest.TestCase):
             "console_attach_reused_existing", event_types,
             f"reuse event must be appended; got {event_types}",
         )
+
+    def test_pi_console_start_creates_virtual_rpc_terminal_not_wrapper_pty(self):
+        session_id = self._create_running_session(
+            agent_id="pi-console-agent",
+            terminal=True,
+            runtime="pi",
+            terminal_runtimes=["pi"],
+            session_handle="pi-session-1",
+        )
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        body = started.json()
+        self.assertTrue(body.get("virtual"), body)
+        self.assertTrue(body["terminal"]["id"].startswith("vterm_"), body)
+        self.assertEqual(body["terminal"]["command"], "aify://virtual-rpc/pi")
+        self.assertNotIn("pi-aify", body["terminal"]["command"])
+
+        session = self._fetchone("SELECT terminal_id, terminal_command FROM agent_sessions WHERE id = ?", (session_id,))
+        self.assertEqual(session["terminal_id"], body["terminal"]["id"])
+        self.assertEqual(session["terminal_command"], "aify://virtual-rpc/pi")
 
     def test_console_start_rejects_environment_without_terminal_support(self):
         session_id = self._create_running_session(terminal=False)
@@ -2239,17 +2680,22 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(session["terminalId"], "")
         self.assertEqual(session["terminalStatus"], "")
 
-    def test_console_start_builds_fresh_interactive_codex_command(self):
-        # Human Console must launch a FRESH interactive codex, NOT
-        # `resume --include-non-interactive <handle>` (that opens a
-        # managed/headless thread → machine output, the "026H" bug).
+    def test_console_start_builds_interactive_codex_command_resumes_stored_handle(self):
+        # Plan 1 of the RuntimeAdapter refactor (2026-05-25) — the previous
+        # codex carve-out always launched fresh because raw `codex resume
+        # --include-non-interactive <handle>` failed on stale session files.
+        # The dashboard Console goes through codex-aify (NOT raw
+        # `codex resume`), and codex-aify gained a stale-handle fallback so
+        # missing session files downgrade to fresh. With that in place the
+        # interactive Console now resumes the stored handle, matching the
+        # behavior of claude/hermes/pi managed launches.
         session_id = self._create_running_session(terminal=True)
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
         self.assertIn("codex-aify", command)
         self.assertIn("--aify-agent console-agent", command)
-        self.assertNotIn("resume", command)
+        self.assertIn("--resume thread-1", command)
         self.assertNotIn("--include-non-interactive", command)
 
     def test_console_start_builds_claude_channels_command_without_dev_prompt(self):
@@ -2355,7 +2801,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={"requestedBy": "dashboard", "freshContext": True},
         )
         self.assertEqual(fresh.status_code, 200, fresh.text)
-        self.assertIn("pi-aify", fresh.json()["terminal"]["command"])
+        self.assertEqual(fresh.json()["terminal"]["command"], "aify://virtual-rpc/pi")
         self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
     def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
@@ -2398,7 +2844,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(control["body"].endswith("\r"))
 
     def test_managed_dispatch_native_runtime_uses_terminal_backing_by_default(self):
-        for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
+        for runtime, handle in (("codex", "codex-thread-1"),):
             with self.subTest(runtime=runtime):
                 agent_id = f"{runtime}-terminal-agent"
                 self._create_running_session(
@@ -3010,6 +3456,66 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["statusRaw"], "blocked")
         self.assertIn("Awaiting console input", agent["statusNote"])
         self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], dispatched["consoleDeliveries"][0]["contractRunId"])
+
+    def test_managed_claude_dev_channel_prompt_reports_blocked_without_active_run(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_claude_blocked_prompt",
+                session_id,
+                "console-agent",
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                (
+                    "WARNING: Loading development channels\n"
+                    "Channels: server:aify-comms-channel\n"
+                    "❯ 1. I am using this for local development ✔\n"
+                    "Enter to confirm · Esc to cancel\n"
+                ),
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = ?, terminal_status = ?, terminal_command = ?, terminal_workspace = ?
+            WHERE id = ?
+            """,
+            (
+                "term_claude_blocked_prompt",
+                "attached",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                "/workspace/repo",
+                session_id,
+            ),
+        )
+        asyncio.run(self._async_invalidate("console-agent"))
+
+        agent = self.client.get("/api/v1/agents/console-agent").json()["agent"]
+        self.assertEqual(agent["status"], "blocked", agent)
+        self.assertIn("Awaiting console confirmation", agent["statusNote"])
+        self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_claude_prompt_footer_alone_does_not_report_blocked(self):
         self._create_running_session(
@@ -4849,7 +5355,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         session = self._fetchone("SELECT session_handle FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["session_handle"], "thread-from-cli")
 
-    def test_resident_register_auto_takes_over_idle_managed_agent(self):
+    def test_resident_register_requires_manual_switch_from_managed_agent(self):
         self._heartbeat_environment()
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -4876,15 +5382,18 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["sessionMode"], "resident")
+        self.assertEqual(registered.json()["sessionMode"], "managed")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
         agent = self._fetchone("SELECT session_mode, session_handle, launch_mode, runtime_state FROM agents WHERE id = ?", ("auto-owner",))
-        self.assertEqual(agent["session_mode"], "resident")
-        self.assertEqual(agent["session_handle"], "resident-thread")
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertEqual(agent["session_handle"], "managed-thread")
         self.assertNotEqual(agent["launch_mode"], "none")
-        self.assertEqual(json.loads(agent["runtime_state"]).get("bridgeInstanceId"), "resident-bridge")
+        runtime_state = json.loads(agent["runtime_state"])
+        self.assertEqual(runtime_state.get("manualResidentCandidate", {}).get("bridgeId"), "resident-bridge")
+        self.assertEqual(runtime_state.get("manualResidentCandidate", {}).get("sessionHandle"), "resident-thread")
         session = self._fetchone("SELECT status, session_handle FROM agent_sessions WHERE agent_id = ?", ("auto-owner",))
-        self.assertEqual(session["status"], "cli-takeover")
-        self.assertEqual(session["session_handle"], "resident-thread")
+        self.assertEqual(session["status"], "running")
+        self.assertEqual(session["session_handle"], "managed-thread")
 
 
     def test_resident_same_logical_owner_reregister_does_not_supersede_or_fail_inflight_run(self):
@@ -4899,10 +5408,14 @@ class ApiV2RegressionTests(unittest.TestCase):
         # post-2026-05-22 (managed bridges now supersede each other to
         # prevent the 22-zombie-wrapper leak class — see sibling test
         # test_managed_same_logical_owner_reregister_supersedes_old_bridge).
+        # Plan 2 (2026-05-25): pi no longer supports resident, so the
+        # generic same-logical-owner re-register protection is now tested
+        # via codex (still resident-capable). The bridge-row protection
+        # logic is runtime-agnostic.
         self._heartbeat_environment()
         self._register(
             "resident-logical-owner",
-            runtime="pi",
+            runtime="codex",
             sessionMode="resident",
             launchMode="detached",
             sessionHandle="omp-session-1",
@@ -4947,7 +5460,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "agentId": "resident-logical-owner",
                 "role": "coder",
-                "runtime": "pi",
+                "runtime": "codex",
                 "sessionMode": "resident",
                 "launchMode": "detached",
                 "sessionHandle": "omp-session-1",
@@ -4964,6 +5477,61 @@ class ApiV2RegressionTests(unittest.TestCase):
         # The in-flight run MUST stay alive.
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight resident run was killed by same-session re-register: {dict(run)}")
+
+    def test_resident_stale_same_handle_bridge_IS_superseded_by_fresh_reregister(self):
+        # Heartbeat-aware carve-out (2026-05-23): the resident carve-out
+        # that protects same-handle re-registers MUST only apply when the
+        # prior bridge is still HEARTBEATING. A bridge whose last_seen is
+        # older than the 5-min stale window is a dead process — its row
+        # should be superseded so the table doesn't accumulate zombie
+        # entries across restarts. Operator-reported 2026-05-23:
+        # comms-tech-lead had 10+ leaked bridge_instances from May 21-22
+        # claude-aify restarts, all sharing the same session_handle and
+        # session_mode='resident', none superseded because the pre-fix
+        # carve-out unconditionally protected same-handle resident rows.
+        self._heartbeat_environment()
+        # Register the agent first (FK target). _register writes a
+        # bridge_instances row with last_seen=now; we then UPDATE that
+        # row to a stale timestamp so the heartbeat-aware carve-out kicks in.
+        self._register(
+            "resident-zombie",
+            runtime="claude-code",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="claude-session-1",
+            bridgeId="bridge-stale-resident",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            "UPDATE bridge_instances SET last_seen=?, registered_at=? WHERE id=?",
+            (stale_at, stale_at, "bridge-stale-resident"),
+        )
+        # Fresh re-register with identical logical identity but a new bridgeId.
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "resident-zombie",
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "claude-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-fresh-resident",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+
+        # The STALE bridge MUST be marked superseded (heartbeat-aware fix).
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-stale-resident",))
+        self.assertEqual(
+            prior["superseded_by"],
+            "bridge-fresh-resident",
+            f"stale same-handle resident bridge must be superseded by fresh re-register; got {dict(prior)}",
+        )
 
     def test_managed_same_logical_owner_reregister_supersedes_old_bridge(self):
         # Operator-reported 2026-05-22: 22+ leaked managed bridge_instances
@@ -5013,6 +5581,135 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(prior["superseded_by"], "bridge-B", "managed same-handle re-register MUST supersede the older bridge")
         latest = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-B",))
         self.assertEqual(latest["superseded_by"], "", "newest managed bridge stays primary")
+
+    def test_managed_wrapper_child_same_logical_owner_reregister_does_not_fail_inflight_run(self):
+        # Wrapper-backed managed runtimes (Plan 4/6 console mode) are
+        # bridge-spawned PTYs whose in-process MCP bridge claims via the
+        # channel/resident route. They are managed for operator ownership,
+        # but same-handle fresh re-registers are still the same live wrapper
+        # owner class. Treating them like generic managed bridges kills the
+        # active run mid-turn; this is the Hermes "WS closed before turn
+        # completed" duplicate-registration failure observed on 2026-05-26.
+        self._heartbeat_environment()
+        self._register(
+            "managed-wrapper-logical-owner",
+            runtime="hermes",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="hermes-session-1",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            terminalId="term-wrapper-1",
+            capabilities=["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="managed-wrapper-logical-owner",
+            type="request",
+            subject="in flight",
+            body="must survive wrapper-child re-register",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertTrue(dispatched["runs"], dispatched)
+        run_id = dispatched["runs"][0]["runId"]
+        self.client.post(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "running", "bridgeId": "bridge-A", "machineId": "linux:test-host"},
+        )
+        self._execute(
+            "UPDATE dispatch_runs SET status='running', claim_bridge_id=?, claim_machine_id=? WHERE id=?",
+            ("bridge-A", "linux:test-host", run_id),
+        )
+
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "managed-wrapper-logical-owner",
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "managed",
+                "launchMode": "managed",
+                "sessionHandle": "hermes-session-1",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "terminalId": "term-wrapper-1",
+                "capabilities": ["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "", "fresh managed wrapper-child same-owner re-register must not supersede the prior bridge")
+        run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertEqual(run["status"], "running", f"in-flight wrapper-managed run was killed by same-session re-register: {dict(run)}")
+
+    def test_claim_poll_does_not_auto_heal_fresh_wrapper_child_active_run(self):
+        self._heartbeat_environment(
+            bridgeId="env-bridge",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(
+            "wrapper-active-owner",
+            runtime="hermes",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="hermes-session-1",
+            bridgeId="wrapper-bridge",
+            machineId="linux:test-host",
+            terminalId="term-wrapper-owner",
+            capabilities=["managed-run", "channel", "resident-run", "resume", "interrupt", "steer"],
+        )
+        old_started_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply,
+                requested_at, claimed_at, started_at, claim_machine_id, claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_wrapper_fresh_active",
+                None,
+                "dashboard",
+                "wrapper-active-owner",
+                "start_if_possible",
+                "channel",
+                "request",
+                "already running",
+                "keep going",
+                "normal",
+                "running",
+                1,
+                old_started_at,
+                old_started_at,
+                old_started_at,
+                "linux:test-host",
+                "wrapper-bridge",
+            ),
+        )
+
+        claimed = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "wrapper-active-owner",
+                "bridgeId": "env-bridge",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel"],
+            },
+        )
+        self.assertEqual(claimed.status_code, 200, claimed.text)
+        self.assertIsNone(claimed.json().get("run"))
+        self.assertIn(
+            claimed.json().get("blockedBy", {}).get("reason"),
+            {"bridge_not_current", "active_run_owner_bridge_still_heartbeating"},
+        )
+
+        run = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id=?", ("run_wrapper_fresh_active",))
+        self.assertEqual(run["status"], "running", f"fresh wrapper-child active run must not be auto-healed: {dict(run)}")
+        events = self._fetchall("SELECT event_type FROM dispatch_events WHERE run_id=?", ("run_wrapper_fresh_active",))
+        self.assertNotIn("auto_heal", [row["event_type"] for row in events])
 
     def test_default_channel_routing_for_managed_claude(self):
         # Operator design: managed Claude should deliver via channels by
@@ -5192,11 +5889,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "failed", "different-owner re-register must fail the prior owner's in-flight run")
 
-    def test_resident_bridge_claims_queued_managed_run_after_takeover(self):
+    def test_resident_registration_does_not_claim_queued_managed_run_without_manual_switch(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register(
             "resident-queue",
-            runtime="pi",
+            runtime="codex",
             sessionMode="managed",
             launchMode="managed",
             capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
@@ -5218,15 +5915,17 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "agentId": "resident-queue",
                 "role": "coder",
-                "runtime": "pi",
+                "runtime": "codex",
                 "sessionMode": "resident",
-                "sessionHandle": "pi-session-visible",
+                "sessionHandle": "codex-session-visible",
                 "machineId": "linux:test-host",
                 "bridgeId": "resident-bridge",
                 "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
 
         claimed = self.client.post(
             "/api/v1/dispatch/claim",
@@ -5238,19 +5937,24 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
-        self.assertEqual(claimed.json()["run"]["id"], run_id)
+        self.assertIsNone(claimed.json().get("run"))
         stored = self._fetchone("SELECT status, execution_mode, claim_bridge_id FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(stored["status"], "claimed")
-        self.assertEqual(stored["execution_mode"], "resident")
-        self.assertEqual(stored["claim_bridge_id"], "resident-bridge")
+        self.assertEqual(stored["status"], "queued")
+        self.assertEqual(stored["execution_mode"], "managed")
+        self.assertEqual(stored["claim_bridge_id"], "")
 
 
     def test_claim_ignores_missing_message_ids_in_buffered_body(self):
+        # Plan 2 (2026-05-25): pi no longer supports a true resident
+        # session — registering pi+resident now marks the row pending-flip
+        # and dispatch returns 409 until the drain helper migrates the
+        # agent. This test exercises generic resident-mode buffered-claim
+        # plumbing, so use codex (which still supports resident) instead.
         self._register(
             "receipt-agent",
-            runtime="pi",
+            runtime="codex",
             sessionMode="resident",
-            sessionHandle="pi-session-visible",
+            sessionHandle="codex-session-visible",
             machineId="linux:test-host",
             bridgeId="resident-bridge",
             capabilities=["resident-run", "resume", "interrupt", "steer"],
@@ -5295,7 +5999,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertIsNone(missing_receipt)
 
-    def test_resident_register_defers_takeover_until_active_managed_run_ends(self):
+    def test_resident_register_does_not_auto_takeover_managed_agent(self):
         self._heartbeat_environment()
         self._register("defer-owner", runtime="codex", sessionMode="managed", launchMode="managed", capabilities=["managed-run", "resume", "interrupt", "steer"])
         run = self._dispatch(from_agent="dashboard", to="defer-owner", subject="active", body="work", mode="start_if_possible")
@@ -5317,17 +6021,24 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
         agent = self._fetchone("SELECT session_mode, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
         self.assertEqual(agent["session_mode"], "managed")
-        self.assertIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+        state = json.loads(agent["runtime_state"])
+        self.assertNotIn("pendingResidentTakeover", state)
+        self.assertEqual(state["manualResidentCandidate"]["sessionHandle"], "resident-thread")
 
         patched = self.client.patch(f"/api/v1/dispatch/runs/{run_id}", json={"status": "completed", "summary": "done"})
         self.assertEqual(patched.status_code, 200, patched.text)
         agent = self._fetchone("SELECT session_mode, session_handle, runtime_state FROM agents WHERE id = ?", ("defer-owner",))
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertNotEqual(agent["session_handle"], "resident-thread")
+        self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
+        switched = self.client.patch("/api/v1/agents/defer-owner/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
+        agent = self._fetchone("SELECT session_mode, session_handle FROM agents WHERE id = ?", ("defer-owner",))
         self.assertEqual(agent["session_mode"], "resident")
         self.assertEqual(agent["session_handle"], "resident-thread")
-        self.assertNotIn("pendingResidentTakeover", json.loads(agent["runtime_state"]))
 
     def test_pending_resident_runtime_patch_does_not_clobber_managed_bridge(self):
         self._heartbeat_environment()
@@ -5362,7 +6073,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["ownershipTransition"], "pending_resident_takeover")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
 
         patched = self.client.patch(
             "/api/v1/agents/pending-owner/runtime-state",
@@ -5372,11 +6083,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         state = patched.json()["runtimeState"]
         self.assertEqual(state["bridgeInstanceId"], "managed-bridge")
         self.assertEqual(state["environmentId"], "linux:test-host:default")
-        self.assertEqual(state["pendingResidentTakeover"]["bridgeId"], "resident-bridge")
+        self.assertEqual(state["manualResidentCandidate"]["sessionHandle"], "resident-thread")
+        self.assertNotIn("pendingResidentTakeover", state)
         agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("pending-owner",))
         self.assertEqual(agent["session_mode"], "managed")
 
-    def test_stale_resident_auto_returns_to_managed_on_send(self):
+    def test_stale_resident_send_does_not_auto_return_to_managed(self):
         self._heartbeat_environment()
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -5396,16 +6108,17 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
         )
+        switched = self.client.patch("/api/v1/agents/return-owner/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
         self._execute("UPDATE agents SET last_seen = ?, runtime_state = ? WHERE id = ?", ("2000-01-01T00:00:00Z", json.dumps({"bridgeInstanceId": "resident-bridge"}), "return-owner"))
         self._execute("UPDATE bridge_instances SET last_seen = ? WHERE id = ?", ("2000-01-01T00:00:00Z", "resident-bridge"))
 
         sent = self._send_message(from_agent="dashboard", to="return-owner", type="request", subject="resume managed", body="hello", trigger=True)
-        self.assertTrue(sent["ok"])
-        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (sent["dispatchRuns"][0]["runId"],))
-        self.assertEqual(run["execution_mode"], "managed")
+        self.assertFalse(sent["ok"])
+        self.assertFalse(sent.get("dispatchRuns"))
         agent = self._fetchone("SELECT session_mode, launch_mode, session_handle FROM agents WHERE id = ?", ("return-owner",))
-        self.assertEqual(agent["session_mode"], "managed")
-        self.assertEqual(agent["launch_mode"], "managed")
+        self.assertEqual(agent["session_mode"], "resident")
+        self.assertEqual(agent["launch_mode"], "detached")
         self.assertEqual(agent["session_handle"], "resident-thread")
 
     def test_session_stop_marks_resident_owner_for_bridge_termination(self):
@@ -5428,6 +6141,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
         )
+        switched = self.client.patch("/api/v1/agents/stop-resident/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
 
         stopped = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(stopped.status_code, 200, stopped.text)
@@ -6263,6 +6978,51 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(mid_run.json()["run"]["replyState"], "sent")
         self.assertFalse(mid_run.json()["run"]["replyPending"])
 
+    def test_resident_running_reply_closes_dispatch_run(self):
+        self._register("lead", runtime="codex", sessionMode="managed")
+        self._register(
+            "coder",
+            runtime="hermes",
+            sessionMode="resident",
+            sessionHandle="hermes-key",
+            runtimeConfig={"gatewayUrl": "ws://127.0.0.1:1/api/ws?token=t"},
+        )
+
+        created = self._dispatch(
+            from_agent="lead",
+            to="coder",
+            type="request",
+            subject="ping",
+            body="reply when received",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        run_id = created["runs"][0]["runId"]
+        source_message_id = created["messageId"]
+
+        started = self.client.patch(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "running"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+
+        reply = self._send_message(
+            from_agent="coder",
+            to="lead",
+            type="response",
+            subject="pong",
+            body="received",
+            inReplyTo=source_message_id,
+            trigger=False,
+        )
+
+        final = self.client.get(f"/api/v1/dispatch/runs/{run_id}")
+        self.assertEqual(final.status_code, 200, final.text)
+        self.assertEqual(final.json()["run"]["status"], "completed")
+        self.assertEqual(final.json()["run"]["resultMessageId"], reply["messageId"])
+        self.assertEqual(final.json()["run"]["replyState"], "sent")
+        self.assertFalse(final.json()["run"]["replyPending"])
+
     def test_unthreaded_response_links_latest_pending_run_for_pair(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("coder", runtime="codex", sessionMode="managed")
@@ -6755,7 +7515,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         resident = self.client.get("/api/v1/agents/old-resident-pi")
         self.assertEqual(resident.status_code, 200, resident.text)
-        self.assertIn("steer", resident.json()["agent"]["capabilities"])
+        self.assertNotIn("steer", resident.json()["agent"]["capabilities"])
+        self.assertEqual(resident.json()["agent"]["wakeMode"], "presence-only")
 
     def test_response_messages_steer_when_sender_is_busy_and_steer_capable(self):
         self._register("manager", runtime="codex", sessionMode="managed")
@@ -6792,6 +7553,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             "claude",
             runtime="claude-code",
             sessionMode="resident",
+            machineId="linux:test-host",
+            bridgeId="bridge-claude",
             runtimeConfig={"channelEnabled": True},
         )
         info = self.client.get("/api/v1/agents/claude")
@@ -7378,8 +8141,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(stats.json()["dispatch_reply_pending"], 0)
 
     def test_contracts_classify_overdue_request(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1})
 
         created = self._dispatch(
@@ -7405,8 +8168,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["overdue"], 1)
 
     def test_contract_reminder_sends_notice_and_records_event(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -7442,8 +8205,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(reminder_message_id, event["body"])
 
     def test_contract_reminder_notice_does_not_become_reply_debt(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -7472,8 +8235,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == reminder_run_id for item in missing.json()["contracts"]))
 
     def test_contract_reminders_are_unlimited_by_default(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
 
         created = self._dispatch(
@@ -7499,8 +8262,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(response.json()["reminded"]), 1)
 
     def test_contract_reminders_wait_for_busy_agent_then_fire_on_completion(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
 
         open_contract = self._dispatch(
@@ -7545,8 +8308,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Sent reminder message", event["body"])
 
     def test_completion_triggered_reminder_respects_repeat_interval(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
 
         open_contract = self._dispatch(
@@ -7590,7 +8353,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
 
     def test_contract_reminders_skip_dashboard_target_contracts(self):
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
 
         message_id = "msg-dashboard-contract"
@@ -7635,8 +8398,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(event)
 
     def test_contracts_default_view_hides_operator_closed_and_failures(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="lead",
@@ -7663,8 +8426,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(any(item["id"] == run_id and item["state"] == "closed" for item in closed_view.json()["contracts"]))
 
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -7687,8 +8450,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNotNone(event)
 
     def test_periodic_dispatch_reconcile_skips_historical_contract_reminders(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "contract_stale_hours": 24})
 
         created = self._dispatch(
@@ -7781,8 +8544,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Sent reminder message", event["body"])
 
     def test_contracts_do_not_treat_high_priority_responses_as_missing_replies(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="coder",
@@ -7806,8 +8569,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == run_id for item in response.json()["contracts"]))
 
     def test_contracts_hide_answered_rows_until_history_is_requested(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="lead",
@@ -7843,8 +8606,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(answered_contract["state"], "answered")
 
     def test_contract_history_respects_stale_window(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"contract_stale_hours": 1})
 
         created = self._dispatch(
@@ -7873,8 +8636,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == run_id for item in answered_view.json()["contracts"]))
 
     def test_contracts_can_filter_category_before_limit(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         direct = self._dispatch(
             from_agent="lead",
@@ -8298,12 +9061,24 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(int(tb["turn_busy"] or 0), 0)
 
     def test_orphaned_managed_runs_not_closed_when_bridge_owns(self):
-        # Guardrail: orphan-cleanup never touches runs with a real
-        # claim_bridge_id. Bridge-driven runs stay until the bridge
-        # itself reports their terminal state.
+        # Guardrail: orphan-cleanup never touches runs whose claim_bridge_id
+        # points at a LIVE bridge_instance (heartbeat within the stale
+        # window). Bridge-driven runs stay until the bridge itself reports
+        # their terminal state. After the 2026-05-23 fix, "real bridge_id"
+        # means "a bridge_instances row that's still heartbeating" — not
+        # just any non-empty string.
         self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("owned-hermes", runtime="hermes", sessionMode="managed")
         stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        live_seen = api_v2._now()
+        # Seed the live bridge_instance the run claims to be owned by.
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-real-1", "owned-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
+        )
         self._execute(
             """
             INSERT INTO dispatch_runs (
@@ -8332,6 +9107,105 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(closed), 0)
         run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_owned_1",))
         self.assertEqual(run_row["status"], "running")
+
+    def test_orphaned_managed_runs_closed_when_claim_bridge_is_stale(self):
+        # Operator-reported (2026-05-23): sc-coder hermes managed run sat
+        # in 'running' state for 50+ minutes because its claim_bridge_id
+        # pointed at a bridge_instance that had since gone stale
+        # (last_seen 8+ min ago) when the owning claude-aify wrapper was
+        # restarted. The original reaper only checked claim_bridge_id =
+        # '' so it skipped this case. After the fix the reaper ALSO
+        # treats "claim_bridge_id present BUT named bridge_instance is
+        # stale" as orphaned — symmetric handling of "no owning bridge"
+        # whether the column is empty or points at a dead bridge.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("stale-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # bridge_instance with last_seen 10 min ago — well past 5-min window.
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-stale-1", "stale-hermes", "test-machine", "hermes", "managed", stale_at, stale_at),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_stale_1", None, "dashboard", "stale-hermes", "start_if_possible",
+                "managed", "request", "stuck on dead bridge", "body", "normal",
+                "running", 0, stale_at, stale_at, stale_at, "bridge-stale-1",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, closed)
+        self.assertEqual(closed[0]["runId"], "run_stale_1")
+        run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_stale_1",))
+        self.assertEqual(run_row["status"], "failed")
+
+    def test_orphaned_managed_runs_closed_despite_reply_reminder_events(self):
+        # Operator-reported (2026-05-23): sc-coder's stuck run had a
+        # 'reply_reminder_skipped' dispatch_event firing every minute
+        # (service-side reminder loop), which kept resetting the reaper's
+        # "NOT EXISTS dispatch_events" cutoff and prevented reaping even
+        # after the bridge died. reply_reminder_skipped is metadata the
+        # service emits ABOUT the run, not progress FROM the runtime —
+        # the reaper now filters it out of the progress check.
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        self._register("reminder-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recent_at = api_v2._now()  # within the cutoff window
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_reminder_1", None, "dashboard", "reminder-hermes", "start_if_possible",
+                "managed", "request", "stuck under reminder spam", "body", "normal",
+                "running", 1, stale_at, stale_at, stale_at, "",
+            ),
+        )
+        # Reminder event INSIDE the cutoff window — must NOT keep the run alive.
+        self._execute(
+            """
+            INSERT INTO dispatch_events (run_id, event_type, body, created_at)
+            VALUES (?,?,?,?)
+            """,
+            ("run_reminder_1", "reply_reminder_skipped", "target is busy", recent_at),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, f"reply_reminder_skipped must not block reaping; got {closed}")
+        self.assertEqual(closed[0]["runId"], "run_reminder_1")
 
     def test_turn_start_endpoint_sets_turn_busy_idempotent(self):
         # Pinning test for /agents/{id}/turn-start (added in 805e2df).
@@ -8549,11 +9423,10 @@ class ApiV2RegressionTests(unittest.TestCase):
                 )
 
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
-        # Operator-driven feature: virtual rpc terminal_sessions whose
+        # Operator-driven feature: managed worker terminal_sessions whose
         # updated_at is older than worker_idle_close_minutes AND have no
-        # in-flight dispatch runs get auto-closed by the periodic
-        # reconciler. Setting at 0 (default) → disabled.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        # in-flight dispatch runs get auto-closed by the periodic reconciler.
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_close",
             bridgeId="bridge-idle-close",
@@ -8625,9 +9498,195 @@ class ApiV2RegressionTests(unittest.TestCase):
         rs = json.loads(agent_row["runtime_state"] or "{}")
         self.assertNotIn("virtualTerminalId", rs)
 
+    def test_idle_managed_wrapper_worker_auto_close_enqueues_stop_control(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_wrapper",
+            bridgeId="bridge-idle-wrapper",
+            machineId="linux:idle-wrapper",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("idle-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_wrapper", "idle-hermes", "env_idle_wrapper", "hermes", "/w", "managed",
+                "managed", "bridge-idle-wrapper", "term_idle_wrapper", "attached",
+                "hermes-aify --aify-agent idle-hermes --resume h1", "/w", "", "h1", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_idle_wrapper", "sess_idle_wrapper", "idle-hermes", "env_idle_wrapper",
+                "bridge-idle-wrapper", "hermes", "/w", "hermes-aify --aify-agent idle-hermes --resume h1",
+                "", "attached", "dashboard", stale_at, stale_at, None, "",
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({"terminalId": "term_idle_wrapper"}), "idle-hermes"),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        closed = asyncio.run(_run())
+        self.assertEqual(closed, [{"terminalId": "term_idle_wrapper", "agentId": "idle-hermes"}])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("term_idle_wrapper",))
+        self.assertEqual(term["status"], "stopping")
+        control = self._fetchone(
+            "SELECT action, status, requested_by FROM terminal_controls WHERE terminal_id = ?",
+            ("term_idle_wrapper",),
+        )
+        self.assertEqual(control["action"], "stop")
+        self.assertEqual(control["status"], "pending")
+        self.assertEqual(control["requested_by"], "auto-close-idle-worker")
+        session = self._fetchone("SELECT terminal_status FROM agent_sessions WHERE id = ?", ("sess_idle_wrapper",))
+        self.assertEqual(session["terminal_status"], "stopping")
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("idle-hermes",))
+        self.assertNotIn("terminalId", json.loads(agent_row["runtime_state"] or "{}"))
+
+    def test_idle_managed_wrapper_without_bridge_owner_marks_stopped(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_orphan",
+            bridgeId="bridge-idle-orphan",
+            machineId="linux:idle-orphan",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("idle-orphan-codex", runtime="codex", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_orphan", "idle-orphan-codex", "env_idle_orphan", "codex", "/w", "managed",
+                "managed", "bridge-idle-orphan", "term_idle_orphan", "running",
+                "codex-aify --aify-agent idle-orphan-codex", "/w", "", "codex-orphan", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_idle_orphan", "sess_idle_orphan", "idle-orphan-codex", "env_idle_orphan", "",
+                "codex", "/w", "codex-aify --aify-agent idle-orphan-codex",
+                "", "running", "dashboard", stale_at, stale_at, None, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), [{"terminalId": "term_idle_orphan", "agentId": "idle-orphan-codex"}])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("term_idle_orphan",))
+        self.assertEqual(term["status"], "stopped")
+        control = self._fetchone(
+            "SELECT COUNT(*) AS count FROM terminal_controls WHERE terminal_id = ?",
+            ("term_idle_orphan",),
+        )
+        self.assertEqual(control["count"], 0)
+
+    def test_idle_worker_auto_close_can_be_disabled_even_with_minutes_set(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": False, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_disabled",
+            bridgeId="bridge-idle-disabled",
+            machineId="linux:idle-disabled",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("disabled-pi", runtime="pi", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_disabled", "disabled-pi", "env_idle_disabled", "pi", "/w", "managed",
+                "managed", "bridge-idle-disabled", "vterm_idle_disabled", "running",
+                "aify://virtual-rpc/pi", "/w", "", "pi-handle-disabled", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_idle_disabled", "sess_idle_disabled", "disabled-pi", "env_idle_disabled",
+                "bridge-idle-disabled", "pi", "/w", "aify://virtual-rpc/pi",
+                "", "running", "bridge-rpc", stale_at, stale_at, None, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), [])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_idle_disabled",))
+        self.assertEqual(term["status"], "running")
+
     def test_idle_virtual_rpc_workers_not_closed_when_in_flight_run(self):
         # Guardrail: in-flight dispatch_run blocks auto-close.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_inflight",
             bridgeId="bridge-idle-inflight",
@@ -8907,6 +9966,122 @@ class ApiV2RegressionTests(unittest.TestCase):
         asyncio.run(self._async_invalidate("taxonomy-claude"))
         online = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
         self.assertEqual(online["status"], "online", online)
+
+    def test_managed_wrapper_attached_terminal_counts_as_online_at_read_gate(self):
+        # Hermes/Codex managed-via-wrapper PTYs settle at status='attached'
+        # after a turn completes. The read-path no-live-worker gate must treat
+        # that as live, otherwise the dashboard shows `available` while the
+        # visible wrapper terminal is still running and claimable.
+        self.client.put("/api/v1/settings", json={"managed_via_wrapper": ["hermes"]})
+        self._heartbeat_environment(
+            id="env_wrapper_gate",
+            bridgeId="bridge-wrapper-gate",
+            machineId="win32:wrapper-gate",
+            os="win32",
+            kind="windows",
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["hermes"],
+            runtimes=[
+                {
+                    "runtime": "hermes",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                }
+            ],
+        )
+        self._register(
+            "taxonomy-hermes-wrapper",
+            runtime="hermes",
+            sessionMode="managed",
+            sessionHandle="hermes-handle-1",
+            machineId="win32:wrapper-gate",
+            status="active",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_wrapper_gate_1",
+                "taxonomy-hermes-wrapper",
+                "env_wrapper_gate",
+                "hermes",
+                "C:/repo",
+                "managed-warm",
+                "managed",
+                "bridge-wrapper-gate",
+                "term_wrapper_gate_1",
+                "attached",
+                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
+                "C:/repo",
+                "12345",
+                "hermes-handle-1",
+                "",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                fresh,
+                fresh,
+                None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, status, requested_by, created_at, updated_at,
+                stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_wrapper_gate_1",
+                "sess_wrapper_gate_1",
+                "taxonomy-hermes-wrapper",
+                "env_wrapper_gate",
+                "bridge-wrapper-gate",
+                "hermes",
+                "C:/repo",
+                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_live_state (
+                agent_id, status, reason, environment_id, session_id, terminal_id,
+                active_run_id, refresh_after, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "taxonomy-hermes-wrapper",
+                "online",
+                "",
+                "env_wrapper_gate",
+                "sess_wrapper_gate_1",
+                "term_wrapper_gate_1",
+                "",
+                "9999-12-31T23:59:59Z",
+                fresh,
+            ),
+        )
+
+        agent = self.client.get("/api/v1/agents/taxonomy-hermes-wrapper").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
 
     def test_resident_route_delivered_awaiting_reply_shows_working(self):
         # Resident dispatch to claude (execution_mode='resident') goes through

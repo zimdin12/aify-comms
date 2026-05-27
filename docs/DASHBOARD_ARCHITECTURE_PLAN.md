@@ -41,9 +41,12 @@ build happens on a dedicated next branch after approval. Co-authored:
 1. **Managed dispatch** — primary. Bridge drives the runtime via its native
    API/RPC (codex app-server, `pi --mode rpc`, Claude channel, hermes). All
    chat/`comms_send` traffic and results flow here. Reliable, runtime-correct.
-2. **Console (PTY)** — optional, separate. Bridge launches the interactive
-   `*-aify` wrapper in a real PTY and streams it to the browser for
-   watch/hand-drive only. Not a data path; messaging is decoupled from it.
+2. **Console/backing view** — bridge launches or attaches the runtime backing
+   and streams it to the browser. For wrapper-backed Codex/Hermes, the Console
+   is the same `codex-aify` / `hermes-aify` PTY whose child bridge claims the
+   dispatch through the local app-server/gateway. For Pi/OpenCode, Console is
+   a virtual stream from the native managed controller. Messaging still goes
+   through the runtime adapter/bridge protocol, not raw browser keystrokes.
 
 **Resident vs managed:** running `*-aify --aify-agent <id>` by hand registers
 that live CLI as the *resident owner* of the identity (messages route to the
@@ -87,20 +90,22 @@ and the contract everything depends on.
   turn; accurate "working" there needs the resident wrapper to emit its own
   busy signal (start/end of turn) into the same turn-busy contract. Follow-up,
   not a heuristic — captured so it isn't hot-patched.
-- **Status taxonomy as a designed contract.** `working` / `blocked` /
-  `active` / `idle` / `offline` now comes from the live-state engine: a real
+- **Status taxonomy as a designed contract.** `available` / `online` /
+  `working` / `blocked` / `idle` / `offline` now comes from the live-state engine: a real
   active run or fresh turn-busy heartbeat means `working`; if that active
   terminal tail clearly asks for operator input, the status is `blocked`;
   normal Claude prompt chrome/permission footer alone is not a blocked signal;
   when Claude visibly answers in the PTY and returns to an idle prompt without
   an explicit chat reply, reconcile closes the active terminal run as
   completed-without-reply so it does not pin `working`;
-  attached-but-runless Console is `active`; stopped/failed Console terminals
+  attached-but-runless Console is `online`; stopped/failed Console terminals
   are cleared as current bindings and remain historical only. Completion-style
   `info` messages can satisfy active terminal runs during send/reconcile so
   finished work does not remain open only because the agent forgot
   `inReplyTo`. A working agent's dot briefly pulses orange when its terminal
   emits output; this is a visual activity hint, not a separate status. The
+  bridge `ready` bit is folded into public `online` so operators do not see
+  competing positive idle states. The
   blocked contract is deliberately explicit-prompt based, not a silence timer:
   a fixed 10s console silence threshold is too aggressive (agents legitimately
   reason / tool-call / wait on I/O for far longer with no console output →

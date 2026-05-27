@@ -2,16 +2,59 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Current managed/resident runtime shape (2026-05-27)
+
+**Decision.** Managed Codex and Hermes default to wrapper-backed PTYs (`managed_via_wrapper=["codex","hermes"]`). The environment bridge starts or reuses `codex-aify` / `hermes-aify`, but the wrapper's child MCP bridge owns channel/resident dispatch because it has the runtime-local app-server or gateway metadata. Managed Pi and OpenCode use native managed controllers with virtual terminal streams; they are not wrapper-backed. Resident-visible live wake is supported for Claude, Codex, and Hermes. Pi/OpenCode resident registrations are presence/debug metadata only until those runtimes expose a safe multi-client resident injection surface.
+
+**Why.** The dashboard Console must show the same backing process that receives the turn. Hidden session creation and raw PTY typing both break that contract. Wrapper-backed Codex/Hermes preserve the visible TUI path; Pi/OpenCode stay managed-native because their current resident surfaces are single-client.
+
+## Resident same-handle carve-out is heartbeat-aware (2026-05-23)
+
+**Decision.** The supersession carve-out that protects same-logical-owner resident re-registers (so an `omp --mode rpc` child doesn't kill its parent's in-flight runs) now ONLY applies when the prior bridge_instance is still heartbeating within the 5-minute stale window. A bridge whose `last_seen` is older than that is a dead process — its row is superseded so the table doesn't accumulate zombie entries across restarts.
+
+**Why.** Operator-reported 2026-05-23: comms-tech-lead had 10+ leaked bridge_instances from May 21–22 claude-aify restarts, all sharing the same `session_handle` and `session_mode='resident'`, none superseded because the pre-fix carve-out unconditionally protected same-handle resident rows regardless of liveness. Each restart wrote a new row but left the old one alive in the DB.
+
+**Why this preserves the original protection.** Legitimate multi-window resident scenarios (two operator shells on the same identity, or an RPC child registering under its parent's session_handle) heartbeat continuously while the processes are alive — their rows stay within the 5-min window, the carve-out still protects them. Only DEAD same-handle rows get superseded.
+
+Test: `test_resident_stale_same_handle_bridge_IS_superseded_by_fresh_reregister`.
+
+## Superseded fallback: Codex managed dispatch uses persistent `codex app-server` (2026-05-23)
+
+**Decision.** This was the native managed fallback before wrapper-backed Codex became the default. Current managed Codex normally uses a bridge-owned `codex-aify` PTY and child bridge. The persistent `codex app-server` controller remains a fallback/debug path when wrapper mode is disabled or unavailable.
+
+**Why.** Symmetry with pi (persistent `omp --mode rpc`) and hermes (persistent `hermes acp`). The prior managed-codex controller spawned a fresh `codex app-server` per turn, paying ~1–3s of startup cost every dispatch and never giving the operator a "one PID per agent" mental model. After this change all four managed runtimes (pi, hermes, codex, opencode) follow the same UX shape: one persistent process per agentId, native conversation continuity, streaming notifications into the synth terminal, idle-reaper cleanup.
+
+**Why per-agent pool (not per-thread).** The thread is the conversation unit; the codex app-server can host many threads but in our model each agent owns one. Pool key = agentId keeps the dispatcher and pool aligned.
+
+**Why we kept the WS app-server path separate.** Resident codex with a shared `codexAppServerUrl` is already pooled at the app-server process level — the WebSocket is the persistent backing. Adding a CodexSession in front would be redundant and harder to reason about. Routing in `createCodexController`: `executionMode==='managed' && !hasCodexLiveAppServer(config)` → CodexSession; else → legacy controller.
+
+**RPC handler swap, not multiplexer.** `createRpcClient` / `createWebSocketRpcClient` gained `setOnNotification(handler)` so the pooled RPC can bind a fresh per-turn handler. Simpler than a multiplexer and keeps the per-turn state (`activeTurnId`, `finalText`, `activeItems`, quiet-timeout, MCP-tool-stall detection) in `CodexSession._runTurnInner` where it can be reasoned about as a single function.
+
+Tests in `mcp/stdio/tests/codex-session.test.js` + `fixtures/fake-codex-app-server.mjs`.
+
+## Superseded fallback: Hermes managed dispatch uses persistent `hermes acp` JSON-RPC (2026-05-23)
+
+**Decision.** This was the native managed fallback before wrapper-backed Hermes became the default. Current managed Hermes normally uses a bridge-owned `hermes-aify` PTY and child bridge connected to the local Hermes gateway. The persistent ACP controller remains a fallback/debug path when wrapper mode is disabled or unavailable.
+
+**Why.** Operator quote (2026-05-22): *"I do not want pseudo terminal input because i might write while other agent sends message in and it gets scrambled. We neeed to be able to send in background like with claude code pseudo terminal."* ACP is JSON-RPC stdio with a persistent sessionId — the bridge can stream `session/update` notifications without sharing a PTY with the operator. The prior `hermes chat -q` per-turn spawn could not stream incremental tokens, could not carry native conversation context (`--continue <name>` requires a pre-existing session, see Phase 7 rollback note in mcp/stdio/runtimes.js), and had to embed all prior context in the wire prompt every turn.
+
+**Why per-agent pool (not per-session, not per-machine).** `agentId` is the unit the dispatcher already knows about. Multiple sessions sharing one child would require routing `session/update` notifications by `sessionId`, which is bug surface for negligible memory savings.
+
+**Why we decline `terminal/*` client requests from the agent.** The bridge has no operator-safe sandbox for hermes-spawned child processes. Hermes falls back to its own sandbox if one is configured. Revisit when there's an operator demand.
+
+**Wire format note.** ACP method names are slash-separated (`session/new`, `session/prompt`, `session/update`) but field names are camelCase (`sessionId`, `protocolVersion`, `stopReason`) — confirmed live against Hermes 0.14.0; see `docs/plans/notes/2026-05-23-hermes-acp-spike.md`. The `sessionUpdate` discriminator value is snake_case (`agent_message_chunk`, `agent_thought_chunk`, `tool_call`, ...). Tests live in `mcp/stdio/tests/hermes-acp-protocol.test.js` and `mcp/stdio/tests/hermes-session-acp.test.js` with the `fake-hermes-acp.mjs` stdio fixture.
+
+
 ## Runtime limits
 
-| Capability | Claude Code | Codex | OpenCode |
-|------------|-------------|-------|----------|
-| Managed workers | yes | yes | yes |
-| Resident visible-wake | `claude-live` (via `claude-aify`) | `codex-live` (via `codex-aify`) | not yet |
-| Resident background resume | — | `codex-thread-resume` | `opencode-session-resume` |
-| Interrupt | yes | yes | yes |
-| In-flight steering | resident channel only; managed headless no | yes | no |
-| Active dispatch hard timeout | 12 h | 12 h | 12 h |
+| Capability | Claude Code | Codex | Hermes | OpenCode | Oh My Pi |
+|------------|-------------|-------|--------|----------|----------|
+| Managed workers | yes | yes | yes | yes | yes |
+| Default managed backing | `claude-aify` channel PTY | `codex-aify` wrapper PTY | `hermes-aify` wrapper PTY | native controller | native OMP RPC |
+| Resident visible-wake | `claude-live` | `codex-live` | `hermes-live` | presence only | presence only |
+| Interrupt | yes | yes | yes | yes | yes |
+| In-flight steering | channel/resident | yes | gateway steer/follow-up | no | yes |
+| Active dispatch hard timeout | 12 h | 12 h | 12 h | 12 h | 12 h |
 
 **One active dispatched run per agent.** Later dispatches from the same sender merge into a buffered pending run (see below).
 
@@ -26,7 +69,8 @@ Every agent registration resolves to one of these wake modes. `comms_agent_info`
 | `claude-live` | Resident Claude session started via `claude-aify`; woken through the local aify channel bridge. |
 | `codex-live` | Resident Codex session started via `codex-aify`; woken through the shared local WebSocket app-server that the visible TUI uses. |
 | `codex-thread-resume` | Resident Codex session started with plain `codex`; woken by resuming the bound `thread.id` in a separate background app-server. |
-| `opencode-session-resume` | Resident OpenCode session with a bound `sessionHandle`; resumed in a background worker. |
+| `hermes-live` | Resident Hermes session started via `hermes-aify`; woken through the local Hermes dashboard gateway. |
+| `presence-only` | Resident Pi/OpenCode metadata is visible, but triggerable delivery must use a managed runtime session. |
 | `managed-worker` | Detached managed worker created by dashboard Environment spawn or `comms_spawn`. Not visible in a live user CLI. |
 | `message-only` | Legacy/no-live binding. Normal `comms_send` rejects these targets instead of storing future work; older inbox-only records may still display this mode. |
 | `claude-needs-channel` | Claude agent is registered but no alive `claude-aify` wrapper exists on this machine. Fix: launch one. |
@@ -382,11 +426,11 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 
 **Why.** Operator feedback during live testing on 2026-05-22: `active` meant both "ready, watching for work" (worker idle) and "registered but never spawned." Same dot color, totally different operational state. New taxonomy matches the operator's mental model — `available` is the wake-able-but-cold state, `online` is the ready-to-receive state, `working` is the busy state. Send-to-`available` already works because the existing per-runtime dispatch handlers (PiSession.acquirePiSession, claude-aify wrapper spawn) spawn workers on first dispatch — Phase 2 just unblocked the preflight gate for `available`. Per-runtime persistent worker reuse for codex/opencode (one app-server/SDK session per agent across turns, mirroring PiSession's pool) is scoped in docs/plans/persistent-worker-status-taxonomy.md but not yet implemented — UX-equivalent today since per-dispatch still works.
 
-**Consequence.** Dashboard reads `agent.status` and gets `available`/`online`/`working`/`offline`/`idle`/`blocked`/`stopped`. The manual override `agents.status='stopped'` still wins via `_MANUAL_STATUSES`. Legacy bookmarks/saved filters that compared to `active` no longer match — dashboard UI bake-in. Hermes uses `hermes chat -Q -q` per dispatch (the original Phase 7 `--continue aify-${agentId}` was rolled back 2026-05-22 — upstream Hermes's `--continue` requires the session to already exist and refuses on first dispatch with "No session found"); conversation context is in the wire prompt instead, codex-shape. The synthesized terminal_session row survives across dispatches as the operator-visible feed. Architecture detail in `docs/plans/persistent-worker-status-taxonomy.md`.
+**Consequence.** Dashboard reads `agent.status` and gets `available`/`online`/`working`/`offline`/`idle`/`blocked`/`stopped`. The manual override `agents.status='stopped'` still wins via `_MANUAL_STATUSES`. Legacy bookmarks/saved filters that compared to `active` no longer match — dashboard UI bake-in. Historical Hermes native fallback used `hermes chat -Q -q` / synthesized terminal output; current default managed Hermes uses wrapper-backed `hermes-aify` PTY delivery when `managed_via_wrapper` includes `hermes`. Architecture detail in `docs/plans/persistent-worker-status-taxonomy.md`.
 
 ## Synthesized terminal coverage extends to codex and opencode
 
-**Decision.** Both codex and opencode managed runs now emit a synthesized `terminal_session` row in the same shape as pi/hermes (`command='aify://virtual-rpc/codex'` or `aify://virtual-rpc/opencode'`, `runtime_state.virtualTerminal=true`). `createCodexController` pushes per-event frames into the sink (`▶ turn started`, `→`/`✓` tool item markers, agentMessage deltas streamed as raw text, `■ turn ended` with token usage, `✗ error` red on failure). `createOpenCodeController` pushes coarser frames (prompt echo, connecting marker, final reply, turn ended) because the opencode SDK doesn't expose granular tool events. Both controllers remain per-dispatch — full persistent-worker pool refactors (CodexSession/OpenCodeSession mirroring `pi-session.js`) stay scoped in `docs/plans/persistent-worker-status-taxonomy.md` as Phases 5/6 deferred.
+**Decision.** Codex and opencode native managed fallback can emit synthesized `terminal_session` rows (`command='aify://virtual-rpc/codex'` or `aify://virtual-rpc/opencode'`, `runtime_state.virtualTerminal=true`). Current default managed Codex uses wrapper-backed `codex-aify` PTY delivery when `managed_via_wrapper` includes `codex`; the synthesized Codex controller remains the fallback when wrapper mode is disabled or unavailable. `createOpenCodeController` still pushes coarser frames (prompt echo, connecting marker, final reply, turn ended) because the opencode SDK doesn't expose granular tool events. Full persistent-worker pool refactors stay scoped in `docs/plans/persistent-worker-status-taxonomy.md` as deferred follow-up.
 
 **Why.** Operator-reported (2026-05-22) "Codex - I wrote to him, he answered, but I didn't see any change in console. not inbound, no outbound." Symmetry expectation: if pi and hermes have synthesized terminal feeds, codex and opencode should too. The intermediate (per-dispatch with synth feed, no pool refactor) closes the operator-visible UX gap without the 3-5 day per-runtime refactor of PiSession-style pooling. The full persistent-worker version is still worth doing later for one-spawn-per-agent efficiency, but the visibility win was the immediate ask.
 
@@ -433,3 +477,208 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 ## Container name, repo name
 
 The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-service`. Earlier versions used `aify-claude`; the rename is cosmetic and GitHub auto-redirects old URLs. If you see `aify-claude` in a log or filesystem path on an older install, it's the same project.
+
+## Resident codex uses the existing WS app-server channel (no separate codex-channel.js)
+
+**Decision.** Resident-codex dispatch delivery is handled by the existing `createCodexControllerLegacy` path in `mcp/stdio/runtimes.js:2118`. The main bridge claims resident-codex runs through `/dispatch/claim` (server.js:1857 with `executionModes` from `supportedExecutionModes`), `launchRuntimeRun` → `createCodexController` routes resident runs with `runtimeConfig.appServerUrl` set to `createCodexControllerLegacy`, which connects WebSocket to the per-instance `codex app-server` launched by `codex-aify` (install.sh:319-330) and issues `turn/start` on the resident's active thread. We did NOT create a separate `codex-channel.js` mirroring `claude-channel.js`.
+
+**Why.** `claude-channel.js` is a separate process because Anthropic's `notifications/claude/channel` mechanism requires a separate MCP server entry registered via `--dangerously-load-development-channels server:aify-comms-channel`. Codex has no equivalent constraint — its native JSON-RPC `turn/start` against an existing `threadId` is the right primitive and is already used by the legacy controller. A separate process would duplicate the WS client, initialize/initialized handshake, turn lifecycle notification handling, and turn/interrupt support that `createCodexControllerLegacy` already implements, increasing the surface area for divergence bugs. The dispatch loop's `reportTurnBusy` pulse (server.js:1930) and explicit clear (server.js:2057-2065) already give resident codex the same status taxonomy as claude.
+
+**Visibility note (codex #15320).** Externally-injected `turn/start` against a thread that a `codex --remote` TUI is attached to may not visibly render in the TUI live (history fixes up later). Mitigated by also pushing synth-terminal frames for resident dispatches — the dashboard Console pane shows the wake event reliably. The `executionMode === "managed"` gate on `terminalSinkProvider` in `runtimes.js` was lifted on 2026-05-24 so resident dispatches feed the same Console surface that managed dispatches always did.
+
+**Reconsider if.** A future codex version ships a custom MCP notification primitive analogous to `notifications/claude/channel` that requires a separate MCP server entry to subscribe. At that point a real `codex-channel.js` is justified.
+
+## Resident hermes uses `hermes dashboard --tui` as a hidden background gateway
+
+**Decision.** `hermes-aify` (`install.sh:install_hermes_wrapper`) spawns `hermes dashboard --tui --port <free> --host 127.0.0.1 --no-open --skip-build` as a background child, captures the ephemeral `__HERMES_SESSION_TOKEN__` from the dashboard's `/` HTML response (`web_server.py:3688`), then `exec hermes chat --tui` with `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/api/ws?token=<token>` in env. The Ink TUI attaches via WebSocket to that gateway (`ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl`) instead of spawning its own stdio sidecar. The aify-comms bridge also attaches to the same `/api/ws`; for inbound aify-comms messages it calls `session.resume` on the durable Hermes session key, uses the returned bridge-owned short sid for `prompt.submit` / `session.steer`, and translates real gateway `event` frames (`message.delta`, `message.complete`, `tool.start`, `tool.complete`) into run output and chat replies. The operator's original TUI owns a different in-memory sid, so it is not expected to render bridge-injected resident dispatches live.
+
+**Why.** Symmetric with the codex resident path at the control-plane level (`codex-aify` runs a local app server; `hermes-aify` runs a local gateway), but not identical at the visible terminal layer. Hermes's public gateway methods take the short in-memory sid, and `session.list` / `session.most_recent` expose durable session keys rather than the operator TUI's sid. `session.resume` is therefore required before `prompt.submit`. Mid-run insertion remains available through `session.steer` when the bridge-owned sid is busy.
+
+**Why not `hermes acp` or `hermes gateway run`.** `hermes acp` is the bridge's managed path and is single-client by design (single `_conn` per session) — can't be shared with an operator's TUI. `hermes gateway run` is for messaging-platform integrations (Telegram/Discord/etc.), NOT the TUI gateway — the name collision misled initial research.
+
+**Visibility.** Synth-terminal frames pushed in `HermesResidentController` show the dispatched prompt and streamed reply in dashboard Console. The operator's separate native Hermes TUI may remain visually idle during a bridge-dispatched turn; run events and aify-comms replies are the authoritative delivery evidence.
+
+**Bypass.** `AIFY_HERMES_SKIP_GATEWAY=1` falls back to plain `hermes` exec for operators who don't want the dashboard child or have a broken install. Graceful internal fallback to plain hermes if any wrapper step fails (port allocation, dashboard timeout, token parse) — broken gateway never blocks operator-typed hermes.
+
+**Reconsider if.** Upstream ships a dedicated `hermes chat --listen` flag that embeds the WS server in the chat process itself. At that point we drop the dashboard child and use the chat-embedded gateway directly.
+
+## Dashboard Session Console widget cache + xterm.js render
+
+**Decision (2026-05-24).** Dashboard Session Console renders the live PTY via xterm.js when an agent has a `runtime_state.virtualTerminalId` or `terminalId`. Iframe (hermes web UI) and synth WS-attached widgets are fallbacks for resident agents the bridge can't see. Widget choice is gated by a pure helper `chooseSessionConsoleWidget` (`service/new_dashboard/app.js`) that caches the most-recent terminalId per session in `state.sessionTerminals` and prefers the cached id over the live one when the live one disappears.
+
+**Why the cache.** `_stop_virtual_terminals_for_superseded_bridges` (`service/routers/api_v2.py:1755-1762`) runs from `_repair_*` reconcilers on every list-sessions refresh and clears `runtime_state.virtualTerminalId` when bridge ownership transitions. Combined with the per-dispatch controller dispose lifecycle and operator-stop paths, the field oscillates set→unset→set over the lifetime of a managed agent. Without the cache the dashboard would teardown+remount xterm on every list refresh — operator-visible flicker between iframe and xterm mid-conversation (2026-05-24 bug report).
+
+**Reconsider if.** The server-side clear paths get reconciled into a single source of truth (e.g. the bridge writes through the supersede transition rather than the server stomping it), in which case the cache becomes redundant.
+
+## Codex initial-thread-start persistence gap
+
+**Decision (2026-05-24).** `CodexSession._handshake` (`mcp/stdio/codex-session.js`) fires `callbacks.onSessionHandleChange(this.threadId, {reason: "initial_thread_start"})` immediately after the no-hint `_startFreshThread` path, mirroring the existing heal-after-failure notification. Without this, the first managed dispatch creates a codex thread that the bridge knows about but never persists into `agents.session_handle` in the service DB — subsequent Console PTY launches read an empty handle and the bridge can't even theoretically recover the thread after a restart.
+
+## Open architectural items: managed Console PTY can't share state with bridge
+
+**Known limitations as of 2026-05-24:**
+
+- **Codex managed Console PTY starts a fresh app-server**, not the bridge's existing one (`install.sh:319-330` allocates a new port per `codex-aify` invocation; the wrapper has no flag to attach to a pre-existing `codex app-server` URL). The bridge's `CodexSession` and the wrapper PTY are two separate app-server processes with two separate thread states. Operator-visible: clicking Open Console for a managed codex agent shows a brand new codex prompt, not the agent's running context. Bridge dispatches still deliver correctly via the bridge's own app-server connection — the Console PTY is supplementary visibility only.
+- **Pi managed wrapper PTY exits with bridge-owned mutex.** `pi-aify` (`install.sh:539-559`) probes `GET /agents/<id>/pi-session-state` at startup and refuses to launch when `bridgeOwned: true`. The bridge's persistent `PiSession` claims that mutex on every dispatch via `acquirePiSession` (`mcp/stdio/pi-session.js`). Result: managed pi Console PTY launched via `_ensure_managed_pty_for_dispatch` exits 1 before omp ever runs. The synth-terminal view of `omp --mode rpc` is the only operator-visible surface for managed pi.
+
+**Why not fix individually.** Both stem from the same architectural choice: managed agents have TWO competing backings — the bridge's native RPC adapter (`CodexSession` / `HermesSession` / `PiSession`) AND the (sometimes spawned) wrapper PTY. They don't share state. The proper fix is the **unified-backing refactor**: managed agents always go through `_ensure_managed_pty_for_dispatch` → `*-aify` in PTY → the wrapper's in-process bridge claims dispatches just like resident agents do. Drop the native RPC adapters for managed entirely. Same code path resident & managed. Significant change to dispatch routing; deferred pending operator confirmation.
+
+## 2026-05-25 — claude-aify loads operator's full MCP list by default
+
+**Decision (2026-05-25).** `install_claude_wrapper` (`install.sh:203-253`) no longer forces `--strict-mcp-config` on the spawned `claude` process. Default behavior is now "let claude load the operator's full `~/.claude.json` mcpServers list" — which already contains `aify-comms` and `aify-comms-channel` because `install_claude_config` merges them in at install time. The strict two-server temp config and `--strict-mcp-config` flag are still emitted, but only when the launching shell sets `AIFY_CLAUDE_STRICT_MCP=1`.
+
+**Why.** The legacy always-strict behavior was a workaround for upstream Claude Code MCP init race (issues #38462 / #21341): when many stdio MCP servers compete for init, slower ones (including `aify-comms-channel`) get stuck in "still connecting" state and channel notifications never deliver. The workaround shipped channel-wake reliability but cost operators visibility into every *other* MCP server inside the wrapper — `aify-project-graph`, `github`, `browsermcp`, etc. were silently missing from claude-aify sessions even though their Skill files propagated. Operator pain over weeks ("why can't I use my MCP tools in claude-aify?") outweighed the residual race risk, especially since many operator setups don't trigger the race at all.
+
+**Residual risk.** When the init race re-bites, channel-routed dispatches stop reaching the model — they queue at the service and never surface. Symptom: `comms_send` returns success, the dashboard shows a queued turn, but the receiving claude-aify session never wakes. Recovery: set `AIFY_CLAUDE_STRICT_MCP=1` in the launching shell and relaunch the wrapper. The two-server config restores guaranteed channel wake at the cost of the other MCP servers.
+
+**Reconsider if.** Upstream Claude Code fixes the MCP init race (#38462 / #21341 close) — at which point the env-var escape hatch becomes dead code and can be removed. Until then, keep both branches.
+
+**Plan 4 Task 15 verification (2026-05-25):** Wrapper redeployed at `~/.local/bin/claude-aify` (May 25 17:47) post-`./install.sh --client claude`. Static check: install.sh's claude-aify wrapper-generation gates `--strict-mcp-config` behind `AIFY_CLAUDE_STRICT_MCP=1` (verified by `mcp/stdio/tests/claude-aify-strict-mcp-env-gate.test.js`). Operator-side live smoke pending — should be done when operator returns: launch fresh `claude-aify` and verify `/mcp` lists the full `~/.claude.json` mcpServers (aify-comms, aify-comms-channel, browsermcp, github, aify-project-graph, etc.). If MCPs are still missing, root cause is deeper than the env-gate and needs investigation.
+
+## 2026-05-25 — RuntimeAdapter foundation + unified session-handle capture
+
+**Decision:** Introduce a `RuntimeAdapter` abstract class in `mcp/stdio/adapters/` with one concrete subclass per supported runtime (claude-code, codex, hermes, pi, opencode). Plan 1 implements session-lifecycle methods (`getCurrentSessionId`, `resumeArgs`, `normalizeSessionHandle`, `normalizeModelOverride`, `diagnosticEnv`). Bridge consumes the adapter to (a) report the current runtime session id in the startup banner, (b) fill `sessionHandle` in `comms_register` payloads, and (c) PATCH `/api/v2/agents/{id}/session-handle` every 60s when the handle changes.
+
+The dashboard Console's `_default_console_command` is simplified to use the stored handle for `--resume` across all runtimes. The codex carve-out (always-fresh) is removed; codex-aify gains a try-resume-then-fresh fallback so a stale session file degrades gracefully instead of breaking the wrapper.
+
+**Why:** Operator-reported "missing handles all the time" — `agents.session_handle` stayed empty for wrapper-backed managed agents because nothing was reporting back the runtime-created session id after first launch. Each runtime had its own ad-hoc capture path (`extractPiSessionState`, codex app-server events, hermes gateway query, claude channel sidecar) and the new `managed_via_wrapper` flow bypassed them all. The adapter pattern collapses every future per-runtime quirk to one method per runtime.
+
+**Plans 2 and 3 (not yet implemented):** Plan 2 fills in the capability flags (`supportsResident`, `supportsManaged`, `supportsSteering`, `supportsInterrupt`, `supportsMultiClient`, `preferredDeliveryMode`) and routes pi delivery away from `pi-session-resume`'s spawn-fresh-worker pattern into `managed_via_wrapper`. Plan 3 extracts a Python `service/runtimes/` package and migrates `_default_console_command`, the dispatch dispatcher, and the delivery shims to consume adapter calls instead of branching on `runtime == "..."`.
+
+**Trade-off accepted:** The very first turn of a brand-new agent still launches fresh (no handle exists yet); the first heartbeat (≤60s after that turn) captures the new id. Mid-session `/clear` operations (claude) won't update the env var the bridge already has cached — operator must restart the wrapper to recapture. Both are documented as known limitations.
+
+**See also:** `docs/superpowers/specs/2026-05-25-runtime-adapter-design.md`, `docs/superpowers/plans/2026-05-25-plan1-runtime-adapter-session-handle.md`.
+
+## 2026-05-25 — Plan 2: Runtime capabilities + pi delivery flip
+
+**Decision:** Extend the Plan 1 `RuntimeAdapter` foundation with six capability properties (`supportsResident`, `supportsManaged`, `supportsSteering`, `supportsInterrupt`, `supportsMultiClient`, `preferredDeliveryMode`) implemented in both languages — JS adapter classes in `mcp/stdio/adapters/` (Plan 1 location) and a new mirror Python package at `service/runtimes/`. Cross-language consistency enforced by `service/tests/test_runtime_adapter_consistency.py` running `node mcp/stdio/scripts/dump-capabilities.mjs`.
+
+Drop the `pi-session-resume` spawn-fresh-worker delivery pattern. Current Pi managed delivery uses the persistent native `omp --mode rpc` controller and virtual terminal stream; Pi is not routed through `managed_via_wrapper` because OMP is single-client and the dashboard Console must share the same bridge-owned RPC child. Legacy resident-Pi rows may be marked for migration, but normal ownership changes are manual through **Switch to resident/managed**.
+
+Migrate the consumer call sites pi-flip touches: `_managed_via_wrapper_for_runtime`, `_default_capabilities_for`, `defaultCapabilitiesForRuntime`, `controlCapabilitiesForRuntime`. Remaining per-runtime branches in api_v2.py (`_default_console_command`, dispatch dispatcher, delivery shims) defer to Plan 3.
+
+**Why:** Operator-reported recurring pi pain (`--model unknown`, `No API key for cloudflare-ai-gateway`) traced to the spawn-fresh-worker pattern. Pi's single-client RPC mutex makes resident/parallel wrapper delivery impossible without a multi-client gateway OMP doesn't provide. The fix is structural: dashboard-managed Pi owns one persistent RPC child and exposes it as a virtual terminal instead of spawning sibling `omp-aify` PTYs.
+
+**Plan 3 (next):** Fill in `consoleCommand`, `injectMessage`, `interrupt`, `steer` on both adapter packages and migrate the remaining per-runtime branches.
+
+**See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`, `docs/superpowers/plans/2026-05-25-plan2-runtime-capabilities-and-pi-flip.md`.
+
+## 2026-05-25 — Plan 3: Controllers + delivery migration
+
+**Decision:** Complete the `RuntimeAdapter` foundation by adding remaining Plan 3 methods (Python: `console_command`, `wrapper_name`, `is_resident_ready`; JS: `controllerFor` + delegate methods), extracting per-runtime controllers from `mcp/stdio/runtimes.js` into individual `mcp/stdio/controllers/<runtime>-controller.js` files, and migrating `_default_console_command`, `_default_capabilities_for`, and `launchRuntimeRun` to consume the adapter contract.
+
+Closes #120 — restores the `channelEnabled` per-config resident gate that Plan 2 Task 14 simplification dropped. Claude resident agents now correctly require `runtime_config.channelEnabled=True` before advertising `resident-run`.
+
+11 controller files now live under `mcp/stdio/controllers/`:
+- `base-controller.js` (abstract)
+- `opencode-controller.js`, `pi-controller.js`, `claude-controller.js`
+- `hermes-controller.js` + `hermes-resident-controller.js` + `hermes-managed-controller.js` + `hermes-single-shot-controller.js`
+- `codex-controller.js` + `codex-managed-controller.js` + `codex-legacy-controller.js` + `codex-legacy-helpers.js`
+
+All ≤400 lines per the 500-line rule. `mcp/stdio/runtimes.js` shrank from 4106 → 2110 lines (still above the ≤350 target — the remaining 2110 are reusable helpers, follow-up tracked).
+
+Module-load cycle (`adapters/X → controllers/X → runtimes.js → adapters/index.js → adapters/X`) was broken in Plan 3 Task 7.5 via lazy REGISTRY construction in `adapters/index.js` plus a `runtimes-helpers.js` re-export boundary for controllers.
+
+**Why:** Operator's 500-line file rule + clean-architecture-always preference. `runtimes.js` was a 4100-line monolith — the worst in the codebase. Plan 3 splits the per-runtime delivery code into testable per-file modules. Adapter consumers (`_default_console_command` etc.) had per-runtime if-branches that grew quadratically with each new feature; Plan 3 collapses them to one rule.
+
+**Follow-ups tracked:** runtimes.js helper extraction (the 2110 → ≤500 path is mapped — 4 clusters in `codex-config-helpers.js`, `codex-live-discovery.js`, `executable-resolution.js`, `rpc-clients.js`).
+
+**See:** `docs/superpowers/specs/2026-05-25-runtime-adapter-plan3-controllers-and-delivery-design.md`, `docs/superpowers/plans/2026-05-25-plan3-controllers-and-delivery.md`.
+
+## 2026-05-25 — Plan 4: Status, session-handle, default-path fixes
+
+**Decision:** Close 12 operator-surfaced gaps from Plans 1+2+3 live testing.
+Flip wrapper-backed delivery to default for Codex/Hermes (`managed_via_wrapper: ["codex","hermes"]` + `managed_pty_eager_spawn: true`). Pi stays structurally excluded from wrapper mode and uses persistent native OMP RPC; OpenCode uses its native controller. Per-adapter `discoverSessionId()` closes the "missing handles" gap for fresh managed launches where handles exist. Bridge heartbeat falls back to discoverSessionId when env-read returns null. Status taxonomy stops lying — managed agents without a live worker show `available` not `online`; new `ready` status sits between `online` and `working` (handshake-complete signal emitted by each controller). New `mcp/stdio/turn-busy-heartbeat.js` keeps `working` fresh during long turns. codex-aify wrapper probe accepts multi-layout codex session storage. `hermes-session-resume` wake-mode removed entirely (gateway path is the single source). `redeploy.sh` helper auto-detects installed wrappers and refreshes them after pulls.
+
+**Why:** Operator-driven live testing after Plans 1+2+3 surfaced a tight cluster of issues each blocking everyday use. Plan 4 is the "polish layer that makes the architecture deployable."
+
+**See:** `docs/superpowers/specs/2026-05-25-plan4-status-and-session-handle-fixes-design.md`,
+`docs/superpowers/plans/2026-05-25-plan4-status-and-session-handle-fixes.md`.
+
+## 2026-05-26 — Hermes-aify dashboard probe falls through silently when web_dist missing (Plan 5 Section A)
+
+**Symptom.** Operator launches `hermes-aify`; agent registers but `wakeMode='hermes-missing-handle'`. `AIFY_HERMES_GATEWAY_URL` is unset in the shell. Resident hermes dispatches fail to wake the agent. Tiny (~240 byte) log files in `~/.local/state/aify-comms/hermes-aify-dashboard-*.log` contain only `✗ --skip-build was passed but no web dist found`.
+
+**Architectural gap.** The wrapper invoked `hermes dashboard --tui --skip-build` to obtain a gateway URL, but never pre-built `hermes_cli/web_dist`. The dashboard subcommand exited immediately, `wait_for_http` timed out (30s), and the wrapper silently `exec`'d plain `hermes` without exporting `AIFY_HERMES_GATEWAY_URL`. Inside that plain shell the aify-comms MCP child registered with `runtime_config={}` and the server resolved a non-live wake mode. No visible error.
+
+**Fix.** `install.sh --client hermes` now runs `npm install && npm run build` against the hermes web tree once at install (`install.sh`, commit `5057383`). The wrapper additionally prints a loud WARNING when it falls back to plain hermes (`7a544e8`) instead of failing silently. Right boundary: the build is a one-time install concern, not a per-launch cost; the WARNING is a runtime concern that keeps operator visibility intact when the install step was skipped or partial.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section A.
+
+## 2026-05-26 — Channel-claim must be symmetric across runtimes (Plan 5 Section B)
+
+**Symptom.** After Plan 4 flipped wrapper-backed delivery on for codex/hermes/pi, dashboard sends to graph-senior-dev (codex managed), pi-managed, and hermes-managed agents stayed `status='queued', execution_mode='channel', claim_bridge_id=''` forever. Bridges were alive and heartbeating. Identical symptom across three runtimes.
+
+**Architectural gap.** Plan 4 set the server route to `execution_mode='channel'` for any wrapper-backed runtime (`api_v2.py:1047`), but the claim-side whitelist `_CHANNEL_MANAGED_RUNTIMES` only contained `claude-code`. Bridges for codex/hermes/pi never even requested `'channel'` in their claim poll (`dispatch-execution.js`), and the server would have rejected them at the claim gate anyway. Plan 4 was asymmetric: route added without claim added.
+
+**Fix.** Introduced `_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex","hermes","pi"}` at `api_v2.py:281` (the *claim* whitelist, distinct from the route-routing set) — commit `ec363cf`. Bridges advertise `'channel'` for managed + wrapper-backed runtimes (`3bcbac2`). Controllers route channel-mode claims to the same runtime-native inject path used by resident-channel (`0beab57`). Right boundary: the bridge inside a wrapper-backed managed PTY is structurally identical to a resident bridge — same process, same inject path — so symmetric claim respects that, and a separate `_CHANNEL_CLAIM_RUNTIMES` set preserves the route/claim distinction without conflating concerns.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section B.
+
+## 2026-05-26 — Live-state cache must not lie about 'online' (Plan 5 Section C)
+
+**Symptom.** Dashboard shows a managed agent as `online` indefinitely after its wrapper PTY exited. No Console widget loads. `terminal_sessions` row is `stopped`/`failed`/missing, but `agent_live_state.status='online'` with `refresh_after` long past — and never re-validated on read.
+
+**Architectural gap.** `_compute_live_status_cache` (`api_v2.py:2228-2462`) computed `has_live_worker` correctly when invoked, but the cache's `refresh_after` was keyed off heartbeat freshness, not worker presence. A parallel heartbeat (from a sibling bridge or operator's own session) kept the agent's `last_seen` fresh, so `refresh_after` stayed in the future and the cache was never re-validated. The Plan 4 Task 10 implementer claimed the cache implemented the new taxonomy "correctly" — that claim only covered the db-less fallback path.
+
+**Fix.** Added `_enforce_live_worker_gate` at `api_v2.py:352`, called at every agent read (`api_v2.py:8517, 9017`) — commits `b58142e` + `f38f57d`. Before returning `status='online'` for a managed wrapper-backed agent, the gate validates that a non-`stopped`/`failed` `terminal_sessions` row exists. If not, downgrade to `available` and write back to `agent_live_state` so the next read is also corrected. Right boundary: the API read path is the cheapest, most self-correcting place to enforce the invariant — the cache stays for performance but cannot lie on the way out.
+
+**See:** `docs/superpowers/specs/2026-05-25-plan5-plan4-fix-three-root-causes-design.md` Section C.
+
+
+## 2026-05-26 — `/dispatch` must respect Plan 5 channel route (extra-check follow-up)
+
+**Symptom.** `comms_dispatch` to a wrapper-backed managed codex/hermes/pi agent routed via raw PTY keystrokes (`console_recipients`) instead of channel-claim. Operator banned this delivery shape: "I do not want pseudo terminal input because i might write while other agent sends message in and it gets scrambled."
+
+**Architectural gap.** `/dispatch` at `api_v2.py:10927-10948` received `execution_mode='channel'` from `_agent_execution_mode` (per Plan 5 Section B), then unconditionally fell through into the PTY-input branch and overwrote `execution_mode=None`. `/messages/send` at `api_v2.py:9923` was already correct (gates the PTY-input branch on `execution_mode=='managed'`). The asymmetry was invisible to spec compliance and code-quality review because both endpoints look mostly identical — surfaced only by the feature-surrounding pass.
+
+**Fix.** Narrow the `/dispatch` PTY-input branch to `execution_mode == "managed"` so wrapper-backed managed dispatches (`execution_mode='channel'`) flow through to channel-claim — commit `d12baae`. Regression test at `service/tests/test_dispatch_endpoint_wrapper_backed.py` asserts the persisted `dispatch_runs.execution_mode='channel'` for codex/hermes/pi.
+
+**See:** `service/tests/test_dispatch_endpoint_wrapper_backed.py`; Plan 5 spec.
+
+
+## 2026-05-26 — Known follow-up: wrapper-child / main-bridge channel-claim race
+
+**Symptom.** Plan 5 Section B widened both ends of the channel-claim path. If two bridges register as the same wrapper-backed managed `agent_id` (rare: operator manually opens a second wrapper with `--aify-agent X`), both ask `/dispatch/claim` for `executionModes=['channel']`. The `BEGIN IMMEDIATE` + FCFS UPDATE in `claim_dispatch` prevents double-delivery, but the winning bridge may not have `appServerUrl` (codex) or `gatewayUrl` (hermes) from the wrapper's local env. If the loser was the in-wrapper bridge, the winner spawns a fresh codex/hermes process and the wrapper PTY becomes orphaned.
+
+**Why we did not fix it now.** In practice the supersession mechanism (`bridge_instances.superseded_by`) kills the older bridge almost immediately, so the race window is small. None of the live traces from the 2026-05-26 debugging session showed multiple non-superseded bridges per agent. Filed as a follow-up; revisit if observed.
+
+**Mitigation idea.** Reject channel-claims when the request's bridge is not the agent's "current" `runtimeState.bridgeInstanceId` — symmetric with the `_bridge_claim_block_reason` gate already in place for managed claims.
+
+
+## 2026-05-26 — Bridge prefers runtime discovery over env-read for session handle (Plan 6 A)
+
+**Symptom.** Dispatch fails at delivery time with `prompt.submit failed: session not found` (hermes) or analogous "session not found" / GC'd-rollout errors on codex/pi/claude. Observed 2026-05-26 in the `sc-hermes-test-1` ping-pong run and the `hermes-test` pseudo-terminal — bridges were alive, heartbeating, and reported `delivered`, but the runtime rejected the handle the server had on file. The stored `agents.session_handle` matched a session that no longer existed in the runtime.
+
+**Architectural gap.** Both the bridge's session-handle heartbeat (`mcp/stdio/session-handle-heartbeat.js`) and its initial-register path (`mcp/stdio/server.js`) tried `adapter.getCurrentSessionId()` (env-read) FIRST and only fell back to `adapter.discoverSessionId()` (runtime-truth probe — filesystem scan for codex/claude, gateway RPC for hermes, RPC state for pi) when env was null. Operators routinely leave stale `HERMES_SESSION_ID` / `CODEX_THREAD_ID` / `PI_SESSION_ID` in their shells from earlier runtime sessions. The stale env value won at every register and every heartbeat, so the truthful runtime id was never written back — the lie persisted indefinitely.
+
+**Fix.** Reverse priority: `adapter.discoverSessionId()` is authoritative; env-read is the fallback when discover throws or returns null. Heartbeat fix at `mcp/stdio/session-handle-heartbeat.js:25-30` (commit `3167423`). Initial-register fix extracts a pure `computeInitialSessionHandle({ adapter, envHandle })` helper at `mcp/stdio/server.js:874-887` and wires it into auto-register at `server.js:895` (commit `edbc374`). Strictly additive — if discover fails for any reason, behavior is identical to before. Right boundary: the bridge is the only process that owns both the env handle and a live adapter pointed at the actual runtime, so it is the correct place to reconcile the two; the server cannot independently verify a handle without re-implementing per-runtime probes. Self-correcting within one heartbeat tick (60s) for already-registered agents; correct at first dispatch for fresh registrations.
+
+**See:** `docs/superpowers/specs/2026-05-26-plan6-session-handle-truth-and-mode-switch-design.md` Section A; `mcp/stdio/tests/session-handle-heartbeat-priority.test.js` and `mcp/stdio/tests/auto-register-discover-priority.test.js`.
+
+
+## 2026-05-26 — Wrappers rediscover and re-export real session id at start (Plan 6 B)
+
+**Symptom.** Brand-new dispatches in the first 60 seconds after wrapper launch still failed with `session not found` even after Plan 6 A landed. The heartbeat self-corrects within 60s, but the FIRST register call (before the first heartbeat tick) baked whatever the operator's shell carried into `agents.session_handle`, and any dispatch in that window hit a stale handle.
+
+**Architectural gap.** Plan 6 A solved the in-bridge correction loop but left the launch-time inheritance chain intact. Operators starting `hermes-aify` / `codex-aify` / `omp-aify` / `claude-aify` from a long-lived shell exported their previous-session env vars (`HERMES_SESSION_ID`, `CODEX_THREAD_ID`, `PI_SESSION_ID`, `CLAUDE_SESSION_ID`) straight into the wrapper, which then exec'd the runtime AND spawned the inner MCP bridge with the same env. The bridge's initial register read those stale env values. Each runtime has different "truth surfaces" — hermes exposes `session.most_recent` over its gateway WebSocket, codex stores rollouts in `~/.codex/sessions`, pi serves `GET /agents/{id}/pi-session-state`, claude writes `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` — but they all happen BEFORE the bridge starts.
+
+**Fix.** Each `*-aify` wrapper rediscovers its runtime's real session id at start and overwrites the inherited env vars before exec'ing the runtime + bridge. Hermes queries `session.most_recent` JSON-RPC after the dashboard probe succeeds (`install.sh` hermes block, commit `5e8bcf9`). Codex scans `~/.codex/sessions/**/rollout-*.jsonl` for the newest file and extracts the UUID, mirroring `service/runtimes/codex.py`'s `discover_session_id` (commit `842f725`, reordered post-review by `f28bdce` so explicit `--resume <id>` still wins). Pi reuses the Phase-4 watchdog's already-fetched `pi-session-state` body — no extra HTTP call (commit `11a15ed`). Claude validates `$CLAUDE_SESSION_ID` against `~/.claude/projects/*/<id>.jsonl` and unsets it when no transcript exists, letting claude create a fresh session and the bridge discover it (commit `eba3de0`). All four are non-fatal: empty discovery leaves env alone, and Plan 6 A's heartbeat is the safety net within 60s. Right boundary: the wrapper is the only process that runs BEFORE the bridge AND owns both the inherited env AND a way to probe the runtime — fixing it any later (e.g. inside the bridge) cannot retroactively repair the initial register.
+
+**See:** `docs/superpowers/specs/2026-05-26-plan6-session-handle-truth-and-mode-switch-design.md` Section B; per-runtime rediscover tests under `service/tests/test_install_*_session_rediscover.py`; `install.md` family for per-wrapper docs.
+
+
+## 2026-05-26 — Manual resident/managed mode switching (Plan 6 C)
+
+**Symptom.** Operator wanted to flip a live agent between `resident` and `managed` mid-life without killing and relaunching its wrapper. Today's `*-aify` wrappers auto-detect mode at launch via `[ -t 0 ]` (TTY → resident, no TTY → managed), which is correct for new launches but cannot be re-evaluated once the wrapper is running. The recurring issue this enables: a resident wrapper that the operator wants to "demote" to managed (so the dashboard can drive dispatches without competing for the PTY), or a managed agent the operator wants to "promote" to resident (so the operator's CLI session adopts ownership). Operator quote: *"switching between resident and managed manual ... then this kind of issues would not happen."*
+
+**Architectural gap.** `session_mode` was inferred at register time and stored on `agents.session_mode`, but no endpoint existed to change it post-registration, no dashboard control surfaced it, and no state-transition side effects fired (resident→managed should eager-spawn a managed PTY so the next dispatch lands in a ready Console; managed→resident should release the existing managed PTY so the operator-launched resident wrapper can claim ownership cleanly).
+
+**Fix.** Three layers gated by a single setting:
+- **API** (`service/routers/api_v2.py:9586-9742`, commits `0c33003` + `4f1d2af`): `PATCH /api/v1/agents/{id}/session-mode {mode, force?}`. Returns 409 when an active dispatch is in flight (would stall the run) or when hermes managed→resident lacks `runtimeConfig.gatewayUrl` (resident hermes would be un-wakeable); `force=true` bypasses. Resident→managed best-effort eager-spawns via `_ensure_managed_pty_for_dispatch`; managed→resident flips the existing managed terminal to `stopping` for clean bridge reconcile. Side-effect failures don't roll back the mode change — they surface in `response.sideEffects`. Audit trail: a synthetic `dispatch_runs` anchor row + `dispatch_events {type: "mode_switch_<old>_to_<new>"}` so the switch is discoverable in per-agent dispatch history without a new table.
+- **Setting** (`api_v2.py:215`, commit `697d526`): `manual_session_mode: false` in `DEFAULT_SETTINGS`. Default off — TTY auto-detect remains the sole source of truth unless the operator opts in.
+- **Dashboard** (`service/new_dashboard/app.js`, commits `57c29e8` + `d8fab5e` + `e42f2ec`): when setting is on, `renderModeSwitchChip(agent)` appears in the Session Console header card AND in each Sessions-rail row, plus an inline toggle in the Settings page. Chip clicks call the PATCH endpoint via `switchAgentSessionMode(agentId, target)`; the rail-row chip stops propagation so it doesn't double-fire the row's session-select handler.
+
+Right boundary: the dashboard is the cheapest place to expose a mid-life knob (no shell access required), and gating it behind a setting means operators on auto-detect-only workflows see no UI churn. The audit anchor row reuses the existing `dispatch_runs`/`dispatch_events` schema rather than adding a sibling table — switches stay discoverable in the same place every other agent state change is logged.
+
+**See:** `docs/superpowers/specs/2026-05-26-plan6-session-handle-truth-and-mode-switch-design.md` Section C; `service/tests/test_agent_session_mode_switch.py`; `service/tests/test_new_dashboard_session_mode_switch.py`.

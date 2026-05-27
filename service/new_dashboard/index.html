@@ -6,6 +6,13 @@
   <title>AIFY Comms Dashboard Next</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/styles.css">
+  <!-- xterm.js for real PTY rendering (TerminalProcessManager backed
+       managed agents — codex-aify / hermes-aify / claude-aify in
+       node-pty). Loaded from jsdelivr CDN; switch to bundled assets
+       once the dashboard build pipeline can vendor them. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 </head>
 <body>
   <div id="app-shell" class="app-shell">
@@ -63,6 +70,13 @@
           <aside class="session-rail-wrap" aria-label="Sessions by environment">
             <div id="session-bulk-toolbar" class="session-bulk-toolbar" hidden></div>
             <div id="session-rail" class="session-rail"></div>
+            <section class="activity-feed" aria-label="Recent activity">
+              <div class="section-head">
+                <h2>Activity</h2>
+                <span class="subtle">latest</span>
+              </div>
+              <div id="activity-feed" class="activity-list"></div>
+            </section>
           </aside>
           <section class="session-main">
             <div class="session-head">
@@ -91,7 +105,7 @@
                     <option value="urgent">Urgent</option>
                   </select>
                   <label class="check-row">
-                    <input id="composer-queue" type="checkbox" checked>
+                    <input id="composer-queue" type="checkbox">
                     <span>Queue if busy</span>
                   </label>
                 </div>
@@ -107,10 +121,39 @@
       </section>
 
       <section id="page-environments" class="page">
+        <div id="environment-summary" class="environment-summary"></div>
+        <section class="band environment-spawn">
+          <div class="section-head">
+            <h2>Spawn Session</h2>
+            <span class="subtle">managed-warm</span>
+          </div>
+          <form id="environment-spawn-form">
+            <div class="environment-spawn-grid">
+              <select id="env-spawn-environment" title="Environment"></select>
+              <select id="env-spawn-runtime" title="Runtime"></select>
+              <input id="env-spawn-agent-id" placeholder="Agent ID">
+              <select id="env-spawn-role" title="Role">
+                <option value="coder">coder</option>
+                <option value="reviewer">reviewer</option>
+                <option value="tester">tester</option>
+                <option value="researcher">researcher</option>
+                <option value="architect">architect</option>
+                <option value="manager">manager</option>
+                <option value="operator">operator</option>
+              </select>
+              <input id="env-spawn-workspace" placeholder="Workspace">
+              <input id="env-spawn-prompt" placeholder="Initial task (optional)">
+              <button class="primary" type="submit">Spawn</button>
+            </div>
+          </form>
+          <p class="preview">Spawn starts a fresh session. To keep existing context, use Compact or Continue in the classic dashboard.</p>
+        </section>
         <div id="environment-list" class="runtime-grid"></div>
       </section>
 
       <section id="page-diagnostics" class="page">
+        <div id="diagnostics-summary" class="diagnostics-summary"></div>
+        <div id="diagnostics-bulk-toolbar" class="diagnostics-bulk-toolbar" hidden></div>
         <section class="split diagnostics-grid">
           <div class="band">
             <div class="section-head">
@@ -161,6 +204,21 @@
           </div>
           <p class="preview">Settings parity is gated by the 8801 parity contract. Use the classic dashboard until this flow is enabled.</p>
         </section>
+        <!-- Plan 6 C6 (2026-05-26): inline toggle for manual_session_mode so
+             operators can opt into the resident<->managed mode-switch chips
+             without leaving this dashboard. Other settings still live in the
+             classic UI until parity completes. -->
+        <section class="band">
+          <div class="section-head">
+            <h2>Session mode override</h2>
+          </div>
+          <label class="settings-toggle">
+            <input type="checkbox" id="setting-manual-session-mode">
+            <span>Show resident&lt;-&gt;managed switch chips in the dashboard</span>
+          </label>
+          <p class="preview">Default off. Wrappers auto-detect via TTY at launch regardless; this only governs whether the dashboard exposes one-click overrides via Plan 6 C1 PATCH /agents/&lt;id&gt;/session-mode.</p>
+          <div id="setting-manual-session-mode-status" class="preview" aria-live="polite"></div>
+        </section>
       </section>
     </main>
 
@@ -171,6 +229,13 @@
       </div>
       <div id="inspector-content" class="inspector-content">Select an item to inspect details.</div>
     </aside>
+    <div id="status-why-popover" class="status-why-popover" hidden></div>
+    <nav id="mobile-tabbar" class="mobile-tabbar" aria-label="Mobile primary navigation">
+      <button class="active" type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
+      <button type="button" data-page="environments" data-mobile-page="environments">Environments</button>
+      <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Diagnostics</button>
+      <button type="button" data-page="settings" data-mobile-page="settings">Settings</button>
+    </nav>
   </div>
   <script src="/assets/app.js"></script>
 </body>

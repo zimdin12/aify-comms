@@ -21,10 +21,33 @@ function appendTail(current = "", chunk = "", limit = 8192) {
   return next.length > limit ? next.slice(-limit) : next;
 }
 
+function compactTerminalText(text = "") {
+  return String(text || "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, " ")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hermesResumeStillPending(text = "") {
+  const lower = compactTerminalText(text).toLowerCase();
+  if (!lower) return false;
+  const resumeIdx = lower.lastIndexOf("resuming");
+  if (resumeIdx < 0) return false;
+  const readyIdx = lower.lastIndexOf("ready");
+  return readyIdx < resumeIdx;
+}
+
+function hermesResumeStallHealMs() {
+  const raw = Number(process.env.AIFY_HERMES_RESUME_STALL_HEAL_MS || "");
+  if (Number.isFinite(raw) && raw > 0) return Math.max(25, raw);
+  return 30000;
+}
+
 export function classifyTerminalRuntimeOutput(runtime = "", text = "") {
   const key = normalizeRuntime(runtime);
   const raw = String(text || "");
-  const compact = raw.replace(/\s+/g, " ").trim();
+  const compact = compactTerminalText(raw);
   const lower = compact.toLowerCase();
   if (!lower) return null;
   if (key === "pi") {
@@ -191,6 +214,7 @@ export class TerminalProcessManager {
       kind: "pty",
       outputTail: "",
       classification: null,
+      resumeHealTimer: null,
       exitPromise,
       resolveExit,
     };
@@ -232,6 +256,7 @@ export class TerminalProcessManager {
       kind: "pipe",
       outputTail: "",
       classification: null,
+      resumeHealTimer: null,
       exitPromise,
       resolveExit,
     };
@@ -262,6 +287,34 @@ export class TerminalProcessManager {
       if (state.kind === "pty") state.term?.kill();
       else terminateProcessTree(state.proc, "SIGTERM");
     }
+    this._armHermesResumeStallHeal(id, state);
+  }
+
+  _armHermesResumeStallHeal(id, state) {
+    if (!state || state.runtime !== "hermes" || !state.sessionHandle || state.healAttempted || state.stopping) return;
+    if (!hermesResumeStillPending(state.outputTail)) {
+      if (state.resumeHealTimer) {
+        clearTimeout(state.resumeHealTimer);
+        state.resumeHealTimer = null;
+      }
+      return;
+    }
+    if (state.resumeHealTimer) return;
+    state.resumeHealTimer = setTimeout(() => {
+      state.resumeHealTimer = null;
+      if (!this.terminals.has(id) || state.stopping || state.healAttempted) return;
+      if (!hermesResumeStillPending(state.outputTail)) return;
+      const message = `Hermes saved session handle did not become ready: ${state.sessionHandle}`;
+      state.classification = {
+        kind: "missing_session",
+        status: "failed",
+        sessionHandle: state.sessionHandle,
+        message,
+      };
+      if (state.kind === "pty") state.term?.kill();
+      else terminateProcessTree(state.proc, "SIGTERM");
+    }, hermesResumeStallHealMs());
+    if (typeof state.resumeHealTimer.unref === "function") state.resumeHealTimer.unref();
   }
 
   async _enqueueOutput(id, text, { flushNow = false } = {}) {
@@ -305,6 +358,10 @@ export class TerminalProcessManager {
   async _handleExit(id, state, detail = {}) {
     if (state.finalized) return;
     state.finalized = true;
+    if (state.resumeHealTimer) {
+      clearTimeout(state.resumeHealTimer);
+      state.resumeHealTimer = null;
+    }
     if (this.terminals.get(id) === state) this.terminals.delete(id);
     state.resolveExit?.(detail);
     const classification = state.classification || classifyTerminalRuntimeOutput(state.runtime, state.outputTail);

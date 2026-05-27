@@ -27,7 +27,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -125,13 +125,13 @@ DEFAULT_SETTINGS = {
     "reply_reminder_max_count": 0,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
-    # Tighter window for managed dispatches (non-terminal). Default 5 min.
+    # Tighter cleanup window for managed dispatches. Default 5 min.
     # A managed run with an empty claim_bridge_id that hasn't progressed
     # within this window is presumed orphaned — the bridge crashed
     # between claim and the controller's failure-PATCH, OR the failure
     # PATCH hit a transient connection error and was logged-but-lost.
-    # Tuned tighter than the 30-min terminal window because managed
-    # dispatches are typically per-turn and shouldn't linger.
+    # Tuned tighter than the 30-min generic terminal window because
+    # managed dispatches are typically per-turn and shouldn't linger.
     "active_managed_run_stale_minutes": 5,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
@@ -170,10 +170,26 @@ DEFAULT_SETTINGS = {
     # first dispatch arrives, no "console pop-up on first send" UI
     # symptom, and subsequent dispatches reuse via slice-3's
     # console-attach reuse + the existing dispatch _active_terminal_for_agent.
-    # Default false so existing behavior (PTY lazily on first dispatch)
-    # is unchanged. Operator flips on for live-smoke; immediate
-    # rollback by flipping back to false.
-    "managed_pty_eager_spawn": False,
+    # Default true for normal dashboard operation: terminal-backed managed
+    # agents should have an operator-visible Console before the first turn
+    # needs it. Roll back by flipping this false.
+    "managed_pty_eager_spawn": True,                    # Plan 4 (2026-05-25): auto-spawn on dispatch; was False
+    # Unified-backing refactor (2026-05-24): when set, managed dispatches for
+    # the listed runtimes route through a *-aify wrapper PTY (mirror of how
+    # managed claude already works via claude-channel.js inside claude-aify)
+    # instead of through the bridge's native RPC adapters (CodexSession,
+    # HermesSession, HermesManagedGatewaySession, PiSession). The wrapper's
+    # in-process MCP bridge claims /dispatch/claim and delivers via the
+    # wrapper's local backing. Dashboard Session Console renders the real
+    # Ink TUI of the wrapper via xterm.js.
+    #   false: existing native managed dispatch flow.
+    #   true: eligible codex / hermes managed runs route via wrapper.
+    #   ["hermes", "codex"]: per-runtime opt-in during rollout.
+    # claude-code is always wrapper-backed (claude-channel.js); not gated.
+    # pi is structurally excluded (omp single-client RPC + bridge-owned
+    # mutex make the wrapper pattern impossible). pi managed stays on
+    # the persistent PiSession synth-terminal path. See DECISIONS.md.
+    "managed_via_wrapper": ["codex", "hermes"],  # wrapper-backed default for Codex/Hermes; was False
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
     # asked for this 2026-05-22: after sending a message the agent
@@ -182,12 +198,17 @@ DEFAULT_SETTINGS = {
     # the actual operational state (available). The reconciler checks
     # every cycle (60s) and only acts on workers with no in-flight
     # dispatch_runs.
+    "worker_idle_close_enabled": False,
     "worker_idle_close_minutes": 0,
     "managed_codex_model": "",
     "managed_codex_effort": "high",
     "managed_pi_model": "",
     "managed_pi_effort": "",
     "resident_lease_seconds": 150,
+    # Show dashboard controls for explicit resident<->managed ownership
+    # switches. The wrappers still auto-detect at launch; this governs only
+    # visibility of the manual override controls.
+    "manual_session_mode": True,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",
@@ -196,6 +217,13 @@ DEFAULT_SETTINGS = {
 }
 _TERMINAL_MONOTONIC_STATUSES = {"stopping", "stopped", "failed", "lost", "ended", "completed", "cancelled"}
 _TERMINAL_ACTIVE_STATUSES = {"starting", "attached", "running", "active", "idle"}
+_RUNTIME_CONFIG_LIVE_KEYS = {
+    "appServerUrl",
+    "remoteAuthTokenEnv",
+    "gatewayUrl",
+    "gatewayTokenEnv",
+    "channelEnabled",
+}
 
 _RUNTIME_ALIASES = {
     "claude": "claude-code",
@@ -233,18 +261,192 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # window; the bridge re-sends true on every per-agent heartbeat during long
 # turns (keep its cadence well under this).
 TURN_BUSY_STALE_SECONDS = 120
-# Runtimes with native managed adapters. With managed terminal backing enabled,
-# these first route through a bridge-owned PTY so Console/status semantics stay
-# symmetric; if no backing can be established, the native adapter remains the
-# fallback path. With the setting disabled, they keep the legacy native
-# dispatch_run behavior.
+# Runtimes with native managed adapters. Codex/Hermes may be promoted to the
+# wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
+# are claimed by the bridge's native controller. PTY-input is a legacy
+# explicit opt-in only (insert_messages_via_console=true).
 _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # Managed Claude uses a live Claude Code channel bridge. It is not a native
 # managed runtime adapter and must not be claimed by the generic managed loop.
+# Membership controls two distinct behaviors:
+#   1. _agent_execution_mode (line 1063) returns 'channel' unconditionally for
+#      these runtimes' managed dispatches — claude has no headless managed-run,
+#      so all managed claude flows through claude-channel.js.
+#   2. The PTY-spawn carve-outs at 9891/9917 fire only for these runtimes.
+# Codex/hermes/pi support a real native managed-run path and must NOT be
+# auto-routed to channel by membership alone — they route to channel ONLY when
+# wrapper-backed (managed_via_wrapper setting includes codex/hermes; gate at
+# line 1047). Pi stays native RPC. See _CHANNEL_CLAIM_RUNTIMES below for the
+# claim-side whitelist.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
+# Claim-side whitelist for execution_mode='channel' runs. Claude channel
+# claims can come from the claude-aify channel bridge. Wrapper-backed managed
+# Codex/Hermes claims must come from the wrapper PTY child bridge registered
+# as bridge_kind='managed-wrapper-child'; the main environment bridge is
+# intentionally blocked from claiming them because it lacks the live local
+# app-server/gateway for the visible console. opencode is intentionally
+# excluded — its adapter declares preferred_delivery_mode='managed'.
+_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
+
+
+def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> bool:
+    """True when managed dispatches for this runtime should route through a
+    *-aify wrapper PTY (the wrapper's child bridge claims and delivers) instead
+    of the bridge's native RPC adapter. Unified-backing refactor 2026-05-24,
+    extended in Plan 2 (2026-05-25) to consult the runtime adapter.
+
+    claude-code is excluded — it's already wrapper-backed via claude-channel.js
+    inside claude-aify regardless of this flag.
+
+    For all other runtimes, eligibility is driven by the adapter's
+    preferred_delivery_mode == "managed-via-wrapper". Pi is explicitly
+    excluded because OMP is single-client RPC; dashboard chat and Console must
+    share the same native managed controller and virtual terminal stream.
+    """
+    from service.runtimes import adapter_for
+
+    val = settings.get("managed_via_wrapper", DEFAULT_SETTINGS.get("managed_via_wrapper", False))
+    runtime_n = _normalize_runtime(runtime or "")
+    if runtime_n == "claude-code":
+        return False
+    if runtime_n == "pi":
+        return False
+    try:
+        adapter = adapter_for(runtime_n)
+    except ValueError:
+        return False
+    if adapter.preferred_delivery_mode != "managed-via-wrapper":
+        return False
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, list):
+        return runtime_n in {str(item).strip().lower() for item in val if item}
+    return False
+
+
+async def _has_live_terminal_session(db, agent_id: str) -> bool:
+    """Plan 4: True when this agent has a live terminal_session row
+    (managed-via-wrapper path).
+
+    Plan 5 follow-up (2026-05-26): synth/virtual terminals (id prefix
+    `vterm_`) MUST NOT count as live for this check. Plan 4 deprecated
+    synth terminals for wrapper-backed runtimes (see
+    `_synth_terminal_should_be_created`), but pre-Plan-4 rows persist in
+    operator DBs with `status='running'` and no cleanup path. Observed
+    2026-05-26 — sc-coder, sc-architect kept showing `online` after Plan
+    5 deploy because their stale 2026-05-24 `vterm_*` rows hid the dead
+    worker from the gate.
+    """
+    if db is None:
+        return False
+    try:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS cnt FROM terminal_sessions
+            WHERE agent_id = ?
+              AND status IN ('starting', 'attached', 'running', 'active', 'idle')
+              AND id NOT LIKE 'vterm_%'
+            """,
+            (agent_id,),
+        )
+        row = await cursor.fetchone()
+        return bool(row and int(row["cnt"] or 0) > 0)
+    except Exception:
+        return False
+
+
+def _has_live_rpc_controller(agent_id: str) -> bool:
+    """Plan 4: True when an in-memory RPC controller is registered for this
+    agent (managed-RPC synth fallback path). Today aify-comms doesn't
+    maintain such a registry on the server side — the bridge owns RPC
+    lifecycle. Returns False by default; wrapper-PTY backed agents go
+    through _has_live_terminal_session above.
+
+    Future: if a server-side registry of bridge-owned RPC children is
+    introduced, query it here.
+    """
+    return False
+
+
+async def _enforce_live_worker_gate(
+    payload: dict[str, Any],
+    db,
+    settings: dict[str, Any],
+    agent_id: str,
+) -> dict[str, Any]:
+    """Plan 5 Section C (2026-05-25): downgrade cached `online` to `available`
+    for managed wrapper-backed agents that have no non-terminated
+    `terminal_sessions` row.
+
+    Why this lives at the read boundary (not in the cache):
+    `_compute_live_status_cache` already consults `terminal_sessions` when it
+    runs, but `agent_live_state.refresh_after` is keyed on heartbeat
+    freshness via `_status_refresh_after` — NOT worker presence. When the
+    wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g.
+    another bridge polling the same agent), `refresh_after` stays in the
+    future and `_refresh_expired_agent_live_states` never re-validates.
+    Cached `status='online'` then persists indefinitely.
+
+    Observed 2026-05-25: graph-senior-dev (codex managed) —
+    `agent_live_state.status='online'` `terminal_id=''`
+    `updated_at=19:29:10Z` `refresh_after=19:30:28Z` (long past), but the
+    API still returned `online` because the cache row never fell behind a
+    fresh-enough heartbeat to trigger a recompute.
+
+    This gate is a final-step correction at the API boundary. Cache stays
+    for performance; the writeback below keeps subsequent reads honest
+    without re-running the terminal_sessions check.
+    """
+    if payload.get("status") not in {"online", "ready"}:
+        return payload
+    session_mode = str(payload.get("sessionMode") or "").lower()
+    if session_mode != "managed":
+        return payload
+    runtime = str(payload.get("runtime") or "").lower()
+    if not _managed_via_wrapper_for_runtime(settings, runtime):
+        return payload
+    if await _has_live_terminal_session(db, agent_id):
+        return payload
+    payload["status"] = "available"
+    payload["statusRaw"] = "available"
+    payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
+    # Task C2 — writeback so the dashboard's next poll sees the downgrade
+    # without re-running the live-worker check. Best-effort: a failure
+    # only means the next read re-runs the gate, which is still cheap.
+    try:
+        await db.execute(
+            """UPDATE agent_live_state
+               SET status = ?, reason = ?, updated_at = ?
+               WHERE agent_id = ?""",
+            (
+                "available",
+                "no-live-worker (Plan 5 read-path gate)",
+                _now(),
+                agent_id,
+            ),
+        )
+        await db.commit()
+    except Exception:
+        logger.debug(
+            "live-worker writeback failed for agent_id=%s; next read will re-run the gate",
+            agent_id,
+            exc_info=True,
+        )
+    return payload
+
+
+def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:
+    """Plan 4 (2026-05-25): synth-terminal (aify://virtual-rpc/<runtime>) is
+    deprecated for wrapper-backed runtimes. The wrapper PTY IS the terminal.
+    Synth stays for native managed runtimes such as pi/opencode and for
+    native-controller fallback when wrapper backing is disabled.
+    """
+    if _managed_via_wrapper_for_runtime(settings, runtime):
+        return False
+    return True
 
 
 def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
@@ -633,6 +835,15 @@ def _has_codex_live_app_server(runtime_config: Optional[dict[str, Any]] = None) 
     return str(runtime_config.get("appServerUrl") or "").strip().lower().startswith(("ws://", "wss://"))
 
 
+def _has_hermes_gateway_url(runtime_config: Optional[dict[str, Any]] = None) -> bool:
+    """Plan 4 Task 17: hermes resident uses the gateway path when a live
+    gatewayUrl is present in runtime_config. Mirrors the bridge-side check
+    in mcp/stdio/server.js."""
+    if not isinstance(runtime_config, dict):
+        return False
+    return str(runtime_config.get("gatewayUrl") or "").strip().lower().startswith(("ws://", "wss://"))
+
+
 def _normalize_channel_history_where(channel_name: str) -> tuple[str, tuple[Any, ...]]:
     return "channel = ? AND to_agent IS NULL", (channel_name,)
 
@@ -788,42 +999,45 @@ def _default_capabilities_for(
     session_handle: str = "",
     runtime_config: Optional[dict[str, Any]] = None,
 ) -> list[str]:
-    normalized_runtime = _normalize_runtime(runtime)
-    normalized_session_mode = _normalize_session_mode(session_mode)
-    session_handle = str(session_handle or "").strip()
-    if normalized_session_mode == "managed":
-        if normalized_runtime == "codex":
-            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
-        if normalized_runtime == "hermes":
-            return ["managed-run", "resume", "interrupt", "spawn"]
-        if normalized_runtime == "opencode":
-            return ["managed-run", "resume", "interrupt", "spawn"]
-        if normalized_runtime == "pi":
-            return ["managed-run", "resume", "interrupt", "steer", "spawn"]
-        if normalized_runtime == "claude-code":
-            return ["managed-run", "resume", "interrupt", "spawn"]
+    """Build the default capability list for an agent registration.
+
+    Plan 3 (2026-05-25): resident gating routes through adapter.is_resident_ready()
+    which closes the #120 regression — claude resident needs channelEnabled,
+    hermes resident needs a valid gatewayUrl, both rolled into the adapter.
+    """
+    from service.runtimes import adapter_for
+
+    runtime_n = _normalize_runtime(runtime or "")
+    try:
+        adapter = adapter_for(runtime_n)
+    except ValueError:
         return []
-    if normalized_runtime == "codex":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt", "steer"]
-    if normalized_runtime == "hermes":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt"]
-    if normalized_runtime == "opencode":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt"]
-    if normalized_runtime == "pi":
-        if not session_handle:
-            return []
-        return ["resident-run", "resume", "interrupt", "steer"]
-    if normalized_runtime == "claude-code":
-        if isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True:
-            return ["resident-run", "interrupt", "steer"]
-        return []
-    return []
+
+    caps: list[str] = []
+    session_mode_n = _normalize_session_mode(session_mode or "")
+
+    if session_mode_n == "resident":
+        # Plan 3: adapter.is_resident_ready() encapsulates per-runtime,
+        # per-config gating (channelEnabled for claude, gatewayUrl for hermes).
+        if adapter.supports_resident and adapter.is_resident_ready(runtime_config or {}):
+            caps.append("resident-run")
+    else:
+        if adapter.supports_managed:
+            caps.append("managed-run")
+
+    if adapter.supports_resident or adapter.supports_managed:
+        caps.append("resume")
+    if adapter.supports_interrupt:
+        caps.append("interrupt")
+    if adapter.supports_steering:
+        caps.append("steer")
+
+    # `spawn` capability is independent — every aify-comms managed-capable
+    # runtime supports being spawned by another agent's environment.
+    if session_mode_n != "resident" and adapter.supports_managed:
+        caps.append("spawn")
+
+    return caps
 
 
 async def _resolve_recipient_ids(db, *, to: Optional[str], to_role: Optional[str], from_agent: str) -> list[str]:
@@ -837,31 +1051,33 @@ async def _resolve_recipient_ids(db, *, to: Optional[str], to_role: Optional[str
 
 
 def _row_capabilities(row) -> list[str]:
-    capabilities = _json_loads_or(row["capabilities"], [])
     if not row:
-        return capabilities
+        return []
+    capabilities = _json_loads_or(row["capabilities"], [])
     runtime = _normalize_runtime((row["runtime"] if "runtime" in row.keys() else "") or "generic")
     session_mode = _normalize_session_mode((row["session_mode"] if "session_mode" in row.keys() else "") or "resident")
     session_handle = str((row["session_handle"] if "session_handle" in row.keys() else "") or "").strip()
     runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
     if runtime == "pi":
+        if session_mode == "resident":
+            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
         if session_mode == "managed":
             for cap in ("managed-run", "resume", "interrupt", "steer", "spawn"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
-        elif session_handle:
-            for cap in ("resident-run", "resume", "interrupt", "steer"):
-                if cap not in capabilities:
-                    capabilities = [*capabilities, cap]
+    if runtime == "opencode" and session_mode == "resident":
+        return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "hermes":
         if session_mode == "managed":
             for cap in ("managed-run", "resume", "interrupt", "spawn"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
-        elif session_handle:
+        elif _has_hermes_gateway_url(runtime_config):
             for cap in ("resident-run", "resume", "interrupt"):
                 if cap not in capabilities:
                     capabilities = [*capabilities, cap]
+        else:
+            return [cap for cap in capabilities if cap not in {"resident-run", "interrupt", "steer"}]
     if runtime == "claude-code" and session_mode == "resident":
         channel_enabled = isinstance(runtime_config, dict) and runtime_config.get("channelEnabled") is True
         if not channel_enabled:
@@ -895,15 +1111,18 @@ def _agent_wake_mode(row) -> str:
         return "codex-live"
     if session_mode == "resident" and runtime == "codex" and "resident-run" in capabilities and session_handle:
         return "codex-thread-resume"
-    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and session_handle:
-        return "hermes-session-resume"
-    if session_mode == "resident" and runtime == "opencode" and "resident-run" in capabilities and session_handle:
-        return "opencode-session-resume"
-    if session_mode == "resident" and runtime == "pi" and "resident-run" in capabilities and session_handle:
-        return "pi-session-resume"
+    # Plan 4 Task 17: resident hermes uses gateway path (hermes-live) — the
+    # bridge captures gatewayUrl via discoverSessionId after hermes-aify starts,
+    # so resident hermes wake-mode is always gateway-channel. The legacy
+    # hermes-session-resume mode (spawn fresh hermes with provider config) is
+    # dead code post Plan 4 Task 7; gateway is the single source.
+    if session_mode == "resident" and runtime == "hermes" and "resident-run" in capabilities and _has_hermes_gateway_url(runtime_config):
+        return "hermes-live"
+    if session_mode == "resident" and runtime in {"opencode", "pi"}:
+        return "presence-only"
     if session_mode == "resident" and runtime == "codex" and not session_handle:
         return "codex-missing-handle"
-    if session_mode == "resident" and runtime == "hermes" and not session_handle:
+    if session_mode == "resident" and runtime == "hermes" and not _has_hermes_gateway_url(runtime_config):
         return "hermes-missing-handle"
     if session_mode == "resident" and runtime == "opencode" and not session_handle:
         return "opencode-missing-handle"
@@ -914,7 +1133,7 @@ def _agent_wake_mode(row) -> str:
     return "message-only"
 
 
-def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings: Optional[dict[str, Any]] = None) -> tuple[Optional[str], Optional[str]]:
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     session_handle = str(row["session_handle"] or "").strip()
@@ -926,6 +1145,16 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
     if session_mode == "managed":
         if (row["launch_mode"] or "detached") == "none":
             return None, "launch mode is disabled"
+        # Unified-backing refactor 2026-05-24: when this runtime is
+        # wrapper-backed (managed_via_wrapper includes it), route managed
+        # dispatches as execution_mode='channel'. The wrapper's child bridge
+        # (loaded as MCP inside *-aify, running with sessionMode=resident)
+        # claims via its resident-run capability and executionModes=['channel',
+        # 'resident'] — same shape as channel-route managed claude. The main
+        # bridge no longer claims 'managed' for wrapper-backed runtimes
+        # (mcp/stdio/dispatch-execution.js supportedExecutionModes gate).
+        if settings is not None and _managed_via_wrapper_for_runtime(settings, runtime):
+            return "channel", None
         # Managed claude with channelEnabled=true uses the channel
         # transport, not the headless managed-run API (claude doesn't
         # have a true headless managed-run). The wrapper-PTY-hosted
@@ -943,28 +1172,67 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None) -> tuple
         if runtime in _CHANNEL_MANAGED_RUNTIMES:
             return "channel", None
         return "managed", None
+    if runtime == "pi":
+        return None, (
+            f'agent "{row["id"]}" is a Pi/OMP presence session, not a triggerable resident target. '
+            "Switch to managed or spawn a managed Pi agent so delivery uses the bridge-owned OMP RPC worker."
+        )
+    if runtime == "opencode":
+        return None, (
+            f'agent "{row["id"]}" is an OpenCode presence session, not a triggerable resident target. '
+            "Create an environment-managed OpenCode agent; resident OpenCode delivery is disabled until a real multi-client surface is wired."
+        )
     if "resident-run" not in capabilities:
-        return None, 'agent capabilities do not include "resident-run"'
+        # Actionable diagnosis: identify the most likely missing wake-config
+        # for this runtime so the operator can fix the registration without
+        # spelunking docs. Mirror of mcp/stdio/runtimes.js:defaultCapabilities-
+        # ForRuntime gating: bridge returns [] for resident agents missing
+        # their runtime-specific wake handle (sessionHandle for codex/pi/
+        # opencode; gatewayUrl for hermes; channelEnabled for claude).
+        runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+        runtime_config = runtime_config if isinstance(runtime_config, dict) else {}
+        if runtime == "claude-code" and not runtime_config.get("channelEnabled"):
+            return None, (
+                f'agent "{row["id"]}" is a resident Claude session without channelEnabled. '
+                "Restart with `claude-aify` (which sets AIFY_CHANNELS_ENABLED=1) and re-register from that session."
+            )
+        if runtime == "codex" and not _has_codex_live_app_server(runtime_config):
+            return None, (
+                f'agent "{row["id"]}" is a resident Codex session without a live appServerUrl. '
+                "Restart with `codex-aify` and re-register passing `appServerUrl=\"$AIFY_CODEX_APP_SERVER_URL\"` and `sessionHandle=\"$CODEX_THREAD_ID\"`."
+            )
+        if runtime == "hermes":
+            gateway_url = str(runtime_config.get("gatewayUrl") or "").strip()
+            if not (gateway_url.startswith("ws://") or gateway_url.startswith("wss://")):
+                return None, (
+                    f'agent "{row["id"]}" is a resident Hermes session without a live gatewayUrl. '
+                    "Restart with the updated `hermes-aify` (which exports AIFY_HERMES_GATEWAY_URL) and re-register — the bridge auto-detects the gateway from env. "
+                    "Verify the wrapper is current with `head -30 ~/.local/bin/hermes-aify | grep pick_port` (function exists in the new wrapper)."
+                )
+        return None, 'agent capabilities do not include "resident-run" — re-register from a live aify-wrapper session with the runtime\'s wake handle.'
     if runtime == "codex" and not session_handle:
         return None, (
             f'agent "{row["id"]}" is a resident Codex session without a bound session handle. '
             "Re-register that live session or provide sessionHandle explicitly."
         )
-    if runtime == "opencode" and not session_handle:
-        return None, (
-            f'agent "{row["id"]}" is a resident OpenCode session without a bound session handle. '
-            "Re-register that live session with sessionHandle explicitly or create an environment-managed session."
-        )
     if runtime == "hermes" and not session_handle:
-        return None, (
-            f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
-            "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
-        )
-    if runtime == "pi" and not session_handle:
-        return None, (
-            f'agent "{row["id"]}" is a resident Pi session without a bound session handle. '
-            "Restart with omp-aify or pi-aify and a resumable session handle, or create an environment-managed session."
-        )
+        # Hermes-with-gatewayUrl doesn't need a captured sessionHandle —
+        # the bridge's gateway-channel controller resolves
+        # session.most_recent at dispatch time. Mirror of the carve-out
+        # in defaultCapabilitiesForRuntime (mcp/stdio/runtimes.js).
+        # Operator-reported 2026-05-24: sc-hermes-test-1 registered with
+        # gatewayUrl but no sessionHandle, capability check passed (resident-run
+        # was granted) but this gate still rejected live delivery. Without this
+        # carve-out the new gateway path can never deliver since hermes-aify
+        # registers before any chat session exists.
+        _rc = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
+        _rc = _rc if isinstance(_rc, dict) else {}
+        _gw = str(_rc.get("gatewayUrl") or "").strip()
+        if not (_gw.startswith("ws://") or _gw.startswith("wss://")):
+            return None, (
+                f'agent "{row["id"]}" is a resident Hermes session without a bound session handle. '
+                "Restart with hermes-aify and a resumable session handle, or create an environment-managed session."
+            )
     if (row["launch_mode"] or "detached") == "none":
         return None, "launch mode is disabled"
     return "resident", None
@@ -998,6 +1266,25 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["fix"] = "Register the target agent first, then try triggering again."
         return hint
 
+    if session_mode == "resident" and "resident bridge is stale" in reason:
+        runtime_name = {
+            "claude-code": "Claude",
+            "codex": "Codex",
+            "hermes": "Hermes",
+            "opencode": "OpenCode",
+            "pi": "Oh My Pi",
+        }.get(runtime, runtime)
+        hint["fix"] = (
+            f"Restart the visible resident wrapper for this {runtime_name} session, then re-register from inside that same wrapper with comms_register. "
+            "Raw /api/v1/agents metadata updates do not create the resident bridge heartbeat. "
+            "Use Dashboard Switch to managed if the visible resident terminal should not own delivery."
+        )
+        hint["suggestedCommands"] = [
+            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="{runtime}")',
+            f'comms_agent_info(agentId="{recipient_id}")',
+        ]
+        return hint
+
     if runtime == "codex" and session_mode == "resident" and not session_handle:
         hint["fix"] = "Restart Codex, then re-register from the exact live Codex session you want to wake."
         hint["suggestedCommands"] = [
@@ -1015,26 +1302,22 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         ]
         return hint
 
-    if runtime == "opencode" and session_mode == "resident" and not session_handle:
+    if runtime == "opencode" and session_mode == "resident":
         hint["fix"] = (
-            "Re-register the live OpenCode session with runtime=\"opencode\" and a real sessionHandle, "
-            "or spawn a persistent agent from a connected dashboard environment."
+            "Resident OpenCode sessions are presence-only. Spawn a persistent OpenCode agent from a connected dashboard environment."
         )
         hint["suggestedCommands"] = [
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="opencode", sessionHandle="<session-id>")',
             f'comms_envs()',
             f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="opencode")',
             f'comms_agent_info(agentId="{recipient_id}")',
         ]
         return hint
 
-    if runtime == "pi" and session_mode == "resident" and not session_handle:
+    if runtime == "pi" and session_mode == "resident":
         hint["fix"] = (
-            "Restart Oh My Pi with omp-aify or pi-aify and a resumable session handle, "
-            "or spawn a persistent Pi agent from a connected dashboard environment."
+            "Resident Oh My Pi sessions are presence-only. Spawn a persistent Pi agent from a connected dashboard environment."
         )
         hint["suggestedCommands"] = [
-            f'comms_register(agentId="{recipient_id}", role="{role}", runtime="pi", sessionHandle="<session-id>")',
             f'comms_envs()',
             f'comms_spawn(from="<your-agent>", agentId="{recipient_id}-teammate", role="{role}", runtime="pi")',
             f'comms_agent_info(agentId="{recipient_id}")',
@@ -1157,16 +1440,16 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
 
 async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
-    if bridge_id:
-        cursor = await db.execute(
-            "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
-            (bridge_id, row["id"]),
-        )
-        bridge = await cursor.fetchone()
-        seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
-        if seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)):
-            return True
-    seen_s = _iso_to_epoch(row["last_seen"] or "")
+    if not bridge_id:
+        return False
+    cursor = await db.execute(
+        "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (bridge_id, row["id"]),
+    )
+    bridge = await cursor.fetchone()
+    if not bridge or str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
+        return False
+    seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
     return bool(seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)))
 
 
@@ -1185,178 +1468,23 @@ async def _auto_return_resident_to_managed_if_possible(
     force: bool = False,
     reason: str = "resident_lease_expired",
 ):
-    if not row or _normalize_session_mode(row["session_mode"] or "resident") != "resident":
-        return row, ""
-    if str(row["status"] or "").strip().lower() == "stopped" or (row["launch_mode"] or "detached") == "none":
-        return row, ""
-    runtime_state = _json_loads_or(row["runtime_state"], {})
-    if runtime_state.get("pendingResidentTakeover"):
-        return row, ""
-    if await _get_blocking_active_run(db, row["id"]):
-        return row, ""
-    if not force and await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
-        return row, ""
-
-    spec = await _latest_spawn_spec(db, row["id"])
-    if not spec:
-        return row, ""
-    env = await (await db.execute("SELECT * FROM environments WHERE id = ?", (spec["environment_id"],))).fetchone()
-    if not env:
-        return row, ""
-    env_status = _environment_effective_status(env, offline_seconds=settings.get("environment_offline_seconds", 90))
-    if env_status not in {"online", "degraded"}:
-        return row, ""
-
-    now = _now()
-    runtime = _normalize_runtime(spec["runtime"] or row["runtime"] or "generic")
-    runtime_config = _json_loads_or(row["runtime_config"], {})
-    spec_meta = _json_loads_or(spec["metadata"], {})
-    if isinstance(spec_meta.get("runtimeConfig"), dict):
-        runtime_config = {**runtime_config, **spec_meta["runtimeConfig"]}
-    # Resident Codex live bindings store a localhost app-server URL. Managed
-    # recovery must not keep that dead resident URL in the agent's policy.
-    runtime_config.pop("appServerUrl", None)
-    session_handle = str(row["session_handle"] or "").strip()
-    if not session_handle:
-        latest_session = await (await db.execute(
-            """
-            SELECT session_handle
-            FROM agent_sessions
-            WHERE agent_id = ? AND runtime = ?
-            ORDER BY
-              CASE WHEN COALESCE(NULLIF(session_handle, ''), '') != '' THEN 0 ELSE 1 END,
-              last_seen DESC
-            LIMIT 1
-            """,
-            (row["id"], runtime),
-        )).fetchone()
-        session_handle = str((latest_session["session_handle"] if latest_session else "") or "").strip()
-    capabilities = _default_capabilities_for(runtime, "managed", session_handle, runtime_config)
-    next_state = _runtime_state_with_handle(runtime, {}, session_handle)
-    next_state.update({
-        "environmentId": spec["environment_id"],
-        "ownership": {
-            "mode": "managed",
-            "previousMode": "resident",
-            "reason": reason or "resident_lease_expired",
-            "at": now,
-        },
-    })
-    await db.execute(
-        """
-        UPDATE agents
-        SET cwd = ?,
-            model = COALESCE(NULLIF(model, ''), ?),
-            runtime = ?,
-            machine_id = ?,
-            launch_mode = 'managed',
-            session_mode = 'managed',
-            session_handle = ?,
-            capabilities = ?,
-            runtime_config = ?,
-            runtime_state = ?,
-            status = CASE WHEN status = 'stopped' THEN status ELSE 'idle' END,
-            status_note = ?,
-            last_seen = ?
-        WHERE id = ?
-        """,
-        (
-            spec["workspace"] or row["cwd"] or "",
-            spec["model"] or row["model"] or "",
-            runtime,
-            env["machine_id"] or "",
-            session_handle,
-            json.dumps(capabilities),
-            json.dumps(runtime_config),
-            json.dumps(next_state),
-            (
-                "Resident runtime was lost; future work will use the managed environment backing."
-                if force else
-                "Resident CLI lease expired; future work will use the managed environment backing."
-            ),
-            now,
-            row["id"],
-        ),
-    )
-    await db.execute(
-        "UPDATE dispatch_runs SET execution_mode = 'managed' WHERE target_agent = ? AND status = 'queued'",
-        (row["id"],),
-    )
-    return await (await db.execute("SELECT * FROM agents WHERE id = ?", (row["id"],))).fetchone(), "resident_to_managed"
+    # Manual ownership model: resident<->managed changes happen only through
+    # PATCH /agents/{id}/session-mode. Keep the helper as a compatibility
+    # no-op for older call sites while the automatic paths are removed.
+    return row, ""
 
 
 async def _apply_pending_resident_takeover_if_ready(db, agent_id: str) -> bool:
-    row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
-    if not row:
-        return False
-    state = _json_loads_or(row["runtime_state"], {})
-    pending = state.get("pendingResidentTakeover")
-    if not isinstance(pending, dict):
-        return False
-    if await _get_blocking_active_run(db, agent_id):
-        return False
-    now = _now()
-    runtime = _normalize_runtime(pending.get("runtime") or row["runtime"] or "generic")
-    runtime_config = pending.get("runtimeConfig") if isinstance(pending.get("runtimeConfig"), dict) else {}
-    session_handle = str(pending.get("sessionHandle") or "").strip()
-    next_state = _runtime_state_with_handle(runtime, {k: v for k, v in state.items() if k != "pendingResidentTakeover"}, session_handle)
-    next_state["bridgeInstanceId"] = str(pending.get("bridgeId") or "").strip()
-    next_state["ownership"] = {"mode": "resident", "previousMode": "managed", "reason": "registered_cli", "at": now}
-    capabilities = pending.get("capabilities") if isinstance(pending.get("capabilities"), list) else _default_capabilities_for(runtime, "resident", session_handle, runtime_config)
-    await db.execute(
-        """
-        UPDATE agents
-        SET cwd = ?,
-            runtime = ?,
-            machine_id = ?,
-            launch_mode = ?,
-            session_mode = 'resident',
-            session_handle = ?,
-            capabilities = ?,
-            runtime_config = ?,
-            runtime_state = ?,
-            status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END,
-            status_note = ?,
-            last_seen = ?
-        WHERE id = ?
-        """,
-        (
-            pending.get("cwd") or row["cwd"] or "",
-            runtime,
-            pending.get("machineId") or row["machine_id"] or "",
-            pending.get("launchMode") or "detached",
-            session_handle,
-            json.dumps(capabilities),
-            json.dumps(runtime_config),
-            json.dumps(next_state),
-            "Resident CLI took ownership after the previous managed turn finished.",
-            now,
-            agent_id,
-        ),
-    )
-    await db.execute(
-        """
-        UPDATE agent_sessions
-        SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
-            ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
-            session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-            last_seen = ?
-        WHERE agent_id = ?
-        """,
-        (now, session_handle, session_handle, now, agent_id),
-    )
-    await db.execute(
-        "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
-        (agent_id,),
-    )
-    return True
+    # Manual ownership model: a resident CLI registration must not take over a
+    # managed identity at a turn boundary. Operators use /session-mode.
+    return False
 
 
 async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
     if not bridge_id:
         return False
     cursor = await db.execute(
-        "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        "SELECT superseded_by, bridge_kind FROM bridge_instances WHERE id = ? AND agent_id = ?",
         (bridge_id, agent_id)
     )
     row = await cursor.fetchone()
@@ -1365,13 +1493,63 @@ async def _bridge_is_superseded(db, bridge_id: str, agent_id: str) -> bool:
     return bool((row["superseded_by"] or "").strip())
 
 
-async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent_row) -> Optional[dict[str, Any]]:
+async def _active_wrapper_terminal_id(db, agent_id: str, *, settings: dict[str, Any]) -> str:
+    terminal = await _active_terminal_for_agent(db, agent_id, settings=settings)
+    if not terminal:
+        return ""
+    try:
+        return str(terminal["terminal_id"] or terminal["id"] or "").strip()
+    except Exception:
+        return str((terminal.get("terminal_id") or terminal.get("id") or "") if isinstance(terminal, dict) else "").strip()
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
+
+
+def _terminal_text_compact(text: str) -> str:
+    cleaned = _ANSI_RE.sub(" ", str(text or ""))
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def _hermes_terminal_still_resuming(text: str) -> bool:
+    compact = _terminal_text_compact(text)
+    if not compact:
+        return False
+    resume_idx = compact.rfind("resuming")
+    if resume_idx < 0:
+        return False
+    ready_idx = compact.rfind("ready")
+    return ready_idx < resume_idx
+
+
+async def _active_wrapper_terminal_not_ready_reason(db, terminal_id: str, runtime: str) -> str:
+    if _normalize_runtime(runtime or "") != "hermes" or not terminal_id:
+        return ""
+    row = await (await db.execute(
+        "SELECT output FROM terminal_sessions WHERE id = ?",
+        (terminal_id,),
+    )).fetchone()
+    if not row:
+        return ""
+    if _hermes_terminal_still_resuming(str(row["output"] or "")):
+        return "Hermes wrapper Console is still resuming a saved session; waiting for ready/heal before claiming channel work."
+    return ""
+
+
+async def _bridge_claim_block_reason(
+    db,
+    *,
+    bridge_id: str,
+    agent_id: str,
+    agent_row,
+    execution_modes: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
     """Return a blockedBy payload when an old stdio bridge should not claim work."""
     if not bridge_id:
         return None
 
     cursor = await db.execute(
-        "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        "SELECT superseded_by, bridge_kind, terminal_id FROM bridge_instances WHERE id = ? AND agent_id = ?",
         (bridge_id, agent_id)
     )
     row = await cursor.fetchone()
@@ -1384,8 +1562,33 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
         }
 
     runtime = _normalize_runtime((agent_row["runtime"] if agent_row else "") or "generic")
-    if runtime not in {"codex", "opencode", "pi"}:
+    if runtime not in {"codex", "opencode", "pi", "hermes"}:
         return None
+
+    # Plan 6 follow-up (2026-05-26): wrapper-child bridges (the in-process
+    # mcp/stdio/server.js that runs INSIDE a *-aify wrapper PTY) legitimately
+    # have a different bridge_id from the environment bridge. They claim
+    # channel-mode runs for managed-via-wrapper agents (see _CHANNEL_CLAIM_RUNTIMES
+    # at line 290 and dispatch-execution.js supportedExecutionModes). Without
+    # this carve-out, every wrapper-child claim hits "environment_bridge_not_current"
+    # at line 1701 because the env bridge_id != the wrapper-child bridge_id —
+    # and managed codex/hermes dispatches sit queued forever even when the
+    # wrapper PTY is alive and its inner MCP server has registered. Detect a
+    # wrapper-child claim by: (a) the request includes 'channel' in executionModes;
+    # (b) the runtime is in _CHANNEL_CLAIM_RUNTIMES (managed-via-wrapper-eligible);
+    # (c) the claimant bridge is registered for this agent (in bridge_instances).
+    # Operator-observed 2026-05-26 with graph-tester-pi before Pi was moved
+    # back to native RPC: inner MCP bridge
+    # `2e8b7d91-...` registered fine, but its claims were silently rejected
+    # against the env bridge `e1ef4cae-...`.
+    supported_modes = {str(m or "").strip().lower() for m in (execution_modes or []) if str(m or "").strip()}
+    bridge_kind = str((row["bridge_kind"] if row and "bridge_kind" in row.keys() else "") or "").strip()
+    bridge_terminal_id = str((row["terminal_id"] if row and "terminal_id" in row.keys() else "") or "").strip()
+    is_wrapper_child_claim = (
+        "channel" in supported_modes
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
+        and bridge_kind == "managed-wrapper-child"
+    )
 
     session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "resident")
     runtime_state = _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {}
@@ -1415,17 +1618,66 @@ async def _bridge_claim_block_reason(db, *, bridge_id: str, agent_id: str, agent
         }
 
     if session_mode == "managed":
+        settings = await _load_settings(db)
+        wrapper_backed_channel_claim = (
+            "channel" in supported_modes
+            and runtime in {"codex", "hermes"}
+            and _managed_via_wrapper_for_runtime(settings, runtime)
+        )
+        if (
+            wrapper_backed_channel_claim
+            and not is_wrapper_child_claim
+        ):
+            return {
+                "reason": "managed_wrapper_child_required",
+                "bridgeId": bridge_id,
+                "agentId": agent_id,
+                "runtime": runtime,
+                "hint": (
+                    f"Managed {runtime} is wrapper-backed. The environment bridge must start/reuse the "
+                    "*-aify PTY and let that wrapper's child bridge claim channel dispatches."
+                ),
+            }
+        if wrapper_backed_channel_claim and is_wrapper_child_claim:
+            active_terminal_id = await _active_wrapper_terminal_id(db, agent_id, settings=settings)
+            if not active_terminal_id:
+                return {
+                    "reason": "managed_wrapper_terminal_unavailable",
+                    "bridgeId": bridge_id,
+                    "agentId": agent_id,
+                    "runtime": runtime,
+                    "hint": "Managed wrapper-backed dispatch has no active wrapper PTY. Recover or restart the managed session, then retry.",
+                }
+            if bridge_terminal_id != active_terminal_id:
+                return {
+                    "reason": "managed_wrapper_terminal_mismatch",
+                    "bridgeId": bridge_id,
+                    "agentId": agent_id,
+                    "runtime": runtime,
+                    "bridgeTerminalId": bridge_terminal_id,
+                    "currentTerminalId": active_terminal_id,
+                    "hint": "This wrapper child belongs to an old terminal. Stop the stale wrapper and let the current managed PTY child claim the run.",
+                }
+            not_ready_reason = await _active_wrapper_terminal_not_ready_reason(db, active_terminal_id, runtime)
+            if not_ready_reason:
+                return {
+                    "reason": "managed_wrapper_terminal_not_ready",
+                    "bridgeId": bridge_id,
+                    "agentId": agent_id,
+                    "runtime": runtime,
+                    "terminalId": active_terminal_id,
+                    "hint": not_ready_reason,
+                }
         environment_id = managed_environment_id
         if environment_id:
             env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
             env_row = await env_cursor.fetchone()
             current_environment_bridge = str((env_row["bridge_id"] if env_row else "") or "").strip()
-            settings = await _load_settings(db)
             env_status = _environment_effective_status(
                 env_row,
                 offline_seconds=settings.get("environment_offline_seconds", 90),
             ) if env_row else "offline"
-            if current_environment_bridge and current_environment_bridge != bridge_id:
+            if current_environment_bridge and current_environment_bridge != bridge_id and not is_wrapper_child_claim:
                 return {
                     "reason": "environment_bridge_not_current",
                     "bridgeId": bridge_id,
@@ -1533,27 +1785,30 @@ async def _record_bridge_registration(
     runtime: str,
     session_mode: str,
     session_handle: str,
+    terminal_id: str = "",
+    managed_wrapper_child: bool = False,
     now: str,
 ) -> None:
     """Single source of truth for register-time bridge_instances writes.
 
     Inserts/updates the bridge_instance row carrying the new bridge_id and
-    its full logical identity, then supersedes only the bridges whose
-    logical identity DIFFERS from this one (different runtime, session_mode,
-    or session_handle on the same agent_id+machine_id). In-flight runs are
-    failed only for the bridges actually superseded — same-logical-owner
-    re-registers are metadata refreshes that do not kill any work.
+    its logical identity, then supersedes older rows according to the
+    runtime ownership model. Generic managed bridges use latest-wins;
+    resident bridges and managed wrapper-child bridges protect fresh
+    same-logical-owner rows so duplicate registration does not kill work.
     """
     normalized_machine = str(machine_id or "")
     normalized_runtime_value = str(runtime or "")
     normalized_session_mode_value = str(session_mode or "")
     normalized_session_handle_value = str(session_handle or "").strip()
+    normalized_terminal_id_value = str(terminal_id or "").strip()
+    bridge_kind = "managed-wrapper-child" if managed_wrapper_child else ""
     await db.execute(
         """
         INSERT OR REPLACE INTO bridge_instances (
             id, agent_id, machine_id, runtime, session_mode, session_handle,
-            registered_at, last_seen, superseded_by, superseded_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             bridge_id,
@@ -1562,38 +1817,55 @@ async def _record_bridge_registration(
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
+            normalized_terminal_id_value,
+            bridge_kind,
             now,
             now,
             "",
             None,
         ),
     )
-    # Supersession carve-out applies ONLY to resident session_mode
-    # (operator-side multi-window CLI scenarios where two
-    # human-launched shells legitimately coexist for the same
-    # identity). For MANAGED session_mode, at most ONE bridge should
-    # claim per (agent, machine, runtime) at any time — latest
-    # registration wins, older managed bridges with the same handle
-    # are superseded. Operator-reported 2026-05-22: sc-manager had
-    # 22+ live managed bridge_instances all sharing the same
-    # session_handle, never superseded, all running old code with the
-    # turn_busy feedback loop. The pre-fix carve-out included managed
-    # sessions, which is why they accumulated.
+    # Supersession carve-out applies to resident session_mode and to
+    # managed wrapper children. Resident covers operator-side multi-window
+    # CLI scenarios where two human-launched shells legitimately coexist
+    # for the same identity. Managed wrapper children are bridge-spawned
+    # PTYs whose in-process bridge claims channel/resident work; a fresh
+    # same-logical-owner re-register is the same wrapper-owner class and
+    # must not kill its active turn. Generic MANAGED bridges still use
+    # latest-registration-wins to prevent leaked zombies.
     #
     # IMPORTANT: `_fail_active_runs_for_superseded_bridges` will fail
-    # in-flight runs owned by the superseded bridges. For managed
-    # mode that's correct — only one bridge should be driving an
-    # active run, and if a new bridge registers, the old in-flight
-    # one is presumed orphaned. For resident mode the carve-out is
-    # what protects parent in-flight runs from RPC-child re-registers.
+    # in-flight runs owned by the superseded bridges. For generic managed
+    # mode that's correct — only one bridge should be driving an active
+    # run, and if a new bridge registers, the old in-flight one is
+    # presumed orphaned. Resident and wrapper-child carve-outs protect
+    # parent/wrapper in-flight runs from duplicate same-owner registrations.
+    # Heartbeat-aware carve-out (operator-reported 2026-05-23: 10+ leaked
+    # bridge_instances for comms-tech-lead from May 21–22 claude-aify
+    # restarts, never superseded). The resident-mode carve-out only
+    # protects bridges whose heartbeat is FRESH — a same-identity bridge
+    # whose last_seen is past the 5-min stale window is a dead process
+    # whose row should be superseded so the table doesn't accumulate
+    # zombie entries. Live multi-window resident scenarios still keep the
+    # protection because their last_seen heartbeats stay fresh.
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
         WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
-          AND NOT (
-            runtime = ? AND session_mode = ?
-            AND COALESCE(session_handle, '') = ?
-            AND ? = 'resident'
+          AND (
+            datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', '-5 minutes')
+            OR NOT (
+              runtime = ? AND session_mode = ?
+              AND COALESCE(session_handle, '') = ?
+              AND (
+                ? = 'resident'
+                OR (
+                  ? = 'managed-wrapper-child'
+                  AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
+                  AND COALESCE(terminal_id, '') = ?
+                )
+              )
+            )
           )
         """,
         (
@@ -1604,6 +1876,8 @@ async def _record_bridge_registration(
             normalized_session_mode_value,
             normalized_session_handle_value,
             normalized_session_mode_value,
+            bridge_kind,
+            normalized_terminal_id_value,
         ),
     )
     superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]
@@ -1827,6 +2101,10 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
     status_note = str((row["live_reason"] if "live_reason" in row.keys() else "") or _row_status_note(row) or "").strip()
     base_status = str((row["live_status"] if "live_status" in row.keys() else "") or status or row["status"] or "idle").strip()
+    # `ready` is an internal bridge/controller readiness bit. Keep it out of
+    # the public agent taxonomy so operators see one idle-live state: online.
+    if base_status.lower() == "ready":
+        base_status = "online"
     effective_status = _status_with_dispatch(base_status, dispatch_state)
     return {
         "role": row["role"],
@@ -2006,7 +2284,7 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     tail = clean[-2000:].strip()
     if not tail:
         return ""
-    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", tail, re.I):
+    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|enter\s+to\s+confirm|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", tail, re.I):
         return "Awaiting console confirmation."
     if re.search(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))", tail, re.I):
         return "Awaiting console selection."
@@ -2074,18 +2352,30 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
     turn_busy = False
     turn_runtime = ""
+    # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
+    # handshake-complete signal. It remains an internal readiness bit; the
+    # public idle-live status is `online` so operators do not see both
+    # `ready` and `available` as competing positive states.
+    turn_state_ready = False
     try:
         _tb = await (await db.execute(
-            "SELECT turn_busy, turn_runtime, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
             (agent_row["id"],),
         )).fetchone()
-        if _tb and int(_tb["turn_busy"] or 0) == 1:
-            _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-            if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
-                turn_busy = True
-                turn_runtime = str(_tb["turn_runtime"] or "").strip()
+        if _tb:
+            if int(_tb["turn_busy"] or 0) == 1:
+                _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
+                    turn_busy = True
+                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
+            try:
+                turn_state_ready = int(_tb["ready"] or 0) == 1
+            except (IndexError, KeyError):
+                # Pre-migration row (column absent on a foreign DB schema).
+                turn_state_ready = False
     except Exception:
         turn_busy = False
+        turn_state_ready = False
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
     environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
     env_row = None
@@ -2130,6 +2420,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # stopped, session row stale-running, agent should be `available`
     # not `online`).
     agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    resident_bridge_stale = False
+    if agent_session_mode == "resident" and "resident-run" in _row_capabilities(agent_row):
+        resident_bridge_stale = not await _resident_bridge_is_fresh(
+            db,
+            agent_row,
+            lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150),
+        )
     has_live_worker = False
     if live_session:
         worker_row = await (await db.execute(
@@ -2158,6 +2455,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         if not has_live_worker and agent_session_mode == "resident":
             has_live_worker = True
     if has_live_worker:
+        # A live worker that is not handling a turn is public `online`.
+        # `turn_state_ready` remains useful internally for readiness and cache
+        # invalidation, but is not a separate user-facing agent status.
         effective_status = "online"
     elif environment_id and env_status not in {"online", "degraded"}:
         # An env IS bound but it's unreachable → offline. Unbound agents
@@ -2169,7 +2469,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "available"
     reason = ""
     terminal_input_hint = ""
-    if active_run and terminal_id:
+    if terminal_id and (active_run or (agent_session_mode == "managed" and has_live_worker)):
         try:
             terminal_row = await (await db.execute(
                 "SELECT output FROM terminal_sessions WHERE id = ?",
@@ -2188,7 +2488,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     if active_run_terminal_missing:
         effective_status = "blocked"
         reason = f'Managed terminal-backed active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
-    elif environment_id and env_status and env_status not in {"online", "degraded"}:
+    elif (
+        environment_id
+        and env_status
+        and env_status not in {"online", "degraded"}
+        and not (agent_session_mode == "resident" and not resident_bridge_stale)
+    ):
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
     elif (
@@ -2200,6 +2505,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
+    elif resident_bridge_stale and not active_run and not turn_busy and not channel_pending_reply_run:
+        effective_status = "stale"
+        reason = "Resident bridge heartbeat is stale or missing."
     # A console terminal reaching an end state returns ownership to managed (the
     # runtime contract reverts owner_mode to managed on stop/fail). So it is a
     # fallback-to-managed candidate, not final unavailability: fall through to
@@ -2207,6 +2515,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     elif active_run and terminal_input_hint:
         effective_status = "blocked"
         reason = f'{terminal_input_hint} Active run: {active_run["subject"] or active_run["id"]}.'
+    elif (
+        agent_session_mode == "managed"
+        and has_live_worker
+        and terminal_input_hint
+        and terminal_status in _TERMINAL_ACTIVE_STATUSES
+    ):
+        effective_status = "blocked"
+        reason = terminal_input_hint
     elif active_run:
         effective_status = "working"
         reason = f'Active run: {active_run["subject"] or active_run["id"]}.'
@@ -3168,6 +3484,23 @@ def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
     return value[-max_chars:]
 
 
+def _row_get(row, key, default=None):
+    """Safely fetch a field from either a dict or a sqlite3.Row."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return value if value is not None else default
+
+
+def _merge_runtime_policy_for_wrapper_reregister(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Keep durable model/effort policy when a wrapper child refreshes live metadata."""
+    previous = existing if isinstance(existing, dict) else {}
+    current = incoming if isinstance(incoming, dict) else {}
+    durable_previous = {key: value for key, value in previous.items() if key not in _RUNTIME_CONFIG_LIVE_KEYS}
+    return {**durable_previous, **current}
+
+
 async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db=None):
     # Single source of truth: delegate to the live-state engine that
     # list_agents/get_agent already use, so write endpoints (heartbeat,
@@ -3181,6 +3514,24 @@ async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db
         cache = await _refresh_agent_live_state(db, row["id"])
         if cache:
             return cache["status"]
+
+    # Plan 4 (2026-05-25): db-less fallback. With a db, `_compute_live_status_cache`
+    # already gates `online` on `has_live_worker` (wrapper PTY or RPC child) and
+    # falls back to `available`. Without a db we cannot inspect terminal_sessions,
+    # so a managed agent's persisted `status` column (likely `online`) is a lie
+    # — degrade to `available` so the taxonomy stays honest. The db-less branch
+    # is informational only (used by callers without a connection); db-backed
+    # callers go through _compute_live_status_cache above, which DOES layer the
+    # offline-via-stale-heartbeat check on top.
+    session_mode = str(_row_get(row, "session_mode", "") or "")
+    if session_mode == "managed":
+        agent_id = _row_get(row, "id", "")
+        if agent_id:
+            has_terminal = await _has_live_terminal_session(db, agent_id)
+            has_rpc = _has_live_rpc_controller(agent_id)
+            if not has_terminal and not has_rpc:
+                return "available"
+
     if status != "stale":
         try:
             last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
@@ -3252,6 +3603,104 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
             )
 
 
+async def _drain_and_flip_pi_resident_agents() -> None:
+    """Pi delivery flip (Plan 2, 2026-05-25).
+
+    Every ~5s the periodic loop calls this helper. For each pi agent
+    marked with runtime_state.pi_resident_pending_flip == True it checks
+    that no active or queued dispatch run is currently targeting the
+    agent. When clear, the agent migrates from sessionMode=resident to
+    sessionMode=managed: session_handle is preserved, capabilities are
+    recomputed via _default_capabilities_for (PiAdapter no longer
+    supports_resident), the pending-flip flag is cleared, and a
+    flipped_at timestamp is recorded.
+    """
+    db = await get_db()
+    try:
+        now_iso = _now()
+        cursor = await db.execute(
+            """
+            SELECT id, session_handle, runtime_state, runtime_config
+            FROM agents
+            WHERE runtime = 'pi'
+              AND session_mode = 'resident'
+            """
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return
+
+        for row in rows:
+            runtime_state = _json_loads_or(row["runtime_state"], {})
+            # Plan 2 backfill: any pi-resident agent is flip-eligible by
+            # definition (PiAdapter no longer supports_resident). The
+            # pi_resident_pending_flip marker stays useful as a
+            # "newly-detected" signal but is not the only gate — agents
+            # registered before the Task 16 marker rolled out would
+            # otherwise never flip without manual re-registration.
+
+            # Block the flip while any open run is targeting the agent.
+            run_cursor = await db.execute(
+                """
+                SELECT COUNT(*) AS cnt FROM dispatch_runs
+                WHERE target_agent = ?
+                  AND status IN ('queued', 'claimed', 'running')
+                """,
+                (row["id"],),
+            )
+            run_row = await run_cursor.fetchone()
+            if run_row and int(run_row["cnt"] or 0) > 0:
+                continue  # wait until next tick
+
+            runtime_state["pi_resident_pending_flip"] = False
+            runtime_state["flipped_at"] = now_iso
+
+            runtime_config = _json_loads_or(row["runtime_config"], {})
+            new_caps = _default_capabilities_for(
+                "pi",
+                "managed",
+                str(row["session_handle"] or ""),
+                runtime_config,
+            )
+
+            await db.execute(
+                """
+                UPDATE agents
+                SET session_mode = 'managed',
+                    runtime_state = ?,
+                    capabilities = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(runtime_state),
+                    json.dumps(new_caps),
+                    now_iso,
+                    row["id"],
+                ),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def _periodic_pi_resident_flip_loop() -> None:
+    """Background loop — every ~5s drain & flip pi resident agents.
+
+    Best-effort: any exception during a tick is swallowed so the next
+    tick retries. Wired into the FastAPI lifespan in service/main.py.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5.0)
+            await _drain_and_flip_pi_resident_agents()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # next tick retries
+            pass
+
+
 async def _get_recipient_info(db, recipient_id: str):
     if recipient_id == "dashboard":
         return {
@@ -3304,6 +3753,27 @@ async def _preflight_live_send_recipients(
             not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
             continue
         row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
+        if _normalize_runtime(row["runtime"] or "") == "pi":
+            runtime_state = _json_loads_or(row["runtime_state"], {})
+            if runtime_state.get("pi_resident_pending_flip"):
+                hint = _dispatch_fix_hint(
+                    recipient_id,
+                    row,
+                    "agent is migrating from resident to managed (pi flip pending)",
+                )
+                hint["recipientStatus"] = "migrating"
+                hint["fix"] = (
+                    f'Agent "{recipient_id}" is migrating from resident to managed. '
+                    "Retry after the drain loop flips the agent once active runs complete."
+                )
+                not_started.append(hint)
+                continue
+        if _normalize_session_mode(row["session_mode"] or "resident") == "resident":
+            if not await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
+                hint = _dispatch_fix_hint(recipient_id, row, "resident bridge is stale; switch to managed or restart the resident wrapper")
+                hint["recipientStatus"] = "stale"
+                not_started.append(hint)
+                continue
 
         dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
         active = dispatch_state.get("activeRun")
@@ -3323,7 +3793,7 @@ async def _preflight_live_send_recipients(
             not_started.append(hint)
             continue
 
-        execution_mode, reason = _agent_execution_mode(row)
+        execution_mode, reason = _agent_execution_mode(row, settings=settings)
         if reason or not execution_mode:
             hint = _dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable")
             hint["recipientStatus"] = effective_status
@@ -4132,6 +4602,22 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
         requested_by=requested_by or "dashboard",
         body=command,
     )
+    # Publish the wrapper PTY's terminal_session id into agent.runtime_state.terminalId
+    # so the dashboard's chooseSessionConsoleWidget (service/new_dashboard/app.js)
+    # can render xterm against it. Without this the row is orphaned from the
+    # runtime_state-driven rendering — only ensure_virtual_terminal publishes
+    # virtualTerminalId (native RPC adapter path). Operator-reported 2026-05-24:
+    # wrapper PTY existed but dashboard couldn't see it.
+    agent_runtime_state_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if agent_runtime_state_row:
+        _agent_rs = _json_loads_or(agent_runtime_state_row["runtime_state"], {})
+        if not isinstance(_agent_rs, dict):
+            _agent_rs = {}
+        _agent_rs["terminalId"] = terminal_id
+        await db.execute(
+            "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+            (json.dumps(_agent_rs), now, agent_id),
+        )
     if normalized_runtime == "claude-code" and bool(settings.get("console_auto_confirm_claude_dev_channels")):
         await _append_terminal_control(
             db,
@@ -5150,7 +5636,7 @@ async def _mark_dispatch_run_answered(
     dispatch_mode = str((target_row["dispatch_mode"] if target_row and "dispatch_mode" in target_row.keys() else "") or "").strip().lower()
     if (
         status == "delivered"
-        or (mode == "channel" and status in {"claimed", "running"})
+        or (mode in {"channel", "resident"} and status in {"claimed", "running"})
         or (dispatch_mode == "terminal" and status in {"claimed", "running"})
     ):
         await db.execute(
@@ -6702,7 +7188,14 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
             # specific agent. Without it, channel dispatches sit queued
             # forever (originally observed in run_1779309370301).
             _claude_needs_wrapper = _is_claude_managed and not _insert_messages_via_console(settings_for_pty)
-            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper):
+            # Unified-backing refactor 2026-05-24: when this runtime is
+            # wrapper-backed, the wrapper PTY MUST pre-exist by spawn-request
+            # running transition — otherwise nothing claims dispatches (the
+            # main bridge dispatch loop drops 'managed' from supportedExecutionModes
+            # for this runtime, and the wrapper's child bridge doesn't exist
+            # until the PTY launches).
+            _wrapper_backed = _managed_via_wrapper_for_runtime(settings_for_pty, row["runtime"] or "")
+            if _managed_terminal_backing_enabled(settings_for_pty) and (_eager_flag or _claude_needs_wrapper or _wrapper_backed):
                 try:
                     await _ensure_managed_pty_for_dispatch(
                         db,
@@ -6775,66 +7268,29 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
 
 
 def _default_console_command(session, workspace: str, *, interactive: bool = False) -> str:
-    # interactive=True is the human-opened browser Console (must be a usable
-    # interactive session). interactive=False (default) is managed headless
-    # PTY dispatch, which keeps native session resume for agent continuity.
+    """Build the dashboard Console launch command for an agent session.
+
+    Plan 3 (2026-05-25): per-runtime tail collapses to
+    `adapter.console_command(...)`. The adapter owns the per-runtime quirks
+    (claude interactive stays fresh, codex always resumes, pi interactive
+    avoids the 026H trap, opencode is plain CLI).
+    """
+    from service.runtimes import adapter_for
+
     agent_id = str(session["agent_id"] or "").strip()
     handle = str(session["session_handle"] or "").strip()
     runtime = _normalize_runtime(session["runtime"] or "")
-    if runtime == "claude-code":
-        if interactive:
-            # Human Console: consistent with codex/pi/hermes — the interactive
-            # wrapper, fresh, no --resume (resuming an arbitrary/odd handle
-            # like "65" into the console is the 026H-class trap). claude-aify
-            # sets up the channel binding itself.
-            return f"claude-aify --aify-agent {agent_id}"
-        # Managed backing uses the same wrapper path as human Console/CLI. The
-        # wrapper owns the Claude channel setup, AIFY_AGENT_ID binding, and any
-        # platform-specific shim behavior; service code should not recreate a
-        # parallel raw `claude --channels ...` launch form.
-        parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]
-        if handle:
-            parts.extend(["--resume", handle])
-        return " ".join(part for part in parts if part)
-    elif runtime == "opencode":
-        return "opencode"
-    elif runtime == "hermes":
-        parts = ["hermes-aify", "--aify-agent", agent_id]
-        if handle:
-            parts.extend(["--resume", handle])
-        return " ".join(part for part in parts if part)
-    elif runtime == "pi":
-        if interactive:
-            # Human Console: fresh INTERACTIVE OMP session (no --mode, no
-            # --resume). Falling through to the shared `--resume <handle>`
-            # tail dragged the managed RPC session id into the PTY, so the
-            # console emitted machine/title control-sequence noise instead
-            # of a usable terminal ("026H and nothing else"). An explicit
-            # "resume saved Pi context" console action can be added later,
-            # but it must never be the default.
-            return f"pi-aify --aify-agent {agent_id}"
-        # Managed headless PTY dispatch keeps native resume for continuity.
-        parts = ["pi-aify", "--aify-agent", agent_id]
-    elif runtime == "codex":
-        # Operator-verified 2026-05-22: `codex resume --include-non-interactive
-        # <handle>` fails with "no such file or directory (os error 2)" when
-        # the saved handle is stale relative to codex's session storage
-        # (codex deletes session files independently of aify-comms). And
-        # the bridge's native RPC adapter (createCodexController) already
-        # drives turns through its own app-server connection, so the
-        # Console PTY doesn't need to share that session-id — it can be
-        # a fresh codex-aify shell. Aligns with the interactive path
-        # and the same simplification pi uses.
-        # Native context preservation: the bridge's controller still
-        # passes `runtimeState.sessionId/threadId` on its own app-server
-        # connection — Console is supplementary visibility, not the
-        # delivery surface.
-        return f"codex-aify --aify-agent {agent_id}"
-    else:
-        parts = [runtime or "agent", "--aify-agent", agent_id]
-    if handle:
-        parts.extend(["--resume", handle])
-    return " ".join(part for part in parts if part)
+
+    try:
+        adapter = adapter_for(runtime)
+    except ValueError:
+        return f"{runtime or 'agent'} --aify-agent {agent_id}"
+
+    return adapter.console_command(
+        agent_id=agent_id,
+        handle=handle,
+        interactive=interactive,
+    )
 
 
 @router.post("/sessions/{session_id}/console/start")
@@ -6963,6 +7419,88 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                             "virtual": True,
                         }
 
+        runtime = _normalize_runtime(session["runtime"] or "")
+        if runtime == "pi":
+            environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+            if str(environment.get("status") or "").lower() != "online":
+                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
+            if not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
+                raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
+            workspace, _workspace_root = _workspace_for_environment(environment, req.workspace, session["workspace"] or "")
+            terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            now = _now()
+            bridge_id = str(environment.get("bridgeId") or "").strip()
+            virtual_command = VIRTUAL_RPC_COMMANDS_BY_RUNTIME["pi"]
+            requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+            await db.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command,
+                    output, status, requested_by, created_at, updated_at, stopped_at, error
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id,
+                    session_id,
+                    session["agent_id"],
+                    session["environment_id"],
+                    bridge_id,
+                    session["runtime"],
+                    workspace,
+                    virtual_command,
+                    "",
+                    "running",
+                    requested_by,
+                    now,
+                    now,
+                    None,
+                    "",
+                ),
+            )
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "virtual_pi_rpc_console_started",
+                json.dumps({"requestedBy": requested_by, "sessionId": session_id, "workspace": workspace}),
+            )
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET owner_mode = 'managed',
+                    owner_bridge_id = ?,
+                    terminal_id = ?,
+                    terminal_status = 'running',
+                    terminal_command = ?,
+                    terminal_workspace = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (bridge_id, terminal_id, virtual_command, workspace, now, session_id),
+            )
+            next_runtime_state = _json_loads_or((agent_row_for_virtual["runtime_state"] if agent_row_for_virtual else "") or "{}", {}) or {}
+            next_runtime_state["virtualTerminal"] = True
+            next_runtime_state["virtualTerminalId"] = terminal_id
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(next_runtime_state), now, session["agent_id"]),
+            )
+            await db.commit()
+            terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+            updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
+            ws_for_virtual = await _get_ws(request)
+            if ws_for_virtual:
+                await ws_for_virtual.broadcast(
+                    "terminal_started",
+                    {"terminalId": terminal_id, "sessionId": session_id, "agentId": session["agent_id"], "virtual": True},
+                )
+            return {
+                "ok": True,
+                "terminal": _terminal_session_to_dict(terminal),
+                "session": _agent_session_to_dict(updated_session),
+                "reused": False,
+                "virtual": True,
+            }
+
         environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}')
@@ -6990,7 +7528,6 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                     f'Spawn/select a supported runtime, or update that bridge.'
                 )
             raise HTTPException(409, detail)
-        runtime = _normalize_runtime(session["runtime"] or "")
         if runtime == "pi" and not str(session["session_handle"] or "").strip() and not bool(req.freshContext):
             raise HTTPException(409, 'Pi Console needs a session handle to preserve context. Set a handle or request freshContext=true.')
 
@@ -7283,6 +7820,19 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 "session": _agent_session_to_dict(session_row),
                 "reused": True,
             }
+
+        # Plan 4 (2026-05-25) synth-terminal deprecation: when this runtime
+        # routes through a *-aify wrapper PTY, the wrapper IS the terminal —
+        # don't create a synth row in parallel. Reuse of a pre-existing synth
+        # row (handled above) is still allowed for backwards compatibility
+        # and for the hard-failure fallback path that may seed one explicitly.
+        settings_for_synth_gate = await _load_settings(db)
+        if not _synth_terminal_should_be_created(runtime, settings_for_synth_gate):
+            raise HTTPException(
+                409,
+                f'Synth terminal creation skipped for wrapper-backed runtime "{runtime}" '
+                f'(Plan 4 deprecation — the wrapper PTY is the terminal).',
+            )
 
         workspace = str(req.workspace or session_row["workspace"] or "").strip()
         terminal_id = f"vterm_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -8108,7 +8658,11 @@ async def list_agents(request: Request):
         result = {}
         for row in agents:
             aid = row["id"]
-            result[aid] = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
+            payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
+            # Plan 5 Section C: read-path live-worker gate — see
+            # _enforce_live_worker_gate for full rationale.
+            payload = await _enforce_live_worker_gate(payload, db, settings, aid)
+            result[aid] = payload
         return {"agents": result}
     finally:
         await db.close()
@@ -8153,7 +8707,21 @@ async def register_agent(req: AgentRegister, request: Request):
             await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
-        pending_resident_takeover = False
+        bridge_id = (req.bridgeId or "").strip()
+        terminal_id = str(req.terminalId or "").strip()
+        managed_wrapper_child = bool(req.managedWrapperChild) or (
+            normalized_session_mode == "managed"
+            and bool(terminal_id)
+            and normalized_runtime in _CHANNEL_CLAIM_RUNTIMES
+        )
+        if managed_wrapper_child and row:
+            runtime_config = _merge_runtime_policy_for_wrapper_reregister(
+                _json_loads_or(row["runtime_config"], {}),
+                runtime_config,
+            )
+        model_value = req.model or ""
+        if managed_wrapper_child and not model_value and row and "model" in row.keys():
+            model_value = row["model"] or ""
         # Re-register is a full state refresh: sessionHandle and runtime_state come
         # from the new request only. Preserving them across re-register let stale
         # Codex thread IDs survive a fresh codex-aify start, which then made
@@ -8168,9 +8736,7 @@ async def register_agent(req: AgentRegister, request: Request):
             description_value = req.description
         capabilities = req.capabilities
         if capabilities is None:
-            capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, req.runtimeConfig or {})
-        bridge_id = (req.bridgeId or "").strip()
-        terminal_id = str(req.terminalId or "").strip()
+            capabilities = _default_capabilities_for(normalized_runtime, normalized_session_mode, session_handle, runtime_config)
         console_terminal = None
         if terminal_id and normalized_session_mode == "resident":
             console_terminal = await (
@@ -8262,8 +8828,10 @@ async def register_agent(req: AgentRegister, request: Request):
                     runtime=normalized_runtime,
                     session_mode="managed",
                     session_handle=session_handle,
+                    terminal_id=terminal_id,
                     now=now,
                 )
+            await _invalidate_agent_live_state(db, req.agentId)
             await db.commit()
             ws = await _get_ws(request)
             if ws:
@@ -8303,74 +8871,113 @@ async def register_agent(req: AgentRegister, request: Request):
                 "reason": "registered_managed",
                 "at": now,
             }
+        # Plan 2 (2026-05-25) pi flip mechanics: pi-runtime no longer
+        # supports a true resident session, but operators may still try
+        # to register one (e.g. via legacy wrapper). Mark it pending-flip
+        # so _drain_and_flip_pi_resident_agents (Task 17) can migrate it
+        # to managed once any active runs drain. Once flipped, the agent
+        # row's session_mode becomes "managed" and capabilities are
+        # recomputed from PiAdapter (supports_resident=False).
+        if normalized_runtime == "pi" and normalized_session_mode == "resident":
+            fresh_state["pi_resident_pending_flip"] = True
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
             active_run = await _get_blocking_active_run(db, req.agentId)
-            if active_run:
-                existing_state = _json_loads_or(row["runtime_state"], {})
-                pending_payload = {
-                    "runtime": normalized_runtime,
-                    "machineId": req.machineId or "",
-                    "bridgeId": bridge_id,
-                    "launchMode": req.launchMode or "detached",
-                    "sessionHandle": session_handle,
-                    "cwd": resolved_cwd,
-                    "runtimeConfig": runtime_config,
-                    "capabilities": capabilities or [],
-                    "registeredAt": now,
-                    "blockedByRunId": active_run.get("runId") or "",
-                }
-                existing_state["pendingResidentTakeover"] = pending_payload
+            existing_state_dict = _json_loads_or(row["runtime_state"], {})
+            existing_state_dict.pop("pendingResidentTakeover", None)
+            existing_state_dict["manualResidentCandidate"] = {
+                "bridgeId": bridge_id,
+                "machineId": req.machineId or "",
+                "runtime": normalized_runtime,
+                "sessionHandle": session_handle,
+                "runtimeConfig": runtime_config,
+                "capabilities": capabilities or [],
+                "cwd": resolved_cwd,
+                "launchMode": req.launchMode or "detached",
+                "registeredAt": now,
+            }
+            await db.execute(
+                """
+                UPDATE agents
+                SET runtime_state = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(existing_state_dict),
+                    (
+                        f"Resident CLI registered, but agent remains managed. Use Switch to resident when ready."
+                        + (f" Active run {active_run.get('runId') or ''} is still running." if active_run else "")
+                    ),
+                    now,
+                    req.agentId,
+                ),
+            )
+            if session_handle:
                 await db.execute(
                     """
-                    UPDATE agents
-                    SET runtime_state = ?,
-                        status_note = ?,
+                    UPDATE agent_sessions
+                    SET session_handle = ?,
+                        telemetry = CASE
+                            WHEN COALESCE(NULLIF(telemetry, ''), '{}') = '{}' THEN ?
+                            ELSE telemetry
+                        END,
                         last_seen = ?
-                    WHERE id = ?
+                    WHERE id = (
+                        SELECT id
+                        FROM agent_sessions
+                        WHERE agent_id = ?
+                          AND runtime = ?
+                          AND status = 'cli-takeover'
+                        ORDER BY last_seen DESC
+                        LIMIT 1
+                    )
                     """,
                     (
-                        json.dumps(existing_state),
-                        f"Resident CLI registered and will take ownership after active run {active_run.get('runId') or ''} finishes.",
+                        session_handle,
+                        json.dumps({"registeredHandle": _runtime_state_with_handle(normalized_runtime, {}, session_handle)}),
                         now,
                         req.agentId,
+                        normalized_runtime,
                     ),
                 )
-                if bridge_id:
-                    await _record_bridge_registration(
-                        db,
-                        bridge_id=bridge_id,
-                        agent_id=req.agentId,
-                        machine_id=req.machineId or "",
-                        runtime=normalized_runtime,
-                        session_mode="resident",
-                        session_handle=session_handle,
-                        now=now,
-                    )
-                await db.commit()
-                ws = await _get_ws(request)
-                if ws:
-                    await ws.broadcast("agent_registered", {
-                        "agentId": req.agentId,
-                        "role": req.role,
-                        "runtime": normalized_runtime,
-                        "machineId": req.machineId or "",
-                        "sessionMode": "managed",
-                        "pendingSessionMode": "resident",
-                    })
-                return {
-                    "ok": True,
+            if bridge_id:
+                await _record_bridge_registration(
+                    db,
+                    bridge_id=bridge_id,
+                    agent_id=req.agentId,
+                    machine_id=req.machineId or "",
+                    runtime=normalized_runtime,
+                    session_mode="resident",
+                    session_handle=session_handle,
+                    terminal_id=terminal_id,
+                    now=now,
+                )
+            await _invalidate_agent_live_state(db, req.agentId)
+            await db.commit()
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_registered", {
                     "agentId": req.agentId,
                     "role": req.role,
-                    "status": row["status"] or "active",
                     "runtime": normalized_runtime,
                     "machineId": req.machineId or "",
-                    "bridgeId": bridge_id,
                     "sessionMode": "managed",
-                    "ownershipTransition": "pending_resident_takeover",
-                    "blockedByRun": active_run,
-                }
-            pending_resident_takeover = True
+                    "residentBridgeId": bridge_id,
+                })
+            return {
+                "ok": True,
+                "agentId": req.agentId,
+                "role": req.role,
+                "status": row["status"] or "active",
+                "runtime": normalized_runtime,
+                "machineId": req.machineId or "",
+                "bridgeId": bridge_id,
+                "sessionMode": "managed",
+                "ownershipTransition": "manual_switch_required",
+                "blockedByRun": active_run,
+            }
         await db.execute(
             """
             INSERT INTO agents (
@@ -8399,7 +9006,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 last_seen = excluded.last_seen
             """,
             (
-                req.agentId, req.role, req.name or req.agentId, resolved_cwd, req.model or "",
+                req.agentId, req.role, req.name or req.agentId, resolved_cwd, model_value,
                 description_value, req.instructions or "", req.status or "idle",
                 (row["status_note"] if row and "status_note" in row.keys() else "") or "",
                 normalized_runtime,
@@ -8457,24 +9064,11 @@ async def register_agent(req: AgentRegister, request: Request):
                 runtime=normalized_runtime,
                 session_mode=normalized_session_mode,
                 session_handle=session_handle,
+                terminal_id=terminal_id,
+                managed_wrapper_child=managed_wrapper_child,
                 now=now,
             )
-        if pending_resident_takeover:
-            await db.execute(
-                """
-                UPDATE agent_sessions
-                SET status = CASE WHEN status IN ('starting','running','recovering','restarting') THEN 'cli-takeover' ELSE status END,
-                    ended_at = CASE WHEN status IN ('starting','running','recovering','restarting') THEN COALESCE(ended_at, ?) ELSE ended_at END,
-                    session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                    last_seen = ?
-                WHERE agent_id = ?
-                """,
-                (now, session_handle, session_handle, now, req.agentId),
-            )
-            await db.execute(
-                "UPDATE dispatch_runs SET execution_mode = 'resident' WHERE target_agent = ? AND status = 'queued'",
-                (req.agentId,),
-            )
+        await _invalidate_agent_live_state(db, req.agentId)
         # Universal rule: when a *-aify wrapper registers an agent as
         # resident, the operator's real terminal owns it. ANY managed
         # wrapper PTY that exists for this agent must be torn down at
@@ -8548,6 +9142,18 @@ async def register_agent(req: AgentRegister, request: Request):
                     """,
                     (req.agentId, *stopped_ids),
                 )
+            await _upsert_resident_agent_session(
+                db,
+                agent_id=req.agentId,
+                runtime=normalized_runtime,
+                workspace=resolved_cwd,
+                machine_id=req.machineId or "",
+                session_handle=session_handle,
+                runtime_config=runtime_config,
+                bridge_id=bridge_id,
+                capabilities=capabilities or [],
+                now=now,
+            )
         await db.commit()
         ws = await _get_ws(request)
         if ws:
@@ -8595,7 +9201,11 @@ async def get_agent(agent_id: str, request: Request):
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         unread_map = await _get_unread_count_map(db, [agent_id])
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
-        return {"ok": True, "agentId": agent_id, "agent": _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))}
+        payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))
+        # Plan 5 Section C: read-path live-worker gate — see
+        # _enforce_live_worker_gate for full rationale.
+        payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
+        return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()
 
@@ -9142,6 +9752,327 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         await db.close()
 
 
+@router.patch("/agents/{agent_id}/session-mode")
+async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRequest, request: Request):
+    """Plan 6 C1 (2026-05-26): operator-driven resident/managed mode flip.
+
+    Today the wrapper auto-detects via `[ -t 0 ]`; this endpoint lets the
+    operator override the agent's `session_mode` regardless of how the
+    wrapper was launched. Edge cases the server protects against (unless
+    `force=true` is passed):
+
+    - Active dispatch run in flight -> 409 (switching mid-turn would
+      stall the run; wait for it to finish).
+    - Hermes managed -> resident without `runtimeConfig.gatewayUrl` ->
+      409 (resident hermes needs the gateway URL to attach; leaving it
+      blank produces an un-wakeable agent).
+
+    Audit log: a `dispatch_events` row of type
+    `mode_switch_<old>_to_<new>` is appended with body
+    `agentId=<id> by=<requestedBy>`, providing traceability without a
+    new table.
+
+    State-transition side effects (C2):
+    - resident -> managed: best-effort eager-spawn of a wrapper PTY so
+      the next dispatch lands in a ready Console (mirrors the spawn
+      path used by `_ensure_managed_pty_for_dispatch` during /dispatch).
+    - managed -> resident: best-effort release of any active managed
+      PTY by flipping its status to 'stopping' so the bridge reconciles
+      the close cleanly. Operator must launch a resident `*-aify`
+      session themselves for the agent to come back online.
+
+    Side-effect failures do not roll back the mode change itself —
+    operators can always re-attach manually. The `sideEffects` field in
+    the response surfaces what happened (or what failed).
+    """
+    validate_name(agent_id, "agent ID")
+    new_mode = _normalize_session_mode(req.mode)
+    requested_raw = str(req.mode or "").strip().lower()
+    if requested_raw not in _SESSION_MODES:
+        raise HTTPException(400, "mode must be 'resident' or 'managed'")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+        current_mode = _normalize_session_mode(row["session_mode"] or "resident")
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        current_runtime_state = _json_loads_or(row["runtime_state"], {})
+        resident_candidate = current_runtime_state.get("manualResidentCandidate")
+        if not isinstance(resident_candidate, dict):
+            resident_candidate = {}
+        row_runtime_config = _json_loads_or(row["runtime_config"], {})
+        candidate_runtime_config = resident_candidate.get("runtimeConfig") if isinstance(resident_candidate.get("runtimeConfig"), dict) else {}
+        switch_runtime_config = (
+            {**row_runtime_config, **candidate_runtime_config}
+            if new_mode == "resident" and candidate_runtime_config
+            else row_runtime_config
+        )
+        switch_session_handle = str(
+            (resident_candidate.get("sessionHandle") if new_mode == "resident" else "")
+            or row["session_handle"]
+            or ""
+        ).strip()
+
+        if current_mode == new_mode:
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "mode": new_mode,
+                "previousMode": current_mode,
+                "changed": False,
+            }
+
+        if not req.force:
+            blocking = await _get_blocking_active_run(db, agent_id)
+            if blocking:
+                raise HTTPException(
+                    409,
+                    f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
+                )
+            if new_mode == "resident" and runtime == "hermes":
+                if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
+                    raise HTTPException(
+                        409,
+                        "Hermes resident requires runtimeConfig.gatewayUrl. Re-launch hermes-aify (which exports AIFY_HERMES_GATEWAY_URL) and re-register, or pass force=true.",
+                    )
+            if new_mode == "managed":
+                managed_session = await (await db.execute(
+                    """
+                    SELECT id
+                    FROM agent_sessions
+                    WHERE agent_id = ?
+                      AND runtime = ?
+                      AND status NOT IN ('failed','lost','stopped','ended','completed','cancelled')
+                    ORDER BY last_seen DESC
+                    LIMIT 1
+                    """,
+                    (agent_id, runtime),
+                )).fetchone()
+                if not managed_session:
+                    raise HTTPException(
+                        409,
+                        "Switch to managed requires an existing dashboard-managed session/backing. Spawn or recover the agent from an Environment, or pass force=true to only change metadata.",
+                    )
+
+        now = _now()
+        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
+        runtime_config = switch_runtime_config
+        runtime_state = dict(current_runtime_state)
+        runtime_state.pop("pendingResidentTakeover", None)
+        if new_mode == "resident":
+            if resident_candidate.get("bridgeId"):
+                runtime_state["bridgeInstanceId"] = str(resident_candidate.get("bridgeId") or "")
+            if resident_candidate:
+                runtime_state["manualResidentCandidate"] = resident_candidate
+        else:
+            runtime_state.pop("manualResidentCandidate", None)
+        runtime_state["ownership"] = {
+            "mode": new_mode,
+            "previousMode": current_mode,
+            "reason": "manual_session_mode_switch",
+            "requestedBy": requested_by,
+            "at": now,
+        }
+        next_launch_mode = "managed" if new_mode == "managed" else "detached"
+        capabilities = _default_capabilities_for(
+            runtime,
+            new_mode,
+            switch_session_handle,
+            runtime_config,
+        )
+        next_machine_id = (
+            str(resident_candidate.get("machineId") or row["machine_id"] or "")
+            if new_mode == "resident"
+            else str(row["machine_id"] or "")
+        )
+        next_cwd = (
+            str(resident_candidate.get("cwd") or row["cwd"] or "")
+            if new_mode == "resident"
+            else str(row["cwd"] or "")
+        )
+        await db.execute(
+            """
+            UPDATE agents
+            SET session_mode = ?,
+                launch_mode = ?,
+                session_handle = ?,
+                machine_id = ?,
+                cwd = ?,
+                capabilities = ?,
+                runtime_config = ?,
+                runtime_state = ?,
+                status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                new_mode,
+                next_launch_mode,
+                switch_session_handle,
+                next_machine_id,
+                next_cwd,
+                json.dumps(capabilities),
+                json.dumps(runtime_config),
+                json.dumps(runtime_state),
+                f"Manually switched from {current_mode} to {new_mode} by {requested_by}.",
+                now,
+                agent_id,
+            ),
+        )
+        # C1 audit log — `dispatch_events.run_id` is a NOT NULL FK to
+        # `dispatch_runs(id)`, so we can't attach an agent-level event with
+        # an empty run_id. Workaround: insert a synthetic anchor row into
+        # `dispatch_runs` with status='completed' (so it never enters the
+        # claim/queue paths) and a recognizable subject. Then attach the
+        # mode_switch event to it. Operators see the audit row in the same
+        # per-agent dispatch history view; no new table needed.
+        event_type = f"mode_switch_{current_mode}_to_{new_mode}"
+        audit_run_id = f"mode_switch_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        await db.execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, from_agent, target_agent, dispatch_mode, execution_mode,
+                runtime, message_type, subject, body, status, summary, requested_at, finished_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                audit_run_id,
+                requested_by,
+                agent_id,
+                "audit",
+                "audit",
+                runtime,
+                "audit",
+                "session-mode-switch",
+                f"agentId={agent_id} {current_mode}->{new_mode} by={requested_by}",
+                "completed",
+                event_type,
+                now,
+                now,
+            ),
+        )
+        await _append_dispatch_event(
+            db,
+            audit_run_id,
+            event_type,
+            f"agentId={agent_id} by={requested_by}",
+        )
+
+        # C2 state-transition side effects. Wrapped in try/except so a side
+        # effect failure (e.g., environment offline, no live agent_sessions
+        # row) does NOT roll back the mode change — operators can still
+        # re-spawn/attach manually. Failures surface in the response's
+        # `sideEffects.error` field.
+        settings = await _load_settings(db)
+        side_effects: dict[str, Any] = {}
+        try:
+            if new_mode == "managed":
+                terminal = await _ensure_managed_pty_for_dispatch(
+                    db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
+                )
+                if terminal is not None:
+                    # `_ensure_managed_pty_for_dispatch` returns either a sqlite
+                    # Row (existing active terminal) or a dict (newly spawned).
+                    try:
+                        side_effects["managedTerminalId"] = terminal["id"] if "id" in terminal.keys() else terminal.get("id")
+                    except Exception:
+                        side_effects["managedTerminalId"] = None
+                else:
+                    side_effects["error"] = "No managed session/backing was available for eager PTY start."
+            else:
+                # managed -> resident: best-effort stop of any active managed PTY.
+                active = await _active_terminal_for_agent(db, agent_id, settings=settings)
+                if active is not None:
+                    terminal_id = active["terminal_id"] if "terminal_id" in active.keys() else None
+                    session_id = active["session_id"] if "session_id" in active.keys() else ""
+                    if terminal_id:
+                        await db.execute(
+                            "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
+                            (now, terminal_id),
+                        )
+                        if session_id:
+                            await db.execute(
+                                "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
+                                (now, session_id),
+                            )
+                        side_effects["stoppedTerminalId"] = terminal_id
+        except Exception as exc:  # pragma: no cover — surface, do not abort
+            logger.warning("session-mode side-effect failed for %s: %s", agent_id, exc)
+            side_effects["error"] = str(exc)
+
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "agent_session_mode_updated",
+                {"agentId": agent_id, "mode": new_mode, "previousMode": current_mode},
+            )
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "mode": new_mode,
+            "previousMode": current_mode,
+            "changed": True,
+            "sideEffects": side_effects,
+        }
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/ready")
+async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Request):
+    """Plan 4 task 12 (2026-05-25): bridge POSTs here when an adapter
+    controller's start() has completed initial handshake. This stores an
+    internal readiness bit; public idle-live status remains `online`.
+
+    Upsert preserves any existing turn_busy/turn_run_id state — clearing
+    ready does NOT also clear turn_busy and vice versa.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        now = _now()
+        ready_int = 1 if req.ready else 0
+        # Upsert agent_turn_state: insert with ready, or update only ready
+        # (and updated_at) on conflict — turn_busy and run/bridge/runtime
+        # fields are owned by the dispatch path, not by this endpoint.
+        await db.execute(
+            """
+            INSERT INTO agent_turn_state
+                (agent_id, turn_busy, turn_run_id, turn_bridge_id,
+                 turn_runtime, turn_updated_at, ready)
+            VALUES (?, 0, '', '', '', ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                ready = excluded.ready,
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, now, ready_int),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast(
+                "agent_ready",
+                {"agentId": agent_id, "ready": bool(req.ready)},
+            )
+        return {"ok": True, "agentId": agent_id, "ready": bool(req.ready)}
+    finally:
+        await db.close()
+
+
 @router.patch("/agents/{agent_id}/runtime-state")
 async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate, request: Request):
     db = await get_db()
@@ -9160,31 +10091,24 @@ async def update_agent_runtime_state(agent_id: str, req: AgentRuntimeStateUpdate
         # the dashboard Console-reattach then looks up a stale pointer.
         # Bridges that genuinely need to clear these should send
         # explicit null (handled below).
-        SERVICE_MANAGED_RUNTIME_STATE_KEYS = ("virtualTerminal", "virtualTerminalId")
+        SERVICE_MANAGED_RUNTIME_STATE_KEYS = ("virtualTerminal", "virtualTerminalId", "manualResidentCandidate")
         for key in SERVICE_MANAGED_RUNTIME_STATE_KEYS:
             if key not in next_state and key in current_state:
                 next_state[key] = current_state[key]
             elif next_state.get(key) is None and key in next_state:
                 # Caller explicitly passed null → honor the clear.
                 next_state.pop(key, None)
-        pending = current_state.get("pendingResidentTakeover")
-        if (
-            _normalize_session_mode(current["session_mode"] or "resident") == "managed"
-            and isinstance(pending, dict)
-            and str(next_state.get("bridgeInstanceId") or "").strip() == str(pending.get("bridgeId") or "").strip()
-        ):
-            # A pending resident bridge is allowed to heartbeat while a managed
-            # turn owns the agent, but it must not overwrite the current
-            # managed bridge identity until the pending takeover is applied at
-            # the turn boundary.
-            managed_bridge_id = str(current_state.get("bridgeInstanceId") or "").strip()
-            if managed_bridge_id:
-                next_state["bridgeInstanceId"] = managed_bridge_id
-            else:
-                next_state.pop("bridgeInstanceId", None)
-            if current_state.get("environmentId"):
-                next_state["environmentId"] = current_state["environmentId"]
-            next_state["pendingResidentTakeover"] = pending
+        if _normalize_session_mode(current["session_mode"] or "resident") == "managed":
+            current_bridge = str(current_state.get("bridgeInstanceId") or "").strip()
+            next_bridge = str(next_state.get("bridgeInstanceId") or "").strip()
+            if current_bridge and next_bridge and current_bridge != next_bridge:
+                next_state["bridgeInstanceId"] = current_bridge
+                if current_state.get("environmentId"):
+                    next_state["environmentId"] = current_state.get("environmentId")
+        # Automatic resident takeover is disabled. A resident bridge heartbeat
+        # must not stash or preserve pending takeover state; operators flip
+        # ownership explicitly with PATCH /agents/{id}/session-mode.
+        next_state.pop("pendingResidentTakeover", None)
         reported_handle = _runtime_handle_from_state(current["runtime"], next_state)
         if reported_handle:
             capabilities = _default_capabilities_for(
@@ -9333,6 +10257,100 @@ async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[st
         )
 
 
+async def _upsert_resident_agent_session(
+    db,
+    *,
+    agent_id: str,
+    runtime: str,
+    workspace: str,
+    machine_id: str,
+    session_handle: str,
+    runtime_config: dict[str, Any] | None,
+    bridge_id: str,
+    capabilities: list[str] | None,
+    now: str,
+) -> str:
+    """Create the dashboard-visible session row for an operator-open CLI."""
+
+    config = runtime_config if isinstance(runtime_config, dict) else {}
+    machine = str(machine_id or "").strip()
+    env_row = None
+    if machine:
+        env_row = await (await db.execute(
+            """
+            SELECT id
+            FROM environments
+            WHERE lower(machine_id) = lower(?)
+              AND status != 'forgotten'
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (machine,),
+        )).fetchone()
+    if not env_row:
+        return ""
+
+    key_material = session_handle or str(config.get("gatewayUrl") or "") or bridge_id or agent_id
+    session_id = f"resident_{uuid.uuid5(uuid.NAMESPACE_URL, f'aify-comms:{agent_id}:{runtime}:{key_material}').hex[:16]}"
+    app_server_url = str(config.get("appServerUrl") or "").strip()
+    telemetry = {
+        "resident": True,
+        "nativeResume": bool(session_handle),
+        "bridgeResume": bool(bridge_id),
+        "cliAttach": True,
+        "gateway": bool(str(config.get("gatewayUrl") or "").strip()),
+    }
+    await db.execute(
+        """
+        INSERT INTO agent_sessions (
+            id, agent_id, environment_id, runtime, workspace, mode,
+            owner_mode, owner_bridge_id, terminal_id, terminal_status, terminal_command, terminal_workspace,
+            process_id, session_handle, app_server_url, spawn_spec_id, spawn_request_id,
+            capabilities, telemetry, status, started_at, last_seen, ended_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+            runtime = excluded.runtime,
+            workspace = excluded.workspace,
+            mode = excluded.mode,
+            owner_mode = excluded.owner_mode,
+            owner_bridge_id = excluded.owner_bridge_id,
+            session_handle = excluded.session_handle,
+            app_server_url = excluded.app_server_url,
+            capabilities = excluded.capabilities,
+            telemetry = excluded.telemetry,
+            status = 'running',
+            last_seen = excluded.last_seen,
+            ended_at = NULL
+        """,
+        (
+            session_id,
+            agent_id,
+            env_row["id"],
+            runtime,
+            workspace or "",
+            "resident",
+            "resident",
+            bridge_id or "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            session_handle or "",
+            app_server_url,
+            None,
+            None,
+            json.dumps({"resident": True, "cliAttach": True, "capabilities": capabilities or []}),
+            json.dumps(telemetry),
+            "running",
+            now,
+            now,
+            None,
+        ),
+    )
+    return session_id
+
+
 # ─── Messages ────────────────────────────────────────────────────────────────
 
 @router.post("/messages/send")
@@ -9444,7 +10462,8 @@ async def send_message(req: MessageSend, request: Request):
                         or is_turn_busy
                     ):
                         continue
-                # Native-managed runtimes (codex/pi/opencode) — only
+                execution_mode = str(_execution_mode or "").strip().lower()
+                # Native-managed runtimes (codex/pi/opencode/hermes) — only
                 # route through PTY-input when the operator opted into
                 # the legacy via-console delivery mode AND managed-
                 # terminal-backing is enabled. Default
@@ -9453,9 +10472,46 @@ async def send_message(req: MessageSend, request: Request):
                 # adapter (createCodexController, createPiController,
                 # opencode SDK) on its /dispatch/claim poll.
                 if runtime in _NATIVE_MANAGED_RUNTIMES:
+                    # Wrapper-backed managed (operator-stated 2026-05-25): if
+                    # the runtime is in managed_via_wrapper, the wrapper PTY
+                    # MUST exist to claim — auto-spawn here so an available
+                    # agent gets its console started on first message arrival
+                    # (mirror of the operator's "send → console auto-starts
+                    # → status flips" model).
                     if (
-                        _managed_terminal_backing_enabled(settings)
+                        execution_mode == "channel"
+                        and _managed_terminal_backing_enabled(settings)
+                        and _managed_via_wrapper_for_runtime(settings, runtime)
+                    ):
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        if not console_terminal:
+                            not_started.append(
+                                _dispatch_fix_hint(
+                                    recipient_id,
+                                    row,
+                                    f"Managed {runtime} wrapper PTY is unavailable; recover or restart the environment-managed session.",
+                                )
+                            )
+                            channel_backing_failed.add(recipient_id)
+                        # Do NOT add to console_recipients (that's the legacy
+                        # PTY-input delivery path). Wrapper child bridge claims
+                        # via /dispatch/claim once its in-process MCP boots.
+                        # Just let the dispatch sit queued; it'll get picked up
+                        # within a polling cycle (3s) once the wrapper is up.
+                        continue
+                    if (
+                        execution_mode == "managed"
+                        and _managed_terminal_backing_enabled(settings)
                         and _insert_messages_via_console(settings)
+                        and runtime not in {"pi", "opencode"}
                     ):
                         console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                         if not console_terminal:
@@ -9960,6 +11016,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
     except Exception:
         pass
     bridge_id = str(body.get("bridgeId", "") or "").strip()
+    terminal_id = str(body.get("terminalId", "") or "").strip()
     now = _now()
     db = await get_db()
     try:
@@ -9983,10 +11040,16 @@ async def agent_heartbeat(agent_id: str, request: Request):
             (now, agent_id),
         )
         if bridge_id:
-            await db.execute(
-                "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
-                (now, bridge_id, agent_id),
-            )
+            if terminal_id:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ?, terminal_id = ? WHERE id = ? AND agent_id = ?",
+                    (now, terminal_id, bridge_id, agent_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
+                    (now, bridge_id, agent_id),
+                )
         # Authoritative turn-busy signal (contract with the bridge). Missing
         # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
         # bridge wins. turnBusy=false: only the owning bridge+run may clear,
@@ -10408,6 +11471,23 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
             if row:
                 recipient_rows[recipient_id] = row
+                # Plan 2 (2026-05-25) pi flip: reject new dispatches to a pi
+                # agent that's currently mid-flip from resident -> managed.
+                # _drain_and_flip_pi_resident_agents will migrate it once
+                # any active runs drain (~5s). The operator should retry
+                # after the flip completes. Without this gate, dispatches
+                # queue against a session_mode the runtime no longer
+                # supports.
+                if _normalize_runtime(row["runtime"] or "") == "pi":
+                    _rs = _json_loads_or(row["runtime_state"], {})
+                    if _rs.get("pi_resident_pending_flip"):
+                        raise HTTPException(
+                            409,
+                            f'Agent "{recipient_id}" is migrating from resident '
+                            f"to managed (pi flip pending). Retry in a few "
+                            f"seconds — the drain loop will flip the agent "
+                            f"once any active runs complete."
+                        )
             execution_mode = None
             reason = None if row else "agent is not registered"
             if row:
@@ -10415,9 +11495,45 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 if req.requestedRuntime and _normalize_runtime(req.requestedRuntime) != runtime:
                     reason = f'requested runtime "{req.requestedRuntime}" does not match registered runtime "{runtime}"'
                 elif runtime in _NATIVE_MANAGED_RUNTIMES:
-                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
-                    if not reason and execution_mode:
-                        if _managed_terminal_backing_enabled(settings):
+                    # Plan 5 (2026-05-25): pass settings so
+                    # _agent_execution_mode can detect wrapper-backed managed
+                    # runtimes (managed_via_wrapper) and return
+                    # execution_mode='channel'. Without settings the helper
+                    # short-circuits to 'managed' (line 1065) and the
+                    # wrapper-backed dispatch path never fires.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
+                    # Plan 5 follow-up (2026-05-26): the PTY-input
+                    # (console_recipients) downgrade below MUST only fire
+                    # for execution_mode='managed'. When the helper returns
+                    # 'channel' for wrapper-backed codex/hermes, leave
+                    # the run as channel-mode so the wrapper PTY's child
+                    # bridge can pick it up. Falling through to
+                    # console_recipients would route the message via raw PTY
+                    # keystrokes — the scrambled-text failure mode the
+                    # operator explicitly banned.
+                    if (
+                        not reason
+                        and execution_mode == "channel"
+                        and _managed_terminal_backing_enabled(settings)
+                        and _managed_via_wrapper_for_runtime(settings, runtime)
+                    ):
+                        console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        if not console_terminal:
+                            console_terminal = await _ensure_managed_pty_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
+                            )
+                        if not console_terminal:
+                            reason = f"Managed {runtime} wrapper PTY is unavailable; recover or restart the environment-managed session."
+                    if not reason and execution_mode == "managed":
+                        if (
+                            _managed_terminal_backing_enabled(settings)
+                            and _insert_messages_via_console(settings)
+                            and runtime not in {"pi", "opencode"}
+                        ):
                             console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                             if not console_terminal:
                                 console_terminal = await _ensure_managed_pty_for_dispatch(
@@ -10432,10 +11548,11 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                                 execution_mode = None
                             else:
                                 reason = await _managed_environment_unavailable_reason(db, row)
-                        else:
-                            reason = await _managed_environment_unavailable_reason(db, row)
                 elif runtime in _CHANNEL_MANAGED_RUNTIMES:
-                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                    # Plan 5 (2026-05-25): pass settings (parity with the
+                    # NATIVE_MANAGED branch above). _agent_execution_mode
+                    # uses settings to gate the wrapper-backed channel route.
+                    execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
                     if not reason and execution_mode == "channel":
                         reason = await _managed_environment_unavailable_reason(db, row)
                     if not reason and execution_mode == "channel" and _insert_messages_via_console(settings):
@@ -10474,7 +11591,9 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                     if console_terminal:
                         console_recipients[recipient_id] = console_terminal
                     else:
-                        execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime)
+                        # Plan 5 (2026-05-25): pass settings — see sibling
+                        # branches above for rationale.
+                        execution_mode, reason = _agent_execution_mode(row, req.requestedRuntime, settings=settings)
                         if not reason and execution_mode:
                             reason = await _managed_environment_unavailable_reason(db, row)
             if reason or not execution_mode:
@@ -10639,6 +11758,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
+        # Plan 5 (2026-05-25): settings is needed below for the
+        # _agent_execution_mode call (so the wrapper-backed channel route
+        # at line 1047 fires symmetrically with the dispatch-create path).
+        claim_settings = await _load_settings(db)
         cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         agent = await cursor.fetchone()
         if not agent:
@@ -10664,6 +11787,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             bridge_id=req.bridgeId or "",
             agent_id=req.agentId,
             agent_row=agent,
+            execution_modes=req.executionModes or [],
         )
         if blocked_by:
             await db.commit()
@@ -10684,13 +11808,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         #
         # The bridge-side gate (ACTIVE_RUNS in server.js) prevents a live
         # bridge from calling /dispatch/claim while it has work in flight.
-        # Therefore: if this bridge IS calling claim, it has no local active
-        # run. Any DB-level "active" row for this agent is either:
-        #   (a) owned by THIS bridge (same bridgeId) — a bridge-side bug;
-        #       return blockedBy as a safety net.
-        #   (b) owned by a DIFFERENT bridge (or unowned) — stale by
-        #       definition, because the owning bridge would not be polling
-        #       if it were alive and busy. Clean it up and proceed.
+        # That only proves the *polling* bridge is idle. Wrapper-backed
+        # managed agents have two bridge identities in play: the environment
+        # bridge keeps polling, while the wrapper-child bridge owns the
+        # active turn. Treat a different owner as stale only after the owner
+        # bridge itself stops heartbeating or is superseded.
         active_state = await _get_dispatch_state_for_agent(db, req.agentId)
         active_run = active_state.get("activeRun")
         if active_run:
@@ -10698,13 +11820,45 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             if owner and owner == req.bridgeId:
                 await db.commit()
                 return {"ok": True, "run": None, "blockedBy": active_run}
+            if owner:
+                owner_cursor = await db.execute(
+                    """
+                    SELECT last_seen, superseded_by, bridge_kind
+                    FROM bridge_instances
+                    WHERE id = ? AND agent_id = ?
+                    """,
+                    (owner, req.agentId),
+                )
+                owner_bridge = await owner_cursor.fetchone()
+                owner_superseded_by = str((owner_bridge["superseded_by"] if owner_bridge else "") or "").strip()
+                owner_last_seen = _iso_to_epoch(str((owner_bridge["last_seen"] if owner_bridge else "") or ""))
+                owner_heartbeat_age = time.time() - owner_last_seen if owner_last_seen else None
+                if (
+                    owner_bridge
+                    and not owner_superseded_by
+                    and owner_heartbeat_age is not None
+                    and owner_heartbeat_age < ACTIVE_RUN_BRIDGE_STALE_SECONDS
+                ):
+                    await db.commit()
+                    return {
+                        "ok": True,
+                        "run": None,
+                        "blockedBy": {
+                            **active_run,
+                            "reason": "active_run_owner_bridge_still_heartbeating",
+                            "ownerBridgeId": owner,
+                            "ownerBridgeKind": str(owner_bridge["bridge_kind"] or ""),
+                            "currentBridgeId": req.bridgeId or "",
+                            "retryAfterSeconds": max(1, int(ACTIVE_RUN_BRIDGE_STALE_SECONDS - owner_heartbeat_age)),
+                            "hint": "The active run owner bridge is still heartbeating; waiting avoids killing a live wrapper-managed turn.",
+                        },
+                    }
             active_since = _iso_to_epoch(active_run.get("startedAt") or active_run.get("requestedAt"))
             if owner:
                 stale_seconds = ACTIVE_RUN_BRIDGE_STALE_SECONDS
                 wait_hint = "A previous bridge claimed this run recently. Waiting avoids killing a run that may still complete."
             else:
-                settings = await _load_settings(db)
-                stale_seconds = max(300, int(settings.get("active_run_stale_minutes", 30) or 30) * 60)
+                stale_seconds = max(300, int(claim_settings.get("active_run_stale_minutes", 30) or 30) * 60)
                 wait_hint = "An unowned terminal turn is still within its stale timeout. Waiting avoids interrupting a visible PTY turn."
             active_age = time.time() - active_since if active_since else stale_seconds + 1
             if active_age < stale_seconds:
@@ -10746,7 +11900,10 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         )
         owner_session = await owner_cursor.fetchone()
         supported_modes = {str(mode or "").strip().lower() for mode in (req.executionModes or []) if str(mode or "").strip()}
-        channel_claim = agent_runtime in _CHANNEL_MANAGED_RUNTIMES and "channel" in supported_modes
+        # See _CHANNEL_CLAIM_RUNTIMES and _bridge_claim_block_reason: managed
+        # wrapper-backed Codex/Hermes channel runs are claimable only by the
+        # wrapper PTY child bridge, not the main environment bridge.
+        channel_claim = agent_runtime in _CHANNEL_CLAIM_RUNTIMES and "channel" in supported_modes
         if owner_session and str(owner_session["owner_mode"] or "").strip().lower() == "console" and not channel_claim:
             blocked_by_console = await _release_stale_console_owner_for_claim(db, owner_session, req)
             if blocked_by_console:
@@ -10807,7 +11964,12 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
                 continue
 
-            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None)
+            # Plan 5 (2026-05-25): pass settings so the wrapper-backed
+            # channel route (line 1047) matches what _agent_execution_mode
+            # returned when the run was created. Without settings here, the
+            # helper short-circuits to 'managed', then line 11258 below sees
+            # run.execution_mode='channel' != 'managed' and cancels the run.
+            execution_mode, reason = _agent_execution_mode(agent, requested_runtime or None, settings=claim_settings)
             if reason or not execution_mode:
                 final_status = "failed" if run["dispatch_mode"] == "require_start" else "cancelled"
                 await db.execute(
@@ -10898,7 +12060,15 @@ async def list_dispatch_runs(
         repaired_active_runs = await _repair_unusable_active_runs(db)
         if repaired_active_runs:
             await db.commit()
-        query = "SELECT * FROM dispatch_runs WHERE 1=1"
+        # Plan 6 follow-up (2026-05-26): Section C's mode-switch audit
+        # inserts synthetic `dispatch_runs` rows with dispatch_mode='audit'
+        # to satisfy the dispatch_events.run_id FK constraint. Those rows
+        # are never claimed/queued/started — they exist only as audit
+        # anchors. Hide them from the listing endpoint so the dashboard's
+        # dispatch history view doesn't fill with mode_switch_* entries.
+        # Audit anchors are still queryable individually via the
+        # per-id endpoint and via dispatch_events.
+        query = "SELECT * FROM dispatch_runs WHERE (dispatch_mode IS NULL OR dispatch_mode != 'audit')"
         params = []
         if agentId:
             query += " AND target_agent = ?"
@@ -11086,29 +12256,46 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     # Defense against false-positive reaping (code review C1, 2026-05-22):
     # an orphan candidate must satisfy ALL of:
     #   1. status claimed/running
-    #   2. claim_bridge_id is empty (no bridge took ownership)
+    #   2. claim_bridge_id is empty (no bridge took ownership) OR the
+    #      named bridge_instance is gone/stale (operator-reported
+    #      2026-05-23: sc-coder's hermes managed run sat at "running"
+    #      for 50+ min because claim_bridge_id pointed at a bridge
+    #      that had since gone stale — original "claim_bridge_id = ''"
+    #      check missed this case. A bridge that hasn't heartbeated
+    #      within stale_seconds is dead from the dispatcher's POV;
+    #      runs it claimed are orphaned).
     #   3. started_at + stale_seconds is in the past
-    #   4. NO recent dispatch_events (run hasn't progressed at all since
-    #      the cutoff) — if events ARE flowing, the run is alive even
-    #      if claim_bridge_id is empty (a slow-claim client path or
-    #      a different write path didn't set the bridge_id but the
-    #      controller IS running).
+    #   4. NO recent dispatch_events of PROGRESS kind (run hasn't
+    #      progressed since the cutoff). reply_reminder_skipped is a
+    #      service-side METADATA event the reminder loop emits about
+    #      the run, not progress FROM the runtime — exclude it (same
+    #      operator-report: reply_reminder_skipped fired every minute,
+    #      kept resetting this cutoff window even after the controller
+    #      had died).
     cursor = await db.execute(
         """
-        SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode
+        SELECT id, target_agent, subject, started_at, requested_at, execution_mode, dispatch_mode, claim_bridge_id
         FROM dispatch_runs r
         WHERE r.status IN ('claimed', 'running')
-          AND COALESCE(r.claim_bridge_id, '') = ''
+          AND (
+            COALESCE(r.claim_bridge_id, '') = ''
+            OR NOT EXISTS (
+              SELECT 1 FROM bridge_instances bi
+              WHERE bi.id = r.claim_bridge_id
+                AND datetime(bi.last_seen) > datetime('now', ?)
+            )
+          )
           AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)
           AND NOT EXISTS (
             SELECT 1 FROM dispatch_events de
             WHERE de.run_id = r.id
               AND datetime(de.created_at) > datetime('now', ?)
+              AND de.event_type NOT IN ('reply_reminder_skipped')
           )
         ORDER BY r.requested_at ASC
         LIMIT ?
         """,
-        (cutoff_param, cutoff_param, limit),
+        (cutoff_param, cutoff_param, cutoff_param, limit),
     )
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
@@ -11160,40 +12347,40 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
 
 
 async def _close_idle_virtual_rpc_workers(db, *, limit: int = 200) -> list[dict[str, str]]:
-    """Auto-close persistent workers idle longer than `worker_idle_close_minutes`.
-
-    Operator-driven feature (2026-05-22 plan). Configurable via the
-    setting (default 0 = disabled, recommend 10 if enabled). Finds
-    virtual rpc terminal_session rows that:
-      - command is in VIRTUAL_RPC_COMMAND_SET (pi or hermes virtual feed)
-      - status is active (not stopped/failed)
-      - updated_at is older than N minutes (no recent output)
-      - the owning agent has NO in-flight dispatch_runs (claimed/
-        running/delivered+require_reply) — so we don't kill a worker
-        mid-turn
-    For each, marks the terminal stopped, clears the agent's
-    runtime_state.virtualTerminal* pointers, emits an audit event,
-    and invalidates the live-state cache. The owning bridge's
-    PiSession.idle-timeout (24h default) ALSO closes it eventually;
-    this is the operator-tunable, much-shorter version that runs
-    server-side and works across bridge restarts.
-    """
+    """Auto-close managed worker terminals idle longer than configured."""
     settings = await _load_settings(db)
     minutes = int(settings.get("worker_idle_close_minutes", 0) or 0)
-    if minutes <= 0:
+    if minutes <= 0 or not bool(settings.get("worker_idle_close_enabled", False)):
         return []
     cursor = await db.execute(
         f"""
-        SELECT t.id, t.agent_id, t.command
+        SELECT
+          t.id,
+          t.agent_id,
+          t.command,
+          t.environment_id,
+          t.bridge_id,
+          s.id AS agent_session_id
         FROM terminal_sessions t
-        WHERE t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
-          AND t.status IN ('starting', 'running', 'recovering', 'active', 'idle')
+        LEFT JOIN agent_sessions s ON s.id = t.session_id
+        LEFT JOIN agents a ON a.id = t.agent_id
+        WHERE t.status IN ('starting', 'attached', 'running', 'recovering', 'active', 'idle')
+          AND (
+            t.command IN ({",".join("?" for _ in VIRTUAL_RPC_COMMAND_SET)})
+            OR t.command LIKE '%-aify%'
+            OR t.command LIKE 'opencode%'
+          )
+          AND (
+            COALESCE(a.session_mode, '') = 'managed'
+            OR COALESCE(s.owner_mode, '') = 'managed'
+            OR COALESCE(s.mode, '') LIKE 'managed%'
+          )
           AND datetime(t.updated_at) <= datetime('now', ?)
           AND NOT EXISTS (
             SELECT 1 FROM dispatch_runs r
             WHERE r.target_agent = t.agent_id
               AND (
-                r.status IN ('claimed', 'running')
+                r.status IN ('queued', 'claimed', 'running')
                 OR (r.status = 'delivered' AND COALESCE(r.require_reply, 0) = 1)
               )
           )
@@ -11208,32 +12395,69 @@ async def _close_idle_virtual_rpc_workers(db, *, limit: int = 200) -> list[dict[
     for row in rows:
         terminal_id = str(row["id"] or "").strip()
         owner_agent = str(row["agent_id"] or "").strip()
+        command = str(row["command"] or "").strip()
         if not terminal_id:
             continue
+        is_virtual_rpc = command in VIRTUAL_RPC_COMMAND_SET
+        has_bridge_owner = bool(str(row["environment_id"] or "").strip() and str(row["bridge_id"] or "").strip())
+        next_status = "stopped" if is_virtual_rpc or not has_bridge_owner else "stopping"
         await db.execute(
             """
             UPDATE terminal_sessions
-            SET status = 'stopped',
-                stopped_at = COALESCE(stopped_at, ?),
+            SET status = ?,
+                stopped_at = CASE WHEN ? = 'stopped' THEN COALESCE(stopped_at, ?) ELSE stopped_at END,
                 updated_at = ?,
                 error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
             WHERE id = ?
             """,
-            (now, now, f"Auto-closed: idle longer than worker_idle_close_minutes={minutes}.", terminal_id),
+            (
+                next_status,
+                next_status,
+                now,
+                now,
+                f"Auto-closed: idle longer than worker_idle_close_minutes={minutes}.",
+                terminal_id,
+            ),
         )
+        if not is_virtual_rpc and has_bridge_owner:
+            await _append_terminal_control(
+                db,
+                terminal_id=terminal_id,
+                environment_id=str(row["environment_id"] or "").strip(),
+                bridge_id=str(row["bridge_id"] or "").strip(),
+                action="stop",
+                requested_by="auto-close-idle-worker",
+            )
         await _append_terminal_event(
             db,
             terminal_id,
-            "virtual_rpc_auto_closed_idle",
-            json.dumps({"agentId": owner_agent, "idleMinutes": minutes}),
+            "managed_worker_auto_closed_idle",
+            json.dumps({"agentId": owner_agent, "idleMinutes": minutes, "status": next_status}),
         )
+        session_id = str(row["agent_session_id"] or "").strip()
+        if session_id:
+            await db.execute(
+                """
+                UPDATE agent_sessions
+                SET terminal_status = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (next_status, now, session_id),
+            )
         if owner_agent:
             agent_row = await (await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (owner_agent,))).fetchone()
             if agent_row:
                 rs = _json_loads_or(agent_row["runtime_state"], {}) or {}
+                changed = False
                 if str(rs.get("virtualTerminalId") or "").strip() == terminal_id:
                     rs.pop("virtualTerminal", None)
                     rs.pop("virtualTerminalId", None)
+                    changed = True
+                if str(rs.get("terminalId") or "").strip() == terminal_id:
+                    rs.pop("terminalId", None)
+                    changed = True
+                if changed:
                     await db.execute(
                         "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
                         (json.dumps(rs), now, owner_agent),

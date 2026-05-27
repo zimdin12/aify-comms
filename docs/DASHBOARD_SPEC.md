@@ -80,9 +80,9 @@ Analytics should answer "what happened in this window?" rather than only all-tim
 Settings should be grouped so the page does not become a long maintenance form:
 
 - **Appearance**: dashboard title/brand and accent color scheme. Default title is `AIFY Comms`.
-- **Runtime**: global managed runtime model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
+- **Runtime**: global managed runtime model and effort policy plus delivery toggles for manual resident/managed switching, managed terminal backing, eager wrapper spawn, wrapper-backed runtime list, and legacy console injection. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
 - **Work Loop**: reply-contract reminders and history windows.
-- **Maintenance**: retention, shared file limits, refresh cadence, idle/offline thresholds, and rotation.
+- **Maintenance**: retention, shared file limits, refresh cadence, agent idle/offline thresholds, environment offline threshold, active-run stale cleanup windows, resident bridge lease, and rotation.
 
 Every non-obvious setting should include a short hint that states the default and the operational effect.
 
@@ -270,7 +270,7 @@ Ended/completed/cancelled sessions are debug history. The normal Sessions page s
 
 Manual/resident identities may expose **Edit** and **Adopt env** when at least one environment is online. Adoption creates managed backing for future dashboard work without changing the current live CLI turn. If the resident bridge later goes stale, the next dashboard send can return the identity to managed mode automatically. If a CLI registers while a managed run is active, takeover must be deferred until the active run ends.
 
-Current browser Console mode attaches to a bridge-owned PTY through xterm. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. For terminal-input runtimes such as Hermes, dashboard sends may start/reuse the same managed PTY. Managed Claude Code starts/reuses `claude-aify`, uses the PTY as the visible backing session, leaves development-channel auto-confirm off unless the operator enables it, submits the dashboard turn as one bracketed paste+submit control, and keeps a tracked active run while waiting for the reply only when live terminal backing still exists. Queueing waits behind real active/queued work; if an idle managed Claude/Hermes agent has no pending run, Queue still uses live PTY delivery rather than a channel-only queued row. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
+Current browser Console mode attaches to the runtime's bridge-owned backing through xterm-style streaming. Opening Console does not convert the identity to `cli-takeover`; Messenger remains the contract surface. Managed Claude Code starts/reuses `claude-aify` as a visible channel host. Managed Codex/Hermes default to bridge-owned `codex-aify` / `hermes-aify` wrapper PTYs, but delivery is claimed by the wrapper child bridge through app-server/gateway APIs, not by raw PTY typing. Pi and OpenCode use native managed controllers with synthesized Console streams. Queueing waits behind real active/queued work; if an idle managed wrapper-backed agent has no pending run, Queue still uses live delivery rather than an orphan queued row. Separate native CLI ownership still uses the explicit resident/Pause-for-CLI path and only changes ownership at turn boundaries.
 
 ## Continue From Session Flow
 

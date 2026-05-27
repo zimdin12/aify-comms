@@ -29,7 +29,7 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Claude's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
+On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Claude's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
 
 After every update:
 
@@ -47,6 +47,10 @@ claude-aify
 ### Session-mode flag
 
 `claude-aify` accepts `--resident` and `--managed` to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its `mcp/stdio/server.js` child registers with `runtime_config.channelEnabled=true` — that's the precondition for resident-run/interrupt/steer caps to survive `_row_capabilities` strip.
+
+### Session rediscover (added 2026-05-26, Plan 6 B4)
+
+Unlike hermes/codex/pi (which query a live runtime), Claude has no probe endpoint — but its session id maps 1:1 to a JSONL transcript at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. `claude-aify` now validates `CLAUDE_SESSION_ID` against the on-disk transcript: if no `<id>.jsonl` exists anywhere under `~/.claude/projects/`, the env value is stale (prior session GC'd, operator cd'd into a different project, etc.) and the wrapper unsets both `CLAUDE_SESSION_ID` and `CLAUDE_RESUME_ID` so Claude creates a fresh session — the bridge's discover (Plan 4) picks up the truthful id on the first heartbeat (Plan 6 A1). The scan is filename-based, so the Windows-native vs git-bash cwd-encoding mismatch doesn't trip the validator. Failures are non-fatal: a missing transcript triggers a single `[claude-aify] CLAUDE_SESSION_ID '<id>' has no transcript ... clearing` log line and the wrapper continues normally.
 
 ### Wrapper isolates MCP servers (strict-mcp-config)
 

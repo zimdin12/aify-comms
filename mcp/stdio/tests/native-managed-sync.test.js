@@ -20,25 +20,45 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 assert.ok(NATIVE_MANAGED_RUNTIMES instanceof Set, "bridge NATIVE_MANAGED_RUNTIMES must be a Set");
 assert.ok(NATIVE_MANAGED_RUNTIMES.size > 0, "bridge NATIVE_MANAGED_RUNTIMES must be non-empty");
 
-// 2. Parse service-side set from api_v2.py
+function parsePythonRuntimeSet(filePath, pattern, label) {
+  const text = fs.readFileSync(filePath, "utf-8");
+  const match = text.match(pattern);
+  assert.ok(match, `could not locate ${label}`);
+  return new Set(
+    match[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean),
+  );
+}
+
+// 2. Parse service-side sets from api_v2.py and service/db.py
 const apiV2Path = path.join(repoRoot, "service", "routers", "api_v2.py");
-const apiV2Text = fs.readFileSync(apiV2Path, "utf-8");
-const match = apiV2Text.match(/^_NATIVE_MANAGED_RUNTIMES\s*=\s*\{([^}]+)\}/m);
-assert.ok(match, "could not locate _NATIVE_MANAGED_RUNTIMES in service/routers/api_v2.py");
-const serviceSet = new Set(
-  match[1]
-    .split(",")
-    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-    .filter(Boolean),
+const dbPath = path.join(repoRoot, "service", "db.py");
+const serviceSet = parsePythonRuntimeSet(
+  apiV2Path,
+  /^_NATIVE_MANAGED_RUNTIMES\s*=\s*\{([^}]+)\}/m,
+  "_NATIVE_MANAGED_RUNTIMES in service/routers/api_v2.py",
+);
+const dbSet = parsePythonRuntimeSet(
+  dbPath,
+  /^_NATIVE_MANAGED_RUNTIMES\s*=\s*\(([^)]+)\)/m,
+  "_NATIVE_MANAGED_RUNTIMES in service/db.py",
 );
 
 // 3. Sets must match exactly
 const bridgeArr = [...NATIVE_MANAGED_RUNTIMES].sort();
 const serviceArr = [...serviceSet].sort();
+const dbArr = [...dbSet].sort();
 assert.deepEqual(
   bridgeArr,
   serviceArr,
   `bridge NATIVE_MANAGED_RUNTIMES (${bridgeArr.join(", ")}) does not match service-side _NATIVE_MANAGED_RUNTIMES (${serviceArr.join(", ")}). Both must be updated together when adding a runtime that uses native RPC dispatch.`,
+);
+assert.deepEqual(
+  dbArr,
+  serviceArr,
+  `service/db.py native-managed backfill set (${dbArr.join(", ")}) does not match service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES (${serviceArr.join(", ")}). Stale managed agents would miss capability repair after migrations.`,
 );
 
 console.log("native-managed-sync.test.js: all assertions passed");

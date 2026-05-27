@@ -22,6 +22,7 @@ class AgentRegister(BaseModel):
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
     terminalId: Optional[str] = None
+    managedWrapperChild: Optional[bool] = False
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
 
@@ -60,6 +61,23 @@ class AgentRuntimeStateUpdate(BaseModel):
 
 class AgentSessionHandleUpdate(BaseModel):
     sessionHandle: Optional[str] = None
+    requestedBy: Optional[str] = None
+
+
+class AgentReadyUpdate(BaseModel):
+    # Plan 4 task 12 (2026-05-25): set by the bridge after an adapter
+    # controller's start() handshake completes. This is an internal
+    # readiness bit; public idle-live status is `online`, not `ready`.
+    ready: bool = True
+    requestedBy: Optional[str] = None
+
+
+class AgentSessionModeSwitchRequest(BaseModel):
+    # Plan 6 C1 (2026-05-26): operator-driven resident/managed flip.
+    # `mode` must be 'resident' or 'managed'. `force=true` overrides
+    # the active-run guard and the hermes-without-gateway guard.
+    mode: str
+    force: bool = False
     requestedBy: Optional[str] = None
 
 

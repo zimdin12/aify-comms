@@ -38,6 +38,7 @@ RUN cd mcp/stdio && npm ci
 COPY service/ ./service/
 COPY mcp/ ./mcp/
 COPY config/ ./config/
+COPY integrations/ ./integrations/
 COPY .agents/ ./.agents/
 COPY install.sh ./install.sh
 

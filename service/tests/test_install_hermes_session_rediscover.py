@@ -1,0 +1,137 @@
+"""hermes-aify wrapper session-handle contract.
+
+Fresh `hermes-aify` launches must not bind themselves to `session.most_recent`
+from the dashboard gateway. That method reports historical DB state before the
+visible TUI has attached, so using it as the resident handle registers the
+agent against a session that cannot be visibly woken. Explicit `--resume <id>`
+remains authoritative. Fresh launches rely on the TUI-written active-session
+file once the visible session exists.
+
+These are install.sh static-text smoke checks (no bash invocation) — same
+pattern as test_install_hermes_prebuild.py's family. We can't easily spin
+up a real hermes gateway in tests, so we pin the wrapper's emitted code
+shape; the failure path is non-fatal and exercised live by the operator.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+INSTALL_SH = REPO / "install.sh"
+
+
+def _read_install_sh() -> str:
+    return INSTALL_SH.read_text(encoding="utf-8")
+
+
+def test_hermes_wrapper_does_not_rediscover_from_gateway_history():
+    """Fresh hermes-aify must not export gateway session.most_recent as current."""
+    text = _read_install_sh()
+    assert "rediscover_hermes_session_id" not in text
+    assert "HERMES_REDISCOVERED_SESSION_ID" not in text
+    assert "[hermes-aify] session id rediscovered" not in text
+
+
+def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
+    """Only explicit --resume/--session-id should seed HERMES_SESSION_ID."""
+    text = _read_install_sh()
+    assert 'HERMES_EXPLICIT_SESSION_HANDLE="false"' in text
+    idx = text.find('if [ "\\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ]')
+    assert idx > 0
+    window = text[idx : idx + 350]
+    assert 'export HERMES_SESSION_ID="\\$HERMES_SESSION_HANDLE"' in window
+    assert 'export AIFY_SESSION_HANDLE="\\$HERMES_SESSION_HANDLE"' in window
+    assert 'export AIFY_EXPLICIT_SESSION_HANDLE="true"' in window
+    assert 'if [ -n "$HERMES_SESSION_HANDLE" ]; then' not in text
+
+
+def test_hermes_wrapper_consumes_resume_args_for_tui_default():
+    """`hermes-aify --resume id` must exec top-level `--tui --resume id`."""
+    text = _read_install_sh()
+    assert 'if [ "\\$PREV_ARG" = "--resume" ] || [ "\\$PREV_ARG" = "--session-id" ] || [ "\\$PREV_ARG" = "-r" ]; then' in text
+    assert 'HERMES_ARGS+=("\\$ARG")\n  if [ "\\$PREV_ARG" = "--resume" ]' not in text
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+    assert 'aify_hermes_run_foreground --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+
+
+def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
+    """Gateway fallback must still resume the explicit Hermes session."""
+    text = _read_install_sh()
+    helper_idx = text.find("aify_hermes_exec_plain_or_tui()")
+    assert helper_idx > 0
+    helper = text[helper_idx : helper_idx + 750]
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in helper
+
+    fallback_idx = text.find("aify_hermes_fallback()")
+    assert fallback_idx > 0
+    fallback = text[fallback_idx : fallback_idx + 700]
+    assert "aify_hermes_exec_plain_or_tui" in fallback
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" "\\${HERMES_ARGS[@]}"' not in fallback
+
+
+def test_hermes_wrapper_forces_utf8_python_io():
+    """Windows non-UTF-8 consoles must not crash Hermes subprocess readers."""
+    text = _read_install_sh()
+    assert 'export PYTHONUTF8="\\${PYTHONUTF8:-1}"' in text
+    assert 'export PYTHONIOENCODING="\\${PYTHONIOENCODING:-utf-8}"' in text
+
+
+def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
+    """Windows PowerShell launches must keep native Hermes attached to console."""
+    text = _read_install_sh()
+    assert "install_hermes_windows_tui_shim" in text
+    assert "hermes-aify.ps1" in text
+    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*' in text
+    assert "Invoke-HermesRuntime @('--tui', '--resume', \\$HermesSessionHandle)" in text
+    assert "exit (Invoke-HermesRuntime" not in text
+
+
+def test_hermes_installer_patches_visible_session_bind():
+    """Hermes resident delivery must bind to the open TUI session, not resume
+    a hidden sid."""
+    text = _read_install_sh()
+    assert "patch_hermes_gateway_visible_bind" in text
+    assert "aify.session.bind_transport" in text
+    assert "TeeTransport(primary, bridge_transport)" in text
+
+
+def test_hermes_visible_bind_falls_back_to_single_active_session():
+    """If the saved handle is stale but this wrapper gateway has exactly one
+    visible session, bind to that session instead of failing or forking hidden."""
+    text = _read_install_sh()
+    assert "visible session fallback: saved handle not active; using sole active session" in text
+    assert "active_candidates" in text
+
+
+def test_hermes_wrapper_exports_active_session_file():
+    """The TUI active-session file lets the bridge repair stale parent env."""
+    text = _read_install_sh()
+    assert "HERMES_TUI_ACTIVE_SESSION_FILE" in text
+    assert "AIFY_HERMES_ACTIVE_SESSION_FILE" in text
+
+
+def test_hermes_installer_preserves_wrapper_active_session_file():
+    """Hermes main.py must not overwrite HERMES_TUI_ACTIVE_SESSION_FILE."""
+    text = _read_install_sh()
+    assert "patch_hermes_tui_active_session_file" in text
+    assert 'env.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()' in text
+    assert "created_active_session_file" in text
+
+
+def test_hermes_installer_patches_codex_stream_nonetype_fallback():
+    """Hermes openai-codex stream bugs should fall back to raw create stream."""
+    text = _read_install_sh()
+    assert "patch_hermes_codex_stream_none_fallback" in text
+    assert "Responses stream hit SDK NoneType iterable bug" in text
+    assert "agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)" in text
+    assert "if not isinstance(_out, list) or not _out:" in text
+
+
+def test_hermes_wrapper_loads_aify_plugin_by_default():
+    """hermes-aify should load the durable aify plugin unless explicitly disabled."""
+    text = _read_install_sh()
+    assert "AIFY_HERMES_PLUGIN" in text
+    assert "integrations/hermes-aify-plugin" in text
+    assert "AIFY_HERMES_DISABLE_PLUGIN" in text
+    assert "PYTHONPATH" in text

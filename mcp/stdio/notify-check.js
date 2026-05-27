@@ -81,8 +81,12 @@ const headers = { "Accept": "application/json" };
 if (API_KEY) headers["X-API-Key"] = API_KEY;
 
 try {
-  // Check inbox
-  const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3&peek=true`;
+  // Check inbox. Fetch with bodies (no peek=true) so the hook can surface
+  // the full message text inline — hermes/claude reading the system
+  // notice can react immediately without an extra comms_inbox tool call
+  // (operator-reported 2026-05-24: surface body content so agents auto-
+  // process incoming comms_send messages without the extra round trip).
+  const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
   if (!resp.ok) process.exit(0);
   // Server is up — clear any previous down marker
@@ -90,8 +94,30 @@ try {
   const data = await resp.json();
 
   if (heartbeatAllowed) {
+    // For PostToolUse hook payloads ONLY, re-pulse turn_busy=1 with empty
+    // runId (operator-initiated turn, no dispatch). This is what keeps
+    // status='working' alive for long multi-tool claude turns past the
+    // 120s TURN_BUSY_STALE_SECONDS window — every tool call is positive
+    // evidence the agent is still working. Pre-fix the heartbeat updated
+    // agents.last_seen but NOT turn_updated_at, so >120s turns silently
+    // flipped to 'online' on the dashboard while claude was still using
+    // tools (operator-reported 2026-05-23: "graph-tech-lead showing
+    // online, but he is working").
+    //
+    // Safe by design — this is a HOOK script firing on actual tool use,
+    // not a polling loop reacting to derived status. The 2026-05-23
+    // feedback-loop fix in claude-channel.js stays in place: the bridge
+    // poll loop only re-pulses on hasActiveRun (dispatch anchor); hook
+    // refreshes here are bound to real activity, no self-reinforcement.
+    const heartbeatBody = (hookPayload?.hook_event_name === "PostToolUse")
+      ? JSON.stringify({ turnBusy: true, turnRuntime: "claude-code" })
+      : undefined;
+    const hbHeaders = heartbeatBody ? { ...headers, "Content-Type": "application/json" } : headers;
     fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
-      method: "POST", headers, signal: AbortSignal.timeout(2000),
+      method: "POST",
+      headers: hbHeaders,
+      body: heartbeatBody,
+      signal: AbortSignal.timeout(2000),
     }).catch(() => {});
   }
 
@@ -99,20 +125,42 @@ try {
     const msgs = data.messages || [];
     const urgent = msgs.filter(m => m.priority === "urgent");
     const high = msgs.filter(m => m.priority === "high");
-    const previews = msgs.map(m => {
-      const p = (m.priority && m.priority !== "normal") ? ` [${m.priority.toUpperCase()}]` : "";
-      return `  ${m.from}${p}: ${m.subject}`;
-    }).join("\n");
-    const more = data.total > 3 ? `\n  ...and ${data.total - 3} more` : "";
 
-    let notice;
+    // Build a full-body preview block for inline processing — agents can
+    // act on the messages without an extra comms_inbox tool-call round-trip
+    // (operator-reported 2026-05-24: surface body inline). Cap each
+    // message body at 800 chars so the hook output stays readable in TUI;
+    // longer messages are truncated with a marker pointing to comms_inbox.
+    const MAX_BODY = 800;
+    const formatMsg = (m) => {
+      const p = (m.priority && m.priority !== "normal") ? ` [${m.priority.toUpperCase()}]` : "";
+      const subject = m.subject ? `Subject: ${m.subject}` : "";
+      const body = String(m.body || "").trim();
+      const truncated = body.length > MAX_BODY
+        ? body.slice(0, MAX_BODY) + `\n…[truncated; call comms_inbox(agentId="${agentId}", messageId="${m.id}") for the full body]`
+        : body;
+      const lines = [
+        `=== Message from ${m.from}${p} ===`,
+        subject,
+        `MessageId: ${m.id}`,
+        "",
+        truncated,
+      ].filter(Boolean);
+      return lines.join("\n");
+    };
+    const previewBlock = msgs.map(formatMsg).join("\n\n");
+    const more = data.total > msgs.length ? `\n\n…and ${data.total - msgs.length} more (call comms_inbox to see them).` : "";
+
+    let header;
     if (urgent.length) {
-      notice = `STOP — you have ${urgent.length} URGENT message(s) that need immediate action. Read them NOW.\n${previews}${more}\nCall comms_inbox(agentId="${agentId}") immediately.`;
+      header = `INCOMING — ${urgent.length} URGENT message(s). Process now before continuing.`;
     } else if (high.length) {
-      notice = `IMPORTANT: ${high.length} high-priority message(s) waiting. Read before continuing current work.\n${previews}${more}\nCall comms_inbox(agentId="${agentId}").`;
+      header = `INCOMING — ${high.length} high-priority message(s). Read and address now.`;
     } else {
-      notice = `${data.total} unread message(s) in your inbox:\n${previews}${more}\nCall comms_inbox(agentId="${agentId}") when you have a moment.`;
+      header = `INCOMING — ${data.total} unread message(s). Process these as part of your current work.`;
     }
+    const reminderTail = `\n\nReply via comms_send(from="${agentId}", to="<from-agent>", type="response", inReplyTo="<message-id>", ...) so the originator's run threads correctly.`;
+    const notice = `${header}\n\n${previewBlock}${more}${reminderTail}`;
     emitNotice(notice, hookPayload);
   }
 } catch {
