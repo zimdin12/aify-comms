@@ -5768,6 +5768,33 @@ function humanCapabilityLabel(key) {
   })[key] || key.replace(/[A-Z]/g, m => ' ' + m.toLowerCase()).trim();
 }
 
+function sessionPresenceForSession(session = {}, agentInfo = {}) {
+  const presence = agentInfo && (agentInfo.status || agentInfo.statusRaw)
+    ? chatPresenceForAgent(agentInfo)
+    : chatPresenceForAgent({status: session.status || session.terminalStatus || ''});
+  const sessionStatus = String(session.status || '').toLowerCase();
+  const terminalStatus = String(session.terminalStatus || '').toLowerCase();
+  if (sessionStatus === 'cli-takeover') return {kind: 'cli-takeover', label: 'paused for CLI'};
+  if (terminalStatus === 'stopping') return {kind: 'recovering', label: 'stopping'};
+  return presence;
+}
+
+function sessionModeSummary(session = {}, agentInfo = {}) {
+  const ownerMode = String(session.ownerMode || agentInfo.sessionMode || '').toLowerCase();
+  const mode = String(session.mode || '').toLowerCase();
+  const caps = session.capabilities || {};
+  const parts = [];
+  if (ownerMode === 'resident' || mode === 'resident' || String(agentInfo.sessionMode || '').toLowerCase() === 'resident') {
+    parts.push('resident');
+  } else {
+    parts.push('managed');
+  }
+  if (session.status === 'cli-takeover') parts.push('paused for CLI');
+  else if (caps.cliAttach) parts.push('console');
+  else parts.push('headless');
+  return parts.join(' · ');
+}
+
 function conversationHealthText({meta, messages, agentInfo, session, environment, latestRun}) {
   if (meta.kind === 'channel') return `${messages.length} message(s) in this channel. Membership controls only affect future delivery.`;
   if (!agentInfo) return 'This identity has chat history but no current agent registration.';
@@ -6637,9 +6664,20 @@ function renderSessions(sessions) {
       `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th class="session-select-col"><input type="checkbox" ${groupSelected ? 'checked' : ''} onchange="toggleSessionGroupSelection(${jsArg(environmentId)}, this.checked)"></th><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
     for (const session of groupSessions) {
       const caps = session.capabilities || {};
-      const capLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
-      const modeLabel = `${session.mode || ''}${caps.cliAttach ? '' : ' · headless'}`;
+      const allCapLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
+      const visibleCapLabels = ['cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
       const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
+      const presence = sessionPresenceForSession(session, agentInfo);
+      const presenceClass = `${presence.kind || 'unknown'}${terminalActivityClassForAgent(session.agentId)}`;
+      const presenceText = presence.kind === 'cli-takeover'
+        ? (presence.label || 'paused for CLI')
+        : humanStatusLabel(presence.kind || session.status || 'unknown');
+      const modeLabel = sessionModeSummary(session, agentInfo);
+      const modeTitle = [
+        `session mode: ${session.mode || 'unknown'}`,
+        `owner: ${session.ownerMode || 'unknown'}`,
+        session.terminalStatus ? `terminal: ${session.terminalStatus}` : '',
+      ].filter(Boolean).join(' · ');
       const resumeCommand = sessionResumeCommand(session, agentInfo);
       const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
       const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
@@ -6667,10 +6705,10 @@ function renderSessions(sessions) {
       html += `<tr>` +
         `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''}></td>` +
         `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
-        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(runtimeAttachNote(session))}>${esc(modeLabel)}</span></td>` +
+        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(`${runtimeAttachNote(session)} ${modeTitle}`.trim())}>${esc(modeLabel)}</span></td>` +
         `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
-        `<td><span class="st-${esc(session.status || '')}">${esc(session.status || '')}</span></td>` +
-        `<td class="t"${titleAttr(capLabels)}><span class="clip-2">${esc(capLabels || 'none')}</span></td>` +
+        `<td><span class="status-dot ${esc(presenceClass)}"${titleAttr(presence.label)}></span>${esc(presenceText)}<br><span class="t"${titleAttr(`session: ${session.status || 'unknown'}${session.terminalStatus ? ` · terminal: ${session.terminalStatus}` : ''}`)}>${esc(session.status || 'unknown')}</span></td>` +
+        `<td class="t"${titleAttr(allCapLabels || 'No recorded capabilities')}><span class="clip-2">${esc(visibleCapLabels || 'none')}</span></td>` +
         `<td class="t">${esc(session.lastSeen || '')}</td>` +
         `<td><div class="run-controls">` +
         actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
