@@ -116,6 +116,14 @@ is reported as `stale` and dashboard/chat sends are rejected until you restart
 `hermes-aify` and run `comms_register` from the visible session, or switch the
 identity back to managed.
 
+Hermes exposes MCP tools with server-prefixed callable names. For the
+aify-comms MCP server, use `mcp_aify_comms_comms_register`,
+`mcp_aify_comms_comms_agent_info`, and `mcp_aify_comms_comms_send` in Hermes
+turns; unprefixed names such as `comms_register` are shorthand used by generic
+docs and other clients. `hermes mcp test aify-comms` listing
+`comms_register` means the live callable name will be the prefixed Hermes tool
+name when that toolset is exposed to the turn.
+
 **Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
 
 **Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.

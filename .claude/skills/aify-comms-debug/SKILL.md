@@ -44,15 +44,11 @@ delivery instead of forking hidden work.
 register from inside that same session with the MCP tool:
 
 ```
-comms_register(agentId="target", role="tester", runtime="hermes")
-comms_agent_info(agentId="target")
+mcp_aify_comms_comms_register(agentId="target", role="tester", runtime="hermes")
+mcp_aify_comms_comms_agent_info(agentId="target")
 ```
 
-For Claude/Codex use the matching runtime and handle fields documented in the
-main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP
-child auto-registers with its real bridge id. Do not repair this by posting to
-`/api/v1/agents` manually; use dashboard **Switch to managed** if the open
-resident terminal should not own delivery.
+For Hermes, use the prefixed callable names that Hermes assigns to MCP tools (`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_agent_info`, `mcp_aify_comms_comms_send`). Missing unprefixed names like `comms_register` is not an exposure failure if the prefixed tools are available. For Claude/Codex use the matching runtime and handle fields documented in the main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP child auto-registers with its real bridge id. Do not repair this by posting to `/api/v1/agents` manually; use dashboard **Switch to managed** if the open resident terminal should not own delivery.
 
 ## Hermes fails immediately with `'NoneType' object is not iterable`
 
