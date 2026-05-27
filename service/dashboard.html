@@ -7240,7 +7240,13 @@ async function batchDeleteSelectedSessions() {
   }
   sessions.forEach(session => selectedSessionSet().delete(session.id));
   persistSelectedSessions();
-  toast(failures.length ? `Deleted ${deleted}; ${failures.length} failed` : `Deleted ${deleted} session record${deleted === 1 ? '' : 's'}`, failures.length ? '#f0b429' : undefined);
+  const failureDetail = failures.slice(0, 2).join('; ');
+  toast(
+    failures.length
+      ? `Deleted ${deleted}; ${failures.length} failed${failureDetail ? `: ${failureDetail}${failures.length > 2 ? '; ...' : ''}` : ''}`
+      : `Deleted ${deleted} session record${deleted === 1 ? '' : 's'}`,
+    failures.length ? '#f0b429' : undefined,
+  );
   await refreshDashboard();
 }
 

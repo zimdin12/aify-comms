@@ -8610,13 +8610,11 @@ async def delete_session(session_id: str, request: Request):
             )
 
         terminal_rows = await (await db.execute("SELECT * FROM terminal_sessions WHERE session_id = ?", (session_id,))).fetchall()
-        for terminal in terminal_rows:
-            terminal_status = str(terminal["status"] or "").strip().lower()
-            if terminal_status and terminal_status not in _TERMINAL_DELETE_ALLOWED_STATUSES:
-                raise HTTPException(
-                    409,
-                    f'Terminal "{terminal["id"]}" for session "{session_id}" is {terminal_status}; stop it before deleting the session record.',
-                )
+        stale_active_terminal_ids = [
+            terminal["id"]
+            for terminal in terminal_rows
+            if str(terminal["status"] or "").strip().lower() not in _TERMINAL_DELETE_ALLOWED_STATUSES
+        ]
 
         for terminal in terminal_rows:
             await db.execute("DELETE FROM terminal_controls WHERE terminal_id = ?", (terminal["id"],))
@@ -8628,7 +8626,13 @@ async def delete_session(session_id: str, request: Request):
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("session_deleted", {"sessionId": session_id, "agentId": session["agent_id"]})
-        return {"ok": True, "deleted": True, "sessionId": session_id, "agentId": session["agent_id"]}
+        return {
+            "ok": True,
+            "deleted": True,
+            "sessionId": session_id,
+            "agentId": session["agent_id"],
+            "staleActiveTerminalsDeleted": stale_active_terminal_ids,
+        }
     finally:
         await db.close()
 

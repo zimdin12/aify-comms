@@ -4364,6 +4364,36 @@ class ApiV2RegressionTests(unittest.TestCase):
 
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertTrue(deleted.json()["ok"])
+        self.assertEqual(deleted.json()["staleActiveTerminalsDeleted"], [])
+        self.assertIsNone(self._fetchone("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)))
+        self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,)))
+        agent = self._fetchone("SELECT id FROM agents WHERE id = ?", ("console-agent",))
+        self.assertIsNotNone(agent)
+
+    def test_delete_session_allows_stale_active_terminal_rows_when_session_is_inactive(self):
+        session_id = self._create_running_session(terminal=True)
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        now = "2026-05-14T00:00:00Z"
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET status = ?, terminal_status = ?, owner_mode = ?, ended_at = ?, last_seen = ?
+            WHERE id = ?
+            """,
+            ("stopped", "attached", "managed", now, now, session_id),
+        )
+        self._execute(
+            "UPDATE terminal_sessions SET status = ?, updated_at = ? WHERE id = ?",
+            ("attached", now, terminal_id),
+        )
+
+        deleted = self.client.delete(f"/api/v1/sessions/{session_id}")
+
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(deleted.json()["ok"])
+        self.assertEqual(deleted.json()["staleActiveTerminalsDeleted"], [terminal_id])
         self.assertIsNone(self._fetchone("SELECT id FROM agent_sessions WHERE id = ?", (session_id,)))
         self.assertIsNone(self._fetchone("SELECT id FROM terminal_sessions WHERE id = ?", (terminal_id,)))
         agent = self._fetchone("SELECT id FROM agents WHERE id = ?", ("console-agent",))
