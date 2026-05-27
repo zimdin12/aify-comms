@@ -936,6 +936,7 @@ if (changed) {
 }
 NODE
   patch_hermes_tui_active_session_file "$hermes_install_root"
+  patch_hermes_codex_stream_none_fallback "$hermes_install_root"
 }
 
 patch_hermes_tui_active_session_file() {
@@ -1002,6 +1003,53 @@ if (changed) {
   console.error(`[install.sh] Hermes TUI active-session file preservation already present in ${file}`);
 } else {
   console.error(`[install.sh] could not patch Hermes TUI active-session file preservation in ${file}`);
+}
+NODE
+}
+
+patch_hermes_codex_stream_none_fallback() {
+  local hermes_install_root="$1"
+  local codex_runtime_py="$hermes_install_root/agent/codex_runtime.py"
+  if [ ! -f "$codex_runtime_py" ]; then
+    echo "[install.sh] hermes agent/codex_runtime.py not found at $codex_runtime_py; skipping Codex stream NoneType fallback patch" >&2
+    return 0
+  fi
+  node - "$codex_runtime_py" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+let text = fs.readFileSync(file, "utf8");
+let changed = false;
+
+const marker = "Responses stream hit SDK NoneType iterable bug; falling back to create(stream=True)";
+if (!text.includes(marker)) {
+  const needle = `        except RuntimeError as exc:
+            err_text = str(exc)
+`;
+  const patch = `        except TypeError as exc:
+            err_text = str(exc)
+            if "NoneType" in err_text and "iterable" in err_text:
+                logger.debug(
+                    "Responses stream hit SDK NoneType iterable bug; falling back to create(stream=True). %s err=%s",
+                    agent._client_log_context(),
+                    err_text,
+                )
+                return agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)
+            raise
+`;
+  if (text.includes(needle)) {
+    text = text.replace(needle, patch + needle);
+    changed = true;
+  }
+}
+
+if (changed) {
+  fs.copyFileSync(file, `${file}.aify-codex-stream-bak`);
+  fs.writeFileSync(file, text);
+  console.error(`[install.sh] patched Hermes Codex stream NoneType fallback in ${file}`);
+} else if (text.includes(marker)) {
+  console.error(`[install.sh] Hermes Codex stream NoneType fallback already present in ${file}`);
+} else {
+  console.error(`[install.sh] could not patch Hermes Codex stream NoneType fallback in ${file}`);
 }
 NODE
 }

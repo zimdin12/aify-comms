@@ -16,6 +16,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
 - Resident Hermes/Claude/Codex says live but `comms_send` reports stale bridge
+- Hermes fails immediately with `'NoneType' object is not iterable`
 - Agent shows `online`/`ready` but the Console/worker is gone
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
@@ -52,6 +53,44 @@ main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP
 child auto-registers with its real bridge id. Do not repair this by posting to
 `/api/v1/agents` manually; use dashboard **Switch to managed** if the open
 resident terminal should not own delivery.
+
+## Hermes fails immediately with `'NoneType' object is not iterable`
+
+**Symptom.** A freshly restarted `hermes-aify` terminal reaches the Hermes TUI,
+but an ordinary prompt such as "read aify-comms skills again and re-register"
+fails before tools run:
+
+```
+API call failed: TypeError
+Provider: openai-codex
+Error: 'NoneType' object is not iterable
+```
+
+The wrapper may already be healthy: process list shows
+`hermes.exe chat --tui --resume <id>` and
+`~/.local/state/aify-comms/hermes-aify-active-session-<port>.json` exists.
+
+**Cause.** This is a Hermes/OpenAI SDK Responses streaming edge case, not an
+aify registration error. The SDK can raise a local `TypeError` while consuming
+the `openai-codex` stream before Hermes gets to call MCP tools. Current
+`install.sh --client hermes` patches Hermes `agent/codex_runtime.py` so this
+exact SDK failure falls back to Hermes's lower-level `create(stream=True)`
+path.
+
+**Fix.** Pull/update aify-comms, run the Hermes client install/redeploy, then
+restart the affected `hermes-aify` terminals so the Python process imports the
+patched module. If the same error repeats after restart, check the active
+dashboard log at:
+
+```
+~/.local/state/aify-comms/hermes-aify-dashboard-<port>.log
+```
+
+and verify the installed Hermes file contains:
+
+```
+Responses stream hit SDK NoneType iterable bug
+```
 
 ## Agent shows `online` or `ready`, but no live worker exists
 

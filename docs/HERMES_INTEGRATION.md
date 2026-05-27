@@ -25,6 +25,14 @@ If wrapper-backed delivery is disabled, the bridge can fall back to native Herme
 
 Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. Current installs patch Hermes with `aify.session.bind_transport`; dispatched work binds the bridge transport to the active visible TUI sid and uses `prompt.submit` / `session.steer` there. Fresh launches do not bind from gateway `session.most_recent` or inherited shell handles; only explicit `--resume` seeds a saved handle, and otherwise the wrapper waits for the Hermes TUI active-session file. If the saved handle is stale but that wrapper gateway has exactly one active visible session, bind uses that visible session and returns its real `session_key` so aify-comms can correct runtime state. Dispatch must render in the open `hermes-aify` console; missing bind support fails visibly instead of forking a hidden resumed session.
 
+The installer also patches Hermes's Codex Responses stream wrapper to recover
+from an OpenAI SDK `TypeError: 'NoneType' object is not iterable` seen with the
+`openai-codex` provider. That failure happens before MCP tools run, so it can
+look like registration broke even when the wrapper and gateway are healthy.
+Current installs fall back to Hermes's lower-level `create(stream=True)` path
+for that exact SDK stream failure. Restart `hermes-aify` after updating so the
+running Python process imports the patched module.
+
 Live resident delivery also requires the wrapper's MCP bridge heartbeat. A raw
 HTTP `POST /api/v1/agents` can update Hermes metadata, but it cannot create the
 `bridgeInstanceId` heartbeat or dispatch claim loop that makes the visible TUI

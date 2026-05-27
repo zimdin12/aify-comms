@@ -84,3 +84,11 @@ def test_hermes_installer_preserves_wrapper_active_session_file():
     assert "patch_hermes_tui_active_session_file" in text
     assert 'env.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()' in text
     assert "created_active_session_file" in text
+
+
+def test_hermes_installer_patches_codex_stream_nonetype_fallback():
+    """Hermes openai-codex stream bugs should fall back to raw create stream."""
+    text = _read_install_sh()
+    assert "patch_hermes_codex_stream_none_fallback" in text
+    assert "Responses stream hit SDK NoneType iterable bug" in text
+    assert "agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)" in text
