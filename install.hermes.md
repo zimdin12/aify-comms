@@ -99,7 +99,7 @@ race bug.
 
 ### Resident dispatch delivery (operator-launched `hermes-aify`)
 
-`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Current installs patch the local Hermes `tui_gateway` with `aify.session.bind_transport`: the dispatch path resolves the stored Hermes session key to the active visible TUI sid, mirrors the bridge WebSocket onto that session's transport, submits the prompt there, and streams the same visible turn back to aify-comms. If the stored key is stale but this wrapper gateway has exactly one active visible session, the bind patch uses that visible session and reports its real `session_key` back so aify-comms can correct runtime state without forking a hidden sid. If this bind method is missing, dispatch fails visibly instead of resuming or creating a hidden sid.
+`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Current installs load `integrations/hermes-aify-plugin` through `PYTHONPATH`; the plugin registers `aify.session.bind_transport` in the local Hermes `tui_gateway` at runtime. The dispatch path resolves the stored Hermes session key to the active visible TUI sid, mirrors the bridge WebSocket onto that session's transport, submits the prompt there, and streams the same visible turn back to aify-comms. If the stored key is stale but this wrapper gateway has exactly one active visible session, the bind method uses that visible session and reports its real `session_key` back so aify-comms can correct runtime state without forking a hidden sid. If this bind method is missing, dispatch fails visibly instead of resuming or creating a hidden sid.
 
 1. The wrapper spawns `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child. This sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher.
 2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (`web_server.py:3688`).
@@ -119,6 +119,14 @@ identity back to managed.
 **Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
 
 **Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.
+
+**Plugin A/B test:** set `AIFY_HERMES_DISABLE_PLUGIN=1` to launch
+`hermes-aify` without the aify runtime shim. This is useful for comparing
+upstream Hermes behavior after a Hermes update. With the plugin disabled,
+resident visible-session binding and the guarded Codex stream fallback are not
+provided by aify-comms. The old in-place source edit path is legacy/debug only:
+set `AIFY_HERMES_LEGACY_SOURCE_PATCH=1` before running `install.sh --client
+hermes` if you explicitly want that behavior.
 
 **Cleanup:** `trap cleanup_aify_dashboard EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background dashboard logs go to `$XDG_STATE_HOME/aify-comms/hermes-aify-dashboard-<port>.log` (or `~/.local/state/aify-comms/...` on systems without XDG_STATE_HOME).
 
@@ -165,20 +173,20 @@ Only an explicit `--resume <session-id>` / `--session-id <session-id>` seeds
 wait for Hermes TUI to write the active-session file exported as
 `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`; the
 aify-comms bridge uses that file as the current visible handle when it
-registers or heartbeats. `install.sh --client hermes` patches Hermes
-`hermes_cli/main.py` so it preserves the wrapper-provided active-session file
-instead of replacing it with a private temp file.
+registers or heartbeats. The runtime plugin preserves the wrapper-provided
+active-session file even on a fresh Hermes install, instead of letting Hermes
+replace it with a private temp file that the wrapper cannot observe.
 
 If dispatch says `visible session not found`, the open terminal was started
-with an old wrapper/Hermes patch set or registered before the visible TUI wrote
-its active session. Re-run `install.sh --client hermes`, restart that
+with an old wrapper, with `AIFY_HERMES_DISABLE_PLUGIN=1`, or before the visible
+TUI wrote its active session. Re-run `install.sh --client hermes`, restart that
 `hermes-aify` terminal, and re-register from inside the same visible session.
 
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
-- The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call.
+- The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
 - A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. No matching turn-end shell hook exists upstream; the 120s server-side `turn_busy` stale window handles cleanup.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 

@@ -74,25 +74,32 @@ The wrapper may already be healthy: process list shows
 aify registration error. ChatGPT Codex can stream valid `response.output_item.done`
 function-call items and then finish with `response.completed.response.output`
 set to `null`; OpenAI SDK 2.24.0 raises this local `TypeError` before Hermes
-gets to call MCP tools. Current `install.sh --client hermes` patches Hermes
-`agent/codex_runtime.py` so this exact SDK failure falls back to Hermes's
-lower-level `create(stream=True)` path and rebuilds `response.output` from the
+gets to call MCP tools. Current `install.sh --client hermes` installs the
+`hermes-aify` runtime shim (`integrations/hermes-aify-plugin`) and the wrapper
+loads it with `AIFY_HERMES_PLUGIN=1` / `PYTHONPATH`. The shim handles this
+exact SDK failure in memory: it falls back to Hermes's lower-level
+`create(stream=True)` path and rebuilds `response.output` from the
 already-streamed items.
 
 **Fix.** Pull/update aify-comms, run the Hermes client install/redeploy, then
 restart the affected `hermes-aify` terminals so the Python process imports the
-patched module. If the same error repeats after restart, check the active
+shim. If the same error repeats after restart, check the active
 dashboard log at:
 
 ```
 ~/.local/state/aify-comms/hermes-aify-dashboard-<port>.log
 ```
 
-and verify the installed Hermes file contains:
+and verify the wrapper loads the plugin:
 
 ```
-Responses stream hit SDK NoneType iterable bug
+head -80 ~/.local/bin/hermes-aify | grep AIFY_HERMES_PLUGIN
 ```
+
+For A/B testing upstream Hermes without the shim, launch with
+`AIFY_HERMES_DISABLE_PLUGIN=1 hermes-aify`. The old in-place source patch path
+is legacy/debug only: set `AIFY_HERMES_LEGACY_SOURCE_PATCH=1` before
+`install.sh --client hermes`.
 
 ## Agent shows `online` or `ready`, but no live worker exists
 
@@ -868,7 +875,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
 
-**Fix.** Current installs patch Hermes `tui_gateway/server.py` with `aify.session.bind_transport` and Hermes `hermes_cli/main.py` so the TUI preserves the wrapper-provided active-session file. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway has exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
+**Fix.** Current installs load the aify Hermes runtime plugin from `integrations/hermes-aify-plugin`; it registers `aify.session.bind_transport` and preserves the wrapper-provided active-session file without editing Hermes source. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`; if the saved handle was stale but the wrapper gateway has exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind method is missing, the plugin is disabled, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
 If two Hermes resident agents run in the same cwd, they must still register
 with different `runtimeConfig.gatewayUrl` values. Current bridges prefer the

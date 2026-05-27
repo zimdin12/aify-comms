@@ -1089,6 +1089,8 @@ install_hermes_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
+  local hermes_plugin_path=""
+  hermes_plugin_path="$(path_for_windows_runtime "$SCRIPT_DIR/integrations/hermes-aify-plugin")"
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1194,6 +1196,28 @@ if [ -z "\$HERMES_AIFY_SESSION_MODE" ]; then
   fi
 fi
 export AIFY_SESSION_MODE="\$HERMES_AIFY_SESSION_MODE"
+
+# Load aify-comms' durable Hermes runtime shim. This keeps the visible-session
+# bind method, active-session-file preservation, and Codex streaming fallback
+# outside the Hermes install tree, so a Hermes update does not erase them.
+# Disable for A/B testing with:
+#   AIFY_HERMES_DISABLE_PLUGIN=1 hermes-aify ...
+AIFY_HERMES_PLUGIN_PATH="$hermes_plugin_path"
+if [ "\${AIFY_HERMES_DISABLE_PLUGIN:-0}" != "1" ]; then
+  export AIFY_HERMES_PLUGIN="\${AIFY_HERMES_PLUGIN:-1}"
+  export AIFY_HERMES_PLUGIN_PATH
+  PYTHONPATH_SEP=":"
+  case "\$AIFY_HERMES_PLUGIN_PATH" in
+    ?:*) PYTHONPATH_SEP=";" ;;
+  esac
+  if [ -n "\${PYTHONPATH:-}" ]; then
+    export PYTHONPATH="\$AIFY_HERMES_PLUGIN_PATH\$PYTHONPATH_SEP\$PYTHONPATH"
+  else
+    export PYTHONPATH="\$AIFY_HERMES_PLUGIN_PATH"
+  fi
+else
+  unset AIFY_HERMES_PLUGIN
+fi
 
 # Plan 5 (2026-05-25): when the wrapper falls back to plain \`hermes\`
 # (gateway disabled, port alloc failed, dashboard probe failed, token
@@ -1441,6 +1465,26 @@ path_for_node() {
   printf '%s\n' "$value"
 }
 
+path_for_windows_runtime() {
+  # Paths embedded into native Windows runtime config/env are consumed later
+  # by Windows Node/Python, not by this installer process. Under WSL the
+  # installer can read /mnt/wsl/docker-desktop-bind-mounts/..., but native
+  # Hermes cannot. Prefer a drive-letter path when wslpath can resolve one.
+  local value="$1"
+  local converted=""
+  if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$value"
+    return
+  fi
+  if command -v wslpath >/dev/null 2>&1; then
+    converted="$(wslpath -w "$value" 2>/dev/null || true)"
+    case "$converted" in
+      [A-Za-z]:\\*) printf '%s\n' "$converted"; return ;;
+    esac
+  fi
+  printf '%s\n' "$value"
+}
+
 shell_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -1662,7 +1706,7 @@ _patch_hermes_config_at() {
   mkdir -p "$config_dir"
   touch "$config_file"
   node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+  node_server_path="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio/server.js")"
 
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
@@ -2501,7 +2545,12 @@ elif [ "$CLIENT" = "codex" ]; then
   # version doesn't recognize the events yet.
   install_codex_turn_hooks
 elif [ "$CLIENT" = "hermes" ]; then
-  patch_hermes_gateway_visible_bind
+  if [ "${AIFY_HERMES_LEGACY_SOURCE_PATCH:-0}" = "1" ]; then
+    patch_hermes_gateway_visible_bind
+  else
+    echo "Hermes source patching skipped; hermes-aify loads integrations/hermes-aify-plugin at runtime."
+    echo "  Set AIFY_HERMES_LEGACY_SOURCE_PATCH=1 before install for the old in-place patch path."
+  fi
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because

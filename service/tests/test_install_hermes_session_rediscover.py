@@ -93,3 +93,12 @@ def test_hermes_installer_patches_codex_stream_nonetype_fallback():
     assert "Responses stream hit SDK NoneType iterable bug" in text
     assert "agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)" in text
     assert "if not isinstance(_out, list) or not _out:" in text
+
+
+def test_hermes_wrapper_loads_aify_plugin_by_default():
+    """hermes-aify should load the durable aify plugin unless explicitly disabled."""
+    text = _read_install_sh()
+    assert "AIFY_HERMES_PLUGIN" in text
+    assert "integrations/hermes-aify-plugin" in text
+    assert "AIFY_HERMES_DISABLE_PLUGIN" in text
+    assert "PYTHONPATH" in text

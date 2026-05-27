@@ -1,6 +1,8 @@
 # Hermes Agent Integration
 
 This guide covers the aify-comms integration for NousResearch Hermes Agent.
+See [HERMES_AIFY_PLUGIN.md](HERMES_AIFY_PLUGIN.md) for the runtime shim loaded
+by `hermes-aify`.
 
 Primary upstream references:
 
@@ -23,17 +25,17 @@ Managed Hermes defaults to the wrapper-backed path (`managed_via_wrapper=["codex
 
 If wrapper-backed delivery is disabled, the bridge can fall back to native Hermes controllers: a persistent ACP JSON-RPC child or gateway controller, with synthesized terminal output for dashboard visibility. The gateway path gives multi-client visibility; the ACP path is single-client and mirrors `session/update` notifications into a virtual terminal.
 
-Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. Current installs patch Hermes with `aify.session.bind_transport`; dispatched work binds the bridge transport to the active visible TUI sid and uses `prompt.submit` / `session.steer` there. Fresh launches do not bind from gateway `session.most_recent` or inherited shell handles; only explicit `--resume` seeds a saved handle, and otherwise the wrapper waits for the Hermes TUI active-session file. If the saved handle is stale but that wrapper gateway has exactly one active visible session, bind uses that visible session and returns its real `session_key` so aify-comms can correct runtime state. Dispatch must render in the open `hermes-aify` console; missing bind support fails visibly instead of forking a hidden resumed session.
+Resident Hermes is terminal-first: `hermes-aify` opens an interactive `hermes chat --tui` for the operator. The wrapper spawns a hidden `hermes dashboard --tui` backing in the background, captures its ephemeral session token, exports `HERMES_TUI_GATEWAY_URL` so the Ink TUI attaches via WebSocket instead of spawning its own stdio sidecar, and exports `AIFY_HERMES_GATEWAY_URL` so the aify-comms bridge can attach to the same gateway. Current installs load `integrations/hermes-aify-plugin` through `PYTHONPATH` instead of relying on in-place Hermes source edits. That runtime shim registers `aify.session.bind_transport`, preserves the wrapper-owned active-session file, and applies the guarded Codex stream compatibility fix while the Hermes process is running. Dispatched work binds the bridge transport to the active visible TUI sid and uses `prompt.submit` / `session.steer` there. Fresh launches do not bind from gateway `session.most_recent` or inherited shell handles; only explicit `--resume` seeds a saved handle, and otherwise the wrapper waits for the Hermes TUI active-session file. If the saved handle is stale but that wrapper gateway has exactly one active visible session, bind uses that visible session and returns its real `session_key` so aify-comms can correct runtime state. Dispatch must render in the open `hermes-aify` console; missing bind support fails visibly instead of forking a hidden resumed session.
 
-The installer also patches Hermes's Codex Responses stream wrapper to recover
-from an OpenAI SDK `TypeError: 'NoneType' object is not iterable` seen with the
-`openai-codex` provider. That failure happens before MCP tools run, so it can
-look like registration broke even when the wrapper and gateway are healthy.
-Current installs fall back to Hermes's lower-level `create(stream=True)` path
-for that exact SDK stream failure, then rebuild `response.output` from the
-already-delivered `response.output_item.done` events when ChatGPT Codex sends a
-terminal `response.completed` frame with `output: null`. Restart `hermes-aify`
-after updating so the running Python process imports the patched module.
+The shim also recovers from an OpenAI SDK `TypeError: 'NoneType' object is not
+iterable` seen with the `openai-codex` provider. That failure happens before
+MCP tools run, so it can look like registration broke even when the wrapper and
+gateway are healthy. The shim falls back to Hermes's lower-level
+`create(stream=True)` path for that exact SDK stream failure, then rebuilds
+`response.output` from already-delivered `response.output_item.done` events
+when ChatGPT Codex sends a terminal `response.completed` frame with
+`output: null`. Restart `hermes-aify` after updating so the running Python
+process imports the shim.
 
 Live resident delivery also requires the wrapper's MCP bridge heartbeat. A raw
 HTTP `POST /api/v1/agents` can update Hermes metadata, but it cannot create the
@@ -85,6 +87,7 @@ The installer:
 - installs/updates the shared `aify-comms` environment bridge launcher
 - registers `aify-comms` as a Hermes MCP server in `~/.hermes/config.yaml`
 - installs `hermes-aify`
+- loads the durable Hermes shim from `integrations/hermes-aify-plugin`
 - with `--with-hook`, installs `~/.hermes/agent-hooks/aify-notify.sh` and adds a `post_tool_call` shell hook
 
 Restart any running Hermes terminals and any long-running `aify-comms` bridge after updating.
@@ -101,6 +104,20 @@ Get-Command hermes-aify.cmd
 
 If only `hermes-aify.cmd` exists, set `AIFY_HERMES_COMMAND` to the absolute
 Hermes executable path and restart the bridge.
+
+To A/B test upstream Hermes without the aify runtime shim:
+
+```bash
+AIFY_HERMES_DISABLE_PLUGIN=1 hermes-aify
+```
+
+That disables resident visible-session binding and the Codex stream guard for
+that launch. The old in-place Hermes source patch path remains available only
+for debugging:
+
+```bash
+AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.168.100.10:8800
+```
 
 ## Start The Environment Bridge
 
@@ -196,4 +213,4 @@ When Hermes is launched through `hermes-aify`, the wrapper exports the server UR
 
 - Managed Hermes defaults to the wrapper-backed `hermes-aify` PTY path, so mid-turn insertion uses the Hermes gateway's `session.steer` when the active session is busy. Native ACP/controller fallback has a narrower surface and may require a follow-up dispatch instead.
 - Conversation state for the default path lives in the visible Hermes TUI session reached through `aify.session.bind_transport`. Native ACP/controller fallback keeps its own controller session or synthesized context and is a debug/fallback surface, not the preferred harness-console path.
-- Resident Hermes uses the real `hermes chat` TUI under `hermes-aify` and supports operator-driven multi-turn interactively. Current installs patch the local Hermes gateway with `aify.session.bind_transport`; bridge-dispatched work binds to the active visible TUI session before `prompt.submit` / `session.steer`, so it must render in the operator's open console. Fresh wrapper launches intentionally avoid historical `session.most_recent` binding; the active-session file or explicit `--resume` is the source of truth. Stale saved handles are corrected from the gateway's returned `session_key` when the wrapper has exactly one active visible session. If the gateway lacks that method or no visible session can be selected, dispatch fails loudly instead of resuming or creating a hidden session.
+- Resident Hermes uses the real `hermes chat` TUI under `hermes-aify` and supports operator-driven multi-turn interactively. Current installs load the aify Hermes plugin, which registers `aify.session.bind_transport` at runtime; bridge-dispatched work binds to the active visible TUI session before `prompt.submit` / `session.steer`, so it must render in the operator's open console. Fresh wrapper launches intentionally avoid historical `session.most_recent` binding; the active-session file or explicit `--resume` is the source of truth. Stale saved handles are corrected from the gateway's returned `session_key` when the wrapper has exactly one active visible session. If the gateway lacks that method or no visible session can be selected, dispatch fails loudly instead of resuming or creating a hidden session.
