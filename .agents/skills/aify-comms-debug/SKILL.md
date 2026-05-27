@@ -16,6 +16,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
 - Resident Hermes/Claude/Codex says live but `comms_send` reports stale bridge
+- Hermes `mcp test` works, but the live turn has no `mcp_aify_comms_*` tools
 - Hermes fails immediately with `'NoneType' object is not iterable`
 - Agent shows `online`/`ready` but the Console/worker is gone
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
@@ -49,6 +50,28 @@ mcp_aify_comms_comms_agent_info(agentId="target")
 ```
 
 For Hermes, use the prefixed callable names that Hermes assigns to MCP tools (`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_agent_info`, `mcp_aify_comms_comms_send`). Missing unprefixed names like `comms_register` is not an exposure failure if the prefixed tools are available. For Claude/Codex use the matching runtime and handle fields documented in the main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP child auto-registers with its real bridge id. Do not repair this by posting to `/api/v1/agents` manually; use dashboard **Switch to managed** if the open resident terminal should not own delivery.
+
+## Hermes `mcp test` works, but live turn has no aify tools
+
+**Symptom.** Inside `hermes-aify`, `hermes mcp list` shows `aify-comms`
+enabled and `hermes mcp test aify-comms` discovers `comms_register`,
+`comms_send`, and `comms_agent_info`, but the model turn still cannot call
+`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_send`, or
+`mcp_aify_comms_comms_agent_info`.
+
+**Cause.** `hermes mcp test` is a fresh CLI process. The visible
+`hermes-aify` terminal is driven by a separate `hermes dashboard --tui`
+gateway process, and older wrapper/plugin builds did not run
+`discover_mcp_tools()` before that gateway built the TUI `AIAgent`. The gateway
+could therefore have only built-in tools even though the standalone MCP test
+passed.
+
+**Fix.** Update aify-comms, run `./install.sh --client hermes`, and restart
+`hermes-aify` so it loads the current `integrations/hermes-aify-plugin` shim.
+The plugin now runs MCP discovery before the TUI agent is built. For an
+already-open session on a current wrapper, reload the gateway MCP registry
+instead of using terminal/Node/curl/direct HTTP registration. Direct HTTP
+registration can still corrupt bridge-backed resident metadata.
 
 ## Hermes fails immediately with `'NoneType' object is not iterable`
 

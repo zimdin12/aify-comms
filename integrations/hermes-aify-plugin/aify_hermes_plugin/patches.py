@@ -18,11 +18,36 @@ def _same_path(left: object, right: object) -> bool:
 
 
 def patch_gateway_server(module: ModuleType) -> None:
-    """Register aify.session.bind_transport without editing Hermes files."""
+    """Patch Hermes TUI gateway behavior without editing Hermes files."""
 
     methods = getattr(module, "_methods", None)
     if not isinstance(methods, dict):
         raise RuntimeError("tui_gateway.server has no _methods registry")
+
+    def ensure_mcp_discovered() -> None:
+        if getattr(module, "_aify_mcp_discovery_done", False):
+            return
+        try:
+            from tools.mcp_tool import discover_mcp_tools
+
+            discover_mcp_tools()
+            setattr(module, "_aify_mcp_discovery_done", True)
+        except Exception as exc:
+            logger = getattr(module, "logger", None)
+            if logger is not None:
+                logger.debug("aify MCP discovery failed in TUI gateway: %s", exc)
+
+    original_make_agent = getattr(module, "_make_agent", None)
+    if callable(original_make_agent) and not getattr(
+        original_make_agent, "_aify_plugin_patch", False
+    ):
+
+        def make_agent_with_mcp_discovery(*args, **kwargs):  # type: ignore[no-untyped-def]
+            ensure_mcp_discovered()
+            return original_make_agent(*args, **kwargs)
+
+        make_agent_with_mcp_discovery._aify_plugin_patch = True  # type: ignore[attr-defined]
+        setattr(module, "_make_agent", make_agent_with_mcp_discovery)
 
     existing = methods.get("aify.session.bind_transport")
     if existing is not None and getattr(existing, "_aify_plugin_patch", False):

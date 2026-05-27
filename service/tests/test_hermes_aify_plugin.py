@@ -64,6 +64,59 @@ class HermesAifyPluginTests(unittest.TestCase):
         self.assertIs(session["transport"].primary, primary_transport)
         self.assertIs(session["transport"].bridge, bridge_transport)
 
+    def test_gateway_patch_discovers_mcp_before_tui_agent_build(self) -> None:
+        from aify_hermes_plugin.patches import patch_gateway_server
+
+        calls: list[str] = []
+        fake_tools = types.ModuleType("tools")
+        fake_mcp_tool = types.ModuleType("tools.mcp_tool")
+
+        def discover_mcp_tools():
+            calls.append("discover")
+            return ["mcp_aify_comms_comms_register"]
+
+        fake_mcp_tool.discover_mcp_tools = discover_mcp_tools
+        old_tools = sys.modules.get("tools")
+        old_mcp_tool = sys.modules.get("tools.mcp_tool")
+        sys.modules["tools"] = fake_tools
+        sys.modules["tools.mcp_tool"] = fake_mcp_tool
+
+        def make_agent(*args, **kwargs):
+            calls.append("make")
+            return {"ok": True}
+
+        module = types.SimpleNamespace(
+            _methods={},
+            _sessions={},
+            _stdio_transport=object(),
+            _make_agent=make_agent,
+            current_transport=lambda: None,
+            _ok=lambda rid, result: {"id": rid, "result": result},
+            _err=lambda rid, code, msg: {
+                "id": rid,
+                "error": {"code": code, "message": msg},
+            },
+            logger=types.SimpleNamespace(
+                info=lambda *args, **kwargs: None,
+                debug=lambda *args, **kwargs: None,
+            ),
+        )
+
+        try:
+            patch_gateway_server(module)
+            self.assertEqual(module._make_agent("sid", "key"), {"ok": True})
+        finally:
+            if old_tools is None:
+                sys.modules.pop("tools", None)
+            else:
+                sys.modules["tools"] = old_tools
+            if old_mcp_tool is None:
+                sys.modules.pop("tools.mcp_tool", None)
+            else:
+                sys.modules["tools.mcp_tool"] = old_mcp_tool
+
+        self.assertEqual(calls, ["discover", "make"])
+
     def test_active_session_file_patch_preserves_wrapper_file(self) -> None:
         from aify_hermes_plugin.patches import patch_hermes_cli_main
 

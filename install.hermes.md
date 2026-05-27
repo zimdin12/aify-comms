@@ -99,7 +99,7 @@ race bug.
 
 ### Resident dispatch delivery (operator-launched `hermes-aify`)
 
-`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Current installs load `integrations/hermes-aify-plugin` through `PYTHONPATH`; the plugin registers `aify.session.bind_transport` in the local Hermes `tui_gateway` at runtime. The dispatch path resolves the stored Hermes session key to the active visible TUI sid, mirrors the bridge WebSocket onto that session's transport, submits the prompt there, and streams the same visible turn back to aify-comms. If the stored key is stale but this wrapper gateway has exactly one active visible session, the bind method uses that visible session and reports its real `session_key` back so aify-comms can correct runtime state without forking a hidden sid. If this bind method is missing, dispatch fails visibly instead of resuming or creating a hidden sid.
+`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Current installs load `integrations/hermes-aify-plugin` through `PYTHONPATH`; the plugin registers `aify.session.bind_transport` in the local Hermes `tui_gateway` at runtime and runs MCP discovery before the TUI gateway builds its `AIAgent`. That dashboard-gateway discovery matters because `hermes mcp test aify-comms` runs in a separate CLI process; it can succeed while the already-running TUI gateway still has no `mcp_aify_comms_*` tools. The dispatch path resolves the stored Hermes session key to the active visible TUI sid, mirrors the bridge WebSocket onto that session's transport, submits the prompt there, and streams the same visible turn back to aify-comms. If the stored key is stale but this wrapper gateway has exactly one active visible session, the bind method uses that visible session and reports its real `session_key` back so aify-comms can correct runtime state without forking a hidden sid. If this bind method is missing, dispatch fails visibly instead of resuming or creating a hidden sid.
 
 1. The wrapper spawns `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child. This sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher.
 2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (`web_server.py:3688`).
@@ -123,6 +123,13 @@ turns; unprefixed names such as `comms_register` are shorthand used by generic
 docs and other clients. `hermes mcp test aify-comms` listing
 `comms_register` means the live callable name will be the prefixed Hermes tool
 name when that toolset is exposed to the turn.
+
+If a live `hermes-aify` turn can run `hermes mcp test aify-comms` but still
+does not expose `mcp_aify_comms_comms_register` /
+`mcp_aify_comms_comms_agent_info`, the active TUI gateway has not loaded MCP
+tools. On current installs, restart `hermes-aify`; for an already-open gateway,
+the gateway `reload.mcp` method (or the wrapper's reload-MCP control if
+available) repairs the live registry without direct HTTP registration.
 
 **Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
 
