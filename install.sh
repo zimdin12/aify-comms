@@ -1219,6 +1219,21 @@ else
   unset AIFY_HERMES_PLUGIN
 fi
 
+aify_hermes_exec_plain_or_tui() {
+  # Default to hermes chat --tui for the operator's interactive TUI when
+  # no explicit subcommand args were passed. If the operator passed args
+  # (e.g. hermes-aify model list), pass them through unchanged. This helper
+  # is used by both the gateway-backed path and the plain-Hermes fallback, so
+  # explicit --resume keeps working even when gateway startup fails.
+  if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+    if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
+      exec "\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\$HERMES_SESSION_HANDLE"
+    fi
+    exec "\$HERMES_RUNTIME_COMMAND" chat --tui
+  fi
+  exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+}
+
 # Plan 5 (2026-05-25): when the wrapper falls back to plain \`hermes\`
 # (gateway disabled, port alloc failed, dashboard probe failed, token
 # capture failed) AIFY_HERMES_GATEWAY_URL is NOT exported and every
@@ -1240,7 +1255,7 @@ aify_hermes_fallback() {
   echo "[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or" >&2
   echo "[hermes-aify]           inspect the dashboard log above for the underlying error." >&2
   echo "" >&2
-  exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+  aify_hermes_exec_plain_or_tui
 }
 
 # Resident-mode bridge-injection path (mirror of codex-aify install.sh:319-424
@@ -1347,16 +1362,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   export HERMES_TUI_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
   export AIFY_HERMES_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
 
-  # Default to \`hermes chat --tui\` for the operator's interactive TUI when
-  # no explicit subcommand args were passed. If the operator passed args
-  # (e.g. \`hermes-aify model list\`), pass them through unchanged.
-  if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
-    if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      exec "\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\$HERMES_SESSION_HANDLE"
-    fi
-    exec "\$HERMES_RUNTIME_COMMAND" chat --tui
-  fi
-  exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+  aify_hermes_exec_plain_or_tui
 fi
 
 # Plan 5 (2026-05-25): explicit AIFY_HERMES_SKIP_GATEWAY=1 fallback. The

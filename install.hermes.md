@@ -157,7 +157,7 @@ When `hermes-aify` cannot start the dashboard gateway (port allocation failure, 
 [hermes-aify]           inspect the dashboard log above for the underlying error.
 ```
 
-Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work.
+Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work. Current fallback still preserves an explicit `hermes-aify --resume <session-id>` by launching plain `hermes chat --tui --resume <session-id>` when the gateway path cannot start.
 
 ### Session handle binding
 

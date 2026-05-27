@@ -54,6 +54,21 @@ def test_hermes_wrapper_consumes_resume_args_for_tui_default():
     assert 'exec "\\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
 
 
+def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
+    """Gateway fallback must still resume the explicit Hermes session."""
+    text = _read_install_sh()
+    helper_idx = text.find("aify_hermes_exec_plain_or_tui()")
+    assert helper_idx > 0
+    helper = text[helper_idx : helper_idx + 750]
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\\$HERMES_SESSION_HANDLE"' in helper
+
+    fallback_idx = text.find("aify_hermes_fallback()")
+    assert fallback_idx > 0
+    fallback = text[fallback_idx : fallback_idx + 700]
+    assert "aify_hermes_exec_plain_or_tui" in fallback
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" "\\${HERMES_ARGS[@]}"' not in fallback
+
+
 def test_hermes_installer_patches_visible_session_bind():
     """Hermes resident delivery must bind to the open TUI session, not resume
     a hidden sid."""

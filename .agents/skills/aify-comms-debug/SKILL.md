@@ -811,9 +811,9 @@ cat ~/.local/state/aify-comms/hermes-aify-dashboard-*.log | head -5
 # Expect: "✗ --skip-build was passed but no web dist found at: .../hermes_cli/web_dist"
 ```
 
-If the log shows that line, the wrapper's `hermes dashboard --tui --skip-build` probe died immediately, `wait_for_http` timed out, and the wrapper silently `exec`'d plain `hermes` without exporting the gateway URL. The MCP child then registered with no gateway env.
+If the log shows that line, the wrapper's `hermes dashboard --tui --skip-build` probe died immediately, `wait_for_http` timed out, and the wrapper falls back to plain Hermes without exporting the gateway URL. The MCP child then registers with no gateway env.
 
-**Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers also print a visible WARNING when this fallback path triggers (commit `7a544e8`), so subsequent occurrences won't be silent.
+**Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers print a visible WARNING when this fallback path triggers and preserve an explicit `hermes-aify --resume <id>` by falling back to `hermes chat --tui --resume <id>`.
 
 ## Queued managed run never claimed (Plan 5 Section B)
 
