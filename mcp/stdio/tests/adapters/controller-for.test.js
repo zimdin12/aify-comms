@@ -37,3 +37,9 @@ test("Pi resident mode returns null (Plan 2 flip)", () => {
   const c = a.controllerFor({ runtime: "pi", executionMode: "resident", agentInfo: {}, run: {}, runtimeState: {}, callbacks: {} });
   assert.ok(c === null || c === undefined, `pi resident must return null/undefined; got ${c}`);
 });
+
+test("OpenCode resident mode returns null until a multi-client surface exists", () => {
+  const a = new OpencodeAdapter();
+  const c = a.controllerFor({ runtime: "opencode", executionMode: "resident", agentInfo: {}, run: {}, runtimeState: {}, callbacks: {} });
+  assert.ok(c === null || c === undefined, `opencode resident must return null/undefined; got ${c}`);
+});

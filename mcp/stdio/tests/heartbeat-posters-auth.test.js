@@ -22,6 +22,7 @@ test("session handle heartbeat poster includes API key when configured", async (
     const post = makeDefaultHandlePoster("http://svc", "secret-key");
     await post("agent-1", "session-1");
     assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://svc/api/v1/agents/agent-1/session-handle");
     assert.equal(calls[0].options.headers["X-API-Key"], "secret-key");
   });
 });

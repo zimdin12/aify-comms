@@ -51,6 +51,7 @@ import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
+import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
 import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
@@ -936,7 +937,8 @@ async function autoRegisterConfiguredAgent() {
     sessionHandle,
     capabilities,
     runtimeConfig: effectiveRuntimeConfig,
-    terminalId: process.env.AIFY_TERMINAL_ID || "",
+    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || ""),
+    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1",
     restoreDeleted: true,
     autoRegister: true,
   };
@@ -1191,7 +1193,8 @@ async function reregisterAgentFromState(agentId, state) {
     // R8: mirror the initial /agents register so a 404 auto-re-register does
     // not drop the console_terminal_attached binding. AIFY_TERMINAL_ID is
     // stable for the bridge process lifetime; fall back to cached info.
-    terminalId: process.env.AIFY_TERMINAL_ID || info.terminalId || "",
+    terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || info.terminalId || ""),
+    managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" || !!info.managedWrapperChild,
     autoRegister: true,
   };
   try {
@@ -1349,6 +1352,7 @@ function baseAgentHeartbeatFields(state = {}) {
   return {
     bridgeId: BRIDGE_INSTANCE_ID,
     machineId: state?.info?.machineId || MACHINE_ID,
+      terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || state?.info?.terminalId || ""),
   };
 }
 
@@ -1371,12 +1375,7 @@ async function readManagedViaWrapperRuntimes() {
   }
   try {
     const resp = await httpCall("GET", "/settings");
-    const val = resp?.settings?.managed_via_wrapper;
-    let set = new Set();
-    if (val === true) set = new Set(["codex", "hermes", "pi", "opencode"]);
-    else if (Array.isArray(val)) {
-      set = new Set(val.map((r) => String(r || "").trim().toLowerCase()).filter(Boolean));
-    }
+    const set = managedViaWrapperRuntimesFromSettingsResponse(resp);
     _managedViaWrapperCache = { fetchedAt: Date.now(), runtimes: set };
     return set;
   } catch (_) {
@@ -1636,21 +1635,22 @@ async function runTerminalControlLoop() {
           const command = terminal.command || control.body || "";
           const runtime = normalizeRuntime(terminal.runtime || "");
           const sessionHandle = extractTerminalSessionHandle(runtime, command);
-          const wrapperEnv = terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId });
-          // When this terminal is the wrapper PTY for a wrapper-backed
-          // managed agent, signal that to the spawned wrapper's in-process
-          // bridge via AIFY_MANAGED_VIA_WRAPPER=1. The wrapper's child
-          // bridge sees this env and includes 'channel' in dispatch claim
-          // executionModes (mirror of claude-channel.js inside claude-aify).
-          // The agent's runtime must be in the operator's managed_via_wrapper
-          // setting list (or true) for this to apply.
+          let agentInfo = {};
+          if (terminal.agentId) {
+            try {
+              const agentResp = await httpCall("GET", `/agents/${encodeURIComponent(terminal.agentId)}`);
+              agentInfo = agentResp?.agent || {};
+            } catch {
+              agentInfo = {};
+            }
+          }
+          let managedViaWrapper = runtime === "claude-code";
           try {
             const _wrapperRuntimes = await readManagedViaWrapperRuntimes();
-            if (_wrapperRuntimes && _wrapperRuntimes.has?.(runtime)) {
-              wrapperEnv.AIFY_MANAGED_VIA_WRAPPER = "1";
-              if (terminal.agentId) wrapperEnv.AIFY_AGENT_ID = String(terminal.agentId);
-            }
+            managedViaWrapper = managedViaWrapper || Boolean(_wrapperRuntimes && _wrapperRuntimes.has?.(runtime));
           } catch { /* best effort */ }
+          const wrapperEnv = terminalChildEnv({ runtime, sessionHandle, terminal, workspace, terminalId, agentInfo, managedViaWrapper });
+          if (managedViaWrapper && terminal.agentId) wrapperEnv.AIFY_AGENT_ID = String(terminal.agentId);
           const started = await TERMINAL_MANAGER.start({
             id: terminalId,
             command,

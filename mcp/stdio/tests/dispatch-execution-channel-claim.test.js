@@ -1,40 +1,36 @@
-// Plan 5 (2026-05-25) — symmetric channel-claim for wrapper-backed managed
-// codex/hermes/pi. Pins the main bridge's claim contract: when the agent is
-// recorded as sessionMode='managed' and the runtime is in
-// `managedViaWrapperRuntimes`, the main bridge must claim 'channel' so the
-// queued execution_mode='channel' run (set by api_v2.py:1047) actually gets
-// picked up. Without this, those runs sit queued forever — observed
-// 2026-05-25 for graph-senior-dev (codex managed), pi managed, and hermes
-// managed.
+// Wrapper-backed managed codex/hermes runs are queued as channel-mode, but
+// only the wrapper PTY's child bridge should claim them. The environment
+// bridge must stay out of that path; otherwise it can race the child bridge
+// and drive stale runtimeConfig instead of the visible *-aify console.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { supportedExecutionModes } from "../dispatch-execution.js";
 
-const WRAPPER_BACKED = new Set(["codex", "hermes", "pi"]);
+const WRAPPER_BACKED = new Set(["codex", "hermes"]);
 
-test("codex managed + wrapper-backed pushes 'channel'", () => {
+test("codex managed + wrapper-backed does not push main-bridge claim modes", () => {
   const modes = supportedExecutionModes(
     { runtime: "codex", sessionMode: "managed", capabilities: ["native-managed-run"] },
     { managedViaWrapperRuntimes: WRAPPER_BACKED },
   );
-  assert.deepEqual(modes, ["channel"]);
+  assert.deepEqual(modes, []);
 });
 
-test("hermes managed + wrapper-backed pushes 'channel'", () => {
+test("hermes managed + wrapper-backed does not push main-bridge claim modes", () => {
   const modes = supportedExecutionModes(
     { runtime: "hermes", sessionMode: "managed", capabilities: ["native-managed-run"] },
     { managedViaWrapperRuntimes: WRAPPER_BACKED },
   );
-  assert.deepEqual(modes, ["channel"]);
+  assert.deepEqual(modes, []);
 });
 
-test("pi managed + wrapper-backed pushes 'channel'", () => {
+test("pi managed stays native managed even if settings accidentally include pi", () => {
   const modes = supportedExecutionModes(
     { runtime: "pi", sessionMode: "managed", capabilities: ["native-managed-run"] },
-    { managedViaWrapperRuntimes: WRAPPER_BACKED },
+    { managedViaWrapperRuntimes: new Set(["pi"]) },
   );
-  assert.deepEqual(modes, ["channel"]);
+  assert.deepEqual(modes, ["managed"]);
 });
 
 test("codex managed + NOT wrapper-backed still pushes 'managed' (legacy path)", () => {
@@ -53,10 +49,10 @@ test("resident codex still returns 'resident' regardless of wrapper-backed flag"
   assert.deepEqual(modes, ["resident"]);
 });
 
-test("opencode managed + wrapper-backed does NOT push 'channel' (opencode out of scope for Plan 5)", () => {
+test("opencode managed ignores wrapper-backed setting and stays native managed", () => {
   const modes = supportedExecutionModes(
     { runtime: "opencode", sessionMode: "managed", capabilities: ["native-managed-run"] },
     { managedViaWrapperRuntimes: new Set(["opencode"]) },
   );
-  assert.deepEqual(modes, []);
+  assert.deepEqual(modes, ["managed"]);
 });

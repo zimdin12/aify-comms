@@ -1,5 +1,7 @@
-"""Regression: _managed_via_wrapper_for_runtime now consults the adapter's
-preferred_delivery_mode. Pi is no longer hardcoded-excluded (Plan 2 pi flip).
+"""Regression: _managed_via_wrapper_for_runtime consults adapter delivery mode.
+
+Pi is explicitly excluded because OMP is single-client RPC and must keep
+dashboard chat and Console on the same native managed controller.
 """
 
 import sys
@@ -12,15 +14,14 @@ sys.path.insert(0, str(ROOT.parent))
 from service.routers.api_v2 import _managed_via_wrapper_for_runtime
 
 
-def test_pi_is_now_eligible_for_managed_via_wrapper():
-    # Setting respects True; pi adapter declares managed-via-wrapper as preferred
+def test_pi_is_not_eligible_for_managed_via_wrapper():
     settings = {"managed_via_wrapper": True}
-    assert _managed_via_wrapper_for_runtime(settings, "pi") is True
+    assert _managed_via_wrapper_for_runtime(settings, "pi") is False
 
 
-def test_pi_list_form_includes_pi():
+def test_pi_list_form_still_excludes_pi():
     settings = {"managed_via_wrapper": ["pi"]}
-    assert _managed_via_wrapper_for_runtime(settings, "pi") is True
+    assert _managed_via_wrapper_for_runtime(settings, "pi") is False
 
 
 def test_pi_setting_off_still_returns_false():

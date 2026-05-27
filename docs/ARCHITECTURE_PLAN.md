@@ -22,9 +22,11 @@ Environment bridges
   |-- future remote bridge
   |
 Runtime adapters
-  |-- claude headless/resident
-  |-- codex headless/resident
-  |-- opencode headless/resident
+  |-- claude wrapper/channel + resident
+  |-- codex wrapper/app-server + resident
+  |-- hermes wrapper/gateway + resident
+  |-- opencode native managed controller
+  |-- pi native managed RPC
 ```
 
 ## Existing Pieces To Keep

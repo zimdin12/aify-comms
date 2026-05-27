@@ -1,6 +1,7 @@
 export function agentHeartbeatPayload({
   bridgeId = "",
   machineId = "",
+  terminalId = "",
   turnBusy,
   turnRunId = "",
   turnRuntime = "",
@@ -9,6 +10,8 @@ export function agentHeartbeatPayload({
     bridgeId: String(bridgeId || ""),
     machineId: String(machineId || ""),
   };
+  const terminal = String(terminalId || "").trim();
+  if (terminal) body.terminalId = terminal;
   if (typeof turnBusy === "boolean") {
     body.turnBusy = turnBusy;
     const runId = String(turnRunId || "").trim();
@@ -19,10 +22,11 @@ export function agentHeartbeatPayload({
   return body;
 }
 
-export function activeTurnHeartbeatPayload({ bridgeId = "", machineId = "", activeRun = {} } = {}) {
+export function activeTurnHeartbeatPayload({ bridgeId = "", machineId = "", terminalId = "", activeRun = {} } = {}) {
   return agentHeartbeatPayload({
     bridgeId,
     machineId,
+    terminalId,
     turnBusy: true,
     turnRunId: activeRun.runId || activeRun.id || "",
     turnRuntime: activeRun.runtime || "",

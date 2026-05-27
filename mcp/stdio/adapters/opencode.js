@@ -20,7 +20,8 @@ export class OpencodeAdapter extends RuntimeAdapter {
     const mode = String(opts?.executionMode || opts?.run?.executionMode || opts?.agentInfo?.sessionMode || "managed")
       .trim()
       .toLowerCase();
-    if (mode !== "managed" && mode !== "resident") return null;
+    if (mode === "resident") return null;
+    if (mode !== "managed") return null;
     return new OpencodeController(opts);
   }
 }

@@ -472,7 +472,13 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Add member", dashboard.text)
         self.assertIn("data-channel-member-select", dashboard.text)
         self.assertIn("chat-online-only", dashboard.text)
-        self.assertIn("Online only", dashboard.text)
+        self.assertIn("Hide offline", dashboard.text)
+        self.assertIn("chat-unread-up", dashboard.text)
+        self.assertIn("Unread up", dashboard.text)
+        self.assertIn("chat-working-up", dashboard.text)
+        self.assertIn("Working up", dashboard.text)
+        self.assertIn("resetChatViewFilters()", dashboard.text)
+        self.assertIn("Reset view", dashboard.text)
         self.assertIn("chat-peek-mode", dashboard.text)
         self.assertIn("Peek mode", dashboard.text)
         self.assertIn("markSelectedChatRead()", dashboard.text)
@@ -666,6 +672,72 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-claude",))
         self.assertEqual(agent["model"], "opus")
         self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
+
+    def test_managed_wrapper_child_reregister_preserves_runtime_policy(self):
+        self._register(
+            "policy-claude",
+            role="manager",
+            runtime="claude-code",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="claude-session-1",
+            model="opus",
+            runtimeConfig={"effort": "medium", "maxTurns": 50},
+        )
+
+        refreshed = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "policy-claude",
+                "role": "manager",
+                "runtime": "claude-code",
+                "sessionMode": "managed",
+                "sessionHandle": "claude-session-1",
+                "terminalId": "term-policy-claude",
+                "managedWrapperChild": True,
+                "runtimeConfig": {"channelEnabled": True},
+            },
+        )
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+
+        row = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("policy-claude",))
+        self.assertEqual(row["model"], "opus")
+        runtime_config = json.loads(row["runtime_config"])
+        self.assertEqual(runtime_config["effort"], "medium")
+        self.assertEqual(runtime_config["maxTurns"], 50)
+        self.assertIs(runtime_config["channelEnabled"], True)
+
+        self._register(
+            "policy-codex",
+            role="coder",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="codex-thread-1",
+            model="gpt-test",
+            runtimeConfig={"effort": "xhigh", "quietTimeoutMs": 0},
+        )
+
+        refreshed = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "policy-codex",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "managed",
+                "sessionHandle": "codex-thread-1",
+                "terminalId": "term-policy-codex",
+                "managedWrapperChild": True,
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:9999"},
+            },
+        )
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        row = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("policy-codex",))
+        self.assertEqual(row["model"], "gpt-test")
+        runtime_config = json.loads(row["runtime_config"])
+        self.assertEqual(runtime_config["effort"], "xhigh")
+        self.assertEqual(runtime_config["quietTimeoutMs"], 0)
+        self.assertEqual(runtime_config["appServerUrl"], "ws://127.0.0.1:9999")
 
     def test_managed_spawn_blank_model_uses_runtime_default_latest(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
@@ -1904,6 +1976,87 @@ class ApiV2RegressionTests(unittest.TestCase):
             120,
             "WARNING: Loading development channels\nI am using this for local development\n",
         ))
+
+    def test_claude_dev_channel_reactive_auto_confirm_enqueues_choice(self):
+        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_claude_dev_confirm",
+                session_id,
+                "console-agent",
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                "",
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            from unittest.mock import patch
+
+            captured = []
+
+            async def _fake_sleep(_seconds):
+                return None
+
+            db = await _get_db()
+            try:
+                terminal = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    ("term_claude_dev_confirm",),
+                )).fetchone()
+                output = (
+                    "WARNING: Loading development channels\n"
+                    "Channels: server:aify-comms-channel\n"
+                    "❯ 1. I am using this for local development\n"
+                    "Enter to confirm · Esc to cancel\n"
+                )
+                with patch("service.routers.api_v2.asyncio.create_task", side_effect=lambda coro: captured.append(coro) or None), \
+                     patch("service.routers.api_v2.asyncio.sleep", side_effect=_fake_sleep):
+                    await api_v2._maybe_auto_confirm_claude_dev_channel_prompt(db, terminal, output)
+                    await db.commit()
+                    self.assertEqual(len(captured), 1)
+                    await captured[0]
+                    await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            ("term_claude_dev_confirm", "dev_channel_prompt_auto_confirmed"),
+        )
+        self.assertIsNotNone(event)
+        control = self._fetchone(
+            "SELECT action, body, requested_by FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at DESC, id DESC LIMIT 1",
+            ("term_claude_dev_confirm",),
+        )
+        self.assertEqual(control["action"], "input")
+        self.assertEqual(control["body"], "1\r")
+        self.assertEqual(control["requested_by"], "dev-channel-auto-confirm")
 
     def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
         # Operator-caught bug: channel-bridge PATCH writes a summary of
@@ -3225,6 +3378,66 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(agent["statusRaw"], "blocked")
         self.assertIn("Awaiting console input", agent["statusNote"])
         self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], dispatched["consoleDeliveries"][0]["contractRunId"])
+
+    def test_managed_claude_dev_channel_prompt_reports_blocked_without_active_run(self):
+        session_id = self._create_running_session(
+            terminal=True,
+            runtime="claude-code",
+            terminal_runtimes=["claude-code"],
+            session_handle="claude-session-1",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_claude_blocked_prompt",
+                session_id,
+                "console-agent",
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                (
+                    "WARNING: Loading development channels\n"
+                    "Channels: server:aify-comms-channel\n"
+                    "❯ 1. I am using this for local development ✔\n"
+                    "Enter to confirm · Esc to cancel\n"
+                ),
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = ?, terminal_status = ?, terminal_command = ?, terminal_workspace = ?
+            WHERE id = ?
+            """,
+            (
+                "term_claude_blocked_prompt",
+                "attached",
+                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
+                "/workspace/repo",
+                session_id,
+            ),
+        )
+        asyncio.run(self._async_invalidate("console-agent"))
+
+        agent = self.client.get("/api/v1/agents/console-agent").json()["agent"]
+        self.assertEqual(agent["status"], "blocked", agent)
+        self.assertIn("Awaiting console confirmation", agent["statusNote"])
+        self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_claude_prompt_footer_alone_does_not_report_blocked(self):
         self._create_running_session(
@@ -9479,6 +9692,122 @@ class ApiV2RegressionTests(unittest.TestCase):
         asyncio.run(self._async_invalidate("taxonomy-claude"))
         online = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
         self.assertEqual(online["status"], "online", online)
+
+    def test_managed_wrapper_attached_terminal_counts_as_online_at_read_gate(self):
+        # Hermes/Codex managed-via-wrapper PTYs settle at status='attached'
+        # after a turn completes. The read-path no-live-worker gate must treat
+        # that as live, otherwise the dashboard shows `available` while the
+        # visible wrapper terminal is still running and claimable.
+        self.client.put("/api/v1/settings", json={"managed_via_wrapper": ["hermes"]})
+        self._heartbeat_environment(
+            id="env_wrapper_gate",
+            bridgeId="bridge-wrapper-gate",
+            machineId="win32:wrapper-gate",
+            os="win32",
+            kind="windows",
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["hermes"],
+            runtimes=[
+                {
+                    "runtime": "hermes",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                }
+            ],
+        )
+        self._register(
+            "taxonomy-hermes-wrapper",
+            runtime="hermes",
+            sessionMode="managed",
+            sessionHandle="hermes-handle-1",
+            machineId="win32:wrapper-gate",
+            status="active",
+        )
+        fresh = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_wrapper_gate_1",
+                "taxonomy-hermes-wrapper",
+                "env_wrapper_gate",
+                "hermes",
+                "C:/repo",
+                "managed-warm",
+                "managed",
+                "bridge-wrapper-gate",
+                "term_wrapper_gate_1",
+                "attached",
+                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
+                "C:/repo",
+                "12345",
+                "hermes-handle-1",
+                "",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                fresh,
+                fresh,
+                None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, status, requested_by, created_at, updated_at,
+                stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_wrapper_gate_1",
+                "sess_wrapper_gate_1",
+                "taxonomy-hermes-wrapper",
+                "env_wrapper_gate",
+                "bridge-wrapper-gate",
+                "hermes",
+                "C:/repo",
+                "hermes-aify --aify-agent taxonomy-hermes-wrapper --resume hermes-handle-1",
+                "attached",
+                "dashboard",
+                fresh,
+                fresh,
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_live_state (
+                agent_id, status, reason, environment_id, session_id, terminal_id,
+                active_run_id, refresh_after, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "taxonomy-hermes-wrapper",
+                "online",
+                "",
+                "env_wrapper_gate",
+                "sess_wrapper_gate_1",
+                "term_wrapper_gate_1",
+                "",
+                "9999-12-31T23:59:59Z",
+                fresh,
+            ),
+        )
+
+        agent = self.client.get("/api/v1/agents/taxonomy-hermes-wrapper").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
 
     def test_resident_route_delivered_awaiting_reply_shows_working(self):
         # Resident dispatch to claude (execution_mode='resident') goes through

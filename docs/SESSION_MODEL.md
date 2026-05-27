@@ -147,8 +147,8 @@ Runtime model defaults and overrides:
 - managed Oh My Pi supports active-run steering by sending OMP's native RPC `steer` command; explicit queueing remains available with `queueIfBusy=true`
 - managed Hermes uses the terminal-capable PTY path; resumable IDs can be stored when known, but an active managed PTY is the primary warm backing while it is alive
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
-- Claude model/effort selection is per-run (`claude --model ... --effort ...`) and does not mutate global Claude settings
-- Codex uses the managed `CODEX_HOME` plus explicit effort values, and only sends thread/turn model values when the global model override is set
+- Bridge-spawned `claude-aify` receives model/effort through managed wrapper env and passes them to Claude as `--model` / `--effort` at wrapper launch; existing running PTYs need restart after a policy change
+- Codex uses the managed `CODEX_HOME` plus explicit turn effort values, and only sends thread/turn model values when the global model override is set
 
 Codex target model:
 
@@ -181,9 +181,8 @@ Resident visible is for human-open CLI sessions:
 - `codex-aify`
 - `claude-aify`
 - `hermes-aify`
-- explicit OpenCode registration with a real session handle
 
-Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it. Pi is the exception: `omp-aify` / `pi-aify` can register presence and standalone operator sessions, but triggerable Pi delivery is managed RPC because OMP is single-client and cannot safely share one live TUI session with the bridge.
+Use this when the user wants to personally watch and type into the official CLI while dashboard/comms can also reach it. Pi and OpenCode are exceptions: `omp-aify` / `pi-aify` and manual OpenCode registration can record presence and standalone operator sessions, but triggerable delivery is managed because those current resident surfaces do not provide the multi-client injection point that Claude/Codex/Hermes expose.
 
 Resident visible sessions are not the default for dashboard-spawned agents. They are an attach/register mode for visible humans and debugging.
 

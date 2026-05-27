@@ -1,9 +1,9 @@
 """PiAdapter — Python mirror of mcp/stdio/adapters/pi.js.
 
-Capability declarations encode the Plan 2 pi delivery flip: resident is
-False because omp --mode rpc is single-client stdio (no multi-client
-gateway). preferred_delivery_mode is managed-via-wrapper so the dispatch
-router pins pi to the unified wrapper-backing path.
+Capability declarations encode the Pi delivery model: resident is False
+because omp --mode rpc is single-client stdio (no multi-client gateway).
+Managed dispatch stays on the native persistent RPC controller so dashboard
+chat and Console attach to the same synthesized terminal stream.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class PiAdapter(RuntimeAdapter):
     supports_steering = True
     supports_interrupt = True
     supports_multi_client = False
-    preferred_delivery_mode = "managed-via-wrapper"
+    preferred_delivery_mode = "managed"
 
     # Plan 3 additions
     wrapper_name = "pi-aify"

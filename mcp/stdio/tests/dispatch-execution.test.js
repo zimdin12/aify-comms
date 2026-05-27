@@ -39,8 +39,14 @@ assert.deepEqual(
 
 assert.deepEqual(
   supportedExecutionModes({ sessionMode: "resident", runtime: "pi", capabilities: ["resident-run"] }),
-  ["resident"],
-  "resident Pi should remain claimable",
+  [],
+  "resident Pi must not be claimable; OMP is single-client and uses managed RPC",
+);
+
+assert.deepEqual(
+  supportedExecutionModes({ sessionMode: "resident", runtime: "opencode", capabilities: ["resident-run"] }),
+  [],
+  "resident OpenCode must not be claimable until a real multi-client resident surface exists",
 );
 
 console.log("dispatch-execution.test.js: all assertions passed");

@@ -14,6 +14,76 @@ import WebSocket from "ws";
 import { BaseController } from "./base-controller.js";
 import { getRuntimeConfig } from "../runtimes-helpers.js";
 
+function cleanNoticeLine(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function previewNoticeBody(value = "", limit = 700) {
+  const normalized = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit).trimEnd()}\n...`;
+}
+
+function wrapNoticeText(value = "", width = 72) {
+  const lines = [];
+  const paragraphs = String(value || "").split("\n");
+  for (const paragraph of paragraphs) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push("");
+      continue;
+    }
+    let line = "";
+    for (const word of words) {
+      if (!line) {
+        line = word;
+        continue;
+      }
+      if ((line.length + 1 + word.length) <= width) {
+        line = `${line} ${word}`;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+
+function boxNoticeLine(value = "", width = 72) {
+  const text = String(value || "");
+  const clipped = text.length > width ? text.slice(0, Math.max(0, width - 3)).trimEnd() + "..." : text;
+  return `| ${clipped.padEnd(width, " ")} |`;
+}
+
+export function buildHermesVisibleWakeNotice({ from = "", to = "", subject = "", body = "" } = {}) {
+  const sender = cleanNoticeLine(from) || "dashboard";
+  const target = cleanNoticeLine(to);
+  const title = cleanNoticeLine(subject);
+  const preview = previewNoticeBody(body);
+  const width = 72;
+  const border = `+${"-".repeat(width + 2)}+`;
+  const lines = [
+    border,
+    boxNoticeLine("aify-comms message", width),
+    boxNoticeLine(target ? `${sender} -> ${target}` : `from ${sender}`, width),
+  ];
+  if (title) lines.push(boxNoticeLine(`Subject: ${title}`, width));
+  if (preview) {
+    lines.push(border);
+    for (const line of wrapNoticeText(preview, width)) {
+      lines.push(boxNoticeLine(line, width));
+    }
+  }
+  lines.push(border);
+  return lines.join("\n");
+}
+
 export class HermesResidentController extends BaseController {
   constructor(opts) {
     super(opts);
@@ -247,17 +317,49 @@ export class HermesResidentController extends BaseController {
           throw new Error("Hermes gateway has no resolvable session — operator should open hermes chat first");
         }
 
+        const bindVisibleSession = async (key) => {
+          const bound = await sendRpc(proto.buildAifySessionBindTransportFrame({ sessionKey: key }));
+          return {
+            visibleSid: String(bound?.session_id || bound?.sessionId || "").trim(),
+            sessionKey: String(bound?.session_key || bound?.sessionKey || "").trim() || key,
+          };
+        };
         let visibleSid = "";
         try {
-          const bound = await sendRpc(proto.buildAifySessionBindTransportFrame({ sessionKey }));
-          visibleSid = String(bound?.session_id || bound?.sessionId || "").trim();
-          const actualSessionKey = String(bound?.session_key || bound?.sessionKey || "").trim();
-          if (actualSessionKey && actualSessionKey !== sessionKey) {
-            callbacks.onEvent?.("hermes", `visible session key corrected: ${sessionKey} -> ${actualSessionKey}`);
-            sessionKey = actualSessionKey;
+          const bound = await bindVisibleSession(sessionKey);
+          visibleSid = bound.visibleSid;
+          if (bound.sessionKey && bound.sessionKey !== sessionKey) {
+            callbacks.onEvent?.("hermes", `visible session key corrected: ${sessionKey} -> ${bound.sessionKey}`);
+            sessionKey = bound.sessionKey;
           }
         } catch (err) {
-          throw new Error(`Hermes visible-session binding failed for ${sessionKey}: ${err?.message || JSON.stringify(err)}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
+          const originalSessionKey = sessionKey;
+          const candidates = [];
+          const addCandidate = (value) => {
+            const candidate = String(value || "").trim();
+            if (candidate && candidate !== originalSessionKey && !candidates.includes(candidate)) candidates.push(candidate);
+          };
+          const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+          addCandidate(proto.pickFreshestSessionFromList(liveList));
+          const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
+          addCandidate(mostRecent?.session_id || mostRecent?.sessionId || mostRecent?.id);
+          for (const candidate of candidates) {
+            try {
+              callbacks.onEvent?.("hermes", `visible session bind retry: ${originalSessionKey} -> ${candidate}`);
+              const rebound = await bindVisibleSession(candidate);
+              visibleSid = rebound.visibleSid;
+              sessionKey = rebound.sessionKey || candidate;
+              if (sessionKey !== originalSessionKey) {
+                callbacks.onEvent?.("hermes", `visible session key corrected: ${originalSessionKey} -> ${sessionKey}`);
+              }
+              break;
+            } catch (retryErr) {
+              callbacks.onEvent?.("hermes", `visible session bind retry failed for ${candidate}: ${retryErr?.message || JSON.stringify(retryErr)}`);
+            }
+          }
+          if (!visibleSid) {
+            throw new Error(`Hermes visible-session binding failed for ${originalSessionKey}: ${err?.message || JSON.stringify(err)}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
+          }
         }
         if (!visibleSid) {
           throw new Error(`Hermes visible-session binding returned no active sid for ${sessionKey}. Re-run install.sh --client hermes and restart hermes-aify; refusing to create a hidden session.`);
@@ -277,19 +379,13 @@ export class HermesResidentController extends BaseController {
           "- If the request can be answered directly, answer directly in final text.",
           "",
         ].join("\n");
-        const messageText = subject ? `[aify-comms wake from ${from}]\nSubject: ${subject}\n\n${body}` : `[aify-comms wake from ${from}]\n\n${body}`;
+        const messageText = buildHermesVisibleWakeNotice({ from, to: agentId, subject, body });
         const wireText = `${deliveryNotes}${messageText}`;
 
         try {
-          const bodyPreview = body.length > 500 ? `${body.slice(0, 500)}...` : body;
-          const noticeLines = [
-            `[aify-comms] wake from ${from}`,
-            ...(subject ? [`Subject: ${subject}`] : []),
-            ...(bodyPreview ? ["", bodyPreview] : []),
-          ];
           await sendRpc(proto.buildAifySessionRenderNoticeFrame({
             sessionId: resolvedSessionId,
-            notice: noticeLines.join("\n"),
+            notice: buildHermesVisibleWakeNotice({ from, to: agentId, subject, body }),
             status: "aify-comms message received",
           })).catch((err) => {
             callbacks.onEvent?.("hermes", `visible notice skipped: ${err?.message || JSON.stringify(err)}`);

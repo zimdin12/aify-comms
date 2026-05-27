@@ -44,3 +44,41 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
          mock.patch("service.routers.api_v2._has_live_rpc_controller", side_effect=fake_rpc):
         result = asyncio.run(_compute_agent_status(row, idle_minutes=5, offline_minutes=30, db=None))
         assert result == "available", f"managed-no-worker should be 'available', got {result!r}"
+
+
+def test_cached_ready_status_serializes_as_online():
+    """`ready` is an internal bridge signal, not a public agent status."""
+    from service.routers.api_v2 import _agent_record_to_dict
+
+    class Row(dict):
+        def keys(self):
+            return super().keys()
+
+    row = Row({
+        "id": "cached-ready",
+        "role": "tester",
+        "name": "Cached Ready",
+        "cwd": "",
+        "model": "",
+        "description": "",
+        "instructions": "",
+        "status": "online",
+        "live_status": "ready",
+        "live_reason": "",
+        "registered_at": "2026-05-27T00:00:00Z",
+        "last_seen": "2026-05-27T00:00:00Z",
+        "runtime": "codex",
+        "machine_id": "linux:test",
+        "launch_mode": "detached",
+        "session_mode": "managed",
+        "session_handle": "",
+        "managed_by": "",
+        "capabilities": '["managed-run","resume"]',
+        "runtime_config": "{}",
+        "runtime_state": "{}",
+        "favorited": 0,
+    })
+
+    payload = _agent_record_to_dict(row, "ready", unread=0)
+    assert payload["status"] == "online"
+    assert payload["statusRaw"] == "online"

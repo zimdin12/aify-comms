@@ -71,9 +71,7 @@ refactor. Surviving items:
    rule violation. Separate plan (Plan 5 territory). Plans 1+2+3 deliberately
    did NOT add to its bulk; new code went into the runtimes/ adapter package
    and the pi-flip helpers stayed surgical.
-3. **Runtime-ready event hook + ready status:** delivered. `ready` now means
-   the worker emitted its handshake-complete signal and is idle; `online`
-   means a worker exists but has not fully initialized yet.
+3. **Runtime-ready event hook:** delivered. `ready` is now an internal bridge readiness bit; public agent status uses `online` for live idle workers and `available` for spawnable idle identities.
 4. **Opencode multi-client wiring:** opencode supports `opencode serve` for
    ACP multi-client delivery but aify-comms hasn't integrated. Follow-up.
 5. **codex-aify --remote + resume subcommand ordering:** validation needed

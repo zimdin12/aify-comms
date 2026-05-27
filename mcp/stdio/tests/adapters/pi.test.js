@@ -45,7 +45,7 @@ test("PiAdapter normalizeModelOverride strips placeholders (pi-specific regressi
   assert.strictEqual(a.normalizeModelOverride("gpt-5.5"), "gpt-5.5");
 });
 
-test("PiAdapter Plan 2 capabilities — pi flip key declarations", () => {
+test("PiAdapter capability declarations keep pi native managed", () => {
   const a = new PiAdapter();
   // pi is single-client RPC; resident impossible
   assert.strictEqual(a.supportsResident, false);
@@ -53,7 +53,7 @@ test("PiAdapter Plan 2 capabilities — pi flip key declarations", () => {
   assert.strictEqual(a.supportsSteering, true);
   assert.strictEqual(a.supportsInterrupt, true);
   assert.strictEqual(a.supportsMultiClient, false);
-  assert.strictEqual(a.preferredDeliveryMode, "managed-via-wrapper");
+  assert.strictEqual(a.preferredDeliveryMode, "managed");
 });
 
 test("PiAdapter overrides discoverSessionId (does not inherit base null)", () => {

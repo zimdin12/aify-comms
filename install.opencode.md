@@ -7,7 +7,8 @@ Use aify-comms when you want dashboard-driven coordination for coding agents: li
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client opencode http://192.168.100.10:8800
+# OpenCode wrapper/config install is intentionally disabled until this
+# integration gets a focused validation pass.
 ```
 
 If you are using local-only mode with no shared server:
@@ -15,19 +16,19 @@ If you are using local-only mode with no shared server:
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client opencode
+# No default OpenCode install command currently.
 ```
 
-Restart OpenCode after install.
+Restart any long-running `aify-comms` bridge after updating the repo before testing future OpenCode managed work.
 
-For dashboard-managed spawns, also connect an environment bridge on the machine that should run OpenCode. The installer adds the `aify-comms` launcher for this:
+For future dashboard-managed OpenCode spawns, connect an environment bridge on the machine that should run OpenCode. Use the normal `aify-comms` launcher installed by any supported client install, or run the bridge from this checkout during development:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures OpenCode's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
+On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The OpenCode MCP/client install path is disabled by default; the environment bridge is still the process that would claim future managed OpenCode work when this integration is re-enabled.
 
 After every update:
 
@@ -36,8 +37,9 @@ After every update:
 3. Confirm with `comms_agent_info(agentId="...")`.
 
 Important:
+- `install.sh --client opencode` currently exits intentionally. OpenCode code remains in the repo for future validation, but it is not a default supported install target.
 - Active dispatch works only when the agent is installed through the local `stdio` MCP bridge.
-- The installer writes the MCP config into `~/.config/opencode/opencode.json` under the `mcp` section.
+- Historical installer behavior wrote the MCP config into `~/.config/opencode/opencode.json` under the `mcp` section; the default installer no longer does this.
 - `comms_register` creates a resident session for messaging/presence. Persistent environment-backed OpenCode agents are supported through `comms_spawn`. Resident OpenCode resume also works when you register with a real `sessionHandle`.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stale/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
@@ -49,7 +51,7 @@ Important:
 - If an environment bridge is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents, and they cannot launch local work themselves.
 - Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Current bridge builds terminate the whole managed runtime process tree on timeout/interrupt/stop so stale child processes do not keep false liveness. Managed Codex has additional Codex-specific watchdogs: 30 minutes without Codex runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) and 90 seconds for stuck `mcpToolCall aify-comms` turns (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging).
-- If another agent says you are a resident OpenCode session without a bound session handle, either re-register with `sessionHandle="<session-id>"` or create a persistent agent with `comms_spawn`.
+- Resident OpenCode registrations are presence/debug metadata only today. For triggerable teamwork, create a persistent managed agent with `comms_spawn` or the dashboard Environment spawn flow.
 
 ## Delivery path
 
@@ -59,12 +61,11 @@ Managed opencode also surfaces a synthesized `terminal_session` (`command='aify:
 
 ## Session-mode flag
 
-The `opencode` wrapper accepts `--resident` and `--managed`. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection might be wrong for your shell context.
+The OpenCode wrapper path is disabled by default. Historical wrapper builds accepted `--resident` and `--managed`, but do not rely on that path until OpenCode integration is re-enabled.
 
 ## What This Installs
 
-- The `aify-comms` local MCP server for OpenCode (tool namespace retained for compatibility)
-- A config entry in `~/.config/opencode/opencode.json`
+Nothing by default. This document is retained so the future OpenCode validation pass has the previous intended shape in one place.
 
 Current OpenCode note:
 - Environment-managed OpenCode sessions use the official OpenCode SDK/server flow.

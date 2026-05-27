@@ -1,6 +1,8 @@
-"""Plan 4 task 12: new endpoint PATCH /api/v1/agents/{id}/ready sets
-agent_turn_state.ready=True; status resolver returns 'ready' when worker
-is live + ready=True + turn_busy=False.
+"""PATCH /api/v1/agents/{id}/ready sets agent_turn_state.ready=True.
+
+`ready` is now internal bridge/controller readiness state. Public agent status
+uses `online` for a live idle worker and `available` for a spawnable idle
+identity, so operators do not see both `ready` and `available`.
 
 The router is mounted at /api/v1 in production (see service/main.py); the
 "v2" in the file name is historical. The plan's "/api/v2" shorthand maps

@@ -47,11 +47,12 @@ def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
 
 
 def test_hermes_wrapper_consumes_resume_args_for_tui_default():
-    """`hermes-aify --resume id` must exec `chat --tui --resume id`."""
+    """`hermes-aify --resume id` must exec top-level `--tui --resume id`."""
     text = _read_install_sh()
     assert 'if [ "\\$PREV_ARG" = "--resume" ] || [ "\\$PREV_ARG" = "--session-id" ] || [ "\\$PREV_ARG" = "-r" ]; then' in text
     assert 'HERMES_ARGS+=("\\$ARG")\n  if [ "\\$PREV_ARG" = "--resume" ]' not in text
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+    assert 'aify_hermes_run_foreground --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
 
 
 def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
@@ -60,13 +61,30 @@ def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
     helper_idx = text.find("aify_hermes_exec_plain_or_tui()")
     assert helper_idx > 0
     helper = text[helper_idx : helper_idx + 750]
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\\$HERMES_SESSION_HANDLE"' in helper
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in helper
 
     fallback_idx = text.find("aify_hermes_fallback()")
     assert fallback_idx > 0
     fallback = text[fallback_idx : fallback_idx + 700]
     assert "aify_hermes_exec_plain_or_tui" in fallback
     assert 'exec "\\$HERMES_RUNTIME_COMMAND" "\\${HERMES_ARGS[@]}"' not in fallback
+
+
+def test_hermes_wrapper_forces_utf8_python_io():
+    """Windows non-UTF-8 consoles must not crash Hermes subprocess readers."""
+    text = _read_install_sh()
+    assert 'export PYTHONUTF8="\\${PYTHONUTF8:-1}"' in text
+    assert 'export PYTHONIOENCODING="\\${PYTHONIOENCODING:-utf-8}"' in text
+
+
+def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
+    """Windows PowerShell launches must keep native Hermes attached to console."""
+    text = _read_install_sh()
+    assert "install_hermes_windows_tui_shim" in text
+    assert "hermes-aify.ps1" in text
+    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*' in text
+    assert "Invoke-HermesRuntime @('--tui', '--resume', \\$HermesSessionHandle)" in text
+    assert "exit (Invoke-HermesRuntime" not in text
 
 
 def test_hermes_installer_patches_visible_session_bind():

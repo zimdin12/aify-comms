@@ -41,10 +41,10 @@ const state = {
   runStatusFilter: '',
 };
 
-// Plan 4 status taxonomy: available (grey, process alive but no handshake) →
-// online (light green, process alive, idle) → ready (green, handshake complete,
-// dispatch-ready) → working (animated, mid-turn). The dotKind drives the CSS
-// dot color/animation in styles.css; tone drives the chip border/background.
+// Agent status taxonomy: available (blue, wakeable/spawnable idle) → online
+// (green, live worker idle) → working (animated, mid-turn). `ready` is an
+// internal bridge readiness bit; if an older backend/cache still returns it,
+// render it as online instead of introducing a second positive idle label.
 const STATUS_KINDS = {
   active: { label: 'active', dotKind: 'ok', tone: 'ok', inputEnabled: true },
   idle: { label: 'idle', dotKind: 'online', tone: 'ok', inputEnabled: true },
@@ -52,20 +52,20 @@ const STATUS_KINDS = {
   starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
   recovering: { label: 'recovering', dotKind: 'working', tone: 'warn', inputEnabled: false },
   online: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
-  ready: { label: 'ready', dotKind: 'ready', tone: 'ok', inputEnabled: true },
+  ready: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
   blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
-  stale: { label: 'stale', dotKind: 'available', tone: 'muted', inputEnabled: false },
+  stale: { label: 'stale', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   queued: { label: 'queued', dotKind: 'queued', tone: 'muted', inputEnabled: false },
   claimed: { label: 'claimed', dotKind: 'working', tone: 'warn', inputEnabled: false },
   running: { label: 'running', dotKind: 'working', tone: 'warn', inputEnabled: false },
   completed: { label: 'completed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
-  stopped: { label: 'stopped', dotKind: 'available', tone: 'muted', inputEnabled: false },
+  stopped: { label: 'stopped', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   failed: { label: 'failed', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },
   lost: { label: 'lost', dotKind: 'bad', tone: 'bad', inputEnabled: false },
   unreachable: { label: 'unreachable', dotKind: 'bad', tone: 'bad', inputEnabled: false },
-  offline: { label: 'offline', dotKind: 'bad', tone: 'bad', inputEnabled: false },
+  offline: { label: 'offline', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   unknown: { label: 'unknown', dotKind: 'unknown', tone: 'muted', inputEnabled: false },
 };
 
@@ -820,7 +820,7 @@ function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalSta
       codexThreadId: '',
     };
   }
-  if (runtime === 'hermes' && hermesGatewayHttp) {
+  if (normalizedSessionMode === 'resident' && runtime === 'hermes' && hermesGatewayHttp) {
     return {
       kind: 'hermes-iframe',
       terminalId: '',
@@ -830,7 +830,7 @@ function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalSta
       codexThreadId: '',
     };
   }
-  if (runtime === 'codex' && codexAttachable) {
+  if (normalizedSessionMode === 'resident' && runtime === 'codex' && codexAttachable) {
     return {
       kind: 'codex-synth',
       terminalId: '',
@@ -865,7 +865,14 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
     container.innerHTML = '<div class="codex-line err">[xterm.js failed to load from CDN — refresh dashboard or check network]</div>';
     return;
   }
-  if (state.activeXterm && state.activeXterm.terminalId === terminalId) return;
+  if (
+    state.activeXterm
+    && state.activeXterm.terminalId === terminalId
+    && state.activeXterm.container === container
+    && container.isConnected !== false
+  ) {
+    return;
+  }
   disposeActiveXterm();
   container.innerHTML = '';
 
@@ -1178,7 +1185,7 @@ function renderSessionConsole(session) {
        </div>`
     : '';
 
-  const hermesIframe = (!hasTerminal && hermesGatewayHttp)
+  const hermesIframe = (widgetChoice.kind === 'hermes-iframe')
     ? `<div class="console-embed" data-kind="hermes-gateway">
          <div class="console-embed-label">Hermes live chat — embedded from <code>${esc(hermesGatewayHttp.split('?')[0])}</code> (resident; switch to dashboard-spawned managed for true PTY render)</div>
          <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
@@ -1192,7 +1199,7 @@ function renderSessionConsole(session) {
   // agent's threadId → renders deltas + lifecycle markers + accepts
   // turn/start frames from the local input box. Falls back behind the
   // PTY render if the bridge owns a real terminal for this agent.
-  const codexConsole = (!hasTerminal && codexAttachable)
+  const codexConsole = (widgetChoice.kind === 'codex-synth')
     ? `<div class="console-embed" data-kind="codex-app-server" data-codex-console="${esc(agentIdForCodex)}">
          <div class="console-embed-label">
            Codex live thread — attaches direct WS to <code>${esc(codexAppServerUrl)}</code>${codexThreadId ? ` · thread <code>${esc(codexThreadId)}</code>` : ''} (resident; switch to dashboard-spawned managed for true PTY render)
@@ -1994,6 +2001,17 @@ document.addEventListener('click', (event) => {
     renderSessionWorkspace();
     return;
   }
+  // Mode-switch chips can live inside selectable session rows. Handle them
+  // before row selection so the click reaches PATCH /agents/{id}/session-mode.
+  const modeSwitchButton = event.target.closest('[data-mode-switch]');
+  if (modeSwitchButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const agentId = modeSwitchButton.dataset.modeSwitch;
+    const targetMode = modeSwitchButton.dataset.targetMode;
+    switchAgentSessionMode(agentId, targetMode);
+    return;
+  }
   const sessionSelect = event.target.closest('[data-session-select]');
   if (sessionSelect) {
     state.selectedSessionId = sessionSelect.dataset.sessionSelect;
@@ -2062,18 +2080,6 @@ document.addEventListener('click', (event) => {
   const sessionControlButton = event.target.closest('[data-session-control]');
   if (sessionControlButton) {
     requestSessionControl(sessionControlButton.dataset.sessionId, sessionControlButton.dataset.sessionControl);
-    return;
-  }
-  // Plan 6 C4/C5 (2026-05-26): resident<->managed mode-switch chip. Same
-  // selector on the Details panel and the per-session action menu so a
-  // single click handler covers both surfaces.
-  const modeSwitchButton = event.target.closest('[data-mode-switch]');
-  if (modeSwitchButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    const agentId = modeSwitchButton.dataset.modeSwitch;
-    const targetMode = modeSwitchButton.dataset.targetMode;
-    switchAgentSessionMode(agentId, targetMode);
     return;
   }
   const inspectItem = event.target.closest('[data-kind]');

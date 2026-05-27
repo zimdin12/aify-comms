@@ -7,8 +7,9 @@
 //     child bridge claims and delivers via the wrapper's local gateway).
 //   - executionMode === "channel" or "resident" + runtimeConfig.gatewayUrl →
 //     HermesResidentController (resident-channel via tui_gateway WS).
-//   - executionMode === "channel" or "resident" without a gateway →
-//     HermesSingleShotController (legacy `hermes chat -q` per dispatch).
+//   - executionMode === "channel" or "resident" without a gateway → fail
+//     visibly. Resident/channel must bind the visible Hermes gateway; hidden
+//     single-shot fallback is reserved for native managed fallback only.
 //   - else (managed / default) → HermesManagedController
 //     (ACP-backed persistent session, or gateway-backed if
 //     AIFY_HERMES_MANAGED_USE_GATEWAY=1).
@@ -21,7 +22,6 @@ import { BaseController } from "./base-controller.js";
 import { getRuntimeConfig } from "../runtimes-helpers.js";
 import { HermesResidentController } from "./hermes-resident-controller.js";
 import { HermesManagedController } from "./hermes-managed-controller.js";
-import { HermesSingleShotController } from "./hermes-single-shot-controller.js";
 
 // Lightweight delegated controller used for managed + managedViaWrapper: the
 // wrapper's child bridge owns the actual dispatch, so this controller resolves
@@ -56,6 +56,29 @@ class DelegatedManagedController extends BaseController {
   async steer(_opts) { /* delegated to wrapper child bridge */ }
 }
 
+class MissingGatewayController extends BaseController {
+  constructor(opts) {
+    super(opts);
+    const executionMode = String(opts?.executionMode || opts?.run?.executionMode || "resident");
+    this._promise = Promise.reject(
+      new Error(
+        `Hermes ${executionMode} dispatch requires runtimeConfig.gatewayUrl from hermes-aify; refusing hidden single-shot fallback.`,
+      ),
+    );
+    this._promise.catch(() => {});
+    this._capabilities = { interrupt: false, steer: false };
+  }
+
+  start() {
+    return {
+      capabilities: this._capabilities,
+      interrupt: async () => {},
+      steer: async () => {},
+      promise: this._promise,
+    };
+  }
+}
+
 export class HermesController extends BaseController {
   constructor(opts) {
     super(opts);
@@ -83,7 +106,7 @@ export class HermesController extends BaseController {
       if (/^wss?:\/\//i.test(gatewayUrl)) {
         return new HermesResidentController(opts);
       }
-      return new HermesSingleShotController(opts);
+      return new MissingGatewayController(opts);
     }
 
     return new HermesManagedController(opts);

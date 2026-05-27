@@ -10,6 +10,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
+import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 
 loadSettingsEnv();
 
@@ -163,7 +164,7 @@ async function httpCall(method, endpoint, body = null) {
   throw lastError || new Error(`HTTP ${method} ${endpoint} failed`);
 }
 
-function dispatchContent(agentId, run) {
+export function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
   const priority = (run.priority || "normal").toLowerCase();
   const priorityLabel =
@@ -175,6 +176,7 @@ function dispatchContent(agentId, run) {
     priority === "high" ? "Read before continuing current work." :
     "Handle when you reach a natural break.";
   return [
+    claudeAifyReceiptLine(),
     `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
     actionLine,
     `From: ${run.from}`,

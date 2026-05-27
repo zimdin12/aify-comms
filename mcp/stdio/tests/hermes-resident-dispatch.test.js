@@ -149,6 +149,43 @@ test("resident hermes dispatch sends prompt.submit and resolves on agent.message
   assert.match(allText, /hello from hermes/, "synth-terminal should reflect streamed reply");
 });
 
+test("resident hermes without gateway refuses hidden single-shot fallback", async () => {
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-no-gateway",
+    agentInfo: {
+      ...makeAgentInfo({ gatewayUrl: "", sessionHandle: "operator-sid-42" }),
+      runtimeConfig: {},
+    },
+    run: makeRun({ id: "run_h_no_gateway" }),
+    runtimeState: {},
+    callbacks: { onEvent: () => {}, onRefs: () => {} },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.equal(result.failed, true, "resident Hermes without gateway must not fork a hidden session");
+  assert.match(result.error || "", /gatewayUrl|hidden single-shot/i);
+});
+
+test("channel hermes without gateway refuses hidden single-shot fallback", async () => {
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const controller = launchRuntimeRun({
+    agentId: "hermes-channel-no-gateway",
+    agentInfo: {
+      ...makeAgentInfo({ gatewayUrl: "", sessionHandle: "operator-sid-42" }),
+      sessionMode: "managed",
+      runtimeConfig: {},
+    },
+    run: makeRun({ id: "run_h_channel_no_gateway", executionMode: "channel" }),
+    runtimeState: {},
+    callbacks: { onEvent: () => {}, onRefs: () => {} },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.equal(result.failed, true, "managed/channel Hermes without gateway must not fork a hidden session");
+  assert.match(result.error || "", /gatewayUrl|hidden single-shot/i);
+});
+
 test("resident hermes dispatch resolves on real tui_gateway event envelopes", async (t) => {
   const { url, token } = await startFake(t, { script: "enveloped" });
   const wsUrl = attachUrl(url, token);
@@ -179,6 +216,7 @@ test("resident hermes renders a visible aify notice before prompt.submit", async
   const wsUrl = attachUrl(url, token);
 
   const { launchRuntimeRun } = await import("../runtimes.js");
+  const { buildHermesVisibleWakeNotice } = await import("../controllers/hermes-resident-controller.js");
   const controller = launchRuntimeRun({
     agentId: "hermes-resident-visible-notice",
     agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
@@ -190,6 +228,20 @@ test("resident hermes renders a visible aify notice before prompt.submit", async
   const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
   assert.ok(!result.failed, `expected visible notice before prompt.submit: ${result.error || ""}`);
   assert.equal(result.status, "completed");
+
+  const notice = buildHermesVisibleWakeNotice({
+    from: "agent-a",
+    to: "hermes-resident-visible-notice",
+    subject: "Wake test",
+    body: "Hello hermes from the bridge",
+  });
+  assert.match(notice, /^\+-+\+$/m);
+  assert.match(notice, /\| aify-comms message\s+\|/);
+  assert.match(notice, /\| agent-a -> hermes-resident-visible-notice\s+\|/);
+  assert.match(notice, /\| Subject: Wake test\s+\|/);
+  assert.match(notice, /Hello hermes from the bridge/);
+  assert.doesNotMatch(notice, /AIFY-COMMS DELIVERY INSTRUCTIONS/);
+  assert.doesNotMatch(notice, /\n\s{2,}Subject:/);
 });
 
 test("resident hermes wake prompt tells Hermes final text is the comms reply", async (t) => {
@@ -213,6 +265,10 @@ test("resident hermes wake prompt tells Hermes final text is the comms reply", a
   assert.ok(!result.failed, `expected prompt-contract dispatch to succeed: ${result.error || ""}`);
   assert.match(result.summary || "", /Your final assistant response is captured and posted back/);
   assert.match(result.summary || "", /Do not call comms_send, local HTTP, curl, browser, or terminal tools/);
+  assert.match(result.summary || "", /\| aify-comms message\s+\|/);
+  assert.match(result.summary || "", /\| agent-a -> hermes-resident-prompt-contract\s+\|/);
+  assert.doesNotMatch(result.summary || "", /\[aify-comms wake from/);
+  assert.doesNotMatch(result.summary || "", /\nSubject:/);
   assert.ok(events.some((e) => /turn completed/i.test(String(e.msg || ""))), "expected a visible completion event");
 });
 
@@ -327,6 +383,37 @@ test("resident hermes updates durable key from visible bind when saved handle is
   assert.equal(capturedSessionKey, "actual-visible-key");
   assert.equal(result.runtimeState?.sessionId, "actual-visible-key");
   assert.equal(result.runtimeState?.gatewaySessionId, "live-sid-001");
+});
+
+test("resident hermes retries visible bind with current active session when saved key is gone", async (t) => {
+  const { url, token } = await startFake(t, { script: "bind_stale_then_active" });
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const events = [];
+  let capturedSessionId = "";
+  let capturedSessionKey = "";
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-stale-bind",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "stale-saved-key" }),
+    run: makeRun({ id: "run_h_stale_bind" }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: (kind, msg) => events.push(String(msg || "")),
+      onRefs: (refs) => {
+        if (refs?.sessionId) capturedSessionId = refs.sessionId;
+        if (refs?.sessionKey) capturedSessionKey = refs.sessionKey;
+      },
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected stale saved key to retry against current visible session: ${result.error || ""}`);
+  assert.equal(capturedSessionId, "live-sid-001");
+  assert.equal(capturedSessionKey, "active-visible-key");
+  assert.equal(result.runtimeState?.sessionId, "active-visible-key");
+  assert.equal(result.runtimeState?.gatewaySessionId, "live-sid-001");
+  assert.ok(events.some((event) => /visible session bind retry: stale-saved-key -> active-visible-key/.test(event)));
 });
 
 test("resident hermes fails visibly when the gateway lacks visible-session binding", async (t) => {

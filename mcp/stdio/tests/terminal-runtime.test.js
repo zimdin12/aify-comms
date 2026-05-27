@@ -174,6 +174,38 @@ assert.match(chunks.join(""), /AIFY_PI_FRESH_STARTED/);
 assert.equal(heals.at(-1)?.agentId, "pi-agent");
 assert.equal(heals.at(-1)?.previousSessionHandle, "dead-session");
 
+const fakeHermes = path.join(tmp, "fake-hermes.mjs");
+fs.writeFileSync(fakeHermes, `
+if (process.argv.includes("--resume") && process.argv[process.argv.indexOf("--resume") + 1] === "stale-hermes") {
+  console.log("resuming... | gpt-5.5 | voice off");
+  setInterval(() => {}, 1000);
+} else {
+  console.log("AIFY_HERMES_FRESH_STARTED");
+  setTimeout(() => process.exit(0), 50);
+}
+`);
+const fakeHermesCommandPath = fakeHermes.replace(/\\/g, "/");
+const previousHermesResumeMs = process.env.AIFY_HERMES_RESUME_STALL_HEAL_MS;
+process.env.AIFY_HERMES_RESUME_STALL_HEAL_MS = "50";
+await manager.start({
+  id: "hermes-heal",
+  command: `node ${fakeHermesCommandPath} --resume stale-hermes`,
+  cwd: tmp,
+  runtime: "hermes",
+  sessionHandle: "stale-hermes",
+  agentId: "hermes-agent",
+});
+const hermesHealDeadline = Date.now() + 5000;
+while (Date.now() < hermesHealDeadline && !chunks.join("").includes("AIFY_HERMES_FRESH_STARTED")) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+if (previousHermesResumeMs === undefined) delete process.env.AIFY_HERMES_RESUME_STALL_HEAL_MS;
+else process.env.AIFY_HERMES_RESUME_STALL_HEAL_MS = previousHermesResumeMs;
+assert.match(chunks.join(""), /Hermes saved session handle did not become ready/);
+assert.match(chunks.join(""), /AIFY_HERMES_FRESH_STARTED/);
+assert.equal(heals.at(-1)?.agentId, "hermes-agent");
+assert.equal(heals.at(-1)?.previousSessionHandle, "stale-hermes");
+
 const stopHealChunks = [];
 const stopHealManager = new TerminalProcessManager({
   onOutput: async (_id, text) => stopHealChunks.push(text),

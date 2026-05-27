@@ -34,4 +34,16 @@ assert.match(
   "Hermes registration must prefer the current MCP process gateway over cwd runtime markers",
 );
 
+assert.match(
+  serverText,
+  /terminalId: cleanEnvPlaceholder\(process\.env\.AIFY_TERMINAL_ID \|\| ""\)/,
+  "Auto-registration must not persist unresolved ${AIFY_TERMINAL_ID} placeholders",
+);
+
+assert.match(
+  serverText,
+  /terminalId: cleanEnvPlaceholder\(process\.env\.AIFY_TERMINAL_ID \|\| info\.terminalId \|\| ""\)/,
+  "Auto re-registration must sanitize terminal id placeholders",
+);
+
 console.log("hermes-register-fresh-handle.test.js: all assertions passed");

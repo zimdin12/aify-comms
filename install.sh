@@ -1,13 +1,16 @@
 #!/bin/bash
-# Unified installer for aify-comms on Claude Code, Codex, Hermes, OpenCode, or Oh My Pi.
+# Unified installer for aify-comms on Claude Code, Codex, or Hermes.
+# Pi/OMP managed delivery uses the environment bridge plus plain `omp --mode rpc`;
+# resident `omp-aify` / `pi-aify` wrapper install is disabled by default because
+# OMP is single-client and cannot receive live wake injection into an open TUI.
+# OpenCode install is also disabled by default until its resident/managed
+# integration gets a focused validation pass.
 #
 # Usage:
 #   bash install.sh --client claude
 #   bash install.sh --client codex
 #   bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 #   bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
-#   bash install.sh --client opencode http://192.168.100.10:8800
-#   bash install.sh --client pi http://192.168.100.10:8800
 
 set -euo pipefail
 
@@ -25,15 +28,23 @@ DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
 usage() {
   cat <<EOF
 Usage:
-  bash install.sh --client <claude|codex|hermes|opencode|pi> [SERVER_URL] [--with-hook]
+  bash install.sh --client <claude|codex|hermes> [SERVER_URL] [--with-hook]
 
 Examples:
   bash install.sh --client claude
   bash install.sh --client claude http://192.168.100.10:8800 --with-hook
   bash install.sh --client codex http://192.168.100.10:8800
   bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
-  bash install.sh --client opencode http://192.168.100.10:8800
-  bash install.sh --client pi http://192.168.100.10:8800
+
+Pi/OMP note:
+  --client pi is intentionally disabled. Managed Pi works through the
+  environment bridge's persistent `omp --mode rpc` child; resident
+  `omp-aify` / `pi-aify` wrappers are presence-only and not installed by
+  default because OMP has no multi-client resident wake surface.
+
+OpenCode note:
+  --client opencode is intentionally disabled until the integration gets a
+  focused validation pass. Existing adapter code remains for future work.
 EOF
 }
 
@@ -67,7 +78,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "hermes" ] && [ "$CLIENT" != "opencode" ] && [ "$CLIENT" != "pi" ]; then
+if [ "$CLIENT" = "pi" ]; then
+  echo "Pi/OMP resident wrapper install is disabled."
+  echo "Managed Pi remains supported through the environment bridge using plain 'omp --mode rpc'."
+  echo "Reason: OMP is single-client, so omp-aify/pi-aify cannot provide live resident wake into an open TUI."
+  exit 1
+fi
+
+if [ "$CLIENT" = "opencode" ]; then
+  echo "OpenCode integration install is disabled until it receives a focused validation pass."
+  echo "Existing OpenCode adapter/controller code remains in the repo for future work."
+  exit 1
+fi
+
+if [ "$CLIENT" != "claude" ] && [ "$CLIENT" != "codex" ] && [ "$CLIENT" != "hermes" ]; then
   echo "Unsupported client: $CLIENT"
   usage
   exit 1
@@ -136,6 +160,8 @@ CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 # is unset, auto-detect via TTY presence on stdin: interactive → resident.
 CLAUDE_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
 CLAUDE_ARGS=()
+CLAUDE_HAS_MODEL=false
+CLAUDE_HAS_EFFORT=false
 PREV_ARG=""
 for ARG in "\$@"; do
   if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
@@ -164,6 +190,12 @@ for ARG in "\$@"; do
     PREV_ARG="\$ARG"
     continue
   fi
+  if [ "\$ARG" = "--model" ]; then
+    CLAUDE_HAS_MODEL=true
+  fi
+  if [ "\$ARG" = "--effort" ]; then
+    CLAUDE_HAS_EFFORT=true
+  fi
   case "\$ARG" in
   --aify-agent=*|--agent-id=*)
     CLAUDE_AIFY_AGENT_ID="\${ARG#*=}"
@@ -172,6 +204,12 @@ for ARG in "\$@"; do
   --aify-role=*)
     CLAUDE_AIFY_ROLE="\${ARG#*=}"
     continue
+    ;;
+  --model=*)
+    CLAUDE_HAS_MODEL=true
+    ;;
+  --effort=*)
+    CLAUDE_HAS_EFFORT=true
     ;;
   esac
   CLAUDE_ARGS+=("\$ARG")
@@ -186,6 +224,12 @@ for ARG in "\$@"; do
   fi
   PREV_ARG="\$ARG"
 done
+if [ -n "\${AIFY_MANAGED_MODEL:-}" ] && [ "\$CLAUDE_HAS_MODEL" = false ]; then
+  CLAUDE_ARGS+=(--model "\$AIFY_MANAGED_MODEL")
+fi
+if [ -n "\${AIFY_MANAGED_EFFORT:-}" ] && [ "\$CLAUDE_HAS_EFFORT" = false ]; then
+  CLAUDE_ARGS+=(--effort "\$AIFY_MANAGED_EFFORT")
+fi
 if [ -n "\$CLAUDE_RESUME_ID" ]; then
   export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
 fi
@@ -381,18 +425,40 @@ LOG_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/aify-comms"
 mkdir -p "$LOG_ROOT"
 LOG_FILE="$LOG_ROOT/codex-aify-app-server-$PORT.log"
 
+CODEX_AUTO=true
+for ARG in "$@"; do
+  case "$ARG" in
+    -auto|--auto)
+      CODEX_AUTO=true
+      ;;
+    --safe|--no-auto|--no-dangerous-permissions)
+      CODEX_AUTO=false
+      ;;
+  esac
+done
+
+CODEX_PERMISSION_FLAGS=()
+if [ "$CODEX_AUTO" = true ]; then
+  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
+fi
+
 if command -v setsid >/dev/null 2>&1; then
-  setsid codex app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
+  setsid codex "${CODEX_PERMISSION_FLAGS[@]}" app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
 else
-  codex app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
+  codex "${CODEX_PERMISSION_FLAGS[@]}" app-server --listen "$APP_SERVER_URL" </dev/null >>"$LOG_FILE" 2>&1 &
 fi
 APP_SERVER_PID=$!
+RUNTIME_PID=""
 
 # The runtime marker is written by the long-lived aify-comms MCP bridge
 # itself (mcp/stdio/server.js) on startup when it sees
 # AIFY_CODEX_APP_SERVER_URL in its environment.
 
 cleanup() {
+  if [ -n "${RUNTIME_PID:-}" ] && kill -0 "$RUNTIME_PID" >/dev/null 2>&1; then
+    kill "$RUNTIME_PID" >/dev/null 2>&1 || true
+    wait "$RUNTIME_PID" 2>/dev/null || true
+  fi
   if kill -0 "$APP_SERVER_PID" >/dev/null 2>&1; then
     kill "$APP_SERVER_PID" >/dev/null 2>&1 || true
     wait "$APP_SERVER_PID" 2>/dev/null || true
@@ -400,15 +466,25 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+run_codex_foreground() {
+  set +e
+  # Keep Codex in the foreground. In a non-interactive bash wrapper, async
+  # commands (`codex ... &`) receive /dev/null on stdin, so the Codex TUI exits
+  # with "stdin is not a terminal" even when the operator launched from a TTY.
+  codex "$@"
+  local status=$?
+  set -e
+  RUNTIME_PID=""
+  return "$status"
+}
+
 if ! wait_for_port "$PORT"; then
   echo "codex-aify could not reach the local app-server at $APP_SERVER_URL." >&2
   echo "Check $LOG_FILE for details." >&2
   exit 1
 fi
 
-CODEX_PERMISSION_FLAGS=()
 CODEX_ARGS=()
-CODEX_AUTO=false
 CODEX_AIFY_AGENT_ID="${AIFY_AGENT_ID:-}"
 CODEX_AIFY_ROLE="${AIFY_AGENT_ROLE:-coder}"
 CODEX_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
@@ -437,7 +513,9 @@ for ARG in "$@"; do
     continue
   fi
   if [ "$ARG" = "-auto" ] || [ "$ARG" = "--auto" ]; then
-    CODEX_AUTO=true
+    continue
+  fi
+  if [ "$ARG" = "--safe" ] || [ "$ARG" = "--no-auto" ] || [ "$ARG" = "--no-dangerous-permissions" ]; then
     continue
   fi
   if [ "$ARG" = "--resident" ]; then
@@ -509,10 +587,6 @@ else
   export AIFY_SESSION_HANDLE="$CODEX_RESUME_HANDLE"
 fi
 
-if [ "$CODEX_AUTO" = true ]; then
-  CODEX_PERMISSION_FLAGS+=(--dangerously-bypass-approvals-and-sandbox)
-fi
-
 # Plan 6 follow-up (2026-05-26): dashboard-spawned managed codex wrappers
 # must boot without operator approval gates. The TUI's hooks-trust gate
 # blocks startup until "Trust all hooks and continue" is selected manually,
@@ -550,12 +624,14 @@ fi
 
 if [ -n "${CODEX_RESUME_HANDLE:-}" ]; then
   if [ -n "$CODEX_SESSION_FOUND" ]; then
-    exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}" resume --include-non-interactive "$CODEX_RESUME_HANDLE"
+    run_codex_foreground --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}" resume --include-non-interactive "$CODEX_RESUME_HANDLE"
+    exit $?
   else
     echo "[codex-aify] saved session $CODEX_RESUME_HANDLE not found in codex storage; starting fresh codex" >&2
   fi
 fi
-exec codex --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
+run_codex_foreground --remote "$APP_SERVER_URL" "${CODEX_PERMISSION_FLAGS[@]}" "${CODEX_ARGS[@]}"
+exit $?
 EOF
   # Substitute the install-time service URL into the wrapper. The
   # heredoc above is single-quoted so `$SERVER_URL` is NOT expanded
@@ -1174,6 +1250,11 @@ export CLAUDE_MCP_SERVER_URL="\${CLAUDE_MCP_SERVER_URL:-\$AIFY_SERVER_URL}"
 # claude-aify and codex-aify. The hook gates on \\\${AIFY_COMMS_URL:-} so
 # without this export it would silently no-op.
 export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-\$AIFY_SERVER_URL}"
+# Hermes is a Python app that can launch Node/Python helpers whose output may
+# contain UTF-8 bytes. Windows non-UTF-8 consoles have produced cp125x decode
+# crashes in subprocess reader threads, so force UTF-8 for this process tree.
+export PYTHONUTF8="\${PYTHONUTF8:-1}"
+export PYTHONIOENCODING="\${PYTHONIOENCODING:-utf-8}"
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
@@ -1220,18 +1301,30 @@ else
 fi
 
 aify_hermes_exec_plain_or_tui() {
-  # Default to hermes chat --tui for the operator's interactive TUI when
+  # Default to hermes --tui for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
   # (e.g. hermes-aify model list), pass them through unchanged. This helper
   # is used by both the gateway-backed path and the plain-Hermes fallback, so
   # explicit --resume keeps working even when gateway startup fails.
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      exec "\$HERMES_RUNTIME_COMMAND" chat --tui --resume "\$HERMES_SESSION_HANDLE"
+      exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE"
     fi
-    exec "\$HERMES_RUNTIME_COMMAND" chat --tui
+    exec "\$HERMES_RUNTIME_COMMAND" --tui
   fi
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
+}
+
+HERMES_RUNTIME_PID=""
+aify_hermes_run_foreground() {
+  "\$HERMES_RUNTIME_COMMAND" "\$@" &
+  HERMES_RUNTIME_PID=\$!
+  set +e
+  wait "\$HERMES_RUNTIME_PID"
+  local status=\$?
+  set -e
+  HERMES_RUNTIME_PID=""
+  return "\$status"
 }
 
 # Plan 5 (2026-05-25): when the wrapper falls back to plain \`hermes\`
@@ -1322,6 +1415,13 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   AIFY_HERMES_DASHBOARD_LOG="\$LOG_ROOT/hermes-aify-dashboard-\$AIFY_HERMES_PORT.log"
   AIFY_HERMES_ACTIVE_SESSION_FILE="\$LOG_ROOT/hermes-aify-active-session-\$AIFY_HERMES_PORT.json"
   rm -f "\$AIFY_HERMES_ACTIVE_SESSION_FILE" 2>/dev/null || true
+  # Do not let a parent shell's old gateway env leak into the dashboard
+  # process. The plugin inside that dashboard publishes the current port/token
+  # once Hermes creates its session token.
+  unset AIFY_HERMES_GATEWAY_URL
+  unset HERMES_TUI_GATEWAY_URL
+  unset AIFY_HERMES_GATEWAY_TOKEN
+  unset AIFY_HERMES_GATEWAY_TOKEN_ENV
 
   if command -v setsid >/dev/null 2>&1; then
     setsid "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
@@ -1334,6 +1434,10 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
     if [ -n "\${AIFY_HERMES_DASHBOARD_PID:-}" ] && kill -0 "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1; then
       kill "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1 || true
       wait "\$AIFY_HERMES_DASHBOARD_PID" 2>/dev/null || true
+    fi
+    if [ -n "\${HERMES_RUNTIME_PID:-}" ] && kill -0 "\$HERMES_RUNTIME_PID" >/dev/null 2>&1; then
+      kill "\$HERMES_RUNTIME_PID" >/dev/null 2>&1 || true
+      wait "\$HERMES_RUNTIME_PID" 2>/dev/null || true
     fi
   }
   trap cleanup_aify_dashboard EXIT INT TERM
@@ -1364,7 +1468,16 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   export HERMES_TUI_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
   export AIFY_HERMES_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
 
-  aify_hermes_exec_plain_or_tui
+  if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+    if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
+      aify_hermes_run_foreground --tui --resume "\$HERMES_SESSION_HANDLE"
+      exit \$?
+    fi
+    aify_hermes_run_foreground --tui
+    exit \$?
+  fi
+  aify_hermes_run_foreground "\${HERMES_ARGS[@]}"
+  exit \$?
 fi
 
 # Plan 5 (2026-05-25): explicit AIFY_HERMES_SKIP_GATEWAY=1 fallback. The
@@ -1379,6 +1492,276 @@ EOF
   sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" 2>/dev/null && rm -f "$wrapper_path.bak" || true
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
+  install_hermes_windows_tui_shim "$wrapper_dir" "$default_server" "$hermes_plugin_path"
+}
+
+install_hermes_windows_tui_shim() {
+  local wrapper_dir="$1"
+  local default_server="$2"
+  local hermes_plugin_path="$3"
+  local windows_wrapper_dir=""
+  local ps_path=""
+  local cmd_path=""
+  local windows_ps_path=""
+
+  windows_wrapper_dir="$(path_for_windows_runtime "$wrapper_dir")"
+  case "$windows_wrapper_dir" in
+    [A-Za-z]:\\*) ;;
+    *) return 0 ;;
+  esac
+
+  ps_path="$wrapper_dir/hermes-aify.ps1"
+  cmd_path="$wrapper_dir/hermes-aify.cmd"
+  windows_ps_path="$windows_wrapper_dir\\hermes-aify.ps1"
+
+  cat > "$ps_path" <<EOF
+\$ErrorActionPreference = 'Stop'
+\$InputArgs = @(\$args)
+
+\$HermesAifyAgentId = if (\$env:AIFY_AGENT_ID) { \$env:AIFY_AGENT_ID } else { '' }
+\$HermesAifyRole = if (\$env:AIFY_AGENT_ROLE) { \$env:AIFY_AGENT_ROLE } else { 'coder' }
+\$HermesAifySessionMode = if (\$env:AIFY_SESSION_MODE) { \$env:AIFY_SESSION_MODE } else { '' }
+\$HermesInheritedSessionHandle = if (\$env:HERMES_SESSION_ID) { \$env:HERMES_SESSION_ID } elseif (\$env:HERMES_SESSION) { \$env:HERMES_SESSION } elseif (\$env:AIFY_SESSION_HANDLE) { \$env:AIFY_SESSION_HANDLE } else { '' }
+\$HermesSessionHandle = ''
+\$HermesExplicitSessionHandle = \$false
+if (\$env:AIFY_MANAGED_VIA_WRAPPER -eq '1' -and \$HermesInheritedSessionHandle) {
+  \$HermesSessionHandle = \$HermesInheritedSessionHandle
+  \$HermesExplicitSessionHandle = \$true
+}
+
+\$HermesRuntimeCommand = if (\$env:AIFY_HERMES_COMMAND) { \$env:AIFY_HERMES_COMMAND } elseif (\$env:HERMES_COMMAND) { \$env:HERMES_COMMAND } else { 'hermes' }
+\$HermesArgs = @()
+\$PrevArg = ''
+foreach (\$Arg in \$InputArgs) {
+  if (\$PrevArg -eq '--aify-agent' -or \$PrevArg -eq '--agent-id') {
+    \$HermesAifyAgentId = \$Arg
+    \$PrevArg = ''
+    continue
+  }
+  if (\$PrevArg -eq '--aify-role') {
+    \$HermesAifyRole = \$Arg
+    \$PrevArg = ''
+    continue
+  }
+  if (\$PrevArg -eq '--resume' -or \$PrevArg -eq '--session-id' -or \$PrevArg -eq '-r') {
+    \$HermesSessionHandle = \$Arg
+    \$HermesExplicitSessionHandle = \$true
+    \$PrevArg = ''
+    continue
+  }
+  if (\$Arg -eq '--resident') {
+    \$HermesAifySessionMode = 'resident'
+    continue
+  }
+  if (\$Arg -eq '--managed') {
+    \$HermesAifySessionMode = 'managed'
+    continue
+  }
+  if (\$Arg -eq '--aify-agent' -or \$Arg -eq '--agent-id' -or \$Arg -eq '--aify-role') {
+    \$PrevArg = \$Arg
+    continue
+  }
+  if (\$Arg -like '--aify-agent=*' -or \$Arg -like '--agent-id=*') {
+    \$HermesAifyAgentId = (\$Arg -replace '^[^=]*=', '')
+    continue
+  }
+  if (\$Arg -like '--aify-role=*') {
+    \$HermesAifyRole = (\$Arg -replace '^[^=]*=', '')
+    continue
+  }
+  if (\$Arg -like '--resume=*' -or \$Arg -like '--session-id=*' -or \$Arg -like '-r=*') {
+    \$HermesSessionHandle = (\$Arg -replace '^[^=]*=', '')
+    \$HermesExplicitSessionHandle = \$true
+    continue
+  }
+  if (\$Arg -eq '--resume' -or \$Arg -eq '--session-id' -or \$Arg -eq '-r') {
+    \$PrevArg = \$Arg
+    continue
+  }
+  \$HermesArgs += \$Arg
+  \$PrevArg = \$Arg
+}
+
+\$env:AIFY_RUNTIME = 'hermes'
+if (-not \$env:AIFY_SERVER_URL) { \$env:AIFY_SERVER_URL = '$default_server' }
+if (-not \$env:CLAUDE_MCP_SERVER_URL) { \$env:CLAUDE_MCP_SERVER_URL = \$env:AIFY_SERVER_URL }
+if (-not \$env:AIFY_COMMS_URL) { \$env:AIFY_COMMS_URL = \$env:AIFY_SERVER_URL }
+\$env:PYTHONUTF8 = if (\$env:PYTHONUTF8) { \$env:PYTHONUTF8 } else { '1' }
+\$env:PYTHONIOENCODING = if (\$env:PYTHONIOENCODING) { \$env:PYTHONIOENCODING } else { 'utf-8' }
+
+if (\$HermesAifyAgentId) {
+  \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
+  \$env:AIFY_AGENT_ROLE = \$HermesAifyRole
+}
+if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
+  \$env:HERMES_SESSION_ID = \$HermesSessionHandle
+  \$env:AIFY_SESSION_HANDLE = \$HermesSessionHandle
+  \$env:AIFY_EXPLICIT_SESSION_HANDLE = 'true'
+} else {
+  Remove-Item Env:\\HERMES_SESSION_ID -ErrorAction SilentlyContinue
+  Remove-Item Env:\\HERMES_SESSION -ErrorAction SilentlyContinue
+  Remove-Item Env:\\AIFY_SESSION_HANDLE -ErrorAction SilentlyContinue
+  Remove-Item Env:\\AIFY_EXPLICIT_SESSION_HANDLE -ErrorAction SilentlyContinue
+}
+
+if (-not \$HermesAifySessionMode) {
+  \$HermesAifySessionMode = if ([Console]::IsInputRedirected) { 'managed' } else { 'resident' }
+}
+\$env:AIFY_SESSION_MODE = \$HermesAifySessionMode
+
+\$env:AIFY_HERMES_PLUGIN = if (\$env:AIFY_HERMES_PLUGIN) { \$env:AIFY_HERMES_PLUGIN } else { '1' }
+\$env:AIFY_HERMES_PLUGIN_PATH = '$hermes_plugin_path'
+if (\$env:AIFY_HERMES_DISABLE_PLUGIN -eq '1') {
+  Remove-Item Env:\\AIFY_HERMES_PLUGIN -ErrorAction SilentlyContinue
+} elseif (\$env:AIFY_HERMES_PLUGIN_PATH) {
+  if (\$env:PYTHONPATH) {
+    \$env:PYTHONPATH = "\$env:AIFY_HERMES_PLUGIN_PATH;\$env:PYTHONPATH"
+  } else {
+    \$env:PYTHONPATH = \$env:AIFY_HERMES_PLUGIN_PATH
+  }
+}
+
+function Invoke-HermesRuntime {
+  param([string[]]\$RunArgs)
+  & \$HermesRuntimeCommand @RunArgs
+  if (\$null -eq \$global:LASTEXITCODE) {
+    \$script:HermesRuntimeExitCode = 0
+  } else {
+    \$script:HermesRuntimeExitCode = [int]\$global:LASTEXITCODE
+  }
+}
+
+function New-AifyHermesPort {
+  \$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'), 0)
+  \$listener.Start()
+  try {
+    return [int]\$listener.LocalEndpoint.Port
+  } finally {
+    \$listener.Stop()
+  }
+}
+
+function Wait-AifyHermesHttp {
+  param([string]\$Url)
+  \$deadline = [DateTime]::UtcNow.AddSeconds(30)
+  while ([DateTime]::UtcNow -lt \$deadline) {
+    try {
+      Invoke-WebRequest -UseBasicParsing -Uri \$Url -TimeoutSec 1 | Out-Null
+      return \$true
+    } catch {
+      Start-Sleep -Milliseconds 200
+    }
+  }
+  return \$false
+}
+
+function Start-AifyHermesDashboard {
+  param([int]\$Port, [string]\$LogRoot)
+  \$script:DashboardLog = Join-Path \$LogRoot "hermes-aify-dashboard-\$Port.log"
+  \$script:DashboardErrLog = Join-Path \$LogRoot "hermes-aify-dashboard-\$Port.err.log"
+  \$dashArgs = @('dashboard', '--tui', '--port', [string]\$Port, '--host', '127.0.0.1', '--no-open', '--skip-build')
+  return Start-Process -FilePath \$HermesRuntimeCommand -ArgumentList \$dashArgs -NoNewWindow -PassThru -RedirectStandardOutput \$script:DashboardLog -RedirectStandardError \$script:DashboardErrLog
+}
+
+function Stop-AifyHermesDashboard {
+  if (\$script:DashboardProcess -and -not \$script:DashboardProcess.HasExited) {
+    try { Stop-Process -Id \$script:DashboardProcess.Id -Force -ErrorAction SilentlyContinue } catch {}
+  }
+}
+
+function Invoke-AifyHermesFallback {
+  param([string]\$Reason)
+  [Console]::Error.WriteLine('')
+  [Console]::Error.WriteLine('[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.')
+  [Console]::Error.WriteLine("[hermes-aify]   Reason: \$Reason")
+  if (\$script:DashboardLog) { [Console]::Error.WriteLine("[hermes-aify]   Log:    \$script:DashboardLog") }
+  [Console]::Error.WriteLine("[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'.")
+  [Console]::Error.WriteLine('[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or')
+  [Console]::Error.WriteLine('[hermes-aify]           inspect the dashboard log above for the underlying error.')
+  [Console]::Error.WriteLine('')
+  if (\$HermesArgs.Count -eq 0) {
+    if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
+      Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
+      exit \$script:HermesRuntimeExitCode
+    }
+    Invoke-HermesRuntime @('--tui')
+    exit \$script:HermesRuntimeExitCode
+  }
+  Invoke-HermesRuntime \$HermesArgs
+  exit \$script:HermesRuntimeExitCode
+}
+
+\$script:DashboardProcess = \$null
+\$script:DashboardLog = ''
+\$script:DashboardErrLog = ''
+\$script:HermesRuntimeExitCode = 0
+
+if (\$env:AIFY_HERMES_SKIP_GATEWAY -ne '1') {
+  \$port = New-AifyHermesPort
+  \$dashboardUrl = "http://127.0.0.1:\$port"
+  \$env:AIFY_HERMES_PORT = [string]\$port
+  \$env:AIFY_HERMES_DASHBOARD_URL = \$dashboardUrl
+  \$logRoot = if (\$env:XDG_STATE_HOME) { Join-Path \$env:XDG_STATE_HOME 'aify-comms' } else { Join-Path \$env:USERPROFILE '.local\\state\\aify-comms' }
+  New-Item -ItemType Directory -Force -Path \$logRoot | Out-Null
+  \$activeSessionFile = Join-Path \$logRoot "hermes-aify-active-session-\$port.json"
+  Remove-Item \$activeSessionFile -ErrorAction SilentlyContinue
+  # Do not let a parent shell's old gateway env leak into the dashboard
+  # process. The plugin inside that dashboard publishes the current port/token
+  # once Hermes creates its session token.
+  Remove-Item Env:AIFY_HERMES_GATEWAY_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:HERMES_TUI_GATEWAY_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:AIFY_HERMES_GATEWAY_TOKEN -ErrorAction SilentlyContinue
+  Remove-Item Env:AIFY_HERMES_GATEWAY_TOKEN_ENV -ErrorAction SilentlyContinue
+
+  try {
+    \$script:DashboardProcess = Start-AifyHermesDashboard -Port \$port -LogRoot \$logRoot
+    if (-not (Wait-AifyHermesHttp "\$dashboardUrl/")) {
+      [Console]::Error.WriteLine("hermes-aify: dashboard at \$dashboardUrl did not become reachable. Falling back to plain hermes.")
+      if (\$script:DashboardLog) { [Console]::Error.WriteLine("  log: \$script:DashboardLog") }
+      Stop-AifyHermesDashboard
+      Invoke-AifyHermesFallback 'dashboard_unreachable (likely missing web_dist — run install.sh --client hermes to prebuild)'
+    }
+
+    \$html = (Invoke-WebRequest -UseBasicParsing -Uri "\$dashboardUrl/" -TimeoutSec 5).Content
+    if (\$html -notmatch '__HERMES_SESSION_TOKEN__="([^"]+)"') {
+      [Console]::Error.WriteLine("hermes-aify: could not capture the dashboard session token from \$dashboardUrl/. Falling back to plain hermes.")
+      Stop-AifyHermesDashboard
+      Invoke-AifyHermesFallback 'token_capture_failed'
+    }
+
+    \$token = \$Matches[1]
+    \$gateway = "ws://127.0.0.1:\$port/api/ws?token=\$token"
+    \$env:HERMES_TUI_GATEWAY_URL = \$gateway
+    \$env:AIFY_HERMES_GATEWAY_URL = \$gateway
+    \$env:AIFY_HERMES_GATEWAY_TOKEN = \$token
+    \$env:HERMES_TUI_ACTIVE_SESSION_FILE = \$activeSessionFile
+    \$env:AIFY_HERMES_ACTIVE_SESSION_FILE = \$activeSessionFile
+
+    if (\$HermesArgs.Count -eq 0) {
+      if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
+        Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
+        exit \$script:HermesRuntimeExitCode
+      }
+      Invoke-HermesRuntime @('--tui')
+      exit \$script:HermesRuntimeExitCode
+    }
+    Invoke-HermesRuntime \$HermesArgs
+    exit \$script:HermesRuntimeExitCode
+  } finally {
+    Stop-AifyHermesDashboard
+  }
+}
+
+Invoke-AifyHermesFallback 'gateway_disabled (AIFY_HERMES_SKIP_GATEWAY=1)'
+EOF
+
+  cat > "$cmd_path" <<EOF
+@echo off
+setlocal
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*
+set "AIFY_EXIT=%ERRORLEVEL%"
+endlocal & exit /b %AIFY_EXIT%
+EOF
 }
 
 install_bridge_launcher() {
@@ -2621,8 +3004,8 @@ echo ""
 echo "Quick start:"
 if [ "$CLIENT" = "codex" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\", appServerUrl=\"\$AIFY_CODEX_APP_SERVER_URL\")"
+  echo "  # Current bridges auto-discover the live Codex thread from the app-server when possible."
   echo "  # Add sessionHandle=\"\$CODEX_THREAD_ID\" only when CODEX_THREAD_ID is non-empty in this same session."
-  echo "  # If the live app-server env var is unavailable, fall back to: comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"codex\")"
 elif [ "$CLIENT" = "claude" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")"
 elif [ "$CLIENT" = "pi" ]; then

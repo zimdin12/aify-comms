@@ -22,6 +22,7 @@ class AgentRegister(BaseModel):
     capabilities: Optional[list[str]] = None
     runtimeConfig: Optional[dict[str, Any]] = None
     terminalId: Optional[str] = None
+    managedWrapperChild: Optional[bool] = False
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
 
@@ -65,9 +66,8 @@ class AgentSessionHandleUpdate(BaseModel):
 
 class AgentReadyUpdate(BaseModel):
     # Plan 4 task 12 (2026-05-25): set by the bridge after an adapter
-    # controller's start() handshake completes. Surfaces the `ready`
-    # status (between `online` and `working`) so operators can distinguish
-    # "process alive" from "process ready for dispatch".
+    # controller's start() handshake completes. This is an internal
+    # readiness bit; public idle-live status is `online`, not `ready`.
     ready: bool = True
     requestedBy: Optional[str] = None
 

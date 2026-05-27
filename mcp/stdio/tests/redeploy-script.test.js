@@ -4,8 +4,10 @@ import assert from "assert";
 import test from "node:test";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const ROOT = path.resolve(".");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "../../../");
 const REDEPLOY = path.join(ROOT, "redeploy.sh");
 
 test("redeploy.sh exists at repo root", () => {

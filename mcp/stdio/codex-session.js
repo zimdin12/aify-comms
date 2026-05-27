@@ -36,6 +36,7 @@ import {
   buildUserPrompt,
 } from "./runtimes.js";
 import { detectCodexResumeFailure } from "./codex-errors.js";
+import { codexAifyReceiptFrame } from "./aify-console-markers.js";
 
 const codexSessionPool = new Map();
 
@@ -550,6 +551,7 @@ export class CodexSession {
       if (body) {
         const subject = String(run?.subject || "").trim();
         const from = String(run?.from || "dashboard").trim() || "dashboard";
+        this._pushTerminalFrame(codexAifyReceiptFrame(), "running");
         const header = subject ? `\r\n\x1b[92m>\x1b[0m [${from}] ${subject}\r\n` : `\r\n\x1b[92m>\x1b[0m [${from}]\r\n`;
         const prefixed = body.split(/\r?\n/).map((line) => `\x1b[92m>\x1b[0m ${line}`).join("\r\n");
         this._pushTerminalFrame(`${header}${prefixed}\r\n`, "running");

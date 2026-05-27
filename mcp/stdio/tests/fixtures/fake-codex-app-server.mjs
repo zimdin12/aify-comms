@@ -112,6 +112,19 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (msg.method === "thread/list") {
+    const threadItems = Array.from(threads.keys()).map((id, index) => ({
+      id,
+      sessionId: id,
+      cwd: process.cwd(),
+      updatedAt: Date.now() + index,
+      status: { type: "idle" },
+    }));
+    const key = process.env.FAKE_CODEX_THREAD_LIST_KEY === "threads" ? "threads" : "data";
+    send({ jsonrpc: "2.0", id: msg.id, result: { [key]: threadItems } });
+    return;
+  }
+
   if (msg.method === "turn/start") {
     runTurn(msg.id, msg.params?.threadId, msg.params).catch((e) => {
       send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: String(e?.message || e) } });

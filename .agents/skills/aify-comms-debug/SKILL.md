@@ -1,6 +1,6 @@
 ---
 name: aify-comms-debug
-description: Known aify-comms issues and how to fix them. Check here when a dispatch fails, a wake mode looks wrong, a run is stuck, a bridge seems stale, or Claude/Codex reports a path/channel error. Complements the main aify-comms skill.
+description: Use when aify-comms dispatch, wake mode, bridge health, managed/resident routing, dashboard Console, or runtime wrapper behavior is broken or confusing.
 ---
 
 # aify-comms: Troubleshooting
@@ -16,9 +16,10 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
 - Spawn/workspace path errors, `ENOENT`, machine ID
 - Resident Hermes/Claude/Codex says live but `comms_send` reports stale bridge
+- Resident Hermes wakes native TUI, but dashboard has no resident session/console evidence
 - Hermes `mcp test` works, but the live turn has no `mcp_aify_comms_*` tools
 - Hermes fails immediately with `'NoneType' object is not iterable`
-- Agent shows `online`/`ready` but the Console/worker is gone
+- Agent shows `online` but the Console/worker is gone
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
@@ -50,6 +51,105 @@ mcp_aify_comms_comms_agent_info(agentId="target")
 ```
 
 For Hermes, use the prefixed callable names that Hermes assigns to MCP tools (`mcp_aify_comms_comms_register`, `mcp_aify_comms_comms_agent_info`, `mcp_aify_comms_comms_send`). Missing unprefixed names like `comms_register` is not an exposure failure if the prefixed tools are available. For Claude/Codex use the matching runtime and handle fields documented in the main skill. Prefer launching with `--aify-agent <id>` so the wrapper's MCP child auto-registers with its real bridge id. Do not repair this by posting to `/api/v1/agents` manually; use dashboard **Switch to managed** if the open resident terminal should not own delivery.
+
+## Resident Hermes wakes, but dashboard shows no session evidence
+
+**Symptom.** Two resident Hermes terminals communicate successfully and show
+boxed `aify-comms message` notice in the native TUI, but the dashboard Sessions or
+Chat details view has no concrete resident session/console evidence for that
+agent.
+
+**Cause.** Older service builds treated resident registration as identity-only:
+they updated `agents.runtimeConfig` and bridge heartbeat state, but did not
+create a dashboard-visible `agent_sessions` row. Delivery still worked through
+the wrapper bridge, while the dashboard had no session object to anchor.
+
+**Fix.** Rebuild/restart the service with the current `api_v2.py`, then
+restart and re-register the resident `hermes-aify` terminal. Current resident
+registration upserts an `agent_sessions` row with `mode=resident`,
+`owner_mode=resident`, the current environment id, session handle, gateway
+metadata, and owner bridge id. Verify with `GET /api/v1/sessions?agentId=...`
+or the Sessions page.
+
+## Managed Hermes dashboard send fails with `visible session not found`
+
+**Symptom.** A dashboard send to a managed Hermes agent fails quickly with:
+
+```
+Hermes visible-session binding failed for <old-id>: visible session not found
+```
+
+Events show `channel / start_if_possible`, the run was claimed, and no compact
+boxed `aify-comms message` notice appears in the target
+`hermes-aify` Console.
+
+**Cause.** The run was queued correctly as channel-mode wrapper-backed work,
+but either an old bridge build let the environment bridge claim it before the
+`hermes-aify` wrapper child bridge, or the wrapper child claimed while its
+Console was still stuck at `resuming...` for a stale saved handle. The
+environment bridge only has stored `runtimeConfig.gatewayUrl` / `sessionHandle`,
+and a not-ready wrapper has no bindable active visible session, so stale
+records can point at an old gateway/session and fail visible-session binding.
+
+**Fix.** Rebuild/restart the service and restart the host `aify-comms` bridge
+so the environment bridge no longer advertises channel claim modes for
+wrapper-backed Codex/Hermes. The service also rejects such claims unless the
+claimant bridge is registered as `bridge_kind='managed-wrapper-child'`, and it
+blocks Hermes wrapper-child claims while the active Console still shows
+`resuming...` rather than `ready`. Current terminal managers heal a long-stuck
+Hermes resume by restarting once without `--resume`. Then restart/recover the
+managed Hermes session or send again; the wrapper PTY child bridge should claim
+after readiness and the visible Console should render the compact wake notice.
+If the saved Hermes session key is stale but the wrapper gateway has a current
+visible session, current bridges retry visible binding against that active
+session and emit `visible session bind retry: <old> -> <current>` instead of
+creating or resuming a hidden session.
+
+## Resident Hermes send says managed wrapper PTY is unavailable
+
+**Symptom.** `comms_agent_info` reports a resident Hermes agent as
+`Wake mode: hermes-live`, but `comms_send(..., trigger=true)` fails before
+sending with:
+
+```
+Managed hermes wrapper PTY is unavailable; recover or restart the environment-managed session.
+```
+
+**Cause.** This is a service routing bug, not a Hermes registration problem:
+the `/messages/send` preflight selected resident delivery, but a later generic
+native-managed branch ignored the selected execution mode and tried to require
+a managed wrapper PTY for every Hermes runtime.
+
+**Fix.** Rebuild/restart the service with the current `api_v2.py`. Resident
+Hermes sends should persist `executionMode=resident` and claim through the
+current resident bridge. Verify with `comms_run_status(runId=...)`; events
+should show `visible session bound`, `prompt.submit`, and `turn completed`.
+
+## Resident Hermes reports live but send fails with `ECONNREFUSED 127.0.0.1:<port>`
+
+**Symptom.** `comms_agent_info` says `Wake mode: hermes-live`, but
+`comms_send(..., trigger=true)` fails with:
+
+```
+Hermes gateway WS open failed: connect ECONNREFUSED 127.0.0.1:<port>
+```
+
+The stored `runtimeConfig.gatewayUrl` points at an older
+`hermes-aify-dashboard-<port>` while newer `hermes-aify` dashboard ports are
+listening.
+
+**Cause.** A resumed Hermes process can inherit an old
+`AIFY_HERMES_GATEWAY_URL` from its parent shell. Older wrappers/plugins
+preserved that value, so the MCP child registered a fresh bridge heartbeat
+against a dead dashboard gateway. The bridge looked live because the MCP
+stdio process was still heartbeating, but the actual Hermes TUI gateway was
+not reachable.
+
+**Fix.** Update/redeploy aify-comms, rerun `install.sh --client hermes`, and
+restart each `hermes-aify` terminal before re-registering. Current wrappers
+clear inherited gateway env before starting the dashboard, and the Hermes
+plugin always overwrites MCP-child env with the gateway URL owned by the
+current dashboard process.
 
 ## Hermes `mcp test` works, but live turn has no aify tools
 
@@ -94,8 +194,13 @@ Error: 'NoneType' object is not iterable
 ```
 
 The wrapper may already be healthy: process list shows
-`hermes.exe chat --tui --resume <id>` and
+`hermes.exe --tui --resume <id>` and
 `~/.local/state/aify-comms/hermes-aify-active-session-<port>.json` exists.
+On native Windows, current installs run `hermes-aify.cmd` through a generated
+PowerShell shim, not Git Bash, so Hermes' Node TUI keeps a real console TTY.
+If `hermes-aify --resume <id>` exits with `hermes-tui: no TTY`, redeploy the
+Hermes wrapper and verify `C:\Users\Administrator\.local\bin\hermes-aify.cmd`
+calls `hermes-aify.ps1`.
 
 **Cause.** This is a Hermes/OpenAI SDK Responses streaming edge case, not an
 aify registration error. ChatGPT Codex can stream valid `response.output_item.done`
@@ -128,18 +233,18 @@ For A/B testing upstream Hermes without the shim, launch with
 is legacy/debug only: set `AIFY_HERMES_LEGACY_SOURCE_PATCH=1` before
 `install.sh --client hermes`.
 
-## Agent shows `online` or `ready`, but no live worker exists
+## Agent shows `online`, but no live worker exists
 
 **Symptom.** Dashboard or `comms_agent_info` reports a managed Codex/Hermes
-agent as `online` or `ready`, but its Console is gone, sends do not visibly
+agent as `online`, but its Console is gone, sends do not visibly
 land in a real worker, or the session only has an old `vterm_*`/historical
 terminal row.
 
 **Cause.** Older service builds cached `agent_live_state.status` using
 heartbeat freshness, not live worker presence. A wrapper PTY could exit while
 another heartbeat kept the cache row fresh, so the UI kept showing
-`online`/`ready`. A related bug invalidated the corrected writeback
-immediately, and ready/registration changes could leave future-dated cache
+`online`. A related bug invalidated the corrected writeback
+immediately, and readiness/registration changes could leave future-dated cache
 rows in place.
 
 **Fix.** Update and restart/rebuild the service. Current builds downgrade
@@ -370,7 +475,7 @@ cd /home/dev/aify-comms
 git pull
 bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 bash install.sh --client claude http://192.168.100.10:8800 --with-hook
-bash install.sh --client pi http://192.168.100.10:8800
+# Pi/OMP wrapper install is disabled; managed Pi uses the environment bridge plus `omp --mode rpc`.
 aify-comms /path/to/workspace-root
 ```
 
@@ -434,7 +539,7 @@ Afterwards, restart the affected wrapper to bring a live bridge back online.
 **Causes.**
 - Multiple `codex-aify` sessions are open on the same machine — the bridge sees ambiguous live markers and refuses to pick one.
 - The wrapper was launched from a different directory than the `cwd` you passed to `comms_register` and auto-discovery can't resolve it.
-- The live app-server env var `$AIFY_CODEX_APP_SERVER_URL` was not available inside the session at register time. `$CODEX_THREAD_ID` can be empty on a fresh `codex-aify`; do not fill it from historical rollout files.
+- The live app-server env var `$AIFY_CODEX_APP_SERVER_URL` was not available inside the session at register time. `$CODEX_THREAD_ID` can be empty on a fresh `codex-aify`; current bridges can discover the live thread through Codex `thread/list`, but older bridges only looked at `$CODEX_THREAD_ID`. Do not fill it from historical rollout files.
 
 **Fix (deterministic):** re-register from that same live session with explicit binding:
 
@@ -449,7 +554,7 @@ comms_register(
 comms_agent_info(agentId="my-agent")
 ```
 
-Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same session, usually after explicit `codex-aify --resume <id>`. If neither app-server URL nor thread ID is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
+Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same session, usually after explicit `codex-aify --resume <id>`. If `wakeMode` remains `codex-missing-handle` even though `appServerUrl` is set, the running MCP bridge likely predates the Codex `thread/list.data` parser fix; reinstall/restart `codex-aify` and register again. If neither app-server URL nor thread ID is available, the session predates the current live-wake flow — restart Codex through `codex-aify` and try again.
 
 ## Closed resident Codex still receives dashboard work
 
@@ -573,7 +678,7 @@ Current installer behavior:
 
 - `--with-hook` is Git Bash aware. It writes native Windows hook paths without MSYS path mangling, so the old `C:\c\Users\...` failure should not require manual `settings.json` or `hooks.json` edits.
 - The installer creates Bash wrappers and `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd`, `claude-aify.cmd`, `codex-aify.cmd`, `omp-aify.cmd`, and `pi-aify.cmd` when the matching client is installed.
-- `codex-aify` does not force auto permissions by default. Use `codex-aify -auto` to request auto mode; current wrappers pass `--dangerously-bypass-approvals-and-sandbox`. They do not use the older `--full-auto` flag.
+- `codex-aify` defaults to Codex's unattended bypass profile and passes `--dangerously-bypass-approvals-and-sandbox` to both the local app-server and visible remote TUI. Use `codex-aify --safe` / `--no-auto` / `--no-dangerous-permissions` only when deliberately debugging Codex permission behavior. The wrapper does not use the older `--full-auto` flag.
 - `claude-aify` also preserves normal permissions by default. Use `claude-aify -auto` to add `--dangerously-skip-permissions`.
 - The `.cmd` shims prepend Git's Unix binary directories when they can find Git, so `sed`/`bash` should be available even when PowerShell only had `C:\Program Files\Git\cmd` on PATH.
 
@@ -635,17 +740,7 @@ If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real
 
 **Cause.** The agent's `runtime_config.channelEnabled` is not `true`, so `_row_capabilities` at `api_v2.py` strips `resident-run`, `interrupt`, and `steer` from the capabilities at every read. Preflight then sees `["managed-run","resume"]` and concludes there's no live wake path. This used to require manual DB patches every time a claude-aify session re-registered.
 
-**Fix.** Restart the claude-aify wrapper from a current install — the post-`1585bc9` claude-aify exports `AIFY_CHANNELS_ENABLED=1`, and the post-`c676f2b` `mcp/stdio/server.js` includes `runtime_config.channelEnabled=true` in the `/agents` register call. If you can't restart immediately, patch the live agent:
-
-```bash
-docker exec aify-comms-service python -c "
-import sqlite3, glob, os, json
-db=sorted(glob.glob('/data/*.db'),key=os.path.getmtime)[-1]
-c=sqlite3.connect(db)
-c.execute(\"UPDATE agents SET runtime_config=? WHERE id=?\", (json.dumps({'channelEnabled': True}), 'YOUR-AGENT-ID'))
-c.commit()
-"
-```
+**Fix.** Restart the claude-aify wrapper from a current install — current `claude-aify` exports `AIFY_CHANNELS_ENABLED=1`, and `mcp/stdio/server.js` includes `runtime_config.channelEnabled=true` in the `/agents` register call. Then re-register from the live wrapper or launch it with `--aify-agent <id>`. Do not repair this by hand-editing the database; rebuild/redeploy and restart the wrapper so the bridge heartbeat, runtimeConfig, and claim loop all match.
 
 ## In-flight run cancelled with "bridge X is not the current agent bridge Y"
 
@@ -655,15 +750,15 @@ c.commit()
 
 **Fix.** Already fixed in the post-`4dbb2e2` `_record_bridge_registration` helper (supersession narrowed to the full `(agent_id, machine_id, runtime, session_mode, session_handle)` tuple) + `terminal-env.js` declaring `AIFY_SESSION_MODE=managed` for bridge-spawned PTYs. If you still see it, check the agent's bridge_instances rows — different `session_mode` or `session_handle` between them means the new code is doing the right thing; the legacy supersession was likely cleared on a prior run.
 
-## Dashboard chat spawns a wrapper console on every send
+## Dashboard chat routes native managed work through the wrong console
 
-**Symptom.** Sending to a managed pi/codex/opencode/hermes agent from the dashboard spawns a new wrapper PTY each time. Operator sees the console pop up; the wrapper exits after the dispatch; the next send pops another console.
+**Symptom.** Sending to a managed Pi/OpenCode agent, or to Codex/Hermes with wrapper backing disabled, creates `consoleDeliveries` / `dispatch_mode='terminal'` and injects dashboard text into a PTY instead of creating a normal native managed run. Operator sees a raw console that is not the real managed delivery owner.
 
-**Cause.** With `managed_terminal_backing_enabled=true` and `managed_pty_eager_spawn=false` (the default), each dispatch lazily creates a wrapper PTY via `_ensure_managed_pty_for_dispatch`. The wrapper (e.g. `omp --mode rpc`) is ephemeral per dispatch.
+**Cause.** The legacy `/dispatch` path treated `managed_terminal_backing_enabled=true` as permission to type into a PTY for every native-managed runtime. That is only valid when the explicit escape hatch `insert_messages_via_console=true` is enabled. Default managed Pi/OpenCode should stay on their native controller / virtual-terminal paths; Codex/Hermes only use wrapper PTYs when `managed_via_wrapper` selects them.
 
-**Fix (architectural).** Flip `managed_pty_eager_spawn=true`. The wrapper PTY launches proactively at spawn-request running transition; subsequent dispatches reuse it via `_active_terminal_for_agent` (dispatch path) and the slice-3 reuse check in `start_session_console` (manual Start Console path). `PUT /api/v1/settings {"managed_pty_eager_spawn": true}`. Roll back by flipping false.
+**Fix.** Update/rebuild the service. Current builds only use PTY-input delivery when `insert_messages_via_console=true`; otherwise `/dispatch` persists `execution_mode='managed'` for native managed runtimes and the bridge controller claims it. For wrapper-backed Codex/Hermes, the wrapper child bridge claims `execution_mode='channel'`; the environment bridge is blocked from claiming those runs directly.
 
-**Fix (claude-specific).** For managed claude-code, flip `insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)` instead — dispatches route via channel events (claimed by `claude-channel.js`) and no PTY is involved at all. Same protocol resident Claude already uses.
+**Claude note.** Managed Claude still needs a `claude-aify` PTY host, but default delivery is channel notification (`insert_messages_via_console=false`), not raw stdin typing. If Claude channel runs sit queued, check that the wrapper PTY is running and the env advertises `claude-code` terminal support.
 
 ## Each keystroke in the dashboard Console submits as a command
 
@@ -695,7 +790,7 @@ c.commit()
 
 **Cause.** Default capabilities for managed claude omit `managed-run` by design (claude has no headless managed-run API). Pre-`a4498a6`, `_agent_execution_mode` rejected dispatches on the missing cap before the channel branch could fire.
 
-**Fix.** Already fixed in `a4498a6` — the cap-check is skipped when runtime is `_CHANNEL_MANAGED_RUNTIMES` AND `runtime_config.channelEnabled=true`. Container needs rebuild to pick up the api_v2.py change. If you're on a build that pre-dates this fix and can't rebuild immediately, you can patch the live agent: `UPDATE agents SET capabilities=json_insert(capabilities,'$[#]','managed-run') WHERE id='YOUR-AGENT-ID'` — the dispatch will then enter the channel branch correctly.
+**Fix.** Already fixed in `a4498a6` — the cap-check is skipped when runtime is `_CHANNEL_MANAGED_RUNTIMES` AND `runtime_config.channelEnabled=true`. Container needs rebuild to pick up the api_v2.py change. Do not add `managed-run` by hand in the database; that can mask the real channel/wrapper health problem.
 
 ## Spawn-time initial message to managed claude sits queued forever
 
@@ -703,7 +798,7 @@ c.commit()
 
 **Cause.** Pre-`a4498a6`, `update_spawn_request`'s running-transition handler called `_create_dispatch_runs(...)` to create the initial-message run, but did NOT call `_apply_channel_only_to_claude_runs(...)` afterward. The run stayed `execution_mode='managed'` even with the channel-only setting on. The same gap existed in the auto-mirrored handoff path at line 4912.
 
-**Fix.** Already fixed in `a4498a6` — both call sites now apply channel-only post-create. For runs created BEFORE the fix that are stuck queued, you can manually flip: `UPDATE dispatch_runs SET execution_mode='channel' WHERE id='YOUR-RUN-ID' AND status='queued'` — `claude-channel.js` will pick it up on the next poll cycle (~5s).
+**Fix.** Already fixed in `a4498a6` — both call sites now apply channel-only post-create. For runs created before the fix that are stuck queued, prefer cancelling/retrying after rebuilding and restarting the bridge/wrapper. Avoid manual `dispatch_runs` SQL unless you are doing a one-off forensic repair and have captured the original run state.
 
 ## Channel-routed claude dispatches stay queued forever (resident or managed)
 
@@ -784,6 +879,21 @@ curl -sS http://localhost:8800/api/v1/agents/YOUR-AGENT-ID/pi-session-state | py
 
 Managed Codex defaults to a wrapper-backed `codex-aify` PTY. This section applies only when wrapper-backed delivery is disabled/unavailable or when the Console command is `aify://virtual-rpc/codex`: the native fallback keeps a long-lived `codex app-server` child per agent (`mcp/stdio/codex-session.js`). Symptoms specific to this path:
 
+### `codex-aify` exits with `Error: stdin is not a terminal`
+
+**Symptom.** Running `codex-aify` from an interactive WSL terminal exits
+immediately with `Error: stdin is not a terminal`.
+
+**Cause.** Old wrappers launched the visible Codex TUI as a Bash background job
+and then waited on it. In non-interactive Bash wrappers, async jobs can receive
+`/dev/null` as stdin, so Codex sees no terminal even though the operator started
+from one. The app-server child should be backgrounded; the visible Codex TUI
+must stay foreground.
+
+**Fix.** Re-run `install.sh --client codex` or `redeploy.sh` from the current
+repo and restart `codex-aify`. Verify `~/.local/bin/codex-aify` contains
+`codex "$@"` in `run_codex_foreground` and does not contain `codex "$@" &`.
+
 ### Dispatch sits at `[codex] working...` forever
 
 The codex app-server is alive but the turn never completes. Cause: codex stalled mid-turn (provider hang, sandbox-policy block, etc.).
@@ -840,7 +950,7 @@ cat ~/.local/state/aify-comms/hermes-aify-dashboard-*.log | head -5
 
 If the log shows that line, the wrapper's `hermes dashboard --tui --skip-build` probe died immediately, `wait_for_http` timed out, and the wrapper falls back to plain Hermes without exporting the gateway URL. The MCP child then registers with no gateway env.
 
-**Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers print a visible WARNING when this fallback path triggers and preserve an explicit `hermes-aify --resume <id>` by falling back to `hermes chat --tui --resume <id>`.
+**Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers print a visible WARNING when this fallback path triggers and preserve an explicit `hermes-aify --resume <id>` by falling back to `hermes --tui --resume <id>`.
 
 ## Queued managed run never claimed (Plan 5 Section B)
 
@@ -902,7 +1012,7 @@ If `live[0]=='online'` AND `active terms` is empty, that's the Plan 5 Section C 
 
 **Cause.** The bridge was forking a fresh in-memory Hermes sid over a second WebSocket. That can complete backend accounting, but it is not the operator-visible TUI session. The harness-console contract requires the active visible sid.
 
-**Fix.** Current installs load the aify Hermes runtime plugin from `integrations/hermes-aify-plugin`; it registers `aify.session.bind_transport`, `aify.session.render_notice`, and preserves the wrapper-provided active-session file without editing Hermes source. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`, and the visible TUI should show an `[aify-comms] wake from ...` transcript/status notice before the assistant reply appears. If the saved handle was stale but the wrapper gateway has exactly one active visible session, you may first see `visible session key corrected: <old> -> <new>`. If the bind/render method is missing, the plugin is disabled, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
+**Fix.** Current installs load the aify Hermes runtime plugin from `integrations/hermes-aify-plugin`; it registers `aify.session.bind_transport`, `aify.session.render_notice`, and preserves the wrapper-provided active-session file without editing Hermes source. Re-run `./install.sh --client hermes`, restart every open `hermes-aify`, then re-register from inside the visible terminal. A healthy run event says `visible session bound: <key> -> <sid>` before `prompt.submit`, and the visible TUI should show a boxed `aify-comms message` transcript/status notice before the assistant reply appears. If the saved handle was stale, you may first see `visible session key corrected: <old> -> <new>` or `visible session bind retry: <old> -> <current>`. If the bind/render method is missing, the plugin is disabled, or no active visible session can be selected, current bridges fail visibly and refuse hidden `session.resume` / `session.create` fallback.
 
 If two Hermes resident agents run in the same cwd, they must still register
 with different `runtimeConfig.gatewayUrl` values. Current bridges prefer the
@@ -975,13 +1085,13 @@ If the value is not `resident` or `managed`, no switch is rendered. If it is swi
 
 **Fix.** Rebuild/redeploy the service (`docker compose up -d --build`) and hard-refresh the browser. Clicking the switch calls `PATCH /api/v1/agents/{id}/session-mode {mode}`; the response updates `sessionMode`, launch mode, capabilities, runtime state, and any side-effect terminal state.
 
-## Known follow-up: wrapper-backed channel claim can race
+## Fixed check: wrapper-backed channel claim must be child-owned
 
-**Symptom.** A wrapper-backed Codex/Hermes dispatch is routed through `executionModes=["channel","resident"]`, but the main bridge claims the run before the bridge-spawned wrapper child is fully registered. The dashboard may show the run as claimed/running while the visible wrapper terminal never receives the message.
+**Symptom.** A wrapper-backed Codex/Hermes dispatch is routed through `executionModes=["channel","resident"]`, but the environment bridge claims the run before the bridge-spawned wrapper child is fully registered. The dashboard may show the run as claimed/running while the visible wrapper terminal never receives the message.
 
-**Cause.** The same bridge process owns environment polling and wrapper-child startup. The correct long-term fix is a stricter claim boundary so wrapper-backed channel runs are claimable only by the wrapper child that has the runtime-local gateway/app-server context, or by an explicit fallback path after the wrapper child times out.
+**Cause.** Old builds allowed a non-wrapper child bridge to claim wrapper-backed channel work. That bridge lacks the local app-server/gateway context and can only fail or fork hidden work.
 
-**Current mitigation.** Current builds make Dashboard Next sends normal live sends by default and expose resident/managed mode manually, but this race is still a deeper lifecycle item. If you hit it, capture the run id, target agent id, `claim_bridge_id`, and bridge logs before restarting; the stale queued/running cleanup should unblock later sends, but it does not prove the visible terminal saw the turn.
+**Fix.** Current builds require `bridge_kind='managed-wrapper-child'` and the current active wrapper `terminal_id` before a wrapper-backed Codex/Hermes child can claim channel work. If you see this symptom, rebuild/redeploy the service, restart the environment bridge, then recover/restart the managed session so a fresh wrapper child registers.
 
 ## General escalation
 

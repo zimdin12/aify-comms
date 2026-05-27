@@ -6,8 +6,10 @@ import assert from "assert";
 import test from "node:test";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const INSTALL_SH = path.resolve("install.sh");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const INSTALL_SH = path.resolve(__dirname, "../../../install.sh");
 
 test("install.sh claude-aify generation has AIFY_CLAUDE_STRICT_MCP env-gate", () => {
   const src = fs.readFileSync(INSTALL_SH, "utf8");
@@ -26,4 +28,12 @@ test("install.sh does NOT unconditionally inject --strict-mcp-config", () => {
       `--strict-mcp-config at line ${i + 1} is not gated by AIFY_CLAUDE_STRICT_MCP env var`
     );
   }
+});
+
+test("install.sh claude-aify consumes managed model and effort env", () => {
+  const src = fs.readFileSync(INSTALL_SH, "utf8");
+  assert.ok(/AIFY_MANAGED_MODEL/.test(src), "expected claude-aify to read AIFY_MANAGED_MODEL");
+  assert.ok(/AIFY_MANAGED_EFFORT/.test(src), "expected claude-aify to read AIFY_MANAGED_EFFORT");
+  assert.ok(/--model/.test(src), "expected claude-aify to pass --model when managed model is set");
+  assert.ok(/--effort/.test(src), "expected claude-aify to pass --effort when managed effort is set");
 });

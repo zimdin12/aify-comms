@@ -164,6 +164,7 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
     def test_switch_resident_to_managed_success(self):
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-r1", runtime="codex", session_mode="resident")
+        self._seed_managed_terminal("codex-r1", runtime="codex")
         res = self.client.patch(
             "/api/v1/agents/codex-r1/session-mode",
             json={"mode": "managed"},
@@ -301,6 +302,7 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         """C1 audit log: dispatch_events row referencing agent id + transition type."""
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-audit", runtime="codex", session_mode="resident")
+        self._seed_managed_terminal("codex-audit", runtime="codex")
         res = self.client.patch(
             "/api/v1/agents/codex-audit/session-mode",
             json={"mode": "managed"},
@@ -389,18 +391,29 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         self.assertEqual(agent["launch_mode"], "detached")
         self.assertIn("resident-run", agent["capabilities"])
 
-    def test_switch_resident_to_managed_reports_side_effects_object(self):
-        """C2: the response includes a sideEffects object. When no agent_sessions
-        row exists, eager-spawn is a no-op but the field must still be present."""
+    def test_switch_resident_to_managed_without_backing_is_409(self):
+        """C2: resident -> managed must not silently create a managed identity
+        that has no dashboard-managed session/backing to receive work."""
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-noenv", runtime="codex", session_mode="resident")
         res = self.client.patch(
             "/api/v1/agents/codex-noenv/session-mode",
             json={"mode": "managed"},
         )
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("managed", (res.json().get("detail") or "").lower())
+
+    def test_switch_resident_to_managed_force_reports_missing_backing(self):
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-force-noenv", runtime="codex", session_mode="resident")
+        res = self.client.patch(
+            "/api/v1/agents/codex-force-noenv/session-mode",
+            json={"mode": "managed", "force": True},
+        )
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
-        self.assertIn("sideEffects", body)
+        self.assertEqual(body.get("mode"), "managed")
+        self.assertIn("error", body.get("sideEffects") or {})
 
 
 if __name__ == "__main__":

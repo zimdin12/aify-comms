@@ -1,6 +1,6 @@
 // Periodic re-read of the runtime adapter's current session id. When it
 // changes, POST the new value to the aify-comms server via the existing
-// PATCH /api/v2/agents/{agent_id}/session-handle endpoint. This is the
+// PATCH /api/v1/agents/{agent_id}/session-handle endpoint. This is the
 // canonical "report-back" path that lets the dashboard Console launch with
 // --resume even after a fresh runtime spawn.
 
@@ -49,12 +49,12 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
   };
 }
 
-// Default poster: PATCH /api/v2/agents/{id}/session-handle
+// Default poster: PATCH /api/v1/agents/{id}/session-handle
 export function makeDefaultHandlePoster(baseUrl, apiKey = "") {
   const root = String(baseUrl || "").replace(/\/+$/, "");
   const key = String(apiKey || "").trim();
   return async (agentId, sessionHandle) => {
-    const url = `${root}/api/v2/agents/${encodeURIComponent(agentId)}/session-handle`;
+    const url = `${root}/api/v1/agents/${encodeURIComponent(agentId)}/session-handle`;
     const headers = { "Content-Type": "application/json" };
     if (key) headers["X-API-Key"] = key;
     const res = await fetch(url, {

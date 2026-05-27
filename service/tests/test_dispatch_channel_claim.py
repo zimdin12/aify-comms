@@ -1,17 +1,13 @@
-"""Plan 5 (2026-05-25) — symmetric channel-claim for wrapper-backed managed
-codex/hermes/pi dispatches.
+"""Wrapper-backed managed channel-claim contract.
 
-Pins the server-side claim contract: when a bridge polls /dispatch/claim with
-executionModes=['channel'] for a managed codex/hermes/pi agent, the queued
-execution_mode='channel' run (set by api_v2.py:1047 for wrapper-backed runtimes)
-must be returned. Pre-Plan-5, _CHANNEL_MANAGED_RUNTIMES contained only
-'claude-code', so codex/hermes/pi bridges were rejected and runs sat queued
-forever (observed 2026-05-25 — graph-senior-dev: dispatch_runs row showed
-execution_mode='channel' status='queued' claim_bridge_id='' even with a live
-bridge polling).
+Codex/Hermes managed-wrapper dispatches are persisted as execution_mode='channel',
+but the environment bridge must not claim them. The claimant must be the
+*-aify wrapper PTY's child bridge, registered as bridge_kind='managed-wrapper-child',
+because only that child has the live app-server/gateway for the visible console.
 """
 
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,9 +29,7 @@ class _DummyWS:
 
 
 class ChannelClaimWrapperBackedTests(unittest.TestCase):
-    """Plan 5 Task B2 — _CHANNEL_MANAGED_RUNTIMES widened to include
-    codex/hermes/pi so their wrapper-backed managed dispatches can be claimed
-    by the main bridge (mirrors Plan 5 Task B1 on the bridge side)."""
+    """Wrapper-backed Codex/Hermes channel claims are reserved for child bridges."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -49,11 +43,11 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
         app.include_router(router, prefix="/api/v1")
         self.client = TestClient(app)
 
-        # Plan 4 defaults are on (managed_via_wrapper=[codex,hermes,pi]).
+        # Plan 4 defaults are on (managed_via_wrapper=[codex,hermes]).
         # Confirm via a no-op PUT so the test is explicit about expectation.
         self.client.put(
             "/api/v1/settings",
-            json={"managed_via_wrapper": ["codex", "hermes", "pi"]},
+            json={"managed_via_wrapper": ["codex", "hermes"]},
         )
 
     def tearDown(self):
@@ -106,6 +100,57 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            session_id = f"session-{agent_id}"
+            terminal_id = f"term-{agent_id}"
+            conn.execute(
+                """
+                INSERT INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode, owner_mode,
+                    terminal_id, terminal_status, status, started_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id,
+                    agent_id,
+                    "linux:test-host:default",
+                    runtime,
+                    "/workspace",
+                    "managed-warm",
+                    "managed",
+                    terminal_id,
+                    "running",
+                    "running",
+                    "2099-01-01T00:00:00Z",
+                    "2099-01-01T00:00:00Z",
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime,
+                    workspace, command, status, requested_by, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id,
+                    session_id,
+                    agent_id,
+                    "linux:test-host:default",
+                    "bridge-current",
+                    runtime,
+                    "/workspace",
+                    f"{runtime}-aify --aify-agent {agent_id}",
+                    "running",
+                    "dashboard",
+                    "2099-01-01T00:00:00Z",
+                    "2099-01-01T00:00:00Z",
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def _dispatch_to(self, agent_id: str) -> str:
         # Use /messages/send because it passes `settings` into
@@ -130,7 +175,25 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
         self.assertTrue(runs, f"expected a dispatch run for {agent_id}; got: {body}")
         return runs[0]["runId"]
 
-    def _assert_channel_claim_succeeds(self, *, agent_id: str, run_id: str, runtime: str) -> None:
+    def _register_wrapper_child_bridge(self, *, agent_id: str, runtime: str, bridge_id: str, terminal_id: str | None = None) -> None:
+        response = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": runtime,
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": bridge_id,
+                "capabilities": ["native-managed-run", "managed-run", "resume", "interrupt"],
+                "terminalId": terminal_id or f"term-{agent_id}",
+                "managedWrapperChild": True,
+                "autoRegister": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def _assert_environment_claim_blocked(self, *, agent_id: str, runtime: str) -> None:
         claim = self.client.post(
             "/api/v1/dispatch/claim",
             json={
@@ -142,9 +205,26 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
         )
         self.assertEqual(claim.status_code, 200, claim.text)
         body = claim.json()
+        self.assertIsNone(body.get("run"), f"environment bridge must not claim wrapper-backed {runtime}; got: {body}")
+        self.assertEqual((body.get("blockedBy") or {}).get("reason"), "managed_wrapper_child_required")
+
+    def _assert_wrapper_child_channel_claim_succeeds(self, *, agent_id: str, run_id: str, runtime: str) -> None:
+        bridge_id = f"{agent_id}-wrapper-child"
+        self._register_wrapper_child_bridge(agent_id=agent_id, runtime=runtime, bridge_id=bridge_id)
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": agent_id,
+                "bridgeId": bridge_id,
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        body = claim.json()
         self.assertIsNotNone(
             body.get("run"),
-            f"Plan 5: expected channel-claim to return queued run for {runtime}; got: {body}",
+            f"expected wrapper-child channel claim to return queued run for {runtime}; got: {body}",
         )
         self.assertEqual(body["run"]["id"], run_id)
         self.assertEqual(
@@ -153,11 +233,27 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
             f"claimed run for {runtime} should be channel-mode; got: {body['run']}",
         )
 
+    def _assert_wrapper_child_channel_claim_blocked(self, *, agent_id: str, runtime: str, bridge_id: str, reason: str) -> None:
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": agent_id,
+                "bridgeId": bridge_id,
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        body = claim.json()
+        self.assertIsNone(body.get("run"), f"stale wrapper-child must not claim {runtime}; got: {body}")
+        self.assertEqual((body.get("blockedBy") or {}).get("reason"), reason, body)
+
     def test_codex_managed_wrapper_backed_claims_channel(self):
         self._heartbeat_environment("codex")
         self._register_managed_agent(agent_id="codex-managed", runtime="codex")
         run_id = self._dispatch_to("codex-managed")
-        self._assert_channel_claim_succeeds(
+        self._assert_environment_claim_blocked(agent_id="codex-managed", runtime="codex")
+        self._assert_wrapper_child_channel_claim_succeeds(
             agent_id="codex-managed", run_id=run_id, runtime="codex"
         )
 
@@ -165,18 +261,103 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
         self._heartbeat_environment("hermes")
         self._register_managed_agent(agent_id="hermes-managed", runtime="hermes")
         run_id = self._dispatch_to("hermes-managed")
-        self._assert_channel_claim_succeeds(
+        self._assert_environment_claim_blocked(agent_id="hermes-managed", runtime="hermes")
+        self._assert_wrapper_child_channel_claim_succeeds(
             agent_id="hermes-managed", run_id=run_id, runtime="hermes"
         )
 
-    def test_pi_managed_wrapper_backed_claims_channel(self):
-        self._heartbeat_environment("pi")
-        self._register_managed_agent(agent_id="pi-managed", runtime="pi")
-        run_id = self._dispatch_to("pi-managed")
-        self._assert_channel_claim_succeeds(
-            agent_id="pi-managed", run_id=run_id, runtime="pi"
+    def test_hermes_wrapper_child_cannot_claim_while_console_is_still_resuming(self):
+        self._heartbeat_environment("hermes")
+        self._register_managed_agent(agent_id="hermes-resuming", runtime="hermes")
+        self._dispatch_to("hermes-resuming")
+        self._register_wrapper_child_bridge(
+            agent_id="hermes-resuming",
+            runtime="hermes",
+            bridge_id="hermes-resuming-wrapper-child",
+        )
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                """
+                UPDATE terminal_sessions
+                SET output = ?
+                WHERE id = ?
+                """,
+                ("Hermes Agent\nresuming... | gpt-5.5 | voice off", "term-hermes-resuming"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        self._assert_wrapper_child_channel_claim_blocked(
+            agent_id="hermes-resuming",
+            runtime="hermes",
+            bridge_id="hermes-resuming-wrapper-child",
+            reason="managed_wrapper_terminal_not_ready",
         )
 
+    def test_wrapper_backed_send_without_managed_session_does_not_queue_orphan_run(self):
+        self._heartbeat_environment("codex")
+        response = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "codex-no-backing",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["native-managed-run", "managed-run", "resume", "interrupt"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "codex-no-backing",
+                "type": "request",
+                "subject": "no backing",
+                "body": "this should fail before queueing",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        body = sent.json()
+        self.assertFalse(body.get("ok"), body)
+        self.assertEqual(body.get("dispatchRuns") or [], [])
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
+                ("codex-no-backing",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 0)
+
+    def test_old_wrapper_child_for_different_terminal_cannot_claim_channel_run(self):
+        self._heartbeat_environment("hermes")
+        self._register_managed_agent(agent_id="hermes-multi-wrapper", runtime="hermes")
+        run_id = self._dispatch_to("hermes-multi-wrapper")
+        self._register_wrapper_child_bridge(
+            agent_id="hermes-multi-wrapper",
+            runtime="hermes",
+            bridge_id="old-wrapper-child",
+            terminal_id="term-old-hidden",
+        )
+        self._assert_wrapper_child_channel_claim_blocked(
+            agent_id="hermes-multi-wrapper",
+            runtime="hermes",
+            bridge_id="old-wrapper-child",
+            reason="managed_wrapper_terminal_mismatch",
+        )
+        self._assert_wrapper_child_channel_claim_succeeds(
+            agent_id="hermes-multi-wrapper",
+            run_id=run_id,
+            runtime="hermes",
+        )
 
 if __name__ == "__main__":
     unittest.main()

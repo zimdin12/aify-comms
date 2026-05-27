@@ -2,10 +2,9 @@
 // as part of Plan 3 Task 8. Owns the pi runtime's persistent-session
 // dispatch surface (acquirePiSession + runTurn).
 //
-// Per Plan 2 pi flip (2026-05-25, commit ec2134e+), only managed mode is
-// supported here. Resident pi was removed in favor of managed-via-wrapper
-// because `omp --mode rpc` is single-client stdio. PiAdapter.controllerFor
-// returns null for resident; launchRuntimeRun rejects with a clear error.
+// Only managed mode is supported here. Resident pi was removed because
+// `omp --mode rpc` is single-client stdio. PiAdapter.controllerFor returns
+// null for resident; launchRuntimeRun rejects with a clear error.
 //
 // File budget per 500-line rule: <=400 lines. This file is a 1:1 translation
 // of the factory function; only the form (closure -> instance properties)

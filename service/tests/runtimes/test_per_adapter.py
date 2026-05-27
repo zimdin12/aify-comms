@@ -126,19 +126,56 @@ def test_hermes_adapter_discover_session_id_returns_str_or_none(monkeypatch):
         assert isinstance(result, str) and len(result) > 0
 
 
+def test_hermes_adapter_discover_prefers_active_session_file(monkeypatch, tmp_path):
+    import asyncio
+    from service.runtimes.hermes import HermesAdapter
+
+    active = tmp_path / "active-session.json"
+    active.write_text('{"session_id":"visible-session"}', encoding="utf-8")
+    monkeypatch.setenv("AIFY_HERMES_ACTIVE_SESSION_FILE", str(active))
+    monkeypatch.setenv("HERMES_SESSION_ID", "stale-env-session")
+    monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
+
+    assert asyncio.run(HermesAdapter().discover_session_id()) == "visible-session"
+
+
+def test_hermes_adapter_discover_uses_env_before_gateway(monkeypatch):
+    import asyncio
+    from service.runtimes.hermes import HermesAdapter
+
+    monkeypatch.delenv("AIFY_HERMES_ACTIVE_SESSION_FILE", raising=False)
+    monkeypatch.setenv("HERMES_SESSION_ID", "env-session")
+    monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
+
+    assert asyncio.run(HermesAdapter().discover_session_id()) == "env-session"
+
+
+def test_hermes_adapter_discover_returns_none_when_only_gateway_is_present(monkeypatch):
+    import asyncio
+    from service.runtimes.hermes import HermesAdapter
+
+    monkeypatch.delenv("AIFY_HERMES_ACTIVE_SESSION_FILE", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+    monkeypatch.delenv("HERMES_SESSION", raising=False)
+    monkeypatch.setenv("AIFY_HERMES_GATEWAY_URL", "ws://127.0.0.1:9999/api/ws?token=x")
+
+    assert asyncio.run(HermesAdapter().discover_session_id()) is None
+
+
 def test_pi_adapter():
     from service.runtimes.pi import PiAdapter
     a = PiAdapter()
     assert a.name == "pi"
     assert a.display_name == "Pi"
     assert a.session_env_vars == ["PI_SESSION_ID", "OMP_SESSION_ID", "AIFY_PI_SESSION_ID"]
-    # Plan 2 capability matrix — the critical pi flip declaration:
+    # Pi is single-client RPC. Keep managed delivery native so chat and
+    # Console share the same synthesized terminal stream.
     assert a.supports_resident is False, "pi is single-client RPC; resident impossible"
     assert a.supports_managed is True
     assert a.supports_steering is True
     assert a.supports_interrupt is True
     assert a.supports_multi_client is False
-    assert a.preferred_delivery_mode == "managed-via-wrapper"
+    assert a.preferred_delivery_mode == "managed"
 
 
 def test_pi_adapter_session_var_fallback_order(monkeypatch):

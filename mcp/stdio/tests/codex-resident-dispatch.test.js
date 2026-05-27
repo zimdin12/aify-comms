@@ -129,6 +129,7 @@ test("resident codex dispatch echoes the prompt body into the synth-terminal sin
   assert.ok(!result.failed, `expected resident dispatch to succeed: ${result.error || ""}`);
 
   const allText = frames.map((f) => f.text).join("");
+  assert.match(allText, /aify-comms message received/, "synth-terminal should show a codex-native aify-comms receipt marker");
   assert.match(allText, /Wake event payload/, "synth-terminal should echo the dispatch body");
   assert.match(allText, /turn started|turn ended/, "synth-terminal should reflect codex turn lifecycle");
 });

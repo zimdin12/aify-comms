@@ -9,10 +9,11 @@ Install Oh My Pi first so the `omp` command is available in the same shell/user 
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client pi http://192.168.100.10:8800
+# Pi/OMP wrapper install is intentionally disabled. Managed Pi uses the
+# environment bridge plus persistent `omp --mode rpc`, not `omp-aify`.
 ```
 
-Restart Oh My Pi after install.
+There is no resident Pi wrapper install step for normal use. Restart any long-running `aify-comms` bridge after updating the repo so managed Pi loads the current controller code.
 
 For dashboard-managed spawns, also connect an environment bridge on the machine that should run Pi:
 
@@ -21,11 +22,13 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The installer configures OMP's user MCP file at `~/.omp/agent/mcp.json`, installs the `aify-comms` bridge launcher, and installs resident wrappers: `omp-aify` and its `pi-aify` alias.
+On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The OMP resident wrapper install is disabled by default; managed Pi delivery does not need an MCP config inside OMP because the environment bridge drives plain `omp --mode rpc` directly.
 
 ## Pi Wrapper Sessions
 
-Use `omp-aify` when you want a human-open Pi terminal that still has aify-comms tools and presence metadata. `pi-aify` is kept as an alias:
+`omp-aify` / `pi-aify` are intentionally not installed by the normal installer. They were presence-only wrappers and did not provide the main console-wake contract because OMP's RPC channel is single-client.
+
+Historical/manual wrapper usage looked like this, but should not be used for triggerable delivery:
 
 ```bash
 cd /path/to/project
@@ -38,7 +41,7 @@ If you are resuming a known Pi session, pass the resume handle so aify-comms can
 omp-aify --aify-agent my-pi --resume <session-id-or-prefix>
 ```
 
-OMP's RPC channel is single-client, so aify-comms does not inject dashboard messages into an already-open Pi TUI. Triggerable Pi delivery is managed RPC (`omp --mode rpc`) through the environment bridge. If no Pi session handle is available, the wrapper can still use MCP tools and register for presence, but dashboard sends should target a managed Pi identity.
+OMP's RPC channel is single-client, so aify-comms does not inject dashboard messages into an already-open Pi TUI. Triggerable Pi delivery is managed RPC (`omp --mode rpc`) through the environment bridge.
 
 ## Managed Pi
 

@@ -6,8 +6,11 @@
 import assert from "assert";
 import test from "node:test";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const SRC = fs.readFileSync("install.sh", "utf8");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SRC = fs.readFileSync(path.resolve(__dirname, "../../../install.sh"), "utf8");
 
 test("install.sh has the env-gate for AIFY_CLAUDE_STRICT_MCP", () => {
   assert.ok(

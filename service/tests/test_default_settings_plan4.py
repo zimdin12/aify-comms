@@ -10,9 +10,9 @@ sys.path.insert(0, str(ROOT.parent))
 from service.routers.api_v2 import DEFAULT_SETTINGS
 
 
-def test_managed_via_wrapper_defaults_to_codex_hermes_pi():
-    assert DEFAULT_SETTINGS["managed_via_wrapper"] == ["codex", "hermes", "pi"], (
-        f"Plan 4 default flip: expected [codex,hermes,pi], got {DEFAULT_SETTINGS['managed_via_wrapper']}"
+def test_managed_via_wrapper_defaults_to_codex_hermes_only():
+    assert DEFAULT_SETTINGS["managed_via_wrapper"] == ["codex", "hermes"], (
+        f"Plan 4 default flip: expected [codex,hermes], got {DEFAULT_SETTINGS['managed_via_wrapper']}"
     )
 
 

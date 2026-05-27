@@ -49,21 +49,44 @@ class HermesAdapter(RuntimeAdapter):
         return env
 
     async def discover_session_id(self) -> str | None:
-        """Plan 4 (2026-05-25): hermes session discovery — try the gateway's
-        session.most_recent JSON-RPC method first (when AIFY_HERMES_GATEWAY_URL
-        is set + ws:/wss:), then fall back to a filesystem scan of
-        ~/.hermes/sessions/ for the newest file by mtime.
+        """Mirror the JS Hermes adapter ordering.
+
+        Prefer the active-session file written by the visible TUI, then the
+        durable env handle. If a gateway is present but neither exists, return
+        None rather than querying historical gateway state and binding to a
+        hidden/non-visible session.
         """
+        active = self._read_active_session_file()
+        if active:
+            return active
+        env_session = self.get_current_session_id()
+        if env_session:
+            return env_session
         gw = os.environ.get("AIFY_HERMES_GATEWAY_URL", "").strip()
         if gw and re.match(r"^wss?://", gw, re.IGNORECASE):
-            try:
-                id_ = await self._query_gateway_most_recent(gw)
-                if id_:
-                    return id_
-            except Exception:
-                # Best-effort — fall through to fs scan
-                pass
+            return None
         return self._scan_hermes_sessions_dir()
+
+    def _read_active_session_file(self) -> str | None:
+        file = os.environ.get("AIFY_HERMES_ACTIVE_SESSION_FILE", "").strip()
+        if not file:
+            return None
+        try:
+            raw = Path(file).read_text(encoding="utf-8", errors="replace").strip()
+        except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
+            return None
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                for key in ("session_id", "sessionId", "id"):
+                    val = parsed.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return val.strip()
+        except json.JSONDecodeError:
+            pass
+        return raw
 
     async def _query_gateway_most_recent(self, gateway_url: str) -> str | None:
         """Best-effort WebSocket query against hermes tui_gateway. If the

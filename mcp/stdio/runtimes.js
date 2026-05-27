@@ -1462,47 +1462,28 @@ export function runtimeLaunchAvailability(runtime) {
     };
   }
   if (normalized === "codex") {
-    const launcher = defaultCodexCommand();
-    const available = hasExecutable(launcher.command);
+    const expected = String(process.env.AIFY_CODEX_AIFY_COMMAND || "").trim() || "codex-aify";
+    const resolved = resolveExecutable(expected);
+    const available = Boolean(resolved);
     return {
       available,
       message: available
-        ? `Codex launcher available (${launcher.command})`
-        : `Runtime "codex" is not launchable from this bridge because "${launcher.command}" is not available. ` +
-          `Diagnostic: ${diagnosticsFor(launcher.command)}`,
+        ? `Codex aify wrapper available (resolved to ${resolved})`
+        : `Runtime "codex" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+          `Install/update with install.sh --client codex, ensure raw Codex is installed for this OS/user, or set AIFY_CODEX_AIFY_COMMAND to an absolute codex-aify-compatible wrapper path and restart the bridge. ` +
+          `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
   if (normalized === "hermes") {
-    // Use the same resolution path as defaultHermesCommand so the
-    // availability advertised on /api/v1/environments matches what the
-    // controller will actually find at spawn time. defaultHermesCommand
-    // probes known Windows install locations (User AppData) when PATH
-    // lookup fails — that's the operator-friendly fallback for shells
-    // started before the Hermes installer populated User PATH. Without
-    // this, the bridge advertised hermes as unavailable even though the
-    // controller would have been able to spawn it.
-    const launcher = defaultHermesCommand();
-    const configured = String(process.env.AIFY_HERMES_COMMAND || process.env.HERMES_COMMAND || "").trim();
-    const cmd = launcher?.command || "";
-    let available = false;
-    if (cmd) {
-      try {
-        if (/[\\/]/.test(cmd) && fs.existsSync(cmd) && fs.statSync(cmd).isFile()) {
-          available = true;
-        } else if (hasExecutable(cmd)) {
-          available = true;
-        }
-      } catch {
-        available = false;
-      }
-    }
-    const expected = configured || cmd || "hermes";
+    const expected = String(process.env.AIFY_HERMES_AIFY_COMMAND || "").trim() || "hermes-aify";
+    const resolved = resolveExecutable(expected);
+    const available = Boolean(resolved);
     return {
       available,
       message: available
-        ? `Hermes launcher available (resolved to ${cmd})`
-        : `Runtime "hermes" is not launchable from this bridge because "${expected}" could not be resolved to a real executable. ` +
-          `Install Hermes Agent for this OS/user, or set AIFY_HERMES_COMMAND to an absolute path and restart the bridge. ` +
+        ? `Hermes aify wrapper available (resolved to ${resolved})`
+        : `Runtime "hermes" is not launchable from this bridge because the required wrapper "${expected}" is not available. ` +
+          `Install/update with install.sh --client hermes, ensure Hermes Agent is installed for this OS/user, or set AIFY_HERMES_AIFY_COMMAND to an absolute hermes-aify-compatible wrapper path and restart the bridge. ` +
           `Diagnostic: ${diagnosticsFor(expected)}`,
     };
   }
@@ -1845,7 +1826,9 @@ function normalizePathForCompare(value) {
 }
 
 function pickNewestCodexThreadId(listResult, cwd) {
-  const threads = Array.isArray(listResult?.threads) ? listResult.threads : [];
+  const threads = Array.isArray(listResult?.threads)
+    ? listResult.threads
+    : (Array.isArray(listResult?.data) ? listResult.data : []);
   if (!threads.length) return "";
 
   // Normalize both sides: Codex stores Windows thread cwds with backslashes,

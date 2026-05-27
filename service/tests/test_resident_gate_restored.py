@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.routers.api_v2 import _default_capabilities_for
+import json
+
+from service.routers.api_v2 import _agent_execution_mode, _agent_wake_mode, _default_capabilities_for, _row_capabilities
 
 
 def test_claude_resident_without_channel_enabled_does_not_advertise_resident_run():
@@ -47,3 +49,71 @@ def test_codex_resident_always_advertises_resident_run():
 def test_pi_resident_never_advertises_resident_run():
     caps = _default_capabilities_for("pi", "resident", "session-q", {})
     assert "resident-run" not in caps
+
+
+def test_pi_resident_row_backfill_does_not_restore_resident_run():
+    row = {
+        "id": "pi-presence",
+        "runtime": "pi",
+        "session_mode": "resident",
+        "session_handle": "session-q",
+        "runtime_config": "{}",
+        "capabilities": json.dumps(["resume", "interrupt", "steer"]),
+    }
+    caps = _row_capabilities(row)
+    assert "resident-run" not in caps
+
+
+def test_opencode_resident_row_backfill_does_not_restore_resident_run():
+    row = {
+        "id": "opencode-presence",
+        "runtime": "opencode",
+        "session_mode": "resident",
+        "session_handle": "session-q",
+        "runtime_config": "{}",
+        "capabilities": json.dumps(["resident-run", "resume", "interrupt", "steer"]),
+    }
+    caps = _row_capabilities(row)
+    assert "resident-run" not in caps
+
+
+def test_pi_and_opencode_resident_wake_mode_is_presence_only_even_with_stale_caps():
+    for runtime in ("pi", "opencode"):
+        row = {
+            "id": f"{runtime}-presence",
+            "runtime": runtime,
+            "session_mode": "resident",
+            "session_handle": "session-q",
+            "launch_mode": "detached",
+            "runtime_config": "{}",
+            "capabilities": json.dumps(["resident-run", "resume", "interrupt", "steer"]),
+        }
+        assert _agent_wake_mode(row) == "presence-only"
+
+
+def test_pi_resident_execution_rejected_even_with_stale_capability():
+    mode, reason = _agent_execution_mode({
+        "id": "old-pi-presence",
+        "runtime": "pi",
+        "session_mode": "resident",
+        "session_handle": "session-q",
+        "launch_mode": "detached",
+        "runtime_config": "{}",
+        "capabilities": json.dumps(["resident-run", "resume", "interrupt", "steer"]),
+    })
+    assert mode is None
+    assert "not a triggerable resident target" in reason
+
+
+def test_opencode_resident_execution_rejected_even_with_stale_capability():
+    mode, reason = _agent_execution_mode({
+        "id": "old-opencode-presence",
+        "runtime": "opencode",
+        "session_mode": "resident",
+        "session_handle": "session-q",
+        "launch_mode": "detached",
+        "runtime_config": "{}",
+        "capabilities": json.dumps(["resident-run", "resume", "interrupt"]),
+    })
+    assert mode is None
+    assert "not a triggerable resident target" in reason

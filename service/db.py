@@ -191,6 +191,8 @@ CREATE TABLE IF NOT EXISTS bridge_instances (
     runtime TEXT DEFAULT 'generic',
     session_mode TEXT DEFAULT 'resident',
     session_handle TEXT DEFAULT '',
+    terminal_id TEXT DEFAULT '',
+    bridge_kind TEXT DEFAULT '',
     registered_at TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     superseded_by TEXT DEFAULT '',
@@ -447,10 +449,9 @@ TERMINAL_SESSION_MIGRATIONS = {
     "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
 }
 
-# Plan 4 task 12 (2026-05-25): `ready` distinguishes a worker process that
-# is alive (`online`) from one that has completed its initial handshake and
-# can accept dispatches (`ready`). The bridge PATCHes
-# /agents/{id}/ready after the adapter controller's start() resolves.
+# Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed
+# its initial handshake and can accept dispatches. It is an internal readiness
+# bit; public idle-live status is `online`, not `ready`.
 AGENT_TURN_STATE_MIGRATIONS = {
     "ready": "ALTER TABLE agent_turn_state ADD COLUMN ready INTEGER NOT NULL DEFAULT 0",
 }
@@ -506,6 +507,8 @@ async def _migrate_agent_sessions_table(db: aiosqlite.Connection):
 
 BRIDGE_INSTANCE_MIGRATIONS = {
     "session_handle": "ALTER TABLE bridge_instances ADD COLUMN session_handle TEXT DEFAULT ''",
+    "terminal_id": "ALTER TABLE bridge_instances ADD COLUMN terminal_id TEXT DEFAULT ''",
+    "bridge_kind": "ALTER TABLE bridge_instances ADD COLUMN bridge_kind TEXT DEFAULT ''",
 }
 
 
@@ -536,7 +539,7 @@ async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
 # Runtimes the bridge can drive through a native managed integration.
 # Kept in sync with mcp/stdio/runtimes.js defaultCapabilitiesForRuntime and
 # service/routers/api_v2.py _NATIVE_MANAGED_RUNTIMES.
-_NATIVE_MANAGED_RUNTIMES = ("codex", "pi", "opencode")
+_NATIVE_MANAGED_RUNTIMES = ("codex", "pi", "opencode", "hermes")
 
 
 async def _backfill_native_managed_capability(db: aiosqlite.Connection):
@@ -549,9 +552,10 @@ async def _backfill_native_managed_capability(db: aiosqlite.Connection):
     refuses to claim their `managed` dispatch runs and they queue forever.
 
     Backfill `native-managed-run` (right after `managed-run`) for any managed
-    codex/pi/opencode agent missing it. Idempotent, runtime-scoped, matches
-    defaultCapabilitiesForRuntime intent. claude-code/hermes are untouched
-    (no native managed adapter). Belt-and-braces with the bridge self-heal.
+    codex/pi/opencode/hermes agent missing it. Idempotent, runtime-scoped,
+    matches defaultCapabilitiesForRuntime intent. claude-code is untouched
+    because managed Claude is channel/wrapper-backed only. Belt-and-braces
+    with the bridge self-heal.
     """
     cursor = await db.execute(
         "SELECT id, runtime, capabilities FROM agents WHERE session_mode = 'managed'"

@@ -92,6 +92,7 @@ test("iframe widget chosen for hermes resident with gatewayUrl and no terminal c
   const r = chooseSessionConsoleWidget({
     agent: makeAgent({}),
     sessionId: "sess-new",
+    sessionMode: "resident",
     runtime: "hermes",
     runtimeConfig: { gatewayUrl: "ws://127.0.0.1:9119/api/ws?token=t" },
     cache,
@@ -109,6 +110,7 @@ test("codex-synth widget chosen for resident codex with appServerUrl and no term
   const r = chooseSessionConsoleWidget({
     agent: makeAgent({}),
     sessionId: "sess-codex",
+    sessionMode: "resident",
     runtime: "codex",
     runtimeConfig: { appServerUrl: "ws://127.0.0.1:33839" },
     cache,
@@ -151,6 +153,7 @@ test("widget cache is per-session — switching session does NOT cross-contamina
   const r1 = chooseSessionConsoleWidget({
     agent: makeAgent({}),
     sessionId: "sess1",
+    sessionMode: "managed",
     runtime: "hermes",
     runtimeConfig: {},
     cache,
@@ -251,26 +254,23 @@ test("chooseSessionConsoleWidget keeps synth when only synth exists (no wrapper)
   );
 });
 
-test("Plan 4: 'ready' status has a color class in the dashboard", () => {
+test("ready remains an internal signal and renders as online in the dashboard", () => {
   const styles = fs.readFileSync(
     path.join(__dirname, "styles.css"),
     "utf8"
   );
-  // CSS dot variant for `ready` must exist (drives the green dot in chips).
   assert.ok(
-    /\.status-dot\.ready\b/.test(styles),
-    "styles.css must define .status-dot.ready (Plan 4 dot color)"
+    !/\.status-dot\.ready\b/.test(styles),
+    "styles.css must not expose a separate ready dot; ready is internal"
   );
-  // Text-color helper class must exist (drives bare `ready` labels).
   assert.ok(
     /\.status-ready\b/.test(styles),
-    "styles.css must define .status-ready (Plan 4 text color)"
+    "styles.css keeps .status-ready as an old-cache text alias"
   );
-  // app.js STATUS_KINDS must recognize `ready` so renderStatusChip routes it.
   const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   assert.ok(
-    /ready:\s*\{[^}]*dotKind:\s*'ready'/.test(source),
-    "app.js STATUS_KINDS must map ready → dotKind:'ready' (Plan 4)"
+    /ready:\s*\{[^}]*label:\s*'online'[^}]*dotKind:\s*'online'/.test(source),
+    "app.js STATUS_KINDS must render old ready values as online"
   );
 });
 
@@ -316,4 +316,69 @@ test("resident session with cached/stopping terminal does not render managed xte
   });
   assert.equal(r.kind, "hermes-iframe");
   assert.equal(r.terminalId, "");
+});
+
+test("managed Hermes with stale resident gateway does not render resident iframe", () => {
+  const cache = new Map();
+  const r = chooseSessionConsoleWidget({
+    agent: {
+      runtime: "hermes",
+      sessionMode: "managed",
+      runtimeState: {},
+    },
+    sessionId: "sess-managed-hermes",
+    sessionMode: "managed",
+    terminalStatus: "",
+    runtime: "hermes",
+    runtimeConfig: { gatewayUrl: "ws://127.0.0.1:9119/api/ws?token=t" },
+    cache,
+    hermesGatewayHttp: "http://127.0.0.1:9119/?token=t",
+    codexAppServerUrl: "",
+    codexThreadId: "",
+    codexAttachable: false,
+  });
+  assert.equal(r.kind, "none");
+});
+
+test("managed Codex with stale resident app-server does not render resident synth console", () => {
+  const cache = new Map();
+  const r = chooseSessionConsoleWidget({
+    agent: {
+      runtime: "codex",
+      sessionMode: "managed",
+      runtimeState: {},
+    },
+    sessionId: "sess-managed-codex",
+    sessionMode: "managed",
+    terminalStatus: "",
+    runtime: "codex",
+    runtimeConfig: { appServerUrl: "ws://127.0.0.1:33839" },
+    cache,
+    hermesGatewayHttp: "",
+    codexAppServerUrl: "ws://127.0.0.1:33839",
+    codexThreadId: "thr-abc",
+    codexAttachable: true,
+  });
+  assert.equal(r.kind, "none");
+});
+
+test("dashboard click handling processes mode switch before session row selection", () => {
+  const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const modeSwitchIndex = source.indexOf("const modeSwitchButton = event.target.closest('[data-mode-switch]')");
+  const sessionSelectIndex = source.indexOf("const sessionSelect = event.target.closest('[data-session-select]')");
+  assert.ok(modeSwitchIndex >= 0, "mode switch click handler must exist");
+  assert.ok(sessionSelectIndex >= 0, "session selection click handler must exist");
+  assert.ok(
+    modeSwitchIndex < sessionSelectIndex,
+    "mode switch must be handled before session row selection so nested rail chips are clickable",
+  );
+});
+
+test("xterm remount guard checks container identity, not just terminal id", () => {
+  const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  assert.match(
+    source,
+    /state\.activeXterm\.container === container[\s\S]*container\.isConnected !== false/,
+    "mountXtermForTerminal must remount when render recreated the host container",
+  );
 });

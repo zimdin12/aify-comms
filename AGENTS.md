@@ -48,7 +48,7 @@ Backend changes under `service/`, `mcp/`, and `config/` require a container rebu
 - Do not create a second message concept. Dispatch/run state attaches to messages.
 - Environment bridges are first-class. A service container cannot directly spawn native Windows processes unless a Windows bridge is connected and claims that spawn.
 - Spawning must be auditable: every spawned agent needs an environment ID, workspace, runtime, command/profile, process/session handle, lifecycle status, and owner.
-- Managed warm is the default teammate mode. Run-once is advanced/internal; resident-visible is for human-open CLI sessions like `codex-aify` / `claude-aify`.
+- Managed warm is the default teammate mode. Run-once is advanced/internal; resident-visible is for human-open CLI sessions like `codex-aify`, `claude-aify`, and `hermes-aify`. Pi/OpenCode resident registrations are presence/debug metadata only until a real multi-client resident surface exists; triggerable Pi/OpenCode delivery is managed.
 - Persistent/backed does not imply CLI-attachable. Use capability flags.
 - Prefer adapters over hardcoded CLI assumptions. `claude -p`, `codex exec`, and `opencode run` flags can change; encapsulate them behind runtime adapter modules and tests.
 - Dashboard should be usable without reading docs: visible env selector, spawn form, agent list, chat, channels, worker/session controls, and clear run/session evidence.

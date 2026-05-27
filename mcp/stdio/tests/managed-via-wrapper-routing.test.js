@@ -35,13 +35,7 @@ test("wrapper-backed hermes: main bridge must NOT claim managed", () => {
     `wrapper-backed hermes: main bridge must not advertise managed; got ${JSON.stringify(modes)}`);
 });
 
-// Plan 5 (2026-05-25): main bridge now claims 'channel' for wrapper-backed
-// managed codex/hermes/pi (symmetric with the server-side route at
-// api_v2.py:1047 that sets execution_mode='channel'). Pre-Plan-5 this
-// asserted []; updated to assert ['channel']. The legacy 'managed' is
-// still excluded — the wrapper child bridge owns native-managed dispatch
-// when it polls for its own AIFY_AGENT_ID.
-test("wrapper-backed codex: main bridge claims 'channel' (Plan 5 symmetric route)", () => {
+test("wrapper-backed codex: main bridge leaves claims to the wrapper child", () => {
   const info = {
     sessionMode: "managed",
     runtime: "codex",
@@ -51,7 +45,7 @@ test("wrapper-backed codex: main bridge claims 'channel' (Plan 5 symmetric route
   const modes = supportedExecutionModes(info, {
     managedViaWrapperRuntimes: new Set(["codex"]),
   });
-  assert.deepEqual(modes, ["channel"], `wrapper-backed codex (Plan 5): main bridge claims channel; got ${JSON.stringify(modes)}`);
+  assert.deepEqual(modes, [], `wrapper-backed codex: main bridge must not claim; got ${JSON.stringify(modes)}`);
   assert.ok(!modes.includes("managed"),
     `wrapper-backed codex: main bridge must not advertise managed; got ${JSON.stringify(modes)}`);
 });

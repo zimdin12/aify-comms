@@ -19,7 +19,8 @@ export function supportedExecutionModes(info = {}, options = {}) {
   // must NOT claim managed dispatches — the wrapper's child bridge claims
   // instead. Without this gate, both bridges race to claim the same run.
   const managedViaWrapperRuntimes = (options && options.managedViaWrapperRuntimes) || null;
-  const isWrapperBacked = managedViaWrapperRuntimes && (
+  const wrapperEligible = runtime === "codex" || runtime === "hermes";
+  const isWrapperBacked = wrapperEligible && managedViaWrapperRuntimes && (
     typeof managedViaWrapperRuntimes.has === "function"
       ? managedViaWrapperRuntimes.has(runtime)
       : Array.isArray(managedViaWrapperRuntimes) && managedViaWrapperRuntimes.includes(runtime)
@@ -32,29 +33,15 @@ export function supportedExecutionModes(info = {}, options = {}) {
   ) {
     modes.push("managed");
   }
-  // Plan 5 (2026-05-25) symmetric channel-claim: when the agent is recorded
-  // as sessionMode='managed' AND the runtime is wrapper-backed
-  // (managed_via_wrapper includes it), the main bridge claims execution
-  // mode 'channel'. This mirrors the server-side route at api_v2.py:1047
-  // which sets execution_mode='channel' for wrapper-backed managed
-  // dispatches. Without this branch, the main bridge requests []
-  // (the legacy 'managed' push above is gated off by !isWrapperBacked),
-  // the wrapper child only polls for its own AIFY_AGENT_ID, and runs
-  // targeting any other managed wrapper-backed agent sit queued forever
-  // (observed 2026-05-25 — graph-senior-dev codex managed, pi managed,
-  // hermes managed). Scope is restricted to {codex,hermes,pi} to match
-  // _CHANNEL_MANAGED_RUNTIMES on the service side; opencode is excluded
-  // (operator policy + opencode adapter declares preferred_delivery_mode
-  // != "managed-via-wrapper").
-  if (
-    sessionMode === "managed" &&
-    isWrapperBacked &&
-    (runtime === "codex" || runtime === "hermes" || runtime === "pi")
-  ) {
-    modes.push("channel");
-  }
+  // Wrapper-backed managed Codex/Hermes runs are persisted as
+  // execution_mode='channel' by the service, but the environment bridge must
+  // not claim them. The wrapper PTY's child bridge runs with
+  // AIFY_MANAGED_VIA_WRAPPER=1 and server.js adds channel/resident claim modes
+  // for that child only. Letting the environment bridge advertise 'channel'
+  // races the child bridge and can drive stale runtimeConfig instead of the
+  // visible wrapper session.
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex" || runtime === "hermes" || runtime === "opencode" || runtime === "pi") {
+    if (runtime === "codex" || runtime === "hermes") {
       modes.push("resident");
     }
   }

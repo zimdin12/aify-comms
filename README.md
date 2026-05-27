@@ -43,9 +43,9 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 ## Managed And Resident Modes
 
-Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. Runtime adapters choose a dashboard-symmetric managed delivery path: Claude Code, Codex, OpenCode, Pi, and Hermes start or reuse a bridge-owned terminal backing when available, and Browser Console attaches to that backing without switching identity modes. If terminal backing cannot be established for a native-adapter runtime, the native managed adapter remains the fallback path. The dashboard can restart, stop, compact, or recreate agents without keeping a separate CLI tab open.
+Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. Runtime adapters choose a dashboard-symmetric managed delivery path: Claude Code, Codex, and Hermes use bridge-owned wrapper PTYs where configured, while Pi and OpenCode use native controller delivery with synthesized Console streams. Browser Console attaches to the backing owner without switching identity modes. If wrapper backing cannot be established for a wrapper-capable runtime, the native managed adapter remains the fallback path. The dashboard can restart, stop, compact, or recreate agents without keeping a separate CLI tab open.
 
-Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `hermes-aify --aify-agent <id>` so the wrapper registers that terminal as the live resident candidate and keeps a fresh bridge heartbeat. Raw `POST /api/v1/agents` metadata registration is not a live resident bridge and will be reported as `stale`; use the wrapper's `comms_register` MCP tool or wrapper auto-registration from the visible session. `omp-aify` / `pi-aify` can register presence and standalone operator sessions, but triggerable Pi delivery is managed RPC because OMP is single-client. Ownership does not switch automatically. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery; use **Switch to managed** when dashboard sends should return to the managed backing.
+Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `hermes-aify --aify-agent <id>` so the wrapper registers that terminal as the live resident candidate and keeps a fresh bridge heartbeat. Raw `POST /api/v1/agents` metadata registration is not a live resident bridge and will be reported as `stale`; use the wrapper's `comms_register` MCP tool or wrapper auto-registration from the visible session. legacy `omp-aify` / `pi-aify` wrappers are not installed by default; triggerable Pi delivery is managed RPC because OMP is single-client. Ownership does not switch automatically. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery; use **Switch to managed** when dashboard sends should return to the managed backing.
 
 Fresh native handles should come from a new spawn or explicit **Recreate**. Ordinary Restart/Recover/Adopt should preserve the stored handle and fail visibly if the handle is locked or cannot be resumed.
 
@@ -59,7 +59,7 @@ Reliable compaction in `aify-comms` means creating a fresh managed backing from 
 
 Three settings shape the managed-delivery surface. `insert_messages_via_console=false` is the default channel-route mode for managed Claude (`claude-channel.js` claims the dispatch and emits `<channel source="aify-comms-channel" ...>` MCP notifications — same protocol resident Claude already uses). `managed_pty_eager_spawn=true` (paired with `managed_terminal_backing_enabled=true`) proactively launches wrapper PTYs at spawn-request running transition when the runtime uses a terminal backing. **`managed_via_wrapper=["codex","hermes"]` is the default wrapper-backed path for Codex and Hermes**: managed dispatches route through bridge-owned `codex-aify` / `hermes-aify` PTYs, the wrapper's in-process MCP bridge claims via `executionModes=["channel","resident"]`, and delivery uses the wrapper's local app-server or Hermes gateway. Dashboard Console renders the real TUI via xterm.js. Pi is structurally excluded from wrapper mode and uses the persistent native OMP RPC virtual terminal. See [DECISIONS.md](DECISIONS.md) for the architectural rationale.
 
-Managed Pi specifically uses a **persistent** `omp --mode rpc` child per agent (spawned on the first dispatch, reused across subsequent ones, 24-hour idle timeout). Each RPC event is formatted into a synthesized `terminal_session` row marked `command='aify://virtual-rpc/pi'` — the dashboard's Console pane shows it like a real terminal, and operator input typed there round-trips as a new RPC turn through the same persistent child. A soft watchdog (`GET /agents/{id}/pi-session-state`) makes `omp-aify`/`pi-aify` refuse to launch locally when the bridge currently owns the agent's session-id; `omp-aify --standalone --resume <other-id>` is the escape hatch for a parallel session. See [install.pi.md](install.pi.md) and [DECISIONS.md](DECISIONS.md) for the full delivery path.
+Managed Pi specifically uses a **persistent** `omp --mode rpc` child per agent (spawned on the first dispatch, reused across subsequent ones, 24-hour idle timeout). Each RPC event is formatted into a synthesized `terminal_session` row marked `command='aify://virtual-rpc/pi'` — the dashboard's Console pane shows it like a real terminal, and operator input typed there round-trips as a new RPC turn through the same persistent child. See [install.pi.md](install.pi.md) and [DECISIONS.md](DECISIONS.md) for the full delivery path.
 
 Every `*-aify` wrapper accepts `--resident` and `--managed` flags to declare session mode explicitly; precedence is inherited `AIFY_SESSION_MODE` env > flag > TTY auto-detect (`[ -t 0 ]`). Bridge-spawned wrappers always inherit `AIFY_SESSION_MODE=managed` from `terminal-env.js`; operator-launched wrappers from a real terminal default to `resident`. `claude-aify` additionally exports `AIFY_CHANNELS_ENABLED=1` so its register call carries `runtime_config.channelEnabled=true` (precondition for resident-run/interrupt/steer caps surviving the server-side strip).
 
@@ -98,7 +98,7 @@ Important starting docs:
 | `service/runtimes/` | Python mirror of `mcp/stdio/adapters/` — runtime capabilities + Plan 3 console/delivery (per-language adapter packages so server and bridge can each own their concerns). See `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`. |
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
 | `.claude/skills/aify-comms*/` | Agent-facing usage + debug skills. Mirrored under `.agents/skills/` for Codex. |
-| `install.sh` | Client installer. Targets Claude, Codex, Hermes, OpenCode, or Pi via `--client`. |
+| `install.sh` | Client installer. Targets Claude, Codex, and Hermes via `--client`; Pi and OpenCode wrapper installs are intentionally disabled pending focused integration work. |
 | `redeploy.sh` | Plan 4 helper. Auto-detects installed `*-aify` wrappers at `~/.local/bin/` and re-runs `install.sh --client X SERVER_URL` for each. Run after pulling new aify-comms changes to refresh wrappers. |
 
 ## Setup
@@ -112,14 +112,16 @@ curl http://192.168.100.10:8801/health
 
 The stable dashboard/API remains on `8800`. A replacement dashboard preview is served separately on `8801` when `docker compose` is up; it reads and writes through the existing `8800` API and leaves the old dashboard functional. Change `.env` only if another service already uses those ports (`SERVICE_PORT` for `8800`, `NEW_DASHBOARD_PORT` for `8801`).
 
-Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, `hermes-aify`, or `omp-aify`/`pi-aify`. Pick the client you use on that host:
+Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, or `hermes-aify`. Pick the client you use on that host:
 
 ```bash
 bash install.sh --client codex http://192.168.100.10:8800 --with-hook
 bash install.sh --client claude http://192.168.100.10:8800 --with-hook
 bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
-bash install.sh --client opencode http://192.168.100.10:8800
-bash install.sh --client pi http://192.168.100.10:8800
+# OpenCode wrapper/config install is intentionally disabled until it gets a
+# focused integration validation pass.
+# Pi/OMP wrapper install is intentionally disabled: managed Pi uses the
+# environment bridge plus persistent `omp --mode rpc`, not `omp-aify`.
 ```
 
 After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills. As a convenience after `git pull`, run `./redeploy.sh` — it auto-detects every `*-aify` wrapper installed at `~/.local/bin/` and re-runs `install.sh --client X` for each, so you don't have to remember which clients are installed on the host.

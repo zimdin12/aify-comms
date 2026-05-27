@@ -149,8 +149,8 @@ tr:hover{background:#19212a}
 .t-info{background:var(--accent-soft);color:var(--accent-text)}.t-error{background:#ff6b6636;color:var(--state-error)}
 .t-review{background:#a371f733;color:#b997ff}.t-approval{background:#55c47524;color:var(--state-online)}
 .t-channel{background:#e2b04424;color:var(--state-working)}
-.st-active{color:var(--state-online)}.st-online{color:var(--state-online)}.st-available{color:var(--state-online)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--state-error)}
-.st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--state-error)}.st-offline{color:var(--subtle)}
+.st-active{color:var(--state-online)}.st-online,.st-ready{color:var(--state-online)}.st-available{color:var(--state-info)}.st-idle{color:var(--muted)}.st-working{color:var(--state-working)}.st-stopped{color:var(--muted)}
+.st-blocked{color:#ff8a2a}.st-completed{color:var(--state-online)}.st-stale{color:var(--muted)}.st-offline{color:var(--subtle)}
 .st-queued{color:var(--muted)}.st-claimed{color:var(--state-working)}.st-running{color:var(--state-info)}.st-failed{color:var(--state-error)}.st-cancelled{color:var(--state-working)}.st-cli-takeover{color:var(--state-info)}
 .em{color:var(--subtle);font-style:italic;padding:16px;text-align:center}
 .fb{margin:8px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -438,6 +438,9 @@ a{color:var(--accent-text)}
 .chat-field-label{display:grid;gap:5px;color:var(--muted);font-size:.72em;font-weight:850;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .chat-field-label select{width:100%;min-width:0;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:7px;font-size:1.08em;text-transform:none;letter-spacing:0;font-weight:650}
 .chat-compact-toggle{margin-top:8px!important}
+.chat-filter-actions{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}
+.chat-filter-actions .chat-compact-toggle{margin:8px 0 0!important}
+.chat-filter-actions .btn{margin-top:8px}
 .chat-global-results{display:none;margin-top:9px;border-top:1px solid var(--line-soft);padding-top:8px;max-height:220px;overflow:auto}
 .chat-global-results.active{display:block}
 .chat-global-hit{display:block;border:1px solid transparent;border-radius:8px;padding:8px;text-decoration:none;color:var(--text);cursor:pointer}
@@ -460,8 +463,10 @@ a{color:var(--accent-text)}
 .chat-status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}
 .chat-status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .chat-status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.chat-status-dot.active,.chat-status-dot.online,.chat-status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
-.chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped,.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
+.chat-status-dot.active,.chat-status-dot.online,.chat-status-dot.ready{background:var(--state-online);box-shadow:0 0 0 4px #55c47522}
+.chat-status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
+.chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
+.chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
 .chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 @keyframes terminalActivityPulse{0%,100%{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}45%{background:#ff8a2a;box-shadow:0 0 0 6px #ff8a2a36}}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
@@ -646,9 +651,10 @@ tr:hover{background:#1b1f21}
 .status-dot.working{background:var(--state-working);box-shadow:0 0 0 4px #dfb15620}
 .status-dot.working.terminal-active{animation:terminalActivityPulse .85s ease-in-out infinite}
 .status-dot.blocked{background:#ff8a2a;box-shadow:0 0 0 4px #ff8a2a26}
-.status-dot.active,.status-dot.online,.status-dot.available{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
+.status-dot.active,.status-dot.online,.status-dot.ready{background:var(--state-online);box-shadow:0 0 0 4px #55c47520}
+.status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.idle,.status-dot.recovering,.status-dot.starting{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
-.status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
+.status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
 .status-dot.cli-takeover{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .mini-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}
 .mini-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border:1px solid #282d30;border-radius:10px;background:#101214}
@@ -1260,9 +1266,11 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
           <div class="chat-rail-panel" data-chat-tool-panel="filters">
             <label class="chat-field-label">Viewing as<select id="chat-from" onchange="changeChatIdentity()"></select></label>
             <label class="chat-field-label">Sort<select id="chat-sort" onchange="setChatSort(this.value)">
-              <option value="activity">Activity</option>
-              <option value="unread">Unread first</option>
-              <option value="name">Name</option>
+              <option value="activity">Recent activity</option>
+              <option value="oldest">Oldest activity</option>
+              <option value="name">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="runtime">Runtime</option>
               <option value="status">Status</option>
             </select></label>
             <div class="chat-filter-row">
@@ -1278,11 +1286,22 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
                 <span>Peek mode</span>
               </label>
+              <label class="chat-toggle" title="Keep unread conversations above read conversations without changing the selected sort inside each group">
+                <input type="checkbox" id="chat-unread-up" onchange="setChatUnreadUp(this.checked)">
+                <span>Unread up</span>
+              </label>
+              <label class="chat-toggle" title="Keep working, blocked, or queued conversations above idle conversations without changing the selected sort inside each group">
+                <input type="checkbox" id="chat-working-up" onchange="setChatWorkingUp(this.checked)">
+                <span>Working up</span>
+              </label>
             </div>
-            <label class="chat-toggle chat-compact-toggle" title="Use denser conversation rows and a narrower chat rail">
-              <input type="checkbox" id="chat-compact-toggle" onchange="setChatCompactMode(this.checked)">
-              <span>Compact list</span>
-            </label>
+            <div class="chat-filter-actions">
+              <label class="chat-toggle chat-compact-toggle" title="Use denser conversation rows and a narrower chat rail">
+                <input type="checkbox" id="chat-compact-toggle" onchange="setChatCompactMode(this.checked)">
+                <span>Compact list</span>
+              </label>
+              <button type="button" class="btn btn-sm" title="Reset search, sort, and chat filters. Viewing as, Peek mode, and Compact list stay unchanged." onclick="resetChatViewFilters()">Reset view</button>
+            </div>
           </div>
           <div class="chat-rail-panel" data-chat-tool-panel="channels">
             <div class="chat-create-channel">
@@ -3079,7 +3098,8 @@ function isManagedWorker(info) {
 
 function agentDisplayStatus(info) {
   const displayStatus = info?.status || 'idle';
-  const rawStatus = info?.statusRaw || displayStatus.split(':')[0].trim() || 'idle';
+  let rawStatus = info?.statusRaw || displayStatus.split(':')[0].trim() || 'idle';
+  if (String(rawStatus).toLowerCase() === 'ready') rawStatus = 'online';
   const statusNote = info?.statusNote || '';
   return {displayStatus, rawStatus, statusKind: rawStatus.toLowerCase(), statusNote};
 }
@@ -4785,6 +4805,24 @@ function setChatOnlineOnly(value) {
   renderChat();
 }
 
+function chatUnreadUp() {
+  return localStorage.getItem('aifyChatUnreadUp') === '1';
+}
+
+function setChatUnreadUp(value) {
+  localStorage.setItem('aifyChatUnreadUp', value ? '1' : '0');
+  renderChat();
+}
+
+function chatWorkingUp() {
+  return localStorage.getItem('aifyChatWorkingUp') === '1';
+}
+
+function setChatWorkingUp(value) {
+  localStorage.setItem('aifyChatWorkingUp', value ? '1' : '0');
+  renderChat();
+}
+
 function chatPeekMode() {
   return localStorage.getItem('aifyChatPeekMode') === '1';
 }
@@ -4796,11 +4834,29 @@ function setChatPeekMode(value) {
 
 function chatSortMode() {
   const value = localStorage.getItem('aifyChatSortMode') || 'activity';
-  return ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity';
+  if (value === 'unread') {
+    localStorage.setItem('aifyChatUnreadUp', '1');
+    localStorage.setItem('aifyChatSortMode', 'activity');
+    return 'activity';
+  }
+  return ['activity', 'oldest', 'name', 'name-desc', 'runtime', 'status'].includes(value) ? value : 'activity';
 }
 
 function setChatSort(value) {
-  localStorage.setItem('aifyChatSortMode', ['activity', 'unread', 'name', 'status'].includes(value) ? value : 'activity');
+  localStorage.setItem('aifyChatSortMode', ['activity', 'oldest', 'name', 'name-desc', 'runtime', 'status'].includes(value) ? value : 'activity');
+  renderChat();
+}
+
+function resetChatViewFilters() {
+  const filter = document.getElementById('chat-filter');
+  const global = document.getElementById('chat-global-search');
+  if (filter) filter.value = '';
+  if (global) global.value = '';
+  localStorage.setItem('aifyChatSortMode', 'activity');
+  localStorage.setItem('aifyChatOpenOnly', '0');
+  localStorage.setItem('aifyChatOnlineOnly', '0');
+  localStorage.setItem('aifyChatUnreadUp', '0');
+  localStorage.setItem('aifyChatWorkingUp', '0');
   renderChat();
 }
 
@@ -4862,7 +4918,8 @@ function chatPresenceForAgent(info = {}) {
   // enriches the LABEL — it must never override the dot kind, or the dot
   // says "working" (yellow) while the status says "active" (a merely
   // queued run is not working; that disagreement is the reported bug).
-  const raw = String(info.statusRaw || info.status || '').toLowerCase();
+  let raw = String(info.statusRaw || info.status || '').toLowerCase();
+  if (raw === 'ready') raw = 'online';
   const activeRun = info.dispatchState?.activeRun;
   const queuedRuns = Number(info.dispatchState?.queuedRuns || 0);
   const issue = liveIssueForAgent('', info);
@@ -4889,25 +4946,40 @@ function chatConversations() {
   const openOnly = chatOpenOnly();
   const onlineOnly = chatOnlineOnly();
   const sortMode = chatSortMode();
+  const unreadUp = chatUnreadUp();
+  const workingUp = chatWorkingUp();
   const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, available: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
+    if (unreadUp) {
+      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
+      if (unreadDiff) return unreadDiff;
+    }
+    if (workingUp) {
+      const workingDiff = (b.workRank || 0) - (a.workRank || 0);
+      if (workingDiff) return workingDiff;
+    }
     if (sortMode === 'name') return a.title.localeCompare(b.title);
+    if (sortMode === 'name-desc') return b.title.localeCompare(a.title);
+    if (sortMode === 'runtime') {
+      const runtimeDiff = String(a.runtime || '').localeCompare(String(b.runtime || ''));
+      if (runtimeDiff) return runtimeDiff;
+      return a.title.localeCompare(b.title);
+    }
+    if (sortMode === 'oldest') {
+      const timeDiff = (a.ts || 0) - (b.ts || 0);
+      if (timeDiff) return timeDiff;
+      return a.title.localeCompare(b.title);
+    }
     if (sortMode === 'activity') {
       const timeDiff = (b.ts || 0) - (a.ts || 0);
       if (timeDiff) return timeDiff;
-      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
-      if (unreadDiff) return unreadDiff;
       return a.title.localeCompare(b.title);
     }
     if (sortMode === 'status') {
       const statusDiff = statusRank(b) - statusRank(a);
       if (statusDiff) return statusDiff;
-      const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);
-      if (unreadDiff) return unreadDiff;
       return a.title.localeCompare(b.title);
     }
-    const unreadDiff = (b.unread || 0) - (a.unread || 0);
-    if (unreadDiff) return unreadDiff;
     const timeDiff = (b.ts || 0) - (a.ts || 0);
     if (timeDiff) return timeDiff;
     return a.title.localeCompare(b.title);
@@ -4933,6 +5005,8 @@ function chatConversations() {
       title: id,
       meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`,
       presence,
+      runtime: info.runtime || '',
+      workRank: ({blocked: 3, working: 3, recovering: 2, starting: 2, 'cli-takeover': 2}[presence?.kind || ''] || 0) + (Number(info.dispatchState?.queuedRuns || 0) > 0 ? 1 : 0),
       unread: unreadForAgentConversation(id, identity),
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
       // Server-managed star (PATCH /agents/{id}/favorite). Used by
@@ -4955,6 +5029,8 @@ function chatConversations() {
       title: `#${ch.name}`,
       meta: `${ch.memberCount || 0} members · ${ch.messageCount || 0} messages`,
       unread: ch.unreadCount || 0,
+      runtime: 'channel',
+      workRank: 0,
       ts: timeValue(ch.lastMessageAt || ch.updatedAt || latestCached?.timestamp || ch.createdAt),
     };
   }));
@@ -4967,11 +5043,15 @@ function renderChatRail() {
   if (!el) return;
   const openToggle = document.getElementById('chat-open-only');
   const onlineToggle = document.getElementById('chat-online-only');
+  const unreadUpToggle = document.getElementById('chat-unread-up');
+  const workingUpToggle = document.getElementById('chat-working-up');
   const peekToggle = document.getElementById('chat-peek-mode');
   const compactToggle = document.getElementById('chat-compact-toggle');
   const sortSelect = document.getElementById('chat-sort');
   if (openToggle) openToggle.checked = chatOpenOnly();
   if (onlineToggle) onlineToggle.checked = chatOnlineOnly();
+  if (unreadUpToggle) unreadUpToggle.checked = chatUnreadUp();
+  if (workingUpToggle) workingUpToggle.checked = chatWorkingUp();
   if (peekToggle) peekToggle.checked = chatPeekMode();
   if (compactToggle) compactToggle.checked = chatCompactMode();
   if (sortSelect) sortSelect.value = chatSortMode();
@@ -5659,6 +5739,7 @@ function chatLiveWarning(meta) {
 }
 
 function humanStatusLabel(status) {
+  if (String(status || '').toLowerCase() === 'ready') return 'Online';
   const text = String(status || 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

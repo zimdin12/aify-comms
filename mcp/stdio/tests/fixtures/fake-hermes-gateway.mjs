@@ -13,6 +13,7 @@
 //   - refuse         : prompt.submit returns 5000 error
 //   - no_visible_bind : aify.session.bind_transport is unavailable
 //   - bind_actual_key : visible bind succeeds but returns a different live session_key
+//   - bind_stale_then_active : stale bind fails, current visible-session list bind succeeds
 //   - require_notice : prompt.submit fails unless aify.session.render_notice ran first
 
 import { WebSocketServer } from "ws";
@@ -74,10 +75,18 @@ wss.on("connection", (socket, req) => {
     try { msg = JSON.parse(String(frame)); } catch { return; }
 
     if (msg.method === "session.most_recent") {
+      if (SCRIPT === "bind_stale_then_active") {
+        send({ jsonrpc: "2.0", id: msg.id, result: { session_id: "active-visible-key", title: "fake", source: "acp" } });
+        return;
+      }
       send({ jsonrpc: "2.0", id: msg.id, result: { session_id: FIXED_SESSION_ID, title: "fake", source: "acp" } });
       return;
     }
     if (msg.method === "session.list") {
+      if (SCRIPT === "bind_stale_then_active") {
+        send({ jsonrpc: "2.0", id: msg.id, result: { sessions: [{ id: "active-visible-key", title: "active fake", created_at: "2026-05-27T10:00:00Z" }] } });
+        return;
+      }
       send({ jsonrpc: "2.0", id: msg.id, result: { sessions: [{ id: FIXED_SESSION_ID, title: "fake" }] } });
       return;
     }
@@ -96,6 +105,10 @@ wss.on("connection", (socket, req) => {
         return;
       }
       const target = String(msg.params?.session_id || "").trim() || FIXED_SESSION_ID;
+      if (SCRIPT === "bind_stale_then_active" && target !== "active-visible-key") {
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: 4010, message: `visible session not found: ${target}` } });
+        return;
+      }
       const sessionKey = SCRIPT === "bind_actual_key" ? "actual-visible-key" : target;
       send({ jsonrpc: "2.0", id: msg.id, result: { session_id: ACTIVE_SESSION_ID, session_key: sessionKey, mirrored: true } });
       return;

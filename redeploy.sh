@@ -28,7 +28,12 @@ if [ ! -d "$WRAPPERS_DIR" ]; then
 fi
 
 CLIENTS=()
-for client in claude codex hermes pi opencode; do
+# Pi/OMP is intentionally not redeployed as a resident wrapper. Triggerable
+# Pi delivery uses the managed persistent `omp --mode rpc` controller, not
+# `omp-aify` / `pi-aify`.
+# OpenCode wrapper/config install is also disabled until that integration gets
+# the same focused resident/managed validation as Claude, Codex, and Hermes.
+for client in claude codex hermes; do
   if [ -x "$WRAPPERS_DIR/${client}-aify" ] || [ -x "$WRAPPERS_DIR/${client}-aify.cmd" ]; then
     CLIENTS+=("$client")
   fi
