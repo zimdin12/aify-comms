@@ -11,7 +11,7 @@
 // silently drift.
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,13 @@ import { spawn } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = path.join(__dirname, "fixtures", "fake-hermes-gateway.mjs");
+
+// Node's test worker can stay alive after the WS child-fixture tests even when
+// only stdio handles remain. Exit explicitly after all assertions and cleanup so
+// this file is usable in CI without an external timeout.
+after(() => {
+  setImmediate(() => process.exit(process.exitCode || 0));
+});
 
 function pickFreePort() {
   return new Promise((resolve, reject) => {
@@ -36,22 +43,51 @@ async function startFake(t, { script = "hello", token = "test-token" } = {}) {
   const port = await pickFreePort();
   const url = `ws://127.0.0.1:${port}`;
   const proc = spawn(process.execPath, [FAKE, "--listen", url], {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: "ignore",
     env: { ...process.env, FAKE_HERMES_SCRIPT: script, FAKE_HERMES_TOKEN: token },
   });
-  t.after(() => {
-    try { proc.kill("SIGTERM"); } catch {}
-    try { proc.stdout.destroy(); } catch {}
-    try { proc.stderr.destroy(); } catch {}
+  const exited = new Promise((resolve) => {
+    proc.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  t.after(async () => {
+    if (proc.exitCode === null && proc.signalCode === null) {
+      try { proc.kill("SIGKILL"); } catch {}
+      await Promise.race([
+        exited,
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+    }
   });
   await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("fake-hermes did not bind in 5s")), 5000);
-    proc.stdout.on("data", (c) => { if (String(c).includes("listening")) { clearTimeout(timeout); resolve(); } });
-    proc.on("exit", (code) => reject(new Error(`fake-hermes exited early code=${code}`)));
+    const timeout = setTimeout(() => cleanup(reject, new Error("fake-hermes did not bind in 5s")), 5000);
+    let settled = false;
+    let retryTimer = null;
+    const onExit = (code, signal) => {
+      cleanup(reject, new Error(`fake-hermes exited early code=${code} signal=${signal || ""}`));
+    };
+    const tryConnect = () => {
+      if (settled) return;
+      const socket = net.createConnection({ host: "127.0.0.1", port });
+      socket.once("connect", () => {
+        socket.destroy();
+        cleanup(resolve);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        retryTimer = setTimeout(tryConnect, 25);
+      });
+    };
+    const cleanup = (finish, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (retryTimer) clearTimeout(retryTimer);
+      proc.off("exit", onExit);
+      finish(value);
+    };
+    proc.once("exit", onExit);
+    tryConnect();
   });
-  try { proc.unref(); } catch {}
-  try { proc.stdout.unref(); } catch {}
-  try { proc.stderr.unref(); } catch {}
   return { url, token };
 }
 

@@ -36,6 +36,21 @@ const url = new URL(LISTEN_URL);
 const wss = new WebSocketServer({ port: Number(url.port), host: url.hostname || "127.0.0.1" });
 wss.on("listening", () => process.stdout.write(`fake-hermes-gateway listening on ${LISTEN_URL}\n`));
 
+function shutdown() {
+  try {
+    for (const client of wss.clients) client.terminate();
+  } catch {}
+  try {
+    wss.close(() => process.exit(0));
+  } catch {
+    process.exit(0);
+  }
+  setTimeout(() => process.exit(0), 500).unref();
+}
+
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
+
 wss.on("connection", (socket, req) => {
   const reqUrl = new URL(req.url, "ws://localhost");
   const presentedToken = reqUrl.searchParams.get("token");
