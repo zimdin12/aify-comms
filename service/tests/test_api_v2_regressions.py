@@ -552,6 +552,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("s-claude-effort", dashboard.text)
         self.assertIn("s-codex-model", dashboard.text)
         self.assertIn("s-codex-effort", dashboard.text)
+        self.assertIn("s-worker-idle-enabled", dashboard.text)
+        self.assertIn("Idle worker close window", dashboard.text)
         self.assertNotIn("env-spawn-effort", dashboard.text)
         self.assertNotIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
@@ -568,6 +570,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
+        self.assertFalse(settings.json()["worker_idle_close_enabled"])
+        self.assertEqual(settings.json()["worker_idle_close_minutes"], 0)
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
 
         updated = self.client.put(
@@ -9334,11 +9338,10 @@ class ApiV2RegressionTests(unittest.TestCase):
                 )
 
     def test_idle_virtual_rpc_workers_auto_close_when_setting_enabled(self):
-        # Operator-driven feature: virtual rpc terminal_sessions whose
+        # Operator-driven feature: managed worker terminal_sessions whose
         # updated_at is older than worker_idle_close_minutes AND have no
-        # in-flight dispatch runs get auto-closed by the periodic
-        # reconciler. Setting at 0 (default) → disabled.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        # in-flight dispatch runs get auto-closed by the periodic reconciler.
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_close",
             bridgeId="bridge-idle-close",
@@ -9410,9 +9413,195 @@ class ApiV2RegressionTests(unittest.TestCase):
         rs = json.loads(agent_row["runtime_state"] or "{}")
         self.assertNotIn("virtualTerminalId", rs)
 
+    def test_idle_managed_wrapper_worker_auto_close_enqueues_stop_control(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_wrapper",
+            bridgeId="bridge-idle-wrapper",
+            machineId="linux:idle-wrapper",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("idle-hermes", runtime="hermes", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_wrapper", "idle-hermes", "env_idle_wrapper", "hermes", "/w", "managed",
+                "managed", "bridge-idle-wrapper", "term_idle_wrapper", "attached",
+                "hermes-aify --aify-agent idle-hermes --resume h1", "/w", "", "h1", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_idle_wrapper", "sess_idle_wrapper", "idle-hermes", "env_idle_wrapper",
+                "bridge-idle-wrapper", "hermes", "/w", "hermes-aify --aify-agent idle-hermes --resume h1",
+                "", "attached", "dashboard", stale_at, stale_at, None, "",
+            ),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({"terminalId": "term_idle_wrapper"}), "idle-hermes"),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        closed = asyncio.run(_run())
+        self.assertEqual(closed, [{"terminalId": "term_idle_wrapper", "agentId": "idle-hermes"}])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("term_idle_wrapper",))
+        self.assertEqual(term["status"], "stopping")
+        control = self._fetchone(
+            "SELECT action, status, requested_by FROM terminal_controls WHERE terminal_id = ?",
+            ("term_idle_wrapper",),
+        )
+        self.assertEqual(control["action"], "stop")
+        self.assertEqual(control["status"], "pending")
+        self.assertEqual(control["requested_by"], "auto-close-idle-worker")
+        session = self._fetchone("SELECT terminal_status FROM agent_sessions WHERE id = ?", ("sess_idle_wrapper",))
+        self.assertEqual(session["terminal_status"], "stopping")
+        agent_row = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("idle-hermes",))
+        self.assertNotIn("terminalId", json.loads(agent_row["runtime_state"] or "{}"))
+
+    def test_idle_managed_wrapper_without_bridge_owner_marks_stopped(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_orphan",
+            bridgeId="bridge-idle-orphan",
+            machineId="linux:idle-orphan",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("idle-orphan-codex", runtime="codex", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_orphan", "idle-orphan-codex", "env_idle_orphan", "codex", "/w", "managed",
+                "managed", "bridge-idle-orphan", "term_idle_orphan", "running",
+                "codex-aify --aify-agent idle-orphan-codex", "/w", "", "codex-orphan", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_idle_orphan", "sess_idle_orphan", "idle-orphan-codex", "env_idle_orphan", "",
+                "codex", "/w", "codex-aify --aify-agent idle-orphan-codex",
+                "", "running", "dashboard", stale_at, stale_at, None, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), [{"terminalId": "term_idle_orphan", "agentId": "idle-orphan-codex"}])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("term_idle_orphan",))
+        self.assertEqual(term["status"], "stopped")
+        control = self._fetchone(
+            "SELECT COUNT(*) AS count FROM terminal_controls WHERE terminal_id = ?",
+            ("term_idle_orphan",),
+        )
+        self.assertEqual(control["count"], 0)
+
+    def test_idle_worker_auto_close_can_be_disabled_even_with_minutes_set(self):
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": False, "worker_idle_close_minutes": 5})
+        self._heartbeat_environment(
+            id="env_idle_disabled",
+            bridgeId="bridge-idle-disabled",
+            machineId="linux:idle-disabled",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("disabled-pi", runtime="pi", sessionMode="managed")
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, terminal_id, terminal_status,
+                terminal_command, terminal_workspace, process_id, session_handle,
+                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
+                telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_idle_disabled", "disabled-pi", "env_idle_disabled", "pi", "/w", "managed",
+                "managed", "bridge-idle-disabled", "vterm_idle_disabled", "running",
+                "aify://virtual-rpc/pi", "/w", "", "pi-handle-disabled", "", None, None,
+                "{}", "{}", "running", stale_at, stale_at, None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "vterm_idle_disabled", "sess_idle_disabled", "disabled-pi", "env_idle_disabled",
+                "bridge-idle-disabled", "pi", "/w", "aify://virtual-rpc/pi",
+                "", "running", "bridge-rpc", stale_at, stale_at, None, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_idle_virtual_rpc_workers(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), [])
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_idle_disabled",))
+        self.assertEqual(term["status"], "running")
+
     def test_idle_virtual_rpc_workers_not_closed_when_in_flight_run(self):
         # Guardrail: in-flight dispatch_run blocks auto-close.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
+        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_inflight",
             bridgeId="bridge-idle-inflight",

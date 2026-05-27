@@ -1851,9 +1851,14 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <div class="hint">Optional thinking/effort value passed to Oh My Pi as <code>--thinking</code>.</div>
       </div>
       <div class="form-group">
-        <label>Auto-close idle worker (minutes)</label>
+        <label>Auto-close idle managed workers</label>
+        <select id="s-worker-idle-enabled"><option value="false">Disabled</option><option value="true">Enabled</option></select>
+        <div class="hint">When enabled, the reconciler stops managed worker terminals that have no in-flight runs and have been idle longer than the window below.</div>
+      </div>
+      <div class="form-group">
+        <label>Idle worker close window (minutes)</label>
         <input id="s-worker-idle-close" type="number" min="0" max="1440" step="1" placeholder="0 = disabled">
-        <div class="hint">Auto-close persistent workers (managed pi/hermes virtual rpc terminals) idle longer than this many minutes. The reconciler only acts on workers with no in-flight dispatch_runs. <code>0</code> disables. Recommended: <code>10</code>.</div>
+        <div class="hint">Applies to managed wrapper PTYs and native virtual RPC workers. <code>0</code> also disables auto-close. Recommended: <code>10</code>.</div>
       </div>
           </section>
           <section class="settings-panel" data-settings-panel="work">
@@ -7733,6 +7738,7 @@ async function loadSettings() {
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
   document.getElementById('s-pi-effort').value = s.managed_pi_effort || '';
+  document.getElementById('s-worker-idle-enabled').value = String(!!s.worker_idle_close_enabled);
   document.getElementById('s-worker-idle-close').value = Number(s.worker_idle_close_minutes || 0);
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
@@ -7771,6 +7777,7 @@ async function saveSettings(e) {
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),
       managed_pi_effort: document.getElementById('s-pi-effort').value || '',
+      worker_idle_close_enabled: document.getElementById('s-worker-idle-enabled').value === 'true',
       worker_idle_close_minutes: Math.max(0, parseInt(document.getElementById('s-worker-idle-close').value) || 0),
       reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
       reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
