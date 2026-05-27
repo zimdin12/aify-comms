@@ -14,9 +14,6 @@
 //   - Local: filesystem-based message bus in .messages/ directory
 //
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import fs from "fs";
@@ -57,9 +54,6 @@ import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 
-// Load env from settings.local.json (user-level + project-level merge)
-loadSettingsEnv();
-
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
 // MCP env and would otherwise spawn its OWN `mcp/stdio/server.js` that
@@ -73,6 +67,13 @@ if (String(process.env.AIFY_BRIDGE_DISABLED || "").trim() === "1") {
   // need an MCP server — it talks to the parent bridge via stdio pipes.
   process.exit(0);
 }
+
+const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+const { z } = await import("zod");
+
+// Load env from settings.local.json (user-level + project-level merge)
+loadSettingsEnv();
 
 // ── Configuration ────────────────────────────────────────────────────────────
 

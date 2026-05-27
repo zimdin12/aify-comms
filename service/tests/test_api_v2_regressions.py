@@ -80,6 +80,19 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def _register_live_codex_resident(self, agent_id: str, *, session_handle: str, bridge_id: str, port: int, role: str = "coder"):
+        return self._register(
+            agent_id,
+            role=role,
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle=session_handle,
+            machineId="linux:test-host",
+            bridgeId=bridge_id,
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": f"ws://127.0.0.1:{port}"},
+        )
+
     def _send_message(self, **payload):
         response = self.client.post("/api/v1/messages/send", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
@@ -2360,10 +2373,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         })
         mode2, error2 = _agent_execution_mode(without_gateway)
         self.assertIsNone(mode2)
-        self.assertIn("session handle", (error2 or "").lower(),
+        self.assertIn("gatewayurl", (error2 or "").lower(),
                       f"hermes without gatewayUrl AND without session_handle must still error; got: {error2}")
 
-        # 3. Hermes resident WITH sessionHandle (legacy single-shot path), no gateway — must accept.
+        # 3. Hermes resident WITH sessionHandle but no gateway — still rejected.
+        # Hidden resume/session-create fallback is intentionally disabled; Hermes
+        # resident wake must bind to the visible TUI gateway.
         legacy_handle = _R({
             "id": "sc-hermes-legacy",
             "runtime": "hermes",
@@ -2374,8 +2389,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             "runtime_config": "{}",
         })
         mode3, error3 = _agent_execution_mode(legacy_handle)
-        self.assertIsNone(error3, f"hermes with sessionHandle (legacy single-shot path) must remain accepted; got: {error3}")
-        self.assertEqual(mode3, "resident")
+        self.assertIsNone(mode3)
+        self.assertIn("gatewayurl", (error3 or "").lower())
 
     def test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running(self):
         # Slices 1/2/4: when managed_pty_eager_spawn is on AND
@@ -2786,7 +2801,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={"requestedBy": "dashboard", "freshContext": True},
         )
         self.assertEqual(fresh.status_code, 200, fresh.text)
-        self.assertIn("pi-aify", fresh.json()["terminal"]["command"])
+        self.assertEqual(fresh.json()["terminal"]["command"], "aify://virtual-rpc/pi")
         self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
     def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
@@ -2829,7 +2844,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(control["body"].endswith("\r"))
 
     def test_managed_dispatch_native_runtime_uses_terminal_backing_by_default(self):
-        for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
+        for runtime, handle in (("codex", "codex-thread-1"),):
             with self.subTest(runtime=runtime):
                 agent_id = f"{runtime}-terminal-agent"
                 self._create_running_session(
@@ -5340,7 +5355,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         session = self._fetchone("SELECT session_handle FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(session["session_handle"], "thread-from-cli")
 
-    def test_resident_register_auto_takes_over_idle_managed_agent(self):
+    def test_resident_register_requires_manual_switch_from_managed_agent(self):
         self._heartbeat_environment()
         created = self.client.post(
             "/api/v1/spawn-requests",
@@ -5367,15 +5382,18 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
-        self.assertEqual(registered.json()["sessionMode"], "resident")
+        self.assertEqual(registered.json()["sessionMode"], "managed")
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
         agent = self._fetchone("SELECT session_mode, session_handle, launch_mode, runtime_state FROM agents WHERE id = ?", ("auto-owner",))
-        self.assertEqual(agent["session_mode"], "resident")
-        self.assertEqual(agent["session_handle"], "resident-thread")
+        self.assertEqual(agent["session_mode"], "managed")
+        self.assertEqual(agent["session_handle"], "managed-thread")
         self.assertNotEqual(agent["launch_mode"], "none")
-        self.assertEqual(json.loads(agent["runtime_state"]).get("bridgeInstanceId"), "resident-bridge")
+        runtime_state = json.loads(agent["runtime_state"])
+        self.assertEqual(runtime_state.get("manualResidentCandidate", {}).get("bridgeId"), "resident-bridge")
+        self.assertEqual(runtime_state.get("manualResidentCandidate", {}).get("sessionHandle"), "resident-thread")
         session = self._fetchone("SELECT status, session_handle FROM agent_sessions WHERE agent_id = ?", ("auto-owner",))
-        self.assertEqual(session["status"], "cli-takeover")
-        self.assertEqual(session["session_handle"], "resident-thread")
+        self.assertEqual(session["status"], "running")
+        self.assertEqual(session["session_handle"], "managed-thread")
 
 
     def test_resident_same_logical_owner_reregister_does_not_supersede_or_fail_inflight_run(self):
@@ -5683,7 +5701,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
         self.assertIsNone(claimed.json().get("run"))
-        self.assertEqual(claimed.json().get("blockedBy", {}).get("runId"), "run_wrapper_fresh_active")
+        self.assertIn(
+            claimed.json().get("blockedBy", {}).get("reason"),
+            {"bridge_not_current", "active_run_owner_bridge_still_heartbeating"},
+        )
 
         run = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id=?", ("run_wrapper_fresh_active",))
         self.assertEqual(run["status"], "running", f"fresh wrapper-child active run must not be auto-healed: {dict(run)}")
@@ -5868,11 +5889,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         run = self._fetchone("SELECT status FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "failed", "different-owner re-register must fail the prior owner's in-flight run")
 
-    def test_resident_bridge_claims_queued_managed_run_after_takeover(self):
+    def test_resident_registration_does_not_claim_queued_managed_run_without_manual_switch(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         self._register(
             "resident-queue",
-            runtime="pi",
+            runtime="codex",
             sessionMode="managed",
             launchMode="managed",
             capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
@@ -5894,15 +5915,17 @@ class ApiV2RegressionTests(unittest.TestCase):
             json={
                 "agentId": "resident-queue",
                 "role": "coder",
-                "runtime": "pi",
+                "runtime": "codex",
                 "sessionMode": "resident",
-                "sessionHandle": "pi-session-visible",
+                "sessionHandle": "codex-session-visible",
                 "machineId": "linux:test-host",
                 "bridgeId": "resident-bridge",
                 "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+                "runtimeConfig": {"appServerUrl": "ws://127.0.0.1:1234"},
             },
         )
         self.assertEqual(registered.status_code, 200, registered.text)
+        self.assertEqual(registered.json()["ownershipTransition"], "manual_switch_required")
 
         claimed = self.client.post(
             "/api/v1/dispatch/claim",
@@ -5914,11 +5937,11 @@ class ApiV2RegressionTests(unittest.TestCase):
             },
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
-        self.assertEqual(claimed.json()["run"]["id"], run_id)
+        self.assertIsNone(claimed.json().get("run"))
         stored = self._fetchone("SELECT status, execution_mode, claim_bridge_id FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(stored["status"], "claimed")
-        self.assertEqual(stored["execution_mode"], "resident")
-        self.assertEqual(stored["claim_bridge_id"], "resident-bridge")
+        self.assertEqual(stored["status"], "queued")
+        self.assertEqual(stored["execution_mode"], "managed")
+        self.assertEqual(stored["claim_bridge_id"], "")
 
 
     def test_claim_ignores_missing_message_ids_in_buffered_body(self):
@@ -6118,6 +6141,8 @@ class ApiV2RegressionTests(unittest.TestCase):
             capabilities=["resident-run", "resume", "interrupt", "steer"],
             runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
         )
+        switched = self.client.patch("/api/v1/agents/stop-resident/session-mode", json={"mode": "resident"})
+        self.assertEqual(switched.status_code, 200, switched.text)
 
         stopped = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(stopped.status_code, 200, stopped.text)
@@ -7490,7 +7515,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         )
         resident = self.client.get("/api/v1/agents/old-resident-pi")
         self.assertEqual(resident.status_code, 200, resident.text)
-        self.assertIn("steer", resident.json()["agent"]["capabilities"])
+        self.assertNotIn("steer", resident.json()["agent"]["capabilities"])
+        self.assertEqual(resident.json()["agent"]["wakeMode"], "presence-only")
 
     def test_response_messages_steer_when_sender_is_busy_and_steer_capable(self):
         self._register("manager", runtime="codex", sessionMode="managed")
@@ -8115,8 +8141,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(stats.json()["dispatch_reply_pending"], 0)
 
     def test_contracts_classify_overdue_request(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1})
 
         created = self._dispatch(
@@ -8142,8 +8168,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["overdue"], 1)
 
     def test_contract_reminder_sends_notice_and_records_event(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -8179,8 +8205,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn(reminder_message_id, event["body"])
 
     def test_contract_reminder_notice_does_not_become_reply_debt(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -8209,8 +8235,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == reminder_run_id for item in missing.json()["contracts"]))
 
     def test_contract_reminders_are_unlimited_by_default(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
 
         created = self._dispatch(
@@ -8236,8 +8262,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(len(response.json()["reminded"]), 1)
 
     def test_contract_reminders_wait_for_busy_agent_then_fire_on_completion(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
 
         open_contract = self._dispatch(
@@ -8282,8 +8308,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Sent reminder message", event["body"])
 
     def test_completion_triggered_reminder_respects_repeat_interval(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 60, "reply_reminder_max_count": 0})
 
         open_contract = self._dispatch(
@@ -8327,7 +8353,7 @@ class ApiV2RegressionTests(unittest.TestCase):
 
 
     def test_contract_reminders_skip_dashboard_target_contracts(self):
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
 
         message_id = "msg-dashboard-contract"
@@ -8372,8 +8398,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNone(event)
 
     def test_contracts_default_view_hides_operator_closed_and_failures(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="lead",
@@ -8400,8 +8426,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(any(item["id"] == run_id and item["state"] == "closed" for item in closed_view.json()["contracts"]))
 
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
 
         created = self._dispatch(
@@ -8424,8 +8450,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIsNotNone(event)
 
     def test_periodic_dispatch_reconcile_skips_historical_contract_reminders(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "contract_stale_hours": 24})
 
         created = self._dispatch(
@@ -8518,8 +8544,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("Sent reminder message", event["body"])
 
     def test_contracts_do_not_treat_high_priority_responses_as_missing_replies(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="coder",
@@ -8543,8 +8569,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == run_id for item in response.json()["contracts"]))
 
     def test_contracts_hide_answered_rows_until_history_is_requested(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         created = self._dispatch(
             from_agent="lead",
@@ -8580,8 +8606,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(answered_contract["state"], "answered")
 
     def test_contract_history_respects_stale_window(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"contract_stale_hours": 1})
 
         created = self._dispatch(
@@ -8610,8 +8636,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(any(item["id"] == run_id for item in answered_view.json()["contracts"]))
 
     def test_contracts_can_filter_category_before_limit(self):
-        self._register("lead", runtime="codex", sessionMode="resident", sessionHandle="lead-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:1"})
-        self._register("coder", runtime="codex", sessionMode="resident", sessionHandle="coder-thread", runtimeConfig={"appServerUrl": "ws://127.0.0.1:2"})
+        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
+        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
 
         direct = self._dispatch(
             from_agent="lead",
