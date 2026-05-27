@@ -31,6 +31,8 @@ class ClaudeAdapter(RuntimeAdapter):
     wrapper_name = "claude-aify"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
+        if interactive and handle:
+            return f"claude-aify --aify-agent {agent_id} --resume {handle}"
         if interactive:
             return f"claude-aify --aify-agent {agent_id}"
         parts = ["claude-aify", "--aify-agent", agent_id, "--auto"]

@@ -14,7 +14,7 @@ def test_claude_wrapper_name():
 def test_claude_console_command_interactive():
     from service.runtimes.claude import ClaudeAdapter
     cmd = ClaudeAdapter().console_command(agent_id="a", handle="h", interactive=True)
-    assert cmd == "claude-aify --aify-agent a"
+    assert cmd == "claude-aify --aify-agent a --resume h"
 
 
 def test_claude_console_command_managed_with_handle():

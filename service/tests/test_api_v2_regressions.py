@@ -2698,7 +2698,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("--resume thread-1", command)
         self.assertNotIn("--include-non-interactive", command)
 
-    def test_console_start_builds_claude_channels_command_without_dev_prompt(self):
+    def test_console_start_builds_claude_channels_command_resumes_stored_handle(self):
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -2708,11 +2708,12 @@ class ApiV2RegressionTests(unittest.TestCase):
         started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
         self.assertEqual(started.status_code, 200, started.text)
         command = started.json()["terminal"]["command"]
-        # Human Console = fresh interactive claude-aify (consistent with
-        # codex/pi), NOT raw `claude --resume <handle>` (the 026H-class trap).
+        # Human Console still goes through claude-aify, but it must preserve
+        # the stored native handle. Otherwise opening/restarting from the
+        # dashboard silently forks a fresh Claude conversation.
         self.assertIn("claude-aify", command)
         self.assertIn("--aify-agent console-agent", command)
-        self.assertNotIn("--resume", command)
+        self.assertIn("--resume claude-session-1", command)
         self.assertNotIn("--dangerously-load-development-channels", command)
 
     def test_console_child_register_does_not_convert_managed_session_to_cli_takeover(self):

@@ -28,16 +28,15 @@ def test_claude_managed_includes_resume():
     assert "--resume h1" in cmd
 
 
-def test_claude_interactive_no_resume():
+def test_claude_interactive_includes_resume_when_handle_known():
     cmd = _default_console_command(
         _session(agent_id="a", handle="h1", runtime="claude-code"),
         "/tmp",
         interactive=True,
     )
     assert "claude-aify --aify-agent a" in cmd
-    assert "--resume" not in cmd, (
-        "Human-opened Console intentionally stays fresh for claude — see api_v2 comment"
-    )
+    assert "--auto" not in cmd
+    assert "--resume h1" in cmd
 
 
 def test_codex_managed_includes_resume():
