@@ -49,60 +49,106 @@ def patch_gateway_server(module: ModuleType) -> None:
         make_agent_with_mcp_discovery._aify_plugin_patch = True  # type: ignore[attr-defined]
         setattr(module, "_make_agent", make_agent_with_mcp_discovery)
 
+    def resolve_visible_session(target: str):  # type: ignore[no-untyped-def]
+        try:
+            snapshot = list(module._sessions.items())
+        except Exception as exc:
+            return "", None, f"could not enumerate active sessions: {exc}"
+
+        for sid, session in snapshot:
+            if sid == target or str(session.get("session_key") or "") == target:
+                return sid, session, ""
+
+        active_candidates = [
+            (sid, session)
+            for sid, session in snapshot
+            if isinstance(session, dict)
+        ]
+        if len(active_candidates) == 1:
+            found_sid, found_session = active_candidates[0]
+            logger = getattr(module, "logger", None)
+            if logger is not None:
+                logger.info(
+                    "aify visible session fallback: saved handle not active; using sole active session %s key=%s target=%s",
+                    found_sid,
+                    found_session.get("session_key") or "",
+                    target,
+                )
+            return found_sid, found_session, ""
+
+        active_labels = [
+            f"{sid}:{session.get('session_key') or ''}"
+            for sid, session in active_candidates
+        ]
+        return (
+            "",
+            None,
+            "visible session not found"
+            + (f"; active sessions: {', '.join(active_labels)}" if active_labels else ""),
+        )
+
+    existing_notice = methods.get("aify.session.render_notice")
+    if existing_notice is None:
+
+        def render_visible_notice(rid, params: dict) -> dict:  # type: ignore[no-untyped-def]
+            target = str(params.get("session_id") or params.get("session_key") or "").strip()
+            if not target:
+                return module._err(rid, 4006, "session_id required")
+
+            found_sid, found_session, error = resolve_visible_session(target)
+            if not found_sid or found_session is None:
+                return module._err(rid, 4010, error or "visible session not found")
+
+            transport = found_session.get("transport") or getattr(module, "_stdio_transport", None)
+            if transport is None or not hasattr(transport, "write"):
+                return module._err(rid, 5000, "visible session transport unavailable")
+
+            notice = str(params.get("notice") or "").strip()
+            status = str(params.get("status") or "").strip()
+
+            if notice:
+                transport.write(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "event",
+                        "params": {
+                            "type": "review.summary",
+                            "session_id": found_sid,
+                            "payload": {"text": notice},
+                        },
+                    }
+                )
+            if status:
+                transport.write(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "event",
+                        "params": {
+                            "type": "status.update",
+                            "session_id": found_sid,
+                            "payload": {"kind": "aify-comms", "text": status},
+                        },
+                    }
+                )
+
+            return module._ok(rid, {"session_id": found_sid, "rendered": True})
+
+        render_visible_notice._aify_plugin_patch = True  # type: ignore[attr-defined]
+        methods["aify.session.render_notice"] = render_visible_notice
+
     existing = methods.get("aify.session.bind_transport")
-    if existing is not None and getattr(existing, "_aify_plugin_patch", False):
-        return
     if existing is not None:
-        # A direct source patch from an older install is already present.
+        # A direct source patch from an older install, or this plugin from an
+        # earlier import, is already present. Keep any render_notice patch above.
         return
 
     def bind_visible_transport(rid, params: dict) -> dict:  # type: ignore[no-untyped-def]
         target = str(params.get("session_id") or params.get("session_key") or "").strip()
         if not target:
             return module._err(rid, 4006, "session_id required")
-        try:
-            snapshot = list(module._sessions.items())
-        except Exception as exc:
-            return module._err(rid, 5000, f"could not enumerate active sessions: {exc}")
-
-        found_sid = ""
-        found_session = None
-        for sid, session in snapshot:
-            if sid == target or str(session.get("session_key") or "") == target:
-                found_sid = sid
-                found_session = session
-                break
+        found_sid, found_session, error = resolve_visible_session(target)
         if not found_sid or found_session is None:
-            active_candidates = [
-                (sid, session)
-                for sid, session in snapshot
-                if isinstance(session, dict)
-            ]
-            if len(active_candidates) == 1:
-                found_sid, found_session = active_candidates[0]
-                logger = getattr(module, "logger", None)
-                if logger is not None:
-                    logger.info(
-                        "aify visible session fallback: saved handle not active; using sole active session %s key=%s target=%s",
-                        found_sid,
-                        found_session.get("session_key") or "",
-                        target,
-                    )
-            else:
-                active_labels = [
-                    f"{sid}:{session.get('session_key') or ''}"
-                    for sid, session in active_candidates
-                ]
-                return module._err(
-                    rid,
-                    4010,
-                    "visible session not found"
-                    + (
-                        f"; active sessions: {', '.join(active_labels)}"
-                        if active_labels
-                        else ""
-                    ),
-                )
+            return module._err(rid, 4010, error or "visible session not found")
 
         current_transport = getattr(module, "current_transport", None)
         bridge_transport = current_transport() if callable(current_transport) else None

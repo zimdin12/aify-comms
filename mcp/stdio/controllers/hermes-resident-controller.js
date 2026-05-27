@@ -280,6 +280,22 @@ export class HermesResidentController extends BaseController {
         const messageText = subject ? `[aify-comms wake from ${from}]\nSubject: ${subject}\n\n${body}` : `[aify-comms wake from ${from}]\n\n${body}`;
         const wireText = `${deliveryNotes}${messageText}`;
 
+        try {
+          const bodyPreview = body.length > 500 ? `${body.slice(0, 500)}...` : body;
+          const noticeLines = [
+            `[aify-comms] wake from ${from}`,
+            ...(subject ? [`Subject: ${subject}`] : []),
+            ...(bodyPreview ? ["", bodyPreview] : []),
+          ];
+          await sendRpc(proto.buildAifySessionRenderNoticeFrame({
+            sessionId: resolvedSessionId,
+            notice: noticeLines.join("\n"),
+            status: "aify-comms message received",
+          })).catch((err) => {
+            callbacks.onEvent?.("hermes", `visible notice skipped: ${err?.message || JSON.stringify(err)}`);
+          });
+        } catch {}
+
         const submitOnce = async (sid) => {
           callbacks.onEvent?.("hermes", `prompt.submit on session ${sid}`);
           await sendRpc(proto.buildPromptSubmitFrame({ sessionId: sid, text: wireText }));

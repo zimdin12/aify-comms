@@ -13,6 +13,7 @@
 //   - refuse         : prompt.submit returns 5000 error
 //   - no_visible_bind : aify.session.bind_transport is unavailable
 //   - bind_actual_key : visible bind succeeds but returns a different live session_key
+//   - require_notice : prompt.submit fails unless aify.session.render_notice ran first
 
 import { WebSocketServer } from "ws";
 
@@ -62,6 +63,7 @@ wss.on("connection", (socket, req) => {
   const send = (obj) => {
     try { socket.send(JSON.stringify(obj)); } catch { /* socket closing */ }
   };
+  let noticeSeen = false;
 
   // Mirror the real gateway's behavior of emitting an event on connect.
   // The real gateway emits gateway.ready with skin metadata.
@@ -98,6 +100,11 @@ wss.on("connection", (socket, req) => {
       send({ jsonrpc: "2.0", id: msg.id, result: { session_id: ACTIVE_SESSION_ID, session_key: sessionKey, mirrored: true } });
       return;
     }
+    if (msg.method === "aify.session.render_notice") {
+      noticeSeen = true;
+      send({ jsonrpc: "2.0", id: msg.id, result: { session_id: msg.params?.session_id || ACTIVE_SESSION_ID, rendered: true } });
+      return;
+    }
     if (msg.method === "session.create") {
       // Mirror tui_gateway/server.py:2237 session.create: allocate a fresh
       // in-memory session. Used as fallback when resume can't find the key.
@@ -110,6 +117,10 @@ wss.on("connection", (socket, req) => {
       return;
     }
     if (msg.method === "prompt.submit") {
+      if (SCRIPT === "require_notice" && !noticeSeen) {
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: 4998, message: "notice not rendered before prompt.submit" } });
+        return;
+      }
       if (SCRIPT === "busy") {
         send({ jsonrpc: "2.0", id: msg.id, error: { code: 4009, message: "session busy" } });
         return;

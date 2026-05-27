@@ -64,6 +64,58 @@ class HermesAifyPluginTests(unittest.TestCase):
         self.assertIs(session["transport"].primary, primary_transport)
         self.assertIs(session["transport"].bridge, bridge_transport)
 
+    def test_gateway_patch_registers_visible_render_notice_method(self) -> None:
+        from aify_hermes_plugin.patches import patch_gateway_server
+
+        writes: list[dict] = []
+
+        class FakeTransport:
+            def write(self, obj):
+                writes.append(obj)
+                return True
+
+        session = {
+            "session_key": "visible-key",
+            "transport": FakeTransport(),
+            "running": False,
+        }
+        module = types.SimpleNamespace(
+            _methods={},
+            _sessions={"visible-sid": session},
+            _stdio_transport=FakeTransport(),
+            current_transport=lambda: None,
+            _ok=lambda rid, result: {"id": rid, "result": result},
+            _err=lambda rid, code, msg: {
+                "id": rid,
+                "error": {"code": code, "message": msg},
+            },
+            logger=types.SimpleNamespace(info=lambda *args, **kwargs: None),
+        )
+
+        patch_gateway_server(module)
+
+        self.assertIn("aify.session.render_notice", module._methods)
+        response = module._methods["aify.session.render_notice"](
+            "2",
+            {
+                "session_id": "visible-key",
+                "notice": "aify-comms wake from sc-hermes-test-2",
+                "status": "aify-comms message received",
+            },
+        )
+
+        self.assertEqual(response["result"]["session_id"], "visible-sid")
+        event_types = [w.get("params", {}).get("type") for w in writes]
+        self.assertEqual(event_types, ["review.summary", "status.update"])
+        self.assertEqual(
+            writes[0]["params"]["payload"]["text"],
+            "aify-comms wake from sc-hermes-test-2",
+        )
+        self.assertEqual(
+            writes[1]["params"]["payload"],
+            {"kind": "aify-comms", "text": "aify-comms message received"},
+        )
+
     def test_gateway_patch_discovers_mcp_before_tui_agent_build(self) -> None:
         from aify_hermes_plugin.patches import patch_gateway_server
 

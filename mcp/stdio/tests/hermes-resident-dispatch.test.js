@@ -174,6 +174,24 @@ test("resident hermes dispatch resolves on real tui_gateway event envelopes", as
   assert.match(frames.map((f) => f.text).join(""), /hello from hermes/);
 });
 
+test("resident hermes renders a visible aify notice before prompt.submit", async (t) => {
+  const { url, token } = await startFake(t, { script: "require_notice" });
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-visible-notice",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "operator-sid-42" }),
+    run: makeRun({ id: "run_h_visible_notice" }),
+    runtimeState: {},
+    callbacks: { onEvent: () => {}, onRefs: () => {} },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected visible notice before prompt.submit: ${result.error || ""}`);
+  assert.equal(result.status, "completed");
+});
+
 test("resident hermes wake prompt tells Hermes final text is the comms reply", async (t) => {
   const { url, token } = await startFake(t, { script: "echo_prompt" });
   const wsUrl = attachUrl(url, token);

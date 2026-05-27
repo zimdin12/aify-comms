@@ -76,6 +76,24 @@ export function buildAifySessionBindTransportFrame({ id, sessionKey }) {
   };
 }
 
+// aify-comms Hermes gateway extension: ask the visible TUI to render a small
+// transcript/status notice before an externally injected prompt starts. Hermes'
+// native local-submit path appends the user message in the frontend before
+// prompt.submit; bridge-injected prompts need an equivalent render hint or the
+// operator sees no activity until the final transcript refresh.
+export function buildAifySessionRenderNoticeFrame({ id, sessionId, notice, status = "" }) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "aify.session.render_notice",
+    params: {
+      session_id: String(sessionId || ""),
+      notice: String(notice || ""),
+      status: String(status || ""),
+    },
+  };
+}
+
 // Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
 // because the persisted key has been GC'd (or never existed), session.create
 // allocates a BRAND NEW session in hermes' DB + in-memory _sessions. Always

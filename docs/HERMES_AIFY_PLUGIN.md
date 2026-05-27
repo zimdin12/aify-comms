@@ -11,6 +11,12 @@ logic under `%LOCALAPPDATA%\hermes\hermes-agent`.
 - `tui_gateway.server`: registers `aify.session.bind_transport`, which binds
   the bridge WebSocket to the already-visible TUI session before
   `prompt.submit` / `session.steer`.
+- `tui_gateway.server`: registers `aify.session.render_notice`, which asks the
+  visible TUI to render an `[aify-comms] wake from ...` transcript line and
+  status update before an externally injected prompt starts. Hermes' local
+  submit path paints the user message in the frontend before `prompt.submit`;
+  bridge-injected prompts need this extra render hint so the console visibly
+  moves as soon as a message is received.
 - `hermes_cli.main`: preserves the wrapper-provided
   `HERMES_TUI_ACTIVE_SESSION_FILE` so the bridge can discover the visible
   session written by the TUI.
