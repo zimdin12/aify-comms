@@ -22,7 +22,7 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The OMP resident wrapper install is disabled by default; managed Pi delivery does not need an MCP config inside OMP because the environment bridge drives plain `omp --mode rpc` directly.
+On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://192.168.100.10:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The OMP resident wrapper install is disabled by default; managed Pi delivery does not need an MCP config inside OMP because the environment bridge drives plain `omp --mode rpc` directly.
 
 ## Pi Wrapper Sessions
 

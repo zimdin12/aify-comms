@@ -10,7 +10,7 @@ Remove only the parts you actually want gone.
 
 ## Stop Host Bridges
 
-Linux/WSL:
+Linux/macOS/WSL:
 
 ```bash
 pkill -f '/mcp/stdio/server.js' || true

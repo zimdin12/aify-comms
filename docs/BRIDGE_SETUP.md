@@ -1,6 +1,6 @@
 # Environment Bridge Setup
 
-The service container is the control plane. It stores messages, environments, spawn requests, sessions, and dashboard state. It does not directly launch native Windows, WSL, Linux, or remote processes.
+The service container is the control plane. It stores messages, environments, spawn requests, sessions, and dashboard state. It does not directly launch native Windows, WSL, Linux, macOS, or remote processes.
 
 An environment bridge is a host-side `mcp/stdio/server.js` process. It heartbeats an environment, advertises workspace roots and runtimes, claims spawn requests for that environment, and runs Codex/Claude/OpenCode/Pi work on that host.
 
@@ -29,7 +29,7 @@ Running `install.sh` now installs an `aify-comms` launcher into `~/.local/bin`. 
 
 Installed files:
 
-- Linux/WSL/Git Bash: `~/.local/bin/aify-comms`
+- Linux/macOS/WSL/Git Bash: `~/.local/bin/aify-comms`
 - Native Windows PowerShell/cmd after Git Bash install: `%USERPROFILE%\.local\bin\aify-comms.cmd`
 
 Basic usage:
@@ -51,7 +51,7 @@ Run this once in each environment you want the dashboard to control:
 
 - native Windows PowerShell/cmd/Git Bash for native Windows agents and `C:/...` workspaces
 - WSL for WSL agents and `/mnt/...` or Linux workspaces
-- Linux host or remote Linux shell for Linux agents
+- Linux/macOS host or remote shell for Unix agents
 
 Leave the process running while you use the dashboard. Stop it with `Ctrl+C`.
 
@@ -65,9 +65,9 @@ Killing a bridge stops the execution target, not the agent identity. Managed age
 
 Forgetting an environment hides that execution target from normal dashboard lists. It does not delete agent identities, chats, saved spawn specs, or session records. A forgotten environment can reappear if its bridge starts heartbeating again.
 
-## Linux Or WSL Bridge
+## Linux, macOS, Or WSL Bridge
 
-Use this when the runtime CLIs and target workspaces live in Linux or WSL.
+Use this when the runtime CLIs and target workspaces live in Linux, macOS, or WSL.
 
 ```bash
 cd /path/to/aify-comms
@@ -151,7 +151,7 @@ aify-comms.cmd C:\Docker C:\Users\$env:USERNAME\work
 
 ## Service URL Rules
 
-- Same host Linux/WSL/browser to service: usually `http://192.168.100.10:8800`.
+- Same host Linux/macOS/WSL/browser to service: usually `http://192.168.100.10:8800`.
 - Native Windows bridge to a service running in Windows Docker Desktop: usually `http://192.168.100.10:8800`.
 - Bridge in a container reaching a host service: often `http://host.docker.internal:8800`.
 - Remote machine bridge: use the LAN/VPN URL for the service, for example `http://10.0.0.20:8800`.
@@ -194,10 +194,10 @@ Dashboard/service (:8800)
   |  chats, agents, sessions, runs, artifacts
   v
 aify-comms environment bridge
-  |  claims managed spawn/run work for one host/WSL/Windows environment
+  |  claims managed spawn/run work for one host/runtime environment
   v
 Runtime adapter
-  |  Claude Code / Codex / OpenCode / Oh My Pi in a selected workspace
+  |  Claude Code / Codex / Hermes / OpenCode / Oh My Pi in a selected workspace
   v
 Agent session
 ```

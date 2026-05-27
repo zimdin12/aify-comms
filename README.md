@@ -128,12 +128,12 @@ After an update, rerun the relevant install command and restart both the CLI cli
 
 ## Connect Environments
 
-Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, Docker, or a remote machine.
+Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine.
 
-See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for Linux/WSL and native Windows bridge commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
+See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for Linux/macOS/WSL and native Windows bridge commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
 See [install.hermes.md](install.hermes.md) for the quick Hermes install path and [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for Hermes-specific MCP, hook, and PTY behavior.
 
-Short version for Linux/WSL:
+Short version for Linux/macOS/WSL:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
@@ -147,7 +147,7 @@ cd C:\path\to\workspace-or-workspace-parent
 aify-comms.cmd
 ```
 
-The service URL defaults to `http://192.168.100.10:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
+The service URL defaults to `http://192.168.100.10:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms ~/work`, `aify-comms /mnt/c/Docker`, or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
 Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. Runtime Settings also expose the delivery policy toggles that used to be API-only: manual resident/managed switch visibility, managed terminal backing, eager managed PTY spawn, wrapper-backed runtime list, and legacy console injection. The normal dashboard treats model, effort, and delivery policy as global runtime policy, not per-agent tuning.
 

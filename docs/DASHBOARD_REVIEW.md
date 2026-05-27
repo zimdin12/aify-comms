@@ -22,7 +22,7 @@ This dashboard is now treated as the product surface, not as a raw admin page.
 - **Home**: operational stats, communication/failure/handoff/capacity signals, and "needs attention". It should not host duplicate send/spawn forms.
 - **Chat**: normal communication surface for DMs and channels. The selected **Viewing as** identity controls which messages are marked read, who sends, and which DM can be cleared.
 - **Identity Directory**: on-demand directory of managed identities plus manual/resident CLI rows. Managed identities may have saved resume state without a currently running process.
-- **Environments**: connected host/WSL/Windows/Linux bridges and the managed-warm spawn form.
+- **Environments**: connected Windows, WSL, Linux, macOS, Docker, or remote bridges and the managed-warm spawn form.
 - **Spawn Requests**: active spawn requests and failures. Successful `running` spawn requests are historical "started" records, not active work, and should be hidden by default.
 - **Sessions**: concrete runtime/session backing records grouped under Environments. Stop/restart/continue belongs here when a real managed session exists. Ended/completed/cancelled rows are hidden by default and shown only through the debug-history toggle.
 - **Runs**: execution/delivery audit records, handoff state, events, steering, and interrupts.

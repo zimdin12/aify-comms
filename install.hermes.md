@@ -48,9 +48,10 @@ cd /path/to/workspace-or-workspace-parent
 aify-comms http://192.168.100.10:8800
 ```
 
-On native Windows from PowerShell/cmd use `aify-comms.cmd`. The current
-directory is always an allowed workspace root; extra root arguments are optional
-safety boundaries, not the per-agent project choice.
+On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd
+use `aify-comms.cmd`. The current directory is always an allowed workspace root;
+extra root arguments are optional safety boundaries, not the per-agent project
+choice.
 
 If the dashboard says Hermes is unavailable even though `hermes-aify` exists,
 check the underlying runtime command from the same Windows user/shell that runs

@@ -39,6 +39,24 @@ for client in claude codex hermes; do
   fi
 done
 
+client_runtime_available() {
+  local client="$1"
+  case "$client" in
+    claude)
+      command -v claude >/dev/null 2>&1
+      ;;
+    codex)
+      command -v codex >/dev/null 2>&1
+      ;;
+    hermes)
+      [ -n "${AIFY_HERMES_COMMAND:-${HERMES_COMMAND:-}}" ] || command -v hermes >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if [ ${#CLIENTS[@]} -eq 0 ]; then
   echo "redeploy.sh: no *-aify wrappers detected in $WRAPPERS_DIR"
   exit 0
@@ -48,11 +66,19 @@ echo "redeploy.sh: detected wrappers: ${CLIENTS[*]}"
 echo "redeploy.sh: server URL: $SERVER_URL"
 
 FAILED=()
+SKIPPED=()
+REFRESHED=0
 for client in "${CLIENTS[@]}"; do
   echo
+  if ! client_runtime_available "$client"; then
+    echo "redeploy.sh: skipping $client; runtime command is not available in this shell"
+    SKIPPED+=("$client")
+    continue
+  fi
   echo "redeploy.sh: refreshing $client..."
   if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL"; then
     echo "redeploy.sh: $client refreshed"
+    REFRESHED=$((REFRESHED + 1))
   else
     echo "redeploy.sh: install.sh failed for $client" >&2
     FAILED+=("$client")
@@ -65,6 +91,9 @@ if [ ${#FAILED[@]} -gt 0 ]; then
   exit 1
 fi
 
-echo "redeploy.sh: all wrappers refreshed (${#CLIENTS[@]})."
+echo "redeploy.sh: wrappers refreshed: $REFRESHED"
+if [ ${#SKIPPED[@]} -gt 0 ]; then
+  echo "redeploy.sh: skipped unavailable runtimes: ${SKIPPED[*]}"
+fi
 echo
 echo "Reminder: restart any open *-aify sessions to pick up the new wrappers."

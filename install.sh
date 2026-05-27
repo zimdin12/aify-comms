@@ -2955,7 +2955,7 @@ fi
 echo ""
 echo "=== Installation complete ==="
 echo "Environment bridge launcher installed: aify-comms"
-echo "  Run it on each host/WSL environment you want visible in the dashboard."
+echo "  Run it on each host/runtime environment you want visible in the dashboard."
 echo "  Default:  aify-comms"
 echo "  Extra root: aify-comms /path/to/extra/root"
 echo "  Remote service: aify-comms http://host:8800 /path/to/extra/root"

@@ -1501,7 +1501,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         <div>
           <section class="instruction-panel active" data-instruction-panel="overview">
       <h3>What is this?</h3>
-      <p>This is the <b>aify-comms</b> control plane: a dashboard for connected Windows, WSL, Linux, Docker, and remote bridges. Use it to spawn managed agents into chosen workspaces, chat with them, inspect runs, stop/restart sessions, and keep old manual CLI bindings visible only when they matter.</p>
+      <p>This is the <b>aify-comms</b> control plane: a dashboard for connected Windows, WSL, Linux, macOS, Docker, and remote bridges. Use it to spawn managed agents into chosen workspaces, chat with them, inspect runs, stop/restart sessions, and keep old manual CLI bindings visible only when they matter.</p>
 
       <div class="guide-flow">Dashboard / MCP service (:8800)
         |
@@ -1509,9 +1509,9 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         v
 Environment bridge: aify-comms
         |
-        | claims managed work for one host/WSL/Windows environment
+        | claims managed work for one host/runtime environment
         v
-Runtime adapter: Claude Code / Codex / OpenCode / Pi
+Runtime adapter: Claude Code / Codex / Hermes / OpenCode / Pi
         |
         v
 Agent session in a specific workspace</div>
@@ -1523,7 +1523,7 @@ Agent session in a specific workspace</div>
         </div>
         <div class="guide-card">
           <h4>Resident Mode</h4>
-          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, <code>omp-aify</code> / <code>pi-aify</code>, or explicit OpenCode registration when a terminal you opened should temporarily own the live session.</p>
+          <p>Use <code>claude-aify</code>, <code>codex-aify</code>, or <code>hermes-aify</code> when a terminal you opened should temporarily own the live session. Pi and OpenCode remain managed/debug paths until they have a validated multi-client resident surface.</p>
         </div>
         <div class="guide-card">
           <h4>Debug Path</h4>
@@ -1558,18 +1558,19 @@ bash install.sh --client codex http://192.168.100.10:8800 --with-hook</pre>
         </div>
         <div class="guide-card">
           <h4>OpenCode</h4>
-          <pre>cd /path/to/aify-comms
-bash install.sh --client opencode http://192.168.100.10:8800</pre>
-      <p><b>Oh My Pi / Pi:</b></p>
-      <pre>bash install.sh --client pi http://192.168.100.10:8800</pre>
+          <p>Wrapper/config install is intentionally disabled until OpenCode gets focused validation. Use a normal <code>aify-comms</code> environment bridge for future managed testing.</p>
+        </div>
+        <div class="guide-card">
+          <h4>Oh My Pi / Pi</h4>
+          <p>Wrapper install is intentionally disabled. Managed Pi uses the environment bridge's persistent <code>omp --mode rpc</code> child, not <code>omp-aify</code>.</p>
         </div>
       </div>
       <h3>Run Managed Mode</h3>
       <p>Managed mode is the normal team workflow. Run an environment bridge in every execution environment you want the dashboard to use, then spawn agents from <b>Environments</b> or the <b>Sessions</b> header.</p>
       <pre>cd /path/to/workspace-or-workspace-parent
 aify-comms</pre>
-      <p>On native Windows PowerShell/cmd, run <code>aify-comms.cmd</code>. The service URL defaults to <code>http://192.168.100.10:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
-      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/WSL/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
+      <p>On Linux, macOS, or WSL use <code>aify-comms</code>. On native Windows PowerShell/cmd, use <code>aify-comms.cmd</code>. The service URL defaults to <code>http://192.168.100.10:8800</code>. The current directory is always an allowed workspace root; extra root arguments are optional safety boundaries. The actual project folder is selected per spawned agent in Environments → Spawn Agent.</p>
+      <div class="instruction-callout"><p><b>Rule of thumb:</b> run one <code>aify-comms</code> bridge per host/runtime environment you want the dashboard to control. Keep it open while managed agents are working. Closing it makes those managed agents offline until the bridge returns or you assign them to another environment.</p></div>
       <h3>Run Resident Mode</h3>
       <p>Resident mode is for a real terminal session you want to watch or drive directly. Start the runtime through the wrapper and bind it to an agent ID. The wrapper auto-registers that live owner; if you omit <code>--aify-agent</code>, register manually from inside the session.</p>
       <div class="guide-grid">
@@ -1596,7 +1597,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         </div>
         <div class="guide-card">
           <h4>Resident CLI</h4>
-          <p>A terminal session you opened yourself through <code>claude-aify</code>, <code>codex-aify</code>, or <code>omp-aify</code> / <code>pi-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
+          <p>A terminal session you opened yourself through <code>claude-aify</code>, <code>codex-aify</code>, or <code>hermes-aify</code>. It can receive live wakeups. If the live bridge is still polling, dashboard Stop asks it to terminate the host CLI/app process; otherwise Stop only disables wake in the control plane.</p>
         </div>
         <div class="guide-card">
           <h4>Session</h4>
@@ -1633,7 +1634,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </div>
       <p>Adoption creates managed backing for future dashboard work. Ownership changes are manual: resident registrations record bridge metadata, but they do not silently take over managed delivery, and stale resident bridges do not silently switch back to managed. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
-      <p>Pi CLI note: for resident live wakeups, start Oh My Pi through <code>omp-aify</code> or <code>pi-aify</code>. Resume a known Pi session when you need resident dispatch to target the same native session handle.</p>
+      <p>Pi CLI note: triggerable Pi delivery is managed through the environment bridge's persistent <code>omp --mode rpc</code> child. Legacy <code>omp-aify</code>/<code>pi-aify</code> presence wrappers are not installed by default because OMP is single-client.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
@@ -3293,7 +3294,7 @@ function runtimeAttachNote(session) {
     return 'Headless managed Codex uses the bridge app-server and managed CODEX_HOME. Resume by ID with the generated command when a resume ID is recorded.';
   }
   if (runtime === 'pi') {
-    return 'Managed Pi uses OMP RPC. When a resume ID is recorded, open the same context with the generated omp-aify / pi-aify command; Pause for CLI first, then Restart to return dashboard control.';
+    return 'Managed Pi uses OMP RPC through the environment bridge. Resident omp-aify/pi-aify wrapper install is disabled by default because OMP is single-client; use dashboard-managed Console for triggerable delivery.';
   }
   return 'This managed backing is recoverable from the dashboard, but it is not advertised as attachable in the official CLI.';
 }
@@ -4490,7 +4491,9 @@ function environmentStartCommand(env) {
     const args = extras.map(quote).join(' ');
     return `${cd}\naify-comms.cmd${args ? ' ' + args : ''}`;
   }
-  const cd = firstRoot ? `cd ${quote(firstRoot)}` : 'cd /mnt/c/Docker';
+  const cd = firstRoot
+    ? `cd ${quote(firstRoot)}`
+    : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
   const args = extras.map(quote).join(' ');
   return `${cd}\naify-comms${args ? ' ' + args : ''}`;
 }
@@ -4525,29 +4528,29 @@ function sessionResumeCommand(session, agentInfo = {}) {
   const osText = String(environment.os || environment.kind || session.environmentId || '').toLowerCase();
   const workspace = session.workspace || agentInfo.cwd || '';
   const windows = osText.includes('win') || /^[A-Za-z]:[\\/]/.test(workspace);
+  const prefix = (command) => {
+    if (!workspace) return command;
+    return windows ? `cd /d ${quoteCmd(workspace)}\n${command}` : `cd ${quoteShell(workspace)}\n${command}`;
+  };
   const agentFlag = session.agentId ? ` --aify-agent ${windows ? quoteCmd(session.agentId) : quoteShell(session.agentId)}` : '';
   if (runtime === 'claude-code') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nclaude-aify.cmd${agentFlag} --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nclaude-aify${agentFlag} --dangerously-skip-permissions --resume ${quoteShell(handle)}`;
+    return prefix(windows
+      ? `claude-aify.cmd${agentFlag} --dangerously-skip-permissions --resume ${quoteCmd(handle)}`
+      : `claude-aify${agentFlag} --dangerously-skip-permissions --resume ${quoteShell(handle)}`);
   }
   if (runtime === 'codex') {
     const envPrefix = windows
       ? `set "CODEX_HOME=%USERPROFILE%\\.local\\state\\aify-comms\\managed-codex-home" && set "AIFY_RUNTIME=codex" && set "AIFY_AGENT_ID=${quoteCmd(session.agentId || '')}" && set "AIFY_SESSION_HANDLE=${quoteCmd(handle)}" && set "CODEX_THREAD_ID=${quoteCmd(handle)}" && `
       : `AIFY_RUNTIME=codex AIFY_AGENT_ID=${quoteShell(session.agentId || '')} AIFY_SESSION_HANDLE=${quoteShell(handle)} CODEX_THREAD_ID=${quoteShell(handle)} CODEX_HOME="$HOME/.local/state/aify-comms/managed-codex-home" `;
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\n${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\n${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteShell(handle)}`;
+    return prefix(windows
+      ? `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteCmd(handle)}`
+      : `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteShell(handle)}`);
   }
   if (runtime === 'opencode') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nopencode`
-      : `cd ${quoteShell(workspace)}\nopencode`;
+    return prefix('opencode');
   }
   if (runtime === 'pi') {
-    return windows
-      ? `cd /d ${quoteCmd(workspace)}\nomp-aify.cmd${agentFlag} --resume ${quoteCmd(handle)}`
-      : `cd ${quoteShell(workspace)}\nomp-aify${agentFlag} --resume ${quoteShell(handle)}`;
+    return '';
   }
   return '';
 }

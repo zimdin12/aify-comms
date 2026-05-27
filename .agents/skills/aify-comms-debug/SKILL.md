@@ -430,7 +430,7 @@ After opening the native CLI, re-register from that same session with the same `
 
 ## Managed spawned agent workspace is stored as `\home\dev\...`
 
-**Symptom.** A Linux/WSL managed spawn shows a workspace like `\home\dev\projects\repo` instead of `/home/dev/projects/repo`.
+**Symptom.** A Linux/macOS/WSL managed spawn shows a workspace like `\home\dev\projects\repo` instead of `/home/dev/projects/repo`.
 
 **Cause.** Older service builds normalized slash style for root validation but persisted the original requested workspace string into spawn/session records.
 
