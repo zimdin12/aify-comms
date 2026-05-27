@@ -80,9 +80,9 @@ Analytics should answer "what happened in this window?" rather than only all-tim
 Settings should be grouped so the page does not become a long maintenance form:
 
 - **Appearance**: dashboard title/brand and accent color scheme. Default title is `AIFY Comms`.
-- **Runtime**: global managed runtime model and effort policy. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
+- **Runtime**: global managed runtime model and effort policy plus delivery toggles for manual resident/managed switching, managed terminal backing, eager wrapper spawn, wrapper-backed runtime list, and legacy console injection. These are operator defaults, not per-agent knobs in normal spawn/agent edit flows.
 - **Work Loop**: reply-contract reminders and history windows.
-- **Maintenance**: retention, shared file limits, refresh cadence, idle/offline thresholds, and rotation.
+- **Maintenance**: retention, shared file limits, refresh cadence, agent idle/offline thresholds, environment offline threshold, active-run stale cleanup windows, resident bridge lease, and rotation.
 
 Every non-obvious setting should include a short hint that states the default and the operational effect.
 

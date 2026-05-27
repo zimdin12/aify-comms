@@ -149,7 +149,7 @@ aify-comms.cmd
 
 The service URL defaults to `http://192.168.100.10:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms /mnt/c/Docker` or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. The normal dashboard treats model and effort as global runtime policy, not per-agent tuning.
+Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. Runtime Settings also expose the delivery policy toggles that used to be API-only: manual resident/managed switch visibility, managed terminal backing, eager managed PTY spawn, wrapper-backed runtime list, and legacy console injection. The normal dashboard treats model, effort, and delivery policy as global runtime policy, not per-agent tuning.
 
 ## Design Rule
 

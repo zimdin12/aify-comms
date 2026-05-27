@@ -125,13 +125,13 @@ DEFAULT_SETTINGS = {
     "reply_reminder_max_count": 0,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
-    # Tighter window for managed dispatches (non-terminal). Default 5 min.
+    # Tighter cleanup window for managed dispatches. Default 5 min.
     # A managed run with an empty claim_bridge_id that hasn't progressed
     # within this window is presumed orphaned — the bridge crashed
     # between claim and the controller's failure-PATCH, OR the failure
     # PATCH hit a transient connection error and was logged-but-lost.
-    # Tuned tighter than the 30-min terminal window because managed
-    # dispatches are typically per-turn and shouldn't linger.
+    # Tuned tighter than the 30-min generic terminal window because
+    # managed dispatches are typically per-turn and shouldn't linger.
     "active_managed_run_stale_minutes": 5,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
@@ -170,9 +170,9 @@ DEFAULT_SETTINGS = {
     # first dispatch arrives, no "console pop-up on first send" UI
     # symptom, and subsequent dispatches reuse via slice-3's
     # console-attach reuse + the existing dispatch _active_terminal_for_agent.
-    # Default false so existing behavior (PTY lazily on first dispatch)
-    # is unchanged. Operator flips on for live-smoke; immediate
-    # rollback by flipping back to false.
+    # Default true for normal dashboard operation: terminal-backed managed
+    # agents should have an operator-visible Console before the first turn
+    # needs it. Roll back by flipping this false.
     "managed_pty_eager_spawn": True,                    # Plan 4 (2026-05-25): auto-spawn on dispatch; was False
     # Unified-backing refactor (2026-05-24): when set, managed dispatches for
     # the listed runtimes route through a *-aify wrapper PTY (mirror of how
@@ -182,14 +182,14 @@ DEFAULT_SETTINGS = {
     # in-process MCP bridge claims /dispatch/claim and delivers via the
     # wrapper's local backing. Dashboard Session Console renders the real
     # Ink TUI of the wrapper via xterm.js.
-    #   false (default): existing managed dispatch flow.
+    #   false: existing native managed dispatch flow.
     #   true: eligible codex / hermes managed runs route via wrapper.
     #   ["hermes", "codex"]: per-runtime opt-in during rollout.
     # claude-code is always wrapper-backed (claude-channel.js); not gated.
     # pi is structurally excluded (omp single-client RPC + bridge-owned
     # mutex make the wrapper pattern impossible). pi managed stays on
     # the persistent PiSession synth-terminal path. See DECISIONS.md.
-    "managed_via_wrapper": ["codex", "hermes"],  # Plan 4 (2026-05-25): wrapper-backed default; was False
+    "managed_via_wrapper": ["codex", "hermes"],  # wrapper-backed default for Codex/Hermes; was False
     # Auto-close persistent workers (virtual rpc terminals) that have
     # been idle for this many minutes. 0 disables (default). Operator
     # asked for this 2026-05-22: after sending a message the agent
@@ -205,15 +205,10 @@ DEFAULT_SETTINGS = {
     "managed_pi_model": "",
     "managed_pi_effort": "",
     "resident_lease_seconds": 150,
-    # Plan 6 C3 (2026-05-26): when false (default), the dashboard hides the
-    # resident<->managed switch chips and today's TTY auto-detect in the
-    # *-aify wrappers stays the source of truth. When true, dashboards
-    # expose the chips (Details panel + per-session action menu) and the
-    # operator can flip an agent's session_mode mid-life via PATCH
-    # /api/v1/agents/{id}/session-mode (Plan 6 C1). The wrapper still
-    # auto-detects at launch; this only governs UI visibility of the
-    # override controls.
-    "manual_session_mode": False,
+    # Show dashboard controls for explicit resident<->managed ownership
+    # switches. The wrappers still auto-detect at launch; this governs only
+    # visibility of the manual override controls.
+    "manual_session_mode": True,
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",

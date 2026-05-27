@@ -1,9 +1,8 @@
 """Plan 6 C3 (2026-05-26) — `manual_session_mode` setting.
 
-Default `false`: dashboard hides resident<->managed switch chips (today's
-TTY auto-detect behavior continues).
-When `true`: dashboard exposes the switch chips so the operator can flip
-an agent's session_mode mid-life via the Plan 6 C1 PATCH endpoint.
+Default `true`: dashboard exposes resident<->managed switch actions so the
+operator can flip an agent's session_mode mid-life via the Plan 6 C1 PATCH
+endpoint. When `false`, dashboard hides those manual override controls.
 
 This is a server-side setting, mirrored into the get/put settings
 round-trip plumbing in api_v2.py.
@@ -28,12 +27,12 @@ class _DummyWS:
 
 
 class ManualSessionModeSettingTests(unittest.TestCase):
-    def test_default_settings_includes_manual_session_mode_false(self):
+    def test_default_settings_includes_manual_session_mode_true(self):
         self.assertIn("manual_session_mode", DEFAULT_SETTINGS,
                       "Plan 6 C3: DEFAULT_SETTINGS must declare manual_session_mode")
-        self.assertIs(DEFAULT_SETTINGS["manual_session_mode"], False,
-                      "Plan 6 C3: manual_session_mode must default to False so today's "
-                      "TTY auto-detect remains the default behavior")
+        self.assertIs(DEFAULT_SETTINGS["manual_session_mode"], True,
+                      "Plan 6 C3: manual_session_mode must default to True so explicit "
+                      "resident/managed ownership controls are visible by default")
 
     def test_get_settings_includes_manual_session_mode(self):
         tmpdir = tempfile.TemporaryDirectory()
@@ -52,7 +51,7 @@ class ManualSessionModeSettingTests(unittest.TestCase):
                 body = res.json()
                 self.assertIn("manual_session_mode", body,
                               "Plan 6 C3: GET /settings must surface manual_session_mode")
-                self.assertEqual(body["manual_session_mode"], False)
+                self.assertEqual(body["manual_session_mode"], True)
             finally:
                 client.close()
         finally:
@@ -70,14 +69,14 @@ class ManualSessionModeSettingTests(unittest.TestCase):
             app.include_router(router, prefix="/api/v1")
             client = TestClient(app)
             try:
-                res = client.put("/api/v1/settings", json={"manual_session_mode": True})
+                res = client.put("/api/v1/settings", json={"manual_session_mode": False})
                 self.assertEqual(res.status_code, 200, res.text)
                 body = res.json()
-                self.assertEqual(body.get("manual_session_mode"), True,
-                                 "Plan 6 C3: PUT /settings must round-trip manual_session_mode=True")
+                self.assertEqual(body.get("manual_session_mode"), False,
+                                 "Plan 6 C3: PUT /settings must round-trip manual_session_mode=False")
                 # Re-read to confirm persistence.
                 res2 = client.get("/api/v1/settings")
-                self.assertEqual(res2.json().get("manual_session_mode"), True)
+                self.assertEqual(res2.json().get("manual_session_mode"), False)
             finally:
                 client.close()
         finally:

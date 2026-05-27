@@ -69,7 +69,7 @@ bash install.sh --client claude http://192.168.100.10:8800 --with-hook
 
 After either install/update, restart the relevant CLI wrapper/client and any long-running `aify-comms` environment bridge so both resident sessions and managed environment spawns load the updated skills and bridge code.
 
-Dashboard operators can tune appearance and operations separately. Dashboard **Settings -> Appearance** controls the browser title/brand plus primary, secondary, and tertiary palette colors; preset tiles only load those picker values until saved. **Settings -> Runtime** controls global managed runtime model and effort policy. Home issue muting is dashboard-local: muted live/session/handoff notices stay visible as yellow context but stop counting as red active issues.
+Dashboard operators can tune appearance and operations separately. Dashboard **Settings -> Appearance** controls the browser title/brand plus primary, secondary, and tertiary palette colors; preset tiles only load those picker values until saved. **Settings -> Runtime** controls global managed runtime model/effort policy and delivery toggles such as manual resident/managed switch visibility, managed terminal backing, eager wrapper spawn, wrapper-backed runtime list, and legacy console injection. **Settings -> Maintenance** controls retention, refresh, presence thresholds, environment offline threshold, active-run stale cleanup, resident bridge lease, and worker auto-close. Home issue muting is dashboard-local: muted live/session/handoff notices stay visible as yellow context but stop counting as red active issues.
 
 The installer copies the Codex skills from:
 

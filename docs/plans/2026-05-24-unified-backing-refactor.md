@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js stdio bridge (mcp/stdio/server.js + runtimes.js + TerminalProcessManager), FastAPI service (api_v2.py), node-pty, existing `*-aify` wrappers.
 
-**Feature flag:** `managed_via_wrapper` setting in service (off by default). Per-runtime opt-in: setting can be `false` (current), `true` (all runtimes via wrapper), or `["hermes", "codex"]` (subset). Phase-by-phase rollout — flip per runtime as each phase validates.
+**Current default after rollout:** `managed_via_wrapper=["codex","hermes"]`. The historical plan started with this off by default; the setting still accepts `false`, `true` for all eligible runtimes, or a runtime list such as `["hermes", "codex"]`. Pi remains excluded because OMP is single-client and uses managed RPC instead.
 
 ---
 

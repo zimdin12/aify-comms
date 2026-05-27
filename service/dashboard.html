@@ -1663,7 +1663,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       </ul>
 
       <h3>Dashboard Settings</h3>
-      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; busy or blocked turns are deferred so reminders do not inject text into an agent that is already handling work, and a due reminder is retried when that agent returns idle. Reminder notices do not create new reply debt. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model and effort policy; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
+      <p>Settings cover appearance, runtime policy, Work Loop reminders, and maintenance. Recent due reply reminders are sent by the periodic service loop; busy or blocked turns are deferred so reminders do not inject text into an agent that is already handling work, and a due reminder is retried when that agent returns idle. Reminder notices do not create new reply debt. Reminders can also be previewed or sent manually from Work Loop. The <b>Runtime</b> tab controls global managed runtime model/effort policy and delivery toggles; normal spawn and identity-edit forms do not tune model/effort per agent. Oh My Pi uses its own defaults unless Runtime settings or runtime config supplies model/effort.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="reference">
@@ -1812,6 +1812,26 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <select id="s-rotation"><option value="true">Enabled</option><option value="false">Disabled</option></select>
         <div class="hint">When enabled, rotation expires old messages/files and marks stale agents using the settings above.</div>
       </div>
+      <div class="form-group">
+        <label>Environment offline threshold (seconds)</label>
+        <input type="number" id="s-env-offline" min="30" max="3600">
+        <div class="hint">An environment bridge is treated as offline when its heartbeat is older than this. Default: 90</div>
+      </div>
+      <div class="form-group">
+        <label>Terminal run stale cleanup (minutes)</label>
+        <input type="number" id="s-active-run-stale" min="5" max="240">
+        <div class="hint">Cleanup window for terminal-backed active runs that stopped reporting progress. Default: 30</div>
+      </div>
+      <div class="form-group">
+        <label>Managed run stale cleanup (minutes)</label>
+        <input type="number" id="s-active-managed-stale" min="1" max="120">
+        <div class="hint">Cleanup window for managed runs whose bridge claim or failure update was lost. Default: 5</div>
+      </div>
+      <div class="form-group">
+        <label>Resident bridge lease (seconds)</label>
+        <input type="number" id="s-resident-lease" min="30" max="3600">
+        <div class="hint">How long a resident wrapper heartbeat remains fresh for live wake decisions. Default: 150</div>
+      </div>
           </section>
           <section class="settings-panel" data-settings-panel="runtime">
       <h3>Managed Runtime Policy</h3>
@@ -1829,6 +1849,31 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
         <label>Claude dev-channel auto-confirm</label>
         <select id="s-claude-auto-confirm"><option value="false">Off — operator confirms in Console</option><option value="true">On — send Enter automatically</option></select>
         <div class="hint">Controls the one startup Enter used to accept Claude Code development-channel prompts for managed Claude PTY turns. Leave off to prevent surprise Console input.</div>
+      </div>
+      <div class="form-group">
+        <label>Manual resident/managed switch</label>
+        <select id="s-manual-session-mode"><option value="true">Show switch actions</option><option value="false">Hide switch actions</option></select>
+        <div class="hint">Shows explicit Switch to resident / Switch to managed controls in Chat and Sessions. Default: shown.</div>
+      </div>
+      <div class="form-group">
+        <label>Managed terminal backing</label>
+        <select id="s-managed-terminal-backing"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+        <div class="hint">Allows dashboard-managed agents to keep a bridge-owned terminal backing for Console and wrapper delivery. Default: enabled.</div>
+      </div>
+      <div class="form-group">
+        <label>Eager managed PTY spawn</label>
+        <select id="s-managed-pty-eager"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+        <div class="hint">Starts wrapper PTYs during spawn/recover instead of waiting for the first message when terminal backing is enabled. Default: enabled.</div>
+      </div>
+      <div class="form-group">
+        <label>Wrapper-backed managed runtimes</label>
+        <input id="s-managed-wrapper-runtimes" placeholder="codex, hermes">
+        <div class="hint">Comma-separated runtimes that should use their <code>*-aify</code> wrapper PTY for managed delivery. Leave blank to use native controllers. Default: <code>codex, hermes</code>.</div>
+      </div>
+      <div class="form-group">
+        <label>Legacy Console injection</label>
+        <select id="s-insert-console"><option value="false">Off — use runtime channels</option><option value="true">On — type messages into PTY</option></select>
+        <div class="hint">Debug fallback only. When on, managed sends are inserted as terminal input instead of using Claude channels, Codex/Hermes wrapper channels, or Pi RPC. Default: off.</div>
       </div>
       <div class="form-group">
         <label>Managed Codex Model</label>
@@ -4575,6 +4620,7 @@ async function setAgentSessionHandle(agentId, currentHandle = '') {
 }
 
 function agentModeSwitchAction(agentId, agentInfo = {}) {
+  if (window._dashboardSettings?.manual_session_mode === false) return '';
   const current = String(agentInfo?.sessionMode || '').toLowerCase();
   if (!agentId || (current !== 'resident' && current !== 'managed')) return '';
   const target = current === 'resident' ? 'managed' : 'resident';
@@ -7753,6 +7799,32 @@ async function purgeOrphanUnread() {
 
 // ─── Settings ──────────────────────────────
 
+function settingsNumber(id, fallback, {min = null, max = null} = {}) {
+  let value = Number.parseInt(document.getElementById(id)?.value, 10);
+  if (!Number.isFinite(value)) value = fallback;
+  if (min !== null) value = Math.max(min, value);
+  if (max !== null) value = Math.min(max, value);
+  return value;
+}
+
+function settingsBool(id) {
+  return document.getElementById(id)?.value === 'true';
+}
+
+function formatRuntimeListSetting(value) {
+  if (Array.isArray(value)) return value.join(', ');
+  if (value === true) return 'true';
+  return '';
+}
+
+function parseRuntimeListSetting(id) {
+  const raw = String(document.getElementById(id)?.value || '').trim();
+  if (!raw) return [];
+  if (/^true$/i.test(raw)) return true;
+  if (/^false$/i.test(raw)) return false;
+  return raw.split(',').map(item => item.trim()).filter(Boolean);
+}
+
 async function loadSettings() {
   const s = await apiFetch(API + '/settings').then(r=>r.json());
   applyDashboardSettings(s);
@@ -7769,9 +7841,18 @@ async function loadSettings() {
   document.getElementById('s-offline').value = s.offline_minutes;
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
+  document.getElementById('s-env-offline').value = Number(s.environment_offline_seconds || 90);
+  document.getElementById('s-active-run-stale').value = Number(s.active_run_stale_minutes || 30);
+  document.getElementById('s-active-managed-stale').value = Number(s.active_managed_run_stale_minutes || 5);
+  document.getElementById('s-resident-lease').value = Number(s.resident_lease_seconds || 150);
   document.getElementById('s-claude-model').value = s.managed_claude_model || '';
   document.getElementById('s-claude-effort').value = s.managed_claude_effort || 'high';
   document.getElementById('s-claude-auto-confirm').value = String(!!s.console_auto_confirm_claude_dev_channels);
+  document.getElementById('s-manual-session-mode').value = String(s.manual_session_mode !== false);
+  document.getElementById('s-managed-terminal-backing').value = String(s.managed_terminal_backing_enabled !== false);
+  document.getElementById('s-managed-pty-eager').value = String(!!s.managed_pty_eager_spawn);
+  document.getElementById('s-managed-wrapper-runtimes').value = formatRuntimeListSetting(s.managed_via_wrapper);
+  document.getElementById('s-insert-console').value = String(!!s.insert_messages_via_console);
   document.getElementById('s-codex-model').value = s.managed_codex_model || '';
   document.getElementById('s-codex-effort').value = s.managed_codex_effort || 'high';
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
@@ -7800,28 +7881,37 @@ async function saveSettings(e) {
       dashboard_title: document.getElementById('s-dashboard-title').value.trim() || 'AIFY Comms',
       dashboard_theme: document.getElementById('s-dashboard-theme').value || 'default',
       ...palettePayload,
-      retention_days: parseInt(document.getElementById('s-retention').value),
-      max_messages_per_agent: parseInt(document.getElementById('s-max-msgs').value),
-      max_shared_size_mb: parseInt(document.getElementById('s-max-shared').value),
-      dashboard_refresh_seconds: parseInt(document.getElementById('s-refresh').value),
-      idle_minutes: parseInt(document.getElementById('s-idle').value),
-      offline_minutes: parseInt(document.getElementById('s-offline').value),
-      stale_agent_hours: parseInt(document.getElementById('s-stale').value),
-      rotation_enabled: document.getElementById('s-rotation').value === 'true',
+      retention_days: settingsNumber('s-retention', 90, {min: 1, max: 3650}),
+      max_messages_per_agent: settingsNumber('s-max-msgs', 1000, {min: 10, max: 100000}),
+      max_shared_size_mb: settingsNumber('s-max-shared', 500, {min: 10, max: 100000}),
+      dashboard_refresh_seconds: settingsNumber('s-refresh', 15, {min: 5, max: 300}),
+      idle_minutes: settingsNumber('s-idle', 5, {min: 1, max: 120}),
+      offline_minutes: settingsNumber('s-offline', 30, {min: 5, max: 1440}),
+      stale_agent_hours: settingsNumber('s-stale', 24, {min: 1, max: 720}),
+      rotation_enabled: settingsBool('s-rotation'),
+      environment_offline_seconds: settingsNumber('s-env-offline', 90, {min: 30, max: 3600}),
+      active_run_stale_minutes: settingsNumber('s-active-run-stale', 30, {min: 5, max: 240}),
+      active_managed_run_stale_minutes: settingsNumber('s-active-managed-stale', 5, {min: 1, max: 120}),
+      resident_lease_seconds: settingsNumber('s-resident-lease', 150, {min: 30, max: 3600}),
       managed_claude_model: document.getElementById('s-claude-model').value.trim(),
       managed_claude_effort: document.getElementById('s-claude-effort').value || 'high',
-      console_auto_confirm_claude_dev_channels: document.getElementById('s-claude-auto-confirm').value === 'true',
+      console_auto_confirm_claude_dev_channels: settingsBool('s-claude-auto-confirm'),
+      manual_session_mode: settingsBool('s-manual-session-mode'),
+      managed_terminal_backing_enabled: settingsBool('s-managed-terminal-backing'),
+      managed_pty_eager_spawn: settingsBool('s-managed-pty-eager'),
+      managed_via_wrapper: parseRuntimeListSetting('s-managed-wrapper-runtimes'),
+      insert_messages_via_console: settingsBool('s-insert-console'),
       managed_codex_model: document.getElementById('s-codex-model').value.trim(),
       managed_codex_effort: document.getElementById('s-codex-effort').value || 'high',
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),
       managed_pi_effort: document.getElementById('s-pi-effort').value || '',
-      worker_idle_close_enabled: document.getElementById('s-worker-idle-enabled').value === 'true',
-      worker_idle_close_minutes: Math.max(0, parseInt(document.getElementById('s-worker-idle-close').value) || 0),
-      reply_contracts_enabled: document.getElementById('s-reply-contracts').value === 'true',
-      reply_reminder_minutes: parseInt(document.getElementById('s-reply-minutes').value),
-      reply_reminder_repeat_minutes: parseInt(document.getElementById('s-reply-repeat').value),
-      reply_reminder_max_count: parseInt(document.getElementById('s-reply-max').value),
-      contract_stale_hours: parseInt(document.getElementById('s-contract-stale').value),
+      worker_idle_close_enabled: settingsBool('s-worker-idle-enabled'),
+      worker_idle_close_minutes: settingsNumber('s-worker-idle-close', 0, {min: 0, max: 1440}),
+      reply_contracts_enabled: settingsBool('s-reply-contracts'),
+      reply_reminder_minutes: settingsNumber('s-reply-minutes', 10, {min: 1, max: 240}),
+      reply_reminder_repeat_minutes: settingsNumber('s-reply-repeat', 10, {min: 1, max: 1440}),
+      reply_reminder_max_count: settingsNumber('s-reply-max', 0, {min: 0, max: 20}),
+      contract_stale_hours: settingsNumber('s-contract-stale', 24, {min: 1, max: 720}),
     })});
   saveLocalDashboardPalette(palettePayload);
   toast('Settings saved'); loadSettings();

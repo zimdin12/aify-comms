@@ -559,6 +559,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertIn("s-codex-effort", dashboard.text)
         self.assertIn("s-worker-idle-enabled", dashboard.text)
         self.assertIn("Idle worker close window", dashboard.text)
+        self.assertIn("s-env-offline", dashboard.text)
+        self.assertIn("s-active-run-stale", dashboard.text)
+        self.assertIn("s-active-managed-stale", dashboard.text)
+        self.assertIn("s-resident-lease", dashboard.text)
+        self.assertIn("s-manual-session-mode", dashboard.text)
+        self.assertIn("s-managed-terminal-backing", dashboard.text)
+        self.assertIn("s-managed-pty-eager", dashboard.text)
+        self.assertIn("s-managed-wrapper-runtimes", dashboard.text)
+        self.assertIn("s-insert-console", dashboard.text)
+        self.assertIn("settingsNumber", dashboard.text)
+        self.assertIn("parseRuntimeListSetting", dashboard.text)
         self.assertNotIn("env-spawn-effort", dashboard.text)
         self.assertNotIn("agent-edit-effort", dashboard.text)
         self.assertIn("Compaction History", dashboard.text)
@@ -575,6 +586,17 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertTrue(settings.json()["managed_terminal_backing_enabled"])
+        self.assertTrue(api_v2.DEFAULT_SETTINGS["managed_pty_eager_spawn"])
+        self.assertEqual(api_v2.DEFAULT_SETTINGS["managed_via_wrapper"], ["codex", "hermes"])
+        self.assertFalse(settings.json()["managed_pty_eager_spawn"])
+        self.assertFalse(settings.json()["managed_via_wrapper"])
+        self.assertFalse(api_v2.DEFAULT_SETTINGS["insert_messages_via_console"])
+        self.assertTrue(settings.json()["insert_messages_via_console"])
+        self.assertTrue(settings.json()["manual_session_mode"])
+        self.assertEqual(settings.json()["environment_offline_seconds"], 90)
+        self.assertEqual(settings.json()["active_run_stale_minutes"], 30)
+        self.assertEqual(settings.json()["active_managed_run_stale_minutes"], 5)
+        self.assertEqual(settings.json()["resident_lease_seconds"], 150)
         self.assertFalse(settings.json()["worker_idle_close_enabled"])
         self.assertEqual(settings.json()["worker_idle_close_minutes"], 0)
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
@@ -587,6 +609,15 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "dashboard_primary_color": "#f2b76e",
                 "dashboard_secondary_color": "#8ebaf1",
                 "dashboard_tertiary_color": "#e78776",
+                "manual_session_mode": False,
+                "managed_terminal_backing_enabled": False,
+                "managed_pty_eager_spawn": False,
+                "managed_via_wrapper": ["hermes"],
+                "insert_messages_via_console": True,
+                "environment_offline_seconds": 123,
+                "active_run_stale_minutes": 31,
+                "active_managed_run_stale_minutes": 6,
+                "resident_lease_seconds": 180,
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
@@ -595,6 +626,15 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(updated.json()["dashboard_primary_color"], "#f2b76e")
         self.assertEqual(updated.json()["dashboard_secondary_color"], "#8ebaf1")
         self.assertEqual(updated.json()["dashboard_tertiary_color"], "#e78776")
+        self.assertFalse(updated.json()["manual_session_mode"])
+        self.assertFalse(updated.json()["managed_terminal_backing_enabled"])
+        self.assertFalse(updated.json()["managed_pty_eager_spawn"])
+        self.assertEqual(updated.json()["managed_via_wrapper"], ["hermes"])
+        self.assertTrue(updated.json()["insert_messages_via_console"])
+        self.assertEqual(updated.json()["environment_offline_seconds"], 123)
+        self.assertEqual(updated.json()["active_run_stale_minutes"], 31)
+        self.assertEqual(updated.json()["active_managed_run_stale_minutes"], 6)
+        self.assertEqual(updated.json()["resident_lease_seconds"], 180)
 
     def test_analytics_range_filters_run_mix_and_all_time_series(self):
         self._register("lead")
