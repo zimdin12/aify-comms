@@ -1042,6 +1042,37 @@ if (!text.includes(marker)) {
   }
 }
 
+const noneOutputMarker = "Codex fallback stream: backfilled %d output items";
+if (text.includes(noneOutputMarker)) {
+  const oldMain = `                if isinstance(_out, list) and not _out:
+                    if collected_output_items:
+                        final_response.output = list(collected_output_items)
+`;
+  const newMain = `                if not isinstance(_out, list) or not _out:
+                    if collected_output_items:
+                        final_response.output = list(collected_output_items)
+`;
+  if (text.includes(oldMain)) {
+    text = text.replace(oldMain, newMain);
+    changed = true;
+  }
+
+  const oldFallback = `                _out = getattr(terminal_response, "output", None)
+                if isinstance(_out, list) and not _out:
+                    if collected_output_items:
+                        terminal_response.output = list(collected_output_items)
+`;
+  const newFallback = `                _out = getattr(terminal_response, "output", None)
+                if not isinstance(_out, list) or not _out:
+                    if collected_output_items:
+                        terminal_response.output = list(collected_output_items)
+`;
+  if (text.includes(oldFallback)) {
+    text = text.replace(oldFallback, newFallback);
+    changed = true;
+  }
+}
+
 if (changed) {
   fs.copyFileSync(file, `${file}.aify-codex-stream-bak`);
   fs.writeFileSync(file, text);

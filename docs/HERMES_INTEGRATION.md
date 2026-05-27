@@ -30,8 +30,10 @@ from an OpenAI SDK `TypeError: 'NoneType' object is not iterable` seen with the
 `openai-codex` provider. That failure happens before MCP tools run, so it can
 look like registration broke even when the wrapper and gateway are healthy.
 Current installs fall back to Hermes's lower-level `create(stream=True)` path
-for that exact SDK stream failure. Restart `hermes-aify` after updating so the
-running Python process imports the patched module.
+for that exact SDK stream failure, then rebuild `response.output` from the
+already-delivered `response.output_item.done` events when ChatGPT Codex sends a
+terminal `response.completed` frame with `output: null`. Restart `hermes-aify`
+after updating so the running Python process imports the patched module.
 
 Live resident delivery also requires the wrapper's MCP bridge heartbeat. A raw
 HTTP `POST /api/v1/agents` can update Hermes metadata, but it cannot create the

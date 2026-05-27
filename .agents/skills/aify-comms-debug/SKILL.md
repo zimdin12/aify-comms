@@ -71,11 +71,13 @@ The wrapper may already be healthy: process list shows
 `~/.local/state/aify-comms/hermes-aify-active-session-<port>.json` exists.
 
 **Cause.** This is a Hermes/OpenAI SDK Responses streaming edge case, not an
-aify registration error. The SDK can raise a local `TypeError` while consuming
-the `openai-codex` stream before Hermes gets to call MCP tools. Current
-`install.sh --client hermes` patches Hermes `agent/codex_runtime.py` so this
-exact SDK failure falls back to Hermes's lower-level `create(stream=True)`
-path.
+aify registration error. ChatGPT Codex can stream valid `response.output_item.done`
+function-call items and then finish with `response.completed.response.output`
+set to `null`; OpenAI SDK 2.24.0 raises this local `TypeError` before Hermes
+gets to call MCP tools. Current `install.sh --client hermes` patches Hermes
+`agent/codex_runtime.py` so this exact SDK failure falls back to Hermes's
+lower-level `create(stream=True)` path and rebuilds `response.output` from the
+already-streamed items.
 
 **Fix.** Pull/update aify-comms, run the Hermes client install/redeploy, then
 restart the affected `hermes-aify` terminals so the Python process imports the

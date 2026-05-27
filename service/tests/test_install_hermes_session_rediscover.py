@@ -92,3 +92,4 @@ def test_hermes_installer_patches_codex_stream_nonetype_fallback():
     assert "patch_hermes_codex_stream_none_fallback" in text
     assert "Responses stream hit SDK NoneType iterable bug" in text
     assert "agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)" in text
+    assert "if not isinstance(_out, list) or not _out:" in text
