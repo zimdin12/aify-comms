@@ -1315,6 +1315,8 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   fi
 
   AIFY_HERMES_DASHBOARD_URL="http://127.0.0.1:\$AIFY_HERMES_PORT"
+  export AIFY_HERMES_PORT
+  export AIFY_HERMES_DASHBOARD_URL
   LOG_ROOT="\${XDG_STATE_HOME:-\$HOME/.local/state}/aify-comms"
   mkdir -p "\$LOG_ROOT"
   AIFY_HERMES_DASHBOARD_LOG="\$LOG_ROOT/hermes-aify-dashboard-\$AIFY_HERMES_PORT.log"

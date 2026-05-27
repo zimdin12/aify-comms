@@ -117,6 +117,40 @@ class HermesAifyPluginTests(unittest.TestCase):
 
         self.assertEqual(calls, ["discover", "make"])
 
+    def test_web_server_patch_exports_gateway_url_for_dashboard_mcp_children(self) -> None:
+        from aify_hermes_plugin.patches import patch_hermes_cli_web_server
+
+        keys = [
+            "AIFY_HERMES_PORT",
+            "AIFY_HERMES_GATEWAY_URL",
+            "HERMES_TUI_GATEWAY_URL",
+            "AIFY_HERMES_GATEWAY_TOKEN",
+            "AIFY_HERMES_GATEWAY_TOKEN_ENV",
+        ]
+        old_env = {key: os.environ.get(key) for key in keys}
+        for key in keys:
+            os.environ.pop(key, None)
+        os.environ["AIFY_HERMES_PORT"] = "61234"
+        module = types.SimpleNamespace(_SESSION_TOKEN="token-123")
+
+        try:
+            patch_hermes_cli_web_server(module)
+
+            expected = "ws://127.0.0.1:61234/api/ws?token=token-123"
+            self.assertEqual(os.environ["AIFY_HERMES_GATEWAY_URL"], expected)
+            self.assertEqual(os.environ["HERMES_TUI_GATEWAY_URL"], expected)
+            self.assertEqual(os.environ["AIFY_HERMES_GATEWAY_TOKEN"], "token-123")
+            self.assertEqual(
+                os.environ["AIFY_HERMES_GATEWAY_TOKEN_ENV"],
+                "AIFY_HERMES_GATEWAY_TOKEN",
+            )
+        finally:
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_active_session_file_patch_preserves_wrapper_file(self) -> None:
         from aify_hermes_plugin.patches import patch_hermes_cli_main
 

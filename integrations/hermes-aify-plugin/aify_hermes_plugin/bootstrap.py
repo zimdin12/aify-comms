@@ -10,6 +10,7 @@ from typing import Callable
 from .patches import (
     patch_codex_runtime,
     patch_gateway_server,
+    patch_hermes_cli_web_server,
     patch_hermes_cli_main,
 )
 
@@ -19,6 +20,7 @@ PatchFunc = Callable[[ModuleType], None]
 _PATCHES: dict[str, PatchFunc] = {
     "agent.codex_runtime": patch_codex_runtime,
     "hermes_cli.main": patch_hermes_cli_main,
+    "hermes_cli.web_server": patch_hermes_cli_web_server,
     "tui_gateway.server": patch_gateway_server,
 }
 

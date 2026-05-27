@@ -128,6 +128,24 @@ def patch_gateway_server(module: ModuleType) -> None:
     methods["aify.session.bind_transport"] = bind_visible_transport
 
 
+def patch_hermes_cli_web_server(module: ModuleType) -> None:
+    """Expose the dashboard gateway URL to MCP children spawned by the gateway."""
+
+    port = str(os.environ.get("AIFY_HERMES_PORT") or "").strip()
+    token = str(getattr(module, "_SESSION_TOKEN", "") or "").strip()
+    if not port or not token:
+        return
+    if os.environ.get("AIFY_HERMES_GATEWAY_URL", "").strip():
+        return
+
+    host = str(os.environ.get("AIFY_HERMES_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+    gateway_url = f"ws://{host}:{port}/api/ws?token={token}"
+    os.environ["AIFY_HERMES_GATEWAY_URL"] = gateway_url
+    os.environ.setdefault("HERMES_TUI_GATEWAY_URL", gateway_url)
+    os.environ.setdefault("AIFY_HERMES_GATEWAY_TOKEN", token)
+    os.environ.setdefault("AIFY_HERMES_GATEWAY_TOKEN_ENV", "AIFY_HERMES_GATEWAY_TOKEN")
+
+
 def patch_hermes_cli_main(module: ModuleType) -> None:
     """Keep the wrapper-owned active-session file alive for visible binding."""
 

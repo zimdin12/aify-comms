@@ -73,6 +73,14 @@ already-open session on a current wrapper, reload the gateway MCP registry
 instead of using terminal/Node/curl/direct HTTP registration. Direct HTTP
 registration can still corrupt bridge-backed resident metadata.
 
+If the prefixed tools are exposed and `mcp_aify_comms_comms_register` succeeds
+but `comms_agent_info` still reports `Wake mode: hermes-missing-handle`, the
+dashboard-gateway MCP child probably registered without
+`runtimeConfig.gatewayUrl`. Update/redeploy again and restart `hermes-aify`:
+current wrappers export `AIFY_HERMES_PORT` before the dashboard starts, and the
+Hermes plugin injects `AIFY_HERMES_GATEWAY_URL` inside
+`hermes_cli.web_server` so dashboard-side MCP calls can self-register live.
+
 ## Hermes fails immediately with `'NoneType' object is not iterable`
 
 **Symptom.** A freshly restarted `hermes-aify` terminal reaches the Hermes TUI,

@@ -131,6 +131,15 @@ tools. On current installs, restart `hermes-aify`; for an already-open gateway,
 the gateway `reload.mcp` method (or the wrapper's reload-MCP control if
 available) repairs the live registry without direct HTTP registration.
 
+Hermes dashboard turns execute MCP tools inside the dashboard-gateway process,
+not the later `hermes chat` child. Current wrappers export the selected
+dashboard port before launching that process, and the runtime plugin derives
+`AIFY_HERMES_GATEWAY_URL` inside `hermes_cli.web_server` from that port plus
+Hermes' own session token. Without that dashboard-side env injection,
+`mcp_aify_comms_comms_register` may be callable but still register as
+`hermes-missing-handle` because no `runtimeConfig.gatewayUrl` reached
+aify-comms.
+
 **Mid-run insertion (`session.steer`)** is a first-class primitive on the hermes side: text lands on the last tool result of the next tool batch and the model sees it on its next iteration. No interrupt, no role-alternation violation.
 
 **Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.
