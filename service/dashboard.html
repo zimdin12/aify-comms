@@ -4552,6 +4552,60 @@ function sessionResumeCommand(session, agentInfo = {}) {
   return '';
 }
 
+function agentResidentLaunchCommand(agentId, agentInfo = {}) {
+  const id = String(agentId || '').trim();
+  if (!id) return '';
+  const runtime = String(agentInfo.runtime || '').toLowerCase();
+  const workspace = String(agentInfo.cwd || '').trim();
+  const handle = String(agentInfo.sessionHandle || '').trim();
+  const role = String(agentInfo.role || 'coder').trim() || 'coder';
+  const windows = /^[A-Za-z]:[\\/]/.test(workspace);
+  const cd = workspace
+    ? (windows ? `cd /d ${quoteCmd(workspace)}` : `cd ${quoteShell(workspace)}`)
+    : '';
+  const bin = (name) => windows ? `${name}.cmd` : name;
+  const q = windows ? quoteCmd : quoteShell;
+  const common = ` --aify-agent ${q(id)} --aify-role ${q(role)}`;
+  const resume = handle ? ` --resume ${q(handle)}` : '';
+  let command = '';
+  if (runtime === 'claude-code' || runtime === 'claude') command = `${bin('claude-aify')}${common}${resume}`;
+  if (runtime === 'codex') command = `${bin('codex-aify')}${common}${resume}`;
+  if (runtime === 'hermes') command = `${bin('hermes-aify')}${common}${resume}`;
+  if (!command) return '';
+  return cd ? `${cd}\n${command}` : command;
+}
+
+function residentWrapperName(runtime) {
+  const normalized = String(runtime || '').toLowerCase();
+  if (normalized === 'claude-code' || normalized === 'claude') return 'claude-aify';
+  if (normalized === 'codex') return 'codex-aify';
+  if (normalized === 'hermes') return 'hermes-aify';
+  return `${normalized || 'runtime'}-aify`;
+}
+
+function showResidentSwitchNotice(agentId, agentInfo = {}, result = {}) {
+  const candidate = agentInfo?.runtimeState?.manualResidentCandidate || {};
+  const hasCandidate = !!(candidate && (candidate.bridgeId || candidate.runtimeConfig || candidate.sessionHandle));
+  const command = agentResidentLaunchCommand(agentId, agentInfo);
+  const runtime = String(agentInfo.runtime || 'runtime');
+  const wrapperName = residentWrapperName(runtime);
+  const commandBlock = command
+    ? sessionResumeCommandBlock(command, 'Resident launch / re-register command')
+    : '<p class="em">No resident wrapper command is available for this runtime. Use managed mode unless this runtime has a validated resident wrapper.</p>';
+  openModal(`Resident mode: ${agentId}`, `
+    <div class="modal-form">
+      <div class="banner muted"><div class="banner-row"><span>${hasCandidate
+        ? 'A resident wrapper has already registered as a candidate for this identity. No extra registration should be needed if that visible terminal is still open and healthy.'
+        : 'The mode switch changed dashboard ownership, but no live resident wrapper candidate is recorded yet. Start the resident wrapper now, or re-register from the visible CLI session.'}</span></div></div>
+      <p>Resident delivery requires the visible <code>${esc(wrapperName)}</code> wrapper to register this exact agent ID. Launching with <code>--aify-agent</code> lets the wrapper register itself. Manual <code>comms_register</code> is only needed if the wrapper was launched without <code>--aify-agent</code> or if the live wake status becomes stale/missing-handle.</p>
+      ${commandBlock}
+      <div class="btn-row">
+        ${command ? actionButtonFn('Copy command', 'Copy the resident launch command', () => copyText(command, 'Resident launch command copied')) : ''}
+        ${actionButtonFn('Close', 'Close this notice', () => closeModal())}
+      </div>
+    </div>`);
+}
+
 function sessionResumeCommandBlock(command, label = 'CLI resume command') {
   if (!command) return '';
   return `<div class="cli-command-card">` +
@@ -4646,6 +4700,10 @@ async function switchAgentSessionMode(agentId, targetMode, force = false) {
     const effect = res.sideEffects?.managedTerminalId ? ` Terminal ${res.sideEffects.managedTerminalId}` : (res.sideEffects?.stoppedTerminalId ? ` Stopped ${res.sideEffects.stoppedTerminalId}` : '');
     toast(`Switched ${agentId} to ${res.mode || targetMode}.${effect}`);
     await refreshDashboard();
+    if ((res.mode || targetMode) === 'resident') {
+      const agentInfo = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {});
+      showResidentSwitchNotice(agentId, agentInfo, res);
+    }
   } catch (e) {
     toast(e.message || 'Mode switch failed', '#f85149');
   }
