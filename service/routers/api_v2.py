@@ -2698,7 +2698,42 @@ async def _close_active_terminal_runs_for_terminal(db, terminal, terminal_status
     if run_ids:
         await _fail_pending_terminal_controls(db, terminal_id, handled_at=now, response_text=summary)
         await _invalidate_agent_live_state(db, agent_id)
-    return len(run_ids)
+    queued_ids: list[str] = []
+    current_session = await _current_agent_session_row(db, agent_id)
+    current_terminal_id = str((current_session["terminal_id"] if current_session and "terminal_id" in current_session.keys() else "") or "").strip()
+    if current_terminal_id == terminal_id:
+        queued_summary = reason or f"Terminal {terminal_label} before the channel bridge claimed the run."
+        queued_cursor = await db.execute(
+            """
+            SELECT id
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND execution_mode = 'channel'
+              AND status = 'queued'
+              AND dispatch_mode != 'message_only'
+            ORDER BY requested_at ASC
+            """,
+            (agent_id,),
+        )
+        queued_rows = await queued_cursor.fetchall()
+        queued_ids = [str(row["id"] or "") for row in queued_rows if str(row["id"] or "")]
+        for run_id in queued_ids:
+            await db.execute(
+                """
+                UPDATE dispatch_runs
+                SET status = 'failed',
+                    summary = CASE WHEN COALESCE(summary, '') = '' THEN ? ELSE summary END,
+                    error_text = CASE WHEN COALESCE(error_text, '') = '' THEN ? ELSE error_text END,
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE id = ?
+                  AND status = 'queued'
+                """,
+                (queued_summary, queued_summary, now, run_id),
+            )
+            await _append_dispatch_event(db, run_id, "terminal_closed", f"{queued_summary} terminalId={terminal_id}")
+        if queued_ids:
+            await _invalidate_agent_live_state(db, agent_id)
+    return len(run_ids) + len(queued_ids)
 
 
 def _terminal_pi_idle_prompt_hint(output: str) -> str:

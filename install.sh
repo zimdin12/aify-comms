@@ -160,10 +160,19 @@ CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 # is unset, auto-detect via TTY presence on stdin: interactive → resident.
 CLAUDE_AIFY_SESSION_MODE="\${AIFY_SESSION_MODE:-}"
 CLAUDE_ARGS=()
+CLAUDE_RESUME_FROM_ARG=false
+CLAUDE_RESUME_FLAG="--resume"
 CLAUDE_HAS_MODEL=false
 CLAUDE_HAS_EFFORT=false
 PREV_ARG=""
 for ARG in "\$@"; do
+  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ] || [ "\$PREV_ARG" = "-r" ]; then
+    CLAUDE_RESUME_ID="\$ARG"
+    CLAUDE_RESUME_FLAG="\$PREV_ARG"
+    CLAUDE_RESUME_FROM_ARG=true
+    PREV_ARG=""
+    continue
+  fi
   if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
     CLAUDE_AIFY_AGENT_ID="\$ARG"
     PREV_ARG=""
@@ -211,17 +220,18 @@ for ARG in "\$@"; do
   --effort=*)
     CLAUDE_HAS_EFFORT=true
     ;;
+  --resume=*|--session-id=*|-r=*)
+    CLAUDE_RESUME_ID="\${ARG#*=}"
+    CLAUDE_RESUME_FLAG="\${ARG%%=*}"
+    CLAUDE_RESUME_FROM_ARG=true
+    continue
+    ;;
   esac
-  CLAUDE_ARGS+=("\$ARG")
-  if [ "\$PREV_ARG" = "--resume" ] || [ "\$PREV_ARG" = "--session-id" ]; then
-    CLAUDE_RESUME_ID="\$ARG"
-  else
-    case "\$ARG" in
-    --resume=*|--session-id=*)
-      CLAUDE_RESUME_ID="\${ARG#*=}"
-      ;;
-    esac
+  if [ "\$ARG" = "--resume" ] || [ "\$ARG" = "--session-id" ] || [ "\$ARG" = "-r" ]; then
+    PREV_ARG="\$ARG"
+    continue
   fi
+  CLAUDE_ARGS+=("\$ARG")
   PREV_ARG="\$ARG"
 done
 if [ -n "\${AIFY_MANAGED_MODEL:-}" ] && [ "\$CLAUDE_HAS_MODEL" = false ]; then
@@ -229,9 +239,6 @@ if [ -n "\${AIFY_MANAGED_MODEL:-}" ] && [ "\$CLAUDE_HAS_MODEL" = false ]; then
 fi
 if [ -n "\${AIFY_MANAGED_EFFORT:-}" ] && [ "\$CLAUDE_HAS_EFFORT" = false ]; then
   CLAUDE_ARGS+=(--effort "\$AIFY_MANAGED_EFFORT")
-fi
-if [ -n "\$CLAUDE_RESUME_ID" ]; then
-  export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
 fi
 
 # Plan 6 B4 (2026-05-26): validate CLAUDE_SESSION_ID against the on-disk
@@ -263,6 +270,12 @@ if [ -n "\${CLAUDE_RESUME_ID:-}" ] && ! validate_claude_session_id "\$CLAUDE_RES
   echo "[claude-aify] CLAUDE_SESSION_ID '\$CLAUDE_RESUME_ID' has no transcript under ~/.claude/projects/...; clearing (claude will create a fresh session)" >&2
   unset CLAUDE_RESUME_ID
   unset CLAUDE_SESSION_ID
+fi
+if [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
+  export CLAUDE_SESSION_ID="\$CLAUDE_RESUME_ID"
+  if [ "\$CLAUDE_RESUME_FROM_ARG" = true ]; then
+    CLAUDE_ARGS+=("\${CLAUDE_RESUME_FLAG:---resume}" "\$CLAUDE_RESUME_ID")
+  fi
 fi
 export AIFY_RUNTIME="claude-code"
 if [ -n "\$CLAUDE_AIFY_AGENT_ID" ]; then

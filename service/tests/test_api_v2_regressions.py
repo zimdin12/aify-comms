@@ -9091,6 +9091,141 @@ class ApiV2RegressionTests(unittest.TestCase):
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("orphan-hermes",))
         self.assertEqual(int(tb["turn_busy"] or 0), 0)
 
+    def test_queued_channel_run_fails_when_current_wrapper_terminal_exits_before_claim(self):
+        # Operator-reported (2026-05-28): sending to managed sc-manager
+        # started claude-aify, the PTY exited immediately on a stale
+        # --resume handle, and the dispatch stayed queued forever because
+        # the wrapper child bridge never got far enough to claim it.
+        self._heartbeat_environment(
+            id="win:test:default",
+            machineId="win:test",
+            bridgeId="bridge-win",
+            os="windows",
+            kind="windows",
+            cwdRoots=["C:/repo"],
+            runtimes=[
+                {
+                    "runtime": "claude-code",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"terminal": True, "pty": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["claude-code"],
+        )
+        self._register("queued-claude", runtime="claude-code", sessionMode="managed")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode, owner_mode,
+                owner_bridge_id, terminal_id, terminal_status, terminal_command,
+                terminal_workspace, session_handle, spawn_spec_id, spawn_request_id,
+                capabilities, telemetry, status, started_at, last_seen, ended_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess_queued_claude",
+                "queued-claude",
+                "win:test:default",
+                "claude-code",
+                "C:/repo",
+                "managed-warm",
+                "managed",
+                "bridge-win",
+                "term_queued_claude",
+                "running",
+                "claude-aify --aify-agent queued-claude --auto --resume missing",
+                "C:/repo",
+                "missing",
+                None,
+                None,
+                "{}",
+                "{}",
+                "running",
+                now,
+                now,
+                None,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by, created_at,
+                updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "term_queued_claude",
+                "sess_queued_claude",
+                "queued-claude",
+                "win:test:default",
+                "bridge-win",
+                "claude-code",
+                "C:/repo",
+                "claude-aify --aify-agent queued-claude --auto --resume missing",
+                "",
+                "running",
+                "dashboard",
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_queued_claude",
+                None,
+                "dashboard",
+                "queued-claude",
+                "start_if_possible",
+                "channel",
+                "request",
+                "hello",
+                "body",
+                "normal",
+                "queued",
+                0,
+                now,
+            ),
+        )
+
+        async def _run():
+            db = await get_db()
+            try:
+                terminal = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?",
+                    ("term_queued_claude",),
+                )).fetchone()
+                return await api_v2._close_active_terminal_runs_for_terminal(
+                    db,
+                    terminal,
+                    "stopped",
+                    now=api_v2._now(),
+                    reason="Terminal stopped before the channel bridge claimed the run.",
+                )
+            finally:
+                await db.commit()
+                await db.close()
+
+        closed = asyncio.run(_run())
+        self.assertEqual(closed, 1)
+        run_row = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id = ?", ("run_queued_claude",))
+        self.assertEqual(run_row["status"], "failed")
+        self.assertIn("before the channel bridge claimed", run_row["error_text"])
+        events = self._fetchall("SELECT event_type, body FROM dispatch_events WHERE run_id = ?", ("run_queued_claude",))
+        self.assertTrue(any(row["event_type"] == "terminal_closed" for row in events))
+
     def test_orphaned_managed_runs_not_closed_when_bridge_owns(self):
         # Guardrail: orphan-cleanup never touches runs whose claim_bridge_id
         # points at a LIVE bridge_instance (heartbeat within the stale

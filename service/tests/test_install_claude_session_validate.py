@@ -72,3 +72,26 @@ def test_claude_wrapper_validate_is_non_fatal():
     assert "exit 1" not in window, (
         "Plan 6 B4: validate must be non-fatal — no `exit 1` near the call"
     )
+
+
+def test_claude_wrapper_strips_stale_explicit_resume_args():
+    """Explicit --resume must be validated before it is forwarded to claude.
+
+    Otherwise a stale dashboard handle stays in argv after CLAUDE_SESSION_ID is
+    cleared, and Claude exits with "No conversation found" instead of creating
+    a fresh repairable session.
+    """
+    text = _read_install_sh()
+    assert "CLAUDE_RESUME_FROM_ARG=false" in text
+    assert "CLAUDE_RESUME_FROM_ARG=true" in text
+    assert 'CLAUDE_ARGS+=("\\${CLAUDE_RESUME_FLAG:---resume}" "\\$CLAUDE_RESUME_ID")' in text
+    loop_idx = text.find('for ARG in "\\$@"; do')
+    append_idx = text.find('CLAUDE_ARGS+=("\\$ARG")', loop_idx)
+    explicit_idx = text.find('if [ "\\$ARG" = "--resume" ]', loop_idx)
+    validate_idx = text.find('if [ -n "\\${CLAUDE_RESUME_ID:-}" ] && ! validate_claude_session_id')
+    export_idx = text.find('export CLAUDE_SESSION_ID="\\$CLAUDE_RESUME_ID"', validate_idx)
+    assert loop_idx > 0
+    assert explicit_idx > loop_idx
+    assert append_idx > explicit_idx, "explicit --resume must be consumed before generic argv append"
+    assert "continue" in text[explicit_idx:append_idx], "explicit --resume block must skip generic argv append"
+    assert export_idx > validate_idx, "CLAUDE_SESSION_ID must be exported only after validation"
