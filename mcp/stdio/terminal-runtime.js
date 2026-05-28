@@ -1,6 +1,20 @@
 import { spawn } from "child_process";
 import { createRequire } from "module";
+import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
+
+// node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
+// chdir does not expand "~" — operator-supplied workspaces like
+// "~/projects/foo" therefore fail immediately with ENOENT and the terminal
+// dies seconds after attaching. Expand here so any caller that hands us a
+// shell-style path gets the right directory. Exported for unit testing.
+export function expandUserHome(value) {
+  const raw = String(value || "");
+  if (!raw) return raw;
+  if (raw === "~") return homedir();
+  if (raw.startsWith("~/")) return `${homedir()}${raw.slice(1)}`;
+  return raw;
+}
 
 const require = createRequire(import.meta.url);
 let pty = null;
@@ -187,11 +201,12 @@ export class TerminalProcessManager {
     const args = windows
       ? (lowerCommand === "cmd" || lowerCommand === "cmd.exe" || lowerCommand === shellName ? [] : ["/d", "/s", "/c", trimmedCommand])
       : ["-lc", command];
+    const resolvedCwd = expandUserHome(cwd) || process.cwd();
     const term = pty.spawn(shell, args, {
       name: "xterm-256color",
       cols: Math.max(20, Number(cols || 100)),
       rows: Math.max(6, Number(rows || 28)),
-      cwd: cwd || process.cwd(),
+      cwd: resolvedCwd,
       env,
     });
     let resolveExit = null;
@@ -229,8 +244,9 @@ export class TerminalProcessManager {
   }
 
   async startPipeProcess({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
+    const resolvedCwd = expandUserHome(cwd) || process.cwd();
     const proc = spawn(command, {
-      cwd: cwd || process.cwd(),
+      cwd: resolvedCwd,
       env,
       shell: true,
       windowsHide: false,
