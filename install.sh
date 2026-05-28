@@ -1317,10 +1317,13 @@ aify_hermes_exec_plain_or_tui() {
 
 HERMES_RUNTIME_PID=""
 aify_hermes_run_foreground() {
-  "\$HERMES_RUNTIME_COMMAND" "\$@" &
-  HERMES_RUNTIME_PID=\$!
   set +e
-  wait "\$HERMES_RUNTIME_PID"
+  # Keep Hermes in the foreground. Same reason as run_codex_foreground above:
+  # in a non-interactive bash wrapper, async commands (\`hermes ... &\`) receive
+  # /dev/null on stdin and the Ink TUI exits with "hermes-tui: no TTY" even
+  # when the operator launched from a real terminal. The cleanup trap still
+  # kills the backgrounded dashboard child when the wrapper exits.
+  "\$HERMES_RUNTIME_COMMAND" "\$@"
   local status=\$?
   set -e
   HERMES_RUNTIME_PID=""
