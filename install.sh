@@ -1165,8 +1165,10 @@ install_hermes_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
-  local hermes_plugin_path=""
-  hermes_plugin_path="$(path_for_windows_runtime "$SCRIPT_DIR/integrations/hermes-aify-plugin")"
+  local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  if hermes_runtime_is_native_windows; then
+    hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
+  fi
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1848,6 +1850,27 @@ is_git_bash_windows() {
     MINGW*|MSYS*|CYGWIN*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+hermes_runtime_is_native_windows() {
+  # True when the resolved `hermes` binary will execute under native Windows.
+  # On WSL, `wslpath` is always available, but hermes may be EITHER a Linux
+  # binary installed inside WSL OR a Windows .exe reached via WSL interop.
+  # path_for_windows_runtime would convert paths for the Windows case; for
+  # Linux hermes on WSL, those paths are meaningless and the plugin silently
+  # fails to load, surfacing downstream as "gateway exited" in the TUI.
+  if is_git_bash_windows; then
+    return 0
+  fi
+  local hermes_bin resolved
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  [ -z "$hermes_bin" ] && return 1
+  resolved="$(command -v "$hermes_bin" 2>/dev/null || printf '%s\n' "$hermes_bin")"
+  case "$resolved" in
+    *.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT) return 0 ;;
+    /mnt/[a-zA-Z]/*) return 0 ;;
+  esac
+  return 1
 }
 
 path_for_node() {

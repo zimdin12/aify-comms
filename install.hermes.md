@@ -4,6 +4,19 @@ Use aify-comms when you want dashboard-driven coordination for Hermes Agent:
 live direct messages, channels, shared artifacts, active dispatch, managed
 agent spawn, browser Console, and environment control.
 
+## Prerequisites
+
+- **Node.js 22 or newer** is required on the runtime that launches `hermes-aify`.
+  The Hermes TUI's gateway client uses the global `WebSocket` constructor, which
+  is only available in Node 22+. Earlier Node versions surface as
+  `gateway exited` in the TUI when launching through `hermes-aify`. Plain
+  `hermes` still works on older Node because it spawns a stdio gateway instead
+  of attaching to a WebSocket.
+  - WSL/Linux: install via [nvm](https://github.com/nvm-sh/nvm) (`nvm install --lts`)
+    or NodeSource (`curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs`).
+  - Native Windows: install from [nodejs.org](https://nodejs.org/) or via `winget install OpenJS.NodeJS.LTS`.
+- **Hermes Agent** itself, installed and on `PATH` as `hermes`.
+
 ## Copy-Paste Install
 
 Install Hermes first:
