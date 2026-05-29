@@ -434,6 +434,101 @@ test("resident hermes fails visibly when the gateway lacks visible-session bindi
   assert.match(result.error || "", /visible-session binding/i);
 });
 
+test("managed hermes with empty sessionHandle refuses gateway-global fallback", async (t) => {
+  // #135: two managed hermes agents sharing the gateway's global state.db both
+  // resolved the globally-most-recent session id and bound the SAME visible
+  // session. A managed agent must bind ONLY its own session; if it has none it
+  // must fail visibly rather than fall back to session.list/session.most_recent.
+  const { url, token } = await startFake(t);
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const events = [];
+  const controller = launchRuntimeRun({
+    agentId: "hermes-managed-empty",
+    agentInfo: {
+      ...makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "" }),
+      sessionMode: "managed",
+    },
+    run: makeRun({ id: "run_h_managed_empty", executionMode: "channel" }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: (kind, msg) => events.push(String(msg || "")),
+      onRefs: () => {},
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.equal(result.failed, true, "managed hermes without own session must fail, not bind gateway-global");
+  assert.match(result.error || "", /no own visible session/i, "must use the managed refusal message");
+  assert.match(result.error || "", /Restart hermes-aify/i, "must tell the operator to restart hermes-aify");
+  // Prove it never bound or submitted against the gateway-global most_recent/list session.
+  assert.ok(!events.some((e) => /visible session bound/i.test(e)), "must NOT bind the gateway-global session");
+  assert.ok(!events.some((e) => /prompt\.submit on session/i.test(e)), "must NOT prompt.submit on a global session");
+});
+
+test("managed hermes with valid sessionHandle binds its own session and proceeds", async (t) => {
+  const { url, token } = await startFake(t);
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const events = [];
+  let capturedSessionKey = "";
+  let capturedSessionId = "";
+  const controller = launchRuntimeRun({
+    agentId: "hermes-managed-own",
+    agentInfo: {
+      ...makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "own-managed-sid" }),
+      sessionMode: "managed",
+    },
+    run: makeRun({ id: "run_h_managed_own", executionMode: "channel" }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: (kind, msg) => events.push(String(msg || "")),
+      onRefs: (refs) => {
+        if (refs?.sessionKey) capturedSessionKey = refs.sessionKey;
+        if (refs?.sessionId) capturedSessionId = refs.sessionId;
+      },
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected managed hermes with own session to succeed: ${result.error || ""}`);
+  assert.equal(result.status, "completed");
+  assert.match(result.summary || "", /hello from hermes/);
+  assert.equal(capturedSessionKey, "own-managed-sid", "managed agent must bind its OWN registered session key");
+  assert.equal(capturedSessionId, "live-sid-001");
+  assert.ok(events.some((e) => /prompt\.submit on session live-sid-001/i.test(e)), "must submit to its own visible sid");
+});
+
+test("resident hermes with empty sessionHandle still falls back to gateway most_recent", async (t) => {
+  // Resident = the single visible TUI on the box. Gateway-global fallback is
+  // correct here and must remain unchanged.
+  const { url, token } = await startFake(t);
+  const wsUrl = attachUrl(url, token);
+
+  const { launchRuntimeRun } = await import("../runtimes.js");
+  const events = [];
+  let capturedSessionKey = "";
+  const controller = launchRuntimeRun({
+    agentId: "hermes-resident-empty-fallback",
+    agentInfo: makeAgentInfo({ gatewayUrl: wsUrl, sessionHandle: "" }),
+    run: makeRun({ id: "run_h_resident_empty" }),
+    runtimeState: {},
+    callbacks: {
+      onEvent: (kind, msg) => events.push(String(msg || "")),
+      onRefs: (refs) => { if (refs?.sessionKey) capturedSessionKey = refs.sessionKey; },
+    },
+  });
+
+  const result = await controller.promise.catch((err) => ({ failed: true, error: err?.message || String(err) }));
+  assert.ok(!result.failed, `expected resident fallback to succeed: ${result.error || ""}`);
+  assert.equal(result.status, "completed");
+  assert.match(result.summary || "", /hello from hermes/);
+  // session.list returns sess-fake-001 first, so the resident path resolves+binds it.
+  assert.equal(capturedSessionKey, "sess-fake-001", "resident must resolve the gateway-global session");
+});
+
 test("resident hermes rejects connection when token is wrong", async (t) => {
   const { url } = await startFake(t, { token: "correct-token" });
   const wsUrl = attachUrl(url, "WRONG-TOKEN");

@@ -103,6 +103,16 @@ export class HermesResidentController extends BaseController {
     const gatewayUrl = String(cfg.gatewayUrl || "").trim();
     const timeoutMs = Number(cfg.timeoutMs || 12 * 60 * 60 * 1000);
     const residentSessionId = String(agentInfo.sessionHandle || "").trim();
+    // #135: gateway session.list / session.most_recent read hermes' GLOBAL
+    // state.db, so multiple MANAGED agents sharing the gateway converge on the
+    // same globally-most-recent session id and cross-contaminate. A managed
+    // agent must bind ONLY its own session; never the gateway-global fallback.
+    // Resident = the single visible TUI on the box, where global fallback is
+    // correct and stays unchanged.
+    const sessionModeN = String(agentInfo.sessionMode || agentInfo.session_mode || "resident")
+      .trim()
+      .toLowerCase();
+    const isManaged = sessionModeN === "managed";
 
     let nextRpcId = 100;
     const pending = new Map();
@@ -305,6 +315,9 @@ export class HermesResidentController extends BaseController {
         // and tees this bridge transport into that session. If the extension is
         // unavailable, fail visibly instead of resuming/creating a hidden sid.
         sessionKey = resolvedSessionId; // may be the registered handle
+        if (!sessionKey && isManaged) {
+          throw new Error(`Hermes managed agent ${agentId} has no own visible session to bind (refusing gateway-global fallback to avoid cross-agent collision). Restart hermes-aify for this agent so its visible TUI registers a fresh session.`);
+        }
         if (!sessionKey) {
           const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
           sessionKey = proto.pickFreshestSessionFromList(liveList);
@@ -339,10 +352,15 @@ export class HermesResidentController extends BaseController {
             const candidate = String(value || "").trim();
             if (candidate && candidate !== originalSessionKey && !candidates.includes(candidate)) candidates.push(candidate);
           };
-          const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
-          addCandidate(proto.pickFreshestSessionFromList(liveList));
-          const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
-          addCandidate(mostRecent?.session_id || mostRecent?.sessionId || mostRecent?.id);
+          // Managed agents must NOT retry against gateway-global candidates
+          // (session.list / session.most_recent) — that's the #135 collision.
+          // Only resident (single visible TUI) may probe the global gateway.
+          if (!isManaged) {
+            const liveList = await sendRpc(proto.buildSessionListFrame({})).catch(() => null);
+            addCandidate(proto.pickFreshestSessionFromList(liveList));
+            const mostRecent = await sendRpc(proto.buildSessionMostRecentFrame({})).catch(() => null);
+            addCandidate(mostRecent?.session_id || mostRecent?.sessionId || mostRecent?.id);
+          }
           for (const candidate of candidates) {
             try {
               callbacks.onEvent?.("hermes", `visible session bind retry: ${originalSessionKey} -> ${candidate}`);
