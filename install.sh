@@ -1626,7 +1626,20 @@ if (\$env:AIFY_MANAGED_VIA_WRAPPER -eq '1' -and \$HermesInheritedSessionHandle) 
   \$HermesExplicitSessionHandle = \$true
 }
 
-\$HermesRuntimeCommand = if (\$env:AIFY_HERMES_COMMAND) { \$env:AIFY_HERMES_COMMAND } elseif (\$env:HERMES_COMMAND) { \$env:HERMES_COMMAND } elseif (Get-Command hermes -ErrorAction SilentlyContinue) { 'hermes' } elseif (Get-Command hermes-agent -ErrorAction SilentlyContinue) { 'hermes-agent' } else { 'hermes' }
+function Resolve-HermesRuntimeCommand {
+  # Honour explicit env vars only when they actually resolve to a file —
+  # hermes' 2026-05-27 release renamed the entry point, leaving operator
+  # AIFY_HERMES_COMMAND envs pointing at vanished hermes.exe paths.
+  foreach (\$candidate in @(\$env:AIFY_HERMES_COMMAND, \$env:HERMES_COMMAND)) {
+    if (\$candidate -and (Test-Path -LiteralPath \$candidate)) { return \$candidate }
+    if (\$candidate -and (Get-Command \$candidate -ErrorAction SilentlyContinue)) { return \$candidate }
+  }
+  foreach (\$name in @('hermes', 'hermes-agent')) {
+    if (Get-Command \$name -ErrorAction SilentlyContinue) { return \$name }
+  }
+  return 'hermes'
+}
+\$HermesRuntimeCommand = Resolve-HermesRuntimeCommand
 \$HermesArgs = @()
 \$PrevArg = ''
 foreach (\$Arg in \$InputArgs) {
