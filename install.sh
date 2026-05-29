@@ -464,7 +464,7 @@ cleanup() {
     wait "$APP_SERVER_PID" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 run_codex_foreground() {
   set +e
@@ -1493,11 +1493,10 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   unset AIFY_HERMES_GATEWAY_TOKEN
   unset AIFY_HERMES_GATEWAY_TOKEN_ENV
 
-  if command -v setsid >/dev/null 2>&1; then
-    setsid "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
-  else
-    "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
-  fi
+  # Spawn the gateway in the wrapper's OWN process group (no setsid) so it is
+  # reaped when the wrapper's group is killed (terminateProcessTree / bridge
+  # death). </dev/null keeps it off the controlling TTY without a new session.
+  "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
   AIFY_HERMES_DASHBOARD_PID=\$!
 
   cleanup_aify_dashboard() {
@@ -1510,7 +1509,7 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
       wait "\$HERMES_RUNTIME_PID" 2>/dev/null || true
     fi
   }
-  trap cleanup_aify_dashboard EXIT INT TERM
+  trap cleanup_aify_dashboard EXIT INT TERM HUP
 
   if ! wait_for_http "\$AIFY_HERMES_DASHBOARD_URL/"; then
     echo "hermes-aify: dashboard at \$AIFY_HERMES_DASHBOARD_URL did not become reachable. Falling back to plain hermes." >&2
