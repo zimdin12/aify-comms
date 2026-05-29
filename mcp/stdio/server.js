@@ -44,6 +44,9 @@ import {
 } from "./runtimes.js";
 import { shouldDropLocalActiveRun } from "./dispatch-state.js";
 import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session.js";
+import { shutdownAllCodexSessions } from "./codex-session.js";
+import { shutdownAllHermesSessions } from "./hermes-session.js";
+import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
@@ -338,6 +341,9 @@ async function shutdownWithStatus(code) {
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllCodexSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllHermesSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllHermesGatewaySessions("bridge exiting"); } catch { /* best effort */ }
   VIRTUAL_TERMINALS_BY_AGENT.clear();
   VIRTUAL_TERMINAL_INPUT.clear();
   cleanupOnExit();
