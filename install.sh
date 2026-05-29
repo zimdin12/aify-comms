@@ -110,17 +110,21 @@ hermes_cmd() {
     printf '%s\n' "$configured"
     return 0
   fi
-  # Fallback when no env var is set OR when the configured path is stale
-  # (e.g. hermes' 2026-05-27 release renamed `hermes` -> `hermes-agent`,
-  # which left existing AIFY_HERMES_COMMAND envs pointing at a vanished
-  # binary). Probe both names so old and new installs both succeed.
-  command -v hermes 2>/dev/null || command -v hermes-agent 2>/dev/null
+  # Stale AIFY_HERMES_COMMAND tolerance: fall through to PATH instead of
+  # exiting, since the operator's env may still point at a vanished
+  # hermes.exe (e.g. hermes' 2026-05-27 release rotated binaries).
+  # NOTE: do NOT probe `hermes-agent` here. It's a separate hermes entry
+  # point (headless agent loop) and does not implement `dashboard --tui`,
+  # so accepting it would silently break the wrapper.
+  command -v hermes 2>/dev/null
 }
 
 require_hermes_cmd() {
   if ! hermes_cmd >/dev/null 2>&1; then
     echo "Missing required command: hermes"
-    echo "Set AIFY_HERMES_COMMAND to the Hermes executable path if Hermes is not on PATH."
+    echo "Set AIFY_HERMES_COMMAND to the Hermes 'hermes' executable path if Hermes is not on PATH."
+    echo "Note: hermes-agent / hermes-acp are NOT acceptable substitutes — they do not implement 'dashboard --tui'."
+    echo "If hermes' 2026-05-27 release rotated your binary, reinstall hermes upstream so 'hermes' is recreated."
     exit 1
   fi
 }
@@ -1628,15 +1632,16 @@ if (\$env:AIFY_MANAGED_VIA_WRAPPER -eq '1' -and \$HermesInheritedSessionHandle) 
 
 function Resolve-HermesRuntimeCommand {
   # Honour explicit env vars only when they actually resolve to a file —
-  # hermes' 2026-05-27 release renamed the entry point, leaving operator
+  # hermes' 2026-05-27 release rotated entry points, leaving operator
   # AIFY_HERMES_COMMAND envs pointing at vanished hermes.exe paths.
+  # Fall back to a PATH probe of 'hermes' so a stale env doesn't wedge
+  # the wrapper, but do NOT auto-substitute hermes-agent / hermes-acp:
+  # they are separate entry points that don't implement 'dashboard --tui'.
   foreach (\$candidate in @(\$env:AIFY_HERMES_COMMAND, \$env:HERMES_COMMAND)) {
     if (\$candidate -and (Test-Path -LiteralPath \$candidate)) { return \$candidate }
     if (\$candidate -and (Get-Command \$candidate -ErrorAction SilentlyContinue)) { return \$candidate }
   }
-  foreach (\$name in @('hermes', 'hermes-agent')) {
-    if (Get-Command \$name -ErrorAction SilentlyContinue) { return \$name }
-  }
+  if (Get-Command hermes -ErrorAction SilentlyContinue) { return 'hermes' }
   return 'hermes'
 }
 \$HermesRuntimeCommand = Resolve-HermesRuntimeCommand
