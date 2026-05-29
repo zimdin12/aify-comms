@@ -2278,6 +2278,121 @@ _patch_hermes_config_at() {
   ' "$node_config_file" "$node_server_path" "$SERVER_URL"
 }
 
+install_hermes_plugin() {
+  # Install the aify-comms shim as a first-class Hermes plugin under
+  # <hermes_home>/plugins/aify-comms/. This is the RELIABLE load path:
+  # cmd_dashboard calls discover_plugins() inside the gateway process, and
+  # plugin discovery does NOT depend on PYTHONPATH. Hermes relaunches the
+  # dashboard and drops PYTHONPATH, so the sitecustomize.py-on-PYTHONPATH
+  # mechanism never patched tui_gateway.server in the gateway — the visible
+  # session bind then failed with "unknown method: aify.session.bind_transport"
+  # and managed/resident hermes never answered. The plugin's register() calls
+  # aify_hermes_plugin.bootstrap.install(), which installs the same import-time
+  # patcher that registers the gateway methods. The thin loader keeps the real
+  # shim in the repo (AIFY_HERMES_PLUGIN_PATH), so a hermes update can't erase
+  # it; the baked path is only a fallback when the env var is absent.
+  local plugin_src="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  if hermes_runtime_is_native_windows; then
+    plugin_src="$(path_for_windows_runtime "$plugin_src")"
+  fi
+  local plugin_dir="$(hermes_config_root)/plugins/aify-comms"
+  mkdir -p "$plugin_dir"
+  cat > "$plugin_dir/plugin.yaml" <<'YAML'
+name: aify-comms
+version: 1.0.0
+description: "aify-comms hermes runtime shim — registers the gateway visible-session bind/render methods and gateway-URL env publication so dashboard-managed and resident hermes delivery works. Loads the durable shim from the aify-comms repo. Active only under hermes-aify (AIFY_HERMES_PLUGIN=1)."
+author: "aify-comms"
+YAML
+  # __init__.py: thin loader. __AIFY_PLUGIN_PATH__ is replaced with the repo
+  # path at install time and used only as a fallback when the env var is unset.
+  cat > "$plugin_dir/__init__.py" <<'PYEOF'
+"""aify-comms hermes plugin (thin loader).
+
+discover_plugins() invokes register() in every hermes process that loads
+plugins — including the dashboard/gateway process where hermes has stripped
+PYTHONPATH. We add the repo shim path to sys.path and install the import-time
+patcher so tui_gateway.server (and hermes_cli.main / web_server) get patched
+when imported. No-op unless AIFY_HERMES_PLUGIN=1, so normal hermes is untouched.
+"""
+from __future__ import annotations
+import os, sys
+
+
+def register(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
+    if os.environ.get("AIFY_HERMES_PLUGIN", "").strip() != "1":
+        return
+    plugin_path = os.environ.get("AIFY_HERMES_PLUGIN_PATH", "").strip() or r"__AIFY_PLUGIN_PATH__"
+    if plugin_path and plugin_path not in sys.path:
+        sys.path.insert(0, plugin_path)
+    try:
+        from aify_hermes_plugin.bootstrap import install
+        install()
+    except Exception as exc:  # never break hermes startup
+        sys.stderr.write("[aify-comms-plugin] shim load failed: %s\n" % exc)
+PYEOF
+  # Substitute the baked fallback path (python raw string; backslashes safe).
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    const p = process.argv[2];
+    let t = fs.readFileSync(file, "utf8");
+    t = t.split("__AIFY_PLUGIN_PATH__").join(p.replace(/\\/g, "\\\\"));
+    fs.writeFileSync(file, t);
+  ' "$plugin_dir/__init__.py" "$plugin_src" 2>/dev/null || \
+    sed -i.bak "s|__AIFY_PLUGIN_PATH__|$plugin_src|g" "$plugin_dir/__init__.py" 2>/dev/null && rm -f "$plugin_dir/__init__.py.bak" 2>/dev/null || true
+
+  # Enable it (opt-in allow-list). Prefer the CLI; fall back to patching
+  # config.yaml's plugins.enabled list directly if the CLI is unavailable.
+  local hermes_bin=""
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  if [ -n "$hermes_bin" ] && "$hermes_bin" plugins enable aify-comms >/dev/null 2>&1; then
+    echo "Hermes plugin 'aify-comms' installed and enabled at $plugin_dir"
+  else
+    _enable_hermes_plugin_in_config "$(hermes_config_root)/config.yaml" "aify-comms"
+    _enable_hermes_plugin_in_config "$HOME/.hermes/config.yaml" "aify-comms"
+    echo "Hermes plugin 'aify-comms' installed at $plugin_dir (enabled via config.yaml)"
+  fi
+}
+
+_enable_hermes_plugin_in_config() {
+  # Add <name> to plugins.enabled in a hermes config.yaml without disturbing
+  # other keys. Idempotent. Best-effort (node-based YAML-ish edit).
+  local config_file="$1"
+  local name="$2"
+  [ -f "$config_file" ] || return 0
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const [file, name] = [process.argv[1], process.argv[2]];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) { return; }
+    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    // Find a top-level "plugins:" block.
+    let pIdx = lines.findIndex((l) => /^plugins:\s*$/.test(l));
+    // Replace a malformed "plugins: []" / "plugins:" inline form.
+    const inlineIdx = lines.findIndex((l) => /^plugins:\s*\[\s*\]\s*$/.test(l));
+    if (inlineIdx >= 0) { lines.splice(inlineIdx, 1, "plugins:", "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    if (pIdx < 0) { lines.push("plugins:", "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    // Within the plugins block, find enabled:.
+    let enIdx = -1, end = lines.length;
+    for (let i = pIdx + 1; i < lines.length; i++) {
+      if (/^\S/.test(lines[i])) { end = i; break; }
+      if (/^\s+enabled:\s*$/.test(lines[i])) { enIdx = i; }
+      if (/^\s+enabled:\s*\[\s*\]\s*$/.test(lines[i])) { lines.splice(i, 1, "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    }
+    if (enIdx < 0) { lines.splice(pIdx + 1, 0, "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    // enabled: block exists — check membership, append if missing.
+    let listEnd = end;
+    for (let j = enIdx + 1; j < end; j++) {
+      const m = lines[j].match(/^(\s+)-\s+(.*\S)\s*$/);
+      if (!m) { listEnd = j; break; }
+      if (m[2] === name) return; // already enabled
+      listEnd = j + 1;
+    }
+    lines.splice(listEnd, 0, `    - ${name}`);
+    fs.writeFileSync(file, lines.join("\n") + "\n");
+  ' "$config_file" "$name" 2>/dev/null || true
+}
+
 install_hermes_config() {
   # Hermes reads config from two locations depending on how the binary
   # was launched: the path reported by `hermes config path` (often
@@ -2458,9 +2573,14 @@ EOF
     const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
     let replaced = false;
     lines = lines.map((line) => {
-      if (/^[ \t]*command:[ \t]*.*aify-notify\.sh/.test(line)) {
+      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-notify\.sh/);
+      if (m) {
         replaced = true;
-        return commandLine;
+        // Preserve the existing command line indentation. Hardcoding a fixed
+        // indent corrupts blocks whose matcher/timeout siblings use a different
+        // indent (observed: a 2-space "- matcher" item with 4-space keys got a
+        // 6-space command -> "mapping values are not allowed here").
+        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
       }
       return line;
     });
@@ -2581,9 +2701,11 @@ EOF
     const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
     let replaced = false;
     lines = lines.map((line) => {
-      if (/^[ \t]*command:[ \t]*.*aify-turn-start\.sh/.test(line)) {
+      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-turn-start\.sh/);
+      if (m) {
         replaced = true;
-        return commandLine;
+        // Preserve existing indentation — see aify-notify replace above.
+        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
       }
       return line;
     });
@@ -3042,6 +3164,11 @@ elif [ "$CLIENT" = "hermes" ]; then
     echo "Hermes source patching skipped; hermes-aify loads integrations/hermes-aify-plugin at runtime."
     echo "  Set AIFY_HERMES_LEGACY_SOURCE_PATCH=1 before install for the old in-place patch path."
   fi
+  # Install the shim as a Hermes plugin so it loads in the dashboard/gateway
+  # process (where hermes strips PYTHONPATH). This is what makes the visible
+  # session bind — and therefore managed/resident hermes delivery — actually
+  # work; the PYTHONPATH/sitecustomize path alone does not reach the gateway.
+  install_hermes_plugin
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because
