@@ -3293,6 +3293,9 @@ function runtimeAttachNote(session) {
   if (runtime === 'codex') {
     return 'Headless managed Codex uses the bridge app-server and managed CODEX_HOME. Resume by ID with the generated command when a resume ID is recorded.';
   }
+  if (runtime === 'hermes') {
+    return 'Hermes dashboard work uses a hermes-aify PTY backing with a local dashboard gateway; the bridge injects the turn over the gateway and tracks the run as working until the reply closes it. Resume by session id with the generated command when a handle is recorded.';
+  }
   if (runtime === 'pi') {
     return 'Managed Pi uses OMP RPC through the environment bridge. Resident omp-aify/pi-aify wrapper install is disabled by default because OMP is single-client; use dashboard-managed Console for triggerable delivery.';
   }
@@ -4515,6 +4518,7 @@ function sessionRuntimeHandle(session, agentInfo = {}) {
   if (session?.sessionHandle) return String(session.sessionHandle);
   if (runtime === 'claude-code') return String(state.sessionId || agentInfo.sessionHandle || '');
   if (runtime === 'codex') return String(state.threadId || agentInfo.sessionHandle || '');
+  if (runtime === 'hermes') return String(state.sessionId || agentInfo.sessionHandle || '');
   if (runtime === 'opencode') return String(state.sessionId || agentInfo.sessionHandle || '');
   if (runtime === 'pi') return String(state.sessionId || state.sessionFile || agentInfo.sessionHandle || '');
   return String(agentInfo.sessionHandle || '');
@@ -4545,6 +4549,11 @@ function sessionResumeCommand(session, agentInfo = {}) {
     return prefix(windows
       ? `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteCmd(handle)}`
       : `${envPrefix}codex --no-alt-screen resume --include-non-interactive ${quoteShell(handle)}`);
+  }
+  if (runtime === 'hermes') {
+    return prefix(windows
+      ? `hermes-aify.cmd${agentFlag} --resume ${quoteCmd(handle)}`
+      : `hermes-aify${agentFlag} --resume ${quoteShell(handle)}`);
   }
   if (runtime === 'opencode') {
     return prefix('opencode');

@@ -563,6 +563,26 @@ def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
     return str(state.get("sessionId") or state.get("threadId") or "").strip()
 
 
+_SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
+
+
+def _sanitize_session_handle(session_handle: Any) -> str:
+    """Drop an unexpanded shell placeholder passed as a session handle.
+
+    Callers sometimes register with sessionHandle="$HERMES_SESSION_ID" (or
+    "$CODEX_THREAD_ID", "${VAR}") from a shell/MCP context where the variable was
+    empty or never expanded, so the literal placeholder string gets stored. That
+    can never resume a real runtime session and surfaces downstream as
+    "session not found" plus a nonsensical `--resume ${HERMES_SESSION_ID}` resume
+    command. Treat a handle that is *entirely* such a placeholder as no handle.
+    Real handles (UUIDs, timestamp_hash ids) never match this shape.
+    """
+    handle = str(session_handle or "").strip()
+    if handle and _SHELL_PLACEHOLDER_HANDLE_RE.match(handle):
+        return ""
+    return handle
+
+
 def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle: str) -> dict[str, Any]:
     state = runtime_state if isinstance(runtime_state, dict) else _json_loads_or(runtime_state, {})
     result = dict(state or {})
@@ -8869,7 +8889,10 @@ async def register_agent(req: AgentRegister, request: Request):
         # from the new request only. Preserving them across re-register let stale
         # Codex thread IDs survive a fresh codex-aify start, which then made
         # thread/resume fail with AbsolutePathBuf or "no rollout found".
-        session_handle = req.sessionHandle or ""
+        # Reject unexpanded shell placeholders (e.g. "$HERMES_SESSION_ID") so a
+        # literal never gets stored as the resume handle — see
+        # _sanitize_session_handle.
+        session_handle = _sanitize_session_handle(req.sessionHandle or "")
         existing_state = json.dumps(_runtime_state_with_handle(normalized_runtime, {}, session_handle))
         # Description is team-facing metadata that survives re-register when the
         # caller does not pass a new value. Passing "" explicitly clears it.
@@ -9803,7 +9826,9 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
 @router.patch("/agents/{agent_id}/session-handle")
 async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpdate, request: Request):
     validate_name(agent_id, "agent ID")
-    session_handle = str(req.sessionHandle or "").strip()
+    # Drop unexpanded shell placeholders ("$HERMES_SESSION_ID", "${VAR}") so a
+    # literal is never stored as the resume handle — see _sanitize_session_handle.
+    session_handle = _sanitize_session_handle(req.sessionHandle)
     if len(session_handle) > 512:
         raise HTTPException(400, "sessionHandle must be 512 characters or fewer")
     db = await get_db()
