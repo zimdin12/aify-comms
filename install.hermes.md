@@ -83,6 +83,17 @@ restart the bridge:
 [Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
 ```
 
+## Auto / bypass flag
+
+`hermes-aify -auto` (also `--auto` or `--yolo`) adds Hermes' `--yolo` flag to the
+interactive TUI launch, bypassing all dangerous-command approval prompts
+(`HERMES_YOLO_MODE=1`). Without it, `hermes-aify` preserves normal visible
+approval behavior. This mirrors `claude-aify -auto`
+(`--dangerously-skip-permissions`) and `codex-aify -auto`
+(`--dangerously-bypass-approvals-and-sandbox`). The flag is consumed by the
+wrapper and applied only to the default chat/TUI launch, not to explicit
+passthrough subcommands like `hermes-aify model list`.
+
 ## Session-mode flag
 
 `hermes-aify` accepts `--resident` and `--managed`. Precedence: inherited

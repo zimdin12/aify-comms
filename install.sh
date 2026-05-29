@@ -1185,9 +1185,18 @@ if [ "\${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ] && [ -n "\$HERMES_INHERITED_SESSIO
   HERMES_EXPLICIT_SESSION_HANDLE="true"
 fi
 HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
+# Symmetric with claude-aify (--auto -> --dangerously-skip-permissions) and
+# codex-aify (CODEX_AUTO -> --dangerously-bypass-approvals-and-sandbox). For
+# hermes the bypass is --yolo (HERMES_YOLO_MODE=1, "bypass all dangerous
+# command approval prompts"). Default off; opt in with --auto/-auto/--yolo.
+HERMES_AUTO=false
 HERMES_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
+  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
+    HERMES_AUTO=true
+    continue
+  fi
   if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
     HERMES_AIFY_AGENT_ID="\$ARG"
     PREV_ARG=""
@@ -1367,6 +1376,14 @@ aify_ensure_node_ge_22() {
 }
 aify_ensure_node_ge_22
 
+# Bypass flags for the default TUI launch only. Mirrors claude-aify's
+# CLAUDE_PERMISSION_FLAGS — applied to the interactive chat/TUI launch, not to
+# explicit passthrough subcommands like \`hermes-aify model list\`.
+HERMES_PERMISSION_FLAGS=()
+if [ "\$HERMES_AUTO" = true ]; then
+  HERMES_PERMISSION_FLAGS+=(--yolo)
+fi
+
 aify_hermes_exec_plain_or_tui() {
   # Default to hermes --tui for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
@@ -1375,9 +1392,9 @@ aify_hermes_exec_plain_or_tui() {
   # explicit --resume keeps working even when gateway startup fails.
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE"
+      exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$HERMES_SESSION_HANDLE"
     fi
-    exec "\$HERMES_RUNTIME_COMMAND" --tui
+    exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
   fi
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 }
@@ -1539,10 +1556,10 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
 
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      aify_hermes_run_foreground --tui --resume "\$HERMES_SESSION_HANDLE"
+      aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$HERMES_SESSION_HANDLE"
       exit \$?
     fi
-    aify_hermes_run_foreground --tui
+    aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}"
     exit \$?
   fi
   aify_hermes_run_foreground "\${HERMES_ARGS[@]}"
