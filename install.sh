@@ -1399,18 +1399,17 @@ aify_hermes_exec_plain_or_tui() {
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 }
 
-HERMES_RUNTIME_PID=""
 aify_hermes_run_foreground() {
   set +e
   # Keep Hermes in the foreground. Same reason as run_codex_foreground above:
   # in a non-interactive bash wrapper, async commands (\`hermes ... &\`) receive
   # /dev/null on stdin and the Ink TUI exits with "hermes-tui: no TTY" even
-  # when the operator launched from a real terminal. The cleanup trap still
-  # kills the backgrounded dashboard child when the wrapper exits.
+  # when the operator launched from a real terminal. Because Hermes runs in the
+  # foreground here, signals to the wrapper reach it directly and the cleanup
+  # trap only needs to reap the backgrounded dashboard child.
   "\$HERMES_RUNTIME_COMMAND" "\$@"
   local status=\$?
   set -e
-  HERMES_RUNTIME_PID=""
   return "\$status"
 }
 
@@ -1520,10 +1519,6 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
     if [ -n "\${AIFY_HERMES_DASHBOARD_PID:-}" ] && kill -0 "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1; then
       kill "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1 || true
       wait "\$AIFY_HERMES_DASHBOARD_PID" 2>/dev/null || true
-    fi
-    if [ -n "\${HERMES_RUNTIME_PID:-}" ] && kill -0 "\$HERMES_RUNTIME_PID" >/dev/null 2>&1; then
-      kill "\$HERMES_RUNTIME_PID" >/dev/null 2>&1 || true
-      wait "\$HERMES_RUNTIME_PID" 2>/dev/null || true
     fi
   }
   trap cleanup_aify_dashboard EXIT INT TERM HUP

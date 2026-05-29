@@ -17,6 +17,14 @@ agent spawn, browser Console, and environment control.
   - Native Windows: install from [nodejs.org](https://nodejs.org/) or via `winget install OpenJS.NodeJS.LTS`.
 - **Hermes Agent** itself, installed and on `PATH` as `hermes`.
 
+> **Path style is decided at install time.** `install.sh` detects whether the
+> `hermes` it wraps is a Linux binary (WSL/native Linux) or a native Windows
+> binary, and bakes the matching path style for the plugin `PYTHONPATH` and the
+> MCP `server.js` arg. If you later switch which Hermes `hermes-aify` should wrap
+> (e.g. change `AIFY_HERMES_COMMAND`/`HERMES_COMMAND`/`PATH` from Linux Hermes to
+> native Windows Hermes or vice versa), **re-run `install.sh --client hermes`**
+> so the wrapper and config paths match the new runtime.
+
 ## Copy-Paste Install
 
 Install Hermes first:
