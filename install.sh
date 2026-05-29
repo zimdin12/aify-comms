@@ -369,8 +369,35 @@ JSON
   # Strict mode (AIFY_CLAUDE_STRICT_MCP=1): only the two-server config
   # above is visible to this claude process.
   CLAUDE_MCP_FLAGS+=(--strict-mcp-config --mcp-config "\$AIFY_MCP_CONFIG")
-  trap 'rm -f "\$AIFY_MCP_CONFIG"' EXIT
 fi
+
+# Session-id truth capture (2026-05-30, #138): install SessionStart +
+# UserPromptSubmit hooks that record THIS claude session's own id. Claude
+# passes session_id to hooks on stdin; the hook keys it by AIFY_AGENT_ID
+# (inherited from this wrapper's env) so the bridge reads back the agent's
+# OWN session instead of a machine-global filesystem guess (the cause of
+# cross-agent session bleed when a whole team runs in one directory).
+# Always on — both strict and default MCP modes.
+if command -v cygpath >/dev/null 2>&1; then
+  AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$SCRIPT_DIR")"
+else
+  AIFY_SCRIPT_DIR_FWD="$SCRIPT_DIR"
+fi
+AIFY_HOOK_SETTINGS="\$(mktemp -t aify-hooks.XXXXXX.json 2>/dev/null || mktemp -t aify-hooks)"
+cat > "\$AIFY_HOOK_SETTINGS" <<JSON
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "node \"\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-session-hook.js\"" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "node \"\${AIFY_SCRIPT_DIR_FWD}/mcp/stdio/claude-session-hook.js\"" } ] }
+    ]
+  }
+}
+JSON
+CLAUDE_MCP_FLAGS+=(--settings "\$AIFY_HOOK_SETTINGS")
+trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS" 2>/dev/null' EXIT
 
 claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?

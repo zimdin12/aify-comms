@@ -1,8 +1,14 @@
 import { RuntimeAdapter } from "./base.js";
 import { ClaudeController } from "../controllers/claude-controller.js";
+import { readClaudeSessionId } from "../claude-session-store.js";
 import path from "path";
 import os from "os";
 import { promises as fs } from "fs";
+
+// claude project-dir encoding: cwd.replace(/[^a-zA-Z0-9]/g,'-')
+function encodeClaudeCwd(cwd) {
+  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+}
 
 export class ClaudeAdapter extends RuntimeAdapter {
   get name() { return "claude-code"; }
@@ -22,33 +28,51 @@ export class ClaudeAdapter extends RuntimeAdapter {
     return new ClaudeController(opts);
   }
 
-  async discoverSessionId() {
-    // Plan 4 (2026-05-25): claude stores transcripts at
-    // ~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl. Find newest
-    // .jsonl across all project subdirs; return session uuid from filename.
-    const root = path.join(os.homedir(), ".claude", "projects");
-    let projects;
-    try { projects = await fs.readdir(root); }
+  async discoverSessionId(opts = {}) {
+    // Session-id truth (2026-05-30, #138): managed claude agents must report
+    // their OWN session id, not a machine-global filesystem guess. Precedence:
+    //   (a) captured store id (written by claude-session-hook.js, keyed by
+    //       AIFY_AGENT_ID — robust on Windows where the hook runs via a shell
+    //       so pid/ppid keying is fragile) — the authoritative, per-session
+    //       signal that defeats team-in-one-dir contamination.
+    //   (b) explicit CLAUDE_SESSION_ID env.
+    //   (c) cwd-SCOPED freshest .jsonl in THIS agent's own project dir only.
+    //   (d) null. NEVER scan all projects / machine-global freshest.
+    const {
+      env = process.env,
+      homeDir = os.homedir(),
+      cwd,
+      agentId,
+      dir,
+    } = opts;
+
+    // (a) captured store id, keyed by agent id
+    const resolvedAgentId = agentId || env.AIFY_AGENT_ID || env.AIFY_COMMS_AGENT_ID;
+    const captured = readClaudeSessionId({ agentId: resolvedAgentId, dir });
+    if (captured) return captured;
+
+    // (b) explicit env
+    const envId = String(env.CLAUDE_SESSION_ID || "").trim();
+    if (envId) return envId;
+
+    // (c) cwd-scoped freshest within the agent's own project dir only
+    const scopedCwd = cwd || env.AIFY_AGENT_CWD || process.cwd();
+    const projDir = path.join(homeDir, ".claude", "projects", encodeClaudeCwd(scopedCwd));
+    let files;
+    try { files = await fs.readdir(projDir); }
     catch { return null; }
-    if (!projects.length) return null;
 
     let newest = null;
-    for (const proj of projects) {
-      const projDir = path.join(root, proj);
-      let files;
-      try { files = await fs.readdir(projDir); }
-      catch { continue; }
-      for (const f of files) {
-        if (!f.endsWith(".jsonl")) continue;
-        const full = path.join(projDir, f);
-        try {
-          const stat = await fs.stat(full);
-          if (!stat.isFile()) continue;
-          if (!newest || stat.mtimeMs > newest.mtime) {
-            newest = { name: f, mtime: stat.mtimeMs };
-          }
-        } catch { /* skip */ }
-      }
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      const full = path.join(projDir, f);
+      try {
+        const stat = await fs.stat(full);
+        if (!stat.isFile()) continue;
+        if (!newest || stat.mtimeMs > newest.mtime) {
+          newest = { name: f, mtime: stat.mtimeMs };
+        }
+      } catch { /* skip */ }
     }
     if (!newest) return null;
 
