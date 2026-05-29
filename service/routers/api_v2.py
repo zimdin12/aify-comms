@@ -1868,6 +1868,19 @@ async def _record_bridge_registration(
     # whose row should be superseded so the table doesn't accumulate
     # zombie entries. Live multi-window resident scenarios still keep the
     # protection because their last_seen heartbeats stay fresh.
+    # Latest-launch-wins for resident bridges (2026-05-29). The previous
+    # blanket `session_mode == 'resident'` carve-out protected EVERY fresh
+    # same-identity resident bridge from supersession, so each new wrapper
+    # launch coexisted with the prior one instead of replacing it. In real use
+    # that splits one logical agent into multiple live sessions (#1/#2…) and
+    # lets stale rows accumulate, and the dashboard/delivery can land on the
+    # wrong one. Operators need the tool to self-heal in a messy state, not to
+    # require sterile single-launch discipline. So a new resident registration
+    # now supersedes prior same-agent/same-machine bridges (the newest live
+    # bridge is authoritative). The managed-wrapper-child protection is kept
+    # intact: bridge-spawned PTY siblings sharing a terminal must not kill each
+    # other. Same-process periodic re-register keeps the same bridge_id and is
+    # excluded by `id != ?`, so only genuinely older launches are superseded.
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
@@ -1877,14 +1890,9 @@ async def _record_bridge_registration(
             OR NOT (
               runtime = ? AND session_mode = ?
               AND COALESCE(session_handle, '') = ?
-              AND (
-                ? = 'resident'
-                OR (
-                  ? = 'managed-wrapper-child'
-                  AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
-                  AND COALESCE(terminal_id, '') = ?
-                )
-              )
+              AND ? = 'managed-wrapper-child'
+              AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
+              AND COALESCE(terminal_id, '') = ?
             )
           )
         """,
@@ -1895,7 +1903,6 @@ async def _record_bridge_registration(
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
-            normalized_session_mode_value,
             bridge_kind,
             normalized_terminal_id_value,
         ),
