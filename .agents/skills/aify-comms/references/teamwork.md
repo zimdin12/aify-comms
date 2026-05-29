@@ -77,7 +77,7 @@ Do not use labels as theater. The body must include evidence or the exact ask.
 
 ## Dashboard User
 
-The dashboard user is the human/operator. A dashboard-managed run should answer the current dashboard message in final plain text. Use `comms_send(to="dashboard", ...)` only for later proactive updates outside that delivered run.
+The dashboard user is the human/operator. Dashboard chat rides the aify-comms transport, so a dashboard-managed run replies the same way as any aify-comms message: `comms_send(type="response", inReplyTo="<message id>", to="dashboard")`. That threads into dashboard chat and closes the run. Your final plain text is your own working output, not the chat reply.
 
 When the human asks "what happened", inspect messages/runs/contracts first. Do not summarize from memory if the system has data.
 
@@ -87,7 +87,7 @@ When the human asks "what happened", inspect messages/runs/contracts first. Do n
 
 - Request arrived as a `<channel source="aify-comms-channel" ...>` event (someone called `comms_send` to you) → reply with `comms_send(type="response", inReplyTo="<message id>", ...)`. Do NOT just print the answer as terminal output; the sender is not watching your terminal — they're waiting for the threaded reply via the bridge.
 - Request typed directly into your CLI (operator at your keyboard) → reply in the CLI / final plain text. Do not `comms_send` back to the operator unless they specifically asked for a dashboard update.
-- A dashboard-managed delivered run with `inReplyTo` in the metadata → final plain text closes the run and the bridge threads it back. No `comms_send` needed for the primary reply.
+- A dashboard-managed delivered run with `inReplyTo` in the metadata → reply with `comms_send(type="response", inReplyTo="<message id>", to="dashboard")`; that closes the run and threads into chat. (Only if `managed_reply_capture_fallback` is enabled does an unanswered run auto-mirror its summary as a fallback — don't rely on it.)
 - Same rule for agent-to-agent: A sends `comms_send` to B → B replies with `comms_send(type="response", inReplyTo=A's-message-id, to="A")`. Don't expect the sender to read your stdout.
 
 The principle: every channel of communication has its own thread. Replying on a different surface breaks threading, hides the answer from the sender, and creates duplicate context. If a message asks for action that produces output to multiple surfaces (e.g. "commit and tell me the hash"), the primary reply still goes back where the request came from; supplementary notifications go via `comms_send` to whoever else needs them.

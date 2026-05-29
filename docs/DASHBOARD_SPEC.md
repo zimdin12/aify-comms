@@ -112,9 +112,9 @@ Chat should feel like a real team messenger:
 - reply expectations are inferred from message type: requests/reviews/errors should get explicit replies; routine info is non-contractual unless `requireReply` is explicitly set
 - normal dashboard chat has one send path; strict dispatch remains an advanced API/debug path, not a primary composer option
 - conversation context should stay focused: managed prompts should include only compact recent direct context, tell agents not to revive unrelated topics, and require evidence checks before status/history claims
-- dashboard-origin direct messages are human/operator chat: managed agents answer the current delivered run in final plain text, and the bridge stores that final answer in dashboard chat
-- asynchronous manager updates outside the current delivered run should use `comms_send(to="dashboard", type="info" or "response", ...)` when completing a dashboard promise; captured final output remains a backend safety net
-- delivered managed agent-to-agent requests/reviews/errors should answer the current message in final plain text; the bridge captures and threads that answer into chat
+- dashboard-origin direct messages are human/operator chat (over the aify-comms transport): agents reply with `comms_send(type="response", inReplyTo=..., to="dashboard")`, which threads into dashboard chat and closes the run; final plain text is the agent's working output, not the reply
+- asynchronous manager updates outside the current delivered run also use `comms_send(to="dashboard", type="info" or "response", ...)`
+- delivered managed agent-to-agent requests/reviews/errors are answered the same way: `comms_send(type="response", inReplyTo=..., to="<sender>")`
 
 The existing inbox/message tables can remain as an admin/debug view, but the default user experience should be conversational.
 
@@ -130,7 +130,7 @@ Message states:
 - `handoff pending`: reply expected
 - `closed`: handoff complete or explicitly dismissed
 
-Dashboard-origin managed messages use final plain text as the primary chat reply path. Delivered managed agent-to-agent runs also use final plain text for the current threaded reply. The bridge captures that final output into Runs and stores/threads it into chat so managed replies do not depend on an extra MCP tool call. Later teammate-triggered manager/operator results outside the current delivered run should still be sent with `comms_send(to="dashboard")`; backend summary mirroring is a safety net.
+The reply contract is uniform: every aify-comms message — dashboard-origin or agent-to-agent, managed or resident — is answered with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the chat/team-visible reply and closes the run; an agent's final plain text / stdout is its own working output, not the delivered reply. The `managed_reply_capture_fallback` setting governs the backstop when a delivered run ends with no explicit reply: `true` (default) auto-mirrors the run summary back into chat/Runs as a safety net; `false` (strict) leaves the run reply-owed so the missing reply is surfaced. Agents should always send the explicit `comms_send` regardless of the setting.
 
 Group chat must prevent accidental loops:
 
