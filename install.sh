@@ -1193,10 +1193,6 @@ HERMES_AUTO=false
 HERMES_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
-  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
-    HERMES_AUTO=true
-    continue
-  fi
   if [ "\$PREV_ARG" = "--aify-agent" ] || [ "\$PREV_ARG" = "--agent-id" ]; then
     HERMES_AIFY_AGENT_ID="\$ARG"
     PREV_ARG=""
@@ -1211,6 +1207,12 @@ for ARG in "\$@"; do
     HERMES_SESSION_HANDLE="\$ARG"
     HERMES_EXPLICIT_SESSION_HANDLE="true"
     PREV_ARG=""
+    continue
+  fi
+  # Checked AFTER the value-consumption branches above so a value-expecting flag
+  # (e.g. --resume) claims its next token first, consistent with --aify-agent.
+  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
+    HERMES_AUTO=true
     continue
   fi
   if [ "\$ARG" = "--resident" ]; then
