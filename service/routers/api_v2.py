@@ -10005,6 +10005,18 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             or row["session_handle"]
             or ""
         ).strip()
+        # Adopt the resident candidate's runtime when switching to resident. A
+        # resident wrapper of a different runtime (e.g. a hermes hermes-aify
+        # session registering against an agent last seen as managed pi) records
+        # itself as a manualResidentCandidate with runtime="hermes". Without
+        # this, the switch promoted the candidate's bridge/handle/config but
+        # kept the stale runtime, producing an inconsistent pi-resident agent
+        # pointing at a hermes bridge — the switch appeared to do nothing.
+        effective_runtime = runtime
+        if new_mode == "resident":
+            candidate_runtime = str(resident_candidate.get("runtime") or "").strip()
+            if candidate_runtime:
+                effective_runtime = _normalize_runtime(candidate_runtime)
 
         if current_mode == new_mode:
             return {
@@ -10022,7 +10034,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     409,
                     f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
                 )
-            if new_mode == "resident" and runtime == "hermes":
+            if new_mode == "resident" and effective_runtime == "hermes":
                 if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
                     raise HTTPException(
                         409,
@@ -10068,7 +10080,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         }
         next_launch_mode = "managed" if new_mode == "managed" else "detached"
         capabilities = _default_capabilities_for(
-            runtime,
+            effective_runtime,
             new_mode,
             switch_session_handle,
             runtime_config,
@@ -10087,6 +10099,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             """
             UPDATE agents
             SET session_mode = ?,
+                runtime = ?,
                 launch_mode = ?,
                 session_handle = ?,
                 machine_id = ?,
@@ -10101,6 +10114,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             """,
             (
                 new_mode,
+                effective_runtime,
                 next_launch_mode,
                 switch_session_handle,
                 next_machine_id,
@@ -10108,7 +10122,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 json.dumps(capabilities),
                 json.dumps(runtime_config),
                 json.dumps(runtime_state),
-                f"Manually switched from {current_mode} to {new_mode} by {requested_by}.",
+                f"Manually switched from {current_mode} to {new_mode} by {requested_by}"
+                + (f" (runtime {runtime}->{effective_runtime})" if effective_runtime != runtime else "")
+                + ".",
                 now,
                 agent_id,
             ),
@@ -10135,7 +10151,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 agent_id,
                 "audit",
                 "audit",
-                runtime,
+                effective_runtime,
                 "audit",
                 "session-mode-switch",
                 f"agentId={agent_id} {current_mode}->{new_mode} by={requested_by}",
