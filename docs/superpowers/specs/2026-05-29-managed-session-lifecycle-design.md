@@ -219,3 +219,91 @@ Every file:line reference is from that hunt and is the anchor for the fix.
 Each phase is independently testable and shippable; 1–3 close the confirmed
 leak and duplicate, 4 gives the operator control, 5–6 make status/switching
 honest.
+
+## Addendum (2026-05-29): dispatch-path bug hunt — additional root causes + phases
+
+A four-agent hunt of the send→claim→route→reply path found the core-delivery
+defects the prior point-fixes kept circling. New root causes:
+
+### Root cause G — cold-agent send strands messages forever
+`_ensure_managed_pty_for_dispatch` (api_v2.py:4526) only REUSES an
+`agent_sessions` row already in `running`/`recovering`; for a cold agent it
+returns `None` and no `spawn_request` is created on the send path → the run is
+`queued` with nothing that will ever claim it. `_find_mergeable_queued_run`
+(api_v2.py:4976) then merges every later send from that sender into the dead
+run (`_append_pending_dispatch_body`, 5344) without re-evaluating
+deliverability → permanent silent strand. **No reaper ever fails/expires/
+re-kicks a `queued` run** (`_run_dispatch_reconcile_once` only handles
+`claimed`/`running`/`delivered`). The merge `UPDATE` is not status-guarded
+(5407) so it can also clobber a run already claimed (lost item).
+
+### Root cause H — active-run / control ownership not tied to a live bridge
+- Steer/dispatch controls are claimable by `target_agent` only
+  (`claim_dispatch_controls`, api_v2.py:13270) — NOT scoped to the run's
+  owner `claim_bridge_id` — so a superseded/dead same-machine bridge can claim
+  a steer and mark it `completed`; the sender is told "steered" but the live
+  session never sees it.
+- `_discard_unusable_active_run` (api_v2.py:5059) cannot discard a
+  `claimed`/`running` run whose owner `bridge_instances` row was DELETED
+  (no superseded flag, no `last_seen`) → the agent is "busy" forever →
+  permanent send deadlock; the periodic repair can't clear it either.
+- The send path makes the steer/queue decision twice against independent
+  non-transactional reads (preflight 3778 + `_create_dispatch_runs` 5276) →
+  delivered mode can silently diverge from the contract the sender was told.
+
+### Root cause I — reply / auto-mirror integrity
+- `_run_dispatch_reconcile_once` terminalizes `require_reply` runs
+  (`_close_reconcilable_delivered_runs` 12474, `_close_orphaned_managed_runs`)
+  to `completed` with empty `result_message_id` and **never mirrors** → the
+  sender is stuck `replyPending` forever (auto-mirror only runs in the PATCH
+  handler 13173 and the manual repair endpoint).
+- A plain `info` reply that lacks a completion keyword fails
+  `_message_satisfies_reply_contract` (5615) → `result_message_id` stays empty
+  → auto-mirror fires a SECOND `response` (double reply).
+- `_auto_handoff_body_for_run` (5944) mirrors `summary` verbatim; an
+  empty-output/`(no output)` run is sent back as a legitimate-looking
+  "response."
+- `_link_unthreaded_reply_to_recent_dispatch_run` (5816) matches newest run by
+  (target,from) with no content correlation → wrong-thread close under
+  concurrent same-pair runs. Merged runs keep only item 1's `message_id`, so
+  replies to items 2..N never close the contract.
+
+### Send-path / fan-out gaps (extend existing phases)
+- Preflight (`_preflight_live_send_recipients`, 3731) never applies the
+  live-worker gate, so a managed agent with a stale `online` cache passes →
+  false-positive delivery (extends Phase 5 onto the SEND path).
+- `toRole` broadcast is all-or-nothing: one unstartable recipient makes the
+  whole fan-out return `ok:false` with zero deliveries (NEW).
+- Steered runs keep `execution_mode='managed'` (5227 skips the mode patch);
+  busy is defined three different ways across preflight/send/claim (extends
+  Phase 5).
+
+## Revised phasing
+
+1. Bridge reaping + ownership (root cause B). **DONE 2026-05-29.**
+2. One-worker-per-agent (root cause C) + merge `UPDATE` status-guard +
+   batch-claim cross-bridge race (root cause G partial).
+3. Stop-authority (root cause A).
+4. Configurable idle auto-stop + settings UI (root cause D).
+5. Status truth (root cause E) + send-path live-worker gate, busy unification,
+   steered-run mode label (send-path gaps).
+6. No stale-handle replay (root cause F) + active-run/control ownership tied to
+   a live current bridge, dead-owner-bridge discard, steer-decision
+   transactionality (root cause H).
+7. **NEW — Dispatch run reaping & cold-start (root cause G):** create a
+   spawn_request (or eager cold-start) on the send path when no live session
+   exists; refuse to merge into an unclaimable queued run (or re-trigger
+   spawn); add a `queued`-run age sweep that fails/re-kicks; wire
+   spawn_request reaping (time-based) into `_run_dispatch_reconcile_once`.
+8. **NEW — Reply/handoff integrity (root cause I):** reconcile must mirror, not
+   just terminalize, every `require_reply` run; gate auto-mirror so it never
+   double-replies and never mirrors empty/garbage summaries; precise threading
+   for unthreaded, concurrent, and merged runs; `unsend` clears stale
+   `result_message_id`.
+9. **NEW — `toRole` fan-out partial success:** deliver to every reachable
+   recipient; report per-recipient not-started without aborting the batch.
+
+Phases 7–9 are the dispatch-layer companions to the session-layer phases and
+are required before the core can be called stable. Suggested order after
+Phase 1: 7 (cold-start/reaping — closes the confirmed strand), 2, 3, 6+H,
+8 (reply integrity), 5, 4, 9.
