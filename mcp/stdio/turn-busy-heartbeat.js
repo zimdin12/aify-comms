@@ -31,21 +31,45 @@ export function startTurnBusyHeartbeat({ agentId, intervalMs, isActive, postFn }
   };
 }
 
-// Default poster: POST /api/v1/agents/{id}/turn-start with body.source = "bridge-heartbeat"
-export function makeDefaultTurnBusyPoster(baseUrl, apiKey = "") {
+// Default poster: while a turn is active, refresh BOTH liveness timestamps the
+// server tracks for an owning bridge:
+//   1. POST /agents/{id}/turn-start -> agent_turn_state.turn_updated_at
+//      (keeps status "working" during long turns).
+//   2. POST /agents/{id}/heartbeat  -> bridge_instances.last_seen
+//      (the owner-bridge lease the active-run staleness check reads).
+//
+// (2) is the fix for the busy-turn reap: /turn-start alone leaves
+// bridge_instances.last_seen untouched, and resident liveness otherwise only
+// refreshes at turn boundaries. So a tool call longer than the server's
+// ACTIVE_RUN_BRIDGE_STALE_SECONDS made the server reap a live run as a dead
+// bridge. The /heartbeat POST is liveness-only (no turnBusy field) and
+// superseded-bridge-safe per the server contract. bridgeId is required for (2);
+// when absent we keep the legacy turn-start-only behavior.
+export function makeDefaultTurnBusyPoster(baseUrl, apiKey = "", bridgeId = "") {
   const root = String(baseUrl || "").replace(/\/+$/, "");
   const key = String(apiKey || "").trim();
+  const bid = String(bridgeId || "").trim();
   return async (agentId) => {
-    const url = `${root}/api/v1/agents/${encodeURIComponent(agentId)}/turn-start`;
+    const encoded = encodeURIComponent(agentId);
     const headers = { "Content-Type": "application/json" };
     if (key) headers["X-API-Key"] = key;
-    const res = await fetch(url, {
+    const turnRes = await fetch(`${root}/api/v1/agents/${encoded}/turn-start`, {
       method: "POST",
       headers,
       body: JSON.stringify({ source: "bridge-heartbeat" }),
     });
-    if (!res.ok && res.status !== 404) {
-      throw new Error(`turn-busy heartbeat ${res.status}`);
+    if (!turnRes.ok && turnRes.status !== 404) {
+      throw new Error(`turn-busy heartbeat ${turnRes.status}`);
+    }
+    if (bid) {
+      const beatRes = await fetch(`${root}/api/v1/agents/${encoded}/heartbeat`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ bridgeId: bid }),
+      });
+      if (!beatRes.ok && beatRes.status !== 404) {
+        throw new Error(`turn-busy liveness heartbeat ${beatRes.status}`);
+      }
     }
   };
 }

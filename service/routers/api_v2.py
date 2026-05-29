@@ -163,6 +163,19 @@ DEFAULT_SETTINGS = {
     # runtimes and inverts the polarity so the proper-delivery path
     # is the default.
     "insert_messages_via_console": False,
+    # Reply contract for managed/delivered runs. The intended model is:
+    # aify-comms message in -> reply OUT via comms_send(inReplyTo=...) (a tool
+    # call the agent makes); genuinely-direct terminal input -> direct output.
+    # The injected prompt always directs agents to reply with comms_send.
+    # This flag only controls the fallback when an agent finishes a delivered
+    # run WITHOUT sending an explicit reply:
+    #   True  (B, safety-net) — the bridge auto-mirrors the run summary back to
+    #          the sender so the human/teammate still gets something.
+    #   False (A, strict)     — no auto-mirror; the run stays reply-owed and the
+    #          missing reply is surfaced rather than fabricated from final text.
+    # Default True preserves prior behavior; set False to enforce strict
+    # comms_send-only replies.
+    "managed_reply_capture_fallback": True,
     # Slices 1/2/4 (proactive wrapper-PTY at spawn-request completion).
     # When true AND managed_terminal_backing_enabled is also true, the
     # service eagerly launches the agent's wrapper PTY at spawn-request
@@ -561,6 +574,26 @@ def _runtime_handle_from_state(runtime: Any, runtime_state: Any) -> str:
     if normalized == "hermes":
         return str(state.get("sessionId") or state.get("threadId") or state.get("sessionKey") or "").strip()
     return str(state.get("sessionId") or state.get("threadId") or "").strip()
+
+
+_SHELL_PLACEHOLDER_HANDLE_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
+
+
+def _sanitize_session_handle(session_handle: Any) -> str:
+    """Drop an unexpanded shell placeholder passed as a session handle.
+
+    Callers sometimes register with sessionHandle="$HERMES_SESSION_ID" (or
+    "$CODEX_THREAD_ID", "${VAR}") from a shell/MCP context where the variable was
+    empty or never expanded, so the literal placeholder string gets stored. That
+    can never resume a real runtime session and surfaces downstream as
+    "session not found" plus a nonsensical `--resume ${HERMES_SESSION_ID}` resume
+    command. Treat a handle that is *entirely* such a placeholder as no handle.
+    Real handles (UUIDs, timestamp_hash ids) never match this shape.
+    """
+    handle = str(session_handle or "").strip()
+    if handle and _SHELL_PLACEHOLDER_HANDLE_RE.match(handle):
+        return ""
+    return handle
 
 
 def _runtime_state_with_handle(runtime: Any, runtime_state: Any, session_handle: str) -> dict[str, Any]:
@@ -1848,6 +1881,19 @@ async def _record_bridge_registration(
     # whose row should be superseded so the table doesn't accumulate
     # zombie entries. Live multi-window resident scenarios still keep the
     # protection because their last_seen heartbeats stay fresh.
+    # Latest-launch-wins for resident bridges (2026-05-29). The previous
+    # blanket `session_mode == 'resident'` carve-out protected EVERY fresh
+    # same-identity resident bridge from supersession, so each new wrapper
+    # launch coexisted with the prior one instead of replacing it. In real use
+    # that splits one logical agent into multiple live sessions (#1/#2…) and
+    # lets stale rows accumulate, and the dashboard/delivery can land on the
+    # wrong one. Operators need the tool to self-heal in a messy state, not to
+    # require sterile single-launch discipline. So a new resident registration
+    # now supersedes prior same-agent/same-machine bridges (the newest live
+    # bridge is authoritative). The managed-wrapper-child protection is kept
+    # intact: bridge-spawned PTY siblings sharing a terminal must not kill each
+    # other. Same-process periodic re-register keeps the same bridge_id and is
+    # excluded by `id != ?`, so only genuinely older launches are superseded.
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
@@ -1857,14 +1903,9 @@ async def _record_bridge_registration(
             OR NOT (
               runtime = ? AND session_mode = ?
               AND COALESCE(session_handle, '') = ?
-              AND (
-                ? = 'resident'
-                OR (
-                  ? = 'managed-wrapper-child'
-                  AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
-                  AND COALESCE(terminal_id, '') = ?
-                )
-              )
+              AND ? = 'managed-wrapper-child'
+              AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
+              AND COALESCE(terminal_id, '') = ?
             )
           )
         """,
@@ -1875,7 +1916,6 @@ async def _record_bridge_registration(
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
-            normalized_session_mode_value,
             bridge_kind,
             normalized_terminal_id_value,
         ),
@@ -4556,6 +4596,145 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
         return None
     return row
+
+
+async def _coldstart_spawn_request_for_dispatch(
+    db,
+    agent_id: str,
+    *,
+    runtime: str,
+    settings: dict[str, Any],
+    requested_by: str,
+) -> bool:
+    """Cold-start a managed worker on the send path.
+
+    When a managed agent has no live agent_sessions row, _ensure_managed_pty_for_dispatch
+    cannot build a PTY (it has nothing to launch into) and returns None — the dispatch
+    then sits queued with nothing that will ever claim it (root cause G). This creates a
+    spawn_request through the SAME mechanism as create_spawn_request so a bridge claims it,
+    registers a session, and the PATCH->running eager-spawn brings up the wrapper PTY.
+
+    Idempotent: returns False (creating nothing) when a claimable spawn_request
+    (queued/claimed) already exists for the agent, or when no environment/runtime can be
+    resolved. Returns True when a new spawn_request was inserted.
+    """
+    normalized_runtime = _normalize_runtime(runtime or "")
+    if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
+        return False
+
+    # Don't pile up duplicate cold-starts — a queued/claimed spawn_request is
+    # already a claimable backing for this agent.
+    existing = await (await db.execute(
+        """
+        SELECT id
+        FROM spawn_requests
+        WHERE agent_id = ?
+          AND status IN ('queued', 'claimed')
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if existing:
+        return False
+
+    # Resolve environment/runtime/workspace from the agent's most-recent session
+    # (any status). A previously-managed agent always leaves one behind.
+    session = await (await db.execute(
+        """
+        SELECT *
+        FROM agent_sessions
+        WHERE agent_id = ?
+        ORDER BY last_seen DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not session:
+        return False
+
+    environment_id = str(session["environment_id"] or "").strip()
+    if not environment_id:
+        return False
+    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    if not env_row:
+        return False
+    environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+    if str(environment.get("status") or "").lower() != "online":
+        return False
+    if not _runtime_capability_for_environment(environment, normalized_runtime):
+        return False
+
+    workspace, workspace_root = _workspace_for_environment(environment, None, session["workspace"] or "")
+
+    # Reuse the prior spawn_spec when present so model/effort/policy survive the
+    # cold-start; otherwise mint a minimal spec mirroring create_spawn_request.
+    prior_spec = None
+    prior_spec_id = str(session["spawn_spec_id"] or "").strip()
+    if prior_spec_id:
+        prior_spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,))).fetchone()
+
+    now = _now()
+    spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    await db.execute(
+        """
+        INSERT INTO spawn_specs (
+            id, agent_id, environment_id, runtime, workspace, model, profile, mode,
+            system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
+            context_policy, restart_policy, metadata, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            spec_id,
+            agent_id,
+            environment_id,
+            normalized_runtime,
+            workspace,
+            str(prior_spec["model"] or "") if prior_spec else "",
+            str(prior_spec["profile"] or "") if prior_spec else "",
+            "managed-warm",
+            str(prior_spec["system_prompt"] or "") if prior_spec else "",
+            str(prior_spec["standing_instructions"] or "") if prior_spec else "",
+            str(prior_spec["env_vars"] or "{}") if prior_spec else "{}",
+            str(prior_spec["channel_ids"] or "[]") if prior_spec else "[]",
+            str(prior_spec["budget_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["context_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["restart_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["metadata"] or "{}") if prior_spec else "{}",
+            now,
+            now,
+        ),
+    )
+    await db.execute(
+        """
+        INSERT INTO spawn_requests (
+            id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
+            workspace, workspace_root, initial_message, priority, subject, mode,
+            resume_policy, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            request_id,
+            spec_id,
+            requested_by or "dispatch-coldstart",
+            environment_id,
+            agent_id,
+            "coder",
+            agent_id,
+            normalized_runtime,
+            workspace,
+            workspace_root,
+            "",
+            "normal",
+            f"Cold-start for {agent_id}",
+            "managed-warm",
+            "native_first",
+            "queued",
+            now,
+            now,
+        ),
+    )
+    return True
 
 
 async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str):
@@ -8765,7 +8944,10 @@ async def register_agent(req: AgentRegister, request: Request):
         # from the new request only. Preserving them across re-register let stale
         # Codex thread IDs survive a fresh codex-aify start, which then made
         # thread/resume fail with AbsolutePathBuf or "no rollout found".
-        session_handle = req.sessionHandle or ""
+        # Reject unexpanded shell placeholders (e.g. "$HERMES_SESSION_ID") so a
+        # literal never gets stored as the resume handle — see
+        # _sanitize_session_handle.
+        session_handle = _sanitize_session_handle(req.sessionHandle or "")
         existing_state = json.dumps(_runtime_state_with_handle(normalized_runtime, {}, session_handle))
         # Description is team-facing metadata that survives re-register when the
         # caller does not pass a new value. Passing "" explicitly clears it.
@@ -9699,7 +9881,9 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
 @router.patch("/agents/{agent_id}/session-handle")
 async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpdate, request: Request):
     validate_name(agent_id, "agent ID")
-    session_handle = str(req.sessionHandle or "").strip()
+    # Drop unexpanded shell placeholders ("$HERMES_SESSION_ID", "${VAR}") so a
+    # literal is never stored as the resume handle — see _sanitize_session_handle.
+    session_handle = _sanitize_session_handle(req.sessionHandle)
     if len(session_handle) > 512:
         raise HTTPException(400, "sessionHandle must be 512 characters or fewer")
     db = await get_db()
@@ -9856,6 +10040,18 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             or row["session_handle"]
             or ""
         ).strip()
+        # Adopt the resident candidate's runtime when switching to resident. A
+        # resident wrapper of a different runtime (e.g. a hermes hermes-aify
+        # session registering against an agent last seen as managed pi) records
+        # itself as a manualResidentCandidate with runtime="hermes". Without
+        # this, the switch promoted the candidate's bridge/handle/config but
+        # kept the stale runtime, producing an inconsistent pi-resident agent
+        # pointing at a hermes bridge — the switch appeared to do nothing.
+        effective_runtime = runtime
+        if new_mode == "resident":
+            candidate_runtime = str(resident_candidate.get("runtime") or "").strip()
+            if candidate_runtime:
+                effective_runtime = _normalize_runtime(candidate_runtime)
 
         if current_mode == new_mode:
             return {
@@ -9873,7 +10069,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     409,
                     f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
                 )
-            if new_mode == "resident" and runtime == "hermes":
+            if new_mode == "resident" and effective_runtime == "hermes":
                 if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
                     raise HTTPException(
                         409,
@@ -9919,7 +10115,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         }
         next_launch_mode = "managed" if new_mode == "managed" else "detached"
         capabilities = _default_capabilities_for(
-            runtime,
+            effective_runtime,
             new_mode,
             switch_session_handle,
             runtime_config,
@@ -9938,6 +10134,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             """
             UPDATE agents
             SET session_mode = ?,
+                runtime = ?,
                 launch_mode = ?,
                 session_handle = ?,
                 machine_id = ?,
@@ -9952,6 +10149,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             """,
             (
                 new_mode,
+                effective_runtime,
                 next_launch_mode,
                 switch_session_handle,
                 next_machine_id,
@@ -9959,7 +10157,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 json.dumps(capabilities),
                 json.dumps(runtime_config),
                 json.dumps(runtime_state),
-                f"Manually switched from {current_mode} to {new_mode} by {requested_by}.",
+                f"Manually switched from {current_mode} to {new_mode} by {requested_by}"
+                + (f" (runtime {runtime}->{effective_runtime})" if effective_runtime != runtime else "")
+                + ".",
                 now,
                 agent_id,
             ),
@@ -9986,7 +10186,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 agent_id,
                 "audit",
                 "audit",
-                runtime,
+                effective_runtime,
                 "audit",
                 "session-mode-switch",
                 f"agentId={agent_id} {current_mode}->{new_mode} by={requested_by}",

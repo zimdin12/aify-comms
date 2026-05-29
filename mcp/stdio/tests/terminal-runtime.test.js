@@ -3,13 +3,28 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { TerminalProcessManager, bridgeTerminalSupported, classifyTerminalRuntimeOutput, terminalCommandWithoutResume } from "../terminal-runtime.js";
+import { TerminalProcessManager, bridgeTerminalSupported, classifyTerminalRuntimeOutput, expandUserHome, terminalCommandWithoutResume } from "../terminal-runtime.js";
 
 assert.equal(typeof bridgeTerminalSupported(), "boolean");
 assert.equal(classifyTerminalRuntimeOutput("pi", "No API key found for amazon-bedrock. Use /login.").kind, "auth");
 assert.equal(classifyTerminalRuntimeOutput("pi", 'Session "dead-session" not found').kind, "missing_session");
 assert.equal(terminalCommandWithoutResume("pi", "pi-aify --aify-agent worker --resume dead-session"), "pi-aify --aify-agent worker");
 assert.equal(terminalCommandWithoutResume("hermes", "hermes-aify --resume hermes-1 --aify-agent h"), "hermes-aify --aify-agent h");
+
+// Tilde-expansion guard: node-pty's chdir(2) does not expand "~", so
+// operator-supplied workspaces like "~/projects/foo" would otherwise spawn
+// and die instantly with ENOENT. Operator-reported 2026-05-28 on hermes-test
+// (terminal_events showed "chdir(2) failed.: No such file or directory" for
+// workspace "~/projects/blei-cms"). Keep this expansion intact.
+assert.equal(expandUserHome("~"), os.homedir());
+assert.equal(expandUserHome("~/projects/foo"), `${os.homedir()}/projects/foo`);
+assert.equal(expandUserHome("/abs/path"), "/abs/path");
+assert.equal(expandUserHome("relative/path"), "relative/path");
+assert.equal(expandUserHome(""), "");
+assert.equal(expandUserHome(null), "");
+// POSIX-style ~user expansion is bash-specific; we don't pretend to handle
+// it. Leaving it unchanged is safer than guessing whose home to substitute.
+assert.equal(expandUserHome("~user/path"), "~user/path");
 
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aify-terminal-runtime-"));

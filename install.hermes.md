@@ -4,6 +4,27 @@ Use aify-comms when you want dashboard-driven coordination for Hermes Agent:
 live direct messages, channels, shared artifacts, active dispatch, managed
 agent spawn, browser Console, and environment control.
 
+## Prerequisites
+
+- **Node.js 22 or newer** is required on the runtime that launches `hermes-aify`.
+  The Hermes TUI's gateway client uses the global `WebSocket` constructor, which
+  is only available in Node 22+. Earlier Node versions surface as
+  `gateway exited` in the TUI when launching through `hermes-aify`. Plain
+  `hermes` still works on older Node because it spawns a stdio gateway instead
+  of attaching to a WebSocket.
+  - WSL/Linux: install via [nvm](https://github.com/nvm-sh/nvm) (`nvm install --lts`)
+    or NodeSource (`curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs`).
+  - Native Windows: install from [nodejs.org](https://nodejs.org/) or via `winget install OpenJS.NodeJS.LTS`.
+- **Hermes Agent** itself, installed and on `PATH` as `hermes`.
+
+> **Path style is decided at install time.** `install.sh` detects whether the
+> `hermes` it wraps is a Linux binary (WSL/native Linux) or a native Windows
+> binary, and bakes the matching path style for the plugin `PYTHONPATH` and the
+> MCP `server.js` arg. If you later switch which Hermes `hermes-aify` should wrap
+> (e.g. change `AIFY_HERMES_COMMAND`/`HERMES_COMMAND`/`PATH` from Linux Hermes to
+> native Windows Hermes or vice versa), **re-run `install.sh --client hermes`**
+> so the wrapper and config paths match the new runtime.
+
 ## Copy-Paste Install
 
 Install Hermes first:
@@ -69,6 +90,17 @@ restart the bridge:
 ```powershell
 [Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
 ```
+
+## Auto / bypass flag
+
+`hermes-aify -auto` (also `--auto` or `--yolo`) adds Hermes' `--yolo` flag to the
+interactive TUI launch, bypassing all dangerous-command approval prompts
+(`HERMES_YOLO_MODE=1`). Without it, `hermes-aify` preserves normal visible
+approval behavior. This mirrors `claude-aify -auto`
+(`--dangerously-skip-permissions`) and `codex-aify -auto`
+(`--dangerously-bypass-approvals-and-sandbox`). The flag is consumed by the
+wrapper and applied only to the default chat/TUI launch, not to explicit
+passthrough subcommands like `hermes-aify model list`.
 
 ## Session-mode flag
 

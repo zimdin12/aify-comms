@@ -10587,3 +10587,31 @@ class ApiV2RegressionTests(unittest.TestCase):
         # Unknown agent → 404 (so the wrapper can fail-open cleanly).
         missing = self.client.get("/api/v1/agents/ghost-agent/pi-session-state")
         self.assertEqual(missing.status_code, 404, missing.text)
+
+    def test_register_drops_unexpanded_placeholder_session_handle(self):
+        # A caller that registers with sessionHandle="$HERMES_SESSION_ID" from a
+        # shell/MCP context where the var was empty stored the literal string,
+        # which can never resume a real session ("session not found") and made
+        # the dashboard emit `--resume ${HERMES_SESSION_ID}`. The server must
+        # treat a whole-placeholder handle as no handle.
+        for bad in ("$HERMES_SESSION_ID", "${HERMES_SESSION_ID}", "$CODEX_THREAD_ID"):
+            self._register("ph-agent", runtime="hermes", sessionHandle=bad)
+            row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-agent",))
+            self.assertEqual(
+                (row["session_handle"] or ""), "",
+                f"placeholder {bad!r} must not be stored as a session handle",
+            )
+        # A real handle still survives (control).
+        self._register("ph-agent", runtime="hermes", sessionHandle="20260529_071302_ea65af")
+        row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-agent",))
+        self.assertEqual(row["session_handle"], "20260529_071302_ea65af")
+
+    def test_session_handle_patch_drops_unexpanded_placeholder(self):
+        self._register("ph-patch", runtime="hermes")
+        resp = self.client.patch(
+            "/api/v1/agents/ph-patch/session-handle",
+            json={"sessionHandle": "${HERMES_SESSION_ID}"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-patch",))
+        self.assertEqual((row["session_handle"] or ""), "")

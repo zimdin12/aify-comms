@@ -477,7 +477,7 @@ cleanup() {
     wait "$APP_SERVER_PID" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 run_codex_foreground() {
   set +e
@@ -1178,8 +1178,10 @@ install_hermes_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
-  local hermes_plugin_path=""
-  hermes_plugin_path="$(path_for_windows_runtime "$SCRIPT_DIR/integrations/hermes-aify-plugin")"
+  local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  if hermes_runtime_is_native_windows; then
+    hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
+  fi
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1196,6 +1198,11 @@ if [ "\${AIFY_MANAGED_VIA_WRAPPER:-}" = "1" ] && [ -n "\$HERMES_INHERITED_SESSIO
   HERMES_EXPLICIT_SESSION_HANDLE="true"
 fi
 HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
+# Symmetric with claude-aify (--auto -> --dangerously-skip-permissions) and
+# codex-aify (CODEX_AUTO -> --dangerously-bypass-approvals-and-sandbox). For
+# hermes the bypass is --yolo (HERMES_YOLO_MODE=1, "bypass all dangerous
+# command approval prompts"). Default off; opt in with --auto/-auto/--yolo.
+HERMES_AUTO=false
 HERMES_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
@@ -1213,6 +1220,12 @@ for ARG in "\$@"; do
     HERMES_SESSION_HANDLE="\$ARG"
     HERMES_EXPLICIT_SESSION_HANDLE="true"
     PREV_ARG=""
+    continue
+  fi
+  # Checked AFTER the value-consumption branches above so a value-expecting flag
+  # (e.g. --resume) claims its next token first, consistent with --aify-agent.
+  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
+    HERMES_AUTO=true
     continue
   fi
   if [ "\$ARG" = "--resident" ]; then
@@ -1313,6 +1326,79 @@ else
   unset AIFY_HERMES_PLUGIN
 fi
 
+# Node >=22 guarantee. The Hermes Ink TUI's gateway client attaches over a
+# WebSocket using the global \`WebSocket\` constructor, which only exists in
+# Node 22+. When the aify-comms bridge spawns this wrapper as a managed
+# worker it runs under a non-interactive login shell (e.g. \`zsh -lc\`), which
+# does NOT source .zshrc — so an nvm default of Node 22 is invisible and PATH
+# falls back to a system Node 20. The TUI then dies with "gateway exited",
+# but the SAME wrapper works when launched from an interactive terminal. Pin
+# a Node >=22 here so managed and interactive launches behave identically.
+# Opt out with AIFY_HERMES_SKIP_NODE_CHECK=1.
+aify_node_major_of() {
+  local nbin="\$1" ver
+  ver="\$("\$nbin" -v 2>/dev/null)" || return 1
+  ver="\${ver#v}"
+  printf '%s' "\${ver%%.*}"
+}
+
+aify_ensure_node_ge_22() {
+  [ "\${AIFY_HERMES_SKIP_NODE_CHECK:-0}" = "1" ] && return 0
+  local current_major=""
+  if command -v node >/dev/null 2>&1; then
+    current_major="\$(aify_node_major_of node || true)"
+  fi
+  if [ -n "\$current_major" ] && [ "\$current_major" -ge 22 ] 2>/dev/null; then
+    return 0
+  fi
+  # 1. Honor an explicitly configured HERMES_NODE if it is >=22.
+  if [ -n "\${HERMES_NODE:-}" ] && [ -x "\${HERMES_NODE:-}" ]; then
+    local hm
+    hm="\$(aify_node_major_of "\$HERMES_NODE" || true)"
+    if [ -n "\$hm" ] && [ "\$hm" -ge 22 ] 2>/dev/null; then
+      PATH="\$(dirname "\$HERMES_NODE"):\$PATH"
+      export PATH HERMES_NODE
+      return 0
+    fi
+  fi
+  # 2. Scan nvm-installed versions for the highest major >=22 (parse the
+  #    version dir name so we don't exec every candidate during the scan).
+  local nvm_root="\${NVM_DIR:-\$HOME/.nvm}"
+  local best_bin="" best_major=0 candidate vdir cand_major
+  if [ -d "\$nvm_root/versions/node" ]; then
+    for candidate in "\$nvm_root"/versions/node/v*/bin/node; do
+      [ -x "\$candidate" ] || continue
+      vdir="\$(basename "\$(dirname "\$(dirname "\$candidate")")")"
+      cand_major="\${vdir#v}"; cand_major="\${cand_major%%.*}"
+      case "\$cand_major" in ''|*[!0-9]*) continue ;; esac
+      if [ "\$cand_major" -ge 22 ] && [ "\$cand_major" -gt "\$best_major" ]; then
+        best_major="\$cand_major"
+        best_bin="\$candidate"
+      fi
+    done
+  fi
+  if [ -n "\$best_bin" ]; then
+    PATH="\$(dirname "\$best_bin"):\$PATH"
+    export PATH
+    export HERMES_NODE="\$best_bin"
+    return 0
+  fi
+  # 3. Nothing suitable found. Warn; the TUI may fail with "gateway exited".
+  echo "[hermes-aify] WARNING: Node >=22 not found (current node: \${current_major:-none})." >&2
+  echo "[hermes-aify]   The Hermes TUI gateway client needs Node 22+ (global WebSocket)." >&2
+  echo "[hermes-aify]   Install via nvm (nvm install 22) or set HERMES_NODE to a Node>=22 binary." >&2
+  return 0
+}
+aify_ensure_node_ge_22
+
+# Bypass flags for the default TUI launch only. Mirrors claude-aify's
+# CLAUDE_PERMISSION_FLAGS — applied to the interactive chat/TUI launch, not to
+# explicit passthrough subcommands like \`hermes-aify model list\`.
+HERMES_PERMISSION_FLAGS=()
+if [ "\$HERMES_AUTO" = true ]; then
+  HERMES_PERMISSION_FLAGS+=(--yolo)
+fi
+
 aify_hermes_exec_plain_or_tui() {
   # Default to hermes --tui for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
@@ -1321,22 +1407,24 @@ aify_hermes_exec_plain_or_tui() {
   # explicit --resume keeps working even when gateway startup fails.
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE"
+      exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$HERMES_SESSION_HANDLE"
     fi
-    exec "\$HERMES_RUNTIME_COMMAND" --tui
+    exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
   fi
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 }
 
-HERMES_RUNTIME_PID=""
 aify_hermes_run_foreground() {
-  "\$HERMES_RUNTIME_COMMAND" "\$@" &
-  HERMES_RUNTIME_PID=\$!
   set +e
-  wait "\$HERMES_RUNTIME_PID"
+  # Keep Hermes in the foreground. Same reason as run_codex_foreground above:
+  # in a non-interactive bash wrapper, async commands (\`hermes ... &\`) receive
+  # /dev/null on stdin and the Ink TUI exits with "hermes-tui: no TTY" even
+  # when the operator launched from a real terminal. Because Hermes runs in the
+  # foreground here, signals to the wrapper reach it directly and the cleanup
+  # trap only needs to reap the backgrounded dashboard child.
+  "\$HERMES_RUNTIME_COMMAND" "\$@"
   local status=\$?
   set -e
-  HERMES_RUNTIME_PID=""
   return "\$status"
 }
 
@@ -1436,11 +1524,10 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
   unset AIFY_HERMES_GATEWAY_TOKEN
   unset AIFY_HERMES_GATEWAY_TOKEN_ENV
 
-  if command -v setsid >/dev/null 2>&1; then
-    setsid "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
-  else
-    "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
-  fi
+  # Spawn the gateway in the wrapper's OWN process group (no setsid) so it is
+  # reaped when the wrapper's group is killed (terminateProcessTree / bridge
+  # death). </dev/null keeps it off the controlling TTY without a new session.
+  "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
   AIFY_HERMES_DASHBOARD_PID=\$!
 
   cleanup_aify_dashboard() {
@@ -1448,12 +1535,8 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
       kill "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1 || true
       wait "\$AIFY_HERMES_DASHBOARD_PID" 2>/dev/null || true
     fi
-    if [ -n "\${HERMES_RUNTIME_PID:-}" ] && kill -0 "\$HERMES_RUNTIME_PID" >/dev/null 2>&1; then
-      kill "\$HERMES_RUNTIME_PID" >/dev/null 2>&1 || true
-      wait "\$HERMES_RUNTIME_PID" 2>/dev/null || true
-    fi
   }
-  trap cleanup_aify_dashboard EXIT INT TERM
+  trap cleanup_aify_dashboard EXIT INT TERM HUP
 
   if ! wait_for_http "\$AIFY_HERMES_DASHBOARD_URL/"; then
     echo "hermes-aify: dashboard at \$AIFY_HERMES_DASHBOARD_URL did not become reachable. Falling back to plain hermes." >&2
@@ -1483,10 +1566,10 @@ if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
 
   if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      aify_hermes_run_foreground --tui --resume "\$HERMES_SESSION_HANDLE"
+      aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$HERMES_SESSION_HANDLE"
       exit \$?
     fi
-    aify_hermes_run_foreground --tui
+    aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}"
     exit \$?
   fi
   aify_hermes_run_foreground "\${HERMES_ARGS[@]}"
@@ -1860,6 +1943,27 @@ is_git_bash_windows() {
   esac
 }
 
+hermes_runtime_is_native_windows() {
+  # True when the resolved `hermes` binary will execute under native Windows.
+  # On WSL, `wslpath` is always available, but hermes may be EITHER a Linux
+  # binary installed inside WSL OR a Windows .exe reached via WSL interop.
+  # path_for_windows_runtime would convert paths for the Windows case; for
+  # Linux hermes on WSL, those paths are meaningless and the plugin silently
+  # fails to load, surfacing downstream as "gateway exited" in the TUI.
+  if is_git_bash_windows; then
+    return 0
+  fi
+  local hermes_bin resolved
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  [ -z "$hermes_bin" ] && return 1
+  resolved="$(command -v "$hermes_bin" 2>/dev/null || printf '%s\n' "$hermes_bin")"
+  case "$resolved" in
+    *.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT) return 0 ;;
+    /mnt/[a-zA-Z]/*) return 0 ;;
+  esac
+  return 1
+}
+
 path_for_node() {
   local value="$1"
   if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then
@@ -2110,7 +2214,16 @@ _patch_hermes_config_at() {
   mkdir -p "$config_dir"
   touch "$config_file"
   node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio/server.js")"
+  # Only convert to a Windows drive path when hermes actually runs as a native
+  # Windows binary. On WSL with a Linux hermes, path_for_windows_runtime would
+  # emit "D:\..." which Linux node can't open — the aify-comms MCP child then
+  # exits instantly ("Connection closed"), so no in-hermes bridge claims
+  # channel dispatches and managed hermes never answers. Mirror of the plugin
+  # path guard in install_hermes_wrapper.
+  node_server_path="$SCRIPT_DIR/mcp/stdio/server.js"
+  if hermes_runtime_is_native_windows; then
+    node_server_path="$(path_for_windows_runtime "$node_server_path")"
+  fi
 
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
@@ -2189,6 +2302,121 @@ _patch_hermes_config_at() {
       fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`);
     }
   ' "$node_config_file" "$node_server_path" "$SERVER_URL"
+}
+
+install_hermes_plugin() {
+  # Install the aify-comms shim as a first-class Hermes plugin under
+  # <hermes_home>/plugins/aify-comms/. This is the RELIABLE load path:
+  # cmd_dashboard calls discover_plugins() inside the gateway process, and
+  # plugin discovery does NOT depend on PYTHONPATH. Hermes relaunches the
+  # dashboard and drops PYTHONPATH, so the sitecustomize.py-on-PYTHONPATH
+  # mechanism never patched tui_gateway.server in the gateway — the visible
+  # session bind then failed with "unknown method: aify.session.bind_transport"
+  # and managed/resident hermes never answered. The plugin's register() calls
+  # aify_hermes_plugin.bootstrap.install(), which installs the same import-time
+  # patcher that registers the gateway methods. The thin loader keeps the real
+  # shim in the repo (AIFY_HERMES_PLUGIN_PATH), so a hermes update can't erase
+  # it; the baked path is only a fallback when the env var is absent.
+  local plugin_src="$SCRIPT_DIR/integrations/hermes-aify-plugin"
+  if hermes_runtime_is_native_windows; then
+    plugin_src="$(path_for_windows_runtime "$plugin_src")"
+  fi
+  local plugin_dir="$(hermes_config_root)/plugins/aify-comms"
+  mkdir -p "$plugin_dir"
+  cat > "$plugin_dir/plugin.yaml" <<'YAML'
+name: aify-comms
+version: 1.0.0
+description: "aify-comms hermes runtime shim — registers the gateway visible-session bind/render methods and gateway-URL env publication so dashboard-managed and resident hermes delivery works. Loads the durable shim from the aify-comms repo. Active only under hermes-aify (AIFY_HERMES_PLUGIN=1)."
+author: "aify-comms"
+YAML
+  # __init__.py: thin loader. __AIFY_PLUGIN_PATH__ is replaced with the repo
+  # path at install time and used only as a fallback when the env var is unset.
+  cat > "$plugin_dir/__init__.py" <<'PYEOF'
+"""aify-comms hermes plugin (thin loader).
+
+discover_plugins() invokes register() in every hermes process that loads
+plugins — including the dashboard/gateway process where hermes has stripped
+PYTHONPATH. We add the repo shim path to sys.path and install the import-time
+patcher so tui_gateway.server (and hermes_cli.main / web_server) get patched
+when imported. No-op unless AIFY_HERMES_PLUGIN=1, so normal hermes is untouched.
+"""
+from __future__ import annotations
+import os, sys
+
+
+def register(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
+    if os.environ.get("AIFY_HERMES_PLUGIN", "").strip() != "1":
+        return
+    plugin_path = os.environ.get("AIFY_HERMES_PLUGIN_PATH", "").strip() or r"__AIFY_PLUGIN_PATH__"
+    if plugin_path and plugin_path not in sys.path:
+        sys.path.insert(0, plugin_path)
+    try:
+        from aify_hermes_plugin.bootstrap import install
+        install()
+    except Exception as exc:  # never break hermes startup
+        sys.stderr.write("[aify-comms-plugin] shim load failed: %s\n" % exc)
+PYEOF
+  # Substitute the baked fallback path (python raw string; backslashes safe).
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    const p = process.argv[2];
+    let t = fs.readFileSync(file, "utf8");
+    t = t.split("__AIFY_PLUGIN_PATH__").join(p.replace(/\\/g, "\\\\"));
+    fs.writeFileSync(file, t);
+  ' "$plugin_dir/__init__.py" "$plugin_src" 2>/dev/null || \
+    sed -i.bak "s|__AIFY_PLUGIN_PATH__|$plugin_src|g" "$plugin_dir/__init__.py" 2>/dev/null && rm -f "$plugin_dir/__init__.py.bak" 2>/dev/null || true
+
+  # Enable it (opt-in allow-list). Prefer the CLI; fall back to patching
+  # config.yaml's plugins.enabled list directly if the CLI is unavailable.
+  local hermes_bin=""
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  if [ -n "$hermes_bin" ] && "$hermes_bin" plugins enable aify-comms >/dev/null 2>&1; then
+    echo "Hermes plugin 'aify-comms' installed and enabled at $plugin_dir"
+  else
+    _enable_hermes_plugin_in_config "$(hermes_config_root)/config.yaml" "aify-comms"
+    _enable_hermes_plugin_in_config "$HOME/.hermes/config.yaml" "aify-comms"
+    echo "Hermes plugin 'aify-comms' installed at $plugin_dir (enabled via config.yaml)"
+  fi
+}
+
+_enable_hermes_plugin_in_config() {
+  # Add <name> to plugins.enabled in a hermes config.yaml without disturbing
+  # other keys. Idempotent. Best-effort (node-based YAML-ish edit).
+  local config_file="$1"
+  local name="$2"
+  [ -f "$config_file" ] || return 0
+  MSYS_NO_PATHCONV=1 node -e '
+    const fs = require("fs");
+    const [file, name] = [process.argv[1], process.argv[2]];
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch (_) { return; }
+    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
+    // Find a top-level "plugins:" block.
+    let pIdx = lines.findIndex((l) => /^plugins:\s*$/.test(l));
+    // Replace a malformed "plugins: []" / "plugins:" inline form.
+    const inlineIdx = lines.findIndex((l) => /^plugins:\s*\[\s*\]\s*$/.test(l));
+    if (inlineIdx >= 0) { lines.splice(inlineIdx, 1, "plugins:", "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    if (pIdx < 0) { lines.push("plugins:", "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    // Within the plugins block, find enabled:.
+    let enIdx = -1, end = lines.length;
+    for (let i = pIdx + 1; i < lines.length; i++) {
+      if (/^\S/.test(lines[i])) { end = i; break; }
+      if (/^\s+enabled:\s*$/.test(lines[i])) { enIdx = i; }
+      if (/^\s+enabled:\s*\[\s*\]\s*$/.test(lines[i])) { lines.splice(i, 1, "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    }
+    if (enIdx < 0) { lines.splice(pIdx + 1, 0, "  enabled:", `    - ${name}`); fs.writeFileSync(file, lines.join("\n") + "\n"); return; }
+    // enabled: block exists — check membership, append if missing.
+    let listEnd = end;
+    for (let j = enIdx + 1; j < end; j++) {
+      const m = lines[j].match(/^(\s+)-\s+(.*\S)\s*$/);
+      if (!m) { listEnd = j; break; }
+      if (m[2] === name) return; // already enabled
+      listEnd = j + 1;
+    }
+    lines.splice(listEnd, 0, `    - ${name}`);
+    fs.writeFileSync(file, lines.join("\n") + "\n");
+  ' "$config_file" "$name" 2>/dev/null || true
 }
 
 install_hermes_config() {
@@ -2371,9 +2599,14 @@ EOF
     const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
     let replaced = false;
     lines = lines.map((line) => {
-      if (/^[ \t]*command:[ \t]*.*aify-notify\.sh/.test(line)) {
+      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-notify\.sh/);
+      if (m) {
         replaced = true;
-        return commandLine;
+        // Preserve the existing command line indentation. Hardcoding a fixed
+        // indent corrupts blocks whose matcher/timeout siblings use a different
+        // indent (observed: a 2-space "- matcher" item with 4-space keys got a
+        // 6-space command -> "mapping values are not allowed here").
+        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
       }
       return line;
     });
@@ -2494,9 +2727,11 @@ EOF
     const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
     let replaced = false;
     lines = lines.map((line) => {
-      if (/^[ \t]*command:[ \t]*.*aify-turn-start\.sh/.test(line)) {
+      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-turn-start\.sh/);
+      if (m) {
         replaced = true;
-        return commandLine;
+        // Preserve existing indentation — see aify-notify replace above.
+        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
       }
       return line;
     });
@@ -2955,6 +3190,11 @@ elif [ "$CLIENT" = "hermes" ]; then
     echo "Hermes source patching skipped; hermes-aify loads integrations/hermes-aify-plugin at runtime."
     echo "  Set AIFY_HERMES_LEGACY_SOURCE_PATCH=1 before install for the old in-place patch path."
   fi
+  # Install the shim as a Hermes plugin so it loads in the dashboard/gateway
+  # process (where hermes strips PYTHONPATH). This is what makes the visible
+  # session bind — and therefore managed/resident hermes delivery — actually
+  # work; the PYTHONPATH/sitecustomize path alone does not reach the gateway.
+  install_hermes_plugin
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
   # pre_llm_call shell-hook event. No matching turn-end hook because

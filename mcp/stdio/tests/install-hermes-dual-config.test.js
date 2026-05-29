@@ -42,9 +42,37 @@ test("install.sh distinguishes installer paths from Windows Hermes runtime paths
     /node_config_file="\$\(path_for_node "\$config_file"\)"/,
     "installer Node process should still read/write the config via its local path"
   );
+  // The server.js path stored in the hermes MCP config must only be converted
+  // to a Windows drive path when hermes actually runs as a native Windows
+  // binary. On WSL with a Linux hermes, an unconditional path_for_windows_runtime
+  // emitted "D:\..." which Linux node cannot open, so the aify-comms MCP child
+  // exited instantly and managed/resident delivery never worked. The conversion
+  // is therefore gated on hermes_runtime_is_native_windows.
   assert.match(
     src,
-    /node_server_path="\$\(path_for_windows_runtime "\$SCRIPT_DIR\/mcp\/stdio\/server\.js"\)"/,
-    "Hermes config should store the native path that Hermes' Node child can execute"
+    /hermes_runtime_is_native_windows/,
+    "hermes config path conversion must be gated on native-Windows detection so Linux hermes on WSL keeps the Linux path"
+  );
+  assert.match(
+    src,
+    /node_server_path="\$\(path_for_windows_runtime "\$node_server_path"\)"/,
+    "native Windows hermes still converts the stored server.js path via path_for_windows_runtime"
+  );
+  // Same regression class as the server.js path, but for the wrapper's
+  // AIFY_HERMES_PLUGIN_PATH / PYTHONPATH: an unconditional path_for_windows_runtime
+  // baked a "D:\..." plugin path that Linux python silently ignored, so the aify
+  // Hermes plugin never loaded and the TUI died with "gateway exited". The plugin
+  // path conversion must be gated on the same native-Windows predicate so Linux
+  // hermes on WSL keeps the Linux PYTHONPATH.
+  assert.match(
+    src,
+    /hermes_plugin_path="\$\(path_for_windows_runtime "\$hermes_plugin_path"\)"/,
+    "native Windows hermes converts the plugin PYTHONPATH via path_for_windows_runtime"
+  );
+  const pluginGate = src.split(/hermes_plugin_path="\$SCRIPT_DIR\/integrations\/hermes-aify-plugin"/)[1] || "";
+  assert.match(
+    pluginGate.split(/\n\n/)[0] || "",
+    /hermes_runtime_is_native_windows/,
+    "plugin PYTHONPATH conversion must be gated on native-Windows detection so Linux hermes on WSL keeps the Linux path"
   );
 });

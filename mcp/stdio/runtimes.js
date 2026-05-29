@@ -644,11 +644,14 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
   const subject = String(run?.subject || "").trim();
   const isChannelMessage = /^#[-A-Za-z0-9_.]+:/.test(subject);
   const replyParent = String(run?.messageId || run?.inReplyTo || "").trim();
+  const replyVerb = replyParent
+    ? `comms_send(type="response", inReplyTo="${replyParent}", to="${isDashboardSender ? "dashboard" : fromAgent}")`
+    : `comms_send(type="response", to="${isDashboardSender ? "dashboard" : fromAgent}")`;
   const replyRule = isDashboardSender
-    ? "The dashboard sender is the human/operator. Answer in final plain text; the bridge stores that final answer in dashboard chat."
+    ? `The dashboard sender is the human/operator. Reply with ${replyVerb} so it threads into dashboard chat. Your final plain text is your own working output, not the team/chat reply.`
     : run?.requireReply === false
-    ? "No required handoff is being tracked for this message. If it asks a question, assigns work, names you, or you have useful evidence, answer in final plain text; otherwise keep the final answer very short."
-    : "Before you finish handling this message, put the reply in final plain text. The bridge will thread and deliver that final answer to the sender; do not call comms_send for this current reply.";
+    ? `No required handoff is tracked. If this asks a question, assigns work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise treat it as read context. Final plain text is your working output, not the reply.`
+    : `Before you finish, send the reply with ${replyVerb} — that tool call is the team reply and closes the run. Your final plain text is your own working output, not the reply.`;
   const channelRule = isChannelMessage
     ? "This appears to be a channel/group message. Reply in the channel only when you are named, responsible, asked for evidence, or can unblock the group. Otherwise avoid broad automatic acks. Use a direct message for owner-specific follow-up."
     : "";
@@ -656,25 +659,19 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
     "[AIFY MESSAGE]",
     `This is a message delivered through aify-comms for agent "${agentId}" (${agentInfo.role || "agent"}).`,
     isDashboardSender
-      ? "This run was started by the dashboard human/operator; final plain text is the chat reply."
-      : "This is a managed background run. Final plain text is the current reply; the bridge captures, threads, and delivers it to the sender.",
+      ? "This run was started by the dashboard human/operator. Reply to it with a comms_send tool call (see reply rule below); your final plain text is your own working output."
+      : "This is a managed background run delivered through aify-comms. Reply to it with a comms_send tool call (see reply rule below) — that is the team-visible reply; your final plain text is your own working output, not the reply.",
     `Your aify-comms agentId is "${agentId}". Use that exact ID when checking your own inbox or conversation state.`,
     `From: ${run.from}.`,
-    replyParent ? `MessageId: ${replyParent}. The bridge uses this to thread your final answer; use it as inReplyTo only for separate out-of-band messages.` : "",
+    replyParent ? `MessageId: ${replyParent}. Use this exact value as inReplyTo when you reply with comms_send so your answer threads to this message and closes the run.` : "",
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
     "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
     `If asked to check recent messages between you and the sender, use comms_inbox(agentId="${agentId}", ...) or the relevant direct-chat context, not the global dashboard feed.`,
     "Team communication contract: stay on the current message, treat it as a small contract, and do not mix unrelated topics. Identify the owner, expected answer/action, evidence/result needed, and any follow-up wake owed. If status/history/truth matters, inspect messages/files/tools first and say what you checked.",
-    "Managed visibility rule: stdout, logs, tool output, and run summaries are telemetry, not the team-visible answer. Close the triggering message in final plain text; use comms_send only for separate teammate/dashboard updates or future self-wakes. If you ask teammates for parallel work, name the expected reply target and completion condition.",
-    "Use compact working-team replies: answer, evidence checked, blocker or uncertainty, next action. Ask one clear question when blocked instead of guessing.",
-    `Turn lifecycle: final plain text is only this turn's reply. It does not schedule future work. This is not a lockstep protocol: you may message teammates mid-turn, run parallel lanes, and continue your own bounded work inside the current turn. If future work must happen after this turn, create that wake before finishing. If your next action requires another agent, send that agent a separate comms_send. If your next action is your own next chunk after this turn, send yourself a separate comms_send(to="${agentId}", type="request", queueIfBusy=true, ...). Do not merely write "Next action: ..." unless no wake is needed.`,
+    "Managed visibility rule: stdout, logs, tool output, final plain text, and run summaries are YOUR working output / telemetry, not the team-visible answer. The team-visible answer is the comms_send reply you send. If you ask teammates for parallel work, name the expected reply target and completion condition.",
+    "Keep the comms_send reply compact: answer, evidence checked, blocker or uncertainty, next action. Ask one clear question when blocked instead of guessing.",
+    `Turn lifecycle: replying via comms_send is this turn's reply; it does not schedule future work. This is not a lockstep protocol: you may message teammates mid-turn, run parallel lanes, and continue your own bounded work inside the current turn. If future work must happen after this turn, create that wake before finishing. If your next action requires another agent, send that agent a separate comms_send. If your next action is your own next chunk after this turn, send yourself a separate comms_send(to="${agentId}", type="request", queueIfBusy=true, ...). Do not merely write "Next action: ..." unless no wake is needed.`,
     channelRule,
-    !isDashboardSender
-      ? "Use comms_send only for separate out-of-band messages, such as a later proactive update to dashboard after this current reply is complete."
-      : "",
-    isDashboardSender
-      ? "Keep the final answer human-readable and scoped to the dashboard message."
-      : "Keep the final answer compact: answer, evidence checked, blocker or uncertainty, next action.",
     replyRule,
     "Do not explain the transport wrapper or restate it unless a later normal user turn explicitly asks about it.",
     "[/AIFY MESSAGE]",
@@ -687,11 +684,15 @@ export function buildUserPrompt(run) {
   const subject = String(run?.subject || "").trim();
   const isChannelMessage = /^#[-A-Za-z0-9_.]+:/.test(subject);
   const replyParent = String(run?.messageId || run?.inReplyTo || "").trim();
+  const replyTo = isDashboardSender ? "dashboard" : fromAgent;
+  const replyVerb = replyParent
+    ? `comms_send(type="response", inReplyTo="${replyParent}", to="${replyTo}")`
+    : `comms_send(type="response", to="${replyTo}")`;
   const replyRule = isDashboardSender
-    ? "Reply to the dashboard user in final plain text."
+    ? `Reply to the dashboard user with ${replyVerb}.`
     : run?.requireReply === false
-    ? "If this message asks you a question, assigns you work, names you, or you have useful evidence, answer in final plain text; otherwise keep it as read context."
-    : "Required handoff: answer in final plain text before you finish. The bridge will deliver it; do not call comms_send for this current reply.";
+    ? `If this asks a question, assigns you work, names you, or you have useful evidence, reply with ${replyVerb}; otherwise keep it as read context.`
+    : `Required handoff: reply with ${replyVerb} before you finish.`;
   const context = formatConversationContext(run?.conversationContext || []);
   return [
     context,
@@ -702,18 +703,13 @@ export function buildUserPrompt(run) {
     "",
     run.body || "",
     "",
-    isDashboardSender
-      ? "Human-visible reply: final plain text is delivered to dashboard chat."
-      : "Reply delivery: final plain text is threaded and delivered to the sender by the bridge.",
+    "Reply delivery: send your answer as a comms_send tool call (rule below). Your final plain text / stdout is your own working output, not the delivered reply.",
     replyRule,
-    !isDashboardSender
-      ? "Use comms_send only for separate out-of-band updates, not for the current reply."
-      : "",
     isChannelMessage
       ? "Channel discipline: respond only when your reply is useful to the group or sender. Do not create broad acknowledgement loops."
       : "",
     "Keep this turn scoped to the message above and its direct context. Do not carry unrelated older topics forward unless the sender explicitly asks for them.",
-    "Do not end silently. Answer the sender in final plain text. If you owe a separate update or future wake, create it with comms_send before the final answer.",
+    "Do not end silently. Answer the sender with comms_send (rule above). If you owe a separate update or future wake, create it with comms_send too.",
     "Parallel coordination is allowed. Self-continuation is allowed: send yourself a request with queueIfBusy=true. A written 'next action' in final text is not a wake.",
     isDashboardSender
       ? "Keep the final answer brief and directly useful."

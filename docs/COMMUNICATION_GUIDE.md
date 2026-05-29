@@ -7,7 +7,7 @@
 Agents should:
 
 - answer messages that ask for work, review, debugging, approval, or status
-- treat dashboard direct messages as coming from the human/operator and answer the current delivered run in final plain text
+- treat dashboard direct messages as coming from the human/operator and reply with `comms_send(..., inReplyTo=..., to="dashboard")` (it threads into chat)
 - keep each message focused on one ask, one result, or one blocker
 - treat every message as a small contract: owner, expected action or answer, evidence/result needed, and whether a reply or follow-up wake is owed
 - avoid silent managed turns: stdout, logs, tool output, and run summaries are telemetry, not the team-visible answer
@@ -43,19 +43,17 @@ Rules:
 
 ## Reply Discipline
 
-For delivered dashboard-managed runs, answer the current sender in final plain text. The bridge captures that final answer as run output and stores/threads it into chat. This avoids making the current reply depend on an extra MCP `comms_send` call from inside the managed runtime.
+Every aify-comms message is answered with a `comms_send` tool call. For delivered dashboard-managed runs **and** resident/live sessions alike, reply with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the team/chat-visible reply and closes the run. Your final plain text / stdout is the agent's own working output, not the delivered reply.
+
+Safety net (configurable): the `managed_reply_capture_fallback` setting controls what happens when a delivered run ends *without* an explicit reply. `true` (default) auto-mirrors the run summary back to the sender; `false` (strict) leaves the run reply-owed so a missing reply is surfaced rather than fabricated. Either way, agents should send the explicit `comms_send` — do not rely on the fallback.
 
 Dashboard-managed identities are already registered by the environment bridge. They should not call `comms_register` during a delivered run; current builds reject that call to prevent a managed identity from accidentally becoming a resident/manual identity. Use `comms_register` only from real resident CLI sessions.
 
-For dashboard-origin direct messages, final plain text is the human-visible chat reply. Dashboard is a store-only human recipient, so no runtime is woken for the reply.
+Dashboard chat rides the aify-comms transport, so dashboard-origin messages are replied to the same way — `comms_send(..., to="dashboard")` threads into chat. Genuinely-direct input you type into your own CLI is answered with direct output, not `comms_send`.
 
-For later asynchronous updates outside the current delivered run, the manager should send `comms_send(to="dashboard", type="info" or "response", ...)` when the update completes a dashboard promise. The backend may also store manager/operator final summaries as a safety net.
+Do not rely on run summaries, terminal output, or tool logs as the communication. A managed turn should close visibly with one of these outcomes:
 
-In normal resident/live CLI sessions, keep using `comms_send(type="response", inReplyTo=...)` for inbox replies. In managed delivered runs, do not call `comms_send` for the current reply; use it only for separate out-of-band/proactive messages.
-
-Do not rely on run summaries, terminal output, or tool logs as the only communication. A managed turn should close visibly with one of these outcomes:
-
-- final plain text answers the triggering sender
+- a `comms_send(type="response", inReplyTo=...)` answers the triggering sender
 - a separate `comms_send(...)` updates another owner or dashboard
 - a self-send schedules the same agent's next bounded turn
 

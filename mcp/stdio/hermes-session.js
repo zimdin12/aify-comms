@@ -625,3 +625,11 @@ export function _resetHermesSessionPoolForTests() {
   }
   hermesSessionPool.clear();
 }
+
+export async function shutdownAllHermesSessions(reason = "shutdown") {
+  const sessions = [...hermesSessionPool.values()];
+  hermesSessionPool.clear();
+  await Promise.all(sessions.map((s) => s.stop(reason).catch(() => {})));
+}
+export function __injectHermesSessionForTests(agentId, session) { hermesSessionPool.set(agentId, session); }
+export function __hermesSessionPoolSize() { return hermesSessionPool.size; }

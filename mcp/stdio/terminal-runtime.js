@@ -1,6 +1,20 @@
 import { spawn } from "child_process";
 import { createRequire } from "module";
+import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
+
+// node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
+// chdir does not expand "~" — operator-supplied workspaces like
+// "~/projects/foo" therefore fail immediately with ENOENT and the terminal
+// dies seconds after attaching. Expand here so any caller that hands us a
+// shell-style path gets the right directory. Exported for unit testing.
+export function expandUserHome(value) {
+  const raw = String(value || "");
+  if (!raw) return raw;
+  if (raw === "~") return homedir();
+  if (raw.startsWith("~/")) return `${homedir()}${raw.slice(1)}`;
+  return raw;
+}
 
 const require = createRequire(import.meta.url);
 let pty = null;
@@ -187,11 +201,12 @@ export class TerminalProcessManager {
     const args = windows
       ? (lowerCommand === "cmd" || lowerCommand === "cmd.exe" || lowerCommand === shellName ? [] : ["/d", "/s", "/c", trimmedCommand])
       : ["-lc", command];
+    const resolvedCwd = expandUserHome(cwd) || process.cwd();
     const term = pty.spawn(shell, args, {
       name: "xterm-256color",
       cols: Math.max(20, Number(cols || 100)),
       rows: Math.max(6, Number(rows || 28)),
-      cwd: cwd || process.cwd(),
+      cwd: resolvedCwd,
       env,
     });
     let resolveExit = null;
@@ -229,8 +244,9 @@ export class TerminalProcessManager {
   }
 
   async startPipeProcess({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
+    const resolvedCwd = expandUserHome(cwd) || process.cwd();
     const proc = spawn(command, {
-      cwd: cwd || process.cwd(),
+      cwd: resolvedCwd,
       env,
       shell: true,
       windowsHide: false,
@@ -284,7 +300,9 @@ export class TerminalProcessManager {
     if (classification?.kind === "auth" && !state.classification) {
       state.classification = classification;
       await this._enqueueOutput(id, `\n[aify-comms] ${classification.message}\n`, { flushNow: true });
-      if (state.kind === "pty") state.term?.kill();
+      if (state.kind === "pty") {
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+      }
       else terminateProcessTree(state.proc, "SIGTERM");
     }
     this._armHermesResumeStallHeal(id, state);
@@ -311,7 +329,9 @@ export class TerminalProcessManager {
         sessionHandle: state.sessionHandle,
         message,
       };
-      if (state.kind === "pty") state.term?.kill();
+      if (state.kind === "pty") {
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+      }
       else terminateProcessTree(state.proc, "SIGTERM");
     }, hermesResumeStallHealMs());
     if (typeof state.resumeHealTimer.unref === "function") state.resumeHealTimer.unref();
@@ -438,8 +458,12 @@ export class TerminalProcessManager {
     terminal.stopping = true;
     this.terminals.delete(id);
     if (terminal.kind === "pty") {
-      terminal.term.kill();
-      await waitForExitOrTimeout(terminal.exitPromise, 1000);
+      // term.kill() sends a single SIGHUP to the wrapper bash, which the wrapper
+      // traps do not catch and which never reaches its sibling/child processes.
+      // Kill the whole process group instead.
+      try { terminateProcessTree(terminal.term, "SIGTERM"); }
+      catch { try { terminal.term.kill(); } catch {} }
+      await waitForExitOrTimeout(terminal.exitPromise, 1500);
       return { stopped: true };
     }
     try {

@@ -23,6 +23,7 @@ import {
   translateGatewayEvent,
   isSessionBusyError,
 } from "./hermes-gateway-protocol.js";
+import { terminateProcessTree } from "./runtimes.js";
 
 const hermesGatewayPool = new Map();
 
@@ -177,7 +178,7 @@ export class HermesManagedGatewaySession {
       this._emit("ready", { gatewayUrl: this._gatewayUrl });
     } catch (err) {
       this._state = "failed";
-      try { this._proc?.kill(); } catch {}
+      if (this._proc) { try { terminateProcessTree(this._proc, "SIGTERM"); } catch {} }
       hermesGatewayPool.delete(this.agentId);
       deferred.reject(err);
       this._startupDeferred = null;
@@ -384,11 +385,11 @@ export class HermesManagedGatewaySession {
     this._activeTurn.settled = true;
   }
 
-  async stop() {
+  async stop(reason = "stop") {
     if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
     this._state = "stopped";
     try { this._socket?.close(); } catch {}
-    try { this._proc?.kill(); } catch {}
+    if (this._proc) { try { terminateProcessTree(this._proc, "SIGTERM"); } catch {} }
     hermesGatewayPool.delete(this.agentId);
   }
 }
@@ -408,6 +409,14 @@ export function getOrCreateHermesGatewaySession({ agentId, agentInfo, onPoolEven
   hermesGatewayPool.set(key, sess);
   return sess;
 }
+
+export async function shutdownAllHermesGatewaySessions(reason = "shutdown") {
+  const sessions = [...hermesGatewayPool.values()];
+  hermesGatewayPool.clear();
+  await Promise.all(sessions.map((s) => s.stop(reason).catch(() => {})));
+}
+export function __injectHermesGatewaySessionForTests(agentId, session) { hermesGatewayPool.set(agentId, session); }
+export function __hermesGatewayPoolSize() { return hermesGatewayPool.size; }
 
 export function _resetHermesGatewayPoolForTests() {
   for (const [, sess] of hermesGatewayPool) {

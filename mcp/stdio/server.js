@@ -44,6 +44,9 @@ import {
 } from "./runtimes.js";
 import { shouldDropLocalActiveRun } from "./dispatch-state.js";
 import { shutdownAllPiSessions, getPiSession, acquirePiSession } from "./pi-session.js";
+import { shutdownAllCodexSessions } from "./codex-session.js";
+import { shutdownAllHermesSessions } from "./hermes-session.js";
+import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch } from "./terminal-control.js";
@@ -244,7 +247,11 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
-  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY),
+  // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
+  // bridge_instances.last_seen — without it a tool call longer than the
+  // server's active-run bridge-stale window is reaped as a dead bridge
+  // mid-turn even though the turn is alive.
+  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY, BRIDGE_INSTANCE_ID),
 });
 
 // Startup diagnostic: surface the env vars the bridge sees so operators
@@ -338,6 +345,9 @@ async function shutdownWithStatus(code) {
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllCodexSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllHermesSessions("bridge exiting"); } catch { /* best effort */ }
+  try { await shutdownAllHermesGatewaySessions("bridge exiting"); } catch { /* best effort */ }
   VIRTUAL_TERMINALS_BY_AGENT.clear();
   VIRTUAL_TERMINAL_INPUT.clear();
   cleanupOnExit();
@@ -1049,6 +1059,18 @@ async function ensureRequiredReplyHandoff(agentId, run = {}, terminalStatus = "c
     const current = latest?.run || {};
     if (!current.requireReply || current.resultMessageId) return;
 
+    // Strict reply mode (managed_reply_capture_fallback=false): do NOT mirror
+    // final output as the reply. The agent is expected to answer via
+    // comms_send(inReplyTo); leave the run reply-owed and visible so a missing
+    // reply is surfaced, not fabricated from working/telemetry text.
+    if (!(await readReplyCaptureFallback())) {
+      await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
+        appendEvent: `Run ended without an explicit comms_send reply; strict reply mode does not auto-mirror. Reply still owed to ${run.from}.`,
+        eventType: "handoff",
+      });
+      return;
+    }
+
     const body = {
       from_agent: agentId,
       to: run.from,
@@ -1381,6 +1403,27 @@ async function readManagedViaWrapperRuntimes() {
     return set;
   } catch (_) {
     return _managedViaWrapperCache.runtimes; // best-effort: return stale cache
+  }
+}
+
+// Reply contract toggle (managed_reply_capture_fallback). True (default) =
+// safety-net: auto-mirror the run summary when a delivered run ends without an
+// explicit comms_send reply. False = strict: never fabricate a reply from final
+// text; leave the run reply-owed. 5s cache to avoid hammering /settings.
+let _replyCaptureFallbackCache = { fetchedAt: 0, value: true };
+async function readReplyCaptureFallback() {
+  if (Date.now() - _replyCaptureFallbackCache.fetchedAt < 5000) {
+    return _replyCaptureFallbackCache.value;
+  }
+  try {
+    const resp = await httpCall("GET", "/settings");
+    const s = (resp && resp.settings) ? resp.settings : (resp || {});
+    const v = s.managed_reply_capture_fallback;
+    const value = v === undefined || v === null ? true : !!v;
+    _replyCaptureFallbackCache = { fetchedAt: Date.now(), value };
+    return value;
+  } catch (_) {
+    return _replyCaptureFallbackCache.value; // best-effort: stale cache
   }
 }
 
@@ -3107,7 +3150,7 @@ server.tool(
     "This is live-delivery gated: if the target is offline, stale, stopped, or lacks a live wake path, the message is not written. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
     "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
     "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
-    "Agents should normally answer messages. In resident/live CLI sessions, reply with comms_send(type=\"response\", inReplyTo=...) when you are answering an inbox message. In dashboard-managed delivered runs, answer the current message in final plain text; the bridge captures and threads that final answer into chat. Use comms_send from managed runs only for separate out-of-band/proactive messages. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context. The requireReply override is only for edge cases.",
+    "Agents should answer aify-comms messages with a comms_send tool call: reply with comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it — send the comms_send.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.",
   {
     from: z.string().describe("Your agent ID"),
     to: z.string().optional().describe("Target agent ID"),
