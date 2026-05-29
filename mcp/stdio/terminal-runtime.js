@@ -300,7 +300,9 @@ export class TerminalProcessManager {
     if (classification?.kind === "auth" && !state.classification) {
       state.classification = classification;
       await this._enqueueOutput(id, `\n[aify-comms] ${classification.message}\n`, { flushNow: true });
-      if (state.kind === "pty") state.term?.kill();
+      if (state.kind === "pty") {
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+      }
       else terminateProcessTree(state.proc, "SIGTERM");
     }
     this._armHermesResumeStallHeal(id, state);
@@ -327,7 +329,9 @@ export class TerminalProcessManager {
         sessionHandle: state.sessionHandle,
         message,
       };
-      if (state.kind === "pty") state.term?.kill();
+      if (state.kind === "pty") {
+        try { terminateProcessTree(state.term, "SIGTERM"); } catch { try { state.term?.kill(); } catch {} }
+      }
       else terminateProcessTree(state.proc, "SIGTERM");
     }, hermesResumeStallHealMs());
     if (typeof state.resumeHealTimer.unref === "function") state.resumeHealTimer.unref();
@@ -454,8 +458,12 @@ export class TerminalProcessManager {
     terminal.stopping = true;
     this.terminals.delete(id);
     if (terminal.kind === "pty") {
-      terminal.term.kill();
-      await waitForExitOrTimeout(terminal.exitPromise, 1000);
+      // term.kill() sends a single SIGHUP to the wrapper bash, which the wrapper
+      // traps do not catch and which never reaches its sibling/child processes.
+      // Kill the whole process group instead.
+      try { terminateProcessTree(terminal.term, "SIGTERM"); }
+      catch { try { terminal.term.kill(); } catch {} }
+      await waitForExitOrTimeout(terminal.exitPromise, 1500);
       return { stopped: true };
     }
     try {
