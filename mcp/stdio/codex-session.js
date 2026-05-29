@@ -750,3 +750,17 @@ export function _resetCodexSessionPoolForTests() {
   }
   codexSessionPool.clear();
 }
+
+export async function shutdownAllCodexSessions(reason = "shutdown") {
+  const sessions = [...codexSessionPool.values()];
+  codexSessionPool.clear();
+  await Promise.all(sessions.map((s) => s.stop(reason).catch(() => {})));
+}
+
+export function __injectCodexSessionForTests(agentId, session) {
+  codexSessionPool.set(agentId, session);
+}
+
+export function __codexSessionPoolSize() {
+  return codexSessionPool.size;
+}
