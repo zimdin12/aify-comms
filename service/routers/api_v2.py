@@ -4523,6 +4523,145 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
     return row
 
 
+async def _coldstart_spawn_request_for_dispatch(
+    db,
+    agent_id: str,
+    *,
+    runtime: str,
+    settings: dict[str, Any],
+    requested_by: str,
+) -> bool:
+    """Cold-start a managed worker on the send path.
+
+    When a managed agent has no live agent_sessions row, _ensure_managed_pty_for_dispatch
+    cannot build a PTY (it has nothing to launch into) and returns None — the dispatch
+    then sits queued with nothing that will ever claim it (root cause G). This creates a
+    spawn_request through the SAME mechanism as create_spawn_request so a bridge claims it,
+    registers a session, and the PATCH->running eager-spawn brings up the wrapper PTY.
+
+    Idempotent: returns False (creating nothing) when a claimable spawn_request
+    (queued/claimed) already exists for the agent, or when no environment/runtime can be
+    resolved. Returns True when a new spawn_request was inserted.
+    """
+    normalized_runtime = _normalize_runtime(runtime or "")
+    if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
+        return False
+
+    # Don't pile up duplicate cold-starts — a queued/claimed spawn_request is
+    # already a claimable backing for this agent.
+    existing = await (await db.execute(
+        """
+        SELECT id
+        FROM spawn_requests
+        WHERE agent_id = ?
+          AND status IN ('queued', 'claimed')
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if existing:
+        return False
+
+    # Resolve environment/runtime/workspace from the agent's most-recent session
+    # (any status). A previously-managed agent always leaves one behind.
+    session = await (await db.execute(
+        """
+        SELECT *
+        FROM agent_sessions
+        WHERE agent_id = ?
+        ORDER BY last_seen DESC
+        LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not session:
+        return False
+
+    environment_id = str(session["environment_id"] or "").strip()
+    if not environment_id:
+        return False
+    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
+    if not env_row:
+        return False
+    environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
+    if str(environment.get("status") or "").lower() != "online":
+        return False
+    if not _runtime_capability_for_environment(environment, normalized_runtime):
+        return False
+
+    workspace, workspace_root = _workspace_for_environment(environment, None, session["workspace"] or "")
+
+    # Reuse the prior spawn_spec when present so model/effort/policy survive the
+    # cold-start; otherwise mint a minimal spec mirroring create_spawn_request.
+    prior_spec = None
+    prior_spec_id = str(session["spawn_spec_id"] or "").strip()
+    if prior_spec_id:
+        prior_spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,))).fetchone()
+
+    now = _now()
+    spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+    await db.execute(
+        """
+        INSERT INTO spawn_specs (
+            id, agent_id, environment_id, runtime, workspace, model, profile, mode,
+            system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
+            context_policy, restart_policy, metadata, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            spec_id,
+            agent_id,
+            environment_id,
+            normalized_runtime,
+            workspace,
+            str(prior_spec["model"] or "") if prior_spec else "",
+            str(prior_spec["profile"] or "") if prior_spec else "",
+            "managed-warm",
+            str(prior_spec["system_prompt"] or "") if prior_spec else "",
+            str(prior_spec["standing_instructions"] or "") if prior_spec else "",
+            str(prior_spec["env_vars"] or "{}") if prior_spec else "{}",
+            str(prior_spec["channel_ids"] or "[]") if prior_spec else "[]",
+            str(prior_spec["budget_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["context_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["restart_policy"] or "{}") if prior_spec else "{}",
+            str(prior_spec["metadata"] or "{}") if prior_spec else "{}",
+            now,
+            now,
+        ),
+    )
+    await db.execute(
+        """
+        INSERT INTO spawn_requests (
+            id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
+            workspace, workspace_root, initial_message, priority, subject, mode,
+            resume_policy, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            request_id,
+            spec_id,
+            requested_by or "dispatch-coldstart",
+            environment_id,
+            agent_id,
+            "coder",
+            agent_id,
+            normalized_runtime,
+            workspace,
+            workspace_root,
+            "",
+            "normal",
+            f"Cold-start for {agent_id}",
+            "managed-warm",
+            "native_first",
+            "queued",
+            now,
+            now,
+        ),
+    )
+    return True
+
+
 async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str):
     active = await _active_terminal_for_agent(db, agent_id, settings=settings)
     if active:
