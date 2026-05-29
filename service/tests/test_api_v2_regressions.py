@@ -301,7 +301,9 @@ class ApiV2RegressionTests(unittest.TestCase):
         first_env = first.json()["environment"]
         self.assertEqual(first_env["id"], "wsl:test-host:default")
         self.assertEqual(first_env["label"], "WSL on test-host")
-        self.assertEqual(first_env["machineId"], "wsl-Ubuntu:test-host")
+        # machine_id is normalized (lowercased) end to end so casing
+        # differences across launch paths can't split one logical machine.
+        self.assertEqual(first_env["machineId"], "wsl-ubuntu:test-host")
         self.assertEqual(first_env["cwdRoots"], ["/mnt/c/Docker"])
         self.assertEqual(first_env["runtimes"][0]["runtime"], "codex")
         self.assertEqual(first_env["metadata"]["pid"], 123)

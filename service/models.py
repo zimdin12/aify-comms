@@ -1,9 +1,34 @@
 """Pydantic models for aify-comms API."""
 from typing import Any, Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
-class AgentRegister(BaseModel):
+def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
+    """Canonicalize machineId at request-parse ingress.
+
+    The host machine_id is "<platform>:<hostname>" (e.g. "win32:StevenZ-L").
+    Different launch paths report the hostname with different casing, and the
+    service compares machine_id case-sensitively in bridge supersession and
+    dispatch-claim routing. Lowercasing here (platform is already lowercase;
+    only the host casing varies) makes every downstream store/compare site
+    receive a consistent value. Idempotent and safe. None passes through so
+    "unset" stays distinct from "empty".
+    """
+    if value is None:
+        return None
+    return str(value).strip().lower()
+
+
+class _MachineIdNormalizingModel(BaseModel):
+    """Base for request models carrying a machineId that must be lowercased."""
+
+    @field_validator("machineId", check_fields=False)
+    @classmethod
+    def _normalize_machine_id(cls, value):
+        return _normalize_machine_id_value(value)
+
+
+class AgentRegister(_MachineIdNormalizingModel):
     agentId: str
     role: str
     name: Optional[str] = None
@@ -81,7 +106,7 @@ class AgentSessionModeSwitchRequest(BaseModel):
     requestedBy: Optional[str] = None
 
 
-class AgentResidentLostRequest(BaseModel):
+class AgentResidentLostRequest(_MachineIdNormalizingModel):
     bridgeId: Optional[str] = None
     machineId: Optional[str] = None
     runtime: Optional[str] = None
@@ -109,7 +134,7 @@ class DispatchRequest(BaseModel):
     requireReply: Optional[bool] = None
 
 
-class DispatchClaimRequest(BaseModel):
+class DispatchClaimRequest(_MachineIdNormalizingModel):
     agentId: str
     machineId: Optional[str] = None
     bridgeId: Optional[str] = None
@@ -136,7 +161,7 @@ class DispatchControlRequest(BaseModel):
     body: Optional[str] = None
 
 
-class DispatchControlClaimRequest(BaseModel):
+class DispatchControlClaimRequest(_MachineIdNormalizingModel):
     agentId: str
     runId: Optional[str] = None
     machineId: Optional[str] = None
@@ -147,7 +172,7 @@ class DispatchControlUpdate(BaseModel):
     response: Optional[str] = None
 
 
-class EnvironmentHeartbeat(BaseModel):
+class EnvironmentHeartbeat(_MachineIdNormalizingModel):
     id: str
     label: Optional[str] = None
     machineId: Optional[str] = None
@@ -175,7 +200,7 @@ class EnvironmentRootsUpdate(BaseModel):
     resetToBridgeAdvertised: Optional[bool] = False
 
 
-class EnvironmentControlClaim(BaseModel):
+class EnvironmentControlClaim(_MachineIdNormalizingModel):
     environmentId: str
     bridgeId: str
     machineId: Optional[str] = None
@@ -226,7 +251,7 @@ class SpawnRequestCreate(BaseModel):
     metadata: Optional[dict[str, Any]] = None
 
 
-class SpawnRequestClaim(BaseModel):
+class SpawnRequestClaim(_MachineIdNormalizingModel):
     environmentId: str
     bridgeId: str
     machineId: Optional[str] = None

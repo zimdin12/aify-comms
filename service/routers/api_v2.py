@@ -627,6 +627,20 @@ def _session_capabilities_replacing_handle(capabilities: Any, session_handle: st
     return result
 
 
+def _normalize_machine_id(machine_id: Any) -> str:
+    """Canonical machine_id form for storage AND comparison.
+
+    The host machine_id is "<platform>:<hostname>" (e.g. "win32:StevenZ-L").
+    Different launch paths report the hostname with different casing, and
+    machine_id is compared in bridge supersession + dispatch-claim routing.
+    Comparing case-sensitively let a re-registered worker under a different
+    casing escape supersession, leaving duplicate live bridge_instances.
+    Lowercasing is safe (platform is already lowercase, only host casing
+    varies) and idempotent, so we normalize at every store/compare site.
+    """
+    return str(machine_id or "").strip().lower()
+
+
 def _machine_family(machine_id: Any) -> str:
     return str(machine_id or "").strip().split(":", 1)[0].lower()
 
@@ -1830,7 +1844,7 @@ async def _record_bridge_registration(
     resident bridges and managed wrapper-child bridges protect fresh
     same-logical-owner rows so duplicate registration does not kill work.
     """
-    normalized_machine = str(machine_id or "")
+    normalized_machine = _normalize_machine_id(machine_id)
     normalized_runtime_value = str(runtime or "")
     normalized_session_mode_value = str(session_mode or "")
     normalized_session_handle_value = str(session_handle or "").strip()
@@ -9728,7 +9742,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
                 workspace,
                 model,
                 runtime,
-                environment.get("machineId") or "",
+                _normalize_machine_id(environment.get("machineId")),
                 preserve_handle,
                 json.dumps(capabilities),
                 json.dumps(runtime_config),
@@ -10120,10 +10134,10 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             switch_session_handle,
             runtime_config,
         )
-        next_machine_id = (
-            str(resident_candidate.get("machineId") or row["machine_id"] or "")
+        next_machine_id = _normalize_machine_id(
+            resident_candidate.get("machineId") or row["machine_id"] or ""
             if new_mode == "resident"
-            else str(row["machine_id"] or "")
+            else row["machine_id"] or ""
         )
         next_cwd = (
             str(resident_candidate.get("cwd") or row["cwd"] or "")

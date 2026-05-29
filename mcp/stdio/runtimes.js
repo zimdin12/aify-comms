@@ -2076,7 +2076,11 @@ export function defaultMachineId() {
   }
   host = host || "unknown-host";
   const wsl = process.env.WSL_DISTRO_NAME ? `wsl-${process.env.WSL_DISTRO_NAME}` : process.platform;
-  return `${wsl}:${host}`;
+  // Lowercase the whole "<platform>:<host>" id. Hostnames report with
+  // inconsistent casing across launch paths (e.g. win32:StevenZ-L vs
+  // win32:STEVENZ-L); the service compares machine_id case-insensitively
+  // for bridge supersession, so send a consistent (lowercased) value.
+  return `${wsl}:${host}`.toLowerCase();
 }
 
 export function launchRuntimeRun({ agentId, agentInfo, run, runtimeState, callbacks, managedViaWrapper = false }) {
