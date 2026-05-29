@@ -857,22 +857,58 @@ EOF
 # Detection order: AIFY_HERMES_INSTALL_ROOT > `hermes config path` parsed
 # up to /hermes_cli > skip cleanly. Idempotent: noop if web_dist/index.html
 # exists. Dry-run (--prebuild-dry-run) logs intent but skips npm.
-prebuild_hermes_web_dist() {
-  local hermes_install_root="${AIFY_HERMES_INSTALL_ROOT:-}"
-  if [ -z "$hermes_install_root" ]; then
-    # `hermes config path` reports something like
-    # /c/Users/Administrator/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml
-    # — strip from /hermes_cli/ onward to recover the install root.
-    local hermes_bin=""
-    hermes_bin="$(hermes_cmd 2>/dev/null || true)"
-    if [ -n "$hermes_bin" ]; then
-      local cfg_path
-      cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
-      if [ -n "$cfg_path" ]; then
-        hermes_install_root="${cfg_path%%/hermes_cli/*}"
+# Resolve the Hermes install tree (the directory containing hermes_cli/,
+# ui-tui/, web/, tui_gateway/). Detection order:
+#   1. AIFY_HERMES_INSTALL_ROOT override.
+#   2. Ask Hermes' own venv Python for hermes_cli's PROJECT_ROOT — this is
+#      exactly what main.py uses to locate ui-tui/web_dist, so it is correct
+#      for editable AND source layouts regardless of how `config path` behaves.
+#   3. Legacy: parse `hermes config path` and strip /hermes_cli/ onward. Kept
+#      for older Hermes builds where config path lived under the install tree.
+#      (Hermes 0.14.0 moved it to the user-config dir, breaking this method.)
+# Prints the resolved root on stdout, or nothing if it can't be found.
+detect_hermes_install_root() {
+  if [ -n "${AIFY_HERMES_INSTALL_ROOT:-}" ] && [ -d "$AIFY_HERMES_INSTALL_ROOT" ]; then
+    printf '%s\n' "$AIFY_HERMES_INSTALL_ROOT"
+    return 0
+  fi
+  local hermes_bin=""
+  hermes_bin="$(hermes_cmd 2>/dev/null || true)"
+  if [ -n "$hermes_bin" ]; then
+    # The venv Python sits next to the hermes launcher (…/Scripts/ or …/bin/).
+    local bin_dir
+    bin_dir="$(dirname "$hermes_bin")"
+    local venv_py=""
+    if [ -x "$bin_dir/python.exe" ]; then
+      venv_py="$bin_dir/python.exe"
+    elif [ -x "$bin_dir/python" ]; then
+      venv_py="$bin_dir/python"
+    fi
+    if [ -n "$venv_py" ]; then
+      local proj_root
+      proj_root="$("$venv_py" -c "from hermes_cli import main; print(main.PROJECT_ROOT)" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+      if [ -n "$proj_root" ] && [ -d "$proj_root" ]; then
+        printf '%s\n' "$proj_root"
+        return 0
+      fi
+    fi
+    # Legacy fallback: config path → strip /hermes_cli/ onward.
+    local cfg_path
+    cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+    if [ -n "$cfg_path" ] && [ "$cfg_path" != "${cfg_path%%/hermes_cli/*}" ]; then
+      local legacy_root="${cfg_path%%/hermes_cli/*}"
+      if [ -d "$legacy_root" ]; then
+        printf '%s\n' "$legacy_root"
+        return 0
       fi
     fi
   fi
+  return 0
+}
+
+prebuild_hermes_web_dist() {
+  local hermes_install_root
+  hermes_install_root="$(detect_hermes_install_root)"
   if [ -z "$hermes_install_root" ] || [ ! -d "$hermes_install_root" ]; then
     echo "[install.sh] hermes install root not found; skipping web_dist prebuild" >&2
     return 0
@@ -904,18 +940,8 @@ prebuild_hermes_web_dist() {
 }
 
 patch_hermes_gateway_visible_bind() {
-  local hermes_install_root="${AIFY_HERMES_INSTALL_ROOT:-}"
-  if [ -z "$hermes_install_root" ]; then
-    local hermes_bin=""
-    hermes_bin="$(hermes_cmd 2>/dev/null || true)"
-    if [ -n "$hermes_bin" ]; then
-      local cfg_path
-      cfg_path="$("$hermes_bin" config path 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
-      if [ -n "$cfg_path" ]; then
-        hermes_install_root="${cfg_path%%/hermes_cli/*}"
-      fi
-    fi
-  fi
+  local hermes_install_root
+  hermes_install_root="$(detect_hermes_install_root)"
   if [ -z "$hermes_install_root" ] || [ ! -d "$hermes_install_root" ]; then
     echo "[install.sh] hermes install root not found; skipping visible-session gateway patch" >&2
     return 0
