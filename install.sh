@@ -106,14 +106,15 @@ require_cmd() {
 
 hermes_cmd() {
   local configured="${AIFY_HERMES_COMMAND:-${HERMES_COMMAND:-}}"
-  if [ -n "$configured" ]; then
-    if command -v "$configured" >/dev/null 2>&1; then
-      printf '%s\n' "$configured"
-      return 0
-    fi
-    return 1
+  if [ -n "$configured" ] && command -v "$configured" >/dev/null 2>&1; then
+    printf '%s\n' "$configured"
+    return 0
   fi
-  command -v hermes 2>/dev/null
+  # Fallback when no env var is set OR when the configured path is stale
+  # (e.g. hermes' 2026-05-27 release renamed `hermes` -> `hermes-agent`,
+  # which left existing AIFY_HERMES_COMMAND envs pointing at a vanished
+  # binary). Probe both names so old and new installs both succeed.
+  command -v hermes 2>/dev/null || command -v hermes-agent 2>/dev/null
 }
 
 require_hermes_cmd() {
@@ -1625,7 +1626,7 @@ if (\$env:AIFY_MANAGED_VIA_WRAPPER -eq '1' -and \$HermesInheritedSessionHandle) 
   \$HermesExplicitSessionHandle = \$true
 }
 
-\$HermesRuntimeCommand = if (\$env:AIFY_HERMES_COMMAND) { \$env:AIFY_HERMES_COMMAND } elseif (\$env:HERMES_COMMAND) { \$env:HERMES_COMMAND } else { 'hermes' }
+\$HermesRuntimeCommand = if (\$env:AIFY_HERMES_COMMAND) { \$env:AIFY_HERMES_COMMAND } elseif (\$env:HERMES_COMMAND) { \$env:HERMES_COMMAND } elseif (Get-Command hermes -ErrorAction SilentlyContinue) { 'hermes' } elseif (Get-Command hermes-agent -ErrorAction SilentlyContinue) { 'hermes-agent' } else { 'hermes' }
 \$HermesArgs = @()
 \$PrevArg = ''
 foreach (\$Arg in \$InputArgs) {
