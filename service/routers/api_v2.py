@@ -163,6 +163,19 @@ DEFAULT_SETTINGS = {
     # runtimes and inverts the polarity so the proper-delivery path
     # is the default.
     "insert_messages_via_console": False,
+    # Reply contract for managed/delivered runs. The intended model is:
+    # aify-comms message in -> reply OUT via comms_send(inReplyTo=...) (a tool
+    # call the agent makes); genuinely-direct terminal input -> direct output.
+    # The injected prompt always directs agents to reply with comms_send.
+    # This flag only controls the fallback when an agent finishes a delivered
+    # run WITHOUT sending an explicit reply:
+    #   True  (B, safety-net) — the bridge auto-mirrors the run summary back to
+    #          the sender so the human/teammate still gets something.
+    #   False (A, strict)     — no auto-mirror; the run stays reply-owed and the
+    #          missing reply is surfaced rather than fabricated from final text.
+    # Default True preserves prior behavior; set False to enforce strict
+    # comms_send-only replies.
+    "managed_reply_capture_fallback": True,
     # Slices 1/2/4 (proactive wrapper-PTY at spawn-request completion).
     # When true AND managed_terminal_backing_enabled is also true, the
     # service eagerly launches the agent's wrapper PTY at spawn-request
