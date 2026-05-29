@@ -247,7 +247,11 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
   isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
-  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY),
+  // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
+  // bridge_instances.last_seen — without it a tool call longer than the
+  // server's active-run bridge-stale window is reaped as a dead bridge
+  // mid-turn even though the turn is alive.
+  postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY, BRIDGE_INSTANCE_ID),
 });
 
 // Startup diagnostic: surface the env vars the bridge sees so operators
