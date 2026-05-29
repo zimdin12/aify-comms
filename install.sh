@@ -2188,7 +2188,16 @@ _patch_hermes_config_at() {
   mkdir -p "$config_dir"
   touch "$config_file"
   node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio/server.js")"
+  # Only convert to a Windows drive path when hermes actually runs as a native
+  # Windows binary. On WSL with a Linux hermes, path_for_windows_runtime would
+  # emit "D:\..." which Linux node can't open — the aify-comms MCP child then
+  # exits instantly ("Connection closed"), so no in-hermes bridge claims
+  # channel dispatches and managed hermes never answers. Mirror of the plugin
+  # path guard in install_hermes_wrapper.
+  node_server_path="$SCRIPT_DIR/mcp/stdio/server.js"
+  if hermes_runtime_is_native_windows; then
+    node_server_path="$(path_for_windows_runtime "$node_server_path")"
+  fi
 
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
