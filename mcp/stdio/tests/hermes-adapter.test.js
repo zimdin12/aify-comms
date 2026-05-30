@@ -58,3 +58,16 @@ test("capabilities advertise the channel/api_server model (steer off, interrupt 
   assert.equal(adapter.supportsInterrupt, true);
   assert.equal(adapter.supportsManaged, true);
 });
+
+test("sessionIdSource is 'pinned' (id is a pure function of agentId)", () => {
+  const adapter = new HermesAdapter();
+  assert.equal(adapter.sessionIdSource, "pinned");
+});
+
+test("resumeCommand returns the operator TUI takeover command", () => {
+  const adapter = new HermesAdapter();
+  assert.equal(
+    adapter.resumeCommand("aify-sc-coder"),
+    "hermes --tui --resume aify-sc-coder",
+  );
+});

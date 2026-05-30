@@ -23,6 +23,20 @@ export class HermesAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
+  // Symmetric adapter contract (Phase 2: every adapter advertises these).
+  // hermes session ids are PINNED — a pure function of agentId (pinnedSessionId),
+  // never captured from a runtime log or supplied by an operator at resume time.
+  get sessionIdSource() { return "pinned"; }
+
+  // Operator takeover: the command an operator runs to attach a resident TUI to
+  // the agent's pinned session.
+  // ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon via
+  // HERMES_TUI_GATEWAY_URL — this command must run against THAT agent's daemon,
+  // not a machine-global hermes gateway.
+  resumeCommand(sessionId) {
+    return `hermes --tui --resume ${sessionId}`;
+  }
+
   controllerFor(opts) {
     return new HermesController(opts);
   }
