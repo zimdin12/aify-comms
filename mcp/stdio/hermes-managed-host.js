@@ -33,6 +33,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { agentPort } from "./hermes-endpoint.js";
+import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import {
   buildSessionActiveListFrame,
@@ -75,9 +76,12 @@ function sleep(ms) {
 }
 
 // The STABLE resume key the visible TUI attaches under. Its runtime id is
-// ephemeral; we match on this stable key in session.active_list.
+// ephemeral; we match on this stable key in session.active_list. This MUST be
+// byte-identical to what the install.sh wrapper passes as HERMES_TUI_RESUME, so
+// it reuses the SAME sanitization scheme (pinnedSessionId from
+// hermes-session-id.js, which the wrapper mirrors via `tr -c 'a-zA-Z0-9_-'`).
 function sessionKeyFor(agentId) {
-  return `aify-${String(agentId || "").trim()}`;
+  return pinnedSessionId(agentId);
 }
 
 // Resolve the bound agentId from the PID-keyed temp file (same mechanism as
@@ -470,36 +474,55 @@ export function installShutdownTeardown({
 }
 
 // ---------------------------------------------------------------------------
-// Main loop.
+// Delivery loop (the `run` CLI mode).
 // ---------------------------------------------------------------------------
 
-async function mainLoop() {
-  const httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY);
-  const agentId = readBoundAgentId();
-  if (!agentId) {
-    console.error("[hermes-managed-host] no bound agentId; nothing to drive.");
-    return;
+// Drive the claim/deliver loop for `agentId`. Assumes (or brings up via the
+// idempotent probe) the gateway host, opens a WS to it, polls /dispatch/claim,
+// and installs teardown so the gateway host dies when this process exits.
+// Returns when the agent is released to resident (loopOnce returns released).
+// `deps` is injectable for tests:
+//   spawnImpl, fetchImpl, openWs, httpCall, installTeardown, sleepImpl,
+//   maxIterations (test bound; undefined → infinite).
+export async function runDeliveryLoop(agentId, deps = {}) {
+  const {
+    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
+    spawnImpl,
+    fetchImpl,
+    openWs = openGatewayWsClient,
+    installTeardown = installShutdownTeardown,
+    sleepImpl = sleep,
+    maxIterations,
+    serverUrl = AIFY_SERVER_URL,
+  } = deps;
+  const id = String(agentId || "").trim();
+  if (!id) {
+    console.error("[hermes-managed-host] run: no bound agentId; nothing to drive.");
+    return { released: false, processed: 0 };
   }
-  const port = agentPort(agentId);
+  const port = agentPort(id);
 
   let gatewayChild = null;
-  installShutdownTeardown({ getChild: () => gatewayChild });
+  installTeardown({ getChild: () => gatewayChild });
 
-  // Bring up (or attach to) the hidden gateway host.
-  const host = await ensureGatewayHost({ agentId, port, spawn: (await import("node:child_process")).spawn });
+  const spawn = spawnImpl || (await import("node:child_process")).spawn;
+  // Idempotent: if the wrapper's `ensure-host` already started it, probeFirst
+  // reuses it (child=null); otherwise we (re)spawn it ourselves.
+  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
   gatewayChild = host.child;
 
   let wsClient = null;
   const ensureWs = async () => {
     if (wsClient) return wsClient;
-    wsClient = await openGatewayWsClient(host.wsUrl);
+    wsClient = await openWs(host.wsUrl);
     return wsClient;
   };
 
-  for (;;) {
+  let totalProcessed = 0;
+  for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
     try {
-      if (!AIFY_SERVER_URL) {
-        await sleep(POLL_MS);
+      if (!serverUrl) {
+        await sleepImpl(POLL_MS);
         continue;
       }
       const ws = await ensureWs().catch((err) => {
@@ -507,17 +530,17 @@ async function mainLoop() {
         return null;
       });
       if (!ws) {
-        await sleep(POLL_MS);
+        await sleepImpl(POLL_MS);
         continue;
       }
-      const result = await runPollCycle({ agentId, httpCall, wsClient: ws });
+      const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws });
+      totalProcessed += result.processed || 0;
       if (result.released) {
         await teardownGatewayHost({ child: gatewayChild });
-        return;
+        return { released: true, processed: totalProcessed };
       }
     } catch (error) {
       console.error("[hermes-managed-host] tick error:", error?.message || String(error));
-      // Drop a dead WS so the next tick reconnects.
       try {
         wsClient?.close();
       } catch {
@@ -525,13 +548,77 @@ async function mainLoop() {
       }
       wsClient = null;
     }
-    await sleep(POLL_MS);
+    await sleepImpl(POLL_MS);
   }
+  return { released: false, processed: totalProcessed };
+}
+
+// ---------------------------------------------------------------------------
+// `ensure-host` CLI mode — bring the hidden gateway host up (or reuse) and
+// print ONE JSON line {port, token, wsUrl} to stdout for the wrapper to parse.
+// ---------------------------------------------------------------------------
+
+// Resolve+ensure the gateway host and emit {port, token, wsUrl}. `deps` is
+// injectable (spawnImpl, fetchImpl, out/err writers). Returns the coords.
+export async function runEnsureHostCli(agentId, deps = {}) {
+  const {
+    spawnImpl,
+    fetchImpl,
+    out = (s) => process.stdout.write(s),
+    err = (s) => process.stderr.write(s),
+  } = deps;
+  const id = String(agentId || "").trim();
+  if (!id) throw new Error("ensure-host requires an agentId");
+  const port = agentPort(id);
+  const spawn = spawnImpl || (await import("node:child_process")).spawn;
+  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+  // The gateway host must OUTLIVE this short-lived CLI process (the delivery
+  // loop + the visible TUI attach to it). It was spawned detached+unref'd.
+  // `resumeKey` is the canonical pinnedSessionId — the wrapper should set
+  // HERMES_TUI_RESUME to THIS exact value (not reimplement sanitization in
+  // shell) so the TUI's resumed session matches the loop's pickSessionForKey.
+  const payload = {
+    port: host.port,
+    token: host.token,
+    wsUrl: host.wsUrl,
+    resumeKey: sessionKeyFor(id),
+  };
+  out(JSON.stringify(payload) + "\n");
+  err(`[hermes-managed-host] gateway host ready for '${id}' on port ${host.port}\n`);
+  return payload;
+}
+
+// ---------------------------------------------------------------------------
+// argv dispatch.
+// ---------------------------------------------------------------------------
+
+// Dispatch on argv. Modes:
+//   ensure-host <agentId> → runEnsureHostCli (prints JSON line, exits 0)
+//   run <agentId>         → runDeliveryLoop (claim/deliver loop + teardown)
+//   (none)                → legacy resident-driven loop using the bound agent.
+// `deps` is injectable for tests.
+export async function runCli(argv, deps = {}) {
+  const mode = String(argv[0] || "").trim();
+  if (mode === "ensure-host") {
+    const agentId = String(argv[1] || "").trim() || readBoundAgentId();
+    await runEnsureHostCli(agentId, deps);
+    return { mode: "ensure-host", agentId };
+  }
+  if (mode === "run") {
+    const agentId = String(argv[1] || "").trim() || readBoundAgentId();
+    await runDeliveryLoop(agentId, deps);
+    return { mode: "run", agentId };
+  }
+  // No subcommand: behave like the old main loop (resolve the bound agent and
+  // drive it). Both spawns the host and runs the loop.
+  const agentId = readBoundAgentId();
+  await runDeliveryLoop(agentId, deps);
+  return { mode: "loop", agentId };
 }
 
 if (IS_MAIN) {
-  mainLoop().catch((error) => {
-    console.error("[hermes-managed-host] fatal:", error);
+  runCli(process.argv.slice(2)).catch((error) => {
+    console.error("[hermes-managed-host] fatal:", error?.message || error);
     process.exit(1);
   });
 }

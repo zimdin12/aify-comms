@@ -1280,6 +1280,11 @@ fi
 AIFY_HERMES_STDIO_DIR="$hermes_stdio_dir"
 AIFY_HERMES_DAEMON_CLI="\$AIFY_HERMES_STDIO_DIR/hermes-daemon-cli.js"
 AIFY_HERMES_CHANNEL_JS="\$AIFY_HERMES_STDIO_DIR/hermes-channel.js"
+# Managed visible-TUI model (Plan "managed-hermes visible-TUI", 2026-05-31): the
+# per-agent hidden gateway host + background delivery loop live here. The managed
+# branch brings up the gateway host, starts the delivery loop, and then EXECs a
+# real \`hermes --tui\` into THIS PTY (rendered windowless in the dashboard).
+AIFY_HERMES_MANAGED_HOST_JS="\$AIFY_HERMES_STDIO_DIR/hermes-managed-host.js"
 
 # Bring up (idempotently) the per-agent api_server daemon for this agent. On
 # failure print the LOUD daemon error and exit non-zero — a silent no-op daemon
@@ -1309,6 +1314,19 @@ aify_hermes_kill_prior() {
   if command -v pkill >/dev/null 2>&1; then
     pkill -f "hermes-channel.js.*\$agent_id" >/dev/null 2>&1 || true
     pkill -f "AIFY_AGENT_ID=\$agent_id.*hermes-channel.js" >/dev/null 2>&1 || true
+    # Managed visible-TUI model: reap a prior background delivery loop
+    # (\`hermes-managed-host.js run <agent>\`) for this agent. Its SIGTERM
+    # teardown then kills the hidden gateway host it owns.
+    pkill -f "hermes-managed-host.js run \$agent_id" >/dev/null 2>&1 || true
+    # Best-effort: reap any orphaned gateway host left listening on this agent's
+    # dashboard/api port (a prior SIGKILL bypasses the loop's teardown handler).
+    if command -v lsof >/dev/null 2>&1; then
+      local host_port
+      host_port="\$(node -e 'import("'"\$AIFY_HERMES_STDIO_DIR"'/hermes-endpoint.js").then(m=>process.stdout.write(String(m.agentPort(process.argv[1]))))' "\$agent_id" 2>/dev/null || true)"
+      if [ -n "\$host_port" ]; then
+        lsof -ti tcp:"\$host_port" 2>/dev/null | xargs -r kill >/dev/null 2>&1 || true
+      fi
+    fi
   fi
   # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
   # (SIGKILL — untrappable, so the sidecar's teardown handler never ran) can
@@ -1317,36 +1335,64 @@ aify_hermes_kill_prior() {
   node "\$AIFY_HERMES_DAEMON_CLI" stop "\$agent_id" >/dev/null 2>&1 || true
 }
 
-# MANAGED launch: \`--aify-agent\` present AND session-mode resolved to managed
-# (non-interactive / bridge-spawned). Ensure the per-agent daemon, then EXEC the
-# wake-only channel sidecar. NO hermes --tui, NO dashboard --tui — the in-session
-# agent self-replies via comms_send (symmetric with claude).
+# MANAGED launch (visible-TUI model, Plan 2026-05-31): \`--aify-agent\` present
+# AND session-mode resolved to managed (bridge-spawned in the dashboard PTY).
+#   1. kill-prior: reap a stale delivery loop + gateway host for this agent.
+#   2. ensure-host: bring up the HIDDEN per-agent \`hermes dashboard --tui\`
+#      gateway host (windowsHide) and learn its {port,token,wsUrl}.
+#   3. start the background delivery loop (detached, survives the exec below): it
+#      claims dispatch runs and prompt.submits them into the TUI's session.
+#   4. exec \`hermes --tui\` IN THIS PTY, attached to the gateway host and
+#      resuming the STABLE session \`aify-<agentId>\` — the REAL TUI renders
+#      windowless in the dashboard console. The in-session agent self-replies via
+#      comms_send (wake-only; symmetric with claude).
 if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID"
-  aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_CHANNELS_ENABLED=1
-  # The sidecar resolves its own per-agent api_server endpoint from AIFY_AGENT_ID
-  # (hermes-endpoint.js) — no need to thread AIFY_HERMES_APISERVER_URL/_KEY here.
-  exec node "\$AIFY_HERMES_CHANNEL_JS"
+  # (2) Hidden gateway host → capture {port,token,wsUrl} as ONE JSON line.
+  if ! HERMES_HOST_JSON="\$(node "\$AIFY_HERMES_MANAGED_HOST_JS" ensure-host "\$HERMES_AIFY_AGENT_ID")"; then
+    echo "[hermes-aify] FATAL: managed gateway host for '\$HERMES_AIFY_AGENT_ID' did not come up." >&2
+    echo "[hermes-aify]   (node \$AIFY_HERMES_MANAGED_HOST_JS ensure-host \$HERMES_AIFY_AGENT_ID failed — see the error above)" >&2
+    exit 1
+  fi
+  # Parse the JSON line (mirror the pi-session-state grep/sed extraction above).
+  HERMES_TUI_WS_URL="\$(printf '%s' "\$HERMES_HOST_JSON" | sed -E 's/.*"wsUrl"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  if [ -z "\$HERMES_TUI_WS_URL" ] || [ "\$HERMES_TUI_WS_URL" = "\$HERMES_HOST_JSON" ]; then
+    echo "[hermes-aify] FATAL: could not parse wsUrl from gateway-host output: \$HERMES_HOST_JSON" >&2
+    exit 1
+  fi
+  echo "[hermes-aify] managed gateway host ready: \$HERMES_HOST_JSON" >&2
+  # The STABLE resume key MUST match the delivery loop's pickSessionForKey key.
+  # ensure-host emits the canonical pinnedSessionId as \`resumeKey\` so we DON'T
+  # reimplement (and risk diverging from) the sanitization in shell.
+  AIFY_HERMES_PINNED_SESSION="\$(printf '%s' "\$HERMES_HOST_JSON" | sed -E 's/.*"resumeKey"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  if [ -z "\$AIFY_HERMES_PINNED_SESSION" ] || [ "\$AIFY_HERMES_PINNED_SESSION" = "\$HERMES_HOST_JSON" ]; then
+    # Fallback to the local sanitization (matches hermes-session-id.js for the
+    # common [a-zA-Z0-9_-] agentId case) if the field is somehow absent.
+    AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
+  fi
+  # (3) Background delivery loop — detached, survives the exec below.
+  nohup node "\$AIFY_HERMES_MANAGED_HOST_JS" run "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
+  export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
+  export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
+  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
 fi
 
-# RESIDENT/interactive launch with an agent id: ensure the per-agent daemon, then
-# attach an operator TUI to THAT agent's daemon and pinned session.
+# RESIDENT/interactive launch with an agent id: attach an operator TUI to THIS
+# agent's pinned session. \`--resume <pinned session>\` resumes the SAME stable
+# DB session (\`aify-<agentId>\`) the managed model drives, so the operator sees
+# one continuous transcript.
+# TODO(managed-hermes visible-TUI, Phase 1 follow-up): migrate this resident path
+# off the api_server \`hermes gateway run\` daemon onto the same hidden
+# \`hermes dashboard --tui\` gateway-host model the managed branch now uses (so it
+# attaches via HERMES_TUI_GATEWAY_URL too). For now it keeps using
+# aify_hermes_ensure_daemon so resident launch is NOT broken by this change.
 if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
   AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-  # ASYMMETRY(hermes): we deliberately do NOT export HERMES_TUI_GATEWAY_URL here.
-  # That env var attaches the TUI to a tui_gateway WebSocket (\`ws://…/api/ws\`),
-  # but in this hermes build /api/ws is served ONLY by a \`hermes dashboard\`
-  # (uvicorn) process on the single fixed HERMES_DASHBOARD_PORT (default 9119) —
-  # NOT by the per-agent \`hermes gateway run\` daemon, which binds only platform
-  # adapters (the api_server HTTP port the sidecar uses). There is no per-agent
-  # WS gateway port to attach to, so the resident TUI spawns its own local
-  # gateway. \`--resume <pinned session>\` still gives the operator the SAME
-  # session the sidecar drives. (See DECISIONS.md / hermes-apiserver-contract.md
-  # false-assumption #2: tui_gateway WS != api_server HTTP, and the daemon serves
-  # neither a WS listener nor a configurable WS port.)
   exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
 fi
 
@@ -1365,16 +1411,11 @@ aify_hermes_exec_plain_or_tui() {
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 }
 
-# Remaining paths (the per-agent daemon model above already exec'd/exit'd for
-# the agent-id launches): either no --aify-agent was given (operator running a
-# plain interactive hermes TUI with no managed identity) or explicit passthrough
-# args were supplied (e.g. \`hermes-aify model list\`). Both go straight to the
-# runtime. The legacy \`hermes dashboard --tui\` gateway-spawn + token-capture is
-# GONE — per-agent delivery now flows through the api_server daemon + the
-# hermes-channel.js sidecar, and neither AIFY_HERMES_GATEWAY_URL nor
-# HERMES_TUI_GATEWAY_URL is exported anywhere — the resident-attach path above
-# resumes the pinned session and lets the TUI spawn its own gateway (this hermes
-# build has no per-agent tui_gateway WS port; see that path's comment).
+# Remaining paths (the managed + resident branches above already exec'd/exit'd
+# for the agent-id launches): either no --aify-agent was given (operator running
+# a plain interactive hermes TUI with no managed identity) or explicit
+# passthrough args were supplied (e.g. \`hermes-aify model list\`). Both go
+# straight to the runtime with no gateway-host wiring.
 aify_hermes_exec_plain_or_tui
 EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
@@ -1551,6 +1592,9 @@ function Invoke-HermesRuntime {
 \$AifyHermesStdioDir = '$hermes_stdio_dir_win'
 \$AifyHermesDaemonCli = Join-Path \$AifyHermesStdioDir 'hermes-daemon-cli.js'
 \$AifyHermesChannelJs = Join-Path \$AifyHermesStdioDir 'hermes-channel.js'
+# Managed visible-TUI model (Plan 2026-05-31): the per-agent hidden gateway host
+# (ensure-host) + background delivery loop (run) live here.
+\$AifyHermesManagedHostJs = Join-Path \$AifyHermesStdioDir 'hermes-managed-host.js'
 
 # Bring up (idempotently) the per-agent api_server daemon. On failure print the
 # LOUD daemon error and exit non-zero. Returns the daemon-cli's one-line JSON.
@@ -1575,6 +1619,24 @@ function Invoke-AifyHermesKillPrior {
       Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-channel\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
       ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
   } catch {}
+  # Managed visible-TUI model: reap a prior background delivery loop
+  # ('hermes-managed-host.js run <agent>') for this agent. Its SIGTERM teardown
+  # then kills the hidden gateway host it owns. Match the managed-host script +
+  # the agent id on the command line.
+  try {
+    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-managed-host\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
+      ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+  } catch {}
+  # Best-effort: reap any orphaned gateway host left listening on this agent's
+  # dashboard/api port (a prior force-kill bypasses the loop's teardown handler).
+  try {
+    \$hostPort = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(String(m.agentPort(process.argv[2]))))' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$AgentId 2>\$null
+    if (\$hostPort) {
+      Get-NetTCPConnection -State Listen -LocalPort ([int]\$hostPort) -ErrorAction SilentlyContinue |
+        ForEach-Object { try { Stop-Process -Id \$_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }
+    }
+  } catch {}
   # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
   # (the sidecar's SIGTERM/SIGINT teardown can be bypassed by a force-kill) can
   # leave an orphan 'hermes gateway run' bound to the agent's api_server port.
@@ -1584,45 +1646,74 @@ function Invoke-AifyHermesKillPrior {
 
 \$script:HermesRuntimeExitCode = 0
 
-# MANAGED launch: --aify-agent present AND session-mode managed (non-interactive)
-# AND no passthrough args. Ensure the daemon, then RUN the wake-only channel
-# sidecar. NO hermes --tui / dashboard --tui — the in-session agent self-replies.
+# MANAGED launch (visible-TUI model, Plan 2026-05-31): --aify-agent present AND
+# session-mode managed AND no passthrough args.
+#   1. kill-prior: reap a stale delivery loop + gateway host for this agent.
+#   2. ensure-host: bring up the HIDDEN per-agent 'hermes dashboard --tui' gateway
+#      host (windowsHide) and learn its {port,token,wsUrl}.
+#   3. start the background delivery loop (hidden window, survives this script):
+#      it claims dispatch runs and prompt.submits them into the TUI's session.
+#   4. run 'hermes --tui' IN THIS PTY, attached to the gateway host + resuming the
+#      STABLE session 'aify-<agentId>' — the REAL TUI renders windowless in the
+#      dashboard console. The in-session agent self-replies via comms_send.
 if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$HermesArgs.Count -eq 0) {
   Invoke-AifyHermesKillPrior \$HermesAifyAgentId
-  Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
   \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
   \$env:AIFY_CHANNELS_ENABLED = '1'
-  # The sidecar resolves its own per-agent api_server endpoint from AIFY_AGENT_ID.
-  & node \$AifyHermesChannelJs
-  exit \$LASTEXITCODE
+  # (2) Hidden gateway host → capture {port,token,wsUrl} as ONE JSON line.
+  \$hermesHostJson = & node \$AifyHermesManagedHostJs ensure-host \$HermesAifyAgentId
+  if (\$LASTEXITCODE -ne 0 -or -not \$hermesHostJson) {
+    [Console]::Error.WriteLine("[hermes-aify] FATAL: managed gateway host for '\$HermesAifyAgentId' did not come up.")
+    [Console]::Error.WriteLine("[hermes-aify]   (node \$AifyHermesManagedHostJs ensure-host \$HermesAifyAgentId failed -- see the error above)")
+    exit 1
+  }
+  try {
+    \$hermesHost = \$hermesHostJson | ConvertFrom-Json
+  } catch {
+    [Console]::Error.WriteLine("[hermes-aify] FATAL: could not parse gateway-host output: \$hermesHostJson")
+    exit 1
+  }
+  if (-not \$hermesHost.wsUrl) {
+    [Console]::Error.WriteLine("[hermes-aify] FATAL: gateway-host output missing wsUrl: \$hermesHostJson")
+    exit 1
+  }
+  [Console]::Error.WriteLine("[hermes-aify] managed gateway host ready: \$hermesHostJson")
+  # The STABLE resume key MUST match the delivery loop's pickSessionForKey key.
+  # ensure-host emits the canonical pinnedSessionId as 'resumeKey' so we DON'T
+  # reimplement (and risk diverging from) the sanitization in PowerShell.
+  if (\$hermesHost.resumeKey) {
+    \$pinnedSession = \$hermesHost.resumeKey
+  } else {
+    \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
+  }
+  # (3) Background delivery loop — hidden window, survives this script.
+  Start-Process -WindowStyle Hidden -FilePath node \`
+    -ArgumentList @(\$AifyHermesManagedHostJs, 'run', \$HermesAifyAgentId) | Out-Null
+  # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
+  \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
+  \$env:HERMES_TUI_RESUME = \$pinnedSession
+  Invoke-HermesRuntime @('--tui')
+  exit \$script:HermesRuntimeExitCode
 }
 
-# RESIDENT/interactive launch with an agent id: ensure the daemon, then attach an
-# operator TUI to THAT agent's daemon and pinned session.
+# RESIDENT/interactive launch with an agent id: attach an operator TUI to THIS
+# agent's pinned session ('aify-<agentId>') — the SAME stable DB session the
+# managed model drives, so the operator sees one continuous transcript.
+# TODO(managed-hermes visible-TUI, Phase 1 follow-up): migrate this resident path
+# off the api_server 'hermes gateway run' daemon onto the same hidden
+# 'hermes dashboard --tui' gateway-host model the managed branch now uses. For
+# now it keeps using Invoke-AifyHermesEnsureDaemon so resident launch is NOT
+# broken by this change.
 if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
   \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-  # ASYMMETRY(hermes): we deliberately do NOT set HERMES_TUI_GATEWAY_URL here.
-  # That env var attaches the TUI to a tui_gateway WebSocket (ws://.../api/ws),
-  # but in this hermes build /api/ws is served ONLY by a 'hermes dashboard'
-  # (uvicorn) process on the single fixed HERMES_DASHBOARD_PORT (default 9119) -
-  # NOT by the per-agent 'hermes gateway run' daemon, which binds only platform
-  # adapters (the api_server HTTP port the sidecar uses). There is no per-agent
-  # WS gateway port to attach to, so the resident TUI spawns its own local
-  # gateway. '--resume <pinned session>' still gives the operator the SAME
-  # session the sidecar drives. (See DECISIONS.md / hermes-apiserver-contract.md
-  # false-assumption #2: tui_gateway WS != api_server HTTP, and the daemon serves
-  # neither a WS listener nor a configurable WS port.)
   Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
   exit \$script:HermesRuntimeExitCode
 }
 
 # Remaining paths: no --aify-agent (plain interactive TUI) or explicit
-# passthrough args (e.g. 'hermes-aify model list'). Go straight to the runtime.
-# The legacy dashboard gateway-spawn is GONE; neither AIFY_HERMES_GATEWAY_URL
-# nor HERMES_TUI_GATEWAY_URL is exported anywhere - the resident-attach path
-# above resumes the pinned session and lets the TUI spawn its own gateway (this
-# hermes build has no per-agent tui_gateway WS port; see that path's comment).
+# passthrough args (e.g. 'hermes-aify model list'). Go straight to the runtime
+# with no gateway-host wiring.
 if (\$HermesArgs.Count -eq 0) {
   if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
     Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)

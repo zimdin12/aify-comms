@@ -30,6 +30,9 @@ import {
   runPollCycle,
   teardownGatewayHost,
   installShutdownTeardown,
+  runEnsureHostCli,
+  runDeliveryLoop,
+  runCli,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -383,4 +386,131 @@ test("installShutdownTeardown: SIGTERM handler tears down the gateway-host child
   assert.equal(typeof registered.SIGINT, "function");
   await registered.SIGTERM();
   assert.equal(killed, true, "SIGTERM must kill the gateway-host child");
+});
+
+// ---------------------------------------------------------------------------
+// CLI dispatch — ensure-host + run
+// ---------------------------------------------------------------------------
+
+test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,token,wsUrl}", async () => {
+  const { spawn, spawns } = makeFakeSpawn();
+  // failTimes:1 → the idempotent probe misses once, so a host IS spawned.
+  const fetchImpl = makeFakeFetch({ failTimes: 1 });
+  let stdout = "";
+  let stderr = "";
+
+  const payload = await runEnsureHostCli("sc-hermes", {
+    spawnImpl: spawn,
+    fetchImpl,
+    out: (s) => (stdout += s),
+    err: (s) => (stderr += s),
+  });
+
+  assert.equal(spawns.length, 1, "must spawn the hidden gateway host");
+  // Exactly one JSON line to stdout.
+  const lines = stdout.split("\n").filter(Boolean);
+  assert.equal(lines.length, 1, "exactly one stdout line");
+  const parsed = JSON.parse(lines[0]);
+  assert.equal(parsed.token, "tok-abc123");
+  assert.ok(typeof parsed.port === "number" && parsed.port >= 8642 && parsed.port <= 9641);
+  assert.equal(parsed.wsUrl, `ws://127.0.0.1:${parsed.port}/api/ws?token=tok-abc123`);
+  assert.deepEqual(payload, parsed);
+  // resumeKey is the canonical pinnedSessionId == the key the delivery loop
+  // matches in pickSessionForKey (`aify-<agentId>`).
+  assert.equal(parsed.resumeKey, "aify-sc-hermes");
+  // Loud-ish stderr breadcrumb, never on stdout.
+  assert.ok(stderr.includes("sc-hermes"));
+});
+
+test("runEnsureHostCli: no agentId → throws (non-zero exit at the CLI boundary)", async () => {
+  await assert.rejects(() => runEnsureHostCli("", { spawnImpl: makeFakeSpawn().spawn, fetchImpl: makeFakeFetch() }));
+});
+
+test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway host on release", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp({ release: true });
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  let teardownChild;
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    // capture the child the loop wants torn down
+    installTeardown: ({ getChild }) => {
+      teardownChild = getChild;
+    },
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    maxIterations: 3,
+  });
+
+  assert.ok(result.released, "release signal stops the loop");
+  // A claim was attempted against the gateway-backed agent.
+  assert.ok(findCall(calls, "POST", "/dispatch/claim"));
+  assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child");
+});
+
+test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp({ claims: [SAMPLE_RUN] });
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "prompt.submit": { status: "streaming" },
+  });
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    maxIterations: 1,
+  });
+
+  assert.ok(ws.sent.find((f) => f.method === "prompt.submit"), "delivered via prompt.submit");
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "delivered");
+});
+
+test("runCli: 'ensure-host <id>' routes to runEnsureHostCli and prints JSON", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  let stdout = "";
+  const res = await runCli(["ensure-host", "sc-hermes"], {
+    spawnImpl: spawn,
+    fetchImpl,
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.mode, "ensure-host");
+  assert.equal(res.agentId, "sc-hermes");
+  const parsed = JSON.parse(stdout.trim());
+  assert.equal(parsed.token, "tok-abc123");
+});
+
+test("runCli: 'run <id>' routes to the delivery loop", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp({ release: true });
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+
+  const res = await runCli(["run", "sc-hermes"], {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    maxIterations: 2,
+  });
+  assert.equal(res.mode, "run");
+  assert.equal(res.agentId, "sc-hermes");
+  assert.ok(findCall(calls, "POST", "/dispatch/claim"));
 });
