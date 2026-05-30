@@ -1404,7 +1404,12 @@ install_hermes_windows_tui_shim() {
   cmd_path="$wrapper_dir/hermes-aify.cmd"
   windows_ps_path="$windows_wrapper_dir\\hermes-aify.ps1"
 
-  cat > "$ps_path" <<EOF
+  # Windows PowerShell 5.1 (powershell.exe) decodes a BOM-less .ps1 as the system
+  # ANSI codepage (e.g. Windows-1252), which mangles any non-ASCII byte and breaks
+  # string literals (an em-dash crashed the wrapper on launch). Emit a UTF-8 BOM so
+  # the wrapper is always decoded as UTF-8 regardless of host codepage.
+  printf '\xEF\xBB\xBF' > "$ps_path"
+  cat >> "$ps_path" <<EOF
 \$ErrorActionPreference = 'Stop'
 \$InputArgs = @(\$args)
 
@@ -1549,7 +1554,7 @@ function Invoke-AifyHermesEnsureDaemon {
   \$out = & node \$AifyHermesDaemonCli \$AgentId
   if (\$LASTEXITCODE -ne 0) {
     [Console]::Error.WriteLine("[hermes-aify] FATAL: per-agent api_server daemon for '\$AgentId' did not come up.")
-    [Console]::Error.WriteLine("[hermes-aify]   (node \$AifyHermesDaemonCli \$AgentId exited \$LASTEXITCODE — see the error above)")
+    [Console]::Error.WriteLine("[hermes-aify]   (node \$AifyHermesDaemonCli \$AgentId exited \$LASTEXITCODE -- see the error above)")
     exit 1
   }
   [Console]::Error.WriteLine("[hermes-aify] api_server daemon ready: \$out")
