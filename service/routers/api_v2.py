@@ -292,6 +292,22 @@ _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # line 1047). Pi stays native RPC. See _CHANNEL_CLAIM_RUNTIMES below for the
 # claim-side whitelist.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
+# Runtimes that route managed dispatches to execution_mode='channel' ONLY when
+# the wrapper has set the channel-enabled runtime flag (runtime_config
+# .channelEnabled, exported by the *-aify wrapper as AIFY_CHANNELS_ENABLED=1 —
+# the SAME mechanism claude uses; see autoRegisterConfiguredAgent in
+# mcp/stdio/server.js). This is the symmetric-with-claude delivery path: an
+# in-session sidecar (hermes-channel.js, mirror of claude-channel.js) claims
+# the channel run and delivers the wake; the agent self-replies via comms_send.
+# ASYMMETRY(hermes): claude is in _CHANNEL_MANAGED_RUNTIMES and routes to
+# channel UNCONDITIONALLY (claude has no headless managed-run API). hermes DOES
+# have a native managed path, so it routes to channel only when the wrapper
+# flag is present; without the flag it stays on its prior native/managed route
+# (no false channel-deliverability claim). Membership here intentionally does
+# NOT pull hermes into the claude-specific PTY-backing carve-outs keyed on
+# _CHANNEL_MANAGED_RUNTIMES (those assume claude-aify hosts the sidecar); the
+# hermes sidecar is a standalone per-agent process (Task 1.1/1.2).
+_CHANNEL_FLAG_GATED_RUNTIMES = {"hermes"}
 # Claim-side whitelist for execution_mode='channel' runs. Claude channel
 # claims can come from the claude-aify channel bridge. Wrapper-backed managed
 # Codex/Hermes claims must come from the wrapper PTY child bridge registered
@@ -337,6 +353,38 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
         return val
     if isinstance(val, list):
         return runtime_n in {str(item).strip().lower() for item in val if item}
+    return False
+
+
+def _channel_flag_enabled(runtime_config: Any) -> bool:
+    """True when the wrapper set the channel-enabled runtime flag
+    (runtime_config.channelEnabled, exported as AIFY_CHANNELS_ENABLED=1)."""
+    rc = runtime_config if isinstance(runtime_config, dict) else {}
+    return bool(rc.get("channelEnabled"))
+
+
+def _channel_managed_eligible(runtime: str, runtime_config: Any) -> bool:
+    """Runtime-agnostic gate for the sidecar-channel managed delivery path —
+    the channelEnabled-flag eligibility that lets a managed dispatch resolve to
+    execution_mode='channel' even when the agent lacks the managed-run
+    capability (the in-session sidecar delivers; the agent self-replies via
+    comms_send; no headless managed-run API is used).
+
+    Both claude (_CHANNEL_MANAGED_RUNTIMES) and hermes
+    (_CHANNEL_FLAG_GATED_RUNTIMES) require the wrapper-set channelEnabled flag
+    here — claude-aify and hermes-aify both export AIFY_CHANNELS_ENABLED=1, the
+    SAME mechanism. This preserves the prior claude contract (no flag + no
+    managed-run cap → rejected, no silent channel path) and extends it
+    symmetrically to hermes.
+
+    ASYMMETRY(hermes): claude is in _CHANNEL_MANAGED_RUNTIMES, so once it
+    clears the cap check it ALWAYS routes to channel (no native managed-run);
+    hermes routes to channel ONLY via this flag and otherwise keeps its native
+    'managed' path. See the route decision in _agent_execution_mode.
+    """
+    runtime_n = _normalize_runtime(runtime or "")
+    if runtime_n in _CHANNEL_MANAGED_RUNTIMES or runtime_n in _CHANNEL_FLAG_GATED_RUNTIMES:
+        return _channel_flag_enabled(runtime_config)
     return False
 
 
@@ -484,31 +532,68 @@ def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
 async def _apply_channel_routing_to_claude_runs(db, runs, settings: dict[str, Any]) -> None:
     """Post-create patch: when insert_messages_via_console=false (the
     default + target architecture), force the execution_mode of
-    dispatch_runs targeting managed claude-code agents from 'managed'
-    to 'channel' so claude-channel.js claims them instead of the
+    dispatch_runs targeting sidecar-channel managed agents from 'managed'
+    to 'channel' so the in-session sidecar claims them instead of the
     generic managed worker. Idempotent; skips when via-console mode
-    is enabled (in which case PTY-input delivery handles managed
-    claude)."""
+    is enabled (in which case PTY-input delivery handles managed claude).
+
+    Runtime-generic (Task 1.5, 2026-05-30): patches managed claude-code
+    UNCONDITIONALLY and managed hermes ONLY when its channel-enabled flag
+    (runtime_config.channelEnabled, set by the hermes-aify wrapper via
+    AIFY_CHANNELS_ENABLED=1) is present — mirroring _channel_managed_eligible.
+    claude-channel.js / hermes-channel.js claim the resulting channel runs.
+    The function name is kept for call-site stability."""
     if _insert_messages_via_console(settings):
         return
     run_ids = [str(run.get("runId") or "") for run in (runs or []) if run and run.get("runId")]
     if not run_ids:
         return
     placeholders = ",".join("?" for _ in run_ids)
-    await db.execute(
-        f"""
-        UPDATE dispatch_runs
-        SET execution_mode = 'channel'
-        WHERE id IN ({placeholders})
-          AND execution_mode != 'channel'
-          AND target_agent IN (
-            SELECT id FROM agents
-            WHERE LOWER(COALESCE(runtime, '')) = 'claude-code'
-              AND session_mode = 'managed'
-          )
-        """,
-        run_ids,
-    )
+    # Unconditional channel-managed runtimes (claude-code).
+    unconditional = sorted(_CHANNEL_MANAGED_RUNTIMES)
+    if unconditional:
+        rt_placeholders = ",".join("?" for _ in unconditional)
+        await db.execute(
+            f"""
+            UPDATE dispatch_runs
+            SET execution_mode = 'channel'
+            WHERE id IN ({placeholders})
+              AND execution_mode != 'channel'
+              AND target_agent IN (
+                SELECT id FROM agents
+                WHERE LOWER(COALESCE(runtime, '')) IN ({rt_placeholders})
+                  AND session_mode = 'managed'
+              )
+            """,
+            [*run_ids, *unconditional],
+        )
+    # Flag-gated channel-managed runtimes (hermes): only when the wrapper set
+    # runtime_config.channelEnabled. json_extract on the agents.runtime_config
+    # column resolves the flag inline; truthy values ('true'/'1'/1) all qualify.
+    flag_gated = sorted(_CHANNEL_FLAG_GATED_RUNTIMES)
+    if flag_gated:
+        rt_placeholders = ",".join("?" for _ in flag_gated)
+        await db.execute(
+            f"""
+            UPDATE dispatch_runs
+            SET execution_mode = 'channel'
+            WHERE id IN ({placeholders})
+              AND execution_mode != 'channel'
+              AND target_agent IN (
+                SELECT id FROM agents
+                WHERE LOWER(COALESCE(runtime, '')) IN ({rt_placeholders})
+                  AND session_mode = 'managed'
+                  AND LOWER(COALESCE(
+                        CASE
+                          WHEN json_valid(runtime_config)
+                          THEN json_extract(runtime_config, '$.channelEnabled')
+                          ELSE NULL
+                        END, ''
+                      )) IN ('true', '1')
+              )
+            """,
+            [*run_ids, *flag_gated],
+        )
 
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
@@ -1209,14 +1294,22 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings
         # the managed-run cap check for that path; the dispatch flows
         # through execution_mode='channel' below.
         runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
-        _channel_eligible = (
-            runtime in _CHANNEL_MANAGED_RUNTIMES
-            and isinstance(runtime_config, dict)
-            and bool(runtime_config.get("channelEnabled"))
-        )
+        # Sidecar-channel managed delivery (claude unconditional; hermes
+        # gated on the wrapper-set channelEnabled flag). The in-session
+        # sidecar claims the channel run and delivers the wake; the agent
+        # self-replies via comms_send. The channel path needs no captured
+        # session_handle — the sidecar drives the agent's own session — so
+        # this returns before any handle requirement (Task 1.5: hermes
+        # delivery no longer needs session_handle).
+        _channel_eligible = _channel_managed_eligible(runtime, runtime_config)
         if capabilities and "managed-run" not in capabilities and not _channel_eligible:
             return None, 'agent capabilities do not include "managed-run"'
+        # claude: unconditional channel (no native managed-run). hermes: channel
+        # only when the flag is set; otherwise it falls through to its native
+        # 'managed' route. ASYMMETRY(hermes): documented at the set definitions.
         if runtime in _CHANNEL_MANAGED_RUNTIMES:
+            return "channel", None
+        if runtime in _CHANNEL_FLAG_GATED_RUNTIMES and _channel_eligible:
             return "channel", None
         return "managed", None
     if runtime == "pi":
