@@ -1331,15 +1331,17 @@ fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
   AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-  # Resolve the daemon WS port from the endpoint JSON the daemon-cli printed.
-  AIFY_HERMES_DAEMON_PORT="\$(printf '%s' "\${AIFY_HERMES_DAEMON_ENDPOINT:-}" | sed -E 's/.*"port":([0-9]+).*/\1/')"
-  if [ -n "\$AIFY_HERMES_DAEMON_PORT" ]; then
-    # ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon. The TUI
-    # gateway transport is the WS port (8765-family), distinct from the api_server
-    # HTTP port the sidecar uses; pointing HERMES_TUI_GATEWAY_URL at the daemon
-    # lets the operator take over the SAME session the sidecar drives.
-    export HERMES_TUI_GATEWAY_URL="ws://127.0.0.1:\$AIFY_HERMES_DAEMON_PORT/api/ws"
-  fi
+  # ASYMMETRY(hermes): we deliberately do NOT export HERMES_TUI_GATEWAY_URL here.
+  # That env var attaches the TUI to a tui_gateway WebSocket (\`ws://…/api/ws\`),
+  # but in this hermes build /api/ws is served ONLY by a \`hermes dashboard\`
+  # (uvicorn) process on the single fixed HERMES_DASHBOARD_PORT (default 9119) —
+  # NOT by the per-agent \`hermes gateway run\` daemon, which binds only platform
+  # adapters (the api_server HTTP port the sidecar uses). There is no per-agent
+  # WS gateway port to attach to, so the resident TUI spawns its own local
+  # gateway. \`--resume <pinned session>\` still gives the operator the SAME
+  # session the sidecar drives. (See DECISIONS.md / hermes-apiserver-contract.md
+  # false-assumption #2: tui_gateway WS != api_server HTTP, and the daemon serves
+  # neither a WS listener nor a configurable WS port.)
   exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
 fi
 
@@ -1364,8 +1366,10 @@ aify_hermes_exec_plain_or_tui() {
 # args were supplied (e.g. \`hermes-aify model list\`). Both go straight to the
 # runtime. The legacy \`hermes dashboard --tui\` gateway-spawn + token-capture is
 # GONE — per-agent delivery now flows through the api_server daemon + the
-# hermes-channel.js sidecar, and AIFY_HERMES_GATEWAY_URL is no longer exported
-# here (only HERMES_TUI_GATEWAY_URL in the resident-attach path above).
+# hermes-channel.js sidecar, and neither AIFY_HERMES_GATEWAY_URL nor
+# HERMES_TUI_GATEWAY_URL is exported anywhere — the resident-attach path above
+# resumes the pinned session and lets the TUI spawn its own gateway (this hermes
+# build has no per-agent tui_gateway WS port; see that path's comment).
 aify_hermes_exec_plain_or_tui
 EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
@@ -1581,23 +1585,29 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
 # RESIDENT/interactive launch with an agent id: ensure the daemon, then attach an
 # operator TUI to THAT agent's daemon and pinned session.
 if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
-  \$endpointJson = Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId
+  Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
   \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-  if (\$endpointJson -match '"port":([0-9]+)') {
-    \$daemonPort = \$Matches[1]
-    # ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon. The TUI
-    # gateway WS port is distinct from the api_server HTTP port the sidecar uses;
-    # this lets the operator take over the SAME session the sidecar drives.
-    \$env:HERMES_TUI_GATEWAY_URL = "ws://127.0.0.1:\$daemonPort/api/ws"
-  }
+  # ASYMMETRY(hermes): we deliberately do NOT set HERMES_TUI_GATEWAY_URL here.
+  # That env var attaches the TUI to a tui_gateway WebSocket (ws://.../api/ws),
+  # but in this hermes build /api/ws is served ONLY by a 'hermes dashboard'
+  # (uvicorn) process on the single fixed HERMES_DASHBOARD_PORT (default 9119) -
+  # NOT by the per-agent 'hermes gateway run' daemon, which binds only platform
+  # adapters (the api_server HTTP port the sidecar uses). There is no per-agent
+  # WS gateway port to attach to, so the resident TUI spawns its own local
+  # gateway. '--resume <pinned session>' still gives the operator the SAME
+  # session the sidecar drives. (See DECISIONS.md / hermes-apiserver-contract.md
+  # false-assumption #2: tui_gateway WS != api_server HTTP, and the daemon serves
+  # neither a WS listener nor a configurable WS port.)
   Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
   exit \$script:HermesRuntimeExitCode
 }
 
 # Remaining paths: no --aify-agent (plain interactive TUI) or explicit
 # passthrough args (e.g. 'hermes-aify model list'). Go straight to the runtime.
-# The legacy dashboard gateway-spawn is GONE; AIFY_HERMES_GATEWAY_URL is no
-# longer exported here (only HERMES_TUI_GATEWAY_URL in the resident-attach path).
+# The legacy dashboard gateway-spawn is GONE; neither AIFY_HERMES_GATEWAY_URL
+# nor HERMES_TUI_GATEWAY_URL is exported anywhere - the resident-attach path
+# above resumes the pinned session and lets the TUI spawn its own gateway (this
+# hermes build has no per-agent tui_gateway WS port; see that path's comment).
 if (\$HermesArgs.Count -eq 0) {
   if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
     Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
