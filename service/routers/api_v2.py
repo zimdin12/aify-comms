@@ -27,7 +27,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentSessionResolveRequest, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -2444,6 +2444,13 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "sessionMode": session_mode,
         "wakeMode": _agent_wake_mode(row),
         "sessionHandle": row["session_handle"] or "",
+        # Sticky session identity (governance, 2026-05-30): a non-empty
+        # pendingSessionId means the agent reported an in-session id different
+        # from its persisted handle; delivery still targets sessionHandle and
+        # the dashboard shows a `session-changed` badge with Confirm/Keep
+        # actions until the operator resolves it.
+        "pendingSessionId": (row["pending_session_id"] if "pending_session_id" in row.keys() else "") or "",
+        "sessionChanged": bool((row["pending_session_id"] if "pending_session_id" in row.keys() else "") or ""),
         "managedBy": row["managed_by"] or "",
         "capabilities": _row_capabilities(row),
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
@@ -10206,6 +10213,72 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
 
+        # ── Sticky session identity + new-id guard (governance, 2026-05-30) ──
+        # The bridge heartbeat (session-handle-heartbeat.js, requestedBy=
+        # "bridge-heartbeat") continuously reports the runtime's *discovered*
+        # session id. We must NOT silently overwrite the persisted handle when
+        # that discovered id DRIFTS from what we already pinned — a drift is the
+        # observable symptom of a split (agent landed on a fresh id) or a merge
+        # (two agents converging on one id). Instead we park the proposed id in
+        # `pending_session_id`, flag the agent `session-changed`, and KEEP
+        # delivery pointed at the old handle until the operator resolves it.
+        #
+        # Scope is deliberately narrow so we never break the existing flows:
+        #   • First-id auto-accept — no persisted handle yet → accept (current).
+        #   • Same id re-reported → no-op (no pending, no churn).
+        #   • Clearing (empty handle) → allowed (heal paths clear poisoned ids).
+        #   • Deliberate operator re-pin (any other requestedBy, e.g. dashboard
+        #     manual set, console attach) → unguarded, as before.
+        #   • Re-register (POST /agents) is a separate write site and remains a
+        #     full state refresh — it is NOT routed through here.
+        requested_by = str(req.requestedBy or "").strip()
+        persisted_handle = str(row["session_handle"] or "").strip()
+        if (
+            requested_by == "bridge-heartbeat"
+            and session_handle
+            and persisted_handle
+            and session_handle != persisted_handle
+        ):
+            await db.execute(
+                """
+                UPDATE agents
+                SET pending_session_id = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    session_handle,
+                    (
+                        f"session-changed: reported id '{session_handle}' differs from "
+                        f"pinned '{persisted_handle}'. Confirm new or keep current."
+                    ),
+                    now,
+                    agent_id,
+                ),
+            )
+            await db.commit()
+            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            settings = await _load_settings(db)
+            status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+            dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_session_changed", {
+                    "agentId": agent_id,
+                    "sessionHandle": persisted_handle,
+                    "pendingSessionId": session_handle,
+                })
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "state": "session-changed",
+                # Delivery still targets the OLD (persisted) handle — unchanged.
+                "sessionHandle": persisted_handle,
+                "pendingSessionId": session_handle,
+                "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+            }
+
         runtime = _normalize_runtime(row["runtime"] or "generic")
         session_mode = _normalize_session_mode(row["session_mode"] or "resident")
         runtime_config = _json_loads_or(row["runtime_config"], {})
@@ -10216,6 +10289,7 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             """
             UPDATE agents
             SET session_handle = ?,
+                pending_session_id = '',
                 runtime_state = ?,
                 capabilities = ?,
                 status_note = ?,
@@ -10279,6 +10353,148 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             "ok": True,
             "agentId": agent_id,
             "sessionHandle": session_handle,
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/session/confirm")
+async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, request: Request):
+    """Sticky session identity (governance, 2026-05-30): operator confirms the
+    NEW (pending) session id. Re-pins `session_handle := pending_session_id`,
+    clears the pending id, and exits the `session-changed` state. Delivery now
+    follows the new id. Idempotent: a 409 is returned if there is no pending id
+    to confirm (nothing to resolve).
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        pending = str(row["pending_session_id"] or "").strip()
+        if not pending:
+            raise HTTPException(409, f"Agent '{agent_id}' has no pending session id to confirm")
+
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        session_mode = _normalize_session_mode(row["session_mode"] or "resident")
+        runtime_config = _json_loads_or(row["runtime_config"], {})
+        # Re-pin: the new id becomes the live handle. Mirror the normal handle
+        # write so runtime_state / capabilities stay consistent with the handle.
+        runtime_state = _runtime_state_replacing_handle(runtime, row["runtime_state"], pending)
+        capabilities = _default_capabilities_for(runtime, session_mode, pending, runtime_config)
+        await db.execute(
+            """
+            UPDATE agents
+            SET session_handle = ?,
+                pending_session_id = '',
+                runtime_state = ?,
+                capabilities = ?,
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                pending,
+                json.dumps(runtime_state),
+                json.dumps(capabilities),
+                f"session-changed resolved: re-pinned to '{pending}' by {req.requestedBy or 'operator'}.",
+                now,
+                agent_id,
+            ),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": pending})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "resolution": "confirm",
+            "sessionHandle": pending,
+            "pendingSessionId": "",
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/session/keep")
+async def keep_agent_session(agent_id: str, req: AgentSessionResolveRequest, request: Request):
+    """Sticky session identity (governance, 2026-05-30): operator keeps the
+    CURRENT (persisted) session id. Clears `pending_session_id`, leaves
+    `session_handle` untouched, and surfaces the runtime's resume command so the
+    operator can re-attach the agent to the persisted id (e.g. the agent drifted
+    onto a fresh id and must be resumed back onto the pinned one). Idempotent:
+    409 if there is no pending id to keep.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        pending = str(row["pending_session_id"] or "").strip()
+        if not pending:
+            raise HTTPException(409, f"Agent '{agent_id}' has no pending session id to keep")
+
+        persisted_handle = str(row["session_handle"] or "").strip()
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        # Resume command for the operator to re-attach to the persisted id,
+        # sourced from the runtime adapter (Python mirror of the JS contract).
+        resume_command = ""
+        try:
+            from service.runtimes import adapter_for
+            resume_command = adapter_for(runtime).resume_command(persisted_handle)
+        except Exception:
+            resume_command = ""
+        await db.execute(
+            """
+            UPDATE agents
+            SET pending_session_id = '',
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                (
+                    f"session-changed resolved: keeping pinned id '{persisted_handle}' "
+                    f"(resume: {resume_command}) by {req.requestedBy or 'operator'}."
+                    if resume_command
+                    else f"session-changed resolved: keeping pinned id '{persisted_handle}' by {req.requestedBy or 'operator'}."
+                ),
+                now,
+                agent_id,
+            ),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": persisted_handle})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "resolution": "keep",
+            "sessionHandle": persisted_handle,
+            "pendingSessionId": "",
+            "resumeCommand": resume_command,
             "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
         }
     finally:

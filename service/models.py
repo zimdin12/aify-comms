@@ -97,6 +97,15 @@ class AgentReadyUpdate(BaseModel):
     requestedBy: Optional[str] = None
 
 
+class AgentSessionResolveRequest(BaseModel):
+    # Sticky session identity (governance, 2026-05-30): operator resolution of a
+    # `session-changed` state. Used by both POST /agents/{id}/session/confirm
+    # (re-pin persisted := pending) and /session/keep (clear pending, keep
+    # persisted, surface the resume command). No body fields are required;
+    # requestedBy is optional audit metadata.
+    requestedBy: Optional[str] = None
+
+
 class AgentSessionModeSwitchRequest(BaseModel):
     # Plan 6 C1 (2026-05-26): operator-driven resident/managed flip.
     # `mode` must be 'resident' or 'managed'. `force=true` overrides

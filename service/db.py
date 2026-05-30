@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS agents (
     launch_mode TEXT DEFAULT 'detached',
     session_mode TEXT DEFAULT 'resident',
     session_handle TEXT DEFAULT '',
+    pending_session_id TEXT DEFAULT '',
     managed_by TEXT DEFAULT '',
     capabilities TEXT DEFAULT '[]',
     runtime_config TEXT DEFAULT '{}',
@@ -405,6 +406,12 @@ AGENT_MIGRATIONS = {
     "launch_mode": "ALTER TABLE agents ADD COLUMN launch_mode TEXT DEFAULT 'detached'",
     "session_mode": "ALTER TABLE agents ADD COLUMN session_mode TEXT DEFAULT 'resident'",
     "session_handle": "ALTER TABLE agents ADD COLUMN session_handle TEXT DEFAULT ''",
+    # Sticky session identity (governance, 2026-05-30): when an agent reports an
+    # in-session session-id that DIFFERS from its persisted session_handle, we do
+    # NOT overwrite the live handle. Instead the proposed id is parked here and
+    # the agent enters a visible `session-changed` state until the operator
+    # confirms (re-pin) or keeps (resume the persisted id). Empty = no pending.
+    "pending_session_id": "ALTER TABLE agents ADD COLUMN pending_session_id TEXT DEFAULT ''",
     "managed_by": "ALTER TABLE agents ADD COLUMN managed_by TEXT DEFAULT ''",
     "capabilities": "ALTER TABLE agents ADD COLUMN capabilities TEXT DEFAULT '[]'",
     "runtime_config": "ALTER TABLE agents ADD COLUMN runtime_config TEXT DEFAULT '{}'",

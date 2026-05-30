@@ -34,6 +34,10 @@ class PiAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "pi-aify"
 
+    def resume_command(self, session_id) -> str:
+        # Mirror mcp/stdio/adapters/pi.js resumeCommand.
+        return f"pi-aify --resume {session_id}"
+
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         if interactive:
             return f"pi-aify --aify-agent {agent_id}"

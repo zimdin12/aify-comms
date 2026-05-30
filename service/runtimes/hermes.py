@@ -30,6 +30,11 @@ class HermesAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "hermes-aify"
 
+    def resume_command(self, session_id) -> str:
+        # Mirror mcp/stdio/adapters/hermes.js resumeCommand: the resident TUI
+        # attaches to the per-agent daemon via HERMES_TUI_GATEWAY_URL.
+        return f"hermes --tui --resume {session_id}"
+
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         parts = ["hermes-aify", "--aify-agent", agent_id]
         if handle:

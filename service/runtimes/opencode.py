@@ -26,5 +26,10 @@ class OpencodeAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "opencode"
 
+    def resume_command(self, session_id) -> str:
+        # Mirror mcp/stdio/adapters/opencode.js resumeCommand (presence-only
+        # until `opencode serve` is wired).
+        return f"opencode-aify --resume {session_id}"
+
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         return "opencode"
