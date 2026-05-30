@@ -122,7 +122,11 @@ DEFAULT_SETTINGS = {
     "reply_contracts_enabled": True,
     "reply_reminder_minutes": 10,
     "reply_reminder_repeat_minutes": 10,
-    "reply_reminder_max_count": 0,
+    # Cap the number of reply reminders per unanswered require_reply run so an
+    # owing agent is never nagged forever (runtime-agnostic governance). A
+    # sane non-zero default bounds out-of-the-box behaviour; an operator can
+    # set 0 to explicitly opt into unlimited reminders.
+    "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     # Tighter cleanup window for managed dispatches. Default 5 min.
