@@ -80,6 +80,9 @@ export async function ensureDaemon({
     },
     detached: true,
     stdio: "ignore",
+    // Windows: without this, a detached console app (hermes.exe) pops a visible
+    // empty cmd window. Hide it — the daemon is a background service.
+    windowsHide: true,
   });
   if (child && typeof child.unref === "function") child.unref();
 
