@@ -7,7 +7,6 @@ import {
   buildSessionMostRecentFrame,
   buildSessionListFrame,
   buildSessionInterruptFrame,
-  buildAifySessionBindTransportFrame,
   translateGatewayEvent,
   isSessionBusyError,
 } from "../hermes-gateway-protocol.js";
@@ -47,12 +46,6 @@ test("buildSessionInterruptFrame targets a specific session", () => {
   const frame = buildSessionInterruptFrame({ id: 9, sessionId: "sess-1" });
   assert.equal(frame.method, "session.interrupt");
   assert.deepEqual(frame.params, { session_id: "sess-1" });
-});
-
-test("buildAifySessionBindTransportFrame targets visible-session binding", () => {
-  const frame = buildAifySessionBindTransportFrame({ id: 10, sessionKey: "20260526_key" });
-  assert.equal(frame.method, "aify.session.bind_transport");
-  assert.deepEqual(frame.params, { session_id: "20260526_key" });
 });
 
 test("translateGatewayEvent maps agent.message.delta to a delta event", () => {

@@ -5,22 +5,21 @@
 // Dispatch routing (preserves the legacy createHermesController logic 1:1):
 //   - managed + managedViaWrapper → no-op delegated controller (wrapper's
 //     child bridge claims and delivers via the wrapper's local gateway).
-//   - executionMode === "channel" or "resident" + runtimeConfig.gatewayUrl →
-//     HermesResidentController (resident-channel via tui_gateway WS).
-//   - executionMode === "channel" or "resident" without a gateway → fail
-//     visibly. Resident/channel must bind the visible Hermes gateway; hidden
-//     single-shot fallback is reserved for native managed fallback only.
+//   - executionMode === "channel" or "resident" → delegated to the per-agent
+//     hermes-channel.js sidecar (the api_server delivery model, 2026-05-30).
+//     The sidecar claims channel/resident runs over HTTP by agentId and drives
+//     the agent's pinned api_server session directly — it does NOT go through
+//     this controller. The retired tui_gateway WS-bind path
+//     (HermesResidentController / aify.session.bind_transport) no longer exists.
 //   - else (managed / default) → HermesManagedController
 //     (ACP-backed persistent session, or gateway-backed if
 //     AIFY_HERMES_MANAGED_USE_GATEWAY=1).
 //
 // File budget per 500-line rule: <=400 lines. Mode-specific implementations
-// live in their own files (hermes-resident-controller.js,
-// hermes-managed-controller.js, hermes-single-shot-controller.js).
+// live in their own files (hermes-managed-controller.js,
+// hermes-single-shot-controller.js).
 
 import { BaseController } from "./base-controller.js";
-import { getRuntimeConfig } from "../runtimes-helpers.js";
-import { HermesResidentController } from "./hermes-resident-controller.js";
 import { HermesManagedController } from "./hermes-managed-controller.js";
 
 // Lightweight delegated controller used for managed + managedViaWrapper: the
@@ -56,20 +55,25 @@ class DelegatedManagedController extends BaseController {
   async steer(_opts) { /* delegated to wrapper child bridge */ }
 }
 
-class MissingGatewayController extends BaseController {
+// channel/resident hermes delivery is owned by the per-agent hermes-channel.js
+// sidecar (api_server model, 2026-05-30). It claims those runs over HTTP by
+// agentId out-of-band — never through launchRuntimeRun/controllerFor. If a
+// channel/resident run still reaches this controller, resolve "delegated"
+// rather than forking a hidden session (the retired WS-bind controller's job).
+class ChannelDelegatedController extends BaseController {
   constructor(opts) {
     super(opts);
-    const executionMode = String(opts?.executionMode || opts?.run?.executionMode || "resident");
-    this._promise = Promise.reject(
-      new Error(
-        `Hermes ${executionMode} dispatch requires runtimeConfig.gatewayUrl from hermes-aify; refusing hidden single-shot fallback.`,
-      ),
-    );
-    this._promise.catch(() => {});
     this._capabilities = { interrupt: false, steer: false };
+    this._promise = Promise.resolve({
+      status: "delegated",
+      summary: "channel/resident dispatch delegated to hermes-channel.js api_server sidecar",
+      runtimeState: {},
+      externalRefs: {},
+    });
   }
 
   start() {
+    this.markReady();
     return {
       capabilities: this._capabilities,
       interrupt: async () => {},
@@ -95,18 +99,11 @@ export class HermesController extends BaseController {
       return new DelegatedManagedController(opts);
     }
 
-    // channel-mode dispatches (set by server-side _agent_execution_mode for
-    // wrapper-backed managed runs) route to the resident-channel controller
-    // when a gatewayUrl is available. The wrapper child bridge (running with
-    // AIFY_MANAGED_VIA_WRAPPER=1) is the actor here — it knows the local
-    // dashboard gateway URL via runtimeConfig.gatewayUrl.
+    // channel/resident dispatches are delivered by the hermes-channel.js
+    // sidecar (api_server model), not by this controller. Return a delegated
+    // no-op so nothing forks a hidden session here.
     if (executionMode === "channel" || executionMode === "resident") {
-      const cfg = getRuntimeConfig(agentInfo || {});
-      const gatewayUrl = String(cfg.gatewayUrl || "").trim();
-      if (/^wss?:\/\//i.test(gatewayUrl)) {
-        return new HermesResidentController(opts);
-      }
-      return new MissingGatewayController(opts);
+      return new ChannelDelegatedController(opts);
     }
 
     return new HermesManagedController(opts);

@@ -20,17 +20,17 @@ assert.equal(normalizeRuntime("hermes-agent"), "hermes");
 assert.equal(normalizeRuntime("hermes_agent"), "hermes");
 
 assert.equal(canLaunchRuntime("hermes"), true);
-// Plan 2 (2026-05-25): controlCapabilitiesForRuntime now derives from
-// HermesAdapter.supports_*. supportsSteering == true, so steer is true.
-assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: true });
-// Plan 2 (2026-05-25): defaultCapabilitiesForRuntime derives from the
-// HermesAdapter supports_* flags. native-managed-run is no longer separate.
-// Hermes resident without a gatewayUrl omits resident-run (gateway gating).
+// 2026-05-30 (hermes-apiserver-delivery): HermesAdapter.supportsSteering is now
+// false — the api_server chat path has no mid-turn steer; /v1/runs/{id}/stop
+// gives interrupt only. So steer is false everywhere it derives from the adapter.
+assert.deepEqual(controlCapabilitiesForRuntime("hermes"), { interrupt: true, steer: false });
+// defaultCapabilitiesForRuntime derives from the HermesAdapter supports_*
+// flags. "steer" no longer appears (supportsSteering == false).
 assert.deepEqual(
   defaultCapabilitiesForRuntime("hermes", "managed"),
-  ["managed-run", "resume", "interrupt", "steer", "spawn"],
+  ["managed-run", "resume", "interrupt", "spawn"],
 );
-assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt", "steer"]);
+assert.deepEqual(defaultCapabilitiesForRuntime("hermes", "resident", "session-123"), ["resume", "interrupt"]);
 assert.equal(defaultSessionHandleForRuntime("hermes"), "hermes-session-123");
 
 const availability = runtimeLaunchAvailability("hermes");
