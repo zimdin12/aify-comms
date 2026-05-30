@@ -22,7 +22,10 @@ class HermesAdapter(RuntimeAdapter):
     session_env_vars = ["HERMES_SESSION_ID", "HERMES_SESSION"]
     supports_resident = True
     supports_managed = True
-    supports_steering = True
+    # ASYMMETRY(hermes): the api_server `chat` delivery path has no mid-turn steer
+    # (mirror mcp/stdio/adapters/hermes.js). Interrupt is available via the
+    # api_server `/v1/runs/{id}/stop` endpoint, so interrupt stays True.
+    supports_steering = False
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"

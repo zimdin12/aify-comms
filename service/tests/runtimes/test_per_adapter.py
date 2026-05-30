@@ -89,7 +89,9 @@ def test_hermes_adapter():
     assert a.session_env_vars == ["HERMES_SESSION_ID", "HERMES_SESSION"]
     assert a.supports_resident is True
     assert a.supports_managed is True
-    assert a.supports_steering is True
+    # api_server `chat` delivery has no mid-turn steer (mirrors the JS adapter);
+    # interrupt remains via api_server /v1/runs/{id}/stop.
+    assert a.supports_steering is False
     assert a.supports_interrupt is True
     assert a.supports_multi_client is True
     assert a.preferred_delivery_mode == "managed-via-wrapper"
