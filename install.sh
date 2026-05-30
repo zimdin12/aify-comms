@@ -966,194 +966,6 @@ prebuild_hermes_web_dist() {
   echo "[install.sh] hermes web_dist prebuilt at $web_dist" >&2
 }
 
-patch_hermes_gateway_visible_bind() {
-  local hermes_install_root
-  hermes_install_root="$(detect_hermes_install_root)"
-  if [ -z "$hermes_install_root" ] || [ ! -d "$hermes_install_root" ]; then
-    echo "[install.sh] hermes install root not found; skipping visible-session gateway patch" >&2
-    return 0
-  fi
-  local server_py="$hermes_install_root/tui_gateway/server.py"
-  if [ ! -f "$server_py" ]; then
-    echo "[install.sh] hermes tui_gateway/server.py not found at $server_py; skipping visible-session gateway patch" >&2
-    return 0
-  fi
-  node - "$server_py" <<'NODE'
-const fs = require("fs");
-const file = process.argv[2];
-let text = fs.readFileSync(file, "utf8");
-let changed = false;
-
-const importNeedle = "    StdioTransport,\n    Transport,\n";
-if (text.includes(importNeedle) && !text.includes("    TeeTransport,\n")) {
-  text = text.replace(importNeedle, "    StdioTransport,\n    TeeTransport,\n    Transport,\n");
-  changed = true;
-}
-
-const sectionNeedle = "# ── Methods: session ";
-const sectionIdx = text.indexOf(sectionNeedle);
-if (sectionIdx < 0) {
-  console.error("[install.sh] could not locate Hermes session method section");
-  process.exit(0);
-}
-const patch = String.raw`
-@method("aify.session.bind_transport")
-def _(rid, params: dict) -> dict:
-    """Bind current WS as a mirror for an already-visible TUI session.
-
-    aify-comms resident delivery must target the console the operator is
-    watching. session.resume/session.create allocate hidden in-memory sessions,
-    so the bridge asks for the active sid matching a durable session_key and
-    tees the bridge transport into that visible session before prompt.submit.
-    """
-    target = str(params.get("session_id") or params.get("session_key") or "").strip()
-    if not target:
-        return _err(rid, 4006, "session_id required")
-    try:
-        snapshot = list(_sessions.items())
-    except Exception as e:
-        return _err(rid, 5000, f"could not enumerate active sessions: {e}")
-
-    found_sid = ""
-    found_session = None
-    for sid, session in snapshot:
-        if sid == target or str(session.get("session_key") or "") == target:
-            found_sid = sid
-            found_session = session
-            break
-    if not found_sid or found_session is None:
-        active_candidates = [
-            (sid, session)
-            for sid, session in snapshot
-            if isinstance(session, dict)
-        ]
-        if len(active_candidates) == 1:
-            found_sid, found_session = active_candidates[0]
-            logger.info(
-                "aify visible session fallback: saved handle not active; using sole active session %s key=%s target=%s",
-                found_sid,
-                found_session.get("session_key") or "",
-                target,
-            )
-        else:
-            active_labels = [
-                f"{sid}:{session.get('session_key') or ''}"
-                for sid, session in active_candidates
-            ]
-            return _err(
-                rid,
-                4010,
-                "visible session not found"
-                + (f"; active sessions: {', '.join(active_labels)}" if active_labels else ""),
-            )
-
-    bridge_transport = current_transport()
-    primary = found_session.get("transport") or _stdio_transport
-    if bridge_transport is not None and bridge_transport is not primary:
-        found_session["transport"] = TeeTransport(primary, bridge_transport)
-
-    return _ok(
-        rid,
-        {
-            "session_id": found_sid,
-            "session_key": found_session.get("session_key") or "",
-            "mirrored": bridge_transport is not None,
-            "running": bool(found_session.get("running")),
-        },
-    )
-
-
-`;
-const methodNeedle = '@method("aify.session.bind_transport")';
-const methodIdx = text.indexOf(methodNeedle);
-if (methodIdx < 0) {
-  text = text.slice(0, sectionIdx) + patch + text.slice(sectionIdx);
-  changed = true;
-} else if (!text.includes("active_candidates")) {
-  text = text.slice(0, methodIdx) + patch + text.slice(sectionIdx);
-  changed = true;
-}
-
-if (changed) {
-  fs.copyFileSync(file, `${file}.aify-bak`);
-  fs.writeFileSync(file, text);
-  console.error(`[install.sh] patched Hermes visible-session bind in ${file}`);
-} else {
-  console.error(`[install.sh] Hermes visible-session bind already present in ${file}`);
-}
-NODE
-  patch_hermes_tui_active_session_file "$hermes_install_root"
-  patch_hermes_codex_stream_none_fallback "$hermes_install_root"
-}
-
-patch_hermes_tui_active_session_file() {
-  local hermes_install_root="$1"
-  local main_py="$hermes_install_root/hermes_cli/main.py"
-  if [ ! -f "$main_py" ]; then
-    echo "[install.sh] hermes main.py not found at $main_py; skipping active-session-file patch" >&2
-    return 0
-  fi
-  node - "$main_py" <<'NODE'
-const fs = require("fs");
-const file = process.argv[2];
-let text = fs.readFileSync(file, "utf8");
-let changed = false;
-
-const oldBlock = `    active_session_fd, active_session_file = tempfile.mkstemp(
-        prefix="hermes-tui-active-session-", suffix=".json"
-    )
-    os.close(active_session_fd)
-    env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
-`;
-const newBlock = `    active_session_file = env.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()
-    created_active_session_file = False
-    if active_session_file:
-        try:
-            Path(active_session_file).parent.mkdir(parents=True, exist_ok=True)
-            Path(active_session_file).write_text("", encoding="utf-8")
-        except Exception:
-            active_session_file = ""
-    if not active_session_file:
-        active_session_fd, active_session_file = tempfile.mkstemp(
-            prefix="hermes-tui-active-session-", suffix=".json"
-        )
-        os.close(active_session_fd)
-        env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
-        created_active_session_file = True
-`;
-if (text.includes(oldBlock)) {
-  text = text.replace(oldBlock, newBlock);
-  changed = true;
-}
-
-const oldUnlink = `        try:
-            os.unlink(active_session_file)
-        except OSError:
-            pass
-`;
-const newUnlink = `        if created_active_session_file:
-            try:
-                os.unlink(active_session_file)
-            except OSError:
-                pass
-`;
-if (text.includes(oldUnlink)) {
-  text = text.replace(oldUnlink, newUnlink);
-  changed = true;
-}
-
-if (changed) {
-  fs.copyFileSync(file, `${file}.aify-active-session-bak`);
-  fs.writeFileSync(file, text);
-  console.error(`[install.sh] patched Hermes TUI active-session file preservation in ${file}`);
-} else if (text.includes("created_active_session_file")) {
-  console.error(`[install.sh] Hermes TUI active-session file preservation already present in ${file}`);
-} else {
-  console.error(`[install.sh] could not patch Hermes TUI active-session file preservation in ${file}`);
-}
-NODE
-}
-
 patch_hermes_codex_stream_none_fallback() {
   local hermes_install_root="$1"
   local codex_runtime_py="$hermes_install_root/agent/codex_runtime.py"
@@ -1240,6 +1052,10 @@ install_hermes_wrapper() {
   if hermes_runtime_is_native_windows; then
     hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
   fi
+  # Path to the host-side MCP stdio bridges (hermes-daemon-cli.js +
+  # hermes-channel.js). path_for_node so Git-Bash node opens it (drive-letter).
+  local hermes_stdio_dir
+  hermes_stdio_dir="$(path_for_node "$SCRIPT_DIR/mcp/stdio")"
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1457,6 +1273,76 @@ if [ "\$HERMES_AUTO" = true ]; then
   HERMES_PERMISSION_FLAGS+=(--yolo)
 fi
 
+# Per-agent daemon + channel-sidecar model (Plan 1.4, 2026-05-30). Replaces the
+# old \`hermes dashboard --tui\` + \`hermes --tui\` dual-spawn. The repo's
+# host-side MCP bridges live here (NEVER copied elsewhere — that is how every
+# session gets security fixes automatically).
+AIFY_HERMES_STDIO_DIR="$hermes_stdio_dir"
+AIFY_HERMES_DAEMON_CLI="\$AIFY_HERMES_STDIO_DIR/hermes-daemon-cli.js"
+AIFY_HERMES_CHANNEL_JS="\$AIFY_HERMES_STDIO_DIR/hermes-channel.js"
+
+# Bring up (idempotently) the per-agent api_server daemon for this agent. On
+# failure print the LOUD daemon error and exit non-zero — a silent no-op daemon
+# is exactly the failure mode this design eliminates. Echoes the daemon-cli's
+# one-line JSON endpoint to stderr for operator visibility.
+aify_hermes_ensure_daemon() {
+  local agent_id="\$1"
+  local out=""
+  if ! out="\$(node "\$AIFY_HERMES_DAEMON_CLI" "\$agent_id")"; then
+    echo "[hermes-aify] FATAL: per-agent api_server daemon for '\$agent_id' did not come up." >&2
+    echo "[hermes-aify]   (node \$AIFY_HERMES_DAEMON_CLI \$agent_id exited non-zero — see the error above)" >&2
+    exit 1
+  fi
+  AIFY_HERMES_DAEMON_ENDPOINT="\$out"
+  echo "[hermes-aify] api_server daemon ready: \$out" >&2
+}
+
+# Kill any prior sidecar/daemon-cli for THIS agent before launching, so a
+# relaunch never leaves two sidecars claiming the same agent (proliferation
+# guard, mirrors the intent of the claude/codex wrappers' per-agent ownership).
+aify_hermes_kill_prior() {
+  local agent_id="\$1"
+  [ -n "\$agent_id" ] || return 0
+  # Match the channel sidecar (and daemon-cli) invocation carrying this agentId.
+  # pkill -f matches the full command line; the AIFY_AGENT_ID marker is the most
+  # specific token. Best-effort: no pkill / nothing matched is fine.
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "hermes-channel.js.*\$agent_id" >/dev/null 2>&1 || true
+    pkill -f "AIFY_AGENT_ID=\$agent_id.*hermes-channel.js" >/dev/null 2>&1 || true
+  fi
+}
+
+# MANAGED launch: \`--aify-agent\` present AND session-mode resolved to managed
+# (non-interactive / bridge-spawned). Ensure the per-agent daemon, then EXEC the
+# wake-only channel sidecar. NO hermes --tui, NO dashboard --tui — the in-session
+# agent self-replies via comms_send (symmetric with claude).
+if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+  aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID"
+  aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
+  export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
+  export AIFY_CHANNELS_ENABLED=1
+  # The sidecar resolves its own per-agent api_server endpoint from AIFY_AGENT_ID
+  # (hermes-endpoint.js) — no need to thread AIFY_HERMES_APISERVER_URL/_KEY here.
+  exec node "\$AIFY_HERMES_CHANNEL_JS"
+fi
+
+# RESIDENT/interactive launch with an agent id: ensure the per-agent daemon, then
+# attach an operator TUI to THAT agent's daemon and pinned session.
+if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+  aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
+  AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
+  # Resolve the daemon WS port from the endpoint JSON the daemon-cli printed.
+  AIFY_HERMES_DAEMON_PORT="\$(printf '%s' "\${AIFY_HERMES_DAEMON_ENDPOINT:-}" | sed -E 's/.*"port":([0-9]+).*/\1/')"
+  if [ -n "\$AIFY_HERMES_DAEMON_PORT" ]; then
+    # ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon. The TUI
+    # gateway transport is the WS port (8765-family), distinct from the api_server
+    # HTTP port the sidecar uses; pointing HERMES_TUI_GATEWAY_URL at the daemon
+    # lets the operator take over the SAME session the sidecar drives.
+    export HERMES_TUI_GATEWAY_URL="ws://127.0.0.1:\$AIFY_HERMES_DAEMON_PORT/api/ws"
+  fi
+  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
+fi
+
 aify_hermes_exec_plain_or_tui() {
   # Default to hermes --tui for the operator's interactive TUI when
   # no explicit subcommand args were passed. If the operator passed args
@@ -1472,173 +1358,15 @@ aify_hermes_exec_plain_or_tui() {
   exec "\$HERMES_RUNTIME_COMMAND" "\${HERMES_ARGS[@]}"
 }
 
-aify_hermes_run_foreground() {
-  set +e
-  # Keep Hermes in the foreground. Same reason as run_codex_foreground above:
-  # in a non-interactive bash wrapper, async commands (\`hermes ... &\`) receive
-  # /dev/null on stdin and the Ink TUI exits with "hermes-tui: no TTY" even
-  # when the operator launched from a real terminal. Because Hermes runs in the
-  # foreground here, signals to the wrapper reach it directly and the cleanup
-  # trap only needs to reap the backgrounded dashboard child.
-  "\$HERMES_RUNTIME_COMMAND" "\$@"
-  local status=\$?
-  set -e
-  return "\$status"
-}
-
-# Plan 5 (2026-05-25): when the wrapper falls back to plain \`hermes\`
-# (gateway disabled, port alloc failed, dashboard probe failed, token
-# capture failed) AIFY_HERMES_GATEWAY_URL is NOT exported and every
-# resident-channel wake for this session reports \`hermes-missing-handle\`.
-# Without a visible warning the operator can't tell why their messages
-# never arrive — they just see status='online' with no replies. Print
-# a one-time WARNING block at fallback so the cause is immediately
-# obvious in the shell scrollback, plus point at the dashboard log for
-# the underlying error.
-aify_hermes_fallback() {
-  local reason="\${1:-unknown}"
-  echo "" >&2
-  echo "[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session." >&2
-  echo "[hermes-aify]   Reason: \$reason" >&2
-  if [ -n "\${AIFY_HERMES_DASHBOARD_LOG:-}" ]; then
-    echo "[hermes-aify]   Log:    \$AIFY_HERMES_DASHBOARD_LOG" >&2
-  fi
-  echo "[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'." >&2
-  echo "[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or" >&2
-  echo "[hermes-aify]           inspect the dashboard log above for the underlying error." >&2
-  echo "" >&2
-  aify_hermes_exec_plain_or_tui
-}
-
-# Resident-mode bridge-injection path (mirror of codex-aify install.sh:319-424
-# and the claude-channel.js path). When the operator launches hermes-aify
-# interactively, we:
-#   1. Spawn \`hermes dashboard --tui --port <P> --no-open --skip-build\` in the
-#      background. This sets _DASHBOARD_EMBEDDED_CHAT_ENABLED=True in
-#      web_server.py and mounts the /api/ws JSON-RPC gateway.
-#   2. Wait for the dashboard to bind, then fetch / and parse the ephemeral
-#      __HERMES_SESSION_TOKEN__ from the embedded <script> tag.
-#   3. Export HERMES_TUI_GATEWAY_URL so the Ink TUI launched by \`hermes chat
-#      --tui\` attaches to the running gateway via WebSocket (per
-#      ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl) instead of
-#      spawning its own stdio sidecar.
-#   4. Export AIFY_HERMES_GATEWAY_URL + AIFY_HERMES_GATEWAY_TOKEN so the
-#      aify-comms bridge (loaded inside hermes chat as an MCP server) writes
-#      a hermes runtime marker and the resident-channel controller in
-#      runtimes.js connects to the same /api/ws for bridge-injected prompts.
-#   5. Trap cleanup kills the dashboard child on wrapper exit.
-#
-# Opt out: AIFY_HERMES_SKIP_GATEWAY=1 falls back to plain \`hermes\` exec
-# (no gateway, no bridge-injection — operator-typed only). Use this if the
-# dashboard probe is breaking your install and you don't need resident wake.
-if [ "\${AIFY_HERMES_SKIP_GATEWAY:-0}" != "1" ]; then
-  # Spawn the hermes dashboard backing for BOTH resident and managed
-  # invocations. Resident: operator's Ink TUI attaches via the gateway,
-  # bridge attaches as a WS peer for dispatch injection. Managed
-  # (bridge-spawned via TerminalProcessManager): the dashboard renders
-  # the wrapper's Ink TUI via xterm.js, and the bridge can attach to
-  # the same gateway. Set AIFY_HERMES_SKIP_GATEWAY=1 to fall back to
-  # plain \`hermes\` exec without the dashboard child.
-  pick_port() {
-    node -e '
-      const net = require("net");
-      const srv = net.createServer();
-      srv.listen(0, "127.0.0.1", () => {
-        const p = srv.address().port;
-        srv.close(() => { process.stdout.write(String(p)); });
-      });
-    '
-  }
-
-  wait_for_http() {
-    local url="\$1"
-    local deadline=\$(( \$(date +%s) + 30 ))
-    while [ \$(date +%s) -lt "\$deadline" ]; do
-      if curl -s -o /dev/null "\$url"; then return 0; fi
-      sleep 0.2
-    done
-    return 1
-  }
-
-  AIFY_HERMES_PORT="\$(pick_port)"
-  if [ -z "\$AIFY_HERMES_PORT" ]; then
-    echo "hermes-aify: failed to allocate a local port for the dashboard gateway; falling back to plain hermes." >&2
-    aify_hermes_fallback "port_alloc_failed"
-  fi
-
-  AIFY_HERMES_DASHBOARD_URL="http://127.0.0.1:\$AIFY_HERMES_PORT"
-  export AIFY_HERMES_PORT
-  export AIFY_HERMES_DASHBOARD_URL
-  LOG_ROOT="\${XDG_STATE_HOME:-\$HOME/.local/state}/aify-comms"
-  mkdir -p "\$LOG_ROOT"
-  AIFY_HERMES_DASHBOARD_LOG="\$LOG_ROOT/hermes-aify-dashboard-\$AIFY_HERMES_PORT.log"
-  AIFY_HERMES_ACTIVE_SESSION_FILE="\$LOG_ROOT/hermes-aify-active-session-\$AIFY_HERMES_PORT.json"
-  rm -f "\$AIFY_HERMES_ACTIVE_SESSION_FILE" 2>/dev/null || true
-  # Do not let a parent shell's old gateway env leak into the dashboard
-  # process. The plugin inside that dashboard publishes the current port/token
-  # once Hermes creates its session token.
-  unset AIFY_HERMES_GATEWAY_URL
-  unset HERMES_TUI_GATEWAY_URL
-  unset AIFY_HERMES_GATEWAY_TOKEN
-  unset AIFY_HERMES_GATEWAY_TOKEN_ENV
-
-  # Spawn the gateway in the wrapper's OWN process group (no setsid) so it is
-  # reaped when the wrapper's group is killed (terminateProcessTree / bridge
-  # death). </dev/null keeps it off the controlling TTY without a new session.
-  "\$HERMES_RUNTIME_COMMAND" dashboard --tui --port "\$AIFY_HERMES_PORT" --host 127.0.0.1 --no-open --skip-build </dev/null >>"\$AIFY_HERMES_DASHBOARD_LOG" 2>&1 &
-  AIFY_HERMES_DASHBOARD_PID=\$!
-
-  cleanup_aify_dashboard() {
-    if [ -n "\${AIFY_HERMES_DASHBOARD_PID:-}" ] && kill -0 "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1; then
-      kill "\$AIFY_HERMES_DASHBOARD_PID" >/dev/null 2>&1 || true
-      wait "\$AIFY_HERMES_DASHBOARD_PID" 2>/dev/null || true
-    fi
-  }
-  trap cleanup_aify_dashboard EXIT INT TERM HUP
-
-  if ! wait_for_http "\$AIFY_HERMES_DASHBOARD_URL/"; then
-    echo "hermes-aify: dashboard at \$AIFY_HERMES_DASHBOARD_URL did not become reachable. Falling back to plain hermes." >&2
-    echo "  log: \$AIFY_HERMES_DASHBOARD_LOG" >&2
-    cleanup_aify_dashboard
-    aify_hermes_fallback "dashboard_unreachable (likely missing web_dist — run install.sh --client hermes to prebuild)"
-  fi
-
-  # web_server.py:3688 injects: <script>window.__HERMES_SESSION_TOKEN__="..."
-  # Disable pipefail around the capture so a missing token is empty
-  # instead of killing the wrapper silently.
-  set +o pipefail
-  AIFY_HERMES_TOKEN="\$(curl -s "\$AIFY_HERMES_DASHBOARD_URL/" | grep -oE '__HERMES_SESSION_TOKEN__="[^"]+"' | head -1 | sed -E 's/.*="([^"]+)"\$/\1/')"
-  set -o pipefail
-  if [ -z "\$AIFY_HERMES_TOKEN" ]; then
-    echo "hermes-aify: could not capture the dashboard session token from \$AIFY_HERMES_DASHBOARD_URL/. Falling back to plain hermes." >&2
-    cleanup_aify_dashboard
-    aify_hermes_fallback "token_capture_failed"
-  fi
-
-  AIFY_HERMES_GATEWAY="ws://127.0.0.1:\$AIFY_HERMES_PORT/api/ws?token=\$AIFY_HERMES_TOKEN"
-  export HERMES_TUI_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
-  export AIFY_HERMES_GATEWAY_URL="\$AIFY_HERMES_GATEWAY"
-  export AIFY_HERMES_GATEWAY_TOKEN="\$AIFY_HERMES_TOKEN"
-  export HERMES_TUI_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
-  export AIFY_HERMES_ACTIVE_SESSION_FILE="\$AIFY_HERMES_ACTIVE_SESSION_FILE"
-
-  if [ \${#HERMES_ARGS[@]} -eq 0 ]; then
-    if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-      aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$HERMES_SESSION_HANDLE"
-      exit \$?
-    fi
-    aify_hermes_run_foreground --tui "\${HERMES_PERMISSION_FLAGS[@]}"
-    exit \$?
-  fi
-  aify_hermes_run_foreground "\${HERMES_ARGS[@]}"
-  exit \$?
-fi
-
-# Plan 5 (2026-05-25): explicit AIFY_HERMES_SKIP_GATEWAY=1 fallback. The
-# warning here is lighter than the failure-path banner above — operator
-# opted out, so make sure they know wake/dispatch won't work, but skip
-# the dashboard-log pointer (there is no log; gateway never started).
-aify_hermes_fallback "gateway_disabled (AIFY_HERMES_SKIP_GATEWAY=1)"
+# Remaining paths (the per-agent daemon model above already exec'd/exit'd for
+# the agent-id launches): either no --aify-agent was given (operator running a
+# plain interactive hermes TUI with no managed identity) or explicit passthrough
+# args were supplied (e.g. \`hermes-aify model list\`). Both go straight to the
+# runtime. The legacy \`hermes dashboard --tui\` gateway-spawn + token-capture is
+# GONE — per-agent delivery now flows through the api_server daemon + the
+# hermes-channel.js sidecar, and AIFY_HERMES_GATEWAY_URL is no longer exported
+# here (only HERMES_TUI_GATEWAY_URL in the resident-attach path above).
+aify_hermes_exec_plain_or_tui
 EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
   # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
@@ -1653,6 +1381,10 @@ install_hermes_windows_tui_shim() {
   local wrapper_dir="$1"
   local default_server="$2"
   local hermes_plugin_path="$3"
+  # Windows-style path to the repo's host-side MCP stdio bridges, consumed by
+  # the native Windows node launched from the .ps1 wrapper.
+  local hermes_stdio_dir_win
+  hermes_stdio_dir_win="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio")"
   local windows_wrapper_dir=""
   local ps_path=""
   local cmd_path=""
@@ -1799,128 +1531,83 @@ function Invoke-HermesRuntime {
   }
 }
 
-function New-AifyHermesPort {
-  \$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'), 0)
-  \$listener.Start()
+# Per-agent daemon + channel-sidecar model (Plan 1.4, 2026-05-30). Replaces the
+# old 'hermes dashboard --tui' + 'hermes --tui' dual-spawn. Bridges live in the
+# repo (never copied — security fixes flow automatically).
+\$AifyHermesStdioDir = '$hermes_stdio_dir_win'
+\$AifyHermesDaemonCli = Join-Path \$AifyHermesStdioDir 'hermes-daemon-cli.js'
+\$AifyHermesChannelJs = Join-Path \$AifyHermesStdioDir 'hermes-channel.js'
+
+# Bring up (idempotently) the per-agent api_server daemon. On failure print the
+# LOUD daemon error and exit non-zero. Returns the daemon-cli's one-line JSON.
+function Invoke-AifyHermesEnsureDaemon {
+  param([string]\$AgentId)
+  \$out = & node \$AifyHermesDaemonCli \$AgentId
+  if (\$LASTEXITCODE -ne 0) {
+    [Console]::Error.WriteLine("[hermes-aify] FATAL: per-agent api_server daemon for '\$AgentId' did not come up.")
+    [Console]::Error.WriteLine("[hermes-aify]   (node \$AifyHermesDaemonCli \$AgentId exited \$LASTEXITCODE — see the error above)")
+    exit 1
+  }
+  [Console]::Error.WriteLine("[hermes-aify] api_server daemon ready: \$out")
+  return \$out
+}
+
+# Kill any prior sidecar for THIS agent before launching (proliferation guard).
+function Invoke-AifyHermesKillPrior {
+  param([string]\$AgentId)
+  if (-not \$AgentId) { return }
   try {
-    return [int]\$listener.LocalEndpoint.Port
-  } finally {
-    \$listener.Stop()
-  }
+    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-channel\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
+      ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+  } catch {}
 }
 
-function Wait-AifyHermesHttp {
-  param([string]\$Url)
-  \$deadline = [DateTime]::UtcNow.AddSeconds(30)
-  while ([DateTime]::UtcNow -lt \$deadline) {
-    try {
-      Invoke-WebRequest -UseBasicParsing -Uri \$Url -TimeoutSec 1 | Out-Null
-      return \$true
-    } catch {
-      Start-Sleep -Milliseconds 200
-    }
-  }
-  return \$false
+\$script:HermesRuntimeExitCode = 0
+
+# MANAGED launch: --aify-agent present AND session-mode managed (non-interactive)
+# AND no passthrough args. Ensure the daemon, then RUN the wake-only channel
+# sidecar. NO hermes --tui / dashboard --tui — the in-session agent self-replies.
+if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$HermesArgs.Count -eq 0) {
+  Invoke-AifyHermesKillPrior \$HermesAifyAgentId
+  Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
+  \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
+  \$env:AIFY_CHANNELS_ENABLED = '1'
+  # The sidecar resolves its own per-agent api_server endpoint from AIFY_AGENT_ID.
+  & node \$AifyHermesChannelJs
+  exit \$LASTEXITCODE
 }
 
-function Start-AifyHermesDashboard {
-  param([int]\$Port, [string]\$LogRoot)
-  \$script:DashboardLog = Join-Path \$LogRoot "hermes-aify-dashboard-\$Port.log"
-  \$script:DashboardErrLog = Join-Path \$LogRoot "hermes-aify-dashboard-\$Port.err.log"
-  \$dashArgs = @('dashboard', '--tui', '--port', [string]\$Port, '--host', '127.0.0.1', '--no-open', '--skip-build')
-  return Start-Process -FilePath \$HermesRuntimeCommand -ArgumentList \$dashArgs -NoNewWindow -PassThru -RedirectStandardOutput \$script:DashboardLog -RedirectStandardError \$script:DashboardErrLog
-}
-
-function Stop-AifyHermesDashboard {
-  if (\$script:DashboardProcess -and -not \$script:DashboardProcess.HasExited) {
-    try { Stop-Process -Id \$script:DashboardProcess.Id -Force -ErrorAction SilentlyContinue } catch {}
+# RESIDENT/interactive launch with an agent id: ensure the daemon, then attach an
+# operator TUI to THAT agent's daemon and pinned session.
+if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
+  \$endpointJson = Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId
+  \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
+  if (\$endpointJson -match '"port":([0-9]+)') {
+    \$daemonPort = \$Matches[1]
+    # ASYMMETRY(hermes): resident TUI attaches to the per-agent daemon. The TUI
+    # gateway WS port is distinct from the api_server HTTP port the sidecar uses;
+    # this lets the operator take over the SAME session the sidecar drives.
+    \$env:HERMES_TUI_GATEWAY_URL = "ws://127.0.0.1:\$daemonPort/api/ws"
   }
-}
-
-function Invoke-AifyHermesFallback {
-  param([string]\$Reason)
-  [Console]::Error.WriteLine('')
-  [Console]::Error.WriteLine('[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.')
-  [Console]::Error.WriteLine("[hermes-aify]   Reason: \$Reason")
-  if (\$script:DashboardLog) { [Console]::Error.WriteLine("[hermes-aify]   Log:    \$script:DashboardLog") }
-  [Console]::Error.WriteLine("[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'.")
-  [Console]::Error.WriteLine('[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or')
-  [Console]::Error.WriteLine('[hermes-aify]           inspect the dashboard log above for the underlying error.')
-  [Console]::Error.WriteLine('')
-  if (\$HermesArgs.Count -eq 0) {
-    if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
-      Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
-      exit \$script:HermesRuntimeExitCode
-    }
-    Invoke-HermesRuntime @('--tui')
-    exit \$script:HermesRuntimeExitCode
-  }
-  Invoke-HermesRuntime \$HermesArgs
+  Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
   exit \$script:HermesRuntimeExitCode
 }
 
-\$script:DashboardProcess = \$null
-\$script:DashboardLog = ''
-\$script:DashboardErrLog = ''
-\$script:HermesRuntimeExitCode = 0
-
-if (\$env:AIFY_HERMES_SKIP_GATEWAY -ne '1') {
-  \$port = New-AifyHermesPort
-  \$dashboardUrl = "http://127.0.0.1:\$port"
-  \$env:AIFY_HERMES_PORT = [string]\$port
-  \$env:AIFY_HERMES_DASHBOARD_URL = \$dashboardUrl
-  \$logRoot = if (\$env:XDG_STATE_HOME) { Join-Path \$env:XDG_STATE_HOME 'aify-comms' } else { Join-Path \$env:USERPROFILE '.local\\state\\aify-comms' }
-  New-Item -ItemType Directory -Force -Path \$logRoot | Out-Null
-  \$activeSessionFile = Join-Path \$logRoot "hermes-aify-active-session-\$port.json"
-  Remove-Item \$activeSessionFile -ErrorAction SilentlyContinue
-  # Do not let a parent shell's old gateway env leak into the dashboard
-  # process. The plugin inside that dashboard publishes the current port/token
-  # once Hermes creates its session token.
-  Remove-Item Env:AIFY_HERMES_GATEWAY_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:HERMES_TUI_GATEWAY_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:AIFY_HERMES_GATEWAY_TOKEN -ErrorAction SilentlyContinue
-  Remove-Item Env:AIFY_HERMES_GATEWAY_TOKEN_ENV -ErrorAction SilentlyContinue
-
-  try {
-    \$script:DashboardProcess = Start-AifyHermesDashboard -Port \$port -LogRoot \$logRoot
-    if (-not (Wait-AifyHermesHttp "\$dashboardUrl/")) {
-      [Console]::Error.WriteLine("hermes-aify: dashboard at \$dashboardUrl did not become reachable. Falling back to plain hermes.")
-      if (\$script:DashboardLog) { [Console]::Error.WriteLine("  log: \$script:DashboardLog") }
-      Stop-AifyHermesDashboard
-      Invoke-AifyHermesFallback 'dashboard_unreachable (likely missing web_dist — run install.sh --client hermes to prebuild)'
-    }
-
-    \$html = (Invoke-WebRequest -UseBasicParsing -Uri "\$dashboardUrl/" -TimeoutSec 5).Content
-    if (\$html -notmatch '__HERMES_SESSION_TOKEN__="([^"]+)"') {
-      [Console]::Error.WriteLine("hermes-aify: could not capture the dashboard session token from \$dashboardUrl/. Falling back to plain hermes.")
-      Stop-AifyHermesDashboard
-      Invoke-AifyHermesFallback 'token_capture_failed'
-    }
-
-    \$token = \$Matches[1]
-    \$gateway = "ws://127.0.0.1:\$port/api/ws?token=\$token"
-    \$env:HERMES_TUI_GATEWAY_URL = \$gateway
-    \$env:AIFY_HERMES_GATEWAY_URL = \$gateway
-    \$env:AIFY_HERMES_GATEWAY_TOKEN = \$token
-    \$env:HERMES_TUI_ACTIVE_SESSION_FILE = \$activeSessionFile
-    \$env:AIFY_HERMES_ACTIVE_SESSION_FILE = \$activeSessionFile
-
-    if (\$HermesArgs.Count -eq 0) {
-      if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
-        Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
-        exit \$script:HermesRuntimeExitCode
-      }
-      Invoke-HermesRuntime @('--tui')
-      exit \$script:HermesRuntimeExitCode
-    }
-    Invoke-HermesRuntime \$HermesArgs
+# Remaining paths: no --aify-agent (plain interactive TUI) or explicit
+# passthrough args (e.g. 'hermes-aify model list'). Go straight to the runtime.
+# The legacy dashboard gateway-spawn is GONE; AIFY_HERMES_GATEWAY_URL is no
+# longer exported here (only HERMES_TUI_GATEWAY_URL in the resident-attach path).
+if (\$HermesArgs.Count -eq 0) {
+  if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
+    Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
     exit \$script:HermesRuntimeExitCode
-  } finally {
-    Stop-AifyHermesDashboard
   }
+  Invoke-HermesRuntime @('--tui')
+  exit \$script:HermesRuntimeExitCode
 }
-
-Invoke-AifyHermesFallback 'gateway_disabled (AIFY_HERMES_SKIP_GATEWAY=1)'
+Invoke-HermesRuntime \$HermesArgs
+exit \$script:HermesRuntimeExitCode
 EOF
 
   cat > "$cmd_path" <<EOF
@@ -3256,16 +2943,26 @@ elif [ "$CLIENT" = "codex" ]; then
   # version doesn't recognize the events yet.
   install_codex_turn_hooks
 elif [ "$CLIENT" = "hermes" ]; then
+  # Plan 1.4 (2026-05-30): the dead `patch_hermes_gateway_visible_bind` source
+  # patch (and its TUI active-session-file companion) is REMOVED. Managed/
+  # resident hermes delivery now flows through the per-agent api_server daemon
+  # + the hermes-channel.js sidecar (no WS visible-session bind), so the old
+  # tui_gateway/server.py patch is dead. The Codex stream NoneType SDK-bug
+  # fallback is unrelated to delivery and still useful, so keep it under the
+  # legacy gate (off by default).
   if [ "${AIFY_HERMES_LEGACY_SOURCE_PATCH:-0}" = "1" ]; then
-    patch_hermes_gateway_visible_bind
+    _hermes_root="$(detect_hermes_install_root)"
+    if [ -n "$_hermes_root" ] && [ -d "$_hermes_root" ]; then
+      patch_hermes_codex_stream_none_fallback "$_hermes_root"
+    fi
   else
     echo "Hermes source patching skipped; hermes-aify loads integrations/hermes-aify-plugin at runtime."
-    echo "  Set AIFY_HERMES_LEGACY_SOURCE_PATCH=1 before install for the old in-place patch path."
+    echo "  Set AIFY_HERMES_LEGACY_SOURCE_PATCH=1 before install for the legacy Codex-stream source patch."
   fi
-  # Install the shim as a Hermes plugin so it loads in the dashboard/gateway
-  # process (where hermes strips PYTHONPATH). This is what makes the visible
-  # session bind — and therefore managed/resident hermes delivery — actually
-  # work; the PYTHONPATH/sitecustomize path alone does not reach the gateway.
+  # Install the shim as a Hermes plugin so it loads in the gateway process
+  # (where hermes strips PYTHONPATH). The aify-comms MCP server is registered
+  # into hermes' config.yaml mcp_servers by register_stdio_server above, which
+  # is what gives the in-session hermes agent the comms_* tools for self-reply.
   install_hermes_plugin
   install_hermes_wrapper
   # Symmetric turn-start hook for hermes-aify direct typing via the
@@ -3273,6 +2970,21 @@ elif [ "$CLIENT" = "hermes" ]; then
   # upstream hermes shell-hooks don't expose one; the 120s server-side
   # turn_busy stale window handles cleanup.
   install_hermes_turn_hooks
+  # Post-install LOUD probe (Plan 1.4 Step 4): there is no silent success path.
+  # We cannot ensure a real per-agent daemon at install time without an agent
+  # id, but we MUST tell the operator the daemon is brought up lazily at launch
+  # and how it fails loudly if it can't — replacing the old patch's silent path.
+  echo "Hermes managed delivery: per-agent api_server daemon is ensured at launch"
+  echo "  by hermes-aify (node mcp/stdio/hermes-daemon-cli.js <agentId>); on failure"
+  echo "  the wrapper prints a FATAL error and exits non-zero (no silent no-op)."
+  if command -v node >/dev/null 2>&1; then
+    if node --check "$SCRIPT_DIR/mcp/stdio/hermes-daemon-cli.js" >/dev/null 2>&1 \
+      && node --check "$SCRIPT_DIR/mcp/stdio/hermes-channel.js" >/dev/null 2>&1; then
+      echo "  Bridges verified: hermes-daemon-cli.js + hermes-channel.js parse OK."
+    else
+      echo "  ERROR: hermes-daemon-cli.js / hermes-channel.js failed node --check — fix before launch." >&2
+    fi
+  fi
 elif [ "$CLIENT" = "pi" ]; then
   install_pi_wrapper
 fi

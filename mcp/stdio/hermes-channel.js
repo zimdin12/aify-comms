@@ -35,6 +35,7 @@ import { defaultMachineId } from "./runtimes.js";
 import { createHermesApiServerClient, DEFAULT_BASE_URL as HERMES_DEFAULT_BASE_URL } from "./hermes-apiserver-client.js";
 import { probeApiServer, assertApiServer } from "./hermes-version.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
+import { agentEndpoint } from "./hermes-endpoint.js";
 // Reuse claude-channel.js's dispatch content/prompt builder verbatim so the
 // hermes agent receives the same priority framing + inReplyTo guidance.
 import { dispatchContent } from "./claude-channel.js";
@@ -55,10 +56,30 @@ const AIFY_SERVER_URL = coerceLoopbackToIPv4(
 ).replace(/\/+$/, "");
 const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 
-// hermes api_server daemon coordinates.
-const HERMES_BASE_URL = (process.env.AIFY_HERMES_APISERVER_URL || HERMES_DEFAULT_BASE_URL).replace(/\/+$/, "");
-const HERMES_KEY = process.env.AIFY_HERMES_APISERVER_KEY || "";
+// hermes api_server daemon coordinates. When the operator/wrapper passes
+// AIFY_HERMES_APISERVER_URL/_KEY they win (explicit override, back-compat). When
+// ABSENT, the endpoint is resolved per-agent via agentEndpoint(agentId) — the
+// SAME deterministic {port,key} the daemon was launched with — so the wrapper
+// doesn't have to thread the api_server URL/key through the environment.
+const HERMES_ENV_BASE_URL = process.env.AIFY_HERMES_APISERVER_URL
+  ? process.env.AIFY_HERMES_APISERVER_URL.replace(/\/+$/, "")
+  : "";
+const HERMES_ENV_KEY = process.env.AIFY_HERMES_APISERVER_KEY || "";
 const HERMES_SESSION_KEY = process.env.AIFY_HERMES_SESSION_KEY || "";
+
+// Resolve {baseUrl, key} for an agent: explicit env override wins; otherwise
+// derive the per-agent endpoint deterministically from agentId. Exported so the
+// env-absent fallback is unit-testable.
+export function resolveHermesEndpoint(agentId) {
+  if (HERMES_ENV_BASE_URL || HERMES_ENV_KEY) {
+    return {
+      baseUrl: HERMES_ENV_BASE_URL || HERMES_DEFAULT_BASE_URL,
+      key: HERMES_ENV_KEY,
+    };
+  }
+  const ep = agentEndpoint(agentId);
+  return { baseUrl: ep.baseUrl, key: ep.key };
+}
 
 const MACHINE_ID = defaultMachineId();
 const CHANNEL_BRIDGE_ID = `hermes-channel-${MACHINE_ID}`;
@@ -178,10 +199,17 @@ export async function processClaimedRun({
   agentId,
   httpCall,
   apiClient,
-  baseUrl = HERMES_BASE_URL,
-  key = HERMES_KEY,
+  baseUrl,
+  key,
   sessionKey = HERMES_SESSION_KEY,
 }) {
+  // Resolve the per-agent endpoint when the caller didn't pass one explicitly
+  // (tests pass baseUrl/key directly; the production loop relies on this).
+  if (baseUrl === undefined || key === undefined) {
+    const resolved = resolveHermesEndpoint(agentId);
+    if (baseUrl === undefined) baseUrl = resolved.baseUrl;
+    if (key === undefined) key = resolved.key;
+  }
   const sessionId = pinnedSessionId(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
   try {
@@ -228,11 +256,18 @@ export async function runPollCycle({
   bridgeId = CHANNEL_BRIDGE_ID,
   httpCall,
   apiClient,
-  baseUrl = HERMES_BASE_URL,
-  key = HERMES_KEY,
+  baseUrl,
+  key,
   sessionKey = HERMES_SESSION_KEY,
   maxBatch = 20,
 } = {}) {
+  // Resolve the per-agent endpoint when not explicitly provided (env-absent
+  // fallback derives it deterministically from agentId).
+  if (baseUrl === undefined || key === undefined) {
+    const resolved = resolveHermesEndpoint(agentId);
+    if (baseUrl === undefined) baseUrl = resolved.baseUrl;
+    if (key === undefined) key = resolved.key;
+  }
   let processed = 0;
   try {
     for (let i = 0; i < maxBatch; i++) {
@@ -287,8 +322,12 @@ async function pollLoop() {
 
 if (IS_MAIN) {
   // Fail loud at startup if the daemon isn't reachable — a silent no-op channel
-  // is exactly the historical failure mode this design eliminates.
-  const probe = await probeApiServer({ baseUrl: HERMES_BASE_URL, key: HERMES_KEY });
+  // is exactly the historical failure mode this design eliminates. Resolve the
+  // endpoint from the bound agentId (env override still wins inside
+  // resolveHermesEndpoint).
+  const bootAgentId = readBoundAgentId();
+  const { baseUrl: bootBaseUrl, key: bootKey } = resolveHermesEndpoint(bootAgentId);
+  const probe = await probeApiServer({ baseUrl: bootBaseUrl, key: bootKey });
   assertApiServer(probe);
   pollLoop().catch((error) => {
     console.error("[hermes-channel] fatal:", error);

@@ -19,7 +19,8 @@ import { test } from "node:test";
 import { createHermesApiServerClient } from "../hermes-apiserver-client.js";
 import { start } from "./fixtures/fake-hermes-apiserver.mjs";
 import { pinnedSessionId } from "../hermes-session-id.js";
-import { processClaimedRun, runPollCycle } from "../hermes-channel.js";
+import { processClaimedRun, runPollCycle, resolveHermesEndpoint } from "../hermes-channel.js";
+import { agentEndpoint } from "../hermes-endpoint.js";
 
 async function withApiServer(t, opts) {
   const fixture = await start(opts);
@@ -188,4 +189,23 @@ test("runPollCycle: no claimable run → no chat, no reply, does not throw", asy
     runPollCycle({ agentId: "sc-hermes", machineId: "m", bridgeId: "b", httpCall, apiClient, baseUrl, key }),
   );
   assert.ok(!findCall(calls, "POST", "/messages/send"));
+});
+
+test("resolveHermesEndpoint: env-absent → resolves the per-agent endpoint by agentId", (t) => {
+  // This suite runs without AIFY_HERMES_APISERVER_URL/_KEY in env, so the
+  // fallback path must derive the SAME deterministic per-agent endpoint the
+  // daemon was launched with (so the sidecar talks to its own agent's daemon).
+  if (process.env.AIFY_HERMES_APISERVER_URL || process.env.AIFY_HERMES_APISERVER_KEY) {
+    t.skip("api_server env override present; env-absent fallback not exercised");
+    return;
+  }
+  const ep = agentEndpoint("sc-hermes");
+  const resolved = resolveHermesEndpoint("sc-hermes");
+  assert.equal(resolved.baseUrl, ep.baseUrl, "env-absent baseUrl must match agentEndpoint");
+  assert.equal(resolved.key, ep.key, "env-absent key must match agentEndpoint");
+  // A different agentId resolves a DIFFERENT endpoint (no shared/global daemon).
+  // Keys are per-agent random, so they must differ even if ports happen to
+  // collide in the hashed port range.
+  const other = resolveHermesEndpoint("sc-other");
+  assert.notEqual(other.key, resolved.key, "distinct agents → distinct per-agent keys");
 });
