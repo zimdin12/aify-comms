@@ -97,6 +97,88 @@ export function buildSessionInterruptFrame({ id, sessionId }) {
   };
 }
 
+// Plan "managed-hermes visible-TUI" (2026-05-31): list the gateway's currently
+// active sessions so a thin WS client (the per-agent managed-host) can discover
+// the visible TUI's EPHEMERAL runtime sid. The TUI resumes a STABLE title/key
+// (`aify-<agentId>`), but its in-memory runtime `id` is forged fresh
+// (`uuid4().hex[:8]`) on every attach, so it must be re-discovered after each
+// (re)attach and NEVER cached. `current_session_id` is an optional hint the
+// gateway may use to bias the listing toward the caller's own connection.
+export function buildSessionActiveListFrame({ id, currentSessionId = "" } = {}) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "session.active_list",
+    params: { current_session_id: String(currentSessionId || "") },
+  };
+}
+
+// Pick the row for the visible TUI from a session.active_list response. The
+// stable key is `aify-<agentId>`; the live runtime `id` we actually submit
+// against is ephemeral. Match precedence:
+//   1. exact `session_key === key`
+//   2. exact `id === key`
+//   3. title contains/matches `key` (the TUI sets its title to the resume key)
+//   4. freshest by last_active / started_at / created_at (best-effort)
+// Returns the matched row's runtime id (string) or null when nothing matches.
+export function pickSessionForKey(activeListResponse, key) {
+  const wanted = String(key || "").trim();
+  const rows = Array.isArray(activeListResponse)
+    ? activeListResponse
+    : Array.isArray(activeListResponse?.result?.sessions)
+    ? activeListResponse.result.sessions
+    : Array.isArray(activeListResponse?.sessions)
+    ? activeListResponse.sessions
+    : Array.isArray(activeListResponse?.result)
+    ? activeListResponse.result
+    : [];
+  if (!rows.length) return null;
+
+  const rowId = (r) => String(r?.id || r?.session_id || r?.sessionId || "").trim();
+
+  if (wanted) {
+    // 1. exact session_key match
+    for (const r of rows) {
+      if (String(r?.session_key || r?.sessionKey || "").trim() === wanted) {
+        const id = rowId(r);
+        if (id) return id;
+      }
+    }
+    // 2. exact runtime id match
+    for (const r of rows) {
+      if (rowId(r) === wanted) return wanted;
+    }
+    // 3. title match (the TUI titles itself with the resume key)
+    for (const r of rows) {
+      const title = String(r?.title || r?.name || "").trim();
+      if (title && (title === wanted || title.includes(wanted))) {
+        const id = rowId(r);
+        if (id) return id;
+      }
+    }
+  }
+
+  // 4. freshest by timestamp; fall back to the first row with an id.
+  const stamp = (s) =>
+    Number(
+      Date.parse(
+        s?.last_active || s?.lastActive || s?.started_at || s?.startedAt || s?.created_at || s?.createdAt || 0,
+      ),
+    ) || 0;
+  let best = null;
+  let bestStamp = -1;
+  for (const r of rows) {
+    const id = rowId(r);
+    if (!id) continue;
+    const t = stamp(r);
+    if (best === null || t > bestStamp) {
+      best = id;
+      bestStamp = t;
+    }
+  }
+  return best;
+}
+
 // Translates an inbound gateway event into a normalized shape the
 // controller can consume. Returns null for events the bridge doesn't
 // care about (e.g. gateway.ready handshake, UI metadata).

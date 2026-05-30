@@ -7,6 +7,8 @@ import {
   buildSessionMostRecentFrame,
   buildSessionListFrame,
   buildSessionInterruptFrame,
+  buildSessionActiveListFrame,
+  pickSessionForKey,
   translateGatewayEvent,
   isSessionBusyError,
 } from "../hermes-gateway-protocol.js";
@@ -46,6 +48,65 @@ test("buildSessionInterruptFrame targets a specific session", () => {
   const frame = buildSessionInterruptFrame({ id: 9, sessionId: "sess-1" });
   assert.equal(frame.method, "session.interrupt");
   assert.deepEqual(frame.params, { session_id: "sess-1" });
+});
+
+test("buildSessionActiveListFrame is a JSON-RPC 2.0 session.active_list", () => {
+  const frame = buildSessionActiveListFrame({ id: 11, currentSessionId: "sid-9" });
+  assert.equal(frame.jsonrpc, "2.0");
+  assert.equal(frame.id, 11);
+  assert.equal(frame.method, "session.active_list");
+  assert.deepEqual(frame.params, { current_session_id: "sid-9" });
+});
+
+test("buildSessionActiveListFrame defaults current_session_id to empty string", () => {
+  const frame = buildSessionActiveListFrame({ id: 12 });
+  assert.deepEqual(frame.params, { current_session_id: "" });
+});
+
+test("pickSessionForKey: matches the row by stable session_key, returns live runtime id", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "ab12cd34", session_key: "aify-sc-hermes", status: "ready", started_at: "2026-05-31T10:00:00Z" },
+        { id: "ff00ff00", session_key: "aify-other", status: "ready", started_at: "2026-05-31T11:00:00Z" },
+      ],
+    },
+  };
+  // Even though the OTHER session is fresher, the key match wins and we get the
+  // EPHEMERAL runtime id (not the stable key).
+  assert.equal(pickSessionForKey(resp, "aify-sc-hermes"), "ab12cd34");
+});
+
+test("pickSessionForKey: matches by exact runtime id when key is an id", () => {
+  const resp = { sessions: [{ id: "ab12cd34", session_key: "aify-x" }] };
+  assert.equal(pickSessionForKey(resp, "ab12cd34"), "ab12cd34");
+});
+
+test("pickSessionForKey: matches by title when no key/id match", () => {
+  const resp = {
+    result: {
+      sessions: [{ id: "deadbeef", title: "aify-sc-hermes", status: "ready" }],
+    },
+  };
+  assert.equal(pickSessionForKey(resp, "aify-sc-hermes"), "deadbeef");
+});
+
+test("pickSessionForKey: falls back to freshest by last_active when no match", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "old111", session_key: "k-old", last_active: "2026-05-31T09:00:00Z" },
+        { id: "new222", session_key: "k-new", last_active: "2026-05-31T12:00:00Z" },
+      ],
+    },
+  };
+  assert.equal(pickSessionForKey(resp, "aify-nomatch"), "new222");
+});
+
+test("pickSessionForKey: returns null for empty/unknown response shapes", () => {
+  assert.equal(pickSessionForKey({ result: { sessions: [] } }, "aify-x"), null);
+  assert.equal(pickSessionForKey(null, "aify-x"), null);
+  assert.equal(pickSessionForKey({}, "aify-x"), null);
 });
 
 test("translateGatewayEvent maps agent.message.delta to a delta event", () => {
