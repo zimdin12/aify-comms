@@ -269,6 +269,7 @@ export async function runPollCycle({
     if (key === undefined) key = resolved.key;
   }
   let processed = 0;
+  let released = false;
   try {
     for (let i = 0; i < maxBatch; i++) {
       const claim = await httpCall("POST", "/dispatch/claim", {
@@ -284,6 +285,17 @@ export async function runPollCycle({
         bridgeKind: "channel-sidecar",
         executionModes: ["channel", "resident"],
       });
+      // Mode FSM release signal (Task 4.1): the operator switched this agent to
+      // resident — this managed sidecar is no longer the driver. Stop driving
+      // (symmetric with claude-channel.js). The release bit propagates to the
+      // caller so the poll loop can go idle / exit (one-driver invariant).
+      if (claim?.release) {
+        console.error(
+          `[hermes-channel] released: agent '${agentId}' switched to resident; sidecar stopping.`,
+        );
+        released = true;
+        break;
+      }
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
@@ -293,7 +305,9 @@ export async function runPollCycle({
   } catch (error) {
     console.error("[hermes-channel] poll cycle error:", error?.message || String(error));
   }
-  return processed;
+  // Return shape: callers that only count work can read `.processed`; the poll
+  // loop reads `.released` to stop driving when the agent flips to resident.
+  return { processed, released };
 }
 
 async function pollLoop() {
@@ -310,7 +324,13 @@ async function pollLoop() {
         await sleep(POLL_MS);
         continue;
       }
-      await runPollCycle({ agentId, httpCall, apiClient });
+      const result = await runPollCycle({ agentId, httpCall, apiClient });
+      // Mode FSM (Task 4.1): a release signal means the operator switched this
+      // agent to resident — stop driving and exit so the resident TUI/CLI owns
+      // the session (one-driver invariant; symmetric with claude-channel.js).
+      if (result && result.released) {
+        return;
+      }
     } catch (error) {
       // Belt-and-suspenders: runPollCycle already swallows, but never let the
       // loop die on an unexpected throw.

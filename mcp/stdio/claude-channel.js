@@ -354,6 +354,16 @@ async function pollLoop() {
           bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
         });
+        // Mode FSM release signal (Task 4.1): the operator switched this agent
+        // to resident, so this managed sidecar is no longer the driver. Stop
+        // driving and exit the poll loop gracefully — the resident TUI/CLI now
+        // owns the session (one-driver invariant).
+        if (claim?.release) {
+          console.error(
+            `[claude-channel] released: agent '${agentId}' switched to resident; sidecar stopping.`,
+          );
+          return;
+        }
         const executionMode = String(claim?.run?.executionMode || "").trim().toLowerCase();
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);

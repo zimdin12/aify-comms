@@ -697,6 +697,28 @@ def _normalize_session_mode(mode: Any) -> str:
     return value if value in _SESSION_MODES else "resident"
 
 
+def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -> str:
+    """Takeover/resume command for a session, sourced from the runtime adapter.
+
+    Used by the mode-switch response (managed -> resident takeover) and the
+    mutual-exclusion collision guard's actionable error. For hermes the resume
+    target is the per-agent daemon session `aify-<agentId>` when no concrete
+    handle is pinned; everything else resumes by the pinned handle. Best-effort:
+    returns "" if the adapter has no resume command (never raises).
+    """
+    handle = str(session_handle or "").strip()
+    normalized = _normalize_runtime(runtime)
+    if not handle and normalized == "hermes" and agent_id:
+        handle = f"aify-{agent_id}"
+    if not handle:
+        return ""
+    try:
+        from service.runtimes import adapter_for
+        return adapter_for(normalized).resume_command(handle) or ""
+    except Exception:
+        return ""
+
+
 def _normalize_runtime(runtime: Any) -> str:
     key = str(runtime or "generic").strip().lower()
     return _RUNTIME_ALIASES.get(key, key or "generic")
@@ -9244,6 +9266,54 @@ async def register_agent(req: AgentRegister, request: Request):
         row = await existing.fetchone()
         bridge_id = (req.bridgeId or "").strip()
         terminal_id = str(req.terminalId or "").strip()
+        # Mutual-exclusion collision guard (Task 4.1, 2026-05-30). One-driver
+        # invariant: at most one driver per session at a time. If a process tries
+        # to attach in a DIFFERENT session_mode than the one currently DRIVING
+        # the session, reject with an actionable error so the operator switches
+        # mode in the dashboard first (which releases the prior driver) rather
+        # than silently colliding N wrappers / overwriting an active session.
+        #
+        # Scope: the guard fires ONLY on a cross-mode attach to a session that
+        # is actively `driving`. Two cases are deliberately NOT hard-rejected
+        # here because each is handled gracefully elsewhere, preserving the
+        # invariant without an error:
+        #   - SAME-mode re-attach/supersession by the same logical agent (a
+        #     managed restart, or a second resident window) -> existing
+        #     machine_id bridge supersession.
+        #   - a RESIDENT registration against a DRIVING MANAGED agent -> the
+        #     established `manualResidentCandidate` flow below parks the resident
+        #     and returns `ownershipTransition=manual_switch_required` (it never
+        #     lets the resident drive; the operator switches in the dashboard).
+        # That leaves the genuinely-unhandled collision — a MANAGED registration
+        # against a DRIVING RESIDENT session (which would otherwise silently
+        # overwrite the live resident driver) — which is hard-rejected here.
+        if row and not bool(req.restoreDeleted):
+            existing_mode = _normalize_session_mode(row["session_mode"] or "resident")
+            driver_state = str((row["driver_state"] if "driver_state" in row.keys() else "") or "idle").strip().lower()
+            graceful_resident_candidate = (
+                normalized_session_mode == "resident" and existing_mode == "managed"
+            )
+            if (
+                driver_state == "driving"
+                and existing_mode != normalized_session_mode
+                and not graceful_resident_candidate
+            ):
+                resume_command = _resume_command_for(
+                    row["runtime"] or normalized_runtime,
+                    row["session_handle"] or "",
+                    req.agentId,
+                )
+                detail = (
+                    f"agent '{req.agentId}' is currently {existing_mode} — "
+                    f"switch it to {normalized_session_mode} in the dashboard first, then run: "
+                    f"{resume_command}"
+                    if resume_command
+                    else (
+                        f"agent '{req.agentId}' is currently {existing_mode} — "
+                        f"switch it to {normalized_session_mode} in the dashboard first."
+                    )
+                )
+                raise HTTPException(409, detail)
         managed_wrapper_child = bool(req.managedWrapperChild) or (
             normalized_session_mode == "managed"
             and bool(terminal_id)
@@ -9514,6 +9584,9 @@ async def register_agent(req: AgentRegister, request: Request):
                 "bridgeId": bridge_id,
                 "sessionMode": "managed",
                 "ownershipTransition": "manual_switch_required",
+                # Task 4.1: the takeover command the operator runs after flipping
+                # the agent to resident in the dashboard (one-driver invariant).
+                "resumeCommand": _resume_command_for(normalized_runtime, session_handle, req.agentId),
                 "blockedByRun": active_run,
             }
         await db.execute(
@@ -9521,8 +9594,8 @@ async def register_agent(req: AgentRegister, request: Request):
             INSERT INTO agents (
                 id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
                 launch_mode, session_mode, session_handle, managed_by, capabilities,
-                runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                runtime_config, runtime_state, driver_state, registered_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 role = excluded.role,
                 name = excluded.name,
@@ -9541,6 +9614,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 capabilities = excluded.capabilities,
                 runtime_config = excluded.runtime_config,
                 runtime_state = excluded.runtime_state,
+                driver_state = excluded.driver_state,
                 last_seen = excluded.last_seen
             """,
             (
@@ -9551,7 +9625,12 @@ async def register_agent(req: AgentRegister, request: Request):
                 req.machineId or "", req.launchMode or "detached",
                 normalized_session_mode, session_handle, req.managedBy or "",
                 json.dumps(capabilities or []), json.dumps(runtime_config),
-                existing_state, row["registered_at"] if row and row["registered_at"] else now, now
+                existing_state,
+                # One-driver FSM: an attaching process carrying a bridge_id is a
+                # live driver for this session -> mark driving. A metadata-only
+                # (re)register without a bridge keeps the prior driver_state.
+                ("driving" if bridge_id else (str((row["driver_state"] if row and "driver_state" in row.keys() else "") or "idle"))),
+                row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
         if session_handle:
@@ -10668,6 +10747,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 capabilities = ?,
                 runtime_config = ?,
                 runtime_state = ?,
+                driver_state = 'idle',
                 status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
                 status_note = ?,
                 last_seen = ?
@@ -10772,6 +10852,11 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             side_effects["error"] = str(exc)
 
         await db.commit()
+        # Takeover/resume command for the operator. On a managed -> resident
+        # switch this is the command the operator runs to drive the SAME session
+        # interactively; mirrored in the dashboard. Best-effort (empty if the
+        # adapter has none).
+        resume_command = _resume_command_for(effective_runtime, switch_session_handle, agent_id)
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast(
@@ -10784,6 +10869,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "mode": new_mode,
             "previousMode": current_mode,
             "changed": True,
+            "resumeCommand": resume_command,
             "sideEffects": side_effects,
         }
     finally:
@@ -11799,12 +11885,24 @@ async def agent_heartbeat(agent_id: str, request: Request):
         pass
     bridge_id = str(body.get("bridgeId", "") or "").strip()
     terminal_id = str(body.get("terminalId", "") or "").strip()
+    bridge_kind = str(body.get("bridgeKind", "") or "").strip().lower()
     now = _now()
     db = await get_db()
     try:
         tombstone = await _agent_tombstone(db, agent_id)
         if tombstone:
             raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        # Mode FSM release signal (Task 4.1, 2026-05-30). Symmetric with the
+        # claim path: a managed sidecar (bridgeKind="channel-sidecar") pulsing
+        # turn_busy via heartbeat is told to RELEASE once the agent has been
+        # switched to resident, so it stops driving even between claims.
+        if bridge_kind == "channel-sidecar":
+            mode_row = await (await db.execute(
+                "SELECT session_mode FROM agents WHERE id = ?",
+                (agent_id,),
+            )).fetchone()
+            if mode_row and _normalize_session_mode(mode_row["session_mode"] or "resident") != "managed":
+                return {"ok": True, "release": True}
         if bridge_id:
             bridge_row = await (await db.execute(
                 "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
@@ -12560,6 +12658,19 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
         agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
 
+        # Mode FSM release signal (Task 4.1, 2026-05-30). A managed sidecar
+        # (claude-channel.js / hermes-channel.js, bridgeKind="channel-sidecar")
+        # must STOP driving once the operator switches the agent to resident.
+        # We surface `release: true` in the claim response so the sidecar exits
+        # its poll loop / goes idle. This is the one-driver invariant in action:
+        # the managed driver releases so the resident TUI can take the session.
+        if (
+            str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
+            and _normalize_session_mode(agent["session_mode"] or "resident") != "managed"
+        ):
+            await db.commit()
+            return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}
+
         # Reject claims from stale stdio bridges. The bridge_instances row
         # catches normal supersession, while runtimeState.bridgeInstanceId
         # catches the more dangerous case where an old process keeps polling
@@ -12807,6 +12918,17 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, claim_bridge_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", req.bridgeId or "", agent_runtime, selected_run["id"])
         )
+        # One-driver FSM (Task 4.1): a managed sidecar that successfully claims a
+        # run for a managed agent is the live driver -> mark driving so a
+        # cross-mode resident attach is rejected by the collision guard.
+        if (
+            str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
+            and _normalize_session_mode(agent["session_mode"] or "resident") == "managed"
+        ):
+            await db.execute(
+                "UPDATE agents SET driver_state = 'driving' WHERE id = ?",
+                (req.agentId,),
+            )
         await _invalidate_agent_live_state(db, req.agentId)
         await _touch_current_agent_session(
             db,

@@ -29,12 +29,17 @@ async function withApiServer(t, opts) {
 }
 
 // A recording fake of the aify httpCall(method, endpoint, body) helper.
-function makeAifyHttp({ claims = [] } = {}) {
+function makeAifyHttp({ claims = [], release = false } = {}) {
   const calls = [];
   let claimIdx = 0;
   async function httpCall(method, endpoint, body = null) {
     calls.push({ method, endpoint, body });
     if (method === "POST" && endpoint === "/dispatch/claim") {
+      // Mode FSM (Task 4.1): the service returns release:true when the agent
+      // has been switched to resident so the managed sidecar stops driving.
+      if (release) {
+        return { ok: true, run: null, release: true };
+      }
       const run = claims[claimIdx++];
       return { run: run || null };
     }
@@ -189,6 +194,31 @@ test("runPollCycle: no claimable run → no chat, no reply, does not throw", asy
     runPollCycle({ agentId: "sc-hermes", machineId: "m", bridgeId: "b", httpCall, apiClient, baseUrl, key }),
   );
   assert.ok(!findCall(calls, "POST", "/messages/send"));
+});
+
+test("runPollCycle: release signal → sidecar stops driving (no chat, no claim of work)", async (t) => {
+  // Task 4.1 mode FSM: when the agent is switched to resident the service
+  // returns release:true on the claim. The managed sidecar must stop driving
+  // and surface the release so the poll loop exits (one-driver invariant).
+  const { baseUrl, key } = await withApiServer(t);
+  const apiClient = createHermesApiServerClient();
+  const { httpCall, calls } = makeAifyHttp({ release: true });
+
+  const result = await runPollCycle({
+    agentId: "sc-hermes",
+    machineId: "m",
+    bridgeId: "b",
+    httpCall,
+    apiClient,
+    baseUrl,
+    key,
+  });
+
+  assert.ok(result && result.released, "runPollCycle must report released=true on a release signal");
+  assert.equal(result.processed, 0, "no runs should be processed when released");
+  // No work was driven: no chat turn, no reply, no run PATCH.
+  assert.ok(!findCall(calls, "POST", "/messages/send"), "released sidecar must not post a reply");
+  assert.ok(!findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/")), "released sidecar must not settle a run");
 });
 
 test("resolveHermesEndpoint: env-absent → resolves the per-agent endpoint by agentId", (t) => {
