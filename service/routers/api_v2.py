@@ -432,6 +432,59 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
     return False
 
 
+# A channel-sidecar bridge heartbeat older than this is treated as a dead
+# sidecar for deliverability/status purposes. The standalone sidecar's
+# /dispatch/claim poll loop refreshes bridge_instances.last_seen on every tick
+# (claim_dispatch: "the claim poll itself is the heartbeat"), so a live sidecar
+# stays well within this window; a process that has exited goes stale quickly.
+CHANNEL_SIDECAR_STALE_SECONDS = 180
+
+
+async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
+    """Task 1.6 (2026-05-30): True when a standalone channel sidecar
+    (hermes-channel.js / claude-channel.js) is currently heartbeating for this
+    agent.
+
+    This is the deliverability/liveness signal for runtimes whose managed wake
+    is delivered by a standalone channel sidecar that owns NO wrapper PTY
+    (hermes via its pinned api_server daemon). It is the runtime-agnostic
+    equivalent of claude's `_has_live_terminal_session` gate: claude's sidecar
+    runs INSIDE the claude-aify wrapper PTY (so a live PTY terminal_session is
+    its liveness proof), whereas hermes's sidecar is a separate process whose
+    proof is its own `bridge_kind='channel-sidecar'` bridge_instances row with a
+    fresh last_seen (kept fresh by the claim poll loop).
+
+    Returns False when no such row exists (no sidecar ever ran), the row is
+    superseded, or its heartbeat is older than CHANNEL_SIDECAR_STALE_SECONDS
+    (the sidecar process died) — so status falls back to `available` instead of
+    a falsely positive `online`.
+    """
+    if db is None:
+        return False
+    try:
+        cursor = await db.execute(
+            """
+            SELECT last_seen FROM bridge_instances
+            WHERE agent_id = ?
+              AND bridge_kind = 'channel-sidecar'
+              AND COALESCE(superseded_by, '') = ''
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        last_seen = _iso_to_epoch(str(row["last_seen"] or ""))
+        if not last_seen:
+            return False
+        age = datetime.now(timezone.utc).timestamp() - last_seen
+        return age <= CHANNEL_SIDECAR_STALE_SECONDS
+    except Exception:
+        return False
+
+
 async def _enforce_live_worker_gate(
     payload: dict[str, Any],
     db,
@@ -2640,6 +2693,31 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # available — trust it.
         if not has_live_worker and agent_session_mode == "resident":
             has_live_worker = True
+    # Task 1.6 (2026-05-30): standalone-channel-sidecar deliverability gate —
+    # runtime-agnostic for channel-enabled managed agents. claude's sidecar
+    # runs inside the claude-aify wrapper PTY, so the terminal_sessions check
+    # above is its liveness proof and this branch is a no-op for it (it has no
+    # separate channel-sidecar bridge row). hermes's sidecar
+    # (hermes-channel.js) is a SEPARATE process that owns no PTY — its liveness
+    # proof is a fresh channel-sidecar bridge heartbeat. Without this, a
+    # channel-enabled managed hermes with no live_session/terminal would have
+    # has_live_worker=False and report `available` even while its sidecar is
+    # actively delivering; with it, `online` is gated on REAL deliverability
+    # (channelEnabled AND a live sidecar heartbeat) and falls back to
+    # `available` the moment the sidecar dies — never a falsely positive online.
+    # ASYMMETRY(hermes): hermes is the runtime that needs the standalone-sidecar
+    # liveness probe because it has no wrapper PTY in the channel path; claude
+    # is covered by its PTY terminal_session and harmlessly passes through here.
+    channel_managed_no_sidecar = False
+    if (
+        not has_live_worker
+        and agent_session_mode == "managed"
+        and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
+    ):
+        if await _has_live_channel_sidecar(db, agent_row["id"]):
+            has_live_worker = True
+        else:
+            channel_managed_no_sidecar = True
     if has_live_worker:
         # A live worker that is not handling a turn is public `online`.
         # `turn_state_ready` remains useful internally for readiness and cache
@@ -2755,6 +2833,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                     reason = "Agent is idle."
             except Exception:
                 pass
+        # Task 1.6: surface WHY a channel-enabled managed agent is only
+        # `available` rather than deliverable — the channel sidecar
+        # (hermes-channel.js) is not heartbeating. Only annotate when we
+        # haven't already attached a more specific reason (e.g. offline).
+        if effective_status == "available" and channel_managed_no_sidecar and not reason:
+            reason = "No live channel sidecar heartbeat (not deliverable)."
     return {
         "status": effective_status,
         "reason": reason,
