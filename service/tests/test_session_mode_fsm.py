@@ -118,6 +118,43 @@ class SessionModeFsmTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def _register_hermes_no_gateway(self, *, agent_id, session_mode="managed", bridge_id="bridge-1"):
+        """Register a hermes agent with an EXPLICITLY empty runtimeConfig (no
+        gatewayUrl) — mirrors the api_server model where hermes-aify no longer
+        exports AIFY_HERMES_GATEWAY_URL."""
+        return self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": session_mode,
+                "sessionHandle": f"aify-{agent_id}",
+                "machineId": "linux:test-host",
+                "bridgeId": bridge_id,
+                "launchMode": "managed" if session_mode == "managed" else "detached",
+                "capabilities": ["managed-run", "resident-run", "resume", "interrupt"],
+                "runtimeConfig": {},
+            },
+        )
+
+    def _insert_active_run(self, agent_id, run_id="run-active"):
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                """
+                INSERT INTO dispatch_runs (
+                    id, from_agent, target_agent, message_type, subject, body,
+                    status, requested_at, claimed_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (run_id, "lead", agent_id, "request", "work", "body",
+                 "running", "2026-05-30T00:00:00Z", "2026-05-30T00:00:00Z"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     # ── (a) managed -> resident: marks resident, releases, surfaces resume ────
 
     def test_managed_to_resident_marks_release_and_surfaces_resume_command(self):
@@ -266,6 +303,49 @@ class SessionModeFsmTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(res.json().get("mode"), "managed")
         self.assertEqual(self._read_agent("claude-flip")["session_mode"], "managed")
+
+    # ── api_server model: hermes managed -> resident needs no gatewayUrl ──────
+
+    def test_hermes_managed_to_resident_without_gateway_url_no_force_ok(self):
+        """api_server model: resident hermes resumes its pinned session via
+        --resume, so a managed hermes agent with NO runtimeConfig.gatewayUrl can
+        switch to resident WITHOUT force=true (the old tui_gateway-era 409 guard
+        is gone). The switch must succeed and surface a --resume command."""
+        self._heartbeat_environment("hermes")
+        reg = self._register_hermes_no_gateway(agent_id="hermes-ng")
+        self.assertEqual(reg.status_code, 200, reg.text)
+        res = self.client.patch(
+            "/api/v1/agents/hermes-ng/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body.get("mode"), "resident")
+        self.assertTrue(body.get("changed"))
+        self.assertIn("--resume", body.get("resumeCommand") or "")
+        self.assertEqual(self._read_agent("hermes-ng")["session_mode"], "resident")
+
+    def test_hermes_managed_to_resident_active_run_still_blocks_without_force(self):
+        """Regression: the active-run guard is KEPT — an in-flight run blocks the
+        switch with 409 unless force=true (independent of the dropped gateway
+        guard)."""
+        self._heartbeat_environment("hermes")
+        self.assertEqual(
+            self._register_hermes_no_gateway(agent_id="hermes-busy").status_code, 200)
+        self._insert_active_run("hermes-busy")
+        res = self.client.patch(
+            "/api/v1/agents/hermes-busy/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("active dispatch run", (res.json().get("detail") or "").lower())
+        # force=true overrides the active-run guard.
+        forced = self.client.patch(
+            "/api/v1/agents/hermes-busy/session-mode",
+            json={"mode": "resident", "force": True},
+        )
+        self.assertEqual(forced.status_code, 200, forced.text)
+        self.assertEqual(forced.json().get("mode"), "resident")
 
 
 if __name__ == "__main__":

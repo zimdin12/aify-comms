@@ -231,7 +231,10 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         self.assertEqual(self._read_agent_mode("codex-force"), "managed")
         self.assertEqual(self._read_agent_row("codex-force")["launch_mode"], "managed")
 
-    def test_switch_hermes_managed_to_resident_without_gateway_returns_409(self):
+    def test_switch_hermes_managed_to_resident_without_gateway_succeeds(self):
+        # api_server model: resident hermes resumes its pinned session via
+        # --resume and needs no gatewayUrl. The old tui_gateway-era 409 guard was
+        # removed, so this switch must succeed WITHOUT force=true.
         self._heartbeat_environment("hermes")
         # Register hermes agent WITHOUT gatewayUrl, in managed mode.
         self._register_agent(
@@ -244,8 +247,9 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
             "/api/v1/agents/hermes-no-gw/session-mode",
             json={"mode": "resident"},
         )
-        self.assertEqual(res.status_code, 409, res.text)
-        self.assertIn("gateway", (res.json().get("detail") or "").lower())
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(self._read_agent_mode("hermes-no-gw"), "resident")
+        self.assertIn("--resume", res.json().get("resumeCommand") or "")
 
     def test_switch_hermes_managed_to_resident_with_force_succeeds(self):
         self._heartbeat_environment("hermes")

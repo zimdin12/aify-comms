@@ -10595,9 +10595,11 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
 
     - Active dispatch run in flight -> 409 (switching mid-turn would
       stall the run; wait for it to finish).
-    - Hermes managed -> resident without `runtimeConfig.gatewayUrl` ->
-      409 (resident hermes needs the gateway URL to attach; leaving it
-      blank produces an un-wakeable agent).
+
+    (The former hermes-without-gatewayUrl 409 guard was removed: under the
+    api_server model resident hermes resumes its pinned session via
+    `--resume` and never needs a gateway URL — it was a tui_gateway-era
+    requirement.)
 
     Audit log: a `dispatch_events` row of type
     `mode_switch_<old>_to_<new>` is appended with body
@@ -10678,12 +10680,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     409,
                     f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
                 )
-            if new_mode == "resident" and effective_runtime == "hermes":
-                if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
-                    raise HTTPException(
-                        409,
-                        "Hermes resident requires runtimeConfig.gatewayUrl. Re-launch hermes-aify (which exports AIFY_HERMES_GATEWAY_URL) and re-register, or pass force=true.",
-                    )
+            # api_server model: resident hermes resumes its pinned session via --resume; no gatewayUrl needed (was a tui_gateway-era guard)
             if new_mode == "managed":
                 managed_session = await (await db.execute(
                     """
