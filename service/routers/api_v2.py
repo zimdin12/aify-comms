@@ -10927,6 +10927,18 @@ async def send_message(req: MessageSend, request: Request):
                 f'inReplyTo "{req.inReplyTo}" did not match an existing message; message was sent unthreaded.'
             )
 
+        # ASYMMETRY: replies bypass the live-wake hard-gate by design.
+        # A reply must ALWAYS be persisted + threaded (and close its
+        # require_reply run) even when the recipient can't be live-woken —
+        # the recipient simply sees it in their inbox. Hard-rejecting a
+        # reply because the recipient's bridge is stale dropped legitimate
+        # replies (broke managed-hermes self-reply when the original
+        # sender's resident bridge was stale) and left the require_reply
+        # run open forever. The live-wake hard-gate below stays in force
+        # only for NEW dispatches (requests/etc.), never for replies.
+        # A reply is identified by a resolved inReplyTo OR type=="response".
+        is_reply = bool(resolved_in_reply_to) or str(req.type or "").strip().lower() == "response"
+
         recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
 
         if not recipients:
@@ -10945,7 +10957,10 @@ async def send_message(req: MessageSend, request: Request):
                 allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
-            if not_started:
+            # ASYMMETRY: do NOT hard-reject a reply here. Replies fall through
+            # to persist + thread regardless of recipient live-startability
+            # (see is_reply note above). Only NEW dispatches hard-gate.
+            if not_started and not is_reply:
                 recipient_info = {}
                 for r in recipients:
                     info = await _get_recipient_info(db, r)
@@ -11159,7 +11174,9 @@ async def send_message(req: MessageSend, request: Request):
                 for recipient_id, execution_mode in launchable_recipients
                 if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
             ]
-            if not_started:
+            # ASYMMETRY: replies are never hard-rejected — see is_reply note
+            # above. Fall through to persist + thread the reply.
+            if not_started and not is_reply:
                 recipient_info = {}
                 for r in recipients:
                     info = await _get_recipient_info(db, r)
