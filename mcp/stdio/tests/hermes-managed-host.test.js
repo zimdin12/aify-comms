@@ -33,6 +33,8 @@ import {
   runEnsureHostCli,
   runDeliveryLoop,
   runCli,
+  ensureStableSession,
+  resolveHermesPython,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -402,6 +404,8 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
   const payload = await runEnsureHostCli("sc-hermes", {
     spawnImpl: spawn,
     fetchImpl,
+    // Fake the python pre-seed so the test never touches the real SessionDB.
+    spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
     out: (s) => (stdout += s),
     err: (s) => (stderr += s),
   });
@@ -485,6 +489,7 @@ test("runCli: 'ensure-host <id>' routes to runEnsureHostCli and prints JSON", as
   const res = await runCli(["ensure-host", "sc-hermes"], {
     spawnImpl: spawn,
     fetchImpl,
+    spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
     out: (s) => (stdout += s),
     err: () => {},
   });
@@ -513,4 +518,61 @@ test("runCli: 'run <id>' routes to the delivery loop", async () => {
   assert.equal(res.mode, "run");
   assert.equal(res.agentId, "sc-hermes");
   assert.ok(findCall(calls, "POST", "/dispatch/claim"));
+});
+
+// ---------------------------------------------------------------------------
+// Stable-session pre-seed (BUG: --resume aify-<id> 4007 on first launch)
+// ---------------------------------------------------------------------------
+
+test("resolveHermesPython: finds the python sibling next to a path-style hermes", () => {
+  // A bare command with no separators → PATH fallback (python3/python.exe).
+  const fallback = resolveHermesPython("hermes");
+  assert.ok(/python/.test(fallback));
+});
+
+test("ensureStableSession: runs python create-or-ignore with the canonical aify-<id> key", () => {
+  const calls = [];
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const ok = ensureStableSession({ agentId: "gov tui!", spawnSync: fakeSpawnSync });
+  assert.equal(ok, true);
+  assert.equal(calls.length, 1);
+  // The session id arg MUST be the canonical pinnedSessionId (sanitized).
+  const sessionArg = calls[0].args[calls[0].args.length - 1];
+  assert.equal(sessionArg, "aify-gov-tui");
+  // It must invoke an inline python program (-c) that imports SessionDB.
+  assert.ok(calls[0].args.includes("-c"));
+  assert.ok(calls[0].args.some((a) => /SessionDB/.test(a)));
+});
+
+test("ensureStableSession: empty agentId → no-op false", () => {
+  let called = false;
+  const ok = ensureStableSession({ agentId: "", spawnSync: () => { called = true; return { status: 0 }; } });
+  assert.equal(ok, false);
+  assert.equal(called, false);
+});
+
+test("ensureStableSession: python failure is swallowed (best-effort, returns false)", () => {
+  const ok = ensureStableSession({
+    agentId: "sc-hermes",
+    spawnSync: () => ({ status: 2, stdout: "", stderr: "boom" }),
+  });
+  assert.equal(ok, false);
+});
+
+test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  let preseedCalled = false;
+  await runEnsureHostCli("sc-hermes", {
+    spawnImpl: spawn,
+    fetchImpl,
+    ensureSession: false,
+    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(preseedCalled, false);
 });

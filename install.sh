@@ -1405,7 +1405,14 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
   if [ -n "\$AIFY_HERMES_TUI_DIR" ] && [ -f "\$AIFY_HERMES_TUI_DIR/dist/entry.js" ]; then
     export HERMES_TUI_DIR="\$AIFY_HERMES_TUI_DIR"
   fi
-  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
+  # Resume the STABLE session (\`aify-<agentId>\`) so a relaunch reuses the SAME
+  # transcript instead of forging a new session every time (no duplication).
+  # \`hermes --tui\` STRIPS HERMES_TUI_RESUME unless it is passed as
+  # \`--resume <id>\` (main.py: env.pop("HERMES_TUI_RESUME") then re-add only when
+  # argparse resolved a resume id), so the env var alone is a no-op — the flag is
+  # required. ensure-host has already pre-seeded the row so resume resolves on
+  # first launch. \`--resume\` MUST precede the operator's passthrough flags.
+  exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$AIFY_HERMES_PINNED_SESSION" "\${HERMES_PERMISSION_FLAGS[@]}"
 fi
 
 # RESIDENT/interactive launch with an agent id: attach an operator TUI to THIS
@@ -1740,7 +1747,13 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
   if (\$AifyHermesTuiDir -and (Test-Path (Join-Path \$AifyHermesTuiDir 'dist/entry.js'))) {
     \$env:HERMES_TUI_DIR = \$AifyHermesTuiDir
   }
-  Invoke-HermesRuntime @('--tui')
+  # Resume the STABLE session ('aify-<agentId>') so a relaunch reuses the SAME
+  # transcript instead of forging a new session each time (no duplication).
+  # 'hermes --tui' STRIPS HERMES_TUI_RESUME unless passed as '--resume <id>'
+  # (main.py env.pop then re-add only when argparse resolved a resume id), so the
+  # env var alone is a no-op — the flag is required. ensure-host has already
+  # pre-seeded the row so resume resolves on first launch.
+  Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
   exit \$script:HermesRuntimeExitCode
 }
 
@@ -2190,7 +2203,20 @@ _patch_hermes_config_at() {
       `      AIFY_HERMES_GATEWAY_URL: \"\${AIFY_HERMES_GATEWAY_URL}\"`,
       `      AIFY_HERMES_GATEWAY_TOKEN: \"\${AIFY_HERMES_GATEWAY_TOKEN}\"`,
       `      HERMES_TUI_GATEWAY_URL: \"\${HERMES_TUI_GATEWAY_URL}\"`,
-      ...(serverUrl ? [`      AIFY_SERVER_URL: ${JSON.stringify(serverUrl)}`, `      CLAUDE_MCP_SERVER_URL: ${JSON.stringify(serverUrl)}`] : []),
+      // The aify-comms MCP child runs in HTTP mode against the service ONLY when
+      // CLAUDE_MCP_SERVER_URL / AIFY_SERVER_URL is set (server.js:94 — else it
+      // silently falls back to the local .messages/ FILE store and replies never
+      // reach the service). The MCP child is spawned by the (managed) hidden
+      // gateway host / (resident) hermes process, BOTH of which inherit the
+      // hermes-aify wrapper exported AIFY_SERVER_URL/CLAUDE_MCP_SERVER_URL
+      // (install.sh bash:1160-1161, PS:1578-1579 — baked default_server). So we
+      // ALWAYS emit these two keys: a literal URL when one was given at install
+      // (most robust — no env dependency), otherwise the \${VAR} interpolation
+      // hermes resolves at MCP-spawn time from the wrapper-exported env
+      // (mcp_tool.py _interpolate_env_vars). Either way HTTP mode is guaranteed;
+      // the prior omit-when-empty left the child in file mode.
+      `      AIFY_SERVER_URL: ${serverUrl ? JSON.stringify(serverUrl) : "\"\${AIFY_SERVER_URL}\""}`,
+      `      CLAUDE_MCP_SERVER_URL: ${serverUrl ? JSON.stringify(serverUrl) : "\"\${CLAUDE_MCP_SERVER_URL}\""}`,
     ];
     // Plan 6 follow-up: rewrite the aify-comms entry in place when it
     // exists, so re-running install.sh refreshes the env block. The

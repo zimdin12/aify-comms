@@ -28,6 +28,8 @@
 
 import os from "os";
 import path from "path";
+import fs from "fs";
+import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
@@ -219,6 +221,106 @@ export async function ensureGatewayHost({
     intervalMs: readyIntervalMs,
   });
   return { port, token, wsUrl: wsUrlFor(token), child, reused: false };
+}
+
+// ---------------------------------------------------------------------------
+// Stable session pre-seed — guarantee `aify-<agentId>` exists in hermes' DB so
+// the visible TUI's `--resume aify-<agentId>` resolves on the VERY FIRST launch.
+// ---------------------------------------------------------------------------
+//
+// WHY: `hermes --tui --resume <id>` calls the gateway `session.resume`, which
+// returns 4007 "session not found" when <id> matches neither a session id nor a
+// title (tui_gateway/server.py session.resume). On a fresh agent `aify-<id>`
+// doesn't exist yet → first launch would land on "error: session not found"
+// with no live session. We pre-create a persisted row with the EXPLICIT id
+// `aify-<id>` (INSERT OR IGNORE — idempotent, never duplicates) so resume
+// always succeeds. This mirrors how the api_server/resident path pins an
+// explicit `aify-<id>` session id. Best-effort: any failure here is swallowed
+// so a missing/old hermes never breaks the TUI launch (the TUI then forges a
+// session exactly as it does today — no regression).
+
+// Resolve the hermes venv python interpreter next to the hermes executable.
+// hermesCmd is typically an absolute path to .../venv/Scripts/hermes(.exe) or
+// .../venv/bin/hermes; the python sibling lives in the same dir. Returns the
+// python path if found on disk, else "python" (PATH fallback).
+export function resolveHermesPython(hermesCmd = HERMES_CMD) {
+  const cmd = String(hermesCmd || "").trim();
+  try {
+    if (cmd && (cmd.includes("/") || cmd.includes("\\"))) {
+      const dir = path.dirname(cmd);
+      const candidates = [
+        path.join(dir, "python.exe"),
+        path.join(dir, "python3.exe"),
+        path.join(dir, "python"),
+        path.join(dir, "python3"),
+      ];
+      for (const c of candidates) {
+        try {
+          if (fs.existsSync(c)) return c;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return process.platform === "win32" ? "python.exe" : "python3";
+}
+
+// Create-or-ignore the stable `aify-<agentId>` session row via the hermes
+// SessionDB. Idempotent (INSERT OR IGNORE) + best-effort (never throws). Returns
+// true when the row is known to exist afterward, false on any failure.
+// `spawnSync` is injectable for tests.
+export function ensureStableSession({
+  agentId,
+  hermesCmd = HERMES_CMD,
+  spawnSync,
+} = {}) {
+  const id = String(agentId || "").trim();
+  if (!id) return false;
+  const key = sessionKeyFor(id);
+  const py = resolveHermesPython(hermesCmd);
+  // One-shot python: create the row with the explicit id, title it, confirm.
+  const code = [
+    "import sys",
+    "try:",
+    "    from hermes_state import SessionDB",
+    "    db = SessionDB()",
+    "    db.create_session(sys.argv[1], source='aify-managed')",
+    "    try:",
+    "        db.set_session_title(sys.argv[1], sys.argv[1])",
+    "    except Exception:",
+    "        pass",
+    "    ok = bool(db.get_session(sys.argv[1]))",
+    "    try:",
+    "        db.close()",
+    "    except Exception:",
+    "        pass",
+    "    sys.exit(0 if ok else 1)",
+    "except Exception as exc:",
+    "    sys.stderr.write('ensure-session failed: %s\\n' % exc)",
+    "    sys.exit(2)",
+  ].join("\n");
+  try {
+    const runner = spawnSync || nodeSpawnSync;
+    const res = runner(py, ["-c", code, key], {
+      stdio: ["ignore", "ignore", "pipe"],
+      encoding: "utf8",
+      timeout: 30000,
+      env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+    });
+    if (res && res.status === 0) return true;
+    if (res && res.stderr) {
+      console.error(`[hermes-managed-host] ensureStableSession('${key}'): ${String(res.stderr).trim()}`);
+    }
+  } catch (error) {
+    console.error(
+      `[hermes-managed-host] ensureStableSession('${key}') failed (best-effort):`,
+      error?.message || String(error),
+    );
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +672,12 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   const id = String(agentId || "").trim();
   if (!id) throw new Error("ensure-host requires an agentId");
   const port = agentPort(id);
+  // Pre-seed the stable `aify-<id>` DB session so the wrapper's
+  // `--resume aify-<id>` resolves on the very first launch (else the gateway
+  // returns 4007 and the TUI lands on "session not found"). Best-effort.
+  if (deps.ensureSession !== false) {
+    ensureStableSession({ agentId: id, spawnSync: deps.spawnSyncImpl });
+  }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
   const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
   // The gateway host must OUTLIVE this short-lived CLI process (the delivery
