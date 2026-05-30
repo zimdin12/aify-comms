@@ -1310,6 +1310,11 @@ aify_hermes_kill_prior() {
     pkill -f "hermes-channel.js.*\$agent_id" >/dev/null 2>&1 || true
     pkill -f "AIFY_AGENT_ID=\$agent_id.*hermes-channel.js" >/dev/null 2>&1 || true
   fi
+  # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
+  # (SIGKILL — untrappable, so the sidecar's teardown handler never ran) can
+  # leave an orphan \`hermes gateway run\` bound to the agent's api_server port.
+  # stopDaemon resolves that port and kills the listener (best-effort, exits 0).
+  node "\$AIFY_HERMES_DAEMON_CLI" stop "\$agent_id" >/dev/null 2>&1 || true
 }
 
 # MANAGED launch: \`--aify-agent\` present AND session-mode resolved to managed
@@ -1570,6 +1575,11 @@ function Invoke-AifyHermesKillPrior {
       Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-channel\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
       ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
   } catch {}
+  # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
+  # (the sidecar's SIGTERM/SIGINT teardown can be bypassed by a force-kill) can
+  # leave an orphan 'hermes gateway run' bound to the agent's api_server port.
+  # stopDaemon resolves that port and kills the listener (best-effort, exits 0).
+  try { & node \$AifyHermesDaemonCli stop \$AgentId 2>\$null | Out-Null } catch {}
 }
 
 \$script:HermesRuntimeExitCode = 0

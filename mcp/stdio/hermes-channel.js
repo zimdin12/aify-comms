@@ -36,6 +36,7 @@ import { createHermesApiServerClient, DEFAULT_BASE_URL as HERMES_DEFAULT_BASE_UR
 import { probeApiServer, assertApiServer } from "./hermes-version.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { agentEndpoint } from "./hermes-endpoint.js";
+import { stopDaemon as defaultStopDaemon } from "./hermes-daemon.js";
 // Reuse claude-channel.js's dispatch content/prompt builder verbatim so the
 // hermes agent receives the same priority framing + inReplyTo guidance.
 import { dispatchContent } from "./claude-channel.js";
@@ -310,9 +311,67 @@ export async function runPollCycle({
   return { processed, released };
 }
 
+// SYMMETRIC TEARDOWN (Plan 1.x): the sidecar that ensured the per-agent daemon
+// tears it down. Called on EVERY exit path — SIGTERM/SIGINT (bridge kills the
+// wrapper PTY), the mode-FSM release signal (agent switched to resident), and a
+// natural poll-loop end. Best-effort + idempotent: a shared `state` flag guards
+// against double teardown so the signal handler and the loop-end path don't both
+// kill (and so a second signal is a no-op). NEVER throws — a failed reap is
+// logged, not fatal, and the wrapper's kill-prior reaper covers the SIGKILL case
+// (SIGKILL can't be trapped, so no handler runs).
+const _teardownState = { done: false };
+
+export async function teardownDaemon({
+  agentId,
+  stopDaemon = defaultStopDaemon,
+  state = _teardownState,
+} = {}) {
+  if (state.done) return;
+  state.done = true;
+  try {
+    const result = await stopDaemon({ agentId });
+    if (process.env.AIFY_HERMES_CHANNEL_DEBUG) {
+      console.error(
+        `[hermes-channel] daemon teardown for '${agentId}': ` +
+          `${result && result.stopped ? `stopped pid ${result.pid ?? "?"}` : "no daemon to stop"}`,
+      );
+    }
+  } catch (error) {
+    console.error(
+      `[hermes-channel] daemon teardown for '${agentId}' failed (best-effort):`,
+      error?.message || String(error),
+    );
+  }
+}
+
+// Wire SIGTERM/SIGINT → teardownDaemon → exit. `proc` and `stopDaemon` are
+// injectable for tests (so we never send real signals to the test process).
+// The handler is fast: it kicks off teardown and exits — it does not block exit
+// indefinitely.
+export function installShutdownTeardown({
+  agentId,
+  proc = process,
+  stopDaemon = defaultStopDaemon,
+  state = _teardownState,
+} = {}) {
+  const onSignal = async () => {
+    await teardownDaemon({ agentId, stopDaemon, state });
+    try {
+      proc.exit(0);
+    } catch {
+      /* test fake / already exiting */
+    }
+  };
+  proc.once("SIGTERM", onSignal);
+  proc.once("SIGINT", onSignal);
+}
+
 async function pollLoop() {
   const httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY);
   const apiClient = createHermesApiServerClient();
+  // Track the last bound agent so the poll-end / release teardown knows which
+  // per-agent daemon to reap.
+  let lastAgentId = "";
   while (true) {
     try {
       if (!AIFY_SERVER_URL) {
@@ -324,11 +383,15 @@ async function pollLoop() {
         await sleep(POLL_MS);
         continue;
       }
+      lastAgentId = agentId;
       const result = await runPollCycle({ agentId, httpCall, apiClient });
       // Mode FSM (Task 4.1): a release signal means the operator switched this
       // agent to resident — stop driving and exit so the resident TUI/CLI owns
       // the session (one-driver invariant; symmetric with claude-channel.js).
+      // Tear down THIS agent's daemon before exiting: the resident TUI brings up
+      // its own gateway, so the managed daemon must not linger.
       if (result && result.released) {
+        await teardownDaemon({ agentId });
         return;
       }
     } catch (error) {
@@ -338,6 +401,11 @@ async function pollLoop() {
     }
     await sleep(POLL_MS);
   }
+  // Unreachable today (loop only returns via the release path above, which tears
+  // down inline), but if a future change ends the loop without releasing, reap
+  // the last agent's daemon so it never leaks.
+  // eslint-disable-next-line no-unreachable
+  await teardownDaemon({ agentId: lastAgentId });
 }
 
 if (IS_MAIN) {
@@ -346,6 +414,9 @@ if (IS_MAIN) {
   // endpoint from the bound agentId (env override still wins inside
   // resolveHermesEndpoint).
   const bootAgentId = readBoundAgentId();
+  // Symmetric teardown: when the bridge SIGTERMs this sidecar (wrapper PTY kill)
+  // or the operator Ctrl-C's it, tear down the per-agent daemon we ensured.
+  installShutdownTeardown({ agentId: bootAgentId });
   const { baseUrl: bootBaseUrl, key: bootKey } = resolveHermesEndpoint(bootAgentId);
   const probe = await probeApiServer({ baseUrl: bootBaseUrl, key: bootKey });
   assertApiServer(probe);

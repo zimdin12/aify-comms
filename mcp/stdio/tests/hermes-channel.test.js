@@ -19,7 +19,13 @@ import { test } from "node:test";
 import { createHermesApiServerClient } from "../hermes-apiserver-client.js";
 import { start } from "./fixtures/fake-hermes-apiserver.mjs";
 import { pinnedSessionId } from "../hermes-session-id.js";
-import { processClaimedRun, runPollCycle, resolveHermesEndpoint } from "../hermes-channel.js";
+import {
+  processClaimedRun,
+  runPollCycle,
+  resolveHermesEndpoint,
+  teardownDaemon,
+  installShutdownTeardown,
+} from "../hermes-channel.js";
 import { agentEndpoint } from "../hermes-endpoint.js";
 
 async function withApiServer(t, opts) {
@@ -219,6 +225,67 @@ test("runPollCycle: release signal → sidecar stops driving (no chat, no claim 
   // No work was driven: no chat turn, no reply, no run PATCH.
   assert.ok(!findCall(calls, "POST", "/messages/send"), "released sidecar must not post a reply");
   assert.ok(!findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/")), "released sidecar must not settle a run");
+});
+
+test("teardownDaemon: invokes the injected stopDaemon with the agentId (release/shutdown path)", async () => {
+  const calls = [];
+  const stopDaemon = async (args) => {
+    calls.push(args);
+    return { stopped: true, pid: 1234 };
+  };
+  await teardownDaemon({ agentId: "sc-hermes", stopDaemon });
+  assert.equal(calls.length, 1, "stopDaemon must be invoked once");
+  assert.equal(calls[0].agentId, "sc-hermes");
+});
+
+test("teardownDaemon: guards against double teardown (second call is a no-op)", async () => {
+  const calls = [];
+  const stopDaemon = async (args) => {
+    calls.push(args);
+    return { stopped: true };
+  };
+  const state = {};
+  await teardownDaemon({ agentId: "sc-hermes", stopDaemon, state });
+  await teardownDaemon({ agentId: "sc-hermes", stopDaemon, state });
+  assert.equal(calls.length, 1, "double teardown must call stopDaemon only once");
+});
+
+test("teardownDaemon: never throws when stopDaemon rejects", async () => {
+  const stopDaemon = async () => {
+    throw new Error("kill failed");
+  };
+  await assert.doesNotReject(() => teardownDaemon({ agentId: "sc-hermes", stopDaemon }));
+});
+
+test("installShutdownTeardown: wires SIGTERM/SIGINT handlers that call teardown", async () => {
+  const registered = {};
+  const fakeProc = {
+    once(sig, handler) {
+      registered[sig] = handler;
+    },
+    exitCode: undefined,
+    exit(code) {
+      this.exitCode = code;
+    },
+  };
+  const calls = [];
+  const stopDaemon = async (args) => {
+    calls.push(args);
+    return { stopped: true };
+  };
+  installShutdownTeardown({
+    agentId: "sc-hermes",
+    proc: fakeProc,
+    stopDaemon,
+    state: {},
+  });
+  assert.equal(typeof registered.SIGTERM, "function", "must register a SIGTERM handler");
+  assert.equal(typeof registered.SIGINT, "function", "must register a SIGINT handler");
+
+  // Simulate the signal: the handler must run teardown (stopDaemon) before exit.
+  await registered.SIGTERM();
+  assert.equal(calls.length, 1, "SIGTERM handler must invoke stopDaemon");
+  assert.equal(calls[0].agentId, "sc-hermes");
 });
 
 test("resolveHermesEndpoint: env-absent → resolves the per-agent endpoint by agentId", (t) => {

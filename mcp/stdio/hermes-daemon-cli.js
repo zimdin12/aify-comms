@@ -4,6 +4,7 @@
 // without re-implementing the probe/spawn/poll loop in bash/PowerShell.
 //
 // Usage:  node hermes-daemon-cli.js <agentId>
+//         node hermes-daemon-cli.js stop <agentId>   (tear down the daemon)
 //
 // On success: prints ONE JSON line with the resolved endpoint to stdout and
 //   exits 0, e.g. {"agentId":"sc-hermes","host":"127.0.0.1","port":8765,
@@ -15,9 +16,33 @@
 //
 // Contract: docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md.
 
-import { ensureDaemon } from "./hermes-daemon.js";
+import { ensureDaemon, stopDaemon } from "./hermes-daemon.js";
+
+// Tear down the per-agent daemon: `node hermes-daemon-cli.js stop <agentId>`.
+// Best-effort (stopDaemon never throws); prints the result JSON and exits 0 so
+// shell wrappers can call it unconditionally on relaunch/teardown.
+async function runStop(agentId) {
+  if (!agentId) {
+    process.stderr.write(
+      "[hermes-daemon-cli] FATAL: missing <agentId> for stop.\n" +
+        "  usage: node hermes-daemon-cli.js stop <agentId>\n",
+    );
+    process.exit(2);
+  }
+  const result = await stopDaemon({ agentId });
+  process.stdout.write(
+    JSON.stringify({ agentId, stopped: !!result.stopped, pid: result.pid }) + "\n",
+  );
+  process.exit(0);
+}
 
 async function main() {
+  // Subcommand form: `stop <agentId>`.
+  if (String(process.argv[2] || "").trim().toLowerCase() === "stop") {
+    await runStop(String(process.argv[3] || "").trim());
+    return;
+  }
+
   const agentId = String(process.argv[2] || "").trim();
   if (!agentId) {
     process.stderr.write(

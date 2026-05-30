@@ -9,7 +9,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureDaemon } from "../hermes-daemon.js";
+import { ensureDaemon, stopDaemon } from "../hermes-daemon.js";
 import { agentEndpoint } from "../hermes-endpoint.js";
 
 function makeTempDir() {
@@ -243,6 +243,63 @@ test("per-agent: derives endpoint from agentId when none supplied", async () => 
   } finally {
     cleanup(dir);
   }
+});
+
+test("stopDaemon: resolves the agent's port and calls killByPort with it", async () => {
+  const dir = makeTempDir();
+  try {
+    const ep = agentEndpoint("stop-me", { tempDir: dir });
+    const calls = [];
+    const killByPort = async (port) => {
+      calls.push(port);
+      return { killed: true, pid: 5151 };
+    };
+    const result = await stopDaemon({ agentId: "stop-me", tempDir: dir, killByPort });
+    assert.equal(calls.length, 1, "killByPort must be called exactly once");
+    assert.equal(calls[0], ep.port, "killByPort must receive the agent's resolved port");
+    assert.equal(result.stopped, true);
+    assert.equal(result.pid, 5151);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: idempotent when no process on the port (not-found → stopped:false, no throw)", async () => {
+  const dir = makeTempDir();
+  try {
+    const killByPort = async () => ({ killed: false });
+    const result = await stopDaemon({ agentId: "absent", tempDir: dir, killByPort });
+    assert.equal(result.stopped, false, "no daemon on port → stopped:false");
+    assert.equal(result.pid, undefined);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: never throws even when killByPort rejects", async () => {
+  const dir = makeTempDir();
+  try {
+    const killByPort = async () => {
+      throw new Error("boom");
+    };
+    let result;
+    await assert.doesNotReject(async () => {
+      result = await stopDaemon({ agentId: "throwy", tempDir: dir, killByPort });
+    });
+    assert.equal(result.stopped, false, "a kill error must resolve to stopped:false, not throw");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: explicit endpoint port wins over agentId derivation", async () => {
+  let seen;
+  const killByPort = async (port) => {
+    seen = port;
+    return { killed: false };
+  };
+  await stopDaemon({ endpoint: { port: 9999 }, killByPort });
+  assert.equal(seen, 9999, "explicit endpoint.port must be used");
 });
 
 test("per-agent already-up: probes the agent's baseUrl and never spawns", async () => {
