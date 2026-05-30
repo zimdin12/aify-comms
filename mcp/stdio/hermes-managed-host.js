@@ -69,6 +69,14 @@ const POLL_MS = Math.max(
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 const READY_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_GATEWAY_READY_MS || 60000));
 const RPC_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_RPC_TIMEOUT_MS || 60000));
+// COLD-START DELIVERY RACE (2026-05-31): on the first dispatch after a cold
+// (re)launch, the delivery loop can claim + try to deliver BEFORE the visible
+// TUI has finished resuming `aify-<agentId>` into the gateway, so
+// session.active_list returns no matching key yet. Wait (bounded) for the
+// session to attach before submitting; if it never attaches in time, REQUEUE
+// the run (leave it claimable) rather than failing it permanently.
+const ATTACH_WAIT_MS = Math.max(2000, Number(process.env.AIFY_HERMES_ATTACH_WAIT_MS || 25000));
+const ATTACH_POLL_MS = Math.max(100, Number(process.env.AIFY_HERMES_ATTACH_POLL_MS || 750));
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const RUNTIME = "hermes";
 const HERMES_CMD = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
@@ -444,25 +452,115 @@ async function markRunFailed(httpCall, run, error) {
   });
 }
 
+// COLD-START requeue: the visible TUI has not (yet) attached its `aify-<id>`
+// session to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
+// permanent failure. Put the run back to `queued` (claimable) so the very next
+// poll delivers once the TUI finishes resuming. Never markRunFailed for this.
+async function markRunRequeued(httpCall, run, reason) {
+  const runId = String(run?.id || "");
+  await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
+    status: "queued",
+    runtime: RUNTIME,
+    agentStatus: "active",
+    appendEvent: `managed hermes delivery deferred (requeued): ${reason}`,
+    eventType: "requeued",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 3. DELIVERY — claim → active_list → prompt.submit (steer on busy) → delivered.
 // ---------------------------------------------------------------------------
 
+// Poll session.active_list until the visible TUI's `aify-<agentId>` session is
+// attached to the gateway (returns its EPHEMERAL runtime sid), or the deadline
+// elapses (returns null). This closes the COLD-START race: the delivery loop
+// can claim before the TUI has finished `--resume aify-<id>`, so we WAIT for the
+// attach instead of failing immediately. `nextId` advances the RPC id across
+// polls. `wsClient`, `sleepImpl`, and the timing are injectable for tests.
+export async function waitForActiveSession({
+  wsClient,
+  key,
+  nextId,
+  deadlineMs = ATTACH_WAIT_MS,
+  intervalMs = ATTACH_POLL_MS,
+  sleepImpl = sleep,
+  now = Date.now,
+  log = (msg) => console.error(msg),
+} = {}) {
+  const deadline = now() + deadlineMs;
+  let attempts = 0;
+  for (;;) {
+    attempts += 1;
+    let listResp = null;
+    try {
+      listResp = await wsClient.request(
+        buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }),
+      );
+    } catch (err) {
+      // active_list itself failed (e.g. gateway hiccup) — treat as not-ready and
+      // keep polling within the deadline.
+      listResp = null;
+      if (attempts === 1) {
+        log(`[hermes-managed-host] session.active_list error while awaiting attach: ${err?.message || String(err)}`);
+      }
+    }
+    const sessionId = pickSessionForKey(listResp, key);
+    if (sessionId) {
+      if (attempts > 1) {
+        log(`[hermes-managed-host] visible TUI session '${key}' attached after ${attempts} poll(s); delivering.`);
+      }
+      return sessionId;
+    }
+    if (now() >= deadline) return null;
+    if (attempts === 1) {
+      log(`[hermes-managed-host] visible TUI session '${key}' not attached yet; waiting up to ${deadlineMs}ms for resume…`);
+    }
+    await sleepImpl(intervalMs);
+  }
+}
+
 // Drive ONE claimed run end-to-end (WAKE-ONLY). NEVER throws.
-//   reportTurnBusy(true) → session.active_list → pickSessionForKey(aify-<id>)
-//   → prompt.submit{session_id, text} → (4009 busy → session.steer) →
-//   markRunDelivered → clearTurn. On any failure: markRunFailed + clearTurn.
+//   reportTurnBusy(true) → WAIT for active session (cold-start race) →
+//   prompt.submit{session_id, text} → (4009 busy → session.steer) →
+//   markRunDelivered → clearTurn. If the visible TUI never attaches within the
+//   bounded window, REQUEUE the run (claimable) — NOT markRunFailed — so the
+//   next poll delivers once the TUI resumes. On real failure: markRunFailed.
 // The runtime sid is re-discovered here every call — never cached.
-export async function deliverRun({ run, agentId, httpCall, wsClient, rpcId } = {}) {
+export async function deliverRun({
+  run,
+  agentId,
+  httpCall,
+  wsClient,
+  rpcId,
+  attachWaitMs = ATTACH_WAIT_MS,
+  attachPollMs = ATTACH_POLL_MS,
+  sleepImpl = sleep,
+} = {}) {
   const key = sessionKeyFor(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
   let id = typeof rpcId === "number" ? rpcId : Date.now() % 100000;
   try {
-    // Re-discover the visible TUI's EPHEMERAL runtime sid every delivery.
-    const listResp = await wsClient.request(buildSessionActiveListFrame({ id: id++, currentSessionId: "" }));
-    const sessionId = pickSessionForKey(listResp, key);
+    // Re-discover the visible TUI's EPHEMERAL runtime sid every delivery,
+    // WAITING (bounded) for the cold-start attach to finish.
+    const sessionId = await waitForActiveSession({
+      wsClient,
+      key,
+      nextId: () => id++,
+      deadlineMs: attachWaitMs,
+      intervalMs: attachPollMs,
+      sleepImpl,
+    });
     if (!sessionId) {
-      throw new Error(`no active hermes session matching '${key}' (visible TUI not attached?)`);
+      // Transient: TUI not attached yet → requeue so the next poll delivers.
+      console.error(
+        `[hermes-managed-host] run ${run?.id || "?"}: visible TUI '${key}' did not attach within ${attachWaitMs}ms — requeuing (will retry).`,
+      );
+      await markRunRequeued(
+        httpCall,
+        run,
+        `visible TUI session '${key}' not attached within ${attachWaitMs}ms`,
+      ).catch(() => {});
+      return;
     }
 
     const text = dispatchContent(agentId, run || {});

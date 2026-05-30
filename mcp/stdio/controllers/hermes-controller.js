@@ -5,11 +5,14 @@
 // Dispatch routing (preserves the legacy createHermesController logic 1:1):
 //   - managed + managedViaWrapper → no-op delegated controller (wrapper's
 //     child bridge claims and delivers via the wrapper's local gateway).
-//   - executionMode === "channel" or "resident" → delegated to the per-agent
-//     hermes-channel.js sidecar (the api_server delivery model, 2026-05-30).
-//     The sidecar claims channel/resident runs over HTTP by agentId and drives
-//     the agent's pinned api_server session directly — it does NOT go through
-//     this controller. The retired tui_gateway WS-bind path
+//   - executionMode === "channel" or "resident" → delivery is owned by the
+//     per-agent `hermes-managed-host.js run <agent>` loop (visible-TUI model,
+//     2026-05-31; replaced the hermes-channel.js api_server sidecar). That loop
+//     claims channel/resident runs over HTTP by agentId as a standalone
+//     channel-sidecar and submits into the visible TUI's gateway session — it
+//     does NOT go through this controller. server.js excludes hermes from the
+//     wrapper-child channel/resident claim (wrapperChildExecutionModes) so this
+//     controller never races the loop. The retired tui_gateway WS-bind path
 //     (HermesResidentController / aify.session.bind_transport) no longer exists.
 //   - else (managed / default) → HermesManagedController
 //     (ACP-backed persistent session, or gateway-backed if
@@ -55,18 +58,29 @@ class DelegatedManagedController extends BaseController {
   async steer(_opts) { /* delegated to wrapper child bridge */ }
 }
 
-// channel/resident hermes delivery is owned by the per-agent hermes-channel.js
-// sidecar (api_server model, 2026-05-30). It claims those runs over HTTP by
-// agentId out-of-band — never through launchRuntimeRun/controllerFor. If a
-// channel/resident run still reaches this controller, resolve "delegated"
-// rather than forking a hidden session (the retired WS-bind controller's job).
+// channel/resident hermes delivery is owned by the per-agent
+// `hermes-managed-host.js run <agent>` delivery loop (visible-TUI model,
+// 2026-05-31; it replaced the retired hermes-channel.js api_server sidecar). It
+// claims those runs over HTTP by agentId out-of-band as a standalone
+// bridgeKind="channel-sidecar" — never through launchRuntimeRun/controllerFor.
+//
+// CLAIM-RACE NOTE (2026-05-31): this controller must NEVER win the claim for a
+// managed hermes channel run. server.js no longer lets the hermes wrapper child
+// advertise channel/resident (wrapperChildExecutionModes excludes hermes), so a
+// channel/resident hermes run should not reach this controller at all. The
+// "delegated" resolution below is a defensive no-op kept only so a stray run
+// doesn't crash the dispatcher; it does NOT deliver. (The earlier behavior —
+// the wrapper child claiming the channel run, this controller resolving
+// "delegated", and server.js then auto-mirroring a summary — is the bug that
+// produced fabricated replies instead of real agent replies. Fixed at the claim
+// layer; this comment documents why the path must stay dead.)
 class ChannelDelegatedController extends BaseController {
   constructor(opts) {
     super(opts);
     this._capabilities = { interrupt: false, steer: false };
     this._promise = Promise.resolve({
       status: "delegated",
-      summary: "channel/resident dispatch delegated to hermes-channel.js api_server sidecar",
+      summary: "channel/resident dispatch delegated to hermes-managed-host.js delivery loop",
       runtimeState: {},
       externalRefs: {},
     });

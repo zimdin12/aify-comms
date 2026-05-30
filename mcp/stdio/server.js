@@ -22,7 +22,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile, writeAgentBindingFile } from "./binding-file.js";
-import { supportedExecutionModes } from "./dispatch-execution.js";
+import { supportedExecutionModes, wrapperChildExecutionModes } from "./dispatch-execution.js";
 import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
 import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
 import { listRuntimeMarkers, readRuntimeMarker, writeRuntimeMarker, removeRuntimeMarker, selectClaudeChannelMarkerForParent } from "./runtime-markers.js";
@@ -2101,9 +2101,19 @@ async function runDispatchLoop() {
       // resident from inside claude-aify. Operator-stated 2026-05-25:
       // "managed workers are just pseudo terminals running resident sessions
       // in them".
+      //
+      // EXCEPTION (managed-hermes visible-TUI, 2026-05-31): hermes' wrapper
+      // child is the thin `hermes --tui` (a WS client); channel/resident
+      // delivery is owned by the per-agent `hermes-managed-host.js run` loop
+      // (bridgeKind="channel-sidecar"). If this hermes wrapper child also
+      // claimed channel runs it would RACE that loop and route the run through
+      // the leftover ChannelDelegatedController (auto-mirrored summary instead
+      // of the real agent reply). wrapperChildExecutionModes excludes hermes.
       if (String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" && String(state.info?.agentId || agentId || "") === (process.env.AIFY_AGENT_ID || "")) {
-        if (!executionModes.includes("channel")) executionModes = [...executionModes, "channel"];
-        if (!executionModes.includes("resident")) executionModes = [...executionModes, "resident"];
+        executionModes = wrapperChildExecutionModes(executionModes, {
+          runtime: normalizeRuntime(state.info?.runtime || ""),
+          isWrapperChild: true,
+        });
       }
       if (!executionModes.length) continue;
 

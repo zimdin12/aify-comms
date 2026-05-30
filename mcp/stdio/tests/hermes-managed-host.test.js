@@ -27,6 +27,7 @@ import { EventEmitter } from "node:events";
 import {
   ensureGatewayHost,
   deliverRun,
+  waitForActiveSession,
   runPollCycle,
   teardownGatewayHost,
   installShutdownTeardown,
@@ -188,20 +189,100 @@ test("deliverRun: never caches the sid — re-runs active_list on every delivery
   assert.equal(submits[1].params.session_id, "sid-B", "second delivery must re-discover, not reuse sid-A");
 });
 
-test("deliverRun: no resolvable session → run PATCHed failed, no throw", async () => {
+test("deliverRun: COLD START — active_list empty then key appears → waits, then submits (no failure)", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  // First two active_list polls return empty (TUI still resuming), third has the key.
+  const lists = [
+    { result: { sessions: [] } },
+    { result: { sessions: [] } },
+    ACTIVE_LIST_RESULT,
+  ];
+  let i = 0;
+  const ws = makeFakeWsClient({
+    "session.active_list": () => lists[Math.min(i++, lists.length - 1)],
+    "prompt.submit": { status: "streaming" },
+  });
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    // Tight timing so the test doesn't actually sleep for the real window.
+    attachWaitMs: 10000,
+    attachPollMs: 1,
+    sleepImpl: async () => {},
+  });
+
+  // It polled active_list more than once (waited for attach), then submitted.
+  const lists_sent = ws.sent.filter((f) => f.method === "session.active_list");
+  assert.ok(lists_sent.length >= 3, `expected multiple active_list polls, got ${lists_sent.length}`);
+  const submit = ws.sent.find((f) => f.method === "prompt.submit");
+  assert.ok(submit, "must submit once the TUI session attaches");
+  assert.equal(submit.params.session_id, "live-sid-ab12");
+
+  // Settled DELIVERED, not failed/requeued.
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "delivered");
+});
+
+test("deliverRun: TUI never attaches within window → run REQUEUED (claimable), NOT failed, no submit", async () => {
   const { httpCall, calls } = makeAifyHttp();
   const ws = makeFakeWsClient({
     "session.active_list": { result: { sessions: [] } },
   });
 
   await assert.doesNotReject(() =>
-    deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws }),
+    deliverRun({
+      run: SAMPLE_RUN,
+      agentId: "sc-hermes",
+      httpCall,
+      wsClient: ws,
+      attachWaitMs: 5,
+      attachPollMs: 1,
+      sleepImpl: async () => {},
+    }),
   );
   const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
   assert.ok(patch, "expected a PATCH /dispatch/runs/<id>");
-  assert.match(String(patch.body.status), /failed|needs/i);
+  // Transient not-yet-attached MUST requeue (stay claimable), never permanently fail.
+  assert.equal(String(patch.body.status), "queued", "must requeue, not fail, on transient not-attached");
   // No prompt.submit attempted when there's no session.
   assert.ok(!ws.sent.find((f) => f.method === "prompt.submit"));
+});
+
+test("waitForActiveSession: returns the sid as soon as the key appears", async () => {
+  const lists = [{ result: { sessions: [] } }, ACTIVE_LIST_RESULT];
+  let i = 0;
+  const ws = makeFakeWsClient({
+    "session.active_list": () => lists[Math.min(i++, lists.length - 1)],
+  });
+  let id = 1;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    key: "aify-sc-hermes",
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "live-sid-ab12");
+});
+
+test("waitForActiveSession: returns null after the deadline when the key never appears", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  let id = 1;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    key: "aify-sc-hermes",
+    nextId: () => id++,
+    deadlineMs: 5,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, null);
 });
 
 // ---------------------------------------------------------------------------
