@@ -2008,6 +2008,86 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
     return len(rows)
 
 
+async def _record_channel_sidecar_heartbeat(
+    db,
+    *,
+    bridge_id: str,
+    agent_id: str,
+    machine_id: str,
+    runtime: str,
+    now: str,
+) -> None:
+    """Task 1.6b (2026-05-30): upsert the standalone channel sidecar's
+    bridge_instances row from its /dispatch/claim poll, so the continuous idle
+    poll itself is the liveness heartbeat.
+
+    A standalone channel sidecar (hermes-channel.js / claude-channel.js) polls
+    /dispatch/claim continuously even when idle, but until it has actually
+    claimed a run there is no bridge_instances row to refresh — so the plain
+    `UPDATE ... SET last_seen` in claim_dispatch matched zero rows and
+    `_has_live_channel_sidecar` saw nothing, flapping the agent's status to
+    `available`. Inserting (or refreshing) a `bridge_kind='channel-sidecar'`
+    row keyed by the sidecar's own bridge_id makes the poll a true heartbeat.
+
+    This deliberately does NOT run the supersession/active-run-failing pass that
+    `_record_bridge_registration` does — it is a lightweight idempotent liveness
+    stamp, not a (re)registration, so it must never disturb other bridge rows or
+    in-flight runs. The row it writes matches exactly the columns
+    `_has_live_channel_sidecar` predicates on (agent_id, bridge_kind, last_seen,
+    superseded_by='').
+    """
+    if not bridge_id:
+        return
+    normalized_machine = _normalize_machine_id(machine_id)
+    normalized_runtime_value = str(runtime or "generic")
+    # Refresh in place if the row already exists (the common case after the
+    # first poll); otherwise insert a fresh, non-superseded liveness row. Keyed
+    # on the PRIMARY KEY (bridge_id) so repeated polls are idempotent.
+    updated = await db.execute(
+        """
+        UPDATE bridge_instances
+        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        WHERE id = ? AND agent_id = ?
+        """,
+        (now, bridge_id, agent_id),
+    )
+    if getattr(updated, "rowcount", 0):
+        return
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO bridge_instances (
+            id, agent_id, machine_id, runtime, session_mode, session_handle,
+            terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            bridge_id,
+            agent_id,
+            normalized_machine,
+            normalized_runtime_value,
+            "managed",
+            "",
+            "",
+            "channel-sidecar",
+            now,
+            now,
+            "",
+            None,
+        ),
+    )
+    # If the INSERT OR IGNORE was a no-op because a row with this id already
+    # existed (race / pre-existing non-sidecar row), still refresh its
+    # heartbeat and kind so the liveness signal is correct.
+    await db.execute(
+        """
+        UPDATE bridge_instances
+        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        WHERE id = ? AND agent_id = ?
+        """,
+        (now, bridge_id, agent_id),
+    )
+
+
 async def _record_bridge_registration(
     db,
     *,
@@ -12269,10 +12349,31 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
         # Update bridge liveness — the claim poll itself is the heartbeat.
         if req.bridgeId:
-            await db.execute(
-                "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
-                (_now(), req.bridgeId, req.agentId),
+            is_channel_sidecar_claim = (
+                str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
             )
+            if is_channel_sidecar_claim:
+                # Task 1.6b: a standalone channel sidecar (hermes-channel.js /
+                # claude-channel.js) has no bridge row until it claims a run, so
+                # a plain UPDATE would no-op for an idle poller and status would
+                # flap to `available`. Upsert its channel-sidecar liveness row so
+                # the continuous idle poll keeps last_seen fresh and
+                # `_has_live_channel_sidecar` stays true. Claude is unaffected
+                # (its liveness is the wrapper PTY terminal_session) but this is
+                # harmless if claude-channel.js also declares the flag.
+                await _record_channel_sidecar_heartbeat(
+                    db,
+                    bridge_id=req.bridgeId,
+                    agent_id=req.agentId,
+                    machine_id=req.machineId or "",
+                    runtime=agent_runtime,
+                    now=_now(),
+                )
+            else:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
+                    (_now(), req.bridgeId, req.agentId),
+                )
 
         # Stale-run cleanup.
         #

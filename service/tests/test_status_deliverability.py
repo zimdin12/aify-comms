@@ -200,6 +200,61 @@ class StatusDeliverabilityTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["agent"]["status"]
 
+    def _insert_managed_session(self, agent_id: str, runtime: str) -> None:
+        """A managed agent_sessions row so the claim gate's managed-environment
+        carve-out applies (mirrors a real warm managed hermes session). Without
+        it, /dispatch/claim rejects the sidecar bridge as bridge_not_current."""
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            now = _iso(datetime.now(timezone.utc))
+            conn.execute(
+                """
+                INSERT INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode, owner_mode,
+                    terminal_id, terminal_status, status, started_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    f"sess-{agent_id}", agent_id, "linux:test-host:default", runtime,
+                    "/workspace", "managed-warm", "managed", "", "",
+                    "running", now, now,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _channel_sidecar_claim(self, agent_id: str, *, bridge_id: str) -> dict:
+        """Idle channel-sidecar poll: a /dispatch/claim with no queued run,
+        declaring bridgeKind='channel-sidecar' (Task 1.5b flag)."""
+        res = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": agent_id,
+                "bridgeId": bridge_id,
+                "machineId": "linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        return res.json()
+
+    def _channel_sidecar_bridge_row(self, agent_id: str) -> tuple | None:
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            return conn.execute(
+                """
+                SELECT id, bridge_kind, last_seen, COALESCE(superseded_by, '')
+                FROM bridge_instances
+                WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'
+                """,
+                (agent_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
     # ------------------------------------------------------------------
     # hermes — the new behavior
     # ------------------------------------------------------------------
@@ -234,6 +289,82 @@ class StatusDeliverabilityTests(unittest.TestCase):
             f"a STALE sidecar heartbeat must not keep hermes online; got {status!r}",
         )
         self.assertEqual(status, "available", f"expected available; got {status!r}")
+
+    # ------------------------------------------------------------------
+    # Task 1.6b — the idle claim poll IS the liveness heartbeat
+    # ------------------------------------------------------------------
+    def test_idle_channel_sidecar_claim_upserts_bridge_row_and_makes_hermes_online(self):
+        """An idle hermes sidecar polls /dispatch/claim continuously even with
+        NO queued run. That poll must upsert the channel-sidecar bridge row so
+        _has_live_channel_sidecar is true and status computes online — without
+        the poll the agent is correctly `available`."""
+        self._heartbeat_environment("hermes")
+        self._register_managed(agent_id="hermes-idle", runtime="hermes", channel_enabled=True)
+        self._insert_managed_session("hermes-idle", "hermes")
+
+        # Before any claim: no sidecar row exists → available.
+        self.assertIsNone(self._channel_sidecar_bridge_row("hermes-idle"))
+        self.assertEqual(
+            self._status("hermes-idle"), "available",
+            "before any sidecar poll the agent must be available, not online",
+        )
+
+        # Idle claim poll (no queued run) declaring channel-sidecar.
+        body = self._channel_sidecar_claim("hermes-idle", bridge_id="hermes-channel-linux:test-host")
+        self.assertIsNone(body.get("run"), f"no queued run should be claimed; got {body}")
+
+        # The poll itself upserted a fresh channel-sidecar bridge row.
+        row = self._channel_sidecar_bridge_row("hermes-idle")
+        self.assertIsNotNone(row, "idle channel-sidecar claim must upsert a channel-sidecar bridge row")
+        self.assertEqual(row[1], "channel-sidecar")
+        self.assertEqual(row[3], "", "the upserted row must not be superseded")
+
+        # Now the agent is deliverable.
+        self.assertIn(
+            self._status("hermes-idle"), {"online", "ready"},
+            "after an idle channel-sidecar claim poll the agent must be online (live sidecar heartbeat)",
+        )
+
+    def test_repeated_idle_channel_sidecar_claims_are_idempotent(self):
+        """Each poll just refreshes last_seen — no duplicate rows, no
+        supersession churn."""
+        self._heartbeat_environment("hermes")
+        self._register_managed(agent_id="hermes-poller", runtime="hermes", channel_enabled=True)
+        self._insert_managed_session("hermes-poller", "hermes")
+        for _ in range(3):
+            self._channel_sidecar_claim("hermes-poller", bridge_id="hermes-channel-linux:test-host")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'",
+                ("hermes-poller",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 1, "repeated idle polls must not create duplicate channel-sidecar rows")
+        self.assertIn(self._status("hermes-poller"), {"online", "ready"})
+
+    def test_idle_non_sidecar_claim_does_not_upsert_channel_sidecar_row(self):
+        """A claim that does NOT declare bridgeKind='channel-sidecar' (e.g. the
+        environment bridge or a wrapper-child poll) must not synthesize a
+        channel-sidecar liveness row."""
+        self._heartbeat_environment("hermes")
+        self._register_managed(agent_id="hermes-envpoll", runtime="hermes", channel_enabled=True)
+        res = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "hermes-envpoll",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertIsNone(
+            self._channel_sidecar_bridge_row("hermes-envpoll"),
+            "a non-sidecar claim must not create a channel-sidecar bridge row",
+        )
+        self.assertEqual(self._status("hermes-envpoll"), "available")
 
     # ------------------------------------------------------------------
     # claude — regression guard (unchanged)
