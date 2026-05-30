@@ -93,6 +93,20 @@ class RuntimeAdapter:
     def console_command(self, **opts: Any) -> str:
         raise NotImplementedError("Plan 3 — subclass must override console_command")
 
+    # ─────────────────── OPERATOR TAKEOVER (governance) ───────────────────
+
+    def resume_command(self, session_id: Any) -> str:
+        """Operator takeover command for `session_id` — Python mirror of the
+        JS adapter `resumeCommand(sessionId)`. Surfaced by the dashboard when an
+        agent is resident or in a `session-changed` state so the operator can
+        copy the exact command to attach to the SAME session. Subclasses
+        override with their wrapper form (e.g. `claude-aify --resume <id>`).
+        """
+        raise NotImplementedError(
+            f"abstract: {getattr(self, 'name', type(self).__name__)} adapter "
+            "must override resume_command(session_id)"
+        )
+
     # Plan 3 — default implementation. Subclasses with extra per-config gates
     # (claude channelEnabled, hermes gatewayUrl) override.
     def is_resident_ready(self, runtime_config: dict) -> bool:

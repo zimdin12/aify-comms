@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS agents (
     launch_mode TEXT DEFAULT 'detached',
     session_mode TEXT DEFAULT 'resident',
     session_handle TEXT DEFAULT '',
+    pending_session_id TEXT DEFAULT '',
+    driver_state TEXT DEFAULT 'idle',
     managed_by TEXT DEFAULT '',
     capabilities TEXT DEFAULT '[]',
     runtime_config TEXT DEFAULT '{}',
@@ -405,6 +407,19 @@ AGENT_MIGRATIONS = {
     "launch_mode": "ALTER TABLE agents ADD COLUMN launch_mode TEXT DEFAULT 'detached'",
     "session_mode": "ALTER TABLE agents ADD COLUMN session_mode TEXT DEFAULT 'resident'",
     "session_handle": "ALTER TABLE agents ADD COLUMN session_handle TEXT DEFAULT ''",
+    # Sticky session identity (governance, 2026-05-30): when an agent reports an
+    # in-session session-id that DIFFERS from its persisted session_handle, we do
+    # NOT overwrite the live handle. Instead the proposed id is parked here and
+    # the agent enters a visible `session-changed` state until the operator
+    # confirms (re-pin) or keeps (resume the persisted id). Empty = no pending.
+    "pending_session_id": "ALTER TABLE agents ADD COLUMN pending_session_id TEXT DEFAULT ''",
+    # Mode/driver FSM (governance, 2026-05-30): tracks whether a driver is
+    # currently attached to this agent's session. `idle` = no active driver;
+    # `driving` = a sidecar (managed) or operator TUI/CLI (resident) is driving
+    # the session. Combined with `session_mode`, this enforces the one-driver
+    # invariant: a second driver attaching in the OTHER mode is rejected (the
+    # mutual-exclusion collision guard). Same-mode supersession stays allowed.
+    "driver_state": "ALTER TABLE agents ADD COLUMN driver_state TEXT DEFAULT 'idle'",
     "managed_by": "ALTER TABLE agents ADD COLUMN managed_by TEXT DEFAULT ''",
     "capabilities": "ALTER TABLE agents ADD COLUMN capabilities TEXT DEFAULT '[]'",
     "runtime_config": "ALTER TABLE agents ADD COLUMN runtime_config TEXT DEFAULT '{}'",

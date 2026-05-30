@@ -24,6 +24,17 @@ export class ClaudeAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
+  // Symmetric adapter contract (Phase 2: every adapter advertises these).
+  // ASYMMETRY(claude): claude mints its own session id (captured via the
+  // SessionStart hook → claude-session-store, keyed by AIFY_AGENT_ID), not
+  // assignable by aify. aify resumes by feeding the captured id back through
+  // the claude-aify wrapper.
+  get sessionIdSource() { return "captured"; }
+
+  resumeCommand(sessionId) {
+    return `claude-aify --resume ${sessionId}`;
+  }
+
   controllerFor(opts) {
     return new ClaudeController(opts);
   }

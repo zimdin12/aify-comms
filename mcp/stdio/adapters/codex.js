@@ -21,6 +21,20 @@ export class CodexAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
+  // Symmetric adapter contract (Phase 2: every adapter advertises these).
+  // codex session ids come from a prior rollout that aify RESUMES by handing
+  // the id back to the CLI — internally the codex-aify wrapper runs
+  // `codex resume --include-non-interactive <id>` (see install.sh codex
+  // branch). The operator takeover command is the wrapper form.
+  // ASYMMETRY(codex): the wrapper rewrites `--resume <id>` into the codex
+  // `resume` subcommand; the operator-facing command stays the symmetric
+  // `<wrapper> --resume <id>` form.
+  get sessionIdSource() { return "resume"; }
+
+  resumeCommand(sessionId) {
+    return `codex-aify --resume ${sessionId}`;
+  }
+
   controllerFor(opts) {
     return new CodexController(opts);
   }

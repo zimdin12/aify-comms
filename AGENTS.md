@@ -54,6 +54,49 @@ Backend changes under `service/`, `mcp/`, and `config/` require a container rebu
 - Dashboard should be usable without reading docs: visible env selector, spawn form, agent list, chat, channels, worker/session controls, and clear run/session evidence.
 - Dashboard should be a real web application, not a raw operational table. Use compact primary views plus inspectors/drawers for IDs, logs, JSON, and long text.
 
+## Runtime symmetry
+
+Adding or changing a harness (claude, codex, hermes, pi, opencode, future) follows two
+principles. Full rationale + per-runtime detail:
+[docs/superpowers/specs/2026-05-30-runtime-symmetry-and-session-governance-design.md](docs/superpowers/specs/2026-05-30-runtime-symmetry-and-session-governance-design.md).
+
+- **P1 — Symmetry is the default.** Every harness realizes the SAME triad and behavior
+  falls out. Code paths branch on **capabilities**, never on `if runtime == "x"`. Adding a
+  harness = implement the triad. The registry-driven symmetry-guard test
+  (`mcp/stdio/tests/adapter-contract-symmetry.test.js`) iterates every registered adapter and
+  fails loudly if one omits a contract method — that's what enforces completeness.
+- **P2 — Asymmetries are explicit and justified.** Where a runtime genuinely cannot be
+  symmetric, express it as a capability flag **and** carry a `// ASYMMETRY(<runtime>): <why>`
+  comment at the deviation. No silent special-casing.
+
+### The triad
+
+| Layer | File | Responsibility (symmetric across runtimes) |
+|------|------|--------------------------------------------|
+| **Adapter** (bridge) | `mcp/stdio/adapters/<rt>.js` | Capability flags (`supportsManaged/Resident/Interrupt/Steering`), `discoverSessionId()`, `sessionIdSource ∈ {pinned, captured, resume}`, `resumeCommand(sessionId)`, diagnostic env. |
+| **Controller / delivery** (bridge) | `mcp/stdio/controllers/<rt>-*.js` (+ a `*-channel.js` sidecar for channel runtimes) | Deliver a dispatched run to the agent and surface the reply. Two shapes: **sidecar-channel** (claude, hermes) and **controller-PTY/native** (codex, pi). |
+| **Runtime class** (service) | `service/runtimes/<rt>.py` | Server-side execution-mode resolution, status/deliverability inputs, channel-enabled flag, resume-command metadata for the dashboard. |
+
+### Realization matrix (symmetry + documented asymmetries)
+
+| Concern | claude | hermes | codex | pi |
+|--------|--------|--------|-------|-----|
+| Session id source | `captured` (SessionStart hook) | `pinned` (`aify-<agentId>`) | `resume` | `resume` |
+| Delivery shape | sidecar-channel | sidecar-channel | controller (PTY/native) | controller (PTY) |
+| Reply author | agent self (`comms_send` + `inReplyTo`) | agent self (`comms_send`) | agent self | agent self |
+| Owns its own process | process per agent | `ASYMMETRY(hermes)`: per-agent `hermes gateway run` daemon (its equivalent of one-process-per-agent; auto-ensured, torn down on stop) | process per agent | process per agent |
+| Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: external sidecar delivers the wake via api_server `chat` (its MCP client can't be server-woken); agent then self-replies | controller inject | controller inject |
+| Can be force-pinned | `ASYMMETRY(claude)`: mints its own id → `captured` not `pinned`; we capture+resume+guard | yes (`aify-<agentId>` on its daemon) | partial (resume id) | partial |
+
+Shrink the asymmetry column over time. What remains for hermes (per-agent daemon;
+sidecar-delivered wake) is intrinsic to its architecture and documented above.
+
+### Adding a new harness
+
+Implement the triad (adapter + controller/delivery + runtime class), advertise honest
+capability flags, mark any deviation with `// ASYMMETRY(<rt>): <why>`, and make
+`adapter-contract-symmetry.test.js` pass — fix the adapter, not the test.
+
 ## Current Implementation Bias
 
 Preserve the existing message/channel/artifact APIs and keep the dashboard as the normal control surface. New work should reduce duplicate concepts, keep environment-backed managed agents as the default teammate path, and add tests around lifecycle edge cases before changing runtime behavior.

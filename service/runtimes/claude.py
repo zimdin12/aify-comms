@@ -30,6 +30,10 @@ class ClaudeAdapter(RuntimeAdapter):
     # Plan 3 additions
     wrapper_name = "claude-aify"
 
+    def resume_command(self, session_id) -> str:
+        # Mirror mcp/stdio/adapters/claude.js resumeCommand.
+        return f"claude-aify --resume {session_id}"
+
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         if interactive and handle:
             return f"claude-aify --aify-agent {agent_id} --resume {handle}"

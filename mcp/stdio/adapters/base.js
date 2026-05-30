@@ -35,6 +35,39 @@ export class RuntimeAdapter {
     return null;
   }
 
+  // ─────────────────── SYMMETRIC SESSION CONTRACT (Phase 2, 2026-05-30) ───────
+  // Every adapter MUST advertise WHERE its session id comes from and HOW an
+  // operator takes the session over (resident attach / resume). These two
+  // members are part of the symmetric runtime contract — a new harness
+  // implements the same triad and the symmetry-guard test (Task 2.2) iterates
+  // the registry and fails loudly if any adapter omits them.
+  //
+  //   sessionIdSource ∈ {"pinned","captured","resume"}
+  //     "pinned"   — id is a pure function of agentId (aify mints it; hermes).
+  //     "captured" — the runtime mints its own id, aify captures it after the
+  //                  fact (hook / log scrape; claude).
+  //     "resume"   — id comes from a prior runtime session that aify resumes by
+  //                  passing it back to the CLI (codex, pi).
+  //
+  //   resumeCommand(sessionId) — the operator takeover command string for that
+  //     runtime (used by the dashboard resume button + the mode-FSM rejection
+  //     error in Phase 4). Returns a string.
+  //
+  // The base defaults are intentionally LOUD: an unset `sessionIdSource`
+  // (not a valid enum value) and a throwing `resumeCommand` make an adapter
+  // that forgets to implement the contract detectable rather than silently
+  // wrong. `ASYMMETRY(<rt>): <why>` comments document any per-runtime quirk.
+
+  get sessionIdSource() {
+    // Deliberately NOT one of the valid enum values — an adapter that fails to
+    // override this is detectably broken (caught by the Task 2.2 symmetry guard).
+    throw new Error(`abstract: ${this.name} adapter must override sessionIdSource`);
+  }
+
+  resumeCommand(_sessionId) {
+    throw new Error(`abstract: ${this.name} adapter must override resumeCommand(sessionId)`);
+  }
+
   normalizeSessionHandle(raw) {
     const text = String(raw == null ? "" : raw).trim();
     if (!text) return "";

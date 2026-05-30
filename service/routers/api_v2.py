@@ -27,7 +27,7 @@ from service.db import get_db
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
-    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
+    AgentRuntimeStateUpdate, AgentSessionHandleUpdate, AgentSessionResolveRequest, AgentReadyUpdate, AgentSessionModeSwitchRequest, AgentResidentLostRequest, ConversationClearRequest, DispatchRequest, DispatchClaimRequest, DispatchRunUpdate,
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
@@ -122,7 +122,11 @@ DEFAULT_SETTINGS = {
     "reply_contracts_enabled": True,
     "reply_reminder_minutes": 10,
     "reply_reminder_repeat_minutes": 10,
-    "reply_reminder_max_count": 0,
+    # Cap the number of reply reminders per unanswered require_reply run so an
+    # owing agent is never nagged forever (runtime-agnostic governance). A
+    # sane non-zero default bounds out-of-the-box behaviour; an operator can
+    # set 0 to explicitly opt into unlimited reminders.
+    "reply_reminder_max_count": 3,
     "contract_stale_hours": 24,
     "active_run_stale_minutes": 30,
     # Tighter cleanup window for managed dispatches. Default 5 min.
@@ -292,6 +296,22 @@ _NATIVE_MANAGED_RUNTIMES = {"codex", "pi", "opencode", "hermes"}
 # line 1047). Pi stays native RPC. See _CHANNEL_CLAIM_RUNTIMES below for the
 # claim-side whitelist.
 _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
+# Runtimes that route managed dispatches to execution_mode='channel' ONLY when
+# the wrapper has set the channel-enabled runtime flag (runtime_config
+# .channelEnabled, exported by the *-aify wrapper as AIFY_CHANNELS_ENABLED=1 —
+# the SAME mechanism claude uses; see autoRegisterConfiguredAgent in
+# mcp/stdio/server.js). This is the symmetric-with-claude delivery path: an
+# in-session sidecar (hermes-channel.js, mirror of claude-channel.js) claims
+# the channel run and delivers the wake; the agent self-replies via comms_send.
+# ASYMMETRY(hermes): claude is in _CHANNEL_MANAGED_RUNTIMES and routes to
+# channel UNCONDITIONALLY (claude has no headless managed-run API). hermes DOES
+# have a native managed path, so it routes to channel only when the wrapper
+# flag is present; without the flag it stays on its prior native/managed route
+# (no false channel-deliverability claim). Membership here intentionally does
+# NOT pull hermes into the claude-specific PTY-backing carve-outs keyed on
+# _CHANNEL_MANAGED_RUNTIMES (those assume claude-aify hosts the sidecar); the
+# hermes sidecar is a standalone per-agent process (Task 1.1/1.2).
+_CHANNEL_FLAG_GATED_RUNTIMES = {"hermes"}
 # Claim-side whitelist for execution_mode='channel' runs. Claude channel
 # claims can come from the claude-aify channel bridge. Wrapper-backed managed
 # Codex/Hermes claims must come from the wrapper PTY child bridge registered
@@ -340,6 +360,38 @@ def _managed_via_wrapper_for_runtime(settings: dict[str, Any], runtime: str) -> 
     return False
 
 
+def _channel_flag_enabled(runtime_config: Any) -> bool:
+    """True when the wrapper set the channel-enabled runtime flag
+    (runtime_config.channelEnabled, exported as AIFY_CHANNELS_ENABLED=1)."""
+    rc = runtime_config if isinstance(runtime_config, dict) else {}
+    return bool(rc.get("channelEnabled"))
+
+
+def _channel_managed_eligible(runtime: str, runtime_config: Any) -> bool:
+    """Runtime-agnostic gate for the sidecar-channel managed delivery path —
+    the channelEnabled-flag eligibility that lets a managed dispatch resolve to
+    execution_mode='channel' even when the agent lacks the managed-run
+    capability (the in-session sidecar delivers; the agent self-replies via
+    comms_send; no headless managed-run API is used).
+
+    Both claude (_CHANNEL_MANAGED_RUNTIMES) and hermes
+    (_CHANNEL_FLAG_GATED_RUNTIMES) require the wrapper-set channelEnabled flag
+    here — claude-aify and hermes-aify both export AIFY_CHANNELS_ENABLED=1, the
+    SAME mechanism. This preserves the prior claude contract (no flag + no
+    managed-run cap → rejected, no silent channel path) and extends it
+    symmetrically to hermes.
+
+    ASYMMETRY(hermes): claude is in _CHANNEL_MANAGED_RUNTIMES, so once it
+    clears the cap check it ALWAYS routes to channel (no native managed-run);
+    hermes routes to channel ONLY via this flag and otherwise keeps its native
+    'managed' path. See the route decision in _agent_execution_mode.
+    """
+    runtime_n = _normalize_runtime(runtime or "")
+    if runtime_n in _CHANNEL_MANAGED_RUNTIMES or runtime_n in _CHANNEL_FLAG_GATED_RUNTIMES:
+        return _channel_flag_enabled(runtime_config)
+    return False
+
+
 async def _has_live_terminal_session(db, agent_id: str) -> bool:
     """Plan 4: True when this agent has a live terminal_session row
     (managed-via-wrapper path).
@@ -382,6 +434,59 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
     introduced, query it here.
     """
     return False
+
+
+# A channel-sidecar bridge heartbeat older than this is treated as a dead
+# sidecar for deliverability/status purposes. The standalone sidecar's
+# /dispatch/claim poll loop refreshes bridge_instances.last_seen on every tick
+# (claim_dispatch: "the claim poll itself is the heartbeat"), so a live sidecar
+# stays well within this window; a process that has exited goes stale quickly.
+CHANNEL_SIDECAR_STALE_SECONDS = 180
+
+
+async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
+    """Task 1.6 (2026-05-30): True when a standalone channel sidecar
+    (hermes-channel.js / claude-channel.js) is currently heartbeating for this
+    agent.
+
+    This is the deliverability/liveness signal for runtimes whose managed wake
+    is delivered by a standalone channel sidecar that owns NO wrapper PTY
+    (hermes via its pinned api_server daemon). It is the runtime-agnostic
+    equivalent of claude's `_has_live_terminal_session` gate: claude's sidecar
+    runs INSIDE the claude-aify wrapper PTY (so a live PTY terminal_session is
+    its liveness proof), whereas hermes's sidecar is a separate process whose
+    proof is its own `bridge_kind='channel-sidecar'` bridge_instances row with a
+    fresh last_seen (kept fresh by the claim poll loop).
+
+    Returns False when no such row exists (no sidecar ever ran), the row is
+    superseded, or its heartbeat is older than CHANNEL_SIDECAR_STALE_SECONDS
+    (the sidecar process died) — so status falls back to `available` instead of
+    a falsely positive `online`.
+    """
+    if db is None:
+        return False
+    try:
+        cursor = await db.execute(
+            """
+            SELECT last_seen FROM bridge_instances
+            WHERE agent_id = ?
+              AND bridge_kind = 'channel-sidecar'
+              AND COALESCE(superseded_by, '') = ''
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        last_seen = _iso_to_epoch(str(row["last_seen"] or ""))
+        if not last_seen:
+            return False
+        age = datetime.now(timezone.utc).timestamp() - last_seen
+        return age <= CHANNEL_SIDECAR_STALE_SECONDS
+    except Exception:
+        return False
 
 
 async def _enforce_live_worker_gate(
@@ -484,31 +589,68 @@ def _insert_messages_via_console(settings: dict[str, Any]) -> bool:
 async def _apply_channel_routing_to_claude_runs(db, runs, settings: dict[str, Any]) -> None:
     """Post-create patch: when insert_messages_via_console=false (the
     default + target architecture), force the execution_mode of
-    dispatch_runs targeting managed claude-code agents from 'managed'
-    to 'channel' so claude-channel.js claims them instead of the
+    dispatch_runs targeting sidecar-channel managed agents from 'managed'
+    to 'channel' so the in-session sidecar claims them instead of the
     generic managed worker. Idempotent; skips when via-console mode
-    is enabled (in which case PTY-input delivery handles managed
-    claude)."""
+    is enabled (in which case PTY-input delivery handles managed claude).
+
+    Runtime-generic (Task 1.5, 2026-05-30): patches managed claude-code
+    UNCONDITIONALLY and managed hermes ONLY when its channel-enabled flag
+    (runtime_config.channelEnabled, set by the hermes-aify wrapper via
+    AIFY_CHANNELS_ENABLED=1) is present — mirroring _channel_managed_eligible.
+    claude-channel.js / hermes-channel.js claim the resulting channel runs.
+    The function name is kept for call-site stability."""
     if _insert_messages_via_console(settings):
         return
     run_ids = [str(run.get("runId") or "") for run in (runs or []) if run and run.get("runId")]
     if not run_ids:
         return
     placeholders = ",".join("?" for _ in run_ids)
-    await db.execute(
-        f"""
-        UPDATE dispatch_runs
-        SET execution_mode = 'channel'
-        WHERE id IN ({placeholders})
-          AND execution_mode != 'channel'
-          AND target_agent IN (
-            SELECT id FROM agents
-            WHERE LOWER(COALESCE(runtime, '')) = 'claude-code'
-              AND session_mode = 'managed'
-          )
-        """,
-        run_ids,
-    )
+    # Unconditional channel-managed runtimes (claude-code).
+    unconditional = sorted(_CHANNEL_MANAGED_RUNTIMES)
+    if unconditional:
+        rt_placeholders = ",".join("?" for _ in unconditional)
+        await db.execute(
+            f"""
+            UPDATE dispatch_runs
+            SET execution_mode = 'channel'
+            WHERE id IN ({placeholders})
+              AND execution_mode != 'channel'
+              AND target_agent IN (
+                SELECT id FROM agents
+                WHERE LOWER(COALESCE(runtime, '')) IN ({rt_placeholders})
+                  AND session_mode = 'managed'
+              )
+            """,
+            [*run_ids, *unconditional],
+        )
+    # Flag-gated channel-managed runtimes (hermes): only when the wrapper set
+    # runtime_config.channelEnabled. json_extract on the agents.runtime_config
+    # column resolves the flag inline; truthy values ('true'/'1'/1) all qualify.
+    flag_gated = sorted(_CHANNEL_FLAG_GATED_RUNTIMES)
+    if flag_gated:
+        rt_placeholders = ",".join("?" for _ in flag_gated)
+        await db.execute(
+            f"""
+            UPDATE dispatch_runs
+            SET execution_mode = 'channel'
+            WHERE id IN ({placeholders})
+              AND execution_mode != 'channel'
+              AND target_agent IN (
+                SELECT id FROM agents
+                WHERE LOWER(COALESCE(runtime, '')) IN ({rt_placeholders})
+                  AND session_mode = 'managed'
+                  AND LOWER(COALESCE(
+                        CASE
+                          WHEN json_valid(runtime_config)
+                          THEN json_extract(runtime_config, '$.channelEnabled')
+                          ELSE NULL
+                        END, ''
+                      )) IN ('true', '1')
+              )
+            """,
+            [*run_ids, *flag_gated],
+        )
 
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
@@ -557,6 +699,28 @@ def _bridge_started_at(metadata: Any) -> str:
 def _normalize_session_mode(mode: Any) -> str:
     value = str(mode or "resident").strip().lower()
     return value if value in _SESSION_MODES else "resident"
+
+
+def _resume_command_for(runtime: Any, session_handle: Any, agent_id: Any = "") -> str:
+    """Takeover/resume command for a session, sourced from the runtime adapter.
+
+    Used by the mode-switch response (managed -> resident takeover) and the
+    mutual-exclusion collision guard's actionable error. For hermes the resume
+    target is the per-agent daemon session `aify-<agentId>` when no concrete
+    handle is pinned; everything else resumes by the pinned handle. Best-effort:
+    returns "" if the adapter has no resume command (never raises).
+    """
+    handle = str(session_handle or "").strip()
+    normalized = _normalize_runtime(runtime)
+    if not handle and normalized == "hermes" and agent_id:
+        handle = f"aify-{agent_id}"
+    if not handle:
+        return ""
+    try:
+        from service.runtimes import adapter_for
+        return adapter_for(normalized).resume_command(handle) or ""
+    except Exception:
+        return ""
 
 
 def _normalize_runtime(runtime: Any) -> str:
@@ -1209,14 +1373,22 @@ def _agent_execution_mode(row, requested_runtime: Optional[str] = None, settings
         # the managed-run cap check for that path; the dispatch flows
         # through execution_mode='channel' below.
         runtime_config = _json_loads_or(row["runtime_config"], {}) if "runtime_config" in row.keys() else {}
-        _channel_eligible = (
-            runtime in _CHANNEL_MANAGED_RUNTIMES
-            and isinstance(runtime_config, dict)
-            and bool(runtime_config.get("channelEnabled"))
-        )
+        # Sidecar-channel managed delivery (claude unconditional; hermes
+        # gated on the wrapper-set channelEnabled flag). The in-session
+        # sidecar claims the channel run and delivers the wake; the agent
+        # self-replies via comms_send. The channel path needs no captured
+        # session_handle — the sidecar drives the agent's own session — so
+        # this returns before any handle requirement (Task 1.5: hermes
+        # delivery no longer needs session_handle).
+        _channel_eligible = _channel_managed_eligible(runtime, runtime_config)
         if capabilities and "managed-run" not in capabilities and not _channel_eligible:
             return None, 'agent capabilities do not include "managed-run"'
+        # claude: unconditional channel (no native managed-run). hermes: channel
+        # only when the flag is set; otherwise it falls through to its native
+        # 'managed' route. ASYMMETRY(hermes): documented at the set definitions.
         if runtime in _CHANNEL_MANAGED_RUNTIMES:
+            return "channel", None
+        if runtime in _CHANNEL_FLAG_GATED_RUNTIMES and _channel_eligible:
             return "channel", None
         return "managed", None
     if runtime == "pi":
@@ -1590,8 +1762,15 @@ async def _bridge_claim_block_reason(
     agent_id: str,
     agent_row,
     execution_modes: Optional[list[str]] = None,
+    bridge_kind_hint: str = "",
 ) -> Optional[dict[str, Any]]:
-    """Return a blockedBy payload when an old stdio bridge should not claim work."""
+    """Return a blockedBy payload when an old stdio bridge should not claim work.
+
+    `bridge_kind_hint` is the claimant-declared bridge kind from the request
+    (DispatchClaimRequest.bridgeKind). Standalone channel sidecars
+    (claude-channel.js / hermes-channel.js) declare "channel-sidecar"; it lets
+    the wrapper-backed gate below distinguish them from a wrapper-PTY child.
+    """
     if not bridge_id:
         return None
 
@@ -1636,6 +1815,22 @@ async def _bridge_claim_block_reason(
         and runtime in _CHANNEL_CLAIM_RUNTIMES
         and bridge_kind == "managed-wrapper-child"
     )
+    # Standalone channel sidecar (Task 1.5/1.5b): the per-agent
+    # claude-channel.js / hermes-channel.js process. It is NOT a wrapper-PTY
+    # child and owns no visible Console terminal — it drives the agent's own
+    # session (claude via MCP push; hermes via the pinned api_server daemon).
+    # It declares bridgeKind="channel-sidecar" on the claim. Accept it on the
+    # SAME basis claude's standalone sidecar is already accepted (claude
+    # bypasses the wrapper-child gate purely by runtime — it is not in the
+    # {codex, opencode, pi, hermes} set above). hermes IS in that set (it also
+    # has a legacy wrapper-PTY path), so without this signal its standalone
+    # sidecar would be wrongly rejected with managed_wrapper_child_required and
+    # delivery would silently never happen.
+    is_channel_sidecar_claim = (
+        "channel" in supported_modes
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
+        and str(bridge_kind_hint or "").strip().lower() == "channel-sidecar"
+    )
 
     session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "resident")
     runtime_state = _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {}
@@ -1666,10 +1861,21 @@ async def _bridge_claim_block_reason(
 
     if session_mode == "managed":
         settings = await _load_settings(db)
+        # A standalone channel sidecar (claude-channel.js / hermes-channel.js)
+        # is accepted directly: it owns no wrapper PTY, so the
+        # managed-wrapper-child requirement and the PTY-terminal availability /
+        # mismatch / readiness checks below do not apply to it. This is the
+        # symmetric route — claude's standalone sidecar already bypasses these
+        # by runtime (claude is not in the wrapper-backed set); hermes's
+        # standalone sidecar bypasses them by declaring bridgeKind=channel-
+        # sidecar (hermes ALSO has a legacy wrapper-PTY path, so it can't be
+        # carved out by runtime alone). The environment online/bridge checks
+        # still run below (the sidecar must not deliver into a dead env).
         wrapper_backed_channel_claim = (
             "channel" in supported_modes
             and runtime in {"codex", "hermes"}
             and _managed_via_wrapper_for_runtime(settings, runtime)
+            and not is_channel_sidecar_claim
         )
         if (
             wrapper_backed_channel_claim
@@ -1724,7 +1930,12 @@ async def _bridge_claim_block_reason(
                 env_row,
                 offline_seconds=settings.get("environment_offline_seconds", 90),
             ) if env_row else "offline"
-            if current_environment_bridge and current_environment_bridge != bridge_id and not is_wrapper_child_claim:
+            if (
+                current_environment_bridge
+                and current_environment_bridge != bridge_id
+                and not is_wrapper_child_claim
+                and not is_channel_sidecar_claim
+            ):
                 return {
                     "reason": "environment_bridge_not_current",
                     "bridgeId": bridge_id,
@@ -1821,6 +2032,86 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
             (terminal_id,),
         )
     return len(rows)
+
+
+async def _record_channel_sidecar_heartbeat(
+    db,
+    *,
+    bridge_id: str,
+    agent_id: str,
+    machine_id: str,
+    runtime: str,
+    now: str,
+) -> None:
+    """Task 1.6b (2026-05-30): upsert the standalone channel sidecar's
+    bridge_instances row from its /dispatch/claim poll, so the continuous idle
+    poll itself is the liveness heartbeat.
+
+    A standalone channel sidecar (hermes-channel.js / claude-channel.js) polls
+    /dispatch/claim continuously even when idle, but until it has actually
+    claimed a run there is no bridge_instances row to refresh — so the plain
+    `UPDATE ... SET last_seen` in claim_dispatch matched zero rows and
+    `_has_live_channel_sidecar` saw nothing, flapping the agent's status to
+    `available`. Inserting (or refreshing) a `bridge_kind='channel-sidecar'`
+    row keyed by the sidecar's own bridge_id makes the poll a true heartbeat.
+
+    This deliberately does NOT run the supersession/active-run-failing pass that
+    `_record_bridge_registration` does — it is a lightweight idempotent liveness
+    stamp, not a (re)registration, so it must never disturb other bridge rows or
+    in-flight runs. The row it writes matches exactly the columns
+    `_has_live_channel_sidecar` predicates on (agent_id, bridge_kind, last_seen,
+    superseded_by='').
+    """
+    if not bridge_id:
+        return
+    normalized_machine = _normalize_machine_id(machine_id)
+    normalized_runtime_value = str(runtime or "generic")
+    # Refresh in place if the row already exists (the common case after the
+    # first poll); otherwise insert a fresh, non-superseded liveness row. Keyed
+    # on the PRIMARY KEY (bridge_id) so repeated polls are idempotent.
+    updated = await db.execute(
+        """
+        UPDATE bridge_instances
+        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        WHERE id = ? AND agent_id = ?
+        """,
+        (now, bridge_id, agent_id),
+    )
+    if getattr(updated, "rowcount", 0):
+        return
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO bridge_instances (
+            id, agent_id, machine_id, runtime, session_mode, session_handle,
+            terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            bridge_id,
+            agent_id,
+            normalized_machine,
+            normalized_runtime_value,
+            "managed",
+            "",
+            "",
+            "channel-sidecar",
+            now,
+            now,
+            "",
+            None,
+        ),
+    )
+    # If the INSERT OR IGNORE was a no-op because a row with this id already
+    # existed (race / pre-existing non-sidecar row), still refresh its
+    # heartbeat and kind so the liveness signal is correct.
+    await db.execute(
+        """
+        UPDATE bridge_instances
+        SET last_seen = ?, bridge_kind = 'channel-sidecar'
+        WHERE id = ? AND agent_id = ?
+        """,
+        (now, bridge_id, agent_id),
+    )
 
 
 async def _record_bridge_registration(
@@ -2179,6 +2470,13 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "sessionMode": session_mode,
         "wakeMode": _agent_wake_mode(row),
         "sessionHandle": row["session_handle"] or "",
+        # Sticky session identity (governance, 2026-05-30): a non-empty
+        # pendingSessionId means the agent reported an in-session id different
+        # from its persisted handle; delivery still targets sessionHandle and
+        # the dashboard shows a `session-changed` badge with Confirm/Keep
+        # actions until the operator resolves it.
+        "pendingSessionId": (row["pending_session_id"] if "pending_session_id" in row.keys() else "") or "",
+        "sessionChanged": bool((row["pending_session_id"] if "pending_session_id" in row.keys() else "") or ""),
         "managedBy": row["managed_by"] or "",
         "capabilities": _row_capabilities(row),
         "runtimeConfig": _json_loads_or(row["runtime_config"], {}),
@@ -2508,6 +2806,31 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # available — trust it.
         if not has_live_worker and agent_session_mode == "resident":
             has_live_worker = True
+    # Task 1.6 (2026-05-30): standalone-channel-sidecar deliverability gate —
+    # runtime-agnostic for channel-enabled managed agents. claude's sidecar
+    # runs inside the claude-aify wrapper PTY, so the terminal_sessions check
+    # above is its liveness proof and this branch is a no-op for it (it has no
+    # separate channel-sidecar bridge row). hermes's sidecar
+    # (hermes-channel.js) is a SEPARATE process that owns no PTY — its liveness
+    # proof is a fresh channel-sidecar bridge heartbeat. Without this, a
+    # channel-enabled managed hermes with no live_session/terminal would have
+    # has_live_worker=False and report `available` even while its sidecar is
+    # actively delivering; with it, `online` is gated on REAL deliverability
+    # (channelEnabled AND a live sidecar heartbeat) and falls back to
+    # `available` the moment the sidecar dies — never a falsely positive online.
+    # ASYMMETRY(hermes): hermes is the runtime that needs the standalone-sidecar
+    # liveness probe because it has no wrapper PTY in the channel path; claude
+    # is covered by its PTY terminal_session and harmlessly passes through here.
+    channel_managed_no_sidecar = False
+    if (
+        not has_live_worker
+        and agent_session_mode == "managed"
+        and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
+    ):
+        if await _has_live_channel_sidecar(db, agent_row["id"]):
+            has_live_worker = True
+        else:
+            channel_managed_no_sidecar = True
     if has_live_worker:
         # A live worker that is not handling a turn is public `online`.
         # `turn_state_ready` remains useful internally for readiness and cache
@@ -2623,6 +2946,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                     reason = "Agent is idle."
             except Exception:
                 pass
+        # Task 1.6: surface WHY a channel-enabled managed agent is only
+        # `available` rather than deliverable — the channel sidecar
+        # (hermes-channel.js) is not heartbeating. Only annotate when we
+        # haven't already attached a more specific reason (e.g. offline).
+        if effective_status == "available" and channel_managed_no_sidecar and not reason:
+            reason = "No live channel sidecar heartbeat (not deliverable)."
     return {
         "status": effective_status,
         "reason": reason,
@@ -8941,6 +9270,54 @@ async def register_agent(req: AgentRegister, request: Request):
         row = await existing.fetchone()
         bridge_id = (req.bridgeId or "").strip()
         terminal_id = str(req.terminalId or "").strip()
+        # Mutual-exclusion collision guard (Task 4.1, 2026-05-30). One-driver
+        # invariant: at most one driver per session at a time. If a process tries
+        # to attach in a DIFFERENT session_mode than the one currently DRIVING
+        # the session, reject with an actionable error so the operator switches
+        # mode in the dashboard first (which releases the prior driver) rather
+        # than silently colliding N wrappers / overwriting an active session.
+        #
+        # Scope: the guard fires ONLY on a cross-mode attach to a session that
+        # is actively `driving`. Two cases are deliberately NOT hard-rejected
+        # here because each is handled gracefully elsewhere, preserving the
+        # invariant without an error:
+        #   - SAME-mode re-attach/supersession by the same logical agent (a
+        #     managed restart, or a second resident window) -> existing
+        #     machine_id bridge supersession.
+        #   - a RESIDENT registration against a DRIVING MANAGED agent -> the
+        #     established `manualResidentCandidate` flow below parks the resident
+        #     and returns `ownershipTransition=manual_switch_required` (it never
+        #     lets the resident drive; the operator switches in the dashboard).
+        # That leaves the genuinely-unhandled collision — a MANAGED registration
+        # against a DRIVING RESIDENT session (which would otherwise silently
+        # overwrite the live resident driver) — which is hard-rejected here.
+        if row and not bool(req.restoreDeleted):
+            existing_mode = _normalize_session_mode(row["session_mode"] or "resident")
+            driver_state = str((row["driver_state"] if "driver_state" in row.keys() else "") or "idle").strip().lower()
+            graceful_resident_candidate = (
+                normalized_session_mode == "resident" and existing_mode == "managed"
+            )
+            if (
+                driver_state == "driving"
+                and existing_mode != normalized_session_mode
+                and not graceful_resident_candidate
+            ):
+                resume_command = _resume_command_for(
+                    row["runtime"] or normalized_runtime,
+                    row["session_handle"] or "",
+                    req.agentId,
+                )
+                detail = (
+                    f"agent '{req.agentId}' is currently {existing_mode} — "
+                    f"switch it to {normalized_session_mode} in the dashboard first, then run: "
+                    f"{resume_command}"
+                    if resume_command
+                    else (
+                        f"agent '{req.agentId}' is currently {existing_mode} — "
+                        f"switch it to {normalized_session_mode} in the dashboard first."
+                    )
+                )
+                raise HTTPException(409, detail)
         managed_wrapper_child = bool(req.managedWrapperChild) or (
             normalized_session_mode == "managed"
             and bool(terminal_id)
@@ -9211,6 +9588,9 @@ async def register_agent(req: AgentRegister, request: Request):
                 "bridgeId": bridge_id,
                 "sessionMode": "managed",
                 "ownershipTransition": "manual_switch_required",
+                # Task 4.1: the takeover command the operator runs after flipping
+                # the agent to resident in the dashboard (one-driver invariant).
+                "resumeCommand": _resume_command_for(normalized_runtime, session_handle, req.agentId),
                 "blockedByRun": active_run,
             }
         await db.execute(
@@ -9218,8 +9598,8 @@ async def register_agent(req: AgentRegister, request: Request):
             INSERT INTO agents (
                 id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
                 launch_mode, session_mode, session_handle, managed_by, capabilities,
-                runtime_config, runtime_state, registered_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                runtime_config, runtime_state, driver_state, registered_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 role = excluded.role,
                 name = excluded.name,
@@ -9238,6 +9618,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 capabilities = excluded.capabilities,
                 runtime_config = excluded.runtime_config,
                 runtime_state = excluded.runtime_state,
+                driver_state = excluded.driver_state,
                 last_seen = excluded.last_seen
             """,
             (
@@ -9248,7 +9629,12 @@ async def register_agent(req: AgentRegister, request: Request):
                 req.machineId or "", req.launchMode or "detached",
                 normalized_session_mode, session_handle, req.managedBy or "",
                 json.dumps(capabilities or []), json.dumps(runtime_config),
-                existing_state, row["registered_at"] if row and row["registered_at"] else now, now
+                existing_state,
+                # One-driver FSM: an attaching process carrying a bridge_id is a
+                # live driver for this session -> mark driving. A metadata-only
+                # (re)register without a bridge keeps the prior driver_state.
+                ("driving" if bridge_id else (str((row["driver_state"] if row and "driver_state" in row.keys() else "") or "idle"))),
+                row["registered_at"] if row and row["registered_at"] else now, now
             )
         )
         if session_handle:
@@ -9910,6 +10296,72 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
 
+        # ── Sticky session identity + new-id guard (governance, 2026-05-30) ──
+        # The bridge heartbeat (session-handle-heartbeat.js, requestedBy=
+        # "bridge-heartbeat") continuously reports the runtime's *discovered*
+        # session id. We must NOT silently overwrite the persisted handle when
+        # that discovered id DRIFTS from what we already pinned — a drift is the
+        # observable symptom of a split (agent landed on a fresh id) or a merge
+        # (two agents converging on one id). Instead we park the proposed id in
+        # `pending_session_id`, flag the agent `session-changed`, and KEEP
+        # delivery pointed at the old handle until the operator resolves it.
+        #
+        # Scope is deliberately narrow so we never break the existing flows:
+        #   • First-id auto-accept — no persisted handle yet → accept (current).
+        #   • Same id re-reported → no-op (no pending, no churn).
+        #   • Clearing (empty handle) → allowed (heal paths clear poisoned ids).
+        #   • Deliberate operator re-pin (any other requestedBy, e.g. dashboard
+        #     manual set, console attach) → unguarded, as before.
+        #   • Re-register (POST /agents) is a separate write site and remains a
+        #     full state refresh — it is NOT routed through here.
+        requested_by = str(req.requestedBy or "").strip()
+        persisted_handle = str(row["session_handle"] or "").strip()
+        if (
+            requested_by == "bridge-heartbeat"
+            and session_handle
+            and persisted_handle
+            and session_handle != persisted_handle
+        ):
+            await db.execute(
+                """
+                UPDATE agents
+                SET pending_session_id = ?,
+                    status_note = ?,
+                    last_seen = ?
+                WHERE id = ?
+                """,
+                (
+                    session_handle,
+                    (
+                        f"session-changed: reported id '{session_handle}' differs from "
+                        f"pinned '{persisted_handle}'. Confirm new or keep current."
+                    ),
+                    now,
+                    agent_id,
+                ),
+            )
+            await db.commit()
+            updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            settings = await _load_settings(db)
+            status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+            dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+            ws = await _get_ws(request)
+            if ws:
+                await ws.broadcast("agent_session_changed", {
+                    "agentId": agent_id,
+                    "sessionHandle": persisted_handle,
+                    "pendingSessionId": session_handle,
+                })
+            return {
+                "ok": True,
+                "agentId": agent_id,
+                "state": "session-changed",
+                # Delivery still targets the OLD (persisted) handle — unchanged.
+                "sessionHandle": persisted_handle,
+                "pendingSessionId": session_handle,
+                "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+            }
+
         runtime = _normalize_runtime(row["runtime"] or "generic")
         session_mode = _normalize_session_mode(row["session_mode"] or "resident")
         runtime_config = _json_loads_or(row["runtime_config"], {})
@@ -9920,6 +10372,7 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             """
             UPDATE agents
             SET session_handle = ?,
+                pending_session_id = '',
                 runtime_state = ?,
                 capabilities = ?,
                 status_note = ?,
@@ -9989,6 +10442,148 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         await db.close()
 
 
+@router.post("/agents/{agent_id}/session/confirm")
+async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, request: Request):
+    """Sticky session identity (governance, 2026-05-30): operator confirms the
+    NEW (pending) session id. Re-pins `session_handle := pending_session_id`,
+    clears the pending id, and exits the `session-changed` state. Delivery now
+    follows the new id. Idempotent: a 409 is returned if there is no pending id
+    to confirm (nothing to resolve).
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        pending = str(row["pending_session_id"] or "").strip()
+        if not pending:
+            raise HTTPException(409, f"Agent '{agent_id}' has no pending session id to confirm")
+
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        session_mode = _normalize_session_mode(row["session_mode"] or "resident")
+        runtime_config = _json_loads_or(row["runtime_config"], {})
+        # Re-pin: the new id becomes the live handle. Mirror the normal handle
+        # write so runtime_state / capabilities stay consistent with the handle.
+        runtime_state = _runtime_state_replacing_handle(runtime, row["runtime_state"], pending)
+        capabilities = _default_capabilities_for(runtime, session_mode, pending, runtime_config)
+        await db.execute(
+            """
+            UPDATE agents
+            SET session_handle = ?,
+                pending_session_id = '',
+                runtime_state = ?,
+                capabilities = ?,
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                pending,
+                json.dumps(runtime_state),
+                json.dumps(capabilities),
+                f"session-changed resolved: re-pinned to '{pending}' by {req.requestedBy or 'operator'}.",
+                now,
+                agent_id,
+            ),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": pending})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "resolution": "confirm",
+            "sessionHandle": pending,
+            "pendingSessionId": "",
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/session/keep")
+async def keep_agent_session(agent_id: str, req: AgentSessionResolveRequest, request: Request):
+    """Sticky session identity (governance, 2026-05-30): operator keeps the
+    CURRENT (persisted) session id. Clears `pending_session_id`, leaves
+    `session_handle` untouched, and surfaces the runtime's resume command so the
+    operator can re-attach the agent to the persisted id (e.g. the agent drifted
+    onto a fresh id and must be resumed back onto the pinned one). Idempotent:
+    409 if there is no pending id to keep.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        now = _now()
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            tombstone = await _agent_tombstone(db, agent_id)
+            if tombstone:
+                raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        pending = str(row["pending_session_id"] or "").strip()
+        if not pending:
+            raise HTTPException(409, f"Agent '{agent_id}' has no pending session id to keep")
+
+        persisted_handle = str(row["session_handle"] or "").strip()
+        runtime = _normalize_runtime(row["runtime"] or "generic")
+        # Resume command for the operator to re-attach to the persisted id,
+        # sourced from the runtime adapter (Python mirror of the JS contract).
+        resume_command = ""
+        try:
+            from service.runtimes import adapter_for
+            resume_command = adapter_for(runtime).resume_command(persisted_handle)
+        except Exception:
+            resume_command = ""
+        await db.execute(
+            """
+            UPDATE agents
+            SET pending_session_id = '',
+                status_note = ?,
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (
+                (
+                    f"session-changed resolved: keeping pinned id '{persisted_handle}' "
+                    f"(resume: {resume_command}) by {req.requestedBy or 'operator'}."
+                    if resume_command
+                    else f"session-changed resolved: keeping pinned id '{persisted_handle}' by {req.requestedBy or 'operator'}."
+                ),
+                now,
+                agent_id,
+            ),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        settings = await _load_settings(db)
+        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": persisted_handle})
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "resolution": "keep",
+            "sessionHandle": persisted_handle,
+            "pendingSessionId": "",
+            "resumeCommand": resume_command,
+            "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+        }
+    finally:
+        await db.close()
+
+
 @router.patch("/agents/{agent_id}/session-mode")
 async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRequest, request: Request):
     """Plan 6 C1 (2026-05-26): operator-driven resident/managed mode flip.
@@ -10000,9 +10595,11 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
 
     - Active dispatch run in flight -> 409 (switching mid-turn would
       stall the run; wait for it to finish).
-    - Hermes managed -> resident without `runtimeConfig.gatewayUrl` ->
-      409 (resident hermes needs the gateway URL to attach; leaving it
-      blank produces an un-wakeable agent).
+
+    (The former hermes-without-gatewayUrl 409 guard was removed: under the
+    api_server model resident hermes resumes its pinned session via
+    `--resume` and never needs a gateway URL — it was a tui_gateway-era
+    requirement.)
 
     Audit log: a `dispatch_events` row of type
     `mode_switch_<old>_to_<new>` is appended with body
@@ -10083,12 +10680,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     409,
                     f"Agent has an active dispatch run (runId={blocking.get('runId')}); wait for it to finish or pass force=true",
                 )
-            if new_mode == "resident" and effective_runtime == "hermes":
-                if not str(switch_runtime_config.get("gatewayUrl") or "").strip():
-                    raise HTTPException(
-                        409,
-                        "Hermes resident requires runtimeConfig.gatewayUrl. Re-launch hermes-aify (which exports AIFY_HERMES_GATEWAY_URL) and re-register, or pass force=true.",
-                    )
+            # api_server model: resident hermes resumes its pinned session via --resume; no gatewayUrl needed (was a tui_gateway-era guard)
             if new_mode == "managed":
                 managed_session = await (await db.execute(
                     """
@@ -10156,6 +10748,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 capabilities = ?,
                 runtime_config = ?,
                 runtime_state = ?,
+                driver_state = 'idle',
                 status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
                 status_note = ?,
                 last_seen = ?
@@ -10260,6 +10853,11 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             side_effects["error"] = str(exc)
 
         await db.commit()
+        # Takeover/resume command for the operator. On a managed -> resident
+        # switch this is the command the operator runs to drive the SAME session
+        # interactively; mirrored in the dashboard. Best-effort (empty if the
+        # adapter has none).
+        resume_command = _resume_command_for(effective_runtime, switch_session_handle, agent_id)
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast(
@@ -10272,6 +10870,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "mode": new_mode,
             "previousMode": current_mode,
             "changed": True,
+            "resumeCommand": resume_command,
             "sideEffects": side_effects,
         }
     finally:
@@ -10631,6 +11230,18 @@ async def send_message(req: MessageSend, request: Request):
                 f'inReplyTo "{req.inReplyTo}" did not match an existing message; message was sent unthreaded.'
             )
 
+        # ASYMMETRY: replies bypass the live-wake hard-gate by design.
+        # A reply must ALWAYS be persisted + threaded (and close its
+        # require_reply run) even when the recipient can't be live-woken —
+        # the recipient simply sees it in their inbox. Hard-rejecting a
+        # reply because the recipient's bridge is stale dropped legitimate
+        # replies (broke managed-hermes self-reply when the original
+        # sender's resident bridge was stale) and left the require_reply
+        # run open forever. The live-wake hard-gate below stays in force
+        # only for NEW dispatches (requests/etc.), never for replies.
+        # A reply is identified by a resolved inReplyTo OR type=="response".
+        is_reply = bool(resolved_in_reply_to) or str(req.type or "").strip().lower() == "response"
+
         recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
 
         if not recipients:
@@ -10649,7 +11260,10 @@ async def send_message(req: MessageSend, request: Request):
                 allow_steer=prefer_steer,
                 allow_queue_busy=allow_queue_busy,
             )
-            if not_started:
+            # ASYMMETRY: do NOT hard-reject a reply here. Replies fall through
+            # to persist + thread regardless of recipient live-startability
+            # (see is_reply note above). Only NEW dispatches hard-gate.
+            if not_started and not is_reply:
                 recipient_info = {}
                 for r in recipients:
                     info = await _get_recipient_info(db, r)
@@ -10863,7 +11477,9 @@ async def send_message(req: MessageSend, request: Request):
                 for recipient_id, execution_mode in launchable_recipients
                 if recipient_id not in console_recipients and recipient_id not in channel_backing_failed
             ]
-            if not_started:
+            # ASYMMETRY: replies are never hard-rejected — see is_reply note
+            # above. Fall through to persist + thread the reply.
+            if not_started and not is_reply:
                 recipient_info = {}
                 for r in recipients:
                     info = await _get_recipient_info(db, r)
@@ -11270,12 +11886,24 @@ async def agent_heartbeat(agent_id: str, request: Request):
         pass
     bridge_id = str(body.get("bridgeId", "") or "").strip()
     terminal_id = str(body.get("terminalId", "") or "").strip()
+    bridge_kind = str(body.get("bridgeKind", "") or "").strip().lower()
     now = _now()
     db = await get_db()
     try:
         tombstone = await _agent_tombstone(db, agent_id)
         if tombstone:
             raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        # Mode FSM release signal (Task 4.1, 2026-05-30). Symmetric with the
+        # claim path: a managed sidecar (bridgeKind="channel-sidecar") pulsing
+        # turn_busy via heartbeat is told to RELEASE once the agent has been
+        # switched to resident, so it stops driving even between claims.
+        if bridge_kind == "channel-sidecar":
+            mode_row = await (await db.execute(
+                "SELECT session_mode FROM agents WHERE id = ?",
+                (agent_id,),
+            )).fetchone()
+            if mode_row and _normalize_session_mode(mode_row["session_mode"] or "resident") != "managed":
+                return {"ok": True, "release": True}
         if bridge_id:
             bridge_row = await (await db.execute(
                 "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
@@ -12031,6 +12659,19 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
         agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
 
+        # Mode FSM release signal (Task 4.1, 2026-05-30). A managed sidecar
+        # (claude-channel.js / hermes-channel.js, bridgeKind="channel-sidecar")
+        # must STOP driving once the operator switches the agent to resident.
+        # We surface `release: true` in the claim response so the sidecar exits
+        # its poll loop / goes idle. This is the one-driver invariant in action:
+        # the managed driver releases so the resident TUI can take the session.
+        if (
+            str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
+            and _normalize_session_mode(agent["session_mode"] or "resident") != "managed"
+        ):
+            await db.commit()
+            return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}
+
         # Reject claims from stale stdio bridges. The bridge_instances row
         # catches normal supersession, while runtimeState.bridgeInstanceId
         # catches the more dangerous case where an old process keeps polling
@@ -12041,6 +12682,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             agent_id=req.agentId,
             agent_row=agent,
             execution_modes=req.executionModes or [],
+            bridge_kind_hint=req.bridgeKind or "",
         )
         if blocked_by:
             await db.commit()
@@ -12052,10 +12694,31 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
         # Update bridge liveness — the claim poll itself is the heartbeat.
         if req.bridgeId:
-            await db.execute(
-                "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
-                (_now(), req.bridgeId, req.agentId),
+            is_channel_sidecar_claim = (
+                str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
             )
+            if is_channel_sidecar_claim:
+                # Task 1.6b: a standalone channel sidecar (hermes-channel.js /
+                # claude-channel.js) has no bridge row until it claims a run, so
+                # a plain UPDATE would no-op for an idle poller and status would
+                # flap to `available`. Upsert its channel-sidecar liveness row so
+                # the continuous idle poll keeps last_seen fresh and
+                # `_has_live_channel_sidecar` stays true. Claude is unaffected
+                # (its liveness is the wrapper PTY terminal_session) but this is
+                # harmless if claude-channel.js also declares the flag.
+                await _record_channel_sidecar_heartbeat(
+                    db,
+                    bridge_id=req.bridgeId,
+                    agent_id=req.agentId,
+                    machine_id=req.machineId or "",
+                    runtime=agent_runtime,
+                    now=_now(),
+                )
+            else:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
+                    (_now(), req.bridgeId, req.agentId),
+                )
 
         # Stale-run cleanup.
         #
@@ -12256,6 +12919,17 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             "UPDATE dispatch_runs SET status = 'claimed', claimed_at = ?, claim_machine_id = ?, claim_bridge_id = ?, runtime = ? WHERE id = ?",
             (claimed_at, req.machineId or "", req.bridgeId or "", agent_runtime, selected_run["id"])
         )
+        # One-driver FSM (Task 4.1): a managed sidecar that successfully claims a
+        # run for a managed agent is the live driver -> mark driving so a
+        # cross-mode resident attach is rejected by the collision guard.
+        if (
+            str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
+            and _normalize_session_mode(agent["session_mode"] or "resident") == "managed"
+        ):
+            await db.execute(
+                "UPDATE agents SET driver_state = 'driving' WHERE id = ?",
+                (req.agentId,),
+            )
         await _invalidate_agent_live_state(db, req.agentId)
         await _touch_current_agent_session(
             db,

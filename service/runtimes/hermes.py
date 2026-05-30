@@ -22,13 +22,21 @@ class HermesAdapter(RuntimeAdapter):
     session_env_vars = ["HERMES_SESSION_ID", "HERMES_SESSION"]
     supports_resident = True
     supports_managed = True
-    supports_steering = True
+    # ASYMMETRY(hermes): the api_server `chat` delivery path has no mid-turn steer
+    # (mirror mcp/stdio/adapters/hermes.js). Interrupt is available via the
+    # api_server `/v1/runs/{id}/stop` endpoint, so interrupt stays True.
+    supports_steering = False
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"
 
     # Plan 3 additions
     wrapper_name = "hermes-aify"
+
+    def resume_command(self, session_id) -> str:
+        # Mirror mcp/stdio/adapters/hermes.js resumeCommand: the resident TUI
+        # attaches to the per-agent daemon via HERMES_TUI_GATEWAY_URL.
+        return f"hermes --tui --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         parts = ["hermes-aify", "--aify-agent", agent_id]

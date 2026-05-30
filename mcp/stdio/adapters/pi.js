@@ -23,6 +23,21 @@ export class PiAdapter extends RuntimeAdapter {
   get supportsMultiClient() { return false; }
   get preferredDeliveryMode() { return "managed"; }
 
+  // Symmetric adapter contract (Phase 2: every adapter advertises these).
+  // pi/omp session ids come from a prior session that aify RESUMES by passing
+  // the id back through the pi-aify (alias omp-aify) wrapper, which exports it
+  // as PI_SESSION_ID (see install.sh pi branch). The wrapper accepts
+  // `--resume <id>`.
+  // ASYMMETRY(pi): omp --mode rpc is single-client (supportsResident=false), so
+  // an operator takeover via `pi-aify --resume <id>` necessarily DISPLACES the
+  // managed RPC child rather than co-viewing — pass --standalone to keep the
+  // bridge driving a separate session.
+  get sessionIdSource() { return "resume"; }
+
+  resumeCommand(sessionId) {
+    return `pi-aify --resume ${sessionId}`;
+  }
+
   controllerFor(opts) {
     // Plan 2 pi flip: resident pi is no longer supported — return null
     // so launchRuntimeRun rejects with a clear error.

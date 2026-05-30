@@ -62,37 +62,13 @@ export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
   };
 }
 
-// aify-comms Hermes gateway extension installed by `install.sh --client hermes`.
-// It finds the active visible TUI sid for a durable Hermes session key and
-// mirrors this bridge WS onto that session's transport. After this succeeds,
-// prompt.submit/session.steer against the returned sid renders in the open
-// Hermes TUI and still streams back to the aify bridge for run accounting.
-export function buildAifySessionBindTransportFrame({ id, sessionKey }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "aify.session.bind_transport",
-    params: { session_id: String(sessionKey || "") },
-  };
-}
-
-// aify-comms Hermes gateway extension: ask the visible TUI to render a small
-// transcript/status notice before an externally injected prompt starts. Hermes'
-// native local-submit path appends the user message in the frontend before
-// prompt.submit; bridge-injected prompts need an equivalent render hint or the
-// operator sees no activity until the final transcript refresh.
-export function buildAifySessionRenderNoticeFrame({ id, sessionId, notice, status = "" }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "aify.session.render_notice",
-    params: {
-      session_id: String(sessionId || ""),
-      notice: String(notice || ""),
-      status: String(status || ""),
-    },
-  };
-}
+// NOTE (2026-05-30 hermes-apiserver-delivery): the aify.session.bind_transport
+// and aify.session.render_notice frame builders were removed with the retired
+// tui_gateway WS-bind path. They were used ONLY by the deleted
+// HermesResidentController. Managed/resident hermes now delivers via the
+// hermes-channel.js api_server sidecar. The frames below remain because
+// hermes-managed-gateway-session.js (AIFY_HERMES_MANAGED_USE_GATEWAY=1) still
+// uses prompt.submit / session.steer / session.most_recent over the gateway WS.
 
 // Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
 // because the persisted key has been GC'd (or never existed), session.create

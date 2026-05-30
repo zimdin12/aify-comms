@@ -4598,7 +4598,9 @@ function residentWrapperName(runtime) {
 function showResidentSwitchNotice(agentId, agentInfo = {}, result = {}) {
   const candidate = agentInfo?.runtimeState?.manualResidentCandidate || {};
   const hasCandidate = !!(candidate && (candidate.bridgeId || candidate.runtimeConfig || candidate.sessionHandle));
-  const command = agentResidentLaunchCommand(agentId, agentInfo);
+  // Prefer the resume command the mode-switch endpoint returned (the runtime
+  // adapter's canonical takeover command); fall back to the client-built one.
+  const command = String(result?.resumeCommand || '').trim() || agentResidentLaunchCommand(agentId, agentInfo);
   const runtime = String(agentInfo.runtime || 'runtime');
   const wrapperName = residentWrapperName(runtime);
   const commandBlock = command
@@ -4718,6 +4720,103 @@ async function switchAgentSessionMode(agentId, targetMode, force = false) {
     }
   } catch (e) {
     toast(e.message || 'Mode switch failed', '#f85149');
+  }
+}
+
+// Session governance (2026-05-30): per-agent surface for the takeover resume
+// command (shown when resident or session-changed) plus the session-changed
+// confirm/keep actions. The resume command shown is the one the runtime adapter
+// returns from the mode-switch/keep endpoints, falling back to the client-built
+// resident launch command when the agent is resident but no endpoint value is
+// cached yet.
+function agentSessionGovernanceBlock(agentId, agentInfo = {}) {
+  const id = String(agentId || '').trim();
+  if (!id) return '';
+  const mode = String(agentInfo?.sessionMode || '').toLowerCase();
+  const sessionChanged = !!agentInfo?.sessionChanged;
+  const pendingId = String(agentInfo?.pendingSessionId || '').trim();
+  // Resume/takeover command: prefer a server-returned resumeCommand cached on
+  // the agent record; otherwise derive the resident launch command client-side.
+  const resumeCommand = String(agentInfo?.resumeCommand || '').trim()
+    || agentResidentLaunchCommand(id, agentInfo);
+  const showResume = (mode === 'resident' || sessionChanged) && resumeCommand;
+  if (!sessionChanged && !showResume) return '';
+  let html = '<h3>Session Governance</h3>';
+  if (sessionChanged) {
+    html += `<div class="banner"><div class="banner-row">` +
+      `<span><span class="rb">session-changed</span> This agent reported a different in-session id` +
+      `${pendingId ? ` (<code>${esc(pendingId)}</code>)` : ''} than its pinned handle. ` +
+      `Confirm the new id to re-pin, or keep the current one and resume back onto it.</span>` +
+      `</div><div class="btn-row">` +
+      actionButtonFn(
+        pendingId ? `Confirm new (${pendingId})` : 'Confirm new',
+        'Re-pin this agent to the new (pending) session id; delivery follows the new id',
+        () => confirmAgentSession(id),
+        'btn-primary',
+      ) +
+      actionButtonFn(
+        'Keep current',
+        'Keep the pinned session id and show the resume command to re-attach the agent to it',
+        () => keepAgentSession(id),
+      ) +
+      `</div></div>`;
+  }
+  if (showResume) {
+    html += sessionResumeCommandBlock(resumeCommand, 'Resume / takeover command') +
+      '<div class="btn-row">' +
+      actionButtonFn('Copy command', 'Copy the resume / takeover command', () => copyText(resumeCommand, 'Resume command copied')) +
+      '</div>';
+  }
+  return html;
+}
+
+async function confirmAgentSession(agentId) {
+  if (!agentId) return;
+  const pending = (((window._allAgents || []).find(([id]) => id === agentId)?.[1]) || {}).pendingSessionId || '';
+  if (!confirm(`Confirm the new session id${pending ? ` (${pending})` : ''} for ${agentId}?\n\nThis re-pins the agent's session handle to the new id; dispatch will follow it.`)) return;
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session/confirm`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Confirm failed');
+    toast(`Re-pinned ${agentId} to ${res.sessionHandle || 'the new id'}.`);
+    await refreshDashboard();
+  } catch (e) {
+    toast(e.message || 'Confirm failed', '#f85149');
+  }
+}
+
+async function keepAgentSession(agentId) {
+  if (!agentId) return;
+  if (!confirm(`Keep the current pinned session id for ${agentId}?\n\nThe pending id is discarded; copy the resume command to re-attach the agent to its pinned id.`)) return;
+  try {
+    const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session/keep`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({requestedBy: chatIdentity()}),
+    });
+    const res = await response.json();
+    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Keep failed');
+    await refreshDashboard();
+    const resumeCommand = String(res.resumeCommand || '').trim();
+    if (resumeCommand) {
+      openModal(`Keep session: ${agentId}`, `
+        <div class="modal-form">
+          <p>Kept the pinned id <code>${esc(res.sessionHandle || '')}</code>. Resume the agent back onto it with:</p>
+          ${sessionResumeCommandBlock(resumeCommand, 'Resume command')}
+          <div class="btn-row">
+            ${actionButtonFn('Copy command', 'Copy the resume command', () => copyText(resumeCommand, 'Resume command copied'))}
+            ${actionButtonFn('Close', 'Close this notice', () => closeModal())}
+          </div>
+        </div>`);
+    } else {
+      toast(`Kept pinned id for ${agentId}.`);
+    }
+  } catch (e) {
+    toast(e.message || 'Keep failed', '#f85149');
   }
 }
 
@@ -6180,6 +6279,9 @@ function renderChatInspector(meta, messages) {
     html += `<dt>Last run</dt><dd class="clip-2"${titleAttr(latestRun.subject || latestRun.id)}>${esc(humanStatusLabel(latestRun.status))} · ${esc(latestRun.subject || latestRun.id)}</dd>`;
   }
   html += '</dl>';
+  if (meta.kind === 'dm' && agentInfo) {
+    html += agentSessionGovernanceBlock(meta.id, agentInfo);
+  }
   if (meta.kind === 'channel') {
     const channel = (window._channels || []).find(ch => ch.name === meta.id) || {};
     const members = channel.members || [];

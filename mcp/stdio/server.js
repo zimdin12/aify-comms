@@ -763,12 +763,12 @@ function wakeModeSummary(info = {}) {
     capabilities.includes("resident-run") &&
     /^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))
   ) {
-    // Gateway-channel resident hermes: bridge injects via tui_gateway /api/ws.
-    // sessionHandle is optional; controller binds to the active visible TUI
-    // session through the patched aify.session.bind_transport method.
-    // Plan 4 Task 17: gateway is the single source for resident hermes; the
-    // legacy hermes-session-resume mode (spawn-fresh-hermes-with-provider-config)
-    // is dead code now that discoverSessionId reliably captures gatewayUrl.
+    // Legacy gateway-channel resident hermes status. NOTE (2026-05-30
+    // hermes-apiserver-delivery): the tui_gateway WS-bind delivery path this
+    // status described was retired (HermesResidentController +
+    // aify.session.bind_transport deleted). Managed/resident hermes now delivers
+    // via the hermes-channel.js api_server sidecar. This branch is left for the
+    // install.sh + service-status rewrite (plan Tasks D/E) to supersede.
     return "hermes-live";
   }
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";

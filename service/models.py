@@ -97,6 +97,15 @@ class AgentReadyUpdate(BaseModel):
     requestedBy: Optional[str] = None
 
 
+class AgentSessionResolveRequest(BaseModel):
+    # Sticky session identity (governance, 2026-05-30): operator resolution of a
+    # `session-changed` state. Used by both POST /agents/{id}/session/confirm
+    # (re-pin persisted := pending) and /session/keep (clear pending, keep
+    # persisted, surface the resume command). No body fields are required;
+    # requestedBy is optional audit metadata.
+    requestedBy: Optional[str] = None
+
+
 class AgentSessionModeSwitchRequest(BaseModel):
     # Plan 6 C1 (2026-05-26): operator-driven resident/managed flip.
     # `mode` must be 'resident' or 'managed'. `force=true` overrides
@@ -139,6 +148,11 @@ class DispatchClaimRequest(_MachineIdNormalizingModel):
     machineId: Optional[str] = None
     bridgeId: Optional[str] = None
     executionModes: Optional[list[str]] = None
+    # Standalone channel sidecars (mcp/stdio/claude-channel.js,
+    # hermes-channel.js) declare bridgeKind="channel-sidecar" so the claim gate
+    # can distinguish them from a wrapper-PTY child (which registers as
+    # bridge_kind="managed-wrapper-child"). See _bridge_claim_block_reason.
+    bridgeKind: Optional[str] = None
 
 
 class DispatchRunUpdate(BaseModel):

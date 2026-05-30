@@ -347,8 +347,23 @@ async function pollLoop() {
           agentId,
           machineId: MACHINE_ID,
           bridgeId: CHANNEL_BRIDGE_ID,
+          // Standalone channel sidecar (not a wrapper-PTY child). Claude's
+          // claim is accepted by the service by runtime regardless, so this is
+          // declarative/symmetric with hermes-channel.js — see the service
+          // gate _bridge_claim_block_reason.
+          bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
         });
+        // Mode FSM release signal (Task 4.1): the operator switched this agent
+        // to resident, so this managed sidecar is no longer the driver. Stop
+        // driving and exit the poll loop gracefully — the resident TUI/CLI now
+        // owns the session (one-driver invariant).
+        if (claim?.release) {
+          console.error(
+            `[claude-channel] released: agent '${agentId}' switched to resident; sidecar stopping.`,
+          );
+          return;
+        }
         const executionMode = String(claim?.run?.executionMode || "").trim().toLowerCase();
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;
         batch.push(claim.run);
