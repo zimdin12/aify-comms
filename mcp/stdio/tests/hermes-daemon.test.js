@@ -6,7 +6,22 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { ensureDaemon } from "../hermes-daemon.js";
+import { agentEndpoint } from "../hermes-endpoint.js";
+
+function makeTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "hermes-daemon-test-"));
+}
+function cleanup(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+}
 
 // A fake child handle: records whether unref() was called.
 function fakeChild(pid = 4242) {
@@ -126,4 +141,126 @@ test("idempotent: two calls when already up spawn zero times", async () => {
   assert.equal(a.started, false);
   assert.equal(b.started, false);
   assert.equal(spawn.calls.length, 0, "no spawn across repeated already-up calls");
+});
+
+test("per-agent: derives endpoint from agentId and spawns with its port/key", async () => {
+  const dir = makeTempDir();
+  try {
+    const child = fakeChild(7777);
+    const spawn = recordingSpawn(child);
+    const probe = sequencedProbe([
+      { available: false, reason: "daemon not running" },
+      { available: true, version: "0.15.1" },
+    ]);
+
+    const ep = agentEndpoint("agent-a", { tempDir: dir });
+    const result = await ensureDaemon({
+      agentId: "agent-a",
+      endpoint: ep,
+      spawn,
+      probe,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+
+    assert.equal(result.started, true);
+    assert.equal(spawn.calls.length, 1);
+    const call = spawn.calls[0];
+    assert.deepEqual(call.args, ["gateway", "run", "--replace"]);
+    assert.equal(call.opts.env.API_SERVER_ENABLED, "1");
+    assert.equal(call.opts.env.API_SERVER_KEY, ep.key);
+    assert.equal(call.opts.env.API_SERVER_PORT, String(ep.port));
+    assert.equal(call.opts.env.API_SERVER_HOST, "127.0.0.1");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("per-agent: two agents resolve different ports + keys (no collision)", async () => {
+  const dir = makeTempDir();
+  try {
+    const spawnA = recordingSpawn(fakeChild(1));
+    const spawnB = recordingSpawn(fakeChild(2));
+    const probeA = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+    const probeB = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+
+    await ensureDaemon({
+      agentId: "agent-a",
+      endpoint: agentEndpoint("agent-a", { tempDir: dir }),
+      spawn: spawnA,
+      probe: probeA,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+    await ensureDaemon({
+      agentId: "agent-b",
+      endpoint: agentEndpoint("agent-b", { tempDir: dir }),
+      spawn: spawnB,
+      probe: probeB,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+
+    const envA = spawnA.calls[0].opts.env;
+    const envB = spawnB.calls[0].opts.env;
+    assert.notEqual(envA.API_SERVER_PORT, envB.API_SERVER_PORT, "ports must differ");
+    assert.notEqual(envA.API_SERVER_KEY, envB.API_SERVER_KEY, "keys must differ");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("per-agent: derives endpoint from agentId when none supplied", async () => {
+  const dir = makeTempDir();
+  try {
+    const spawn = recordingSpawn(fakeChild(3));
+    const probe = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+
+    // No explicit endpoint: ensureDaemon must derive it via agentEndpoint.
+    // Inject the same tempDir so the test is hermetic.
+    const ep = agentEndpoint("derive-me", { tempDir: dir });
+    await ensureDaemon({
+      agentId: "derive-me",
+      tempDir: dir,
+      spawn,
+      probe,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+
+    const env = spawn.calls[0].opts.env;
+    assert.equal(env.API_SERVER_PORT, String(ep.port));
+    assert.equal(env.API_SERVER_KEY, ep.key);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("per-agent already-up: probes the agent's baseUrl and never spawns", async () => {
+  const dir = makeTempDir();
+  try {
+    const spawn = recordingSpawn();
+    const ep = agentEndpoint("up-agent", { tempDir: dir });
+    let probedWith;
+    const probe = async (args) => {
+      probedWith = args;
+      return { available: true, version: "0.15.1" };
+    };
+    const result = await ensureDaemon({ agentId: "up-agent", endpoint: ep, spawn, probe });
+    assert.equal(result.started, false);
+    assert.equal(spawn.calls.length, 0);
+    assert.equal(probedWith.baseUrl, ep.baseUrl);
+    assert.equal(probedWith.key, ep.key);
+  } finally {
+    cleanup(dir);
+  }
 });

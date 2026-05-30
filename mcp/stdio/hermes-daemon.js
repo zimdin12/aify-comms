@@ -1,12 +1,18 @@
 #!/usr/bin/env node
-// ensureDaemon — guarantee exactly ONE long-lived `hermes gateway run` daemon
+// ensureDaemon — guarantee a long-lived per-agent `hermes gateway run` daemon
 // is up with the api_server platform enabled, idempotently.
 //
-// Managed hermes delivery POSTs to the api_server platform (HTTP/SSE on
-// http://127.0.0.1:8642) that runs in-process inside one shared
-// `hermes gateway run` daemon. This helper is the ensure-up step: probe first,
-// and only spawn (DETACHED) if the daemon isn't already answering — so calling
-// it from every per-agent sidecar launch is safe.
+// ASYMMETRY(hermes): each hermes agent gets its OWN api_server daemon (own port
+// + own key, derived deterministically from agentId via hermes-endpoint.js) so
+// the aify-comms MCP tools loaded into that daemon carry the agent's
+// AIFY_AGENT_ID and comms_send attributes the reply to the right agent. A
+// single shared daemon is one process = one identity and cannot. This is
+// hermes's equivalent of claude's "one process per agent."
+//
+// Managed hermes delivery POSTs to that agent's api_server platform (HTTP/SSE)
+// running in-process inside its `hermes gateway run` daemon. This helper is the
+// ensure-up step: probe first, and only spawn (DETACHED) if the daemon isn't
+// already answering — so calling it from every per-agent sidecar launch is safe.
 //
 // spawn + probe are injected so tests never launch a real process or touch a
 // real socket. Contract:
@@ -14,18 +20,25 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { probeApiServer } from "./hermes-version.js";
+import { agentEndpoint } from "./hermes-endpoint.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Ensure one api_server-enabled hermes gateway daemon is up.
-//   - First probe; if available → { started:false, version } (NO spawn).
+// Ensure one api_server-enabled hermes gateway daemon is up for an agent.
+//   - Resolve the per-agent endpoint: explicit `endpoint` wins; else derive via
+//     agentEndpoint(agentId). Explicit baseUrl/key/port/host still override
+//     (back-compat with callers that pass them directly).
+//   - First probe that endpoint; if available → { started:false, version }.
 //   - Else spawn `hermes gateway run --replace` detached with API_SERVER_* env,
 //     unref it, and poll probe until healthy or healthTimeoutMs elapses.
-//   - On success → { started:true, version, pid }. On timeout → throw.
+//   - On success → { started:true, version, pid, endpoint }. On timeout → throw.
 export async function ensureDaemon({
-  baseUrl = "http://127.0.0.1:8642",
+  agentId,
+  endpoint,
+  tempDir,
+  baseUrl,
   key,
-  port = 8642,
+  port,
   host = "127.0.0.1",
   hermesCmd = "hermes",
   spawn = nodeSpawn,
@@ -33,10 +46,25 @@ export async function ensureDaemon({
   healthTimeoutMs = 15000,
   pollMs = 300,
 } = {}) {
+  // Resolve the effective endpoint. Precedence: explicit fields > endpoint
+  // object > agentEndpoint(agentId) > legacy shared default.
+  let derived = endpoint;
+  if (!derived && agentId) {
+    derived = agentEndpoint(agentId, tempDir ? { tempDir } : undefined);
+  }
+  const effHost = host ?? derived?.host ?? "127.0.0.1";
+  const effPort = port ?? derived?.port ?? 8642;
+  const effKey = key ?? derived?.key;
+  const effBaseUrl = baseUrl ?? derived?.baseUrl ?? `http://${effHost}:${effPort}`;
+
   // 1. Idempotent fast-path: already up → no spawn.
-  const initial = await probe({ baseUrl, key });
+  const initial = await probe({ baseUrl: effBaseUrl, key: effKey });
   if (initial && initial.available) {
-    return { started: false, version: initial.version };
+    return {
+      started: false,
+      version: initial.version,
+      endpoint: { host: effHost, port: effPort, baseUrl: effBaseUrl, key: effKey },
+    };
   }
 
   // 2. Spawn the daemon DETACHED so it outlives this bridge process.
@@ -44,9 +72,9 @@ export async function ensureDaemon({
     env: {
       ...process.env,
       API_SERVER_ENABLED: "1",
-      API_SERVER_KEY: key,
-      API_SERVER_PORT: String(port),
-      API_SERVER_HOST: host,
+      API_SERVER_KEY: effKey,
+      API_SERVER_PORT: String(effPort),
+      API_SERVER_HOST: effHost,
     },
     detached: true,
     stdio: "ignore",
@@ -56,9 +84,14 @@ export async function ensureDaemon({
   // 3. Poll for health until the daemon answers or we time out.
   const deadline = Date.now() + healthTimeoutMs;
   for (;;) {
-    const res = await probe({ baseUrl, key });
+    const res = await probe({ baseUrl: effBaseUrl, key: effKey });
     if (res && res.available) {
-      return { started: true, version: res.version, pid: child ? child.pid : undefined };
+      return {
+        started: true,
+        version: res.version,
+        pid: child ? child.pid : undefined,
+        endpoint: { host: effHost, port: effPort, baseUrl: effBaseUrl, key: effKey },
+      };
     }
     if (Date.now() >= deadline) break;
     await sleep(pollMs);
@@ -67,6 +100,6 @@ export async function ensureDaemon({
   throw new Error(
     `[hermes] hermes gateway daemon did not become healthy within ${healthTimeoutMs}ms — ` +
       "check `hermes gateway run` / API_SERVER_* env (API_SERVER_ENABLED, " +
-      `API_SERVER_KEY, API_SERVER_PORT=${port}, API_SERVER_HOST=${host}).`,
+      `API_SERVER_KEY, API_SERVER_PORT=${effPort}, API_SERVER_HOST=${effHost}).`,
   );
 }
