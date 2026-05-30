@@ -1056,6 +1056,20 @@ install_hermes_wrapper() {
   # hermes-channel.js). path_for_node so Git-Bash node opens it (drive-letter).
   local hermes_stdio_dir
   hermes_stdio_dir="$(path_for_node "$SCRIPT_DIR/mcp/stdio")"
+  # Prebuilt ui-tui bundle dir (so the managed `hermes --tui` runs the existing
+  # dist instead of rebuilding it on every launch — slow + noisy `npm run build`
+  # observed on managed launches). `hermes --tui` skips the build entirely when
+  # HERMES_TUI_DIR points at a dir containing dist/entry.js (main.py
+  # _make_tui_argv prebuilt-bundle branch). `--skip-build` is NOT a valid
+  # top-level `hermes --tui` flag (it belongs to `hermes dashboard`), so we set
+  # the env var instead. Bake the value only when the dist actually exists; an
+  # empty value means "let hermes locate/build it as before" (never breaks).
+  local hermes_tui_dir=""
+  local _hermes_root_for_tui
+  _hermes_root_for_tui="$(detect_hermes_install_root)"
+  if [ -n "$_hermes_root_for_tui" ] && [ -f "$_hermes_root_for_tui/ui-tui/dist/entry.js" ]; then
+    hermes_tui_dir="$_hermes_root_for_tui/ui-tui"
+  fi
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1285,6 +1299,11 @@ AIFY_HERMES_CHANNEL_JS="\$AIFY_HERMES_STDIO_DIR/hermes-channel.js"
 # branch brings up the gateway host, starts the delivery loop, and then EXECs a
 # real \`hermes --tui\` into THIS PTY (rendered windowless in the dashboard).
 AIFY_HERMES_MANAGED_HOST_JS="\$AIFY_HERMES_STDIO_DIR/hermes-managed-host.js"
+# Prebuilt ui-tui bundle dir (baked at install time). When non-empty and it
+# holds dist/entry.js, the managed branch exports it as HERMES_TUI_DIR so
+# \`hermes --tui\` runs the prebuilt bundle and skips the per-launch
+# \`npm run build\`. Empty → hermes builds/locates the TUI as before (no break).
+AIFY_HERMES_TUI_DIR="$hermes_tui_dir"
 
 # Bring up (idempotently) the per-agent api_server daemon for this agent. On
 # failure print the LOUD daemon error and exit non-zero — a silent no-op daemon
@@ -1378,6 +1397,14 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
   export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
+  # Use the prebuilt ui-tui bundle when available so the managed TUI does NOT
+  # run \`npm run build\` on every launch (slow + noisy in the dashboard
+  # console). \`hermes --tui\` skips the build when HERMES_TUI_DIR points at a
+  # dir with dist/entry.js. Guard at runtime too in case the dist was removed
+  # after install — never break the TUI launch.
+  if [ -n "\$AIFY_HERMES_TUI_DIR" ] && [ -f "\$AIFY_HERMES_TUI_DIR/dist/entry.js" ]; then
+    export HERMES_TUI_DIR="\$AIFY_HERMES_TUI_DIR"
+  fi
   exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
 fi
 
@@ -1435,6 +1462,16 @@ install_hermes_windows_tui_shim() {
   # the native Windows node launched from the .ps1 wrapper.
   local hermes_stdio_dir_win
   hermes_stdio_dir_win="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio")"
+  # Prebuilt ui-tui bundle dir (Windows path) so the managed `hermes --tui`
+  # skips its per-launch `npm run build` (it runs the prebuilt dist when
+  # HERMES_TUI_DIR points at a dir with dist/entry.js). Empty when the dist is
+  # not present → hermes builds/locates the TUI as before (never breaks).
+  local hermes_tui_dir_win=""
+  local _hermes_root_for_tui_win
+  _hermes_root_for_tui_win="$(detect_hermes_install_root)"
+  if [ -n "$_hermes_root_for_tui_win" ] && [ -f "$_hermes_root_for_tui_win/ui-tui/dist/entry.js" ]; then
+    hermes_tui_dir_win="$(path_for_windows_runtime "$_hermes_root_for_tui_win/ui-tui")"
+  fi
   local windows_wrapper_dir=""
   local ps_path=""
   local cmd_path=""
@@ -1595,6 +1632,11 @@ function Invoke-HermesRuntime {
 # Managed visible-TUI model (Plan 2026-05-31): the per-agent hidden gateway host
 # (ensure-host) + background delivery loop (run) live here.
 \$AifyHermesManagedHostJs = Join-Path \$AifyHermesStdioDir 'hermes-managed-host.js'
+# Prebuilt ui-tui bundle dir (baked at install time). When set + dist/entry.js
+# exists, the managed branch exports HERMES_TUI_DIR so 'hermes --tui' runs the
+# prebuilt bundle and skips the per-launch 'npm run build'. Empty → hermes
+# builds/locates the TUI as before (no break).
+\$AifyHermesTuiDir = '$hermes_tui_dir_win'
 
 # Bring up (idempotently) the per-agent api_server daemon. On failure print the
 # LOUD daemon error and exit non-zero. Returns the daemon-cli's one-line JSON.
@@ -1692,6 +1734,12 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
   \$env:HERMES_TUI_RESUME = \$pinnedSession
+  # Use the prebuilt ui-tui bundle when present so the managed TUI does NOT run
+  # 'npm run build' on every launch. Guard at runtime in case the dist was
+  # removed after install — never break the TUI launch.
+  if (\$AifyHermesTuiDir -and (Test-Path (Join-Path \$AifyHermesTuiDir 'dist/entry.js'))) {
+    \$env:HERMES_TUI_DIR = \$AifyHermesTuiDir
+  }
   Invoke-HermesRuntime @('--tui')
   exit \$script:HermesRuntimeExitCode
 }

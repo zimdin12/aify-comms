@@ -651,6 +651,51 @@ async def _apply_channel_routing_to_claude_runs(db, runs, settings: dict[str, An
             """,
             [*run_ids, *flag_gated],
         )
+        # Visible-TUI managed model (2026-05-31): the channelEnabled flag is set
+        # by an in-session wrapper MCP's auto-register. In the visible-TUI model
+        # the managed agent's runtime IS the thin `hermes --tui` (a WS client),
+        # so that flag is never set on an already-managed agent — but a LIVE
+        # standalone channel-sidecar (the hermes-managed-host.js delivery loop)
+        # is heartbeating and IS the authoritative channel mechanism. Route to
+        # 'channel' whenever such a live sidecar exists, regardless of the flag.
+        # (Observed on gov-tui 2026-05-30: a queued run stayed execution_mode=
+        # 'managed' because runtime_config.channelEnabled was None, so the loop —
+        # which claims only channel/resident — never matched it.) This is the
+        # robust route: it reflects the live delivery reality, not a flag the
+        # visible-TUI model structurally cannot set.
+        sidecar_run_rows = await (
+            await db.execute(
+                f"""
+                SELECT dr.id AS run_id, dr.target_agent AS target_agent
+                FROM dispatch_runs dr
+                JOIN agents a ON a.id = dr.target_agent
+                WHERE dr.id IN ({placeholders})
+                  AND dr.execution_mode != 'channel'
+                  AND LOWER(COALESCE(a.runtime, '')) IN ({rt_placeholders})
+                  AND a.session_mode = 'managed'
+                """,
+                [*run_ids, *flag_gated],
+            )
+        ).fetchall()
+        live_sidecar_run_ids: list[str] = []
+        live_sidecar_cache: dict[str, bool] = {}
+        for row in sidecar_run_rows:
+            target = str(row["target_agent"] or "")
+            if target not in live_sidecar_cache:
+                live_sidecar_cache[target] = await _has_live_channel_sidecar(db, target)
+            if live_sidecar_cache[target]:
+                live_sidecar_run_ids.append(str(row["run_id"]))
+        if live_sidecar_run_ids:
+            ls_placeholders = ",".join("?" for _ in live_sidecar_run_ids)
+            await db.execute(
+                f"""
+                UPDATE dispatch_runs
+                SET execution_mode = 'channel'
+                WHERE id IN ({ls_placeholders})
+                  AND execution_mode != 'channel'
+                """,
+                live_sidecar_run_ids,
+            )
 
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
@@ -2199,6 +2244,24 @@ async def _record_bridge_registration(
     # intact: bridge-spawned PTY siblings sharing a terminal must not kill each
     # other. Same-process periodic re-register keeps the same bridge_id and is
     # excluded by `id != ?`, so only genuinely older launches are superseded.
+    # Managed visible-TUI coexistence carve-out (2026-05-31). In the visible-TUI
+    # managed model a single managed agent has TWO complementary live bridges:
+    #   - a standalone `channel-sidecar` (the hermes-managed-host.js delivery
+    #     loop) that CLAIMS channel runs and delivers via WS prompt.submit, and
+    #   - a `managed-wrapper-child` (the visible TUI's in-session aify-comms MCP)
+    #     that exists so the agent can self-reply via comms_send.
+    # They play DIFFERENT roles for the same agent and must not supersede each
+    # other. Before this carve-out the wrapper-child registration superseded the
+    # sidecar (and vice versa on the sidecar's own bridge-registration path),
+    # which blocked the superseded one from claiming → delivery silently stalled
+    # (observed on gov-tui 2026-05-30: a queued run never claimed). Protect the
+    # existing row whenever the registering bridge and the existing row form a
+    # sidecar↔wrapper-child pair for the SAME managed agent+machine.
+    new_kind = bridge_kind or "managed-resident"  # "" means resident/env bridge
+    complementary_pair = (
+        (new_kind == "managed-wrapper-child" and normalized_session_mode_value == "managed")
+        or new_kind == "channel-sidecar"
+    )
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
@@ -2206,11 +2269,21 @@ async def _record_bridge_registration(
           AND (
             datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', '-5 minutes')
             OR NOT (
-              runtime = ? AND session_mode = ?
-              AND COALESCE(session_handle, '') = ?
-              AND ? = 'managed-wrapper-child'
-              AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
-              AND COALESCE(terminal_id, '') = ?
+              (
+                runtime = ? AND session_mode = ?
+                AND COALESCE(session_handle, '') = ?
+                AND ? = 'managed-wrapper-child'
+                AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
+                AND COALESCE(terminal_id, '') = ?
+              )
+              OR (
+                -- Complementary visible-TUI pair: a channel-sidecar and a
+                -- managed-wrapper-child for the same managed agent coexist.
+                ? = 1
+                AND session_mode = 'managed'
+                AND COALESCE(bridge_kind, '') IN ('channel-sidecar', 'managed-wrapper-child')
+                AND COALESCE(bridge_kind, '') != ?
+              )
             )
           )
         """,
@@ -2223,6 +2296,8 @@ async def _record_bridge_registration(
             normalized_session_handle_value,
             bridge_kind,
             normalized_terminal_id_value,
+            1 if complementary_pair else 0,
+            new_kind,
         ),
     )
     superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]
