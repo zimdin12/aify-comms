@@ -22,6 +22,20 @@ KEEP from prior work: governance (sticky id, mode FSM, mutual-exclusion, reminde
 - T1.4: `hermes-daemon.js`/endpoint — host is now `hermes dashboard --tui` (WS), ensure-up + health (dashboard index/health) + windowsHide + teardown on stop. Adjust probe/health accordingly.
 - T1.5: Live verify: spawn a managed hermes agent → dashboard console shows the REAL TUI (no OS window); dispatch → TUI renders the turn live + agent self-replies threaded back; one gateway-host + one TUI, no popups, no proliferation.
 
+## VERIFIED CHANGE-SET (T1.1 recon adca30a, file:line)
+
+**Process model per managed agent (the key decision):** the PTY runs ONLY the visible `hermes --tui`; a SEPARATE hidden background helper per agent (a) spawns `hermes dashboard --tui --port <agentPort> --no-open --skip-build` (windowsHide) + waits healthy + scrapes `__HERMES_SESSION_TOKEN__` from index HTML, (b) runs the dispatch CLAIM loop, (c) opens its own WS to the gateway, `session.active_list`→pick the TUI's runtime sid for title/key `aify-<agentId>`, `prompt.submit` (steer on 4009 busy). Agent self-replies via comms_send.
+
+- **Service path UNCHANGED:** `_ensure_managed_pty_for_dispatch` (api_v2.py:5083-5161) writes a terminal_session with `command=console_command()` = `hermes-aify --aify-agent <id>` (hermes.py:41-45); bridge `runTerminalControlLoop` (server.js:1653-1755) runs it in node-pty (terminal-runtime.js startPty:180-244, ConPTY=windowless) → streams to dashboard. So the wrapper running `hermes --tui` renders in the dashboard console. CONFIRMED.
+- **Wrapper managed branch (install.sh bash:1324-1332, PS:1590-1598)** currently `exec node hermes-channel.js` (headless api_server). REPLACE: kill-prior (TUI + gateway host by port) → start the hidden helper (gateway host + delivery loop) → `exec hermes --tui` with `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/api/ws?token=<tok>` + `HERMES_TUI_RESUME=aify-<agentId>`. Delete the misleading "no per-agent WS / dashboard-tui removed" comments (install.sh:1339-1349,1372-1377). Drop api_server `aify_hermes_ensure_daemon` from managed branch.
+- **Delivery worker:** REUSE hermes-channel.js claim/report/teardown loop (runPollCycle/processClaimedRun :198-312, markRunDelivered :165-175, release+teardown :324-409, dispatchContent, bridgeKind:"channel-sidecar"). SWAP only the delivery call (was apiClient.chatStream) → WS active_list+prompt.submit/steer. Re-discover sid each attach, NEVER cache.
+- **hermes-gateway-protocol.js:** REUSE buildPromptSubmitFrame(:11)/buildSessionSteerFrame(:20)/buildSessionInterruptFrame(:91)/isSessionBusyError(:142, 4009)/isSessionNotFoundError(:155, 4010)/pickFreshestSessionFromList(:168). ADD `buildSessionActiveListFrame` + `pickSessionForKey(resp, "aify-<id>")` (active_list + title-match don't exist yet — the one gap).
+- **Salvage** gateway-host spawn/token/health from hermes-managed-gateway-session.js (:34-77,:129-187) + ADD windowsHide:true (it's missing, :153 — popup bug). Then DELETE its fake-terminal `_pushTerminalFrame` (:119-127,:208-247) + the dead HermesManagedController gateway branch + `AIFY_HERMES_MANAGED_USE_GATEWAY`.
+- **windowsHide:** startPty ConPTY already windowless (no change). The helper's `hermes dashboard --tui` child NEEDS windowsHide:true.
+- **Teardown:** helper SIGTERM/release → kill its gateway host + itself (reap, like hermes-channel.js teardown). kill-prior reaps orphans on relaunch.
+- **Resident branch (install.sh:1336-1351)** still calls api_server daemon — migrate it to the dashboard-host model in the same pass (or it lingers).
+- **Obsolete after (Phase 7):** hermes-channel.js api_server-chat path + hermes-apiserver-client.js + the `hermes gateway run` daemon (hermes-daemon.js) IF nothing else uses it; hermes-managed-gateway-session.js fake-terminal.
+
 ## Phase 2 — Lazy autostart + env auto-bind
 
 - T2.1: comms_send to an `available` managed agent with NO `managedEnvironmentId` → auto-select first ONLINE env supporting the runtime (like `comms_spawn` env omission), bind, eager-spawn, deliver. If no online env supports it → reject with a clear "no environment available" (not silent). TDD.
