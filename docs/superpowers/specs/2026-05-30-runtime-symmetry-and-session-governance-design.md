@@ -40,11 +40,16 @@ A new harness implements these three; the governance layer and dashboard treat i
 |--------|--------|--------------|-------|-----|
 | Session id source | `captured` (SessionStart hook, #138) | `pinned` (`aify-<agentId>`, daemon-resident) | `resume` (controller stores/resumes) | `resume` |
 | Delivery shape | sidecar-channel (`claude-channel.js`) | **sidecar-channel** (`hermes-channel.js`, NEW — now symmetric with claude) | controller (PTY/native) | controller (PTY) |
-| Needs a daemon | no | **yes** — `ASYMMETRY(hermes)`: api_server lives in one shared `hermes gateway run`; auto-ensured | no | no |
-| Can be force-pinned | no — `ASYMMETRY(claude)`: claude mints its own id; we capture+resume+guard | yes | partial (resume id) | partial |
-| Reply author (v1) | agent self (`comms_send`) | sidecar posts captured reply — `ASYMMETRY(hermes)`: arbitrary model may not call comms_send reliably; sidecar guarantees a reply (agent-self-reply is a later enhancement) | agent self | agent self |
+| Reply author | agent self (`comms_send` + `inReplyTo`) | **agent self (`comms_send`)** — aify-comms MCP tools loaded into the hermes agent; now symmetric with claude | agent self | agent self |
+| Owns its own process/daemon | a process per agent | **a `hermes gateway run` daemon per agent** — `ASYMMETRY(hermes)`: hermes's equivalent of "one process per agent"; hosts the agent's pinned session + the aify-comms MCP tools; auto-ensured, torn down on stop | a process per agent | a process per agent |
+| Wake mechanism | MCP server-push notification (in-process sidecar) | `ASYMMETRY(hermes)`: external sidecar delivers the wake via api_server `chat` (hermes's MCP **client** cannot be server-woken like claude's — recon B); the agent then self-replies | controller PTY/native inject | controller PTY inject |
+| Can be force-pinned | no — `ASYMMETRY(claude)`: claude mints its own id; we capture+resume+guard | yes (we assign `aify-<agentId>` to its daemon) | partial (resume id) | partial |
 
-The goal: **shrink this table's asymmetry column over time.** hermes moving to a sidecar-channel already removes one big asymmetry (it now matches claude's delivery shape).
+The goal: **shrink this table's asymmetry column over time.** hermes moving to a per-agent sidecar-channel with self-reply removes the two biggest asymmetries — delivery shape AND reply author now match claude. What remains (per-agent daemon; sidecar-delivered wake) is intrinsic to hermes's architecture and documented.
+
+### Reply robustness — reminders, not scraping (runtime-agnostic)
+
+The agent always authors its own reply (`comms_send` + `inReplyTo`). When a `require_reply` dispatch run stays **unanswered** past a threshold, a runtime-agnostic **reminder** re-wakes the owing agent with a message that BOTH nudges and **reinforces the pattern** ("you owe a reply to message <id> — answer with `comms_send(..., inReplyTo=<id>)`"). This replaces output-scraping entirely: it is symmetric across runtimes (the reminder rides each runtime's normal wake path), self-correcting, and teaches the contract. Generalizes the existing claude inbox-reminder logic (`notify-check.js`) into a service-level reminder for any runtime's unanswered required runs.
 
 ## Session governance model (runtime-agnostic, service-level)
 
@@ -76,7 +81,8 @@ This is what prevents the N-wrappers-on-one-session collision. Same-mode re-atta
 
 ### Sticky identity + new-id guard (the split/merge catch)
 
-- Registration/heartbeat does NOT silently overwrite `session_id`. 
+- Registration/heartbeat does NOT silently overwrite `session_id`.
+- **First-id auto-accept:** a brand-new agent with no persisted `session_id` accepts its first reported id (not a "change" — no split/merge risk). The guard fires only on a *change* from an already-persisted id.
 - If an agent reports a `session_id` **different** from its persisted one: store it as `pending_session_id`, set status `session-changed` (a distinct, visible state), and **do not switch delivery** until resolved.
 - Resolution is an explicit operator action in the dashboard: **Confirm new id** (re-pin to the new id) or **Keep current** (the agent is told to resume the persisted id — for hermes/codex via resume; for claude via `--resume`).
 - This makes both **split** (agent drifted onto a fresh id → flagged, not silently accepted) and **merge** (two agents reporting the same id → second is rejected by mutual exclusion) observable and guarded. Rare by design (P3/P4).
@@ -87,9 +93,9 @@ This is what prevents the N-wrappers-on-one-session collision. Same-mode re-atta
 - When resident (or session-changed), show the exact **resume/takeover command** to copy.
 - A **session-changed** badge with Confirm / Keep-current actions.
 
-## Infra: the hermes daemon (auto-ensure)
+## Infra: the per-agent hermes daemon (auto-ensure)
 
-`ASYMMETRY(hermes)`: hermes delivery needs one shared `hermes gateway run` daemon hosting api_server (8642). The bridge **auto-ensures** it (`hermes-daemon.js ensureDaemon`, already built): probe → if down, spawn detached → wait healthy → idempotent. install.sh also ensures it once + asserts loudly. claude/codex/pi have no daemon (documented). Operator never starts it manually (P4).
+`ASYMMETRY(hermes)`: each hermes agent needs its OWN `hermes gateway run` daemon hosting api_server, so that the aify-comms MCP tools loaded into it carry that agent's `AIFY_AGENT_ID` and `comms_send` attributes the reply to the right agent (a single shared daemon could not — one process, one identity). This is hermes's equivalent of claude's "one process per agent." The bridge **auto-ensures** it (`hermes-daemon.js ensureDaemon`, already built; extend to per-agent host/port + key derived from agentId): probe → if down, spawn detached → wait healthy → idempotent; torn down on agent stop. **This is lighter than the prior footprint** (which spawned a gateway *plus* a TUI per launch and leaked on restart); one bounded daemon per active agent + teardown is strictly better. claude/codex/pi have no daemon (documented). Operator never starts it manually (P4).
 
 ## Wrapper model (install.sh, hermes branch)
 
@@ -100,7 +106,14 @@ This is what prevents the N-wrappers-on-one-session collision. Same-mode re-atta
 
 ## What already exists (slots underneath)
 
-Built + tested on `feature/session-status-robustness`: `hermes-apiserver-client.js`, `hermes-version.js` (probe+assert), `hermes-channel.js` sidecar, `hermes-session-id.js` (pinned id), `hermes.js` adapter (returns pinned id), `hermes-daemon.js`. The WS-bind controller + dead frames are retired. These are the hermes *delivery* realization of the symmetric contract; governance + dashboard + install + the cross-runtime guards are the new work.
+Built + tested on `feature/session-status-robustness`: `hermes-apiserver-client.js`, `hermes-version.js` (probe+assert), `hermes-channel.js` sidecar, `hermes-session-id.js` (pinned id), `hermes.js` adapter (returns pinned id), `hermes-daemon.js`. The WS-bind controller + dead frames are retired.
+
+**Revisions required by the self-reply decision** (these modules were built for the earlier sidecar-posts-reply model):
+- `hermes-channel.js`: stop posting the captured reply. Its job is the WAKE only — claim → ensure daemon/session → deliver the dispatch prompt via api_server `chat` → mark the run *delivered* (leave a `require_reply` run pending; the agent's `comms_send`+`inReplyTo` closes it, exactly like `claude-channel.js`). Still pulses `turn_busy`.
+- `hermes-daemon.js`: per-agent host/port + key derived from agentId (not one shared instance).
+- install.sh: register the aify-comms MCP server into the hermes daemon's config so the agent has `comms_*` tools (the claude-parity bit that enables self-reply).
+
+These are the hermes *delivery* realization of the symmetric contract; governance + dashboard + install + the cross-runtime reminder/guards are the new work.
 
 ## AGENTS.md
 
@@ -108,12 +121,11 @@ Add a "Runtime symmetry" section codifying P1/P2 and the triad contract + matrix
 
 ## Testing strategy
 
-- Service: governance FSM unit tests (mode switch, mutual-exclusion reject, sticky-id, new-id→pending→confirm/keep), status deliverability — runtime-agnostic with each runtime parametrized (symmetry enforced by a shared test matrix).
+- Service: governance FSM unit tests (mode switch, mutual-exclusion reject, sticky-id incl. first-id auto-accept, new-id→pending→confirm/keep), the reminder subsystem (unanswered `require_reply` run → reminder re-wake fires once past threshold, stops after the reply lands), status deliverability — runtime-agnostic with each runtime parametrized (symmetry enforced by a shared test matrix).
 - Bridge: per-adapter contract test (the existing `test_per_adapter`/`test_runtime_adapter_consistency` extended to assert every adapter implements the full contract — a symmetry guard test that FAILS if a new runtime omits a contract method).
 - Live: managed hermes round-trip; managed→resident switch shows correct resume cmd and hands off without collision; new-id warning fires on a drifted id.
 
 ## Out of scope / later
 
-- Agent-self-reply for hermes (model B) once arbitrary-model reliability is acceptable.
 - True live co-view of one session by two clients (architecturally limited on hermes 0.15.x — snapshot only).
 - codex `no_rollout` (#136), pi PTY (#137) — separate, but should adopt the same governance once landed.
