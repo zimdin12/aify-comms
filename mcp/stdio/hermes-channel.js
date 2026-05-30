@@ -5,10 +5,16 @@
 // claude-channel.js claims dispatch runs over HTTP by agentId and PUSHES them
 // into the same claude process via an MCP notification. hermes can't be woken
 // by a server push, so this sidecar instead DRIVES the agent's pinned hermes
-// session via the api_server platform of a shared long-lived `hermes gateway
-// run` daemon (POST /api/sessions/{id}/chat/stream, SSE reply), captures the
-// assistant text, and posts it back to aify as a reply (POST /messages/send,
-// inReplyTo=<messageId>) — the same threading claude gets via comms_send.
+// session via the api_server platform of a per-agent long-lived `hermes gateway
+// run` daemon (POST /api/sessions/{id}/chat/stream, SSE reply) to RUN the turn
+// to completion.
+//
+// WAKE-ONLY (symmetric with claude-channel.js): this sidecar does NOT author or
+// post a reply. The in-session hermes agent has the aify-comms comms_* tools
+// loaded and authors its OWN reply via comms_send + inReplyTo, which closes the
+// require_reply run later — exactly the threading claude gets. After a
+// successful wake the run is left in status `delivered`; the agent's reply
+// closes it. (The earlier "sidecar posts the captured reply" model is removed.)
 //
 // Shape mirrored from claude-channel.js: bound-agentId from the PID-keyed temp
 // file, httpCall(method, endpoint, body) against ${baseUrl}/api/v1, claim via
@@ -114,21 +120,6 @@ function isChannelRun(run) {
   return String(run?.executionMode || "").trim().toLowerCase() === "channel";
 }
 
-// Build the MessageSend body for the reply. Field names mirror
-// service/models.py:MessageSend EXACTLY: from_agent, to, subject, body, type,
-// inReplyTo. The reply links to the dispatch run server-side via inReplyTo.
-export function buildReplyBody(agentId, run, replyText) {
-  const subject = run?.subject ? `Re: ${run.subject}` : "Re: (no subject)";
-  return {
-    from_agent: agentId,
-    to: run?.from || "",
-    type: "response",
-    subject,
-    body: String(replyText ?? ""),
-    inReplyTo: run?.messageId || undefined,
-  };
-}
-
 async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
     bridgeId: CHANNEL_BRIDGE_ID,
@@ -145,14 +136,18 @@ async function clearTurn(httpCall, agentId) {
   });
 }
 
-async function markRunAnswered(httpCall, run) {
+// WAKE-ONLY: after a successful turn the run is left `delivered` (mirrors
+// claude-channel.js's require_reply semantics). The in-session hermes agent's
+// own comms_send + inReplyTo closes it. We never mark it completed/answered
+// here — the sidecar authored no reply.
+async function markRunDelivered(httpCall, run) {
   const runId = String(run?.id || "");
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
-    status: "completed",
-    summary: "Delivered to hermes api_server session; reply posted",
+    status: "delivered",
+    summary: "Delivered to hermes api_server session; awaiting explicit reply",
     runtime: RUNTIME,
     agentStatus: "active",
-    appendEvent: "Delivered + answered by hermes channel sidecar",
+    appendEvent: "Delivered to hermes channel sidecar (agent self-replies)",
     eventType: "delivered",
   });
 }
@@ -171,11 +166,13 @@ async function markRunFailed(httpCall, run, error) {
   });
 }
 
-// Drive one claimed run end-to-end:
-//   ensureSession (idempotent) → turn_busy=true → chatStream → post reply →
-//   PATCH run answered → turn-end. On chatStream/reply failure: PATCH the run
-//   failed with the cause and clear the turn. NEVER throws — resilience is the
-//   whole point of the channel loop (mirrors claude-channel.js).
+// Drive one claimed run end-to-end (WAKE-ONLY):
+//   ensureSession (idempotent) → turn_busy=true → chatStream (RUN the turn to
+//   completion so the in-session agent can call comms_send) → PATCH run
+//   `delivered` → turn-end. The sidecar authors NO reply — the agent
+//   self-replies (symmetric with claude-channel.js). On chatStream failure:
+//   PATCH the run failed with the cause and clear the turn. NEVER throws —
+//   resilience is the whole point of the channel loop.
 export async function processClaimedRun({
   run,
   agentId,
@@ -192,6 +189,9 @@ export async function processClaimedRun({
     await apiClient.ensureSession({ baseUrl, key, id: sessionId });
 
     const text = dispatchContent(agentId, run || {});
+    // Run the turn to completion so the in-session agent gets the chance to
+    // call comms_send. The returned assistant text is discarded for reply
+    // purposes (kept only for a debug log) — the agent owns the reply.
     const reply = await apiClient.chatStream({
       baseUrl,
       key,
@@ -199,9 +199,14 @@ export async function processClaimedRun({
       sessionKey: sessionKey || undefined,
       text,
     });
+    if (process.env.AIFY_HERMES_CHANNEL_DEBUG) {
+      console.error(
+        `[hermes-channel] run ${run?.id || "?"} turn completed (reply authored in-session); ` +
+          `discarded assistant text length=${String(reply ?? "").length}`,
+      );
+    }
 
-    await httpCall("POST", "/messages/send", buildReplyBody(agentId, run, reply));
-    await markRunAnswered(httpCall, run);
+    await markRunDelivered(httpCall, run);
   } catch (error) {
     // Loud, recorded, non-fatal: the operator sees a failed run with the cause
     // (e.g. model not authenticated / 401), the loop keeps polling.
