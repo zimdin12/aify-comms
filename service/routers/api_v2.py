@@ -1683,8 +1683,15 @@ async def _bridge_claim_block_reason(
     agent_id: str,
     agent_row,
     execution_modes: Optional[list[str]] = None,
+    bridge_kind_hint: str = "",
 ) -> Optional[dict[str, Any]]:
-    """Return a blockedBy payload when an old stdio bridge should not claim work."""
+    """Return a blockedBy payload when an old stdio bridge should not claim work.
+
+    `bridge_kind_hint` is the claimant-declared bridge kind from the request
+    (DispatchClaimRequest.bridgeKind). Standalone channel sidecars
+    (claude-channel.js / hermes-channel.js) declare "channel-sidecar"; it lets
+    the wrapper-backed gate below distinguish them from a wrapper-PTY child.
+    """
     if not bridge_id:
         return None
 
@@ -1729,6 +1736,22 @@ async def _bridge_claim_block_reason(
         and runtime in _CHANNEL_CLAIM_RUNTIMES
         and bridge_kind == "managed-wrapper-child"
     )
+    # Standalone channel sidecar (Task 1.5/1.5b): the per-agent
+    # claude-channel.js / hermes-channel.js process. It is NOT a wrapper-PTY
+    # child and owns no visible Console terminal — it drives the agent's own
+    # session (claude via MCP push; hermes via the pinned api_server daemon).
+    # It declares bridgeKind="channel-sidecar" on the claim. Accept it on the
+    # SAME basis claude's standalone sidecar is already accepted (claude
+    # bypasses the wrapper-child gate purely by runtime — it is not in the
+    # {codex, opencode, pi, hermes} set above). hermes IS in that set (it also
+    # has a legacy wrapper-PTY path), so without this signal its standalone
+    # sidecar would be wrongly rejected with managed_wrapper_child_required and
+    # delivery would silently never happen.
+    is_channel_sidecar_claim = (
+        "channel" in supported_modes
+        and runtime in _CHANNEL_CLAIM_RUNTIMES
+        and str(bridge_kind_hint or "").strip().lower() == "channel-sidecar"
+    )
 
     session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "resident")
     runtime_state = _json_loads_or(agent_row["runtime_state"], {}) if agent_row else {}
@@ -1759,10 +1782,21 @@ async def _bridge_claim_block_reason(
 
     if session_mode == "managed":
         settings = await _load_settings(db)
+        # A standalone channel sidecar (claude-channel.js / hermes-channel.js)
+        # is accepted directly: it owns no wrapper PTY, so the
+        # managed-wrapper-child requirement and the PTY-terminal availability /
+        # mismatch / readiness checks below do not apply to it. This is the
+        # symmetric route — claude's standalone sidecar already bypasses these
+        # by runtime (claude is not in the wrapper-backed set); hermes's
+        # standalone sidecar bypasses them by declaring bridgeKind=channel-
+        # sidecar (hermes ALSO has a legacy wrapper-PTY path, so it can't be
+        # carved out by runtime alone). The environment online/bridge checks
+        # still run below (the sidecar must not deliver into a dead env).
         wrapper_backed_channel_claim = (
             "channel" in supported_modes
             and runtime in {"codex", "hermes"}
             and _managed_via_wrapper_for_runtime(settings, runtime)
+            and not is_channel_sidecar_claim
         )
         if (
             wrapper_backed_channel_claim
@@ -1817,7 +1851,12 @@ async def _bridge_claim_block_reason(
                 env_row,
                 offline_seconds=settings.get("environment_offline_seconds", 90),
             ) if env_row else "offline"
-            if current_environment_bridge and current_environment_bridge != bridge_id and not is_wrapper_child_claim:
+            if (
+                current_environment_bridge
+                and current_environment_bridge != bridge_id
+                and not is_wrapper_child_claim
+                and not is_channel_sidecar_claim
+            ):
                 return {
                     "reason": "environment_bridge_not_current",
                     "bridgeId": bridge_id,
@@ -12134,6 +12173,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             agent_id=req.agentId,
             agent_row=agent,
             execution_modes=req.executionModes or [],
+            bridge_kind_hint=req.bridgeKind or "",
         )
         if blocked_by:
             await db.commit()

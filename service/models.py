@@ -139,6 +139,11 @@ class DispatchClaimRequest(_MachineIdNormalizingModel):
     machineId: Optional[str] = None
     bridgeId: Optional[str] = None
     executionModes: Optional[list[str]] = None
+    # Standalone channel sidecars (mcp/stdio/claude-channel.js,
+    # hermes-channel.js) declare bridgeKind="channel-sidecar" so the claim gate
+    # can distinguish them from a wrapper-PTY child (which registers as
+    # bridge_kind="managed-wrapper-child"). See _bridge_claim_block_reason.
+    bridgeKind: Optional[str] = None
 
 
 class DispatchRunUpdate(BaseModel):

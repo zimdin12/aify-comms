@@ -337,6 +337,79 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
             conn.close()
         self.assertEqual(count, 0)
 
+    def test_standalone_hermes_channel_sidecar_claims_channel(self):
+        """Task 1.5b: the NEW standalone per-agent hermes sidecar
+        (mcp/stdio/hermes-channel.js) is NOT a managed-wrapper-child and owns
+        no PTY terminal — it drives the agent's pinned api_server daemon
+        session directly. It declares bridgeKind='channel-sidecar' on its claim
+        and must be accepted on the SAME basis claude's standalone channel
+        sidecar is (claude bypasses the wrapper-child requirement by runtime;
+        hermes bypasses it by declaring channel-sidecar). Before the fix the
+        claim was rejected with managed_wrapper_child_required and delivery
+        silently never happened."""
+        self._heartbeat_environment("hermes")
+        self._register_managed_agent(agent_id="hermes-sidecar", runtime="hermes")
+        run_id = self._dispatch_to("hermes-sidecar")
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "hermes-sidecar",
+                # Standalone sidecar bridge id (mirror of claude's
+                # channel-<machine>), never registered as a wrapper child and
+                # with no terminal binding.
+                "bridgeId": "hermes-channel-linux:test-host",
+                "machineId": "linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        body = claim.json()
+        self.assertIsNotNone(
+            body.get("run"),
+            f"standalone hermes channel sidecar must claim its queued channel run; got: {body}",
+        )
+        self.assertEqual(body["run"]["id"], run_id)
+        self.assertEqual(
+            body["run"].get("executionMode") or body["run"].get("execution_mode"),
+            "channel",
+        )
+
+    def test_standalone_claude_channel_sidecar_claims_channel(self):
+        """Regression: claude's standalone channel sidecar claim is unchanged —
+        it is accepted whether or not it declares bridgeKind (claude bypasses
+        the wrapper-child gate by runtime, not by bridgeKind)."""
+        self._heartbeat_environment("claude-code")
+        # claude managed routes to channel unconditionally (channelEnabled).
+        response = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "claude-sidecar",
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["resume", "interrupt"],
+                "runtimeConfig": {"channelEnabled": True},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        run_id = self._dispatch_to("claude-sidecar")
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "claude-sidecar",
+                "bridgeId": "channel-linux:test-host",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        body = claim.json()
+        self.assertIsNotNone(body.get("run"), f"claude channel claim must still work; got: {body}")
+        self.assertEqual(body["run"]["id"], run_id)
+
     def test_old_wrapper_child_for_different_terminal_cannot_claim_channel_run(self):
         self._heartbeat_environment("hermes")
         self._register_managed_agent(agent_id="hermes-multi-wrapper", runtime="hermes")

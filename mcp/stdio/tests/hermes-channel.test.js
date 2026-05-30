@@ -142,6 +142,9 @@ test("runPollCycle: claims a channel run for the agent, drives it, settles it", 
   assert.equal(claim.body.agentId, "sc-hermes");
   assert.ok(Array.isArray(claim.body.executionModes));
   assert.ok(claim.body.executionModes.includes("channel"));
+  // Standalone channel sidecar declares bridgeKind so the service accepts the
+  // claim on the same basis as claude's (NOT a managed-wrapper-child PTY).
+  assert.equal(claim.body.bridgeKind, "channel-sidecar");
 
   // The claimed run got driven + settled to `delivered` (wake-only: no reply post).
   assert.ok(!findCall(calls, "POST", "/messages/send"), "wake-only: must NOT post a reply");

@@ -347,6 +347,11 @@ async function pollLoop() {
           agentId,
           machineId: MACHINE_ID,
           bridgeId: CHANNEL_BRIDGE_ID,
+          // Standalone channel sidecar (not a wrapper-PTY child). Claude's
+          // claim is accepted by the service by runtime regardless, so this is
+          // declarative/symmetric with hermes-channel.js — see the service
+          // gate _bridge_claim_block_reason.
+          bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
         });
         const executionMode = String(claim?.run?.executionMode || "").trim().toLowerCase();

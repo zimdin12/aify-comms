@@ -240,6 +240,13 @@ export async function runPollCycle({
         agentId,
         machineId,
         bridgeId,
+        // Standalone channel sidecar (NOT a wrapper-PTY child). The service
+        // gate (_bridge_claim_block_reason) accepts a channel-sidecar claim
+        // for managed hermes the same way it accepts claude's — without it,
+        // hermes (which also has a legacy wrapper-PTY path) would be rejected
+        // with managed_wrapper_child_required and delivery would silently
+        // never happen.
+        bridgeKind: "channel-sidecar",
         executionModes: ["channel", "resident"],
       });
       const run = claim?.run;
