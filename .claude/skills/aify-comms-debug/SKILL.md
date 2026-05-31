@@ -502,6 +502,27 @@ The next dashboard failure/success diagnostic should report the new build tag. I
 - `comms_agent_info(agentId=<target>)` to inspect why the agent is not currently startable.
 - If the agent is actively running, ordinary `comms_send(...)` should steer when supported or queue/merge as the next-turn fallback. Set `steer=true` only when you need to be explicit; use `queueIfBusy=true` only to force next-turn delivery. When `queueIfBusy=true`, any `steer` value is intentionally ignored.
 
+## Send rejected: "no online environment can host" / "cannot start live work now"
+
+**Symptom.** `comms_send(trigger=true)` to an agent that looks `available` returns `ok:false`. Newer builds say "No online environment can host managed `<runtime>`…".
+
+**Cause.** An `available` managed agent now AUTO-STARTS on send (the service cold-starts a bridge-claimed worker, auto-binding the freshest online env that advertises the runtime). It only rejects when (a) no online environment advertises that runtime, or (b) the agent is explicitly **disabled** (operator Stop → `status:'stopped'`, `wakeMode:'disabled'`) — a disabled agent never auto-starts and refuses other agents' sends.
+
+**Fix.**
+- Start/restore an environment bridge that advertises the runtime (`comms_envs()` to see what each env offers), then retry.
+- If the target is `stopped`/disabled, **Resume** it in the dashboard (or `POST /agents/{id}/control` action=`resume`) — that re-enables auto-start.
+- `comms_agent_info(agentId=<target>)` to confirm the runtime, env binding, and `wakeMode`.
+
+## Registration refused (409): another live wrapper owns this session
+
+**Symptom.** A wrapper auto-register / `comms_register` from a restarted resident session is refused with `409` "agent X already has a LIVE resident bridge (seen Ns ago) … pass force=true (AIFY_FORCE_REGISTER=1)".
+
+**Cause.** Phase 4 same-mode race guard: a DIFFERENT bridge is registering a resident identity whose prior same-mode bridge is still heartbeating. The service refuses to silently supersede a live wrapper (which would kill its in-flight work). Heartbeats are 60s-grained, so a just-killed wrapper can still look "live" for up to the resident lease (~150s).
+
+**Fix.**
+- If a second wrapper is genuinely running for the same identity, stop one — they were racing.
+- If YOU restarted the prior wrapper and want the new one to take over, relaunch with `AIFY_FORCE_REGISTER=1` (or wait out the lease window). Managed agents are unaffected (latest-launch-wins); the visible-TUI sidecar + wrapper-child pair is also exempt.
+
 ## Run stuck `running`, `comms_run_interrupt` has no effect
 
 **Symptom.** A dispatch is marked `running` but nothing is happening. `comms_run_interrupt` returns ok but the run never moves.
