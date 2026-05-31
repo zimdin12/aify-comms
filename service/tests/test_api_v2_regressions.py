@@ -9129,6 +9129,49 @@ class ApiV2RegressionTests(unittest.TestCase):
         finally:
             await db.close()
 
+    async def _async_resident_bridge_fresh(self, agent_id, lease_seconds=150):
+        from service.db import get_db as _get_db
+        db = await _get_db()
+        try:
+            row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            return await api_v2._resident_bridge_is_fresh(db, row, lease_seconds=lease_seconds)
+        finally:
+            await db.close()
+
+    def test_idle_resident_with_live_sidecar_is_not_stale(self):
+        # holistic-review (operator-reported 2026-05-31, sc-manager): an IDLE
+        # resident claude's MCP bridge isn't heartbeated (turn-busy heartbeat only
+        # fires mid-turn; session-handle heartbeat only POSTs on a handle change),
+        # so it goes stale after the lease and the dashboard shows it dead. Its
+        # channel sidecar polls every ~3s though — a fresh channel-sidecar bridge
+        # must count as proof the resident session is alive.
+        self._register(
+            "res-claude", runtime="claude-code", sessionMode="resident",
+            machineId="linux:test-host", bridgeId="mcp-bridge-1",
+            capabilities=["resident-run"], runtimeConfig={"channelEnabled": True},
+        )
+        # Point runtime_state at the MCP bridge and make that bridge STALE.
+        self._execute("UPDATE agents SET runtime_state = ? WHERE id = 'res-claude'",
+                      (json.dumps({"bridgeInstanceId": "mcp-bridge-1"}),))
+        self._execute("UPDATE bridge_instances SET last_seen = '2020-01-01T00:00:00Z' WHERE id = 'mcp-bridge-1'")
+        # No sidecar yet → genuinely stale.
+        self.assertFalse(asyncio.run(self._async_resident_bridge_fresh("res-claude")),
+                         "stale MCP bridge with no live sidecar must be stale")
+        # A live channel-sidecar (the polling child of the live session) appears.
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT OR REPLACE INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("channel-linux:test-host-res-claude", "res-claude", "linux:test-host",
+             "claude-code", "resident", "", "", "channel-sidecar", now, now, "", None),
+        )
+        self.assertTrue(asyncio.run(self._async_resident_bridge_fresh("res-claude")),
+                        "a live channel-sidecar proves the idle resident is alive → not stale")
+
     def test_prune_superseded_bridges_reclaims_only_aged_superseded(self):
         # holistic-review F4: superseded bridge_instances rows were never deleted
         # (83/98 superseded in the live DB). Prune only AGED superseded rows;

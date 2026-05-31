@@ -1720,18 +1720,30 @@ async def _get_blocking_active_run(db, agent_id: str, exclude_run_id: str = "") 
 
 
 async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
+    lease = max(15, int(lease_seconds or 150))
     bridge_id = str(_json_loads_or(row["runtime_state"], {}).get("bridgeInstanceId") or "").strip()
-    if not bridge_id:
-        return False
-    cursor = await db.execute(
-        "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
-        (bridge_id, row["id"]),
-    )
-    bridge = await cursor.fetchone()
-    if not bridge or str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
-        return False
-    seen_s = _iso_to_epoch((bridge["last_seen"] if bridge else "") or "")
-    return bool(seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)))
+    if bridge_id:
+        cursor = await db.execute(
+            "SELECT last_seen, superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            (bridge_id, row["id"]),
+        )
+        bridge = await cursor.fetchone()
+        if bridge and not str((bridge["superseded_by"] if "superseded_by" in bridge.keys() else "") or "").strip():
+            seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
+            if seen_s and time.time() - seen_s <= lease:
+                return True
+    # Fallback (operator-reported 2026-05-31, sc-manager): an IDLE resident
+    # claude's MCP bridge is NOT heartbeated — the turn-busy heartbeat only fires
+    # during an active turn, and the session-handle heartbeat only POSTs when the
+    # session id CHANGES. So a live-but-idle resident goes stale after the lease
+    # and the dashboard shows it dead. Its channel sidecar (claude-channel.js) is
+    # a CHILD of the live session and polls /dispatch/claim every ~3s, so a fresh,
+    # non-superseded channel-sidecar bridge is proof the resident session is
+    # alive. Treat that as fresh too. (If the session dies, the sidecar child dies
+    # and its bridge goes stale — so this never masks a genuinely dead resident.)
+    if await _has_live_channel_sidecar(db, row["id"]):
+        return True
+    return False
 
 
 async def _fresh_same_mode_bridge_conflict(
