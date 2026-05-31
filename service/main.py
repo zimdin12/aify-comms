@@ -65,6 +65,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reconcile_stale_managed_terminals_for_resident_agents,
+        _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
         _run_contract_reminders_once,
     )
@@ -95,6 +96,15 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.
         closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
+        # Server-side status self-heal. The live-status cache is otherwise
+        # refreshed only on request (GET /agents, send, GET /agents/{id}), and
+        # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
+        # browsers throttle/pause for background tabs. Without this sweep the
+        # whole roster freezes on its last-computed verdict whenever no
+        # dashboard is actively polling — e.g. a transient env-offline blip
+        # sticking for 10+ minutes. Recomputes only rows whose refresh_after
+        # has passed, so it is cheap.
+        await _refresh_expired_agent_live_states(db)
         await db.commit()
         return {
             "repaired_active": repaired_active,

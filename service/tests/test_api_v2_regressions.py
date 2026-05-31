@@ -8592,6 +8592,47 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(closed_view.status_code, 200, closed_view.text)
         self.assertTrue(any(item["id"] == run_id and item["state"] == "closed" for item in closed_view.json()["contracts"]))
 
+    def test_periodic_reconcile_refreshes_expired_live_states(self):
+        # Regression (operator-reported 2026-05-31): the live-status cache is
+        # refreshed ONLY on request (GET /agents, send, GET /agents/{id}). The
+        # only periodic driver was a CLIENT-SIDE dashboard setInterval, which
+        # browsers throttle/pause for background/unfocused tabs. So whenever no
+        # dashboard was actively foregrounded-and-polling, every agent's status
+        # froze on whatever verdict was last computed — in the field a transient
+        # env-offline blip persisted for 10+ minutes across the whole roster.
+        # The periodic reconcile MUST refresh expired live states server-side so
+        # status freshness no longer depends on a browser tab's timer.
+        self._register_live_codex_resident(
+            "recon-agent", session_handle="recon-thread", bridge_id="recon-bridge", port=4111
+        )
+        # Freeze a stale, EXPIRED offline verdict (refresh_after well in the past).
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                status = excluded.status,
+                reason = excluded.reason,
+                updated_at = excluded.updated_at,
+                refresh_after = excluded.refresh_after
+            """,
+            ("recon-agent", "offline", "Environment is offline.", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z"),
+        )
+
+        asyncio.run(service_main._run_dispatch_reconcile_once())
+
+        row = self._fetchone(
+            "SELECT status, updated_at FROM agent_live_state WHERE agent_id = ?", ("recon-agent",)
+        )
+        self.assertNotEqual(
+            row["updated_at"], "2026-01-01T00:00:00Z",
+            "periodic reconcile did not refresh the expired live-status cache",
+        )
+        self.assertNotEqual(
+            row["status"], "offline",
+            "a live resident must not stay frozen offline after a reconcile pass",
+        )
+
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
