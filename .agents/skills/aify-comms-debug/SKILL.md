@@ -286,6 +286,49 @@ handle a different LIVE agent already owns (`session-collision` note) instead of
 binding it. **Fix:** pull/rebuild + restart `aify-comms`; the reaper collapses each
 agent to one instance on next managed launch.
 
+## Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
+
+**Symptom.** Messages to a claude/hermes agent sit `queued` and never deliver;
+the agent looks `online` but nothing happens. Restarting the wrapper doesn't fix
+it. Often paired with a co-located teammate that DOES receive.
+
+**Causes + fixes (all landed 2026-05-31).**
+- **Resident sidecar released by mistake.** The mode-FSM "release" used to fire
+  for any `channel-sidecar` claim on a non-managed agent, killing the resident
+  delivery sidecar's poll loop. Now gated on `driver_state != 'driving'` (a live
+  resident driver is `driving`). Fixed server-side — but a sidecar that already
+  exited needs ONE wrapper restart to resume.
+- **Channel-sidecar bridge superseded → claims blocked.** During managed-PTY
+  churn the sidecar's bridge briefly went stale and the wrapper-child
+  registration superseded it, permanently blocking claims. Now the complementary
+  channel-sidecar↔wrapper-child pair is never superseded, and a live sidecar
+  poll **self-heals** (un-supersedes) its own row. Recovers without a restart.
+- **Machine-global sidecar id collided across co-located agents.** Sidecar bridge
+  ids are now per-agent (`channel-<machine>-<agentId>`). Reinstall the `*-aify`
+  wrappers + restart sessions to pick it up.
+
+**Verify (read-only):** `docker exec aify-comms-service python -c "..."` →
+`SELECT id,agent_id,superseded_by,last_seen FROM bridge_instances WHERE
+bridge_kind='channel-sidecar'`. A healthy agent has a fresh, non-superseded row.
+Queued runs: `SELECT status,COUNT(*) FROM dispatch_runs WHERE target_agent='<id>'
+GROUP BY status`.
+
+## Agent shows `online`/`Console ready` but messages stay queued (status lied)
+
+**Symptom.** A managed claude shows `online` with a live Console, yet dispatches
+don't deliver.
+
+**Cause.** `online` used to derive from the wrapper PTY's terminal session, but
+for managed claude the PTY only RENDERS — `claude-channel.js` (the channel
+sidecar) is the actual claimer. A live PTY with a dead/superseded sidecar
+delivered nothing.
+
+**Fix (2026-05-31).** Managed claude now requires a live, non-superseded
+channel-sidecar to be `online`; otherwise it honestly reports `available` (note:
+"No live channel sidecar heartbeat (not deliverable)"). If you see `available`
+with a live Console, the sidecar is down — restart the wrapper (and ensure the
+self-heal/per-agent-id build is deployed).
+
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 
 **Symptom.** Dispatches to a Codex agent fail with this Rust error. Dashboard may also show `Codex WebSocket app-server connection closed (1006)`.
