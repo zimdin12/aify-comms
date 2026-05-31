@@ -66,3 +66,8 @@ v1-export.json
 dispatch_runs.json
 *.dispatch.json
 .aify-graph/
+
+# Scratch / screenshots (operator + debugging artifacts, never part of the repo)
+Screenshot_*.png
+/_*.json
+/_dash_extracted.js
