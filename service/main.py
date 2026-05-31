@@ -62,6 +62,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_idle_virtual_rpc_workers,
         _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
+        _prune_superseded_bridges,
         _prune_terminal_history,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _repair_unusable_active_runs,
@@ -78,6 +79,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             if len(batch) < 500:
                 break
         pruned = await _prune_terminal_history(db)
+        pruned_bridges = await _prune_superseded_bridges(db)
         reminders = await _run_contract_reminders_once(db, limit=50, recent_only=True)
         # Event-driven (service-start event): clear stale managed PTY rows
         # for agents that are currently registered as resident. A previous
@@ -102,6 +104,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
+            "pruned_superseded_bridges": pruned_bridges,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:

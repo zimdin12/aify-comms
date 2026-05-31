@@ -369,19 +369,40 @@ class StatusDeliverabilityTests(unittest.TestCase):
     # ------------------------------------------------------------------
     # claude — regression guard (unchanged)
     # ------------------------------------------------------------------
-    def test_managed_claude_with_live_wrapper_pty_is_online(self):
+    def test_managed_claude_with_live_pty_and_live_sidecar_is_online(self):
+        # status-F1 (2026-05-31): a HEALTHY managed claude has BOTH a live wrapper
+        # PTY (renders) and a live channel-sidecar (claude-channel.js, the actual
+        # claimer). With both present it is deliverable → online.
         self._heartbeat_environment("claude-code")
         self._register_managed(agent_id="claude-live", runtime="claude-code", channel_enabled=True)
         self._insert_claude_wrapper_pty("claude-live")
+        self._stamp_channel_sidecar_bridge("claude-live", fresh=True)
         self.assertEqual(
             self._status("claude-live"), "online",
-            "managed claude with a live wrapper PTY must stay online (unchanged)",
+            "managed claude with a live PTY AND a live sidecar must be online",
         )
+
+    def test_managed_claude_live_pty_dead_sidecar_is_available_not_online(self):
+        # status-F1 regression (operator-reported 2026-05-31, sc-claude): the
+        # claude-aify wrapper PTY only RENDERS; claude-channel.js is the sole
+        # claimer. A live "Console" PTY with a DEAD/superseded sidecar delivers
+        # NOTHING — runs sit queued — so it must report `available`, not a
+        # falsely-positive `online`. Previously the PTY alone made it online.
+        self._heartbeat_environment("claude-code")
+        self._register_managed(agent_id="claude-deadcar", runtime="claude-code", channel_enabled=True)
+        self._insert_claude_wrapper_pty("claude-deadcar")          # live PTY (renders)
+        self._stamp_channel_sidecar_bridge("claude-deadcar", fresh=False)  # stale sidecar
+        status = self._status("claude-deadcar")
+        self.assertNotIn(
+            status, {"online", "ready"},
+            f"a live PTY with a dead sidecar must NOT be falsely online; got {status!r}",
+        )
+        self.assertEqual(status, "available", f"expected available; got {status!r}")
 
     def test_managed_claude_without_live_worker_is_available(self):
         self._heartbeat_environment("claude-code")
         self._register_managed(agent_id="claude-dead", runtime="claude-code", channel_enabled=True)
-        # No wrapper PTY, no sidecar → claude already degrades to available.
+        # No wrapper PTY, no sidecar → claude degrades to available.
         self.assertEqual(
             self._status("claude-dead"), "available",
             "managed claude with no live worker must be available (unchanged)",

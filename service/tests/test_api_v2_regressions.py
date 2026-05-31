@@ -1888,6 +1888,27 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(running.status_code, 200, running.text)
         return running.json()["spawnRequest"]["sessionId"]
 
+    def _stamp_live_channel_sidecar(self, agent_id: str = "console-agent", runtime: str = "claude-code"):
+        """A fresh claude-channel.js channel-sidecar bridge heartbeat. A real
+        managed claude PTY co-spawns this sidecar (the actual dispatch claimer);
+        status-F1 (2026-05-31) requires a live, non-superseded channel-sidecar for
+        a managed claude to be `online`/`blocked` — the wrapper PTY only renders.
+        Test setups that model a LIVE managed claude must include it."""
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT OR REPLACE INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"channel-linux:test-host-{agent_id}",
+                agent_id, "linux:test-host", runtime, "managed", "", "",
+                "channel-sidecar", now, now, "", None,
+            ),
+        )
+
     def test_pi_idle_prompt_hint_detects_omp_input_box(self):
         # Pi (omp) idle prompt detector. Used by _close_idle_pi_terminal_run_without_reply
         # to close PTY-delivered managed-pi runs whose interactive omp
@@ -3467,6 +3488,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             terminal_runtimes=["claude-code"],
             session_handle="claude-session-1",
         )
+        self._stamp_live_channel_sidecar()  # status-F1: live managed claude has a sidecar
         fresh = api_v2._now()
         self._execute(
             """
@@ -3561,6 +3583,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             terminal_runtimes=["claude-code"],
             session_handle="claude-session-1",
         )
+        self._stamp_live_channel_sidecar()  # status-F1: live managed claude has a sidecar
 
         dispatched = self._dispatch(
             from_agent="dashboard",
@@ -3950,6 +3973,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             terminal_runtimes=["claude-code"],
             session_handle="claude-session-1",
         )
+        self._stamp_live_channel_sidecar()  # status-F1: live managed claude has a sidecar
         sent = self._send_message(
             from_agent="dashboard",
             to="console-agent",
@@ -4183,6 +4207,7 @@ class ApiV2RegressionTests(unittest.TestCase):
             terminal_runtimes=["claude-code"],
             session_handle="claude-session-1",
         )
+        self._stamp_live_channel_sidecar()  # status-F1: live managed claude has a sidecar
         sent = self._send_message(
             from_agent="dashboard",
             to="console-agent",
@@ -9095,6 +9120,51 @@ class ApiV2RegressionTests(unittest.TestCase):
             await db.commit()
         finally:
             await db.close()
+
+    async def _async_prune_superseded_bridges(self):
+        from service.db import get_db as _get_db
+        db = await _get_db()
+        try:
+            return await api_v2._prune_superseded_bridges(db)
+        finally:
+            await db.close()
+
+    def test_prune_superseded_bridges_reclaims_only_aged_superseded(self):
+        # holistic-review F4: superseded bridge_instances rows were never deleted
+        # (83/98 superseded in the live DB). Prune only AGED superseded rows;
+        # never touch live (non-superseded) rows or recently-superseded ones.
+        self._register(
+            "prune-agent", runtime="claude-code", sessionMode="managed",
+            machineId="linux:test-host", bridgeId="live-bridge", capabilities=["resume"],
+        )
+        now = api_v2._now()
+        old = "2020-01-01T00:00:00Z"
+        rows = [
+            # (id, superseded_by, superseded_at, last_seen)  -> expected disposition
+            ("b-live", "", None, now),            # not superseded -> KEEP
+            ("b-recent-sup", "x", now, now),      # superseded just now -> KEEP (< 24h)
+            ("b-old-sup", "x", old, old),         # superseded long ago -> PRUNE
+            ("b-old-sup-noat", "x", None, old),   # superseded_at NULL, aged last_seen -> PRUNE
+        ]
+        for bid, sup, sup_at, last_seen in rows:
+            self._execute(
+                """
+                INSERT OR REPLACE INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode, session_handle,
+                    terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (bid, "prune-agent", "linux:test-host", "claude-code", "managed", "", "",
+                 "channel-sidecar", now, last_seen, sup, sup_at),
+            )
+        removed = asyncio.run(self._async_prune_superseded_bridges())
+        self.assertEqual(removed, 2, "only the two aged superseded rows should be pruned")
+        remaining = {r["id"] for r in self._fetchall(
+            "SELECT id FROM bridge_instances WHERE agent_id = 'prune-agent'")}
+        self.assertIn("b-live", remaining, "live bridge must never be pruned")
+        self.assertIn("b-recent-sup", remaining, "recently-superseded bridge must be kept")
+        self.assertNotIn("b-old-sup", remaining)
+        self.assertNotIn("b-old-sup-noat", remaining)
 
     def test_wake_on_message_send_to_available_agent_queues_dispatch(self):
         # Phase 3: sending to an `available` agent (env online, no live

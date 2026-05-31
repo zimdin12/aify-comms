@@ -320,6 +320,23 @@ _CHANNEL_FLAG_GATED_RUNTIMES = {"hermes"}
 # app-server/gateway for the visible console. opencode is intentionally
 # excluded — its adapter declares preferred_delivery_mode='managed'.
 _CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}
+# Managed runtimes whose dispatches are delivered ONLY by a SEPARATE
+# channel-sidecar process (bridge_kind='channel-sidecar'), where the visible
+# wrapper PTY merely RENDERS and never claims. For these, a live PTY does NOT
+# prove deliverability, so `online` REQUIRES a live, non-superseded
+# channel-sidecar — overriding the PTY-derived has_live_worker (status-F1,
+# operator-reported 2026-05-31: managed claude showed online + "Console ready"
+# while its superseded sidecar delivered nothing and runs sat queued).
+#
+# claude-code ONLY: claude-aify's claude-channel.js sidecar is the sole claimer
+# (wrapperChildExecutionModes excludes claude, so the PTY never claims). hermes
+# is intentionally NOT here because managed hermes has TWO delivery models — the
+# visible-TUI sidecar AND a wrapper-child that DOES claim — so a blanket
+# require-sidecar would wrongly downgrade the wrapper-child variant; hermes keeps
+# its existing channelEnabled-flag no-PTY gate below. codex/pi: their
+# wrapper-child / RPC worker IS the claimer, so PTY liveness already equals
+# deliverability.
+_CHANNEL_SIDECAR_DELIVERY_RUNTIMES = {"claude-code"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
@@ -2982,11 +2999,29 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # liveness probe because it has no wrapper PTY in the channel path; claude
     # is covered by its PTY terminal_session and harmlessly passes through here.
     channel_managed_no_sidecar = False
+    runtime_for_delivery = _normalize_runtime(agent_row["runtime"] or "")
     if (
+        agent_session_mode == "managed"
+        and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+    ):
+        # status-F1: the channel-sidecar is the ONLY claimer for these runtimes;
+        # the wrapper PTY only renders. REQUIRE a live, non-superseded sidecar —
+        # this OVERRIDES a PTY-derived has_live_worker so a managed claude with a
+        # live "Console" but a dead/superseded sidecar correctly reports
+        # `available` (not deliverable) instead of a falsely-positive `online`.
+        if await _has_live_channel_sidecar(db, agent_row["id"]):
+            has_live_worker = True
+        else:
+            has_live_worker = False
+            channel_managed_no_sidecar = True
+    elif (
         not has_live_worker
         and agent_session_mode == "managed"
         and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
     ):
+        # Standalone channel-sidecar liveness for channel-flag runtimes that have
+        # no wrapper PTY (hermes hermes-channel.js). Only fills in has_live_worker
+        # when the PTY signal is absent — see ASYMMETRY(hermes) note above.
         if await _has_live_channel_sidecar(db, agent_row["id"]):
             has_live_worker = True
         else:
@@ -13886,6 +13921,46 @@ async def _close_reconcilable_delivered_runs(
         await _append_dispatch_event(db, run_id, "reconciled", summary)
         closed.append({"runId": run_id, "reason": reason})
     return closed
+
+
+async def _prune_superseded_bridges(
+    db,
+    *,
+    ttl_hours: int = 24,
+    chunk: int = 2000,
+    max_chunks: int = 50,
+) -> int:
+    """Reclaim superseded bridge_instances rows (holistic-review F4, 2026-05-31).
+
+    Supersession sets `superseded_by` but nothing ever deleted the row, so the
+    table grew monotonically with every wrapper relaunch (observed: 83/98 rows
+    superseded). LIVE (non-superseded) rows are NEVER touched — only rows that
+    have been superseded for longer than `ttl_hours` (keyed on superseded_at,
+    falling back to last_seen). claim_bridge_id on dispatch_runs is a plain
+    string (no FK), and any in-flight run owned by a superseded bridge was failed
+    at supersession time, so deleting aged superseded rows orphans nothing.
+    Chunked so a live control plane is never locked for long.
+    """
+    removed = 0
+    for _ in range(max_chunks):
+        cur = await db.execute(
+            """
+            DELETE FROM bridge_instances WHERE id IN (
+                SELECT id FROM bridge_instances
+                WHERE COALESCE(superseded_by, '') != ''
+                  AND datetime(COALESCE(superseded_at, last_seen, '1970-01-01')) < datetime('now', ?)
+                ORDER BY datetime(COALESCE(superseded_at, last_seen, '1970-01-01')) ASC
+                LIMIT ?
+            )
+            """,
+            (f"-{max(1, int(ttl_hours))} hours", int(chunk)),
+        )
+        await db.commit()
+        n = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        removed += n
+        if n < chunk:
+            break
+    return removed
 
 
 async def _prune_terminal_history(
