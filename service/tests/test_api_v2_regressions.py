@@ -9119,6 +9119,83 @@ class ApiV2RegressionTests(unittest.TestCase):
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("orphan-codex",))
         self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
 
+    # ── Phase 3: explicit disable (stop) = hard-block, no auto-start ───────
+    def _modern_wrapper_settings(self):
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+
+    def _codex_env_online(self):
+        self._heartbeat_environment(
+            id="env_codex",
+            bridgeId="bridge-codex",
+            machineId="linux:codex",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["codex"],
+        )
+
+    def test_disabled_managed_agent_hard_blocks_dispatch_and_does_not_coldstart(self):
+        # Phase 3 (2026-05-31): an explicitly DISABLED managed agent (operator
+        # Stop → launch_mode='none', status='stopped') is a HARD block: it must
+        # NOT auto-start (no Phase 2 cold-start spawn_request) and must refuse
+        # dispatches from OTHER agents, even when an online env could host it.
+        # Operator policy: a disabled agent stays down until re-enabled.
+        self._modern_wrapper_settings()
+        self._codex_env_online()
+        self._register("disabled-codex", runtime="codex", sessionMode="managed")
+        # Operator disables it.
+        ctrl = self.client.post(
+            "/api/v1/agents/disabled-codex/control",
+            json={"action": "stop", "from_agent": "dashboard"},
+        )
+        self.assertEqual(ctrl.status_code, 200, ctrl.text)
+
+        # A peer agent (not the dashboard) tries to wake it.
+        sent = self._send_message(
+            from_agent="peer",
+            to="disabled-codex",
+            type="request",
+            subject="wake",
+            body="get to work",
+            trigger=True,
+        )
+        self.assertFalse(sent.get("ok"), f"disabled agent must hard-reject; got {sent}")
+        self.assertIn("cannot start live work", str(sent.get("error", "")))
+        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("disabled-codex",))
+        self.assertEqual(len(rows), 0, "a disabled agent must NOT be cold-started")
+
+    def test_resume_reenables_disabled_agent_for_coldstart(self):
+        # Phase 3: disabling is operator-reversible. After Resume the agent is
+        # `available` again and a send auto-starts it (Phase 2 cold-start).
+        self._modern_wrapper_settings()
+        self._codex_env_online()
+        self._register("toggle-codex", runtime="codex", sessionMode="managed")
+        self.client.post("/api/v1/agents/toggle-codex/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.client.post("/api/v1/agents/toggle-codex/control", json={"action": "resume", "from_agent": "dashboard"})
+
+        sent = self._send_message(
+            from_agent="peer",
+            to="toggle-codex",
+            type="request",
+            subject="wake",
+            body="get to work",
+            trigger=True,
+        )
+        self.assertNotEqual(
+            sent.get("error"),
+            "Message was not sent because one or more recipients cannot start live work now.",
+            f"resumed agent must accept work; got {sent}",
+        )
+        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("toggle-codex",))
+        self.assertEqual(len(rows), 1, "resumed agent auto-starts via cold-start")
+
     def test_orphaned_managed_runs_closed_after_stale_window(self):
         # Operator-reported (2026-05-22): managed hermes-test dispatch
         # sat in 'running' for 30 min after the spawn failed because
