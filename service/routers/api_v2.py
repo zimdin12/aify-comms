@@ -1764,6 +1764,36 @@ async def _fresh_same_mode_bridge_conflict(
     return None
 
 
+async def _session_handle_live_owner(db, handle: str, *, exclude_agent_id: str, lease_seconds: int):
+    """Return a DIFFERENT, currently-LIVE agent that already owns `handle`.
+
+    Cross-agent session-id collision guard (root cause of the 2026-05-31
+    incident): a runtime session id must be owned by at most ONE live agent.
+    When graph-tech-lead (a managed launch) adopted comms-tech-lead's live
+    resident session id 651b895f, the kill-prior reaper then turned that
+    collision fatal. This detects the collision at the source — before a handle
+    is adopted — so it can be parked instead of bound.
+
+    "Live" = another agent with the same session_handle whose heartbeat is fresh
+    within the resident lease (a dead/stale owner means the id is effectively
+    free to reassign, so it is NOT a collision). Returns {agentId, sessionMode}
+    of the live owner, or None.
+    """
+    h = str(handle or "").strip()
+    if not h:
+        return None
+    cutoff = max(60, int(lease_seconds or 150))
+    cursor = await db.execute(
+        "SELECT id, last_seen, session_mode FROM agents WHERE session_handle = ? AND id != ?",
+        (h, str(exclude_agent_id or "").strip()),
+    )
+    for r in await cursor.fetchall():
+        seen = _iso_to_epoch(r["last_seen"] or "")
+        if seen and (time.time() - seen) <= cutoff:
+            return {"agentId": r["id"], "sessionMode": str(r["session_mode"] or "")}
+    return None
+
+
 async def _latest_spawn_spec(db, agent_id: str):
     return await (await db.execute(
         "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
@@ -10544,6 +10574,60 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         #     full state refresh — it is NOT routed through here.
         requested_by = str(req.requestedBy or "").strip()
         persisted_handle = str(row["session_handle"] or "").strip()
+
+        # ── Cross-agent collision guard (root-cause fix, 2026-05-31) ──
+        # A runtime session id must be owned by at most ONE live agent. Never let
+        # agent X ADOPT a session id that a DIFFERENT LIVE agent already owns —
+        # the resident<->managed invariant. (Incident: graph-tech-lead adopted
+        # comms-tech-lead's live resident id 651b895f at 06:07; the kill-prior
+        # reaper then turned that collision fatal.) This fires for ANY source
+        # (capture, heartbeat, manual set) and covers the first-id case too. Park
+        # the colliding id as `pending_session_id` and KEEP this agent's own
+        # handle (empty stays empty → the agent launches fresh and captures its
+        # OWN id, which won't collide). A stale/dead owner is NOT a collision
+        # (the id is free to reassign) — _session_handle_live_owner gates on
+        # heartbeat freshness.
+        if session_handle and session_handle != persisted_handle:
+            _settings_g = await _load_settings(db)
+            _owner = await _session_handle_live_owner(
+                db, session_handle, exclude_agent_id=agent_id,
+                lease_seconds=_settings_g.get("resident_lease_seconds", 150),
+            )
+            if _owner:
+                _note = (
+                    f"session-collision: reported id '{session_handle}' is already owned by live "
+                    f"agent '{_owner['agentId']}' ({_owner['sessionMode']}); kept own handle. "
+                    "Two live agents must not share one session id."
+                )
+                await db.execute(
+                    "UPDATE agents SET pending_session_id = ?, status_note = ?, last_seen = ? WHERE id = ?",
+                    (session_handle, _note, now, agent_id),
+                )
+                await db.commit()
+                updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                settings = await _load_settings(db)
+                status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+                dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
+                ws = await _get_ws(request)
+                if ws:
+                    await ws.broadcast("agent_session_changed", {
+                        "agentId": agent_id,
+                        "sessionHandle": persisted_handle,
+                        "pendingSessionId": session_handle,
+                        "collisionWith": _owner["agentId"],
+                    })
+                return {
+                    "ok": True,
+                    "agentId": agent_id,
+                    "state": "session-collision",
+                    "collisionWith": _owner["agentId"],
+                    # Delivery keeps targeting THIS agent's own handle; the
+                    # colliding id is NOT adopted.
+                    "sessionHandle": persisted_handle,
+                    "pendingSessionId": session_handle,
+                    "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
+                }
+
         if (
             requested_by == "bridge-heartbeat"
             and session_handle

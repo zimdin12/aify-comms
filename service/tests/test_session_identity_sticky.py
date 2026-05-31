@@ -199,6 +199,43 @@ class SessionIdentityStickyTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 409, res.text)
 
+    # ── cross-agent collision guard (root-cause fix, 2026-05-31) ─────────
+    def test_cross_agent_collision_parks_and_keeps_own(self):
+        # The 651b895f incident: agent B must NOT adopt a session id already
+        # owned by a different LIVE agent A (resident<->managed invariant). B's
+        # own handle is kept; the colliding id is parked, never bound.
+        self._register("claude-A")
+        self._heartbeat_handle("claude-A", "sess-SHARED")  # A owns it, fresh/live
+        self._register("claude-B")
+        res = self._heartbeat_handle("claude-B", "sess-SHARED")
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body.get("state"), "session-collision", body)
+        self.assertEqual(body.get("collisionWith"), "claude-A")
+        # B did NOT adopt the colliding id — its own (empty) handle is kept.
+        self.assertEqual(body.get("sessionHandle"), "")
+        self.assertEqual(body.get("pendingSessionId"), "sess-SHARED")
+        self.assertEqual(str(self._row("claude-B")["session_handle"] or ""), "", "B must not bind the live id")
+        self.assertEqual(str(self._row("claude-B")["pending_session_id"] or ""), "sess-SHARED")
+        # A is untouched.
+        self.assertEqual(str(self._row("claude-A")["session_handle"] or ""), "sess-SHARED")
+
+    def test_stale_owner_is_not_a_collision(self):
+        # A dead/stale owner means the id is FREE to reassign — not a collision.
+        self._register("claude-A")
+        self._heartbeat_handle("claude-A", "sess-FREE")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("UPDATE agents SET last_seen = ? WHERE id = ?", ("2020-01-01T00:00:00Z", "claude-A"))
+            conn.commit()
+        finally:
+            conn.close()
+        self._register("claude-B")
+        res = self._heartbeat_handle("claude-B", "sess-FREE")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotEqual(res.json().get("state"), "session-collision", "stale owner is not a live collision")
+        self.assertEqual(str(self._row("claude-B")["session_handle"] or ""), "sess-FREE", "B may adopt the freed id")
+
 
 if __name__ == "__main__":
     unittest.main()
