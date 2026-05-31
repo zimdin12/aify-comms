@@ -9172,6 +9172,34 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(asyncio.run(self._async_resident_bridge_fresh("res-claude")),
                         "a live channel-sidecar proves the idle resident is alive → not stale")
 
+    async def _async_is_turn_busy_fresh(self, agent_id):
+        from service.db import get_db as _get_db
+        db = await _get_db()
+        try:
+            return await api_v2._is_turn_busy_fresh(db, agent_id)
+        finally:
+            await db.close()
+
+    def test_is_turn_busy_fresh_shared_busy_predicate(self):
+        # holistic status review Finding 2 (2026-05-31): "busy" must be
+        # hasActiveRun OR fresh turn_busy. This locks the turn_busy half so the
+        # reminder loop (and any consumer) defers for a mid-turn agent that has no
+        # tracked dispatch run (e.g. a resident claude on its own turn).
+        self._register("tb-agent", runtime="claude-code", sessionMode="resident",
+                       machineId="linux:test-host", bridgeId="tb-b1", capabilities=["resident-run"])
+        # No turn_busy row → not busy.
+        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")))
+        now = api_v2._now()
+        self._execute(
+            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
+            ("tb-agent", 1, "", "", "claude-code", now, 1),
+        )
+        self.assertTrue(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "fresh turn_busy=1 → busy")
+        self._execute("UPDATE agent_turn_state SET turn_updated_at='2020-01-01T00:00:00Z' WHERE agent_id='tb-agent'")
+        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "stale turn_busy → not busy")
+        self._execute("UPDATE agent_turn_state SET turn_busy=0, turn_updated_at=? WHERE agent_id='tb-agent'", (now,))
+        self.assertFalse(asyncio.run(self._async_is_turn_busy_fresh("tb-agent")), "turn_busy=0 → not busy")
+
     def test_prune_superseded_bridges_reclaims_only_aged_superseded(self):
         # holistic-review F4: superseded bridge_instances rows were never deleted
         # (83/98 superseded in the live DB). Prune only AGED superseded rows;

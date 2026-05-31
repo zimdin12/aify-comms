@@ -1746,6 +1746,29 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     return False
 
 
+async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
+    """True when the agent is mid-turn per agent_turn_state — turn_busy=1 updated
+    within TURN_BUSY_STALE_SECONDS. This is the canonical 'busy via turn' half of
+    the shared busy definition: an agent is BUSY iff it has a claimed/running
+    dispatch run (hasActiveRun) OR a fresh turn_busy. The status engine
+    (_compute_live_status_cache) and the dispatch claim-gate already use it; this
+    helper lets the reminder loop use the SAME definition instead of hasActiveRun
+    alone, so a mid-turn agent with no tracked run (e.g. a resident claude on its
+    own turn) is not reminder-nagged while working. (holistic status review
+    Finding 2, 2026-05-31.)"""
+    try:
+        row = await (await db.execute(
+            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+    except Exception:
+        return False
+    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
+        return False
+    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    return bool(seen and time.time() - seen <= TURN_BUSY_STALE_SECONDS)
+
+
 async def _fresh_same_mode_bridge_conflict(
     db,
     *,
@@ -14489,7 +14512,12 @@ async def _run_contract_reminders_once(
                     terminal_blocked_without_live_backing = True
 
         active_state = await _get_dispatch_state_for_agent(db, row["target_agent"])
-        if active_state.get("hasActiveRun") and not terminal_blocked_without_live_backing:
+        # Busy = a claimed/running dispatch run OR a fresh turn_busy (the same
+        # definition the status engine + claim-gate use). Without the turn_busy
+        # half, a mid-turn agent with no tracked run (resident claude on its own
+        # turn) was reminder-nagged while it was clearly working.
+        target_busy = bool(active_state.get("hasActiveRun")) or await _is_turn_busy_fresh(db, row["target_agent"])
+        if target_busy and not terminal_blocked_without_live_backing:
             reason = "target is busy; reminder will be retried when the agent is idle"
             skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
             await _append_dispatch_event(db, row["id"], "reply_reminder_skipped", reason)
