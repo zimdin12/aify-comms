@@ -34,7 +34,7 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
-import { agentPort } from "./hermes-endpoint.js";
+import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import {
@@ -722,7 +722,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     console.error("[hermes-managed-host] run: no bound agentId; nothing to drive.");
     return { released: false, processed: 0 };
   }
-  const port = agentPort(id);
+  const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
 
   let gatewayChild = null;
   installTeardown({ getChild: () => gatewayChild });
@@ -791,7 +791,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   } = deps;
   const id = String(agentId || "").trim();
   if (!id) throw new Error("ensure-host requires an agentId");
-  const port = agentPort(id);
+  const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
   // Pre-seed the stable `aify-<id>` DB session so the wrapper's
   // `--resume aify-<id>` resolves on the very first launch (else the gateway
   // returns 4007 and the TUI lands on "session not found"). Best-effort.

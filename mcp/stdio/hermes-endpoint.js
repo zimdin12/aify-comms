@@ -18,6 +18,7 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -48,6 +49,64 @@ function sanitizeAgentId(agentId) {
   return String(agentId || "")
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+// Is a local TCP port bindable (free) right now? Best-effort: tries to listen on
+// 127.0.0.1:<port> and reports whether the bind succeeded.
+export function isPortFree(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    try {
+      srv.listen(port, host);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+// Collision-resilient per-agent GATEWAY port (operator-reported 2026-05-31:
+// `comms-senior-dev` and `graph-hermes-tl` both hashed to 9341, so the second
+// agent's `hermes dashboard --tui --port 9341` could not bind → "gateway startup
+// timeout"; worse, the idempotent reuse-probe could attach to the OTHER agent's
+// gateway). agentPort() is a hash mod that CAN collide. Resolve a port that is
+// stable per agent but collision-free:
+//   1. If we already claimed a port (persisted file), reuse it — so ensure-host,
+//      the delivery loop, and the visible TUI all agree on the SAME port.
+//   2. Else probe forward from agentPort() within the range for a FREE port
+//      (never grabbing a port a colliding agent's gateway already holds) and
+//      persist it.
+// Persist file mirrors the per-agent key file convention.
+export async function resolveGatewayPort(
+  agentId,
+  { tempDir = os.tmpdir(), portFree = isPortFree, probeSpan = 64 } = {},
+) {
+  const file = path.join(tempDir, `aify-hermes-port-${sanitizeAgentId(agentId)}`);
+  try {
+    const existing = parseInt(String(fs.readFileSync(file, "utf8")).trim(), 10);
+    if (Number.isInteger(existing) && existing >= PORT_BASE && existing < PORT_BASE + PORT_SPAN) {
+      return existing;
+    }
+  } catch {
+    /* no persisted port → probe below */
+  }
+  const start = agentPort(agentId);
+  let chosen = start;
+  for (let i = 0; i < Math.max(1, probeSpan); i += 1) {
+    const candidate = PORT_BASE + (((start - PORT_BASE) + i) % PORT_SPAN);
+    // eslint-disable-next-line no-await-in-loop
+    if (await portFree(candidate)) {
+      chosen = candidate;
+      break;
+    }
+  }
+  try {
+    fs.writeFileSync(file, String(chosen));
+  } catch {
+    /* best-effort persist; worst case we re-probe next time */
+  }
+  return chosen;
 }
 
 // Read (or generate + persist) the stable per-agent api_server key.
