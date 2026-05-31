@@ -399,6 +399,20 @@ JSON
 CLAUDE_MCP_FLAGS+=(--settings "\$AIFY_HOOK_SETTINGS")
 trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS" 2>/dev/null' EXIT
 
+# Managed kill-prior (2026-05-31): exactly one managed claude per agent. Reap
+# any orphaned claude.exe still bound to this agent's stable --resume handle
+# before launching the new one. Managed claude churns terminals (each
+# dispatch/recover/restart spawns a fresh PTY and marks the prior 'failed');
+# a server-marked-'failed' terminal leaves the bridge with no live handle, so
+# the old native claude.exe is never reaped and N siblings accumulate, each
+# polling /dispatch/claim under the same channel-sidecar bridge id -> a
+# dispatch is delivered to a RANDOM sibling, not the console. Reaping by the
+# per-agent resume handle collapses that to one (mirrors hermes kill-prior).
+# Managed-only: resident is the operator's own visible window.
+if [ "\$AIFY_SESSION_MODE" = "managed" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
+  node "$SCRIPT_DIR/mcp/stdio/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" >/dev/null 2>&1 || true
+fi
+
 claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
 STATUS=\$?
 exit "\$STATUS"

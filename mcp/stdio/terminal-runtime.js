@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { createRequire } from "module";
 import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
+import { reapPriorManagedClaude } from "./reap-managed-claude.js";
 
 // node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
 // chdir does not expand "~" — operator-supplied workspaces like
@@ -202,6 +203,22 @@ export class TerminalProcessManager {
       ? (lowerCommand === "cmd" || lowerCommand === "cmd.exe" || lowerCommand === shellName ? [] : ["/d", "/s", "/c", trimmedCommand])
       : ["-lc", command];
     const resolvedCwd = expandUserHome(cwd) || process.cwd();
+    // Managed kill-prior (2026-05-31): before launching a managed claude PTY,
+    // reap any orphaned claude.exe still bound to this agent's stable --resume
+    // handle. Managed claude churns terminals and a server-marked-'failed'
+    // terminal leaves no live handle for terminateProcessTree, so old native
+    // claude.exe processes are never reaped and N siblings accumulate, splitting
+    // channel delivery across them. Reaping by the per-agent resume handle here
+    // (defense-in-depth with the claude-aify wrapper's own reap) collapses it to
+    // exactly one. Only fires for a genuine new spawn — terminal reuse upstream
+    // never reaches startPty.
+    if (normalizeRuntime(runtime) === "claude-code") {
+      const m = /--resume[=\s]+([0-9a-fA-F][0-9a-fA-F-]{7,})/.exec(trimmedCommand);
+      const handle = (m && m[1]) || String(sessionHandle || "").trim();
+      if (handle) {
+        try { reapPriorManagedClaude(handle, {}); } catch { /* best-effort */ }
+      }
+    }
     const term = pty.spawn(shell, args, {
       name: "xterm-256color",
       cols: Math.max(20, Number(cols || 100)),
