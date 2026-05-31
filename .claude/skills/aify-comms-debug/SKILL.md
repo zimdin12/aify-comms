@@ -329,6 +329,26 @@ channel-sidecar to be `online`; otherwise it honestly reports `available` (note:
 with a live Console, the sidecar is down — restart the wrapper (and ensure the
 self-heal/per-agent-id build is deployed).
 
+## Managed hermes never shows `working` during a turn
+
+**Symptom.** A managed hermes (visible-TUI) agent runs a turn but the dashboard
+never shows `working` — it stays `online`/`online · awaiting reply`.
+
+**Cause.** `hermes-managed-host.js` delivers via `prompt.submit`, which is
+FIRE-AND-FORGET (resolves on accept, not turn completion). The old code pulsed
+`turn_busy=true` then cleared it in a `finally` immediately after submit — so
+working flipped 1→0 while the turn was only just starting. (The blocking
+`hermes-channel.js` path is fine — its `chatStream` runs the turn to completion
+before clearing.)
+
+**Fix (2026-05-31).** On a successful submit the loop now leaves `turn_busy` set
+(the server's 120s stale window + the agent's reply close it); it clears only on
+the not-attached requeue path or a failed delivery — mirroring `claude-channel.js`.
+This is BRIDGE code: it activates when the managed hermes agent's delivery loop
+respawns (relaunch its `hermes-aify`, which kill-priors the old loop and loads the
+new bridge file). A loop still claiming under the machine-global
+`hermes-managed-host-<machine>` id (no `-<agentId>` suffix) is running old code.
+
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 
 **Symptom.** Dispatches to a Codex agent fail with this Rust error. Dashboard may also show `Codex WebSocket app-server connection closed (1006)`.
