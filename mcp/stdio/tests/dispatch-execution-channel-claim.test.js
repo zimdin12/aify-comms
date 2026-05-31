@@ -77,6 +77,17 @@ test("wrapperChildExecutionModes: HERMES wrapper child does NOT add channel/resi
   assert.ok(!modes.includes("resident"), "no resident claim for hermes wrapper child");
 });
 
+test("wrapperChildExecutionModes: CLAUDE wrapper child does NOT add channel/resident (claude-channel.js sidecar owns it)", () => {
+  // Regression (run_1780205398406 sc-manager→sc-claude FAILED): claude's
+  // aify-comms wrapper child raced the claude-channel.js channel-sidecar, won,
+  // and routed the channel run to the removed `claude -p` path. Claude delivery
+  // is owned by the channel-sidecar; the wrapper child is for comms_send replies.
+  const modes = wrapperChildExecutionModes(["managed"], { runtime: "claude-code", isWrapperChild: true });
+  assert.deepEqual(modes, ["managed"], "claude wrapper child must not race the channel-sidecar");
+  assert.ok(!modes.includes("channel"), "no channel claim for claude wrapper child");
+  assert.ok(!modes.includes("resident"), "no resident claim for claude wrapper child");
+});
+
 test("wrapperChildExecutionModes: non-wrapper-child is unchanged", () => {
   const modes = wrapperChildExecutionModes(["managed"], { runtime: "codex", isWrapperChild: false });
   assert.deepEqual(modes, ["managed"]);

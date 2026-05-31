@@ -65,14 +65,31 @@ export function supportedExecutionModes(info = {}, options = {}) {
 // strict-reply/auto-mirror path fabricates a summary instead of the real agent
 // reply. So: hermes wrapper children must NOT claim channel/resident.
 //
+// It is ALSO NOT correct for managed CLAUDE (operator-reported 2026-05-31,
+// run_1780205398406 sc-manager→sc-claude FAILED): claude's channel/resident
+// delivery is owned by the `claude-channel.js` CHANNEL-SIDECAR (loaded via
+// --dangerously-load-development-channels, claims as bridgeKind="channel-sidecar"
+// and delivers via MCP notification). Claude's `aify-comms` MCP — running in the
+// same managed PTY with a terminalId — registers as a managed-wrapper-child and
+// exists for the agent's comms_send REPLIES, not delivery. If it ALSO advertised
+// channel/resident it races the channel-sidecar; when it wins, the run flows to
+// the CLAUDE controller's removed `claude -p` path and FAILS ("Claude Code
+// managed Messenger no longer uses claude -p…"). So: claude wrapper children must
+// NOT claim channel/resident either — the channel-sidecar owns it.
+//
+// Net: only CODEX wrapper children claim channel/resident (codex's in-process
+// child IS its delivery surface; it has no separate sidecar). claude + hermes
+// have dedicated channel-sidecars and must not race them.
+//
 // Returns the augmented mode set (deduped). Pure + unit-testable.
 export function wrapperChildExecutionModes(baseModes, { runtime, isWrapperChild } = {}) {
   const modes = Array.isArray(baseModes) ? [...baseModes] : [];
   if (!isWrapperChild) return modes;
   const rt = normalizeRuntime(runtime || "generic");
-  // Managed hermes delivery is owned by the hermes-managed-host.js loop, never
-  // by the wrapper child. Do not let the wrapper child race it.
-  if (rt === "hermes") return modes;
+  // Managed hermes + claude delivery is owned by a dedicated channel-sidecar
+  // (hermes-managed-host.js loop / claude-channel.js), never by the wrapper
+  // child. Do not let the wrapper child race the sidecar.
+  if (rt === "hermes" || rt === "claude-code") return modes;
   for (const mode of ["channel", "resident"]) {
     if (!modes.includes(mode)) modes.push(mode);
   }
