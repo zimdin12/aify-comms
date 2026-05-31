@@ -7964,6 +7964,50 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                     None,
                 ),
             )
+            # Migrate a live terminal orphaned by this rotation (operator-reported
+            # 2026-05-31, sc-architect). A managed respawn's bridge can create the
+            # visible-TUI/console terminal a few seconds BEFORE this running
+            # transition mints the new session, so the live terminal stays bound to
+            # the prior (about-to-be-ended) session and the new running session gets
+            # terminal_id=''. The dashboard then shows "Console not started" while
+            # the real TUI is alive — and the live terminal row hangs off an ended
+            # session, so the FK ON DELETE CASCADE could later drop a running TUI's
+            # tracking. Re-point this agent's freshest LIVE, same-bridge terminal
+            # onto the new session BEFORE ending the prior sessions.
+            migrate_bridge_id = req.bridgeId or row["claimed_by_bridge_id"] or ""
+            if migrate_bridge_id:
+                live_terminal = await (await db.execute(
+                    """
+                    SELECT id, status, command, workspace, session_id FROM terminal_sessions
+                    WHERE agent_id = ?
+                      AND bridge_id = ?
+                      AND id NOT LIKE 'vterm_%'
+                      AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
+                    ORDER BY datetime(COALESCE(updated_at, created_at, '1970-01-01')) DESC, rowid DESC
+                    LIMIT 1
+                    """,
+                    (row["agent_id"], migrate_bridge_id),
+                )).fetchone()
+                if live_terminal and str(live_terminal["session_id"] or "") != session_id:
+                    await db.execute(
+                        "UPDATE terminal_sessions SET session_id = ? WHERE id = ?",
+                        (session_id, live_terminal["id"]),
+                    )
+                    await db.execute(
+                        """
+                        UPDATE agent_sessions
+                        SET terminal_id = ?, terminal_status = ?,
+                            terminal_command = ?, terminal_workspace = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            live_terminal["id"],
+                            live_terminal["status"] or "",
+                            live_terminal["command"] or "",
+                            live_terminal["workspace"] or "",
+                            session_id,
+                        ),
+                    )
             await db.execute(
                 """
                 UPDATE agent_sessions

@@ -9166,6 +9166,52 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertNotIn("b-old-sup", remaining)
         self.assertNotIn("b-old-sup-noat", remaining)
 
+    def test_managed_session_rotation_migrates_live_terminal(self):
+        # holistic-review (operator-reported 2026-05-31, sc-architect): a managed
+        # respawn mints a NEW running session and ends the prior one. The bridge
+        # can create the visible-TUI/console terminal a few seconds BEFORE this
+        # rotation, so the live terminal stays bound to the about-to-be-ended
+        # session and the new running session gets terminal_id=''. Result: the
+        # dashboard shows "Console not started" while the real TUI is alive (and
+        # the live terminal row hangs off an ended session → FK ON DELETE CASCADE
+        # could later drop a running TUI's tracking). The live, same-bridge
+        # terminal must MIGRATE to the new session during rotation.
+        session_a = self._create_running_session(
+            terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
+            session_handle="aify-console-agent",
+        )
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, status, requested_by, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("term-live-tui", session_a, "console-agent", "linux:test-host:default",
+             "bridge-current", "hermes", "/workspace/repo",
+             "hermes-aify --aify-agent console-agent --resume aify-console-agent",
+             "attached", "dashboard", now, now),
+        )
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id='term-live-tui', terminal_status='attached' WHERE id=?",
+            (session_a,),
+        )
+        # Respawn → new running session B (rotation ends A).
+        session_b = self._create_running_session(
+            terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
+            session_handle="aify-console-agent",
+        )
+        self.assertNotEqual(session_a, session_b)
+        term = self._fetchone("SELECT session_id FROM terminal_sessions WHERE id='term-live-tui'")
+        self.assertEqual(term["session_id"], session_b,
+                         "the live terminal must MIGRATE to the new running session, not be orphaned")
+        sess_b = self._fetchone("SELECT terminal_id, terminal_status, status FROM agent_sessions WHERE id=?", (session_b,))
+        self.assertEqual(sess_b["terminal_id"], "term-live-tui", "new session must own the migrated terminal")
+        self.assertEqual(sess_b["status"], "running")
+        sess_a = self._fetchone("SELECT status FROM agent_sessions WHERE id=?", (session_a,))
+        self.assertEqual(sess_a["status"], "ended", "the prior session is still ended by the rotation")
+
     def test_wake_on_message_send_to_available_agent_queues_dispatch(self):
         # Phase 3: sending to an `available` agent (env online, no live
         # worker yet) must NOT be rejected as "cannot start live work
