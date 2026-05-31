@@ -142,9 +142,18 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
   assert.ok(patch, "expected a PATCH /dispatch/runs/<id>");
   assert.equal(String(patch.body.status), "delivered");
 
-  // turn_busy pulsed then cleared.
-  assert.ok(findCall(calls, "POST", (e) => e.endsWith("/heartbeat")), "expected a heartbeat");
-  assert.ok(findCall(calls, "POST", (e) => e.endsWith("/turn-end")), "expected a turn-end");
+  // turn_busy pulsed and SUSTAINED. prompt.submit is FIRE-AND-FORGET (returns on
+  // accept, not completion), so the visible-TUI turn is only just STARTING —
+  // clearing here would lose "working" for the entire turn (operator-reported
+  // 2026-05-31: managed hermes never showed working). Mirror claude-channel.js:
+  // leave turn_busy set; the server 120s stale window + the agent's reply close it.
+  const hb = findCall(calls, "POST", (e) => e.endsWith("/heartbeat"));
+  assert.ok(hb, "expected a heartbeat");
+  assert.equal(hb.body.turnBusy, true, "delivery must pulse turn_busy=true");
+  assert.ok(
+    !findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
+    "must NOT clear turn on a successful delivery (the fire-and-forget turn is just starting)",
+  );
 });
 
 test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", async () => {
@@ -249,6 +258,12 @@ test("deliverRun: TUI never attaches within window → run REQUEUED (claimable),
   assert.equal(String(patch.body.status), "queued", "must requeue, not fail, on transient not-attached");
   // No prompt.submit attempted when there's no session.
   assert.ok(!ws.sent.find((f) => f.method === "prompt.submit"));
+  // No delivery happened → the turn_busy pulse must be cleared (not left
+  // falsely "working" while the run sits requeued).
+  assert.ok(
+    findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
+    "requeue (no delivery) must clear the turn_busy pulse",
+  );
 });
 
 test("waitForActiveSession: returns the sid as soon as the key appears", async () => {

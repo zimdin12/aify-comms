@@ -569,6 +569,9 @@ export async function deliverRun({
         run,
         `visible TUI session '${key}' not attached within ${attachWaitMs}ms`,
       ).catch(() => {});
+      // No delivery happened — clear the turn_busy pulse so the agent does not
+      // falsely show "working" while the run sits requeued.
+      await clearTurn(httpCall, agentId).catch(() => {});
       return;
     }
 
@@ -585,13 +588,23 @@ export async function deliverRun({
     }
 
     await markRunDelivered(httpCall, run);
+    // SUCCESS: do NOT clear turn_busy. prompt.submit is FIRE-AND-FORGET (it
+    // returns on accept, not turn completion), so the visible-TUI turn is only
+    // just STARTING — clearing here loses the "working" signal for the entire
+    // turn (operator-reported 2026-05-31: managed hermes never showed working).
+    // Mirror claude-channel.js: leave turn_busy set and let the server's 120s
+    // TURN_BUSY_STALE_SECONDS window close it, while the agent's own reply
+    // (require_reply → _mark_dispatch_run_answered) clears it precisely on
+    // completion. The blocking hermes-channel.js path DOES clear because its
+    // chatStream runs the turn to completion first; this fire-and-forget path
+    // must NOT.
   } catch (error) {
     console.error(
       `[hermes-managed-host] run ${run?.id || "?"} delivery failed:`,
       error?.message || String(error),
     );
     await markRunFailed(httpCall, run, error).catch(() => {});
-  } finally {
+    // Delivery failed → not working. Clear the pulse we set above.
     await clearTurn(httpCall, agentId).catch(() => {});
   }
 }
