@@ -12232,15 +12232,22 @@ async def agent_heartbeat(agent_id: str, request: Request):
         if tombstone:
             raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
         # Mode FSM release signal (Task 4.1, 2026-05-30). Symmetric with the
-        # claim path: a managed sidecar (bridgeKind="channel-sidecar") pulsing
-        # turn_busy via heartbeat is told to RELEASE once the agent has been
-        # switched to resident, so it stops driving even between claims.
+        # claim path: a DISPLACED managed sidecar (bridgeKind="channel-sidecar")
+        # pulsing turn_busy via heartbeat is told to RELEASE once the agent has
+        # been switched to resident, so it stops driving even between claims.
+        # driver_state guard (2026-05-31, sc-manager): see the claim-path comment.
+        # A live resident driver (driver_state='driving') keeps its own delivery
+        # sidecar; only a displaced managed driver (not 'driving') is released.
         if bridge_kind == "channel-sidecar":
             mode_row = await (await db.execute(
-                "SELECT session_mode FROM agents WHERE id = ?",
+                "SELECT session_mode, driver_state FROM agents WHERE id = ?",
                 (agent_id,),
             )).fetchone()
-            if mode_row and _normalize_session_mode(mode_row["session_mode"] or "resident") != "managed":
+            if (
+                mode_row
+                and _normalize_session_mode(mode_row["session_mode"] or "resident") != "managed"
+                and str((mode_row["driver_state"] if "driver_state" in mode_row.keys() else "") or "").strip().lower() != "driving"
+            ):
                 return {"ok": True, "release": True}
         if bridge_id:
             bridge_row = await (await db.execute(
@@ -12997,15 +13004,27 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
 
         agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
 
-        # Mode FSM release signal (Task 4.1, 2026-05-30). A managed sidecar
-        # (claude-channel.js / hermes-channel.js, bridgeKind="channel-sidecar")
+        # Mode FSM release signal (Task 4.1, 2026-05-30). A DISPLACED managed
+        # sidecar (claude-channel.js / hermes-channel.js, bridgeKind="channel-sidecar")
         # must STOP driving once the operator switches the agent to resident.
         # We surface `release: true` in the claim response so the sidecar exits
         # its poll loop / goes idle. This is the one-driver invariant in action:
         # the managed driver releases so the resident TUI can take the session.
+        #
+        # driver_state guard (operator-reported 2026-05-31, sc-manager): the
+        # original condition was the blunt `session_mode != managed`, which ALSO
+        # fired for a NATIVELY-resident agent whose channel sidecar is its SOLE
+        # delivery path — so every resident claude/hermes agent's sidecar was told
+        # to release and queued runs never got claimed (delivery silently stalled).
+        # A live resident driver has driver_state='driving' (set on resident
+        # register/claim); a managed→resident switch sets driver_state='idle'
+        # (the displaced managed driver, awaiting a resident takeover). Release
+        # ONLY when not actively driven, so the resident delivery sidecar keeps
+        # claiming for a live resident session.
         if (
             str(req.bridgeKind or "").strip().lower() == "channel-sidecar"
             and _normalize_session_mode(agent["session_mode"] or "resident") != "managed"
+            and str((agent["driver_state"] if "driver_state" in agent.keys() else "") or "").strip().lower() != "driving"
         ):
             await db.commit()
             return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}

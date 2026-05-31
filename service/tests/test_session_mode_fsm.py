@@ -216,6 +216,56 @@ class SessionModeFsmTests(unittest.TestCase):
         self.assertEqual(hb.status_code, 200, hb.text)
         self.assertTrue(hb.json().get("release"), f"expected release, got {hb.json()}")
 
+    # ── release MUST NOT fire for a natively-resident agent's own delivery ─────
+    # Regression (operator-reported 2026-05-31, sc-manager): a NATIVELY resident
+    # claude/hermes agent's channel sidecar (claude-channel.js / hermes-channel.js)
+    # IS its sole delivery path and claims with bridgeKind="channel-sidecar". The
+    # Task-4.1 release fired on the blunt `session_mode != managed` condition, so
+    # every resident agent's delivery sidecar was told to release -> queued runs
+    # never claimed, delivery silently stalled. The release must only fire for a
+    # DISPLACED managed driver (driver_state != 'driving'), never for the live
+    # resident driver (driver_state == 'driving').
+
+    def test_native_resident_channel_sidecar_claim_does_not_release(self):
+        self._heartbeat_environment("claude-code")
+        # Registered resident WITH a bridge -> driver_state='driving' (live driver).
+        reg = self._register(agent_id="claude-native", runtime="claude-code",
+                             session_mode="resident", bridge_id="resident-sidecar")
+        self.assertEqual(reg.status_code, 200, reg.text)
+        self.assertEqual(self._read_agent("claude-native")["driver_state"], "driving")
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "claude-native",
+                "machineId": "linux:test-host",
+                "bridgeId": "channel-linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertFalse(
+            claim.json().get("release"),
+            f"a driving resident's delivery sidecar must NOT be released, got {claim.json()}",
+        )
+
+    def test_native_resident_channel_sidecar_heartbeat_does_not_release(self):
+        self._heartbeat_environment("claude-code")
+        reg = self._register(agent_id="claude-native-hb", runtime="claude-code",
+                             session_mode="resident", bridge_id="resident-sidecar-hb")
+        self.assertEqual(reg.status_code, 200, reg.text)
+        self.assertEqual(self._read_agent("claude-native-hb")["driver_state"], "driving")
+        hb = self.client.post(
+            "/api/v1/agents/claude-native-hb/heartbeat",
+            json={"bridgeId": "channel-linux:test-host", "turnBusy": False,
+                  "turnRuntime": "claude-code", "bridgeKind": "channel-sidecar"},
+        )
+        self.assertEqual(hb.status_code, 200, hb.text)
+        self.assertFalse(
+            hb.json().get("release"),
+            f"a driving resident's delivery sidecar must NOT be released, got {hb.json()}",
+        )
+
     # ── (b) cross-mode attach to a driving session is REJECTED ────────────────
 
     def test_managed_attach_to_driving_resident_session_is_rejected(self):
