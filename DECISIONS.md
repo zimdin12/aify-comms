@@ -2,6 +2,22 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Managed-worker lifecycle + status hardening (2026-05-31, second pass)
+
+A live stress-test surfaced a cascade of lifecycle/status bugs; all fixed at root cause:
+
+**Managed-claude proliferation + a kill-prior reaper that must be AGENT-SCOPED.** Managed claude churns terminal_sessions (each dispatch/recover/restart spawns a fresh `claude-aify` PTY, prior marked `failed`); a server-marked-`failed` terminal leaves the bridge no live node-pty handle, so `terminateProcessTree` never reaps the native `claude.exe` → N siblings accumulate (12 observed for one agent), each polling `/dispatch/claim` under the same machine-keyed channel-sidecar bridge → split, non-deterministic delivery. Fix: `mcp/stdio/reap-managed-claude.js` reaps prior instances on managed launch (wrapper + bridge `startPty`). CRITICAL follow-up: keying the reap on `--resume <handle>` ALONE force-killed the operator's resident session when a managed agent had adopted that resident's live session id — so the reaper is **agent-scoped**: it kills a candidate only when its parent wrapper is `--aify-agent <thisAgent>` (fail-safe otherwise). Never kills another agent or a resident operator session.
+
+**Cross-agent session-id collision guard (the kill's root cause).** A runtime session id must be owned by at most ONE live agent. `update_agent_session_handle` now rejects/parks a handle a DIFFERENT live agent already owns (`_session_handle_live_owner`), keeping the agent's own handle — the resident↔managed invariant. A stale/dead owner is not a collision.
+
+**Claude channel delivery: wrapper-child must not race the channel-sidecar.** `wrapperChildExecutionModes` excluded only hermes from claiming channel/resident; claude's `aify-comms` wrapper-child (managed PTYs set `AIFY_MANAGED_VIA_WRAPPER=1`) raced the `claude-channel.js` channel-sidecar and, when it won, routed to the removed `claude -p` path → delivery FAILED. Fix: exclude `claude-code` too — only codex wrapper children claim channel (no separate sidecar); claude + hermes have dedicated sidecars.
+
+**Status-split — `working` means actually running a turn.** `_compute_live_status_cache` forced `working` for any channel/resident delivered+require_reply run with no staleness bound → idle agents owing a reply showed orange `working` forever ("blink"). Now: an idle agent owing a reply is `online` with an "Idle — awaiting reply" reason + `awaiting_reply` flag; `working` is reserved for a fresh `turn_busy` or a claimed/running run.
+
+**Event-driven `turn_busy` (precise working), all runtimes (latest-doc-verified).** turn-start/turn-end come from each runtime's own hooks/RPC: claude `UserPromptSubmit`→/turn-start + **`PostToolUse`→/turn-start re-pulse** (so `turn_busy` doesn't stale mid-turn — the "working sometimes" bug) + `Stop`→/turn-end; codex hooks + app-server `turn/completed`+`thread/status/changed`; hermes `post_llm_call` + `/v1/runs run.completed` (the older "no clean turn-end" note is stale); pi RPC `agent_end`. The 120s `turn_busy` staleness is now a fallback, not the primary signal.
+
+**Dashboard chat status sort:** `available` (reachable, not running) ranks BELOW `online`/`active` (a live worker) and above idle/transitioning.
+
 ## Governance: lazy-autostart, disable, and the same-mode race guard (2026-05-31)
 
 **Lazy autostart + env auto-bind (Phase 2).** Sending to an `available` managed agent (registered, env online, no live worker) auto-starts it: if no live PTY backs it, the send cold-starts a `spawn_request` a bridge claims, auto-binding the freshest ONLINE environment that advertises the runtime when the agent has no env bound. Only when *no* online environment can host the runtime does the send reject — with a clear "no online environment can host" message, not the old misleading "wrapper PTY unavailable". A queued dispatch is always backed by a claimable `spawn_request` (no orphans). *Why:* the operator's policy — `available` means reachable/not-running and should start on first message ("100 sessions shouldn't all boot when I open the dashboard"). Previously codex/hermes/pi `available` agents hard-rejected ("cannot start live work now"); only Claude escaped because its channel branch was best-effort. Helpers: `_select_online_environment_for_runtime`, `_coldstart_spawn_request_for_dispatch`.

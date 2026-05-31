@@ -5168,7 +5168,10 @@ function chatConversations() {
   const sortMode = chatSortMode();
   const unreadUp = chatUnreadUp();
   const workingUp = chatWorkingUp();
-  const statusRank = item => ({blocked: 5, working: 4, active: 3, online: 3, available: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
+  // Status sort order (higher = nearer the top). `available` (reachable but NOT
+  // running — auto-starts on send) ranks BELOW `online`/`active` (a live worker)
+  // and above idle/transitioning, per operator request 2026-05-31.
+  const statusRank = item => ({blocked: 6, working: 5, active: 4, online: 4, available: 3, idle: 2, starting: 2, recovering: 2, 'cli-takeover': 2, paused: 1, stopped: 0, stale: 0, offline: 0, unreachable: 0}[item.presence?.kind || ''] ?? 1);
   const sortItems = (items) => items.sort((a, b) => {
     if (unreadUp) {
       const unreadDiff = Number(b.unread > 0) - Number(a.unread > 0);

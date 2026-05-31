@@ -254,6 +254,38 @@ managed wrapper-backed agents with no live `terminal_sessions` row to
 updating, restart the affected environment bridge or wrapper so a real worker
 can re-register and recreate the backing terminal.
 
+## Status semantics: `working` vs `online · awaiting reply` (2026-05-31)
+
+**Symptom / question.** An agent that just got a dispatch shows `online` (with an
+"awaiting reply" reason) instead of `working`; or a genuinely-working resident
+claude "shows working only sometimes."
+
+**Cause + current behavior.** `working` now means *actually running a turn* — a
+fresh `turn_busy` (the runtime's turn-start..turn-end) or a claimed/running run.
+A delivered+`require_reply` run whose turn has ENDED (agent idle, owes the reply)
+is `online` with an "Idle — awaiting reply" reason, NOT `working` — this fixed the
+old "blink working while idle". `turn_busy` is driven event-driven by each
+runtime: claude `UserPromptSubmit`/`PostToolUse`→`/turn-start` + `Stop`→`/turn-end`;
+codex hooks + app-server `turn/completed`; hermes `post_llm_call`/`/v1/runs`
+`run.completed`; pi `agent_end`. If resident claude flips off `working` mid-turn,
+the `PostToolUse` re-pulse (keeps `turn_busy` fresh past the 120s stale window)
+requires the current `~/.claude/settings.json` hooks — reinstall `claude-aify`
+and restart the session.
+
+## Managed claude instance proliferation / a managed agent killed my session
+
+**Symptom.** Many `claude.exe --resume <same id>` for one agent; or the operator's
+own resident claude got force-closed when another agent launched.
+
+**Cause.** Managed claude churns terminals and a `failed` terminal isn't reaped, so
+native `claude.exe` orphans accumulate. The kill-prior reaper is **agent-scoped**
+(kills only `claude.exe` whose parent wrapper is `--aify-agent <thatAgent>`), so it
+can never kill a different agent or a resident session — even if two agents share a
+`--resume` id. Root prevention: the cross-agent **session-collision guard** parks a
+handle a different LIVE agent already owns (`session-collision` note) instead of
+binding it. **Fix:** pull/rebuild + restart `aify-comms`; the reaper collapses each
+agent to one instance on next managed launch.
+
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 
 **Symptom.** Dispatches to a Codex agent fail with this Rust error. Dashboard may also show `Codex WebSocket app-server connection closed (1006)`.
