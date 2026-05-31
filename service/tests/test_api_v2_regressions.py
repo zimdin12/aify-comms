@@ -5656,6 +5656,69 @@ class ApiV2RegressionTests(unittest.TestCase):
         latest = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-B",))
         self.assertEqual(latest["superseded_by"], "", "newest managed bridge stays primary")
 
+    def test_superseded_generic_managed_bridge_fails_its_inflight_run_no_orphan(self):
+        # Phase 5 safety invariant (no-orphan): when a generic managed bridge is
+        # superseded by a fresh same-(agent,machine,runtime,mode) registration,
+        # any run that the OLD bridge was driving must be FAILED — not left
+        # 'running' forever with a dead owner. (Wrapper-child + channel-sidecar
+        # pairs are the protected exception, covered by their own tests.) This
+        # guards _fail_active_runs_for_superseded_bridges, which the path review
+        # flagged as critical-but-unisolated.
+        self._heartbeat_environment()
+        self._register(
+            "managed-orphan-guard",
+            runtime="codex",
+            sessionMode="managed",
+            launchMode="managed",
+            sessionHandle="codex-thread-orphan",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+        )
+        dispatched = self._dispatch(
+            from_agent="dashboard",
+            to="managed-orphan-guard",
+            type="request",
+            subject="in flight",
+            body="owned by bridge-A",
+            mode="start_if_possible",
+            createMessage=True,
+        )
+        self.assertTrue(dispatched["runs"], dispatched)
+        run_id = dispatched["runs"][0]["runId"]
+        self.client.post(
+            f"/api/v1/dispatch/runs/{run_id}",
+            json={"status": "running", "bridgeId": "bridge-A", "machineId": "linux:test-host"},
+        )
+        self._execute(
+            "UPDATE dispatch_runs SET status='running', claim_bridge_id=?, claim_machine_id=? WHERE id=?",
+            ("bridge-A", "linux:test-host", run_id),
+        )
+        # Fresh bridge-B supersedes bridge-A (managed latest-launch-wins).
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "managed-orphan-guard",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "managed",
+                "launchMode": "managed",
+                "sessionHandle": "codex-thread-orphan",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "capabilities": ["managed-run", "native-managed-run", "resume", "interrupt", "steer"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "bridge-B")
+        # No orphan: the run bridge-A was driving must be terminal, not 'running'.
+        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id=?", (run_id,))
+        self.assertIn(
+            run["status"], {"failed", "cancelled"},
+            f"superseded generic managed bridge must fail its in-flight run (no orphan); got {run['status']}",
+        )
+
     def test_managed_wrapper_child_same_logical_owner_reregister_does_not_fail_inflight_run(self):
         # Wrapper-backed managed runtimes (Plan 4/6 console mode) are
         # bridge-spawned PTYs whose in-process MCP bridge claims via the

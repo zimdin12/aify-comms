@@ -249,7 +249,11 @@ export class TerminalProcessManager {
       cwd: resolvedCwd,
       env,
       shell: true,
-      windowsHide: false,
+      // HARD no-popup requirement (operator): this non-PTY fallback (used only
+      // when node-pty is unavailable) streams to the dashboard via piped stdio
+      // and never needs a visible OS window. windowsHide:true so a degraded
+      // host never flashes a console window for a bridge-managed agent.
+      windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let resolveExit = null;

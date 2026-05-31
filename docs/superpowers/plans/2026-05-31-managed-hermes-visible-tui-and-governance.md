@@ -64,6 +64,50 @@ KEEP from prior work: governance (sticky id, mode FSM, mutual-exclusion, reminde
 - T7.1: Remove now-dead code (headless `hermes-managed-gateway-session.js` fake-terminal, obsolete api_server-only daemon path if fully unused — keep what's reused). Full regression (node + python), container rebuild, reinstall integrations. Confirm zero new failures.
 - T7.2: Live end-to-end across the matrix; mark tasks; final report to operator.
 
+## Phase 5 — Path review results (2026-05-31)
+
+Traced via parallel read-only mapping agents + direct verification. Delivery/interrupt
+and session-lifecycle paths mapped to code + tests.
+
+**Path × coverage (delivery / interrupt), runtime × mode:**
+
+| runtime | mode | delivery exec_mode / claimer | interrupt | steer | tested |
+|---|---|---|---|---|---|
+| claude-code | managed | channel / claude-channel.js sidecar | yes | no (agent re-sends) | yes |
+| claude-code | resident | channel / claude-channel.js | yes | no | yes |
+| codex | managed (wrapper) | channel / wrapper-child | yes | yes | yes |
+| codex | resident | resident / main bridge | yes | yes | partial (gate tested) |
+| hermes | managed (visible-TUI) | channel / hermes-managed-host.js sidecar (WS prompt.submit) | yes | yes | yes |
+| hermes | resident | resident / HermesController | yes | no (queues) | partial |
+| pi | managed | managed / PiController RPC | yes | yes | yes |
+| pi | resident | UNSUPPORTED (by design) | — | — | n/a |
+| opencode | managed | managed / OpencodeController | yes | no | not run (operator: skip) |
+| opencode | resident | UNSUPPORTED (by design) | — | — | n/a |
+
+**Session-lifecycle coverage:** kill/stop (control_agent stop/resume, stop_agent_worker,
+stop_terminal) — tested; sticky identity (session/confirm, session/keep, pending_session_id)
+— tested (test_session_identity_sticky.py); bridge supersession (_record_bridge_registration,
+race guard, _fail_active_runs_for_superseded_bridges) — tested incl. the new no-orphan +
+Phase 4 race-guard tests; status taxonomy — tested (test_status_taxonomy.py).
+
+**Adversarial safety verification:**
+- NO popups (operator HARD req): audited every child spawn in mcp/stdio. `hermes-managed-host.js`
+  gateway host, `runtimes.js` launcher, `terminal-runtime.js` ConPTY — all windowless. FIXED two
+  latent gaps: `terminal-runtime.js startPipeProcess` (`windowsHide:false`→`true`) and
+  `hermes-session.js` resident ACP spawn (added `windowsHide:true`). Browser-open spawns
+  (server.js dashboard open) are intentional user actions.
+- NO orphan runs: superseded generic managed bridge fails its in-flight run — verified by new
+  `test_superseded_generic_managed_bridge_fails_its_inflight_run_no_orphan`; wrapper-child +
+  channel-sidecar pairs protected (existing tests).
+- NO session dup / merge-split: stable `--resume aify-<id>` + active_list re-discovery + sticky
+  identity park-on-drift. Residual: a parked `pending_session_id` lingers until operator
+  confirm/keep (by design — surfaced as session-changed badge).
+
+**Remaining true gaps (noted, lower priority / out of scope this pass):** opencode managed
+delivery (operator: don't run opencode here); codex/hermes resident live-wake full-claim
+integration (gate is tested; controller delegation is exercised live); resident-hermes steer
+fallback error path. None are managed-hermes-visible-TUI blockers.
+
 ## Safety constraints (operator, non-negotiable)
 - No session loss / duplication / unasked merge or split (sticky identity + stable resume + active_list re-discovery).
 - No popup OS windows (windowsHide on all child spawns; TUI only in node-pty rendered to dashboard).
