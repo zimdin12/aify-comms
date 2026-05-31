@@ -83,7 +83,15 @@ export function resolveHermesEndpoint(agentId) {
 }
 
 const MACHINE_ID = defaultMachineId();
-const CHANNEL_BRIDGE_ID = `hermes-channel-${MACHINE_ID}`;
+// Per-agent channel-sidecar bridge id (holistic-review F1, 2026-05-31). A
+// machine-global `hermes-channel-<machine>` id collided across co-located hermes
+// agents because bridge_instances.id is the PRIMARY KEY — only one agent could
+// own the row, starving the others' liveness heartbeats. Scope by agentId.
+const CHANNEL_BRIDGE_PREFIX = `hermes-channel-${MACHINE_ID}`;
+function channelBridgeId(agentId) {
+  const id = String(agentId || "").trim();
+  return id ? `${CHANNEL_BRIDGE_PREFIX}-${id}` : CHANNEL_BRIDGE_PREFIX;
+}
 const POLL_MS = Math.max(
   500,
   Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_HERMES_CHANNEL_POLL_MS || 3000),
@@ -144,7 +152,7 @@ function isChannelRun(run) {
 
 async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-    bridgeId: CHANNEL_BRIDGE_ID,
+    bridgeId: channelBridgeId(agentId),
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: RUNTIME,
@@ -153,7 +161,7 @@ async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
 
 async function clearTurn(httpCall, agentId) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/turn-end`, {
-    bridgeId: CHANNEL_BRIDGE_ID,
+    bridgeId: channelBridgeId(agentId),
     turnRuntime: RUNTIME,
   });
 }
@@ -254,7 +262,7 @@ export async function processClaimedRun({
 export async function runPollCycle({
   agentId,
   machineId = MACHINE_ID,
-  bridgeId = CHANNEL_BRIDGE_ID,
+  bridgeId = channelBridgeId(agentId),
   httpCall,
   apiClient,
   baseUrl,

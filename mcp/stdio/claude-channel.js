@@ -56,7 +56,19 @@ const SERVER_URLS = uniqueServerUrls([
 let ACTIVE_SERVER_URL = SERVER_URLS[0] || "";
 const API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 const MACHINE_ID = defaultMachineId();
-const CHANNEL_BRIDGE_ID = `channel-${MACHINE_ID}`;
+// Per-agent channel-sidecar bridge id. MUST be agent-scoped: bridge_instances.id
+// is the PRIMARY KEY, so a machine-global `channel-<machine>` id let only ONE
+// co-located claude agent own the row — every other agent's sidecar could not
+// insert/refresh its liveness heartbeat (lost heartbeats, wrong status,
+// agent_id thrash, and cross-agent supersession that permanently blocked
+// claims). Scoping by agentId gives each agent its own row. The bound agentId
+// is only known per-poll (readBoundAgentId), so the id is computed per-call.
+// (operator-reported 2026-05-31; holistic-review F1)
+const CHANNEL_BRIDGE_PREFIX = `channel-${MACHINE_ID}`;
+export function channelBridgeId(agentId) {
+  const id = String(agentId || "").trim();
+  return id ? `${CHANNEL_BRIDGE_PREFIX}-${id}` : CHANNEL_BRIDGE_PREFIX;
+}
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
@@ -254,7 +266,7 @@ function isChannelRun(run) {
 
 async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-    bridgeId: CHANNEL_BRIDGE_ID,
+    bridgeId: channelBridgeId(agentId),
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: "claude-code",
@@ -346,7 +358,7 @@ async function pollLoop() {
         const claim = await httpCall("POST", "/dispatch/claim", {
           agentId,
           machineId: MACHINE_ID,
-          bridgeId: CHANNEL_BRIDGE_ID,
+          bridgeId: channelBridgeId(agentId),
           // Standalone channel sidecar (not a wrapper-PTY child). Claude's
           // claim is accepted by the service by runtime regardless, so this is
           // declarative/symmetric with hermes-channel.js — see the service

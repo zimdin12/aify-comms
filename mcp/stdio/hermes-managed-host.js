@@ -61,7 +61,16 @@ const AIFY_SERVER_URL = coerceLoopbackToIPv4(
 const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";
 
 const MACHINE_ID = defaultMachineId();
-const CHANNEL_BRIDGE_ID = `hermes-managed-host-${MACHINE_ID}`;
+// Per-agent channel-sidecar bridge id (holistic-review F1, 2026-05-31). A
+// machine-global `hermes-managed-host-<machine>` id collided across co-located
+// managed hermes agents because bridge_instances.id is the PRIMARY KEY — only
+// one agent could own the row, starving the others' liveness heartbeats and
+// letting two detached delivery loops fight over one row. Scope by agentId.
+const CHANNEL_BRIDGE_PREFIX = `hermes-managed-host-${MACHINE_ID}`;
+function channelBridgeId(agentId) {
+  const id = String(agentId || "").trim();
+  return id ? `${CHANNEL_BRIDGE_PREFIX}-${id}` : CHANNEL_BRIDGE_PREFIX;
+}
 const POLL_MS = Math.max(
   500,
   Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_HERMES_CHANNEL_POLL_MS || 3000),
@@ -412,7 +421,7 @@ export async function openGatewayWsClient(wsUrl, { WebSocketImpl, timeoutMs = RP
 
 async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/heartbeat`, {
-    bridgeId: CHANNEL_BRIDGE_ID,
+    bridgeId: channelBridgeId(agentId),
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: RUNTIME,
@@ -421,7 +430,7 @@ async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {}) {
 
 async function clearTurn(httpCall, agentId) {
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/turn-end`, {
-    bridgeId: CHANNEL_BRIDGE_ID,
+    bridgeId: channelBridgeId(agentId),
     turnRuntime: RUNTIME,
   });
 }
@@ -592,7 +601,7 @@ export async function deliverRun({
 export async function runPollCycle({
   agentId,
   machineId = MACHINE_ID,
-  bridgeId = CHANNEL_BRIDGE_ID,
+  bridgeId = channelBridgeId(agentId),
   httpCall,
   wsClient,
   maxBatch = 20,
