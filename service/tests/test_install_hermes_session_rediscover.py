@@ -19,10 +19,23 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
+# Visible-session bind, the single-active-session fallback, the gateway-URL
+# publication, and the wrapper-owned active-session-file preservation moved out
+# of install.sh source-patches (removed in Plan 1.4, 2026-05-30 — see
+# install.sh's `AIFY_HERMES_LEGACY_SOURCE_PATCH` gate) and now live in the
+# durable hermes-aify plugin loaded at runtime. Tests that used to assert these
+# as install.sh-emitted source patches now assert them against the plugin.
+HERMES_PLUGIN_PATCHES = (
+    REPO / "integrations" / "hermes-aify-plugin" / "aify_hermes_plugin" / "patches.py"
+)
 
 
 def _read_install_sh() -> str:
     return INSTALL_SH.read_text(encoding="utf-8")
+
+
+def _read_plugin_patches() -> str:
+    return HERMES_PLUGIN_PATCHES.read_text(encoding="utf-8")
 
 
 def test_hermes_wrapper_does_not_rediscover_from_gateway_history():
@@ -47,27 +60,45 @@ def test_hermes_wrapper_exports_only_explicit_resume_handle_before_launch():
 
 
 def test_hermes_wrapper_consumes_resume_args_for_tui_default():
-    """`hermes-aify --resume id` must exec top-level `--tui --resume id`."""
+    """`hermes-aify --resume id` must consume the resume arg and exec a
+    default `--tui ... --resume <handle>`.
+
+    Updated 2026-05-31 for the visible-TUI wrapper rework: the resume exec now
+    lives in the `aify_hermes_exec_plain_or_tui` helper and places the bypass
+    `HERMES_PERMISSION_FLAGS` between `--tui` and `--resume`. The old
+    `aify_hermes_run_foreground` helper no longer exists.
+    """
     text = _read_install_sh()
     assert 'if [ "\\$PREV_ARG" = "--resume" ] || [ "\\$PREV_ARG" = "--session-id" ] || [ "\\$PREV_ARG" = "-r" ]; then' in text
     assert 'HERMES_ARGS+=("\\$ARG")\n  if [ "\\$PREV_ARG" = "--resume" ]' not in text
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
-    assert 'aify_hermes_run_foreground --tui --resume "\\$HERMES_SESSION_HANDLE"' in text
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui "\\${HERMES_PERMISSION_FLAGS[@]}" --resume "\\$HERMES_SESSION_HANDLE"' in text
 
 
 def test_hermes_wrapper_fallback_preserves_explicit_resume_handle():
-    """Gateway fallback must still resume the explicit Hermes session."""
+    """The terminal (non-managed / passthrough) launch path must still resume
+    the explicit Hermes session when one was given.
+
+    Updated 2026-05-31 for the visible-TUI wrapper rework: the separate
+    `aify_hermes_fallback()` helper is gone. `aify_hermes_exec_plain_or_tui()`
+    is now both the default-TUI helper and the terminal fallback (it is the
+    last statement in the wrapper). It resumes the explicit handle when set and
+    only execs the raw `${HERMES_ARGS[@]}` passthrough when the operator
+    actually supplied subcommand args.
+    """
     text = _read_install_sh()
     helper_idx = text.find("aify_hermes_exec_plain_or_tui()")
     assert helper_idx > 0
     helper = text[helper_idx : helper_idx + 750]
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui --resume "\\$HERMES_SESSION_HANDLE"' in helper
+    # Explicit --resume handle is preserved in the default-TUI branch.
+    assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui "\\${HERMES_PERMISSION_FLAGS[@]}" --resume "\\$HERMES_SESSION_HANDLE"' in helper
+    # The raw passthrough exec is gated behind a non-empty HERMES_ARGS check, so
+    # an explicit handle is never dropped by an unconditional argv passthrough.
+    assert 'if [ \\${#HERMES_ARGS[@]} -eq 0 ]; then' in helper
 
-    fallback_idx = text.find("aify_hermes_fallback()")
-    assert fallback_idx > 0
-    fallback = text[fallback_idx : fallback_idx + 700]
-    assert "aify_hermes_exec_plain_or_tui" in fallback
-    assert 'exec "\\$HERMES_RUNTIME_COMMAND" "\\${HERMES_ARGS[@]}"' not in fallback
+    # The helper is wired in as the wrapper's terminal launch path.
+    assert "\naify_hermes_exec_plain_or_tui\n" in text
+    # The removed standalone fallback helper must not reappear.
+    assert "aify_hermes_fallback()" not in text
 
 
 def test_hermes_wrapper_forces_utf8_python_io():
@@ -88,35 +119,73 @@ def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
 
 
 def test_hermes_installer_patches_visible_session_bind():
-    """Hermes resident delivery must bind to the open TUI session, not resume
-    a hidden sid."""
-    text = _read_install_sh()
-    assert "patch_hermes_gateway_visible_bind" in text
+    """Hermes managed/resident delivery must bind to the open TUI session, not
+    resume a hidden sid.
+
+    Updated 2026-05-31: the `patch_hermes_gateway_visible_bind` install.sh
+    source patch was removed (Plan 1.4) and the behavior moved into the durable
+    hermes-aify plugin. Assert the bind method + TeeTransport mirroring there.
+    """
+    text = _read_plugin_patches()
     assert "aify.session.bind_transport" in text
-    assert "TeeTransport(primary, bridge_transport)" in text
+    # TeeTransport mirrors the visible-session transport with the bridge
+    # transport; the plugin binds it via a `tee_transport` alias and imports
+    # TeeTransport from tui_gateway.transport.
+    assert "tee_transport(primary, bridge_transport)" in text
+    assert "from tui_gateway.transport import TeeTransport as tee_transport" in text
 
 
 def test_hermes_visible_bind_falls_back_to_single_active_session():
     """If the saved handle is stale but this wrapper gateway has exactly one
-    visible session, bind to that session instead of failing or forking hidden."""
-    text = _read_install_sh()
+    visible session, bind to that session instead of failing or forking hidden.
+
+    Updated 2026-05-31: this fallback moved from the removed install.sh source
+    patch into the hermes-aify plugin's resolve_visible_session().
+    """
+    text = _read_plugin_patches()
     assert "visible session fallback: saved handle not active; using sole active session" in text
     assert "active_candidates" in text
+    # The single-candidate guard is what gates the fallback.
+    assert "len(active_candidates) == 1" in text
 
 
-def test_hermes_wrapper_exports_active_session_file():
-    """The TUI active-session file lets the bridge repair stale parent env."""
+def test_hermes_wrapper_pins_stable_resume_session():
+    """Session continuity is now DETERMINISTIC, not discovered.
+
+    Updated 2026-05-31 (visible-TUI rework): the wrapper no longer exports an
+    active-session FILE for the bridge to discover the visible TUI's ephemeral
+    session id. Instead both the managed and resident hermes-aify branches pin a
+    STABLE per-agent session `aify-<agentId>` and resume it (`HERMES_TUI_RESUME`
+    + `hermes --tui --resume <pinned>`), so the session id is known up-front and
+    survives restarts with no duplication — superseding the active-session-file
+    discovery mechanism. (The plugin's active-session-file writer and the Python
+    adapter's `_read_active_session_file` reader are now orphaned vestiges of the
+    old discovery model; nothing on the live path sets the env var. See the
+    pinned-session export below.)
+    """
     text = _read_install_sh()
-    assert "HERMES_TUI_ACTIVE_SESSION_FILE" in text
-    assert "AIFY_HERMES_ACTIVE_SESSION_FILE" in text
+    assert "AIFY_HERMES_PINNED_SESSION" in text, "wrapper must compute a stable pinned session"
+    assert 'export HERMES_TUI_RESUME=' in text, "wrapper must export HERMES_TUI_RESUME for the TUI to resume the pinned session"
+    assert "--resume" in text, "wrapper must pass --resume so the pinned session id is honored (HERMES_TUI_RESUME alone is stripped)"
 
 
 def test_hermes_installer_preserves_wrapper_active_session_file():
-    """Hermes main.py must not overwrite HERMES_TUI_ACTIVE_SESSION_FILE."""
-    text = _read_install_sh()
-    assert "patch_hermes_tui_active_session_file" in text
-    assert 'env.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()' in text
-    assert "created_active_session_file" in text
+    """Hermes main.py must not discard the wrapper-provided active-session file.
+
+    Updated 2026-05-31: the install.sh `patch_hermes_tui_active_session_file`
+    source patch was removed (commit aab3cd7) and the behavior moved into the
+    hermes-aify plugin's `patch_hermes_cli_main`, which wraps `_launch_tui` so
+    the mkstemp/unlink dance does not throw away the wrapper-provided
+    `HERMES_TUI_ACTIVE_SESSION_FILE`.
+    """
+    text = _read_plugin_patches()
+    assert "def patch_hermes_cli_main(" in text
+    # It wraps the real _launch_tui (idempotently) rather than the old source
+    # patch's standalone helper.
+    assert 'getattr(module, "_launch_tui", None)' in text
+    assert 'setattr(module, "_launch_tui", launch_tui_with_active_file)' in text
+    # It keys off the wrapper-provided active-session-file env var.
+    assert 'os.environ.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()' in text
 
 
 def test_hermes_installer_patches_codex_stream_nonetype_fallback():

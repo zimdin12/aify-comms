@@ -16,19 +16,23 @@ const dashboardUser = buildUserPrompt({
   body: "What is broken?",
   requireReply: true,
 });
+// Reply contract reworked 2026-05-29 (commit 9889b5e "feat(reply-contract):
+// direct agents to reply via comms_send"). The contract is now INVERTED from
+// the pre-2026-05 wording this test originally pinned: the team/chat reply is
+// the comms_send tool call, and final plain text is the agent's own working
+// output (NOT the delivered reply). These assertions pin the current contract.
 assert.match(dashboardSystem, /human\/operator/);
-assert.match(dashboardSystem, /final plain text is the chat reply/);
-assert.match(dashboardSystem, /stores that final answer in dashboard chat/);
-assert.match(dashboardSystem, /final plain text is only this turn's reply/);
+assert.match(dashboardSystem, /Reply with comms_send\(type="response", to="dashboard"\) so it threads into dashboard chat/);
+assert.match(dashboardSystem, /Your final plain text is your own working output, not the team\/chat reply/);
 assert.match(dashboardSystem, /not a lockstep protocol/);
 assert.match(dashboardSystem, /treat it as a small contract/);
 assert.match(dashboardSystem, /Managed visibility rule/);
-assert.match(dashboardSystem, /stdout, logs, tool output, and run summaries are telemetry/);
+assert.match(dashboardSystem, /The team-visible answer is the comms_send reply you send/);
 assert.match(dashboardSystem, /comms_send\(to="sc-coder", type="request", queueIfBusy=true/);
 assert.doesNotMatch(dashboardSystem, /comms_send\(from="sc-coder", to="dashboard"/);
-assert.match(dashboardUser, /Reply to the dashboard user in final plain text/);
+assert.match(dashboardUser, /Reply to the dashboard user with comms_send\(type="response", to="dashboard"\)/);
 assert.match(dashboardUser, /Do not end silently/);
-assert.match(dashboardUser, /Answer the sender in final plain text/);
+assert.match(dashboardUser, /Answer the sender with comms_send/);
 assert.match(dashboardUser, /Parallel coordination is allowed/);
 assert.match(dashboardUser, /Self-continuation is allowed/);
 
@@ -47,19 +51,19 @@ const channelUser = buildUserPrompt({
 assert.match(channelSystem, /channel\/group message/);
 assert.match(channelSystem, /Reply in the channel only when you are named/);
 assert.match(channelSystem, /managed background run/);
-assert.match(channelSystem, /Final plain text is the current reply/);
-assert.match(channelSystem, /Use comms_send only for separate out-of-band messages/);
-assert.match(channelUser, /answer in final plain text/);
-assert.match(channelUser, /Reply delivery: final plain text is threaded and delivered/);
+assert.match(channelSystem, /reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(channelSystem, /Final plain text is your working output, not the reply/);
+assert.match(channelUser, /reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(channelUser, /Reply delivery: send your answer as a comms_send tool call/);
 assert.match(channelUser, /Do not create broad acknowledgement loops/);
-assert.match(channelUser, /Use comms_send only for separate out-of-band updates/);
 
 const directSystem = buildSystemPrompt("sc-coder", agentInfo, {
   from: "sc-manager",
   subject: "Review this",
   requireReply: true,
 });
-assert.match(directSystem, /put the reply in final plain text/);
-assert.match(directSystem, /do not call comms_send for this current reply/);
+assert.match(directSystem, /Before you finish, send the reply with comms_send\(type="response", to="sc-manager"\)/);
+assert.match(directSystem, /that tool call is the team reply and closes the run/);
+assert.match(directSystem, /Your final plain text is your own working output, not the reply/);
 
 console.log("managed-message-prompts.test.js: all assertions passed");

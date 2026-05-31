@@ -30,8 +30,8 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn(".inspector", styles.text)
 
     def test_api_origin_is_configurable_without_hardcoded_localhost(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
 
         self.assertRegex(html, r'data-default-api-port="8800"')
         self.assertIn("localStorage.getItem('aify.next.apiOrigin')", script)
@@ -42,15 +42,15 @@ class NewDashboardAppTest(unittest.TestCase):
         compose_path = ROOT / "docker-compose.yml"
         if not compose_path.exists():
             self.skipTest("docker-compose.yml is not copied into the service image")
-        compose = compose_path.read_text()
+        compose = compose_path.read_text(encoding="utf-8")
 
         self.assertRegex(compose, r'\$\{SERVICE_PORT:-8800\}:8800')
         self.assertRegex(compose, r'\$\{NEW_DASHBOARD_PORT:-8801\}:8801')
         self.assertIn("service.new_dashboard_app:app", compose)
 
     def test_first_slice_has_attention_inspector_and_no_destructive_actions(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("Needs Attention", html)
         self.assertIn('id="inspector"', html)
@@ -61,7 +61,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIsNone(re.search(r"/contracts/[^'\"]+/(close|cancel|delete)", script))
 
     def test_parity_foundations_are_declared_and_reused(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("const flowGates", script)
         self.assertIn("function resolveStatus", script)
@@ -74,8 +74,8 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertNotRegex(script, r"class=\\\"status-chip \\$\\{[^}]*\\.status")
 
     def test_next_slice_exposes_safe_parity_controls(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn('id="composer-type"', html)
         self.assertIn('id="composer-priority"', html)
@@ -99,7 +99,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("/sessions/${encodeURIComponent(sessionId)}/control", script)
 
     def test_mobile_contract_has_touch_and_single_column_controls(self):
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn("@media (max-width: 414px)", styles)
         self.assertRegex(styles, r"button,\s*input,\s*select,\s*textarea\s*\{[^}]*min-height:\s*44px")
@@ -107,9 +107,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn(".run-actions { grid-template-columns: 1fr; }", styles)
 
     def test_polish_slice_has_collapsible_sidebar_and_real_drawer_inspector(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="toggle-nav"', html)
         self.assertIn("function setNavCollapsed", script)
@@ -124,8 +124,8 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("openInspector", script)
 
     def test_polish_slice_makes_status_and_cockpit_visually_dense(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('class="status-dot', script)
         self.assertIn(".status-dot", styles)
@@ -136,9 +136,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"\.metric\[data-tone=\"warn\"\]")
 
     def test_session_centric_ia_has_session_workspace_and_diagnostics(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('data-page="sessions"', html)
         self.assertIn('data-page="environments"', html)
@@ -178,8 +178,8 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.session-shell\s*\{[^}]*grid-template-columns:\s*1fr")
 
     def test_universal_run_inspector_contract(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn("inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false", script)
         self.assertIn("runInspector: () => Boolean", script)
@@ -208,9 +208,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"\.run-inspector-controls\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0")
 
     def test_status_why_and_activity_feed_are_gated_and_reuse_status_resolver(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="activity-feed"', html)
         self.assertIn('id="status-why-popover"', html)
@@ -232,9 +232,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.status-why-popover")
 
     def test_mobile_shell_has_bottom_tab_bar_for_primary_destinations(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="mobile-tabbar"', html)
         self.assertIn('class="mobile-tabbar"', html)
@@ -250,9 +250,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.nav nav\s*\{[^}]*display:\s*none")
 
     def test_diagnostics_destination_has_summary_and_bulk_selection(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="diagnostics-summary"', html)
         self.assertIn('id="diagnostics-bulk-toolbar"', html)
@@ -274,9 +274,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.diagnostics-summary\s*\{[^}]*grid-template-columns:\s*1fr")
 
     def test_environments_destination_has_spawn_form_and_rich_cards(self):
-        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text()
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
-        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text()
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="environment-summary"', html)
         self.assertIn('id="environment-spawn-form"', html)
@@ -300,7 +300,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.environment-spawn-grid\s*\{[^}]*grid-template-columns:\s*1fr")
 
     def test_attention_strip_does_not_show_diagnostics_bulk_checkboxes(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text()
+        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("function contractCard(contract, { selectable = true } = {})", script)
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)

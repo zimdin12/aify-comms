@@ -323,6 +323,8 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 ## claude-aify wraps with --strict-mcp-config + minimal MCP config
 
+> **Superseded 2026-05-25** (see below): strict mode is now opt-in via `AIFY_CLAUDE_STRICT_MCP`.
+
 **Decision.** `claude-aify` always launches Claude with `--strict-mcp-config` and a runtime-generated minimal MCP config containing ONLY `aify-comms` and `aify-comms-channel`. The operator's broader `~/.claude.json` MCP server list is NOT loaded inside the `claude-aify` wrapper session. The minimal MCP config is written to a temp file via `mktemp`; cleaned up on shell exit.
 
 **Why.** Known Claude Code bug ([anthropics/claude-code#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)): when Claude loads many stdio MCP servers simultaneously, the slower ones get stuck in `still connecting` state. `aify-comms-channel` was consistently losing the init race against the 13-server operator config and never finished its initialize handshake — Claude's `notifications/claude/channel` listener wasn't registered, so every channel-routed dispatch was silently dropped despite the bridge reporting `delivered`. Confirmed via `claude -p` diagnostic listing both `aify-comms` and `aify-comms-channel` as "still connecting".
@@ -497,6 +499,8 @@ The repo is `zimdin12/aify-comms` and the Docker container is `aify-comms-servic
 **Reconsider if.** A future codex version ships a custom MCP notification primitive analogous to `notifications/claude/channel` that requires a separate MCP server entry to subscribe. At that point a real `codex-channel.js` is justified.
 
 ## Resident hermes uses `hermes dashboard --tui` as a hidden background gateway
+
+> **Superseded 2026-05-31** by the visible-TUI model: session continuity is now a deterministic stable `--resume aify-<agentId>` (delivery discovers the session via WS `session.active_list` + `pickSessionForKey`); `aify.session.bind_transport` / `HermesResidentController` and the synth-frame visibility path are retired.
 
 **Decision.** `hermes-aify` (`install.sh:install_hermes_wrapper`) spawns `hermes dashboard --tui --port <free> --host 127.0.0.1 --no-open --skip-build` as a background child, captures the ephemeral `__HERMES_SESSION_TOKEN__` from the dashboard's `/` HTML response (`web_server.py:3688`), then `exec hermes chat --tui` with `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/api/ws?token=<token>` in env. The Ink TUI attaches via WebSocket to that gateway (`ui-tui/src/gatewayClient.ts:resolveGatewayAttachUrl`) instead of spawning its own stdio sidecar. The aify-comms bridge also attaches to the same `/api/ws`; for inbound aify-comms messages it calls `session.resume` on the durable Hermes session key, uses the returned bridge-owned short sid for `prompt.submit` / `session.steer`, and translates real gateway `event` frames (`message.delta`, `message.complete`, `tool.start`, `tool.complete`) into run output and chat replies. The operator's original TUI owns a different in-memory sid, so it is not expected to render bridge-injected resident dispatches live.
 

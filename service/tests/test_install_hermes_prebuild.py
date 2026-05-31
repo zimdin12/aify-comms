@@ -132,10 +132,16 @@ def test_install_hermes_detects_install_root_from_aify_hermes_command(tmp_path):
     config_file.write_text("mcp_servers: {}\n")
     (fake_root / "web").mkdir(parents=True)
     fake_cmd = tmp_path / "hermes"
+    # install.sh's legacy detect-root branch parses `hermes config path` and
+    # strips `/hermes_cli/` onward — a forward-slash match. Real hermes emits a
+    # POSIX-style path; on Windows `config_file` is a backslash WindowsPath, so
+    # emit its forward-slash form (config_file.as_posix()) or the strip + the
+    # subsequent `[ -d ]` check never match and detection silently no-ops.
+    config_path_posix = config_file.as_posix()
     fake_cmd.write_text(
         "#!/usr/bin/env bash\n"
         "if [ \"${1:-}\" = config ] && [ \"${2:-}\" = path ]; then\n"
-        f"  printf '%s\\n' {config_file}\n"
+        f"  printf '%s\\n' '{config_path_posix}'\n"
         "  exit 0\n"
         "fi\n"
         "exit 2\n"

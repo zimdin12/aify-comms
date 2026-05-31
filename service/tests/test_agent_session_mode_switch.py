@@ -395,17 +395,34 @@ class AgentSessionModeSwitchTests(unittest.TestCase):
         self.assertEqual(agent["launch_mode"], "detached")
         self.assertIn("resident-run", agent["capabilities"])
 
-    def test_switch_resident_to_managed_without_backing_is_409(self):
-        """C2: resident -> managed must not silently create a managed identity
-        that has no dashboard-managed session/backing to receive work."""
+    def test_switch_resident_to_managed_without_backing_reports_missing_backing(self):
+        """resident -> managed without force: under the lazy-autostart governance
+        (DECISIONS.md 2026-05-31, Phase 2) an `available` managed agent with no
+        live worker is NOT hard-blocked — switching to managed succeeds (200) and
+        changes metadata, while the best-effort eager-PTY side effect reports the
+        absent backing in `sideEffects.error` (Plan 6 C2: "side-effect failures
+        don't roll back the mode change — they surface in response.sideEffects").
+
+        This is the same observable contract as the force=true sibling
+        (`test_switch_resident_to_managed_force_reports_missing_backing`); the
+        only thing force gates here is the in-flight-run check, not a
+        "requires existing managed backing" guard. The next dispatch lazily
+        cold-starts a spawn_request rather than the operator pre-provisioning a
+        managed PTY.
+        """
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-noenv", runtime="codex", session_mode="resident")
         res = self.client.patch(
             "/api/v1/agents/codex-noenv/session-mode",
             json={"mode": "managed"},
         )
-        self.assertEqual(res.status_code, 409, res.text)
-        self.assertIn("managed", (res.json().get("detail") or "").lower())
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body.get("mode"), "managed")
+        self.assertEqual(body.get("previousMode"), "resident")
+        self.assertTrue(body.get("changed"))
+        self.assertEqual(self._read_agent_mode("codex-noenv"), "managed")
+        self.assertIn("error", body.get("sideEffects") or {})
 
     def test_switch_resident_to_managed_force_reports_missing_backing(self):
         self._heartbeat_environment("codex")
