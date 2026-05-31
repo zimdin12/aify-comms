@@ -409,8 +409,12 @@ trap 'rm -f "\$AIFY_MCP_CONFIG" "\$AIFY_HOOK_SETTINGS" 2>/dev/null' EXIT
 # dispatch is delivered to a RANDOM sibling, not the console. Reaping by the
 # per-agent resume handle collapses that to one (mirrors hermes kill-prior).
 # Managed-only: resident is the operator's own visible window.
-if [ "\$AIFY_SESSION_MODE" = "managed" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ]; then
-  node "$SCRIPT_DIR/mcp/stdio/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" >/dev/null 2>&1 || true
+if [ "\$AIFY_SESSION_MODE" = "managed" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ] && [ -n "\${CLAUDE_AIFY_AGENT_ID:-}" ]; then
+  # AGENT-SCOPED reap (safety, 2026-05-31): pass the agent id so the reaper only
+  # kills THIS agent's prior managed claude (verified via the candidate's parent
+  # --aify-agent wrapper), never another agent or a resident operator session
+  # that happens to share the same --resume session id (handle collision).
+  node "$SCRIPT_DIR/mcp/stdio/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" "\$CLAUDE_AIFY_AGENT_ID" >/dev/null 2>&1 || true
 fi
 
 claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"

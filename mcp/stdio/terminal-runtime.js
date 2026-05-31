@@ -212,11 +212,16 @@ export class TerminalProcessManager {
     // (defense-in-depth with the claude-aify wrapper's own reap) collapses it to
     // exactly one. Only fires for a genuine new spawn — terminal reuse upstream
     // never reaches startPty.
-    if (normalizeRuntime(runtime) === "claude-code") {
+    // AGENT-SCOPED (safety, 2026-05-31): pass agentId so the reaper only kills
+    // THIS agent's prior managed claude — verified via each candidate's parent
+    // --aify-agent wrapper — and can NEVER kill another agent or a resident
+    // operator session that shares the same --resume id (handle collision, the
+    // incident that force-closed comms-tech-lead). No agentId → reaper no-ops.
+    if (normalizeRuntime(runtime) === "claude-code" && agentId) {
       const m = /--resume[=\s]+([0-9a-fA-F][0-9a-fA-F-]{7,})/.exec(trimmedCommand);
       const handle = (m && m[1]) || String(sessionHandle || "").trim();
       if (handle) {
-        try { reapPriorManagedClaude(handle, {}); } catch { /* best-effort */ }
+        try { reapPriorManagedClaude(handle, { agentId }); } catch { /* best-effort */ }
       }
     }
     const term = pty.spawn(shell, args, {
