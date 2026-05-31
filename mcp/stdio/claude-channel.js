@@ -11,6 +11,7 @@ import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
+import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 
 loadSettingsEnv();
 
@@ -338,6 +339,20 @@ const LAST_DELIVERED_AT_PER_AGENT = new Map();
 const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 
 async function pollLoop() {
+  const stopLiveness = startLivenessHeartbeat({
+    intervalMs: 30_000,
+    beat: async () => {
+      if (!SERVER_URL) return;
+      const id = readBoundAgentId();
+      if (!id) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
+        bridgeId: channelBridgeId(id),
+        bridgeKind: "channel-sidecar",
+        liveness: true,
+      });
+    },
+  });
+  try {
   while (true) {
     try {
       if (!SERVER_URL) {
@@ -521,6 +536,9 @@ async function pollLoop() {
     }
 
     await sleep(POLL_MS);
+  }
+  } finally {
+    stopLiveness();
   }
 }
 

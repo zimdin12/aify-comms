@@ -56,6 +56,7 @@ import { adapterFor } from "./adapters/index.js";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
+import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -279,6 +280,23 @@ const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY, BRIDGE_INSTANCE_ID),
 });
 
+// A3 (status-liveness): unconditional liveness beat. Unlike the turn-busy
+// heartbeat above (gated on isActive), this fires for as long as the bridge
+// process lives so an idle-but-alive resident worker keeps its
+// bridge_instances.last_seen fresh and is not reaped as dead. Liveness-only
+// (no turnBusy field); the server ignores beats from a superseded bridge.
+const __stopLivenessHeartbeat = startLivenessHeartbeat({
+  intervalMs: 30_000,
+  beat: async () => {
+    if (!AIFY_AGENT_ID || !__serverUrl) return;
+    await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/heartbeat`, {
+      bridgeId: BRIDGE_INSTANCE_ID,
+      bridgeKind: "resident",
+      liveness: true,
+    });
+  },
+});
+
 // Startup diagnostic: surface the env vars the bridge sees so operators
 // can verify env propagation through *-aify → runtime → MCP child.
 // Now adapter-driven (Plan 1 of the RuntimeAdapter refactor): the runtime
@@ -339,6 +357,7 @@ function cleanupOnExit() {
   }
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
   try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
+  try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;

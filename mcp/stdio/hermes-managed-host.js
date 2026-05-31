@@ -37,6 +37,7 @@ import { defaultMachineId } from "./runtimes.js";
 import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
+import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import {
   buildSessionActiveListFrame,
   buildPromptSubmitFrame,
@@ -740,39 +741,58 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return wsClient;
   };
 
-  let totalProcessed = 0;
-  for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
-    try {
-      if (!serverUrl) {
-        await sleepImpl(POLL_MS);
-        continue;
-      }
-      const ws = await ensureWs().catch((err) => {
-        console.error("[hermes-managed-host] WS connect failed:", err?.message || String(err));
-        return null;
+  // A3 (status-liveness): unconditional liveness beat so an idle-but-alive
+  // managed-hermes sidecar keeps its bridge_instances.last_seen fresh and is
+  // not reaped as dead. Stopped on either return path via the finally below.
+  const stopLiveness = startLivenessHeartbeat({
+    intervalMs: 30_000,
+    beat: async () => {
+      if (!serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
+        bridgeId: channelBridgeId(id),
+        bridgeKind: "channel-sidecar",
+        liveness: true,
       });
-      if (!ws) {
-        await sleepImpl(POLL_MS);
-        continue;
-      }
-      const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws });
-      totalProcessed += result.processed || 0;
-      if (result.released) {
-        await teardownGatewayHost({ child: gatewayChild });
-        return { released: true, processed: totalProcessed };
-      }
-    } catch (error) {
-      console.error("[hermes-managed-host] tick error:", error?.message || String(error));
+    },
+  });
+
+  let totalProcessed = 0;
+  try {
+    for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
-        wsClient?.close();
-      } catch {
-        /* ignore */
+        if (!serverUrl) {
+          await sleepImpl(POLL_MS);
+          continue;
+        }
+        const ws = await ensureWs().catch((err) => {
+          console.error("[hermes-managed-host] WS connect failed:", err?.message || String(err));
+          return null;
+        });
+        if (!ws) {
+          await sleepImpl(POLL_MS);
+          continue;
+        }
+        const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws });
+        totalProcessed += result.processed || 0;
+        if (result.released) {
+          await teardownGatewayHost({ child: gatewayChild });
+          return { released: true, processed: totalProcessed };
+        }
+      } catch (error) {
+        console.error("[hermes-managed-host] tick error:", error?.message || String(error));
+        try {
+          wsClient?.close();
+        } catch {
+          /* ignore */
+        }
+        wsClient = null;
       }
-      wsClient = null;
+      await sleepImpl(POLL_MS);
     }
-    await sleepImpl(POLL_MS);
+    return { released: false, processed: totalProcessed };
+  } finally {
+    stopLiveness();
   }
-  return { released: false, processed: totalProcessed };
 }
 
 // ---------------------------------------------------------------------------
