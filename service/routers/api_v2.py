@@ -2997,6 +2997,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     else:
         effective_status = "available"
     reason = ""
+    awaiting_reply = False  # set True when the agent is idle but owes a channel reply
     terminal_input_hint = ""
     if terminal_id and (active_run or (agent_session_mode == "managed" and has_live_worker)):
         try:
@@ -3059,13 +3060,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "working"
         reason = f"Executing turn ({turn_runtime})." if turn_runtime else "Executing turn."
     elif channel_pending_reply_run:
-        # Channel-route delivered + requireReply: the agent owes a reply
-        # and is therefore working on it. Distinguished from generic
-        # 'delivered' (which also covers terminal-delivery lingering state
-        # and is NOT working) by the channel execution_mode + require_reply.
-        effective_status = "working"
+        # Status-split (2026-05-31): reaching this branch means NOT active_run
+        # and NOT turn_busy — the turn ENDED, the agent is IDLE but owes a reply.
+        # That is NOT "working" (actively computing) — showing orange working for
+        # an idle agent was the operator-reported "blink when not working". It is
+        # `online` with an `awaitingReply` flag (the reminder loop nudges it; the
+        # Work Loop tracks the open contract). `working` is reserved for a fresh
+        # turn_busy or a claimed/running run. NOTE: the runtime's own turn-end
+        # signal (claude Stop hook / hermes post_llm_call / codex turn/completed /
+        # pi agent_end) clears turn_busy precisely; this branch is the
+        # idle-owes-reply state after that.
+        awaiting_reply = True
+        if effective_status not in {"offline", "stale", "blocked"}:
+            effective_status = "online"
         reason = (
-            f'Channel dispatch delivered, awaiting reply: '
+            f'Idle — awaiting reply: '
             f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
         )
     elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
@@ -3107,6 +3116,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     return {
         "status": effective_status,
         "reason": reason,
+        "awaiting_reply": awaiting_reply,
         "environment_id": environment_id,
         "session_id": session_id,
         "terminal_id": terminal_id,

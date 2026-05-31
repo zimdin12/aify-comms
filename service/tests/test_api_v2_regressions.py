@@ -9008,17 +9008,15 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(attach_body["sessionId"], "sess_pi_console_new")
         self.assertEqual(attach_body["agentId"], "pi-console-agent")
 
-    def test_channel_route_delivered_awaiting_reply_shows_working(self):
-        # Operator-reported gap: while a resident claude session was
-        # processing a channel-route dispatch, the dashboard showed the
-        # agent as "active" instead of "working". claude-channel.js pulses
-        # turn_busy=true on claim and busy=false in a finally right after
-        # emit, so the pulse window is ~milliseconds — the dashboard never
-        # samples the pulse and the agent looks idle while it's actually
-        # generating its reply. Server-side derivation closes this gap:
-        # execution_mode='channel' + status='delivered' + require_reply=1
-        # IS the agent-is-working signal (distinct from terminal-delivery
-        # 'delivered' which is normal lingering state).
+    def test_channel_route_delivered_awaiting_reply_shows_online_not_working(self):
+        # Status-split (2026-05-31): a channel-route delivered+require_reply run
+        # with NO fresh turn_busy and NO active run means the turn ENDED — the
+        # agent is IDLE but owes a reply. That is `online` with an awaiting-reply
+        # reason, NOT orange `working`. (Previously this was forced to "working",
+        # which the operator reported as "blink when the agent isn't working".)
+        # `working` is reserved for a fresh turn_busy (claude Stop hook clears it
+        # on turn-end) or a claimed/running run. The open reply contract is
+        # surfaced via the reason + handled by the reminder loop.
         self._heartbeat_environment(
             id="env_channel_busy",
             bridgeId="bridge-channel-busy",
@@ -9069,13 +9067,16 @@ class ApiV2RegressionTests(unittest.TestCase):
         # Invalidate cache so the next read recomputes against the new run.
         asyncio.run(self._async_invalidate("channel-claude"))
 
-        working_response = self.client.get("/api/v1/agents/channel-claude")
-        self.assertEqual(working_response.status_code, 200, working_response.text)
-        working_payload = working_response.json()["agent"]
-        self.assertEqual(working_payload["status"], "working", working_payload)
-        self.assertIn("awaiting reply", working_payload.get("statusNote", "").lower())
+        awaiting_response = self.client.get("/api/v1/agents/channel-claude")
+        self.assertEqual(awaiting_response.status_code, 200, awaiting_response.text)
+        awaiting_payload = awaiting_response.json()["agent"]
+        # NEW contract: online (idle, reachable) — NOT working — with the
+        # open-reply contract surfaced in the reason.
+        self.assertEqual(awaiting_payload["status"], "online", awaiting_payload)
+        self.assertNotEqual(awaiting_payload["status"], "working")
+        self.assertIn("awaiting reply", awaiting_payload.get("statusNote", "").lower())
 
-        # Reply lands → run completes → status flips back.
+        # Reply lands → run completes → no longer awaiting.
         self._execute(
             "UPDATE dispatch_runs SET status = 'completed' WHERE id = ?",
             ("run_channel_busy_1",),
@@ -9084,6 +9085,7 @@ class ApiV2RegressionTests(unittest.TestCase):
         idle_response = self.client.get("/api/v1/agents/channel-claude")
         self.assertEqual(idle_response.status_code, 200, idle_response.text)
         self.assertNotEqual(idle_response.json()["agent"]["status"], "working")
+        self.assertNotIn("awaiting reply", idle_response.json()["agent"].get("statusNote", "").lower())
 
     async def _async_invalidate(self, agent_id: str):
         from service.db import get_db as _get_db
@@ -10573,13 +10575,10 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = self.client.get("/api/v1/agents/taxonomy-hermes-wrapper").json()["agent"]
         self.assertEqual(agent["status"], "online", agent)
 
-    def test_resident_route_delivered_awaiting_reply_shows_working(self):
-        # Resident dispatch to claude (execution_mode='resident') goes through
-        # the SAME claude-channel.js delivery path as channel-mode and now
-        # also stays in 'delivered' status until the reply lands. Server-side
-        # derivation should treat this identically to channel-route for the
-        # working-status signal — the operator's complaint was that resident
-        # claude sessions never showed "working" while processing replies.
+    def test_resident_route_delivered_awaiting_reply_shows_online_not_working(self):
+        # Status-split (2026-05-31): a resident-route delivered+require_reply run
+        # with no fresh turn_busy = idle-owing-reply = `online` (awaiting reply),
+        # NOT `working`. Same contract as the channel-route case above.
         self._heartbeat_environment(
             id="env_resident_busy",
             bridgeId="bridge-resident-busy",
@@ -10624,7 +10623,8 @@ class ApiV2RegressionTests(unittest.TestCase):
         response = self.client.get("/api/v1/agents/resident-claude")
         self.assertEqual(response.status_code, 200, response.text)
         agent = response.json()["agent"]
-        self.assertEqual(agent["status"], "working", agent)
+        self.assertEqual(agent["status"], "online", agent)
+        self.assertNotEqual(agent["status"], "working")
         self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
 
     def test_reply_landing_clears_turn_busy_for_channel_route(self):
@@ -10697,7 +10697,11 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "2026-05-21T00:00:00Z",
             ),
         )
-        now = "2026-05-21T20:00:00Z"
+        # FRESH turn_busy (not a stale fixed date) so `before` is genuinely
+        # `working` via the turn_busy branch — the path this test exercises.
+        # (Post status-split, a stale turn_busy would fall through to the
+        # idle-awaiting-reply `online` state, which is a different code path.)
+        now = api_v2._now()
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
