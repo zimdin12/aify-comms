@@ -11204,3 +11204,124 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-patch",))
         self.assertEqual((row["session_handle"] or ""), "")
+
+    # ---- Workstream A2: unconditional liveness beat (2026-06-01) ----
+
+    def _has_live_channel_sidecar(self, agent_id: str) -> bool:
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._has_live_channel_sidecar(db, agent_id)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_liveness_beat_creates_sidecar_row_for_idle_sidecar(self):
+        # An idle standalone channel-sidecar that has never claimed a dispatch
+        # has NO bridge_instances row. Before the fix the heartbeat handler only
+        # UPDATEd (matching zero rows), so the sidecar's liveness was never
+        # recorded and _has_live_channel_sidecar stayed False even though the
+        # process is alive. A {liveness:true} beat must UPSERT the row.
+        self._register("idle-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+
+        # No channel-sidecar row exists yet, so the agent is not "live".
+        self.assertFalse(self._has_live_channel_sidecar("idle-side"))
+        no_row = self._fetchone(
+            "SELECT id FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'",
+            ("idle-side",),
+        )
+        self.assertIsNone(no_row)
+
+        resp = self.client.post(
+            "/api/v1/agents/idle-side/heartbeat",
+            json={"bridgeId": "chan-live-1", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(resp.json().get("ok"), resp.text)
+
+        row = self._fetchone(
+            "SELECT bridge_kind, last_seen, COALESCE(superseded_by,'') AS sb "
+            "FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-live-1", "idle-side"),
+        )
+        self.assertIsNotNone(row, "liveness beat must create the sidecar bridge row")
+        self.assertEqual(row["bridge_kind"], "channel-sidecar")
+        self.assertEqual(row["sb"], "", "liveness beat must not supersede the new row")
+        self.assertTrue(str(row["last_seen"] or "").strip(), "last_seen must be stamped")
+
+        self.assertTrue(
+            self._has_live_channel_sidecar("idle-side"),
+            "_has_live_channel_sidecar must be True after the liveness beat",
+        )
+
+    def test_liveness_beat_refreshes_existing_bridge_last_seen(self):
+        # A sidecar row that already exists with a stale last_seen must be
+        # refreshed by the liveness beat (regression guard for the UPDATE path).
+        self._register("refresh-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "chan-refresh", "refresh-side", "win32:test-host", "hermes",
+                "managed", "", "", "channel-sidecar",
+                "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "", None,
+            ),
+        )
+
+        resp = self.client.post(
+            "/api/v1/agents/refresh-side/heartbeat",
+            json={"bridgeId": "chan-refresh", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(resp.json().get("ok"), resp.text)
+
+        row = self._fetchone(
+            "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-refresh", "refresh-side"),
+        )
+        self.assertNotEqual(
+            row["last_seen"], "2026-01-01T00:00:00Z",
+            "liveness beat must advance last_seen on the existing row",
+        )
+
+    def test_liveness_beat_does_not_revive_superseded_bridge(self):
+        # A superseded bridge row must NOT be kept alive by a liveness beat —
+        # the existing supersession guard short-circuits before the upsert.
+        self._register("super-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "chan-super", "super-side", "win32:test-host", "hermes",
+                "managed", "", "", "channel-sidecar",
+                "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "newer-bridge", "2026-01-01T00:00:00Z",
+            ),
+        )
+
+        resp = self.client.post(
+            "/api/v1/agents/super-side/heartbeat",
+            json={"bridgeId": "chan-super", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertFalse(body.get("ok"), body)
+        self.assertTrue(body.get("ignored"), body)
+
+        row = self._fetchone(
+            "SELECT COALESCE(superseded_by,'') AS sb, last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-super", "super-side"),
+        )
+        self.assertEqual(row["sb"], "newer-bridge", "supersession must be preserved")
+        self.assertEqual(
+            row["last_seen"], "2026-01-01T00:00:00Z",
+            "a superseded bridge must not refresh its own liveness",
+        )

@@ -12455,6 +12455,55 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
                     (now, bridge_id, agent_id),
                 )
+        # Unconditional liveness beat (Workstream A, 2026-06-01). A long-lived
+        # bridge posts {bridgeId, bridgeKind, liveness:true} on a fixed interval
+        # regardless of turn activity, so last_seen is a true "alive now" signal.
+        # Unlike the plain UPDATE above (which no-ops when the bridge has no row
+        # yet — e.g. an idle channel-sidecar that never claimed), this UPSERTS the
+        # row, touching ONLY last_seen + bridge_kind. It never clears
+        # superseded_by and never touches turn state. (A superseded existing row
+        # is already short-circuited by the guard above.)
+        if body.get("liveness") and bridge_id:
+            arow = await (await db.execute(
+                "SELECT machine_id, runtime FROM agents WHERE id = ?", (agent_id,),
+            )).fetchone()
+            arow_machine = (arow["machine_id"] if arow else "") or ""
+            arow_runtime = (arow["runtime"] if arow else "") or "generic"
+            if bridge_kind == "channel-sidecar":
+                await _record_channel_sidecar_heartbeat(
+                    db,
+                    bridge_id=bridge_id,
+                    agent_id=agent_id,
+                    machine_id=arow_machine,
+                    runtime=arow_runtime,
+                    now=now,
+                )
+            else:
+                updated = await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ?, "
+                    "bridge_kind = COALESCE(NULLIF(?, ''), bridge_kind) "
+                    "WHERE id = ? AND agent_id = ?",
+                    (now, bridge_kind, bridge_id, agent_id),
+                )
+                if not getattr(updated, "rowcount", 0):
+                    await db.execute(
+                        """
+                        INSERT OR IGNORE INTO bridge_instances (
+                            id, agent_id, machine_id, runtime, session_mode,
+                            session_handle, terminal_id, bridge_kind,
+                            registered_at, last_seen, superseded_by, superseded_at
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (bridge_id, agent_id,
+                         _normalize_machine_id(arow_machine),
+                         arow_runtime,
+                         "managed", "", "", bridge_kind or "resident",
+                         now, now, "", None),
+                    )
+                    await db.execute(
+                        "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
+                        (now, bridge_id, agent_id),
+                    )
         # Authoritative turn-busy signal (contract with the bridge). Missing
         # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
         # bridge wins. turnBusy=false: only the owning bridge+run may clear,
