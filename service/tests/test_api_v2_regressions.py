@@ -9255,6 +9255,39 @@ class ApiV2RegressionTests(unittest.TestCase):
         sess_a = self._fetchone("SELECT status FROM agent_sessions WHERE id=?", (session_a,))
         self.assertEqual(sess_a["status"], "ended", "the prior session is still ended by the rotation")
 
+    def test_stop_kills_managed_terminal(self):
+        # operator-reported 2026-05-31: aify-comms is the lifecycle driver for
+        # managed sessions, so an operator Stop must KILL the running console/TUI
+        # (queue a bridge terminal-stop + mark stopping), not just interrupt the
+        # run and mark the agent stopped while the host TUI keeps running.
+        session = self._create_running_session(
+            terminal=True, runtime="hermes", terminal_runtimes=["hermes"],
+            session_handle="aify-console-agent",
+        )
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, status, requested_by, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("term-stopme", session, "console-agent", "linux:test-host:default",
+             "bridge-current", "hermes", "/workspace",
+             "hermes-aify --aify-agent console-agent", "attached", "dashboard", now, now),
+        )
+        res = self.client.post("/api/v1/agents/console-agent/control",
+                               json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(res.status_code, 200, res.text)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id='term-stopme'")
+        self.assertEqual(term["status"], "stopping", "Stop must mark the managed terminal stopping")
+        ctl = self._fetchone(
+            "SELECT action FROM terminal_controls WHERE terminal_id='term-stopme' ORDER BY requested_at DESC LIMIT 1")
+        self.assertIsNotNone(ctl, "Stop must queue a terminal-stop control so the bridge reaps the PTY")
+        self.assertEqual(ctl["action"], "stop")
+        ag = self._fetchone("SELECT status FROM agents WHERE id='console-agent'")
+        self.assertEqual(ag["status"], "stopped")
+
     def test_wake_on_message_send_to_available_agent_queues_dispatch(self):
         # Phase 3: sending to an `available` agent (env online, no live
         # worker yet) must NOT be rejected as "cannot start live work

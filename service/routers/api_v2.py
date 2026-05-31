@@ -10545,6 +10545,47 @@ async def unregister_agent(agent_id: str, request: Request):
         await db.close()
 
 
+async def _request_stop_agent_terminals(db, agent_id: str, *, requested_by: str, now: str) -> int:
+    """Stop an agent's live MANAGED terminals — an operator Stop must kill the
+    running console/TUI, since aify-comms is the lifecycle driver for managed
+    sessions (operator-reported 2026-05-31: Stop interrupted the run + marked the
+    agent stopped but left the host TUI running). Appends a 'stop' terminal
+    control (the bridge's terminal-control poll reaps the PTY) and marks the
+    terminal 'stopping'. Skips synthetic (vterm_) and already terminal-state
+    rows. Returns the number of terminals signaled."""
+    cursor = await db.execute(
+        """
+        SELECT id, environment_id, bridge_id, session_id FROM terminal_sessions
+        WHERE agent_id = ?
+          AND id NOT LIKE 'vterm_%'
+          AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering', 'stopping')
+        """,
+        (agent_id,),
+    )
+    count = 0
+    for t in await cursor.fetchall():
+        await _append_terminal_control(
+            db,
+            terminal_id=t["id"],
+            environment_id=t["environment_id"] or "",
+            bridge_id=t["bridge_id"] or "",
+            action="stop",
+            requested_by=requested_by,
+            body="Agent stopped from dashboard.",
+        )
+        await db.execute(
+            "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
+            (now, t["id"]),
+        )
+        if t["session_id"]:
+            await db.execute(
+                "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
+                (now, t["session_id"]),
+            )
+        count += 1
+    return count
+
+
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
     action = str(req.action or "").strip().lower()
@@ -10598,6 +10639,15 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 """,
                 (stop_note, now, agent_id),
             )
+            # Kill the managed console/TUI too — aify-comms is the lifecycle driver
+            # for managed sessions, so Stop must tear down the running terminal
+            # instead of leaving an abandoned TUI (operator-reported 2026-05-31).
+            # Resident windows are the operator's OWN process; the bridge teardown
+            # handles those (see stop_note), so this is managed-only.
+            if _normalize_session_mode(agent["session_mode"] or "resident") == "managed":
+                await _request_stop_agent_terminals(
+                    db, agent_id, requested_by=req.from_agent or "dashboard", now=now,
+                )
         elif action == "resume":
             await db.execute(
                 """
