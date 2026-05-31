@@ -12,14 +12,16 @@
 
 ---
 
-## Current coverage (recon 2026-05-31, verified)
+## Current coverage (recon 2026-05-31, VERIFIED against each runtime's latest local install + docs)
 
-| Runtime | turn-start | turn-end | session-close | kill-prior (1 worker) | MCP-child reap |
-|---|---|---|---|---|---|
-| claude-code | `UserPromptSubmit` (session-capture hook; not a turn-start POST) | **MISSING** (`Stop` hook not installed) | **MISSING** (`SessionEnd` not installed) | ✅ done (`reap-managed-claude.js`, `3c2b74f`) | partial (taskkill /t on reap) |
-| codex | hook + RPC `turn/started` | hook + RPC `turn/completed` ✅ | n/a | ⚠️ verify | ⚠️ verify |
-| hermes | `pre_llm_call` ✅ | **MISSING** ("no clean upstream turn-end") | n/a | ❌ TUI `entry.js` leaks (11 observed) | ❌ |
-| pi | `/turn-start` + RPC | `/turn-end` + RPC `agent_end` ✅ | n/a | ⚠️ verify | ⚠️ verify |
+| Runtime (ver) | turn-start | turn-end | blocked | session-close | kill-prior | notes |
+|---|---|---|---|---|---|---|
+| claude-code | `UserPromptSubmit` | **`Stop`** (per turn) ← *hook not installed* | `Notification:permission_prompt` | **`SessionEnd`**(`exit_reason`) ← *not installed* | ✅ `3c2b74f` | only SessionStart+UserPromptSubmit wired today |
+| codex (0.133.0) | hook `UserPromptSubmit` + RPC `turn/started` | hook `Stop` + RPC `turn/completed` ✅ | app-server `thread/status:active{waitingOnApproval}` / `PermissionRequest` | RPC `thread/closed` (no hook) | ⚠️ verify | richest: `thread/status/changed`=idle/active/notLoaded |
+| hermes (0.15.1) | `pre_llm_call` ✅ | **`post_llm_call`** hook + `/v1/runs` `run.completed` ✅ ← *"no turn-end" was STALE* | `/v1/runs` `approval.request` / `_session_live_status=waiting` | `on_session_finalize` (true close) | ❌ TUI `entry.js` leaks (11) | bridge already consumes `/v1/runs run.completed/failed/cancelled` |
+| pi (omp 15.2.4) | RPC `agent_start` + `/turn-start` | RPC **`agent_end`** ✅ (consumed) | `extension_ui_request` (stalls) | OS exit on stdin-close (no RPC frame) | ⚠️ verify | RPC has an unused `idle` event |
+
+**Implication:** the precise turn-end signal EXISTS for every runtime — claude just needs the `Stop`+`SessionEnd` hooks wired; hermes can use `post_llm_call` (or the already-consumed `run.completed`); codex/pi already clear on `turn/completed`/`agent_end`. So the blink is fixable by (1) wiring claude's missing hooks and (2) the runtime-agnostic status-split (A1).
 
 Status engine gap (all runtimes): `_compute_live_status_cache` sets `working` from `channel_pending_reply_run` **with no staleness bound and decoupled from `turn_busy`** → an idle agent owing a reply shows orange `working`.
 
