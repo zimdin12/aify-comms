@@ -296,7 +296,15 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
             reason="managed_wrapper_terminal_not_ready",
         )
 
-    def test_wrapper_backed_send_without_managed_session_does_not_queue_orphan_run(self):
+    def test_wrapper_backed_send_without_managed_session_coldstarts_backing(self):
+        # Phase 2 (2026-05-31): a wrapper-backed managed codex agent with no
+        # live managed session is now LAZY-AUTOSTARTED on send when an ONLINE
+        # env advertises codex — the send cold-starts a spawn_request that a
+        # bridge claims, instead of hard-rejecting. The operator explicitly
+        # wants `available` agents to auto-start on first message. The
+        # no-ORPHAN invariant still holds: any queued dispatch_run must be
+        # backed by a claimable spawn_request (a bridge will spawn the wrapper
+        # and claim it), never left to sit forever with nothing to claim it.
         self._heartbeat_environment("codex")
         response = self.client.post(
             "/api/v1/agents",
@@ -318,24 +326,38 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
                 "from_agent": "dashboard",
                 "to": "codex-no-backing",
                 "type": "request",
-                "subject": "no backing",
-                "body": "this should fail before queueing",
+                "subject": "auto-start",
+                "body": "this should cold-start a backing spawn request",
                 "trigger": True,
             },
         )
         self.assertEqual(sent.status_code, 200, sent.text)
         body = sent.json()
-        self.assertFalse(body.get("ok"), body)
-        self.assertEqual(body.get("dispatchRuns") or [], [])
+        # Not hard-rejected — the available agent is auto-started.
+        self.assertNotEqual(
+            body.get("error"),
+            "Message was not sent because one or more recipients cannot start live work now.",
+            body,
+        )
         conn = sqlite3.connect(str(self._db_path))
         try:
-            count = conn.execute(
+            queued_runs = conn.execute(
                 "SELECT COUNT(*) FROM dispatch_runs WHERE target_agent = ? AND status = 'queued'",
+                ("codex-no-backing",),
+            ).fetchone()[0]
+            spawn_reqs = conn.execute(
+                "SELECT COUNT(*) FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')",
                 ("codex-no-backing",),
             ).fetchone()[0]
         finally:
             conn.close()
-        self.assertEqual(count, 0)
+        # Cold-start created exactly one claimable spawn_request as the backing.
+        self.assertEqual(spawn_reqs, 1, body)
+        # No-orphan invariant: a queued run must be backed by a spawn_request.
+        if queued_runs:
+            self.assertGreaterEqual(
+                spawn_reqs, 1, "queued run must be backed by a spawn_request, not orphaned"
+            )
 
     def test_standalone_hermes_channel_sidecar_claims_channel(self):
         """Task 1.5b: the NEW standalone per-agent hermes sidecar

@@ -182,6 +182,60 @@ class LifecyclePhase7Tests(unittest.TestCase):
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')", ("worker",))
         self.assertEqual(len(rows), 1)
 
+    # ── Phase 2: env auto-bind ────────────────────────────────────────────
+    # A managed agent that has never been spawned (no prior agent_sessions
+    # row, no environment binding) must still be cold-startable: pick the
+    # first ONLINE environment that advertises the runtime, bind to it, and
+    # queue a spawn_request. Without this, sending to an `available` managed
+    # codex/hermes/pi agent that was only registered (never run) is rejected
+    # with "cannot start live work now" — the operator-reported sc-coder bug.
+    def test_coldstart_autobinds_first_online_env_when_no_prior_session(self):
+        self._heartbeat_environment()  # advertises codex, online
+        self._register("fresh", runtime="codex", sessionMode="managed")
+        # No _seed_ended_session — this agent has never run.
+
+        created = self._coldstart("fresh")
+        self.assertTrue(created, "cold-start should auto-bind an online env and create a spawn request")
+
+        rows = self._fetchall(
+            "SELECT agent_id, environment_id, runtime, status, mode FROM spawn_requests WHERE agent_id = ?",
+            ("fresh",),
+        )
+        self.assertEqual(len(rows), 1, "exactly one spawn_request created")
+        row = rows[0]
+        self.assertEqual(row["status"], "queued")
+        self.assertEqual(row["environment_id"], "linux:test-host:default")
+        self.assertEqual(row["runtime"], "codex")
+        self.assertEqual(row["mode"], "managed-warm")
+
+    def test_coldstart_returns_false_when_no_online_env_supports_runtime(self):
+        # Env advertises codex only; agent is hermes → no online env supports
+        # it → cold-start must decline (caller then rejects clearly) and
+        # create NOTHING.
+        self._heartbeat_environment()  # codex only
+        self._register("lonely", runtime="hermes", sessionMode="managed")
+
+        created = self._coldstart("lonely", runtime="hermes")
+        self.assertFalse(created, "cold-start must decline when no online env advertises the runtime")
+        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("lonely",))
+        self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
+
+    def test_coldstart_skips_offline_env_and_picks_online_one(self):
+        # Two envs advertise codex: one offline (stale heartbeat), one online.
+        # Auto-bind must skip the offline env and choose the online one.
+        stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._heartbeat_environment(id="env-online", bridgeId="bridge-online", machineId="linux:online")
+        self._heartbeat_environment(id="env-offline", bridgeId="bridge-offline", machineId="linux:offline")
+        # Force env-offline stale so its effective status degrades to offline.
+        self._execute("UPDATE environments SET last_seen = ? WHERE id = ?", (stale, "env-offline"))
+        self._register("picky", runtime="codex", sessionMode="managed")
+
+        created = self._coldstart("picky")
+        self.assertTrue(created)
+        rows = self._fetchall("SELECT environment_id FROM spawn_requests WHERE agent_id = ?", ("picky",))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["environment_id"], "env-online")
+
 
 if __name__ == "__main__":
     unittest.main()

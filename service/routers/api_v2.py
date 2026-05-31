@@ -5016,6 +5016,44 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
     return row
 
 
+async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
+    """True when a queued/claimed spawn_request already backs this agent.
+
+    A claimable spawn_request means a bridge will (or already did) spawn the
+    worker, so the dispatch can safely sit queued instead of being rejected.
+    """
+    row = await (await db.execute(
+        "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed') LIMIT 1",
+        (agent_id,),
+    )).fetchone()
+    return bool(row)
+
+
+async def _select_online_environment_for_runtime(
+    db, runtime: str, *, offline_seconds: int = 90
+) -> Optional[dict[str, Any]]:
+    """Pick the freshest ONLINE environment that advertises `runtime`.
+
+    Used by Phase 2 auto-bind: when a managed agent has no usable session
+    environment, bind it to a live env so it can be cold-started on first
+    message. Deterministic order: most-recently-seen environment first, so a
+    freshly-heartbeating bridge is preferred. Returns the environment dict, or
+    None when no online environment advertises the runtime.
+    """
+    normalized_runtime = _normalize_runtime(runtime or "")
+    if not normalized_runtime:
+        return None
+    cursor = await db.execute("SELECT * FROM environments ORDER BY last_seen DESC")
+    for env_row in await cursor.fetchall():
+        environment = _environment_record_to_dict(env_row, offline_seconds=offline_seconds)
+        if str(environment.get("status") or "").lower() != "online":
+            continue
+        if not _runtime_capability_for_environment(environment, normalized_runtime):
+            continue
+        return environment
+    return None
+
+
 async def _coldstart_spawn_request_for_dispatch(
     db,
     agent_id: str,
@@ -5067,29 +5105,52 @@ async def _coldstart_spawn_request_for_dispatch(
         """,
         (agent_id,),
     )).fetchone()
-    if not session:
-        return False
 
-    environment_id = str(session["environment_id"] or "").strip()
+    offline_seconds = settings.get("environment_offline_seconds", 90)
+    environment = None
+    fallback_workspace = ""
+    prior_spec = None
+
+    # Prefer the agent's prior-session environment when it is still ONLINE and
+    # still advertises the runtime — preserves workspace + spawn_spec continuity.
+    if session and str(session["environment_id"] or "").strip():
+        env_row = await (await db.execute(
+            "SELECT * FROM environments WHERE id = ?", (str(session["environment_id"]).strip(),)
+        )).fetchone()
+        if env_row:
+            candidate = _environment_record_to_dict(env_row, offline_seconds=offline_seconds)
+            if (
+                str(candidate.get("status") or "").lower() == "online"
+                and _runtime_capability_for_environment(candidate, normalized_runtime)
+            ):
+                environment = candidate
+                fallback_workspace = session["workspace"] or ""
+                prior_spec_id = str(session["spawn_spec_id"] or "").strip()
+                if prior_spec_id:
+                    prior_spec = await (await db.execute(
+                        "SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,)
+                    )).fetchone()
+
+    # Phase 2 auto-bind: a managed agent that was only registered (never run,
+    # or whose prior env went offline / dropped the runtime) has no usable
+    # session env. Bind it to the freshest ONLINE environment that advertises
+    # the runtime so an `available` agent can be woken on first message —
+    # mirroring comms_spawn's env-omission auto-select. Without this the send
+    # path rejects with "cannot start live work now" (operator-reported
+    # sc-coder bug). No online env supports the runtime → decline (caller
+    # surfaces a clear "no environment available" rejection).
+    if environment is None:
+        environment = await _select_online_environment_for_runtime(
+            db, normalized_runtime, offline_seconds=offline_seconds
+        )
+        if environment is None:
+            return False
+
+    environment_id = str(environment.get("id") or "").strip()
     if not environment_id:
         return False
-    env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
-    if not env_row:
-        return False
-    environment = _environment_record_to_dict(env_row, offline_seconds=settings.get("environment_offline_seconds", 90))
-    if str(environment.get("status") or "").lower() != "online":
-        return False
-    if not _runtime_capability_for_environment(environment, normalized_runtime):
-        return False
 
-    workspace, workspace_root = _workspace_for_environment(environment, None, session["workspace"] or "")
-
-    # Reuse the prior spawn_spec when present so model/effort/policy survive the
-    # cold-start; otherwise mint a minimal spec mirroring create_spawn_request.
-    prior_spec = None
-    prior_spec_id = str(session["spawn_spec_id"] or "").strip()
-    if prior_spec_id:
-        prior_spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,))).fetchone()
+    workspace, workspace_root = _workspace_for_environment(environment, None, fallback_workspace)
 
     now = _now()
     spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -11435,14 +11496,30 @@ async def send_message(req: MessageSend, request: Request):
                                 requested_by=req.from_agent,
                             )
                         if not console_terminal:
-                            not_started.append(
-                                _dispatch_fix_hint(
-                                    recipient_id,
-                                    row,
-                                    f"Managed {runtime} wrapper PTY is unavailable; recover or restart the environment-managed session.",
-                                )
+                            # Phase 2 lazy-autostart: no live wrapper PTY to
+                            # back this agent (it was only registered, never
+                            # run — the operator's `available` sc-coder case).
+                            # Instead of rejecting, cold-start a spawn_request
+                            # (auto-binding an online env when none is bound)
+                            # so a bridge spawns the wrapper and claims this
+                            # dispatch on its next poll. Only reject when no
+                            # online environment can host the runtime.
+                            coldstarted = await _coldstart_spawn_request_for_dispatch(
+                                db,
+                                recipient_id,
+                                runtime=runtime,
+                                settings=settings,
+                                requested_by=req.from_agent,
                             )
-                            channel_backing_failed.add(recipient_id)
+                            if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
+                                not_started.append(
+                                    _dispatch_fix_hint(
+                                        recipient_id,
+                                        row,
+                                        f"No online environment can host managed {runtime} for this agent; start an environment bridge that advertises {runtime}, or recover the session.",
+                                    )
+                                )
+                                channel_backing_failed.add(recipient_id)
                         # Do NOT add to console_recipients (that's the legacy
                         # PTY-input delivery path). Wrapper child bridge claims
                         # via /dispatch/claim once its in-process MCP boots.

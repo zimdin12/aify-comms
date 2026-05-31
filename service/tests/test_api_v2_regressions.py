@@ -9033,6 +9033,92 @@ class ApiV2RegressionTests(unittest.TestCase):
             f"Expected send to available agent to queue a dispatch, got {sent}",
         )
 
+    def test_send_to_available_managed_codex_no_session_coldstarts_with_autobind(self):
+        # Phase 2 (2026-05-31): a wrapper-backed managed codex agent that was
+        # only REGISTERED (never run, no agent_sessions row, no env binding)
+        # must NOT be rejected with "cannot start live work now" when an
+        # online env advertises codex. The send path falls back to
+        # _coldstart_spawn_request_for_dispatch, which auto-binds the online
+        # env and queues a spawn_request the bridge claims. This is the
+        # operator-reported sc-coder bug (claude worked because its channel
+        # branch is best-effort; codex/hermes/pi hard-rejected).
+        #
+        # This suite's setUp opts into pre-Plan-4 legacy defaults; restore the
+        # production wrapper-backed defaults this behavior depends on.
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+        self._heartbeat_environment(
+            id="env_codex",
+            bridgeId="bridge-codex",
+            machineId="linux:codex",
+            runtimes=[
+                {
+                    "runtime": "codex",
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "interrupt": True},
+                }
+            ],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["codex"],
+        )
+        self._register("sc-coder", runtime="codex", sessionMode="managed")
+
+        avail = self.client.get("/api/v1/agents/sc-coder").json()["agent"]
+        self.assertEqual(avail["status"], "available", avail)
+
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="sc-coder",
+            type="request",
+            subject="start work",
+            body="please get to work",
+            trigger=True,
+        )
+        self.assertNotEqual(
+            sent.get("error"),
+            "Message was not sent because one or more recipients cannot start live work now.",
+            f"available codex agent must not be hard-rejected; got {sent}",
+        )
+        rows = self._fetchall(
+            "SELECT id, environment_id, status FROM spawn_requests WHERE agent_id = ?",
+            ("sc-coder",),
+        )
+        self.assertEqual(len(rows), 1, f"a claimable spawn_request must back the agent; got {sent}")
+        self.assertEqual(rows[0]["environment_id"], "env_codex")
+        self.assertEqual(rows[0]["status"], "queued")
+
+    def test_send_to_available_managed_codex_no_env_rejects_clearly(self):
+        # Phase 2: when NO online env advertises the runtime, the send must
+        # reject — but with the clear "no online environment can host" hint,
+        # not a misleading wrapper-PTY message, and create no spawn_request.
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+        self._register("orphan-codex", runtime="codex", sessionMode="managed")
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="orphan-codex",
+            type="request",
+            subject="start work",
+            body="please get to work",
+            trigger=True,
+        )
+        self.assertFalse(sent.get("ok"), sent)
+        rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("orphan-codex",))
+        self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
+
     def test_orphaned_managed_runs_closed_after_stale_window(self):
         # Operator-reported (2026-05-22): managed hermes-test dispatch
         # sat in 'running' for 30 min after the spawn failed because
