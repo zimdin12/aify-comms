@@ -6445,6 +6445,13 @@ def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: 
     msg_type = str(reply_type or "").strip().lower()
     if msg_type in _HANDOFF_REPLY_TYPES:
         return True
+    # `info` closes a run ONLY when it signals completion (keyword) — an agent
+    # may thread an `info` "ack / I'm looking" WITHOUT claiming the work is done,
+    # which intentionally leaves the run open (see
+    # test_threaded_non_answer_message_does_not_close_reply_contract). Reviewed
+    # 2026-05-31 (holistic review "F4"): this is deliberate, NOT a stuck-run bug —
+    # the operator-observed "Pending updates (N)" pile-up was QUEUED (never
+    # claimed) runs, fixed by the release + channel-sidecar self-heal fixes.
     if msg_type == "info" and _COMPLETION_INFO_RE.search(f"{subject or ''}\n{body or ''}"):
         return True
     return False
