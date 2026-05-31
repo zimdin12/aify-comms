@@ -505,7 +505,7 @@ After opening the native CLI, re-register from that same session with the same `
 
 ## Managed spawned agent workspace is stored as `\home\dev\...`
 
-**Symptom.** A Linux/WSL managed spawn shows a workspace like `\home\dev\projects\repo` instead of `/home/dev/projects/repo`.
+**Symptom.** A Linux/macOS/WSL managed spawn shows a workspace like `\home\dev\projects\repo` instead of `/home/dev/projects/repo`.
 
 **Cause.** Older service builds normalized slash style for root validation but persisted the original requested workspace string into spawn/session records.
 
@@ -904,7 +904,7 @@ If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real
 
 Verify by running `claude -p "list MCP servers"` from a plain shell — if `aify-comms-channel` shows under "still connecting" (instead of "connected"), the race is biting.
 
-**Fix.** Already applied in `06289e0` — `claude-aify` always uses `--strict-mcp-config` + a temp minimal MCP config with only `aify-comms` + `aify-comms-channel`. Other operator MCP servers do NOT load inside the wrapper but still work in plain `claude` sessions. Run `install.sh --client claude` to regenerate the wrapper, then restart `claude-aify`.
+**Fix.** Set `AIFY_CLAUDE_STRICT_MCP=1` before launching `claude-aify` — it forces `--strict-mcp-config` with ONLY `aify-comms` + `aify-comms-channel`, which sidesteps the init race. (The default, flipped 2026-05-25, loads your full `~/.claude.json` MCP list — that's where the race comes from, but it means your other MCP servers ARE available in the wrapper.) Re-run `install.sh --client claude` if the wrapper is stale, then relaunch `claude-aify` with the env var set.
 
 If you're on Windows Git Bash and the regenerated wrapper still fails (`2 MCP servers failed`, `aify-comms is currently disconnected`), the wrapper's MCP config paths may be MSYS-style. The wrapper uses `cygpath -m "$SCRIPT_DIR"` to convert to Windows-native paths. If cygpath isn't available in your Git Bash, install it (`pacman -S cygwin-tools` or update Git for Windows).
 
@@ -1130,9 +1130,9 @@ own visible TUI.
 
 2. Get the runtime's actual current session id, per runtime:
 
-   - **hermes**: do **not** use gateway `session.most_recent` as the current visible session. It can be historical DB state. Prefer the wrapper active-session file (`$AIFY_HERMES_ACTIVE_SESSION_FILE`) or `comms_agent_info`; only an explicit `hermes-aify --resume <id>` should seed `HERMES_SESSION_ID` before launch. If `AIFY_HERMES_ACTIVE_SESSION_FILE` is set in the operator's shell:
+   - **hermes**: do **not** use gateway `session.most_recent` as the current visible session — it can be historical DB state. The managed visible-TUI uses a DETERMINISTIC stable session key `aify-<agentId>` resumed via `HERMES_TUI_RESUME`/`--resume` (the wrapper exports `HERMES_TUI_RESUME`; the per-agent active-session-file mechanism is RETIRED). To find the live runtime sid, ask the gateway `session.active_list` and match `pickSessionForKey('aify-<agentId>')`, or just use `comms_agent_info`:
      ```bash
-     cat "$AIFY_HERMES_ACTIVE_SESSION_FILE"
+     curl -s http://localhost:8800/api/v1/agents/YOUR-AGENT-ID | python -m json.tool | grep -E '"sessionHandle"|"sessionId"'
      ```
    - **codex**: for a fresh `codex-aify`, do **not** scan `~/.codex/sessions`; the newest rollout may be an unrelated historical thread. Use `$CODEX_THREAD_ID` only if this exact session exported it, usually after `codex-aify --resume <id>`.
    - **pi**: `~/.omp/agent/sessions/<project-key>/...`, OR ask the bridge directly:

@@ -5144,6 +5144,12 @@ function chatPresenceForAgent(info = {}) {
   const queuedRuns = Number(info.dispatchState?.queuedRuns || 0);
   const issue = liveIssueForAgent('', info);
   const queued = queuedRuns > 0 ? ` (+${queuedRuns} queued)` : '';
+  // Surface the idle-owing-reply state (status-split 2026-05-31). The server
+  // reports it as `online` with a statusNote "Idle — awaiting reply: …" (the
+  // awaiting_reply flag itself isn't exposed as a field), so detect it from the
+  // note and tag the label — otherwise an agent that owes a reply looks
+  // identical to a freshly-idle one in the chat rail.
+  const awaitSuffix = /awaiting reply/i.test(String(info.statusNote || '')) ? ' · awaiting reply' : '';
   if (issue) {
     return {kind: ['offline', 'stale', 'stopped'].includes(raw) ? raw : 'unreachable', label: issue};
   }
@@ -5153,11 +5159,11 @@ function chatPresenceForAgent(info = {}) {
   if (raw === 'blocked') {
     return {kind: 'blocked', label: activeRun ? `blocked: ${activeRun.subject || activeRun.runId || 'run'}${queued}; console appears to need input` : `blocked${queued}; console appears to need input`};
   }
-  if (raw === 'active') return {kind: 'online', label: `online${queued}`};
-  if (raw === 'idle') return {kind: 'idle', label: `idle online${queued}`};
+  if (raw === 'active') return {kind: 'online', label: `online${queued}${awaitSuffix}`};
+  if (raw === 'idle') return {kind: 'idle', label: `idle online${queued}${awaitSuffix}`};
   if (['offline', 'stale', 'stopped'].includes(raw)) return {kind: raw, label: raw};
-  if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: `${raw}${queued}`};
-  return {kind: 'online', label: `online${queued}`};
+  if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: `${raw}${queued}${awaitSuffix}`};
+  return {kind: 'online', label: `online${queued}${awaitSuffix}`};
 }
 
 function chatConversations() {
@@ -6098,10 +6104,14 @@ function updateChatControls(meta) {
       const environment = environmentForSession(session);
       const status = session?.terminalStatus || (session?.terminalId ? 'starting' : '');
       const available = environmentSupportsConsoleForSession(environment, session);
+      // "Console available" = the environment CAN host a console (capability),
+      // NOT that a live deliverable console exists. The prior "Console ready"
+      // overstated readiness for agents with no live worker/sidecar (a sent
+      // message would not actually land) — operator-reported 2026-05-31.
       consoleState.textContent = session?.terminalId
         ? `Console ${status || 'active'}`
         : available
-          ? 'Console ready'
+          ? 'Console available'
           : 'Console unavailable';
     }
   }
@@ -7807,7 +7817,24 @@ async function sendChatMessage(options = {}) {
     document.getElementById('chat-subject-input').value = '';
     clearChatReplyContext(false);
     loadCurrentChatDraft();
-    toast(queueIfBusy ? `Queued for ${meta.id}` : `Sent to ${meta.id}`);
+    // Reflect the ACTUAL delivery outcome instead of a uniform "Sent"
+    // (operator-reported 2026-05-31: steered / queued / woke / stored-offline
+    // were all laundered into one "Sent" message, hiding silent non-delivery and
+    // unthreaded-reply warnings). All fields are optional → falls back to "Sent".
+    const _run = Array.isArray(res.dispatchRuns) && res.dispatchRuns[0] ? res.dispatchRuns[0] : null;
+    const _consoleDelivered = Array.isArray(res.consoleDeliveries) && res.consoleDeliveries.length > 0;
+    const _recip = (res.recipientStatus && res.recipientStatus[meta.id]) || null;
+    let _outcome;
+    if (queueIfBusy) _outcome = `Queued for ${meta.id}`;
+    else if (_run && _run.steered) _outcome = `Steered ${meta.id}'s active run`;
+    else if (_run && String(_run.status || '') === 'queued') _outcome = `Queued for ${meta.id} (busy)`;
+    else if (_consoleDelivered) _outcome = `Delivered to ${meta.id} console`;
+    else if (_run) _outcome = `Woke ${meta.id}`;
+    else if (_recip && /offline|stale|available/i.test(String(_recip.status || ''))) _outcome = `Stored for ${meta.id} (delivers when live)`;
+    else _outcome = `Sent to ${meta.id}`;
+    toast(_outcome);
+    const _warnings = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
+    if (_warnings.length) toast(`⚠ ${_warnings.join(' · ')}`);
     await refreshDashboard();
   } catch (e) {
     const bodyEl = document.getElementById('chat-body');

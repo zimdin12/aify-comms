@@ -391,17 +391,13 @@ async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
     return f"Interrupt requested for {runId}. Control ID: {r['controlId']}"
 
 
-@mcp_server.tool()
-async def comms_run_steer(runId: str, body: str, from_agent: str = "") -> str:
-    """Legacy explicit run-control path. Prefer ordinary comms_send to the target; it steers automatically when the target is busy and steer-capable."""
-    r = await _api("POST", f"/dispatch/runs/{runId}/control", {
-        "from_agent": from_agent,
-        "action": "steer",
-        "body": body,
-    })
-    if not r.get("ok"):
-        return r.get("detail", "Steer request failed.")
-    return f"Steer requested for {runId}. Control ID: {r['controlId']}"
+# NOTE (2026-05-31): comms_run_steer was REMOVED here to match the canonical
+# stdio bridge (mcp/stdio/server.js), which retired it — ordinary comms_send to
+# the target steers automatically when the target is busy and steer-capable.
+# This SSE transport is intentionally a REDUCED tool surface vs stdio (it omits
+# lifecycle/contract/inbox-management tools like comms_spawn / comms_compact /
+# comms_contracts / comms_agent_info / comms_remove_agent / comms_delete_session);
+# use the stdio bridge for the full tool set.
 
 
 @mcp_server.tool()
