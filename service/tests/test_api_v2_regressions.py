@@ -5665,6 +5665,11 @@ class ApiV2RegressionTests(unittest.TestCase):
         # guards _fail_active_runs_for_superseded_bridges, which the path review
         # flagged as critical-but-unisolated.
         self._heartbeat_environment()
+        # NB: NO terminalId — codex IS in _CHANNEL_CLAIM_RUNTIMES, so a codex
+        # managed registration WITH a terminalId would be inferred as a
+        # protected managed-wrapper-child (run survives). Omitting terminalId
+        # keeps this on the GENERIC managed path (latest-wins → run fails),
+        # which is exactly the no-orphan path under test. Don't add terminalId.
         self._register(
             "managed-orphan-guard",
             runtime="codex",
@@ -9222,6 +9227,56 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertFalse(sent.get("ok"), sent)
         rows = self._fetchall("SELECT id FROM spawn_requests WHERE agent_id = ?", ("orphan-codex",))
         self.assertEqual(len(rows), 0, "no spawn_request when no env can host the runtime")
+
+    def test_send_to_managed_agent_with_offline_bound_env_does_not_migrate(self):
+        # Phase 2 boundary (review finding): a managed agent BOUND to a specific
+        # env that is now OFFLINE must NOT be silently auto-migrated to a
+        # different online env, even when one advertises the runtime — its
+        # workspace lives on the bound env's machine. Preflight rejects on the
+        # offline bound env (so it waits for that env to return); the auto-bind
+        # fallback is only for agents with NO usable bound env. Pins the
+        # no-migrate contract end-to-end through the send path.
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+        # env_A advertises codex; env_B (online) also advertises codex.
+        self._heartbeat_environment(
+            id="env_A", bridgeId="bridge-A", machineId="linux:a",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+            terminal=True, pty=True, terminalRuntimes=["codex"],
+        )
+        self._heartbeat_environment(
+            id="env_B", bridgeId="bridge-B", machineId="linux:b",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+            terminal=True, pty=True, terminalRuntimes=["codex"],
+        )
+        self._register("bound-codex", runtime="codex", sessionMode="managed")
+        # Bind the agent to env_A via runtime_state.environmentId (what
+        # _managed_environment_status checks first), then take env_A offline.
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            (json.dumps({"environmentId": "env_A"}), "bound-codex"),
+        )
+        stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute("UPDATE environments SET last_seen = ? WHERE id = ?", (stale, "env_A"))
+
+        sent = self._send_message(
+            from_agent="dashboard",
+            to="bound-codex",
+            type="request",
+            subject="work",
+            body="please get to work",
+            trigger=True,
+        )
+        # Rejected (env_A offline) — NOT migrated to env_B, no spawn_request anywhere.
+        self.assertFalse(sent.get("ok"), f"agent bound to an offline env must wait, not migrate; got {sent}")
+        rows = self._fetchall("SELECT environment_id FROM spawn_requests WHERE agent_id = ?", ("bound-codex",))
+        self.assertEqual(len(rows), 0, f"no spawn_request — must not silently migrate to env_B; got {rows}")
 
     # ── Phase 3: explicit disable (stop) = hard-block, no auto-start ───────
     def _modern_wrapper_settings(self):

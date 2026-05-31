@@ -5178,14 +5178,20 @@ async def _coldstart_spawn_request_for_dispatch(
                         "SELECT * FROM spawn_specs WHERE id = ?", (prior_spec_id,)
                     )).fetchone()
 
-    # Phase 2 auto-bind: a managed agent that was only registered (never run,
-    # or whose prior env went offline / dropped the runtime) has no usable
-    # session env. Bind it to the freshest ONLINE environment that advertises
-    # the runtime so an `available` agent can be woken on first message —
-    # mirroring comms_spawn's env-omission auto-select. Without this the send
-    # path rejects with "cannot start live work now" (operator-reported
+    # Phase 2 auto-bind: a managed agent with NO usable session env (never run,
+    # or no env binding at all) gets bound to the freshest ONLINE environment
+    # that advertises the runtime so an `available` agent can be woken on first
+    # message — mirroring comms_spawn's env-omission auto-select. Without this
+    # the send path rejects with "cannot start live work now" (operator-reported
     # sc-coder bug). No online env supports the runtime → decline (caller
     # surfaces a clear "no environment available" rejection).
+    #
+    # NOTE: an agent whose SPECIFIC bound env is merely offline does NOT reach
+    # this fallback via the send path — preflight (_managed_environment_unavailable_reason)
+    # rejects it first, and that is deliberate: a managed agent's workspace lives
+    # on its bound env's machine, so it should wait for that env to return rather
+    # than silently migrating to a different machine where its workspace may not
+    # exist. This fallback only fires when there is no usable bound env to wait for.
     if environment is None:
         environment = await _select_online_environment_for_runtime(
             db, normalized_runtime, offline_seconds=offline_seconds

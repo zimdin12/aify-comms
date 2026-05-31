@@ -178,9 +178,9 @@ export class HermesSession {
         cwd,
         env: { ...process.env, AIFY_BRIDGE_DISABLED: "1", AIFY_AGENT_ID: "" },
         stdio: ["pipe", "pipe", "pipe"],
-        // HARD no-popup requirement (operator): the resident hermes ACP host
-        // communicates over piped stdio; it must not flash a console window on
-        // Windows.
+        // HARD no-popup requirement (operator): the managed hermes ACP host
+        // (HermesManagedController's non-gateway default) communicates over
+        // piped stdio; it must not flash a console window on Windows.
         windowsHide: true,
       });
     } catch (error) {

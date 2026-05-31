@@ -153,6 +153,10 @@ export class HermesManagedGatewaySession {
       this._proc = spawn(hermesCommand, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
+        // HARD no-popup requirement (operator): hide the window even though this
+        // opt-in gateway-session path (AIFY_HERMES_MANAGED_USE_GATEWAY=1, off by
+        // default and slated for removal) is not the live managed path.
+        windowsHide: true,
       });
       this._proc.on("exit", (code, signal) => {
         if (this._state !== "failed") this._state = "stopped";
