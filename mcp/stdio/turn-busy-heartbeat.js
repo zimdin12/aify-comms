@@ -17,7 +17,9 @@ export function startTurnBusyHeartbeat({ agentId, intervalMs, isActive, postFn }
   const tick = async () => {
     if (stopped) return;
     let active = false;
-    try { active = !!isActive(); } catch { return; }
+    // isActive may be sync OR async (e.g. an async transcript-mtime probe for
+    // resident claude); `await` handles both — a non-promise is awaited transparently.
+    try { active = !!(await isActive()); } catch { return; }
     if (!active) return;
     try { await postFn(agentId); } catch { /* best-effort */ }
   };

@@ -243,10 +243,35 @@ function __markControllerStart(promise) {
   promise.then(cleanup, cleanup);
   return promise;
 }
+// Continuous "actively working" signal for claude (operator-reported 2026-05-31,
+// sc-manager: a 12-min turn with the transcript streaming ~20KB/3s still showed
+// 'online'). claude only emits PostToolUse on tool calls, so a long GENERATION
+// phase (few/no tool calls) lets turn_busy go stale and the dashboard wrongly
+// shows 'online' while claude is clearly streaming. The transcript .jsonl grows
+// on every token + tool result, so a fresh transcript mtime is proof claude is
+// mid-turn — feed it into the turn-busy heartbeat so 'working' holds through long
+// generation. (Does NOT cover a long blocking tool like a build — claude is
+// idle-waiting on the subprocess then and nothing can truthfully show working.)
+const __CLAUDE_TRANSCRIPT_ACTIVE_MS = Math.max(
+  15000,
+  Number(process.env.AIFY_CLAUDE_TRANSCRIPT_ACTIVE_MS || 45000) || 45000,
+);
+async function __claudeTranscriptActive() {
+  try {
+    if (!__runtimeAdapter || __runtimeAdapter.name !== "claude-code") return false;
+    if (typeof __runtimeAdapter.transcriptMtimeMs !== "function") return false;
+    const m = await __runtimeAdapter.transcriptMtimeMs({ agentId: AIFY_AGENT_ID });
+    return !!m && Date.now() - m <= __CLAUDE_TRANSCRIPT_ACTIVE_MS;
+  } catch {
+    return false;
+  }
+}
 const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
-  isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
+  // Active when a runtime controller is mid-turn (codex/pi/hermes) OR claude's
+  // own transcript is freshly growing (the long-generation gap above).
+  isActive: async () => ACTIVE_CONTROLLER_PROMISES.size > 0 || (await __claudeTranscriptActive()),
   // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
   // bridge_instances.last_seen — without it a tool call longer than the
   // server's active-run bridge-stale window is reaped as a dead bridge

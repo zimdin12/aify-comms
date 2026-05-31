@@ -34,6 +34,25 @@ test("startTurnBusyHeartbeat stops POSTing when isActive returns false", async (
   assert.strictEqual(calls.length, callsAtFlip, `expected no new POSTs after isActive->false; got ${calls.length - callsAtFlip} extra`);
 });
 
+test("startTurnBusyHeartbeat awaits an ASYNC isActive (transcript-mtime probe)", async () => {
+  // The claude transcript-activity signal makes isActive async; the heartbeat
+  // must await it and POST only when it resolves truthy.
+  const calls = [];
+  let active = false; // async resolves false → no POST
+  const stop = startTurnBusyHeartbeat({
+    agentId: "agent-async",
+    intervalMs: 10,
+    isActive: async () => active,
+    postFn: async (agentId) => { calls.push(agentId); },
+  });
+  await new Promise(r => setTimeout(r, 40));
+  assert.strictEqual(calls.length, 0, "async isActive->false must not POST");
+  active = true; // now async resolves true → POSTs resume
+  await new Promise(r => setTimeout(r, 40));
+  stop();
+  assert.ok(calls.length >= 2, `async isActive->true must resume POSTs; got ${calls.length}`);
+});
+
 test("startTurnBusyHeartbeat is no-op with missing params", () => {
   const stop1 = startTurnBusyHeartbeat({});
   stop1();

@@ -94,4 +94,42 @@ export class ClaudeAdapter extends RuntimeAdapter {
     if (base.length > 0 && base.length < 128) return base;
     return null;
   }
+
+  // Last-modified time (ms epoch) of THIS agent's own claude transcript .jsonl,
+  // or 0 if it can't be resolved. Used as a continuous "actively working"
+  // signal (operator-reported 2026-05-31, sc-manager): the transcript grows on
+  // every token + tool result while a turn runs, so a fresh mtime means claude
+  // is mid-turn even during a long GENERATION phase where no PostToolUse hook
+  // fires (which otherwise let turn_busy go stale → dashboard wrongly 'online').
+  // Scoped to the agent's OWN session id (captured store, then env) so a
+  // teammate sharing the cwd never makes this agent look busy; falls back to the
+  // freshest .jsonl in the agent's own project dir only. (Does NOT cover a long
+  // BLOCKING tool call like a build — claude is idle-waiting then and the
+  // transcript doesn't grow.)
+  async transcriptMtimeMs(opts = {}) {
+    const { env = process.env, homeDir = os.homedir(), cwd, agentId, dir } = opts;
+    const scopedCwd = cwd || env.AIFY_AGENT_CWD || process.cwd();
+    const projDir = path.join(homeDir, ".claude", "projects", encodeClaudeCwd(scopedCwd));
+    const resolvedAgentId = agentId || env.AIFY_AGENT_ID || env.AIFY_COMMS_AGENT_ID;
+    let sid = "";
+    try { sid = readClaudeSessionId({ agentId: resolvedAgentId, dir }) || ""; } catch { sid = ""; }
+    if (!sid) sid = String(env.CLAUDE_SESSION_ID || "").trim();
+    if (sid) {
+      try {
+        const stat = await fs.stat(path.join(projDir, `${sid}.jsonl`));
+        if (stat.isFile()) return stat.mtimeMs;
+      } catch { /* fall through to scoped-newest */ }
+    }
+    let files;
+    try { files = await fs.readdir(projDir); } catch { return 0; }
+    let newest = 0;
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      try {
+        const st = await fs.stat(path.join(projDir, f));
+        if (st.isFile() && st.mtimeMs > newest) newest = st.mtimeMs;
+      } catch { /* skip */ }
+    }
+    return newest;
+  }
 }
