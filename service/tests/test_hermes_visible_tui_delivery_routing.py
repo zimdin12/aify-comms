@@ -256,6 +256,77 @@ class HermesVisibleTuiDeliveryTests(unittest.TestCase):
         )
         self.assertTrue(live, "the sidecar heartbeat must register a live deliverability signal")
 
+    def test_wrapper_child_does_not_supersede_a_STALE_channel_sidecar(self):
+        """Regression (operator-reported 2026-05-31, sc-claude): the
+        complementary-pair protection must be ABSOLUTE — a managed agent's
+        channel-sidecar and its visible-TUI managed-wrapper-child coexist and
+        must never supersede each other, EVEN when the sidecar's heartbeat is
+        briefly stale during managed-PTY churn. Previously the 5-min-stale clause
+        was OR'd BEFORE the carve-out, so a stale sidecar got superseded by the
+        wrapper-child registration -> the still-live sidecar's claims were then
+        permanently blocked and delivery silently stalled."""
+        agent_id = "gov-tui"
+        self._insert_managed_hermes_agent(agent_id)
+
+        async def scenario():
+            db = await api_v2.get_db()
+            try:
+                # Channel-sidecar bridge whose last_seen is far past the 5-min
+                # stale window (simulating PTY churn / a brief sidecar gap).
+                await db.execute(
+                    """
+                    INSERT INTO bridge_instances (id, agent_id, machine_id, runtime,
+                        session_mode, session_handle, terminal_id, bridge_kind,
+                        registered_at, last_seen, superseded_by, superseded_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        "hermes-managed-host-win32:test-host",
+                        agent_id,
+                        "win32:test-host",
+                        "hermes",
+                        "managed",
+                        "",
+                        "",
+                        "channel-sidecar",
+                        "2020-01-01T00:00:00Z",
+                        "2020-01-01T00:00:00Z",
+                        "",
+                        None,
+                    ),
+                )
+                await db.commit()
+                await _record_bridge_registration(
+                    db,
+                    bridge_id="wrapper-child-1",
+                    agent_id=agent_id,
+                    machine_id="win32:test-host",
+                    runtime="hermes",
+                    session_mode="managed",
+                    session_handle="",
+                    terminal_id="term-1",
+                    managed_wrapper_child=True,
+                    now=_now(),
+                )
+                await db.commit()
+                row = await (
+                    await db.execute(
+                        "SELECT superseded_by FROM bridge_instances WHERE id = ?",
+                        ("hermes-managed-host-win32:test-host",),
+                    )
+                ).fetchone()
+                return row["superseded_by"] if row else "MISSING"
+            finally:
+                await db.close()
+
+        sup = _run(scenario())
+        self.assertIn(
+            sup,
+            ("", None),
+            f"a STALE complementary channel-sidecar must NOT be superseded by the "
+            f"wrapper-child registration; superseded_by={sup!r}",
+        )
+
     # -- Fix A: routing on a live channel-sidecar (flag-independent) ---------
 
     def test_managed_hermes_routes_to_channel_when_live_sidecar_exists_without_flag(self):

@@ -432,6 +432,91 @@ class ChannelClaimWrapperBackedTests(unittest.TestCase):
         self.assertIsNotNone(body.get("run"), f"claude channel claim must still work; got: {body}")
         self.assertEqual(body["run"]["id"], run_id)
 
+    def test_superseded_channel_sidecar_self_heals_on_claim(self):
+        """Regression (operator-reported 2026-05-31, sc-claude): a managed
+        claude/hermes channel sidecar and the visible TUI's managed-wrapper-child
+        bridge legitimately COEXIST (complementary pair). During managed-PTY
+        churn the sidecar's bridge row briefly goes stale and the wrapper-child
+        registration superseded it (the 5-min-stale clause overrode the
+        complementary-pair carve-out). Once superseded, _bridge_claim_block_reason
+        permanently BLOCKED the still-live sidecar's claims (the block precedes
+        the heartbeat upsert, so it could never un-supersede itself) -> queued
+        channel runs were never delivered and the agent sat idle forever.
+
+        A live channel-sidecar poll is proof of life: it must self-heal
+        (un-supersede its own row) and resume claiming."""
+        self._heartbeat_environment("claude-code")
+        response = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "claude-heal",
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["resume", "interrupt"],
+                "runtimeConfig": {"channelEnabled": True},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        sidecar_bridge = "channel-linux:test-host"
+        # First claim creates the channel-sidecar bridge row.
+        run_id1 = self._dispatch_to("claude-heal")
+        claim1 = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "claude-heal",
+                "bridgeId": sidecar_bridge,
+                "machineId": "linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim1.status_code, 200, claim1.text)
+        self.assertEqual(claim1.json()["run"]["id"], run_id1)
+        # Simulate the wrapper-child registration superseding the sidecar row.
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                "UPDATE bridge_instances SET superseded_by = 'some-wrapper-child' "
+                "WHERE id = ? AND agent_id = ?",
+                (sidecar_bridge, "claude-heal"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        # A new run is queued; the still-live sidecar must self-heal and claim it.
+        run_id2 = self._dispatch_to("claude-heal")
+        claim2 = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "claude-heal",
+                "bridgeId": sidecar_bridge,
+                "machineId": "linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim2.status_code, 200, claim2.text)
+        body = claim2.json()
+        self.assertIsNone(
+            body.get("blockedBy"),
+            f"a live channel sidecar must self-heal a superseded row, not stay blocked; got: {body}",
+        )
+        self.assertIsNotNone(body.get("run"), f"self-healed sidecar must claim the queued run; got: {body}")
+        self.assertEqual(body["run"]["id"], run_id2)
+        # Row is un-superseded again.
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            row = conn.execute(
+                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+                (sidecar_bridge, "claude-heal"),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual((row[0] or ""), "", "channel sidecar row should be un-superseded after a live claim")
+
     def test_old_wrapper_child_for_different_terminal_cannot_claim_channel_run(self):
         self._heartbeat_environment("hermes")
         self._register_managed_agent(agent_id="hermes-multi-wrapper", runtime="hermes")

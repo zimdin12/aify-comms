@@ -2339,28 +2339,36 @@ async def _record_bridge_registration(
         (new_kind == "managed-wrapper-child" and normalized_session_mode_value == "managed")
         or new_kind == "channel-sidecar"
     )
+    # Complementary visible-TUI pair protection is ABSOLUTE (operator-reported
+    # 2026-05-31, sc-claude). A channel-sidecar and a managed-wrapper-child for
+    # the SAME managed agent play different roles and must NEVER supersede each
+    # other — NOT EVEN when the sidecar's heartbeat is briefly stale during
+    # managed-PTY churn. Previously this protection was an OR-branch inside the
+    # `stale OR NOT(protected)` predicate, so the 5-min-stale clause overrode it:
+    # a stale sidecar got superseded by the wrapper-child registration, and the
+    # still-live sidecar's claims were then permanently blocked → delivery
+    # silently stalled. Pulling it out as a leading `AND NOT (...)` makes it
+    # absolute. The remaining stale/unprotected cleanup applies only to
+    # NON-complementary rows (genuine zombies still age out; the live sidecar
+    # reuses its stable id and self-refreshes).
     superseded_cursor = await db.execute(
         """
         SELECT id FROM bridge_instances
         WHERE agent_id = ? AND machine_id = ? AND id != ? AND superseded_by = ''
+          AND NOT (
+            ? = 1
+            AND session_mode = 'managed'
+            AND COALESCE(bridge_kind, '') IN ('channel-sidecar', 'managed-wrapper-child')
+            AND COALESCE(bridge_kind, '') != ?
+          )
           AND (
             datetime(COALESCE(last_seen, '1970-01-01')) < datetime('now', '-5 minutes')
             OR NOT (
-              (
-                runtime = ? AND session_mode = ?
-                AND COALESCE(session_handle, '') = ?
-                AND ? = 'managed-wrapper-child'
-                AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
-                AND COALESCE(terminal_id, '') = ?
-              )
-              OR (
-                -- Complementary visible-TUI pair: a channel-sidecar and a
-                -- managed-wrapper-child for the same managed agent coexist.
-                ? = 1
-                AND session_mode = 'managed'
-                AND COALESCE(bridge_kind, '') IN ('channel-sidecar', 'managed-wrapper-child')
-                AND COALESCE(bridge_kind, '') != ?
-              )
+              runtime = ? AND session_mode = ?
+              AND COALESCE(session_handle, '') = ?
+              AND ? = 'managed-wrapper-child'
+              AND COALESCE(bridge_kind, '') = 'managed-wrapper-child'
+              AND COALESCE(terminal_id, '') = ?
             )
           )
         """,
@@ -2368,13 +2376,13 @@ async def _record_bridge_registration(
             agent_id,
             normalized_machine,
             bridge_id,
+            1 if complementary_pair else 0,
+            new_kind,
             normalized_runtime_value,
             normalized_session_mode_value,
             normalized_session_handle_value,
             bridge_kind,
             normalized_terminal_id_value,
-            1 if complementary_pair else 0,
-            new_kind,
         ),
     )
     superseded_ids = [row["id"] for row in await superseded_cursor.fetchall()]
@@ -13028,6 +13036,28 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         ):
             await db.commit()
             return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}
+
+        # Self-heal a superseded channel-sidecar (operator-reported 2026-05-31,
+        # sc-claude). A managed agent's channel sidecar and the visible TUI's
+        # managed-wrapper-child bridge legitimately COEXIST (complementary pair).
+        # During managed-PTY churn the sidecar's row briefly goes stale and a
+        # wrapper-child registration superseded it (the 5-min-stale clause
+        # overrode the complementary-pair carve-out in _record_bridge_registration).
+        # Once superseded, _bridge_claim_block_reason permanently BLOCKED the
+        # still-live sidecar — and the block fires BEFORE the heartbeat upsert,
+        # so it could never recover; queued channel runs were never delivered.
+        # A live channel-sidecar poll is proof of life: un-supersede its OWN row
+        # so it resumes claiming. The mode-FSM release above (driver_state-gated)
+        # is the ONLY legitimate "stop driving" signal for a channel sidecar.
+        if str(req.bridgeKind or "").strip().lower() == "channel-sidecar" and req.bridgeId:
+            await db.execute(
+                """
+                UPDATE bridge_instances
+                SET superseded_by = '', superseded_at = NULL, last_seen = ?
+                WHERE id = ? AND agent_id = ? AND COALESCE(superseded_by, '') != ''
+                """,
+                (_now(), req.bridgeId, req.agentId),
+            )
 
         # Reject claims from stale stdio bridges. The bridge_instances row
         # catches normal supersession, while runtimeState.bridgeInstanceId
