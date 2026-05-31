@@ -1717,6 +1717,53 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     return bool(seen_s and time.time() - seen_s <= max(15, int(lease_seconds or 150)))
 
 
+async def _fresh_same_mode_bridge_conflict(
+    db,
+    *,
+    agent_id: str,
+    machine_id: str,
+    new_bridge_id: str,
+    session_mode: str,
+    lease_seconds: int,
+):
+    """Return a LIVE same-mode bridge that a new registration would race.
+
+    Phase 4 race guard (2026-05-31, operator-chosen hard-error model). A fresh,
+    non-superseded bridge for the SAME (agent, machine) and the SAME resident
+    session_mode, owned by a DIFFERENT bridge_id, means a second live wrapper is
+    about to claim an identity already being driven — silently superseding it
+    would kill the first wrapper's work. We surface that as a 409 (unless the
+    caller passes force=true to take over deliberately).
+
+    Scope is RESIDENT-only: managed bridges intentionally use latest-launch-wins
+    to reap zombie wrappers, and the visible-TUI managed model runs a legitimate
+    sidecar + wrapper-child pair concurrently — neither should trip this guard.
+    Returns the conflicting bridge row, or None when there is no live conflict.
+    """
+    if _normalize_session_mode(session_mode or "") != "resident":
+        return None
+    normalized_machine = _normalize_machine_id(machine_id)
+    cutoff = max(15, int(lease_seconds or 150))
+    cursor = await db.execute(
+        """
+        SELECT id, last_seen, bridge_kind
+        FROM bridge_instances
+        WHERE agent_id = ?
+          AND machine_id = ?
+          AND id != ?
+          AND session_mode = 'resident'
+          AND COALESCE(superseded_by, '') = ''
+        ORDER BY last_seen DESC
+        """,
+        (agent_id, normalized_machine, str(new_bridge_id or "").strip()),
+    )
+    for bridge in await cursor.fetchall():
+        seen_s = _iso_to_epoch((bridge["last_seen"] or ""))
+        if seen_s and (time.time() - seen_s) <= cutoff:
+            return bridge
+    return None
+
+
 async def _latest_spawn_spec(db, agent_id: str):
     return await (await db.execute(
         "SELECT * FROM spawn_specs WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
@@ -9453,6 +9500,45 @@ async def register_agent(req: AgentRegister, request: Request):
                         f"switch it to {normalized_session_mode} in the dashboard first."
                     )
                 )
+                raise HTTPException(409, detail)
+        # Same-mode race guard (Phase 4, 2026-05-31). A fresh resident bridge of
+        # the SAME mode, owned by a DIFFERENT bridge_id, is already driving this
+        # identity — a second live wrapper would race it. Hard-reject (operator-
+        # chosen) unless force=true: the operator deliberately takes over after
+        # restarting the prior wrapper (wrappers surface this via the
+        # AIFY_FORCE_REGISTER escape hatch). Stale prior bridges fall through and
+        # are superseded normally (self-heal). Same-process periodic re-register
+        # keeps its bridge_id and is excluded by `id != ?` in the helper.
+        # NB: do NOT gate this on restoreDeleted — the bridge's auto-register
+        # sends restoreDeleted=true unconditionally, so gating here would make
+        # the guard dead in production. Restoring a tombstone is orthogonal: a
+        # tombstoned agent has no live bridge to conflict with, so the freshness
+        # check below simply finds nothing and the register proceeds.
+        if row and bridge_id and not bool(getattr(req, "force", False)):
+            settings_for_guard = await _load_settings(db)
+            conflict = await _fresh_same_mode_bridge_conflict(
+                db,
+                agent_id=req.agentId,
+                machine_id=req.machineId or "",
+                new_bridge_id=bridge_id,
+                session_mode=normalized_session_mode,
+                lease_seconds=settings_for_guard.get("resident_lease_seconds", 150),
+            )
+            if conflict:
+                seen_s = _iso_to_epoch((conflict["last_seen"] or ""))
+                ago = int(max(0, time.time() - seen_s)) if seen_s else 0
+                resume_command = _resume_command_for(
+                    row["runtime"] or normalized_runtime,
+                    row["session_handle"] or "",
+                    req.agentId,
+                )
+                detail = (
+                    f"agent '{req.agentId}' already has a LIVE {normalized_session_mode} "
+                    f"bridge (seen {ago}s ago). Stop that instance first, or pass force=true "
+                    f"(AIFY_FORCE_REGISTER=1) to take over."
+                )
+                if resume_command:
+                    detail += f" To resume after taking over: {resume_command}"
                 raise HTTPException(409, detail)
         managed_wrapper_child = bool(req.managedWrapperChild) or (
             normalized_session_mode == "managed"

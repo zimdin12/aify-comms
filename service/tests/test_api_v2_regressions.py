@@ -5486,8 +5486,11 @@ class ApiV2RegressionTests(unittest.TestCase):
             ("bridge-A", "linux:test-host", run_id),
         )
 
-        # Same-logical-owner re-register: identical agentId/runtime/sessionMode
-        # /sessionHandle/machineId but a fresh bridgeId.
+        # Phase 4 race guard (2026-05-31, operator-chosen hard-error model):
+        # a DIFFERENT bridge re-registering this identity while bridge-A is
+        # still LIVE (fresh heartbeat) is a race — it must be HARD-REJECTED
+        # (409) rather than silently superseding bridge-A and killing its
+        # in-flight run. The reject leaves the prior bridge + run untouched.
         reregistered = self.client.post(
             "/api/v1/agents",
             json={
@@ -5502,14 +5505,52 @@ class ApiV2RegressionTests(unittest.TestCase):
                 "capabilities": ["resident-run", "resume", "interrupt"],
             },
         )
-        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        self.assertEqual(reregistered.status_code, 409, reregistered.text)
+        self.assertIn("LIVE", reregistered.text)
+        self.assertIn("force=true", reregistered.text)
 
-        # The original bridge MUST NOT be marked superseded (resident carve-out).
+        # The original bridge MUST NOT be marked superseded (the racing
+        # registration was rejected before any supersession ran).
         prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
-        self.assertEqual(prior["superseded_by"], "", "resident same-logical-owner re-register must not supersede the prior bridge")
+        self.assertEqual(prior["superseded_by"], "", "rejected race re-register must not supersede the prior bridge")
         # The in-flight run MUST stay alive.
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
-        self.assertEqual(run["status"], "running", f"in-flight resident run was killed by same-session re-register: {dict(run)}")
+        self.assertEqual(run["status"], "running", f"in-flight resident run was killed by a rejected re-register: {dict(run)}")
+
+    def test_resident_reregister_with_force_takes_over_live_bridge(self):
+        # Phase 4: force=true is the deliberate takeover escape hatch. The
+        # operator restarted the prior wrapper, so a fresh same-mode bridge
+        # WITH force=true supersedes the prior bridge (latest-launch-wins) and
+        # the rejected-race guard is bypassed.
+        self._heartbeat_environment()
+        self._register(
+            "force-owner",
+            runtime="codex",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="omp-session-2",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "force-owner",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "omp-session-2",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+                "force": True,
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "bridge-B", "force=true must take over (supersede) the prior live bridge")
 
     def test_resident_stale_same_handle_bridge_IS_superseded_by_fresh_reregister(self):
         # Heartbeat-aware carve-out (2026-05-23): the resident carve-out

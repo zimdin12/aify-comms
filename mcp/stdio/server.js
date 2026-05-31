@@ -952,6 +952,11 @@ async function autoRegisterConfiguredAgent() {
     managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1",
     restoreDeleted: true,
     autoRegister: true,
+    // Phase 4 race guard escape hatch (2026-05-31): when a same-mode resident
+    // bridge is still LIVE, the service hard-rejects (409) a different bridge
+    // re-registering this identity. Set AIFY_FORCE_REGISTER=1 to deliberately
+    // take over after restarting the prior wrapper.
+    force: String(process.env.AIFY_FORCE_REGISTER || "").trim() === "1",
   };
   try {
     const r = await httpCall("POST", "/agents", payload);
@@ -986,7 +991,18 @@ async function autoRegisterConfiguredAgent() {
     const transition = r.ownershipTransition ? ` (${r.ownershipTransition})` : "";
     console.error(`[aify] auto-registered "${AIFY_AGENT_ID}" as resident ${runtime}${sessionHandle ? ` session ${sessionHandle}` : ""}${transition}`);
   } catch (error) {
-    console.error(`[aify] auto-register failed for "${AIFY_AGENT_ID}": ${error?.message || error}`);
+    const msg = String(error?.message || error || "");
+    // Phase 4 race guard: a LIVE same-mode bridge already owns this identity.
+    // Tell the operator how to take over rather than failing silently.
+    if (/already has a LIVE/i.test(msg) || /force=true/i.test(msg)) {
+      console.error(
+        `[aify] auto-register for "${AIFY_AGENT_ID}" was refused — another live wrapper owns this session.\n` +
+          `       ${msg}\n` +
+          `       If you intend to take over (you restarted the prior wrapper), relaunch with AIFY_FORCE_REGISTER=1.`,
+      );
+    } else {
+      console.error(`[aify] auto-register failed for "${AIFY_AGENT_ID}": ${msg}`);
+    }
   }
 }
 

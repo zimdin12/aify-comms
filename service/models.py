@@ -50,6 +50,12 @@ class AgentRegister(_MachineIdNormalizingModel):
     managedWrapperChild: Optional[bool] = False
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
+    # Phase 4 race guard (2026-05-31): a fresh same-mode resident re-register
+    # by a DIFFERENT bridge is hard-rejected (409) to prevent two live wrappers
+    # silently racing one identity. Set force=true to take over deliberately
+    # (operator restarted the prior wrapper). Wrappers surface this via the
+    # AIFY_FORCE_REGISTER escape hatch.
+    force: Optional[bool] = False
 
 
 class AgentDescribeRequest(BaseModel):
