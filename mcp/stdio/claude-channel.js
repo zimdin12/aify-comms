@@ -247,7 +247,22 @@ export function decideRepulse(agentSnapshot = {}) {
   const dispatchState = agentSnapshot.dispatchState || {};
   const hasActiveRun = Boolean(dispatchState.hasActiveRun);
   if (!hasActiveRun) return { repulse: false, runId: "" };
-  const activeRunId = String(dispatchState.activeRun?.runId || "");
+  // Re-pulse turn_busy ONLY for an IN-FLIGHT run (claimed/running). A
+  // require_reply run that's been delivered sits in 'delivered' while the
+  // agent — which already finished the turn — merely owes a reply. Re-pulsing
+  // turn_busy for that keeps the server's `elif turn_busy` branch lighting up
+  // "working" instead of the intended idle "online / awaiting reply" state.
+  // (operator-reported 2026-06-01: idle agent stuck at "working" while only
+  // owing a reply.) The server's `activeRun.status` carries the run status
+  // (api_v2 _format_dispatch_state); gate on it. Note: today the snapshot's
+  // dispatch-state query only selects claimed/running, but gating here is the
+  // correct contract regardless of which runs the serializer surfaces, and
+  // preserves the anti-feedback-loop property (no re-pulse off derived status).
+  const activeRun = dispatchState.activeRun || {};
+  const status = String(activeRun.status || "").trim().toLowerCase();
+  const inFlight = status === "claimed" || status === "running";
+  if (!inFlight) return { repulse: false, runId: "" };
+  const activeRunId = String(activeRun.runId || "");
   return { repulse: true, runId: activeRunId };
 }
 

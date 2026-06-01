@@ -14,17 +14,46 @@
 import assert from "node:assert/strict";
 import { decideRepulse } from "../claude-channel.js";
 
-// Case A: hasActiveRun=true → re-pulse with that run's id.
+// Case A: hasActiveRun=true with an IN-FLIGHT run (running) → re-pulse with that run's id.
 {
   const d = decideRepulse({
     status: "working",
     dispatchState: {
       hasActiveRun: true,
-      activeRun: { runId: "run_abc123" },
+      activeRun: { runId: "run_abc123", status: "running" },
     },
   });
   assert.equal(d.repulse, true);
   assert.equal(d.runId, "run_abc123");
+}
+
+// Case A2: in-flight run with status 'claimed' → re-pulse.
+{
+  const d = decideRepulse({
+    status: "working",
+    dispatchState: {
+      hasActiveRun: true,
+      activeRun: { runId: "run_claimed", status: "claimed" },
+    },
+  });
+  assert.equal(d.repulse, true, "claimed run is in-flight → re-pulse");
+  assert.equal(d.runId, "run_claimed");
+}
+
+// Case A3: DELIVERED require_reply run (agent finished, merely owes a reply).
+// MUST NOT re-pulse — re-pulsing turn_busy keeps the server's turn_busy branch
+// lighting up "working" instead of the intended idle "online / awaiting reply"
+// state (shared-status bug, operator-reported 2026-06-01).
+{
+  const d = decideRepulse({
+    status: "working",
+    dispatchState: {
+      hasActiveRun: true,
+      activeRun: { runId: "run_delivered", status: "delivered" },
+    },
+  });
+  assert.equal(d.repulse, false, "delivered-awaiting-reply must NOT re-pulse turn_busy");
+  assert.equal(d.runId, "");
 }
 
 // Case B: hasActiveRun=false BUT status='working' (the bug scenario:
@@ -56,13 +85,16 @@ import { decideRepulse } from "../claude-channel.js";
   assert.equal(d.runId, "");
 }
 
-// Case E: hasActiveRun=true but activeRun missing → re-pulse with empty id (still acceptable; runId may not yet be hydrated by GET).
+// Case E: hasActiveRun=true but activeRun missing / status not resolvable →
+// MUST NOT re-pulse. Without a status we cannot prove the run is in-flight, and
+// the safe failure mode is the idle "awaiting reply" state (the old behaviour of
+// re-pulsing here is exactly what pinned idle delivered-reply agents to working).
 {
   const d = decideRepulse({
     status: "working",
     dispatchState: { hasActiveRun: true },
   });
-  assert.equal(d.repulse, true);
+  assert.equal(d.repulse, false, "no resolvable in-flight status → no re-pulse");
   assert.equal(d.runId, "");
 }
 
