@@ -40,3 +40,24 @@ test("stays within the documented port range", async () => {
   const p = await resolveGatewayPort("agent-y", { tempDir: dir, portFree: async () => false, probeSpan: 8 });
   assert.ok(p >= 8642 && p <= 9641, `expected 8642..9641, got ${p}`);
 });
+
+test("two agents sharing a base port get distinct ports even when both resolve before binding (nothing bound yet)", async () => {
+  const a = "comms-senior-dev";
+  const b = "graph-hermes-tl";
+  assert.equal(agentPort(a), agentPort(b), "precondition: collide");
+  const dir = tmp();
+  // portFree always true => nothing is bound yet; only the claimed-set keeps them apart.
+  const portFree = async () => true;
+  const pa = await resolveGatewayPort(a, { tempDir: dir, portFree });
+  const pb = await resolveGatewayPort(b, { tempDir: dir, portFree });
+  assert.notEqual(pa, pb, "second agent must not reuse the first agent's claimed port");
+});
+
+test("a base port already claimed by ANOTHER agent's file is not handed out", async () => {
+  const dir = tmp();
+  const base = agentPort("mine");
+  // Another agent already claimed this exact port.
+  fs.writeFileSync(path.join(dir, "aify-hermes-port-other"), String(base));
+  const p = await resolveGatewayPort("mine", { tempDir: dir, portFree: async () => true });
+  assert.notEqual(p, base, "must skip a port claimed by another agent's file");
+});
