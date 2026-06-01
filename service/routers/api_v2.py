@@ -3343,7 +3343,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
-    elif resident_bridge_stale and not active_run and not turn_busy and not channel_pending_reply_run:
+    elif resident_bridge_stale and not active_run and not turn_busy:
+        # A stale resident bridge means a DEAD worker → `stale`, even when the
+        # agent owes a channel reply. (Previously `and not channel_pending_reply_run`
+        # suppressed this so the channel-pending branch could manufacture `online`
+        # for a dead agent — the FIX-3 bug. The channel-pending branch now refuses
+        # to upgrade a dead worker, so this stale derivation is the correct landing.)
         effective_status = "stale"
         reason = "Resident bridge heartbeat is stale or missing."
     # A console terminal reaching an end state returns ownership to managed (the
@@ -3378,13 +3383,26 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # signal (claude Stop hook / hermes post_llm_call / codex turn/completed /
         # pi agent_end) clears turn_busy precisely; this branch is the
         # idle-owes-reply state after that.
-        awaiting_reply = True
-        if effective_status not in {"offline", "stale", "blocked"}:
-            effective_status = "online"
-        reason = (
-            f'Idle — awaiting reply: '
-            f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+        # FIX (2026-06-01): only show `online` when the worker is actually live.
+        # A DEAD worker that owes a reply must NOT be manufactured into `online`
+        # (visible-TUI truthfulness): a managed claude with a dead console/sidecar
+        # has has_live_worker=False (status-F1), and a resident with a stale bridge
+        # is positively dead. In either case fall through so the
+        # available/stale/offline derivation below stands. A live resident with no
+        # tracked terminal row (resident_bridge_stale=False, has_live_worker may be
+        # False) is NOT dead and keeps the online-awaiting-reply state.
+        worker_is_dead = (
+            (agent_session_mode == "managed" and not has_live_worker)
+            or resident_bridge_stale
         )
+        if not worker_is_dead:
+            awaiting_reply = True
+            if effective_status not in {"offline", "stale", "blocked"}:
+                effective_status = "online"
+            reason = (
+                f'Idle — awaiting reply: '
+                f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+            )
     elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
         effective_status = "working"
         reason = session_status or terminal_status or "Session is transitioning."

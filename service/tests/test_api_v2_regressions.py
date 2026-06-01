@@ -2284,6 +2284,63 @@ class ApiV2RegressionTests(unittest.TestCase):
         post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
         self.assertIsNone(post, "turnBusy heartbeat must invalidate (delete) the live_state cache row")
 
+    def test_channel_pending_reply_online_only_when_live(self):
+        # FIX 3 (a): a managed claude with a channel_pending_reply run AND a LIVE
+        # worker (live console PTY + live sidecar) reads `online` (awaiting reply).
+        terminal_id = "term_pending_live"
+        self._seed_managed_claude_with_attached_terminal("pending-live-claude", terminal_id)
+        self._stamp_live_channel_sidecar("pending-live-claude")  # live worker
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_pending_live_1", None, "dashboard", "pending-live-claude",
+                "start_if_possible", "channel", "request", "owed question",
+                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("pending-live-claude"))
+        agent = self.client.get("/api/v1/agents/pending-live-claude").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
+        self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
+
+    def test_channel_pending_reply_not_online_when_worker_dead(self):
+        # FIX 3 (b): same pending reply but NO live worker (managed claude with a
+        # live sidecar but a DEAD/stopped console) must NOT be upgraded to
+        # `online` — a dead worker that owes a reply reads available/stale/offline,
+        # never online (visible-TUI truthfulness).
+        terminal_id = "term_pending_dead"
+        self._seed_managed_claude_with_attached_terminal("pending-dead-claude", terminal_id)
+        self._stamp_live_channel_sidecar("pending-dead-claude")  # sidecar alive...
+        # ...but the console PTY is dead → managed claude has no live worker.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (terminal_id,),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_pending_dead_1", None, "dashboard", "pending-dead-claude",
+                "start_if_possible", "channel", "request", "owed question",
+                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("pending-dead-claude"))
+        agent = self.client.get("/api/v1/agents/pending-dead-claude").json()["agent"]
+        self.assertNotEqual(agent["status"], "online", agent)
+        self.assertIn(agent["status"], {"available", "stale", "offline"}, agent)
+
     def test_has_live_terminal_session_counts_recovering(self):
         # FIX 4: a console PTY momentarily in `recovering` is still a live
         # terminal session. Without this, B2's managed-claude online gate
