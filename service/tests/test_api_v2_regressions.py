@@ -2217,6 +2217,55 @@ class ApiV2RegressionTests(unittest.TestCase):
         rs = json.loads(agent["runtime_state"] or "{}")
         self.assertIn("consoleTerminal", rs, "consoleTerminal pointer must be preserved")
 
+    # --- status-truthfulness bug fixes (2026-06-01) ---
+
+    def test_heartbeat_turnbusy_invalidates_live_state(self):
+        # FIX 1: a heartbeat that writes turn_busy must invalidate the live-state
+        # cache so working/idle reflects the flip immediately — not after the 60s
+        # sweep. (The /turn-start and /turn-end endpoints already invalidate.)
+        self._register("hb-turn-claude", runtime="claude-code", sessionMode="resident")
+        # Seed a fresh cached live_state row with refresh_after far in the future.
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            ("hb-turn-claude", "online", "cached", api_v2._now(), "2099-01-01T00:00:00Z"),
+        )
+        # Pre-condition: the cache row exists.
+        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
+        self.assertIsNotNone(pre, "precondition: live_state cache row must exist before heartbeat")
+
+        resp = self.client.post(
+            "/api/v1/agents/hb-turn-claude/heartbeat",
+            json={
+                "bridgeId": "bridge-hb-1",
+                "turnBusy": True,
+                "turnRunId": "run-hb-1",
+                "turnRuntime": "claude-code",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
+        self.assertIsNone(post, "turnBusy heartbeat must invalidate (delete) the live_state cache row")
+
+    def test_has_live_terminal_session_counts_recovering(self):
+        # FIX 4: a console PTY momentarily in `recovering` is still a live
+        # terminal session. Without this, B2's managed-claude online gate
+        # (which requires _has_live_terminal_session) briefly flips to available.
+        self._seed_managed_claude_with_attached_terminal("recovering-claude", "term_recovering")
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'recovering' WHERE id = ?",
+            ("term_recovering",),
+        )
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._has_live_terminal_session(db, "recovering-claude")
+            finally:
+                await db.close()
+        self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill

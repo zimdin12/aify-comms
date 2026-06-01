@@ -429,7 +429,7 @@ async def _has_live_terminal_session(db, agent_id: str) -> bool:
             """
             SELECT COUNT(*) AS cnt FROM terminal_sessions
             WHERE agent_id = ?
-              AND status IN ('starting', 'attached', 'running', 'active', 'idle')
+              AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
               AND id NOT LIKE 'vterm_%'
             """,
             (agent_id,),
@@ -12772,6 +12772,11 @@ async def agent_heartbeat(agent_id: str, request: Request):
                             "UPDATE agent_turn_state SET turn_busy = 0, turn_updated_at = ? WHERE agent_id = ?",
                             (now, agent_id),
                         )
+            # A turn_busy flip changes derived status (working ⇄ idle). Invalidate
+            # the live-state cache so the next read recomputes immediately, instead
+            # of lagging up to the 60s reconcile sweep. Symmetric with the dedicated
+            # /turn-start and /turn-end endpoints, which already invalidate.
+            await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         return {"ok": True}
     finally:
