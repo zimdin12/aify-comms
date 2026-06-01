@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+// B3 (visible-TUI): orphan-sidecar self-exit guard. Pure-predicate tests only —
+// no real pids, no spawning, no killing. Verifies the sidecar self-exits ONLY
+// when its original controlling parent is reliably dead across consecutive
+// checks, and NEVER for a healthy sidecar or an unknown/rootless ppid.
+import assert from "node:assert/strict";
+import { parentIsGone, shouldSelfExit } from "../claude-channel.js";
+
+// --- parentIsGone: rootless / unknown ppid must NEVER self-kill ---
+assert.equal(
+  parentIsGone({ originalPpid: 0, isAlive: () => false }),
+  false,
+  "originalPpid=0 (unknown) must never self-kill",
+);
+assert.equal(
+  parentIsGone({ originalPpid: 1, isAlive: () => false }),
+  false,
+  "originalPpid=1 (rootless/reparented-to-init) must never self-kill",
+);
+assert.equal(
+  parentIsGone({ originalPpid: undefined, isAlive: () => false }),
+  false,
+  "originalPpid=undefined must never self-kill",
+);
+assert.equal(
+  parentIsGone({ originalPpid: null, isAlive: () => false }),
+  false,
+  "originalPpid=null must never self-kill",
+);
+
+// --- parentIsGone: healthy sidecar (parent alive) must NOT trip ---
+assert.equal(
+  parentIsGone({ originalPpid: 4242, isAlive: () => true }),
+  false,
+  "a real ppid with a LIVE parent must not be considered gone",
+);
+
+// --- parentIsGone: real parent that is now dead -> gone ---
+assert.equal(
+  parentIsGone({ originalPpid: 4242, isAlive: () => false }),
+  true,
+  "a real ppid with a DEAD parent must be considered gone",
+);
+
+// --- parentIsGone: missing isAlive is treated conservatively (not gone) ---
+assert.equal(
+  parentIsGone({ originalPpid: 4242 }),
+  false,
+  "missing isAlive must be treated conservatively (never self-kill)",
+);
+
+// --- shouldSelfExit: consecutive-miss latch ---
+assert.equal(shouldSelfExit(0, 3), false, "0 misses must not self-exit");
+assert.equal(shouldSelfExit(1, 3), false, "1 miss must not self-exit");
+assert.equal(shouldSelfExit(2, 3), false, "2 misses (below threshold) must not self-exit");
+assert.equal(shouldSelfExit(3, 3), true, "reaching the threshold must self-exit");
+assert.equal(shouldSelfExit(5, 3), true, "exceeding the threshold must self-exit");
+// default threshold is 3
+assert.equal(shouldSelfExit(2), false, "default threshold (3): 2 misses must not self-exit");
+assert.equal(shouldSelfExit(3), true, "default threshold (3): 3 misses must self-exit");
+
+// --- End-to-end of the latch using an isAlive that flips, simulating the
+// counter reset on a transient live read (no false positive). ---
+{
+  const reads = [false, false, true, false, false, false]; // a transient "alive" resets
+  let i = 0;
+  const isAlive = () => reads[i++];
+  let misses = 0;
+  let exited = false;
+  for (let tick = 0; tick < reads.length; tick++) {
+    if (parentIsGone({ originalPpid: 9999, isAlive })) misses += 1;
+    else misses = 0;
+    if (shouldSelfExit(misses, 3)) { exited = true; break; }
+  }
+  assert.equal(exited, true, "three consecutive dead reads after a transient live read must self-exit");
+}
+{
+  // Two dead then alive forever -> never self-exits (no false positive).
+  const reads = [false, false, true, true, true, true];
+  let i = 0;
+  const isAlive = () => reads[i++ % reads.length];
+  let misses = 0;
+  let exited = false;
+  for (let tick = 0; tick < 20; tick++) {
+    if (parentIsGone({ originalPpid: 9999, isAlive })) misses += 1;
+    else misses = 0;
+    if (shouldSelfExit(misses, 3)) { exited = true; break; }
+  }
+  assert.equal(exited, false, "a recovering/alive parent must never trip the guard");
+}
+
+console.log("claude-channel-parent-guard.test.js: all assertions passed");

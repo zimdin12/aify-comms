@@ -338,6 +338,47 @@ async function markDispatchDeliveryFailed(runId, error) {
 const LAST_DELIVERED_AT_PER_AGENT = new Map();
 const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 
+// B3 (visible-TUI): orphan-sidecar self-exit guard. The channel sidecar runs as
+// a child of the managed claude.exe. On Windows a child does NOT die with its
+// parent, so if the controlling claude.exe (and its visible console PTY) dies
+// but this sidecar survives, the agent keeps "beating" headless — a visible-TUI
+// violation and a proliferation source. This guard detects the gone parent and
+// self-exits so the worker truly disappears.
+//
+// CONSERVATIVE by construction: it only acts when there was a real original
+// parent pid (>1) that is now reliably dead across CONSECUTIVE checks. A healthy
+// sidecar (parent alive) never trips it; a transient process.kill error is
+// tolerated by the consecutive-miss counter.
+const PARENT_GUARD_CHECK_MS = 30_000;
+const PARENT_GUARD_MISS_THRESHOLD = 3; // ~90s of consecutive dead-parent reads
+
+// True when the sidecar's original controlling parent is gone, so a surviving
+// orphan sidecar should self-exit. Conservative: an unknown/rootless ppid
+// (0/1/undefined) NEVER self-kills.
+export function parentIsGone({ originalPpid, isAlive } = {}) {
+  if (!originalPpid || originalPpid <= 1) return false; // unknown/rootless → never self-kill
+  if (typeof isAlive !== "function") return false;
+  return !isAlive(originalPpid);
+}
+
+// Consecutive-miss latch: only act once we have seen the parent dead for
+// `threshold` checks in a row. Exported for unit testing.
+export function shouldSelfExit(misses, threshold = PARENT_GUARD_MISS_THRESHOLD) {
+  return Number(misses) >= Number(threshold);
+}
+
+// pid liveness via signal 0. EPERM means the pid exists but we lack permission
+// (still alive); ESRCH/anything else means gone. Conservative on ambiguity.
+function pidIsAlive(pid) {
+  if (!pid || pid <= 1) return true; // treat unknown as alive → never trip the guard
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
 async function pollLoop() {
   const stopLiveness = startLivenessHeartbeat({
     intervalMs: 30_000,
@@ -352,6 +393,37 @@ async function pollLoop() {
       });
     },
   });
+
+  // B3: orphan-sidecar self-exit guard. Capture the original controlling parent
+  // pid ONCE (the managed claude.exe). A periodic, unref'd check self-exits only
+  // after the parent is seen dead for PARENT_GUARD_MISS_THRESHOLD consecutive
+  // ticks — never on a transient read or for a healthy sidecar.
+  const ORIGINAL_PPID = process.ppid;
+  let parentMisses = 0;
+  let parentGuardTimer = null;
+  const stopParentGuard = () => {
+    if (parentGuardTimer) { clearInterval(parentGuardTimer); parentGuardTimer = null; }
+  };
+  if (IS_MAIN && ORIGINAL_PPID && ORIGINAL_PPID > 1) {
+    parentGuardTimer = setInterval(() => {
+      if (parentIsGone({ originalPpid: ORIGINAL_PPID, isAlive: pidIsAlive })) {
+        parentMisses += 1;
+      } else {
+        parentMisses = 0; // reset on any live (or transient) observation
+        return;
+      }
+      if (shouldSelfExit(parentMisses, PARENT_GUARD_MISS_THRESHOLD)) {
+        console.error(
+          `[claude-channel] controlling parent ${ORIGINAL_PPID} gone — orphan sidecar self-exiting`,
+        );
+        stopParentGuard();
+        stopLiveness();
+        try { removeOwnMarker(); } catch { /* best effort */ }
+        process.exit(0);
+      }
+    }, PARENT_GUARD_CHECK_MS);
+    if (typeof parentGuardTimer.unref === "function") parentGuardTimer.unref();
+  }
   try {
   while (true) {
     try {
@@ -538,6 +610,7 @@ async function pollLoop() {
     await sleep(POLL_MS);
   }
   } finally {
+    stopParentGuard();
     stopLiveness();
   }
 }

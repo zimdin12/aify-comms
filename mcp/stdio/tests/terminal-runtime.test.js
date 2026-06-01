@@ -124,6 +124,67 @@ await pipeStopManager.startPipeProcess({
 await pipeStopManager.stop("pipe-stop", "test pipe stop");
 assert.deepEqual(pipeStopEvents, ["exit"], "pipe fallback stop should wait for real process exit like PTY stop");
 
+// B3 (visible-TUI): on the FINAL-exit path of a managed console PTY, the
+// descendant worker tree must be best-effort reaped so Windows-reparented
+// children (claude.exe + channel-sidecar + MCP) cannot survive headless.
+// Use an overridden _reapPtyTree to OBSERVE the reap without spawning/killing
+// any real process. The reap must fire on final exit for a pty-kind state...
+{
+  const reapManager = new TerminalProcessManager({ onExit: async () => {} });
+  const reaped = [];
+  reapManager._reapPtyTree = (term) => { reaped.push(term); };
+  const fakeTerm = { pid: 0, kill: () => {} };
+  await reapManager._handleExit(
+    "b3-final",
+    { id: "b3-final", runtime: "", outputTail: "", kind: "pty", term: fakeTerm, resolveExit: () => {} },
+    {},
+  );
+  assert.equal(reaped.length, 1, "final PTY exit must best-effort reap the descendant worker tree");
+  assert.equal(reaped[0], fakeTerm, "reap must target the PTY's own term handle");
+}
+
+// ...and must NOT fire for a non-pty (pipe) terminal exit.
+{
+  const reapManager = new TerminalProcessManager({ onExit: async () => {} });
+  const reaped = [];
+  reapManager._reapPtyTree = (term) => { reaped.push(term); };
+  await reapManager._handleExit(
+    "b3-pipe",
+    { id: "b3-pipe", runtime: "", outputTail: "", kind: "pipe", proc: { pid: 0 }, resolveExit: () => {} },
+    {},
+  );
+  assert.equal(reaped.length, 0, "non-pty terminal exit must not invoke the PTY descendant reap");
+}
+
+// ...and must NOT fire on the hermes resume-heal restart path (early return
+// re-spawns the session; reaping there would kill the healthy fresh tree).
+{
+  const healReapManager = new TerminalProcessManager({
+    onOutput: async () => {},
+    onExit: async () => {},
+    onHeal: async () => {},
+  });
+  const healReaped = [];
+  healReapManager._reapPtyTree = (term) => { healReaped.push(term); };
+  // Stub start() so the heal branch's re-spawn is a no-op observable.
+  let restarted = 0;
+  healReapManager.start = async () => { restarted += 1; };
+  const healState = {
+    id: "b3-heal",
+    runtime: "hermes",
+    outputTail: "",
+    kind: "pty",
+    term: { pid: 0, kill: () => {} },
+    sessionHandle: "stale-hermes",
+    command: "hermes-aify --resume stale-hermes --aify-agent h",
+    classification: { kind: "missing_session", status: "failed", sessionHandle: "stale-hermes", message: "gone" },
+    resolveExit: () => {},
+  };
+  await healReapManager._handleExit("b3-heal", healState, {});
+  assert.equal(restarted, 1, "heal path must re-spawn a fresh session");
+  assert.equal(healReaped.length, 0, "heal/restart path must NOT reap the descendant tree (would kill the fresh session)");
+}
+
 // Real-PTY section. node-pty's winpty backend throws an UNCAUGHT
 // "Signals not supported on windows." from inside its own data-socket exit
 // handler when a winpty-backed child is torn down (heal/restart/stop paths
