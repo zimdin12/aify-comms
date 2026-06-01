@@ -522,6 +522,20 @@ export class TerminalProcessManager {
     return { stopped: true };
   }
 
+  // Kill-by-pid fallback (2026-06-02): reap a PTY process tree by its root pid
+  // when this manager never owned the terminal in its in-memory `terminals` Map
+  // (the owning bridge restarted/died, orphaning a still-live PTY). Used ONLY as
+  // a fallback after a Map-miss `stop()` — never on the owned-in-memory path.
+  // Machine-local: the caller only invokes this for stop controls claimed for
+  // THIS bridge's environment, so the pid always belongs to a process on this
+  // machine. Routes through _reapPtyTree so the actual kill is test-injectable.
+  killByPid(pid) {
+    const numeric = Number(pid);
+    if (!Number.isInteger(numeric) || numeric <= 0) return { killed: false };
+    this._reapPtyTree({ pid: numeric });
+    return { killed: true };
+  }
+
   async stopAll(reason = "terminal manager shutdown") {
     const ids = Array.from(this.terminals.keys());
     for (const id of ids) {

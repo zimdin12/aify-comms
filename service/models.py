@@ -320,6 +320,10 @@ class TerminalControlUpdate(BaseModel):
     terminalStatus: Optional[str] = None
     output: Optional[str] = None
     error: Optional[str] = None
+    # PTY root pid reported by the owning bridge on terminal attach (start
+    # control completion). Persisted to terminal_sessions.process_id so an
+    # orphaned PTY can be killed by-pid when its bridge is gone.
+    processId: Optional[str] = None
 
 
 class TerminalOutputRequest(BaseModel):

@@ -49,7 +49,7 @@ import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
-import { terminalControlFailurePatch } from "./terminal-control.js";
+import { terminalControlFailurePatch, orphanPidToKill } from "./terminal-control.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
 import { adapterFor } from "./adapters/index.js";
@@ -1779,6 +1779,10 @@ async function runTerminalControlLoop() {
             status: "completed",
             terminalStatus: "attached",
             output: `[terminal attached pid=${started.pid}]\n`,
+            // Report the PTY root pid so the server persists it
+            // (terminal_sessions.process_id). Lets Dashboard Stop/Restart
+            // kill-by-pid if THIS bridge later dies and orphans the PTY.
+            processId: started.pid != null ? String(started.pid) : "",
           });
         } else if (control.action === "input") {
           // Raw passthrough. The bridge does NOT auto-append \r anymore —
@@ -1802,7 +1806,17 @@ async function runTerminalControlLoop() {
           TERMINAL_MANAGER.resize(terminalId, control.cols || 0, control.rows || 0);
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "attached" });
         } else if (control.action === "stop") {
-          await TERMINAL_MANAGER.stop(terminalId, "terminal stop control");
+          const stopResult = await TERMINAL_MANAGER.stop(terminalId, "terminal stop control");
+          // Kill-by-pid fallback (2026-06-02): the in-memory stop path is a
+          // no-op when THIS bridge never owned the PTY (Map miss) — the owning
+          // bridge restarted/died and orphaned a still-live console. The stop
+          // control carries the persisted PTY root pid (server-scoped to this
+          // bridge's environment, so machine-local). Reap the orphan by pid so
+          // Stop/Restart isn't silently dropped. Owned-in-memory path unchanged.
+          const orphanPid = orphanPidToKill(stopResult, control);
+          if (orphanPid) {
+            TERMINAL_MANAGER.killByPid(orphanPid);
+          }
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
         } else {
           throw new Error(`Unsupported terminal control action: ${control.action}`);

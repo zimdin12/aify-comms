@@ -4403,7 +4403,7 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
     }
 
 
-def _terminal_control_to_dict(row) -> dict[str, Any]:
+def _terminal_control_to_dict(row, *, pid: str = "") -> dict[str, Any]:
     return {
         "id": row["id"],
         "terminalId": row["terminal_id"],
@@ -4419,6 +4419,11 @@ def _terminal_control_to_dict(row) -> dict[str, Any]:
         "claimedAt": row["claimed_at"] or "",
         "handledAt": row["handled_at"] or "",
         "error": row["error"] or "",
+        # Stored PTY root pid for the target terminal (terminal_sessions.
+        # process_id). Lets a claiming bridge kill an orphaned PTY by-pid on a
+        # `stop` control when it never owned the PTY in its in-memory Map
+        # (owning bridge restarted/died). Empty when unknown.
+        "pid": str(pid or ""),
     }
 
 
@@ -9528,7 +9533,19 @@ async def claim_terminal_controls(req: TerminalControlClaim):
                 if row:
                     refreshed.append(row)
             controls = refreshed
-        return {"ok": True, "controls": [_terminal_control_to_dict(row) for row in controls]}
+        # Attach the target terminal's stored PTY root pid so a claiming bridge
+        # can kill-by-pid when its in-memory terminals Map misses (orphaned PTY,
+        # owning bridge gone). The claim is already env+bridge scoped, so the pid
+        # only ever reaches the bridge for terminals on its own machine.
+        out = []
+        for row in controls:
+            term_row = await (await db.execute(
+                "SELECT process_id FROM terminal_sessions WHERE id = ?",
+                (row["terminal_id"],),
+            )).fetchone()
+            pid = str((term_row["process_id"] if term_row else "") or "")
+            out.append(_terminal_control_to_dict(row, pid=pid))
+        return {"ok": True, "controls": out}
     finally:
         await db.close()
 
@@ -9555,6 +9572,16 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
             """,
             (status, now, req.error or "", control_id),
         )
+        # Persist the PTY root pid reported by the owning bridge (start-control
+        # attach). Stored so Dashboard Stop/Restart can kill-by-pid even if the
+        # owning bridge later dies and the PTY is orphaned. Only set on a real
+        # positive value — never blank out an existing pid.
+        report_pid = str(req.processId or "").strip()
+        if report_pid:
+            await db.execute(
+                "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
+                (report_pid, terminal["id"]),
+            )
         terminal_status = str(req.terminalStatus or "").strip()
         if status == "failed":
             terminal_status = terminal_status or "failed"

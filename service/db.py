@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     output_seq INTEGER DEFAULT 0,
     status TEXT DEFAULT 'starting',
     requested_by TEXT DEFAULT '',
+    process_id TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     stopped_at TEXT,
@@ -462,6 +463,11 @@ AGENT_SESSION_MIGRATIONS = {
 TERMINAL_SESSION_MIGRATIONS = {
     "output": "ALTER TABLE terminal_sessions ADD COLUMN output TEXT DEFAULT ''",
     "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
+    # PTY root pid (2026-06-02): persisted so Dashboard Stop/Restart can
+    # kill-by-pid when the bridge that originally spawned the PTY has
+    # restarted/died and no longer holds it in its in-memory terminals Map
+    # (orphaned-console reap). Reported by the bridge on terminal attach.
+    "process_id": "ALTER TABLE terminal_sessions ADD COLUMN process_id TEXT DEFAULT ''",
 }
 
 # Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed

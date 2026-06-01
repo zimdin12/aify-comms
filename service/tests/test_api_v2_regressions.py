@@ -12022,3 +12022,134 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(evt["agentId"], "c1-control")
         self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
         self.assertIn("statusNote", evt)
+
+    # --- PTY pid persistence + kill-by-pid stop fallback (terminals) ---
+    #
+    # Dashboard Stop kills a managed PTY tree via the owning bridge's
+    # in-memory terminals Map. If the owning bridge restarted/died, the
+    # Map miss makes Stop a no-op and the orphaned PTY survives. We now
+    # persist the PTY root pid (terminal_sessions.process_id) and surface
+    # it on the stop control so ANY live host bridge can kill-by-pid.
+
+    def _start_console_terminal(self, *, agent_id: str) -> str:
+        """Create a real managed PTY terminal_sessions row via the production
+        /console/start path (so all FK-bound rows exist), returning its id."""
+        session_id = self._create_running_session(
+            agent_id=agent_id, terminal=True, runtime="claude-code"
+        )
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/console/start",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        return started.json()["terminal"]["id"]
+
+    def test_terminal_control_update_with_processid_persists_pty_pid(self):
+        """Part 2: when the bridge reports processId on the start-control
+        completion, the server stores it in terminal_sessions.process_id."""
+        terminal_id = self._start_console_terminal(agent_id="term-pid-agent")
+        control_id = asyncio.run(self._append_control(terminal_id, action="start"))
+        resp = self.client.patch(
+            f"/api/v1/terminals/controls/{control_id}",
+            json={
+                "status": "completed",
+                "terminalStatus": "attached",
+                "output": "[terminal attached pid=43210]\n",
+                "processId": "43210",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        row = self._fetchone(
+            "SELECT process_id FROM terminal_sessions WHERE id = ?", (terminal_id,)
+        )
+        self.assertEqual(str(row["process_id"]), "43210")
+
+    def test_stop_control_carries_stored_pty_pid(self):
+        """Part 3: the stop control emitted by _request_stop_agent_terminals
+        carries the terminal's stored process_id as `pid`, so a bridge that
+        never owned the PTY can still kill the orphan by pid."""
+        terminal_id = self._start_console_terminal(agent_id="term-stop-pid")
+        # Persist a known PTY root pid (as the bridge would on attach).
+        self._execute(
+            "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
+            ("55501", terminal_id),
+        )
+        resp = self.client.post(
+            "/api/v1/agents/term-stop-pid/control",
+            json={"action": "stop", "from_agent": "dashboard"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        claim = self.client.post(
+            "/api/v1/terminals/controls/claim",
+            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current"},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        stop_controls = [
+            c for c in claim.json()["controls"]
+            if c.get("action") == "stop" and c.get("terminalId") == terminal_id
+        ]
+        self.assertTrue(stop_controls, "expected a stop control for the seeded terminal")
+        self.assertEqual(str(stop_controls[0].get("pid")), "55501")
+
+    async def _append_control(self, terminal_id: str, *, action: str) -> str:
+        db = await get_db()
+        try:
+            control_id = await api_v2._append_terminal_control(
+                db,
+                terminal_id=terminal_id,
+                environment_id="linux:test-host:default",
+                bridge_id="bridge-current",
+                action=action,
+                requested_by="dashboard",
+            )
+            await db.execute(
+                "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE id = ?",
+                (api_v2._now(), control_id),
+            )
+            await db.commit()
+            return control_id
+        finally:
+            await db.close()
+
+
+class TerminalSessionMigrationTests(unittest.TestCase):
+    """Part 1 migration: an existing DB whose terminal_sessions table predates
+    the process_id column gets it added by init_db (idempotently)."""
+
+    def test_process_id_column_added_to_legacy_terminal_sessions(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        db_path = Path(tmpdir.name) / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE terminal_sessions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                environment_id TEXT NOT NULL,
+                bridge_id TEXT DEFAULT '',
+                runtime TEXT NOT NULL,
+                workspace TEXT DEFAULT '',
+                command TEXT DEFAULT '',
+                status TEXT DEFAULT 'starting',
+                requested_by TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                stopped_at TEXT,
+                error TEXT DEFAULT ''
+            )
+            """
+        )
+        conn.commit()
+        cols_before = {row[1] for row in conn.execute("PRAGMA table_info(terminal_sessions)")}
+        conn.close()
+        self.assertNotIn("process_id", cols_before)
+
+        asyncio.run(init_db(db_path))
+        asyncio.run(init_db(db_path))  # idempotent re-run
+
+        conn = sqlite3.connect(str(db_path))
+        cols_after = {row[1] for row in conn.execute("PRAGMA table_info(terminal_sessions)")}
+        conn.close()
+        self.assertIn("process_id", cols_after)
