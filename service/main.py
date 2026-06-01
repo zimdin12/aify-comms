@@ -68,6 +68,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reconcile_stale_managed_terminals_for_resident_agents,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
+        _requeue_orphaned_claimed_runs,
         _run_contract_reminders_once,
     )
 
@@ -96,6 +97,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # Tight-window cleanup for managed-mode runs whose bridge
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.
+        # Prompt recovery for runs stranded at 'claimed' by a bridge that died/
+        # restarted before delivering (confirmed 2026-06-02: a kill/restart left
+        # 3 hermes runs stuck at 'claimed' for 15+ min — never delivered, agent
+        # falsely busy, sender never replied to). Requeue them so a live bridge
+        # re-claims + delivers, instead of waiting for the long stale reaper to
+        # FAIL them. Non-destructive: only touches claimed-never-delivered runs
+        # whose claim bridge is dead/stale; a live-bridge claim is left alone.
+        # MUST run BEFORE _close_orphaned_managed_runs: that reaper would FAIL the
+        # same claimed-never-delivered orphan (recovery is preferable to failure).
+        requeued_orphaned_claims = await _requeue_orphaned_claimed_runs(db, limit=200)
         closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
@@ -121,6 +132,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
+            "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "pruned_superseded_bridges": pruned_bridges,

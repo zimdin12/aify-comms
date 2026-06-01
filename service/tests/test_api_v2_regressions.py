@@ -2607,6 +2607,131 @@ class ApiV2RegressionTests(unittest.TestCase):
         live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("aged-hermes",))
         self.assertIsNone(live, "aging out a stale run must invalidate the agent's live_state cache row")
 
+    def _seed_claimed_run(self, run_id: str, agent_id: str, *, claim_bridge_id: str, claimed_minutes_ago: float, status: str = "claimed"):
+        claimed_at = (datetime.now(timezone.utc) - timedelta(minutes=claimed_minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id, claim_machine_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, None, "dashboard", agent_id, "start_if_possible",
+                "channel", "request", "STATE CHECK", "body", "normal",
+                status, 1, claimed_at, claimed_at, None,
+                claim_bridge_id, "test-machine",
+            ),
+        )
+
+    def _run_requeue_orphaned_claimed(self, **kwargs):
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._requeue_orphaned_claimed_runs(db, **kwargs)
+            finally:
+                await db.commit()
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_orphaned_claimed_run_requeued(self):
+        # Confirmed bug: a bridge claimed a run (status->claimed) then died before
+        # delivering. The dead bridge never transitions claimed->delivered, a new
+        # bridge won't re-claim an already-claimed run, so the run is stranded and
+        # the agent shows falsely busy. A claimed run, claimed >grace ago, never
+        # delivered, whose claim bridge has NO fresh bridge_instances row, must be
+        # requeued so a live bridge re-claims it.
+        self._register("orphan-claim-hermes", runtime="hermes", sessionMode="managed")
+        # claim_bridge_id "dead-bridge" has NO bridge_instances row at all → dead.
+        self._seed_claimed_run("run_orphan_claim", "orphan-claim-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5)
+        self._seed_cached_live_state("orphan-claim-hermes", status="working")
+
+        requeued = self._run_requeue_orphaned_claimed()
+        self.assertEqual({r["runId"] for r in requeued}, {"run_orphan_claim"}, f"requeued={requeued}")
+
+        row = self._fetchone(
+            "SELECT status, claim_bridge_id, claim_machine_id, claimed_at FROM dispatch_runs WHERE id = ?",
+            ("run_orphan_claim",),
+        )
+        self.assertEqual(row["status"], "queued")
+        self.assertEqual(row["claim_bridge_id"] or "", "")
+        self.assertEqual(row["claim_machine_id"] or "", "")
+        self.assertEqual(row["claimed_at"] or "", "")
+        event = self._fetchone(
+            "SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'requeued_orphaned_claim'",
+            ("run_orphan_claim",),
+        )
+        self.assertIsNotNone(event, "requeued_orphaned_claim event must be appended")
+        self.assertIn("dead-bridge", (event["body"] or ""), "event should note the dead bridge id")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("orphan-claim-hermes",))
+        self.assertIsNone(live, "requeue must invalidate the agent's false-busy live_state cache row")
+
+    def test_claimed_run_with_live_bridge_not_requeued(self):
+        # GUARD: a claimed run whose claim bridge IS fresh/live is genuinely being
+        # delivered right now — must NOT be requeued.
+        self._register("live-claim-hermes", runtime="hermes", sessionMode="managed")
+        live_seen = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("live-bridge", "live-claim-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
+        )
+        self._seed_claimed_run("run_live_claim", "live-claim-hermes", claim_bridge_id="live-bridge", claimed_minutes_ago=5)
+
+        requeued = self._run_requeue_orphaned_claimed()
+        self.assertEqual(requeued, [], f"a live bridge's claim must not be requeued; got {requeued}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_live_claim",))
+        self.assertEqual(row["status"], "claimed")
+
+    def test_recently_claimed_run_not_requeued(self):
+        # GUARD: claimed only 5s ago (within grace) — a live bridge would still be
+        # mid-delivery. Don't race it.
+        self._register("fresh-claim-hermes", runtime="hermes", sessionMode="managed")
+        # No bridge_instances row (bridge would be "dead") but claim is fresh.
+        self._seed_claimed_run("run_fresh_claim", "fresh-claim-hermes", claim_bridge_id="some-bridge", claimed_minutes_ago=5 / 60.0)
+
+        requeued = self._run_requeue_orphaned_claimed(grace_seconds=90)
+        self.assertEqual(requeued, [], f"a freshly-claimed run must not be requeued; got {requeued}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_fresh_claim",))
+        self.assertEqual(row["status"], "claimed")
+
+    def test_delivered_run_not_requeued(self):
+        # GUARD: a delivered/running run reached the agent — leave it to the
+        # existing reapers (_close_orphaned_managed_runs).
+        self._register("delivered-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_claimed_run("run_delivered", "delivered-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5, status="delivered")
+        # Even if a delivered event is present and bridge is dead, do not touch it.
+        self._execute(
+            "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+            ("run_delivered", "delivered", "", api_v2._now()),
+        )
+
+        requeued = self._run_requeue_orphaned_claimed()
+        self.assertEqual(requeued, [], f"a delivered run must not be requeued; got {requeued}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_delivered",))
+        self.assertEqual(row["status"], "delivered")
+
+    def test_claimed_run_with_delivered_event_not_requeued(self):
+        # GUARD: status is still 'claimed' but a 'delivered' dispatch_event exists
+        # (delivery happened, status transition lagged) — it reached the agent, so
+        # do not requeue even though the bridge later died.
+        self._register("delivered-evt-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_claimed_run("run_delivered_evt", "delivered-evt-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5)
+        self._execute(
+            "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+            ("run_delivered_evt", "delivered", "", api_v2._now()),
+        )
+
+        requeued = self._run_requeue_orphaned_claimed()
+        self.assertEqual(requeued, [], f"a run with a delivered event must not be requeued; got {requeued}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_delivered_evt",))
+        self.assertEqual(row["status"], "claimed")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill
@@ -10449,6 +10574,40 @@ class ApiV2RegressionTests(unittest.TestCase):
         # turn_busy auto-cleared.
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("orphan-hermes",))
         self.assertEqual(int(tb["turn_busy"] or 0), 0)
+
+    def test_periodic_reconcile_requeues_orphaned_claimed_run(self):
+        # The periodic reconcile pass must requeue a claimed-but-never-delivered
+        # run whose claim bridge is dead, so a live bridge re-claims it instead of
+        # the run staying stranded at 'claimed' (confirmed live bug: 3 hermes
+        # [STATE CHECK] runs stuck at claimed for 15+ min after a kill/restart).
+        self._register("recon-orphan-claim", runtime="hermes", sessionMode="managed")
+        claimed_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id, claim_machine_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_recon_orphan_claim", None, "dashboard", "recon-orphan-claim", "start_if_possible",
+                "channel", "request", "STATE CHECK", "body", "normal",
+                "claimed", 1, claimed_at, claimed_at, None,
+                "dead-recon-bridge", "test-machine",
+            ),
+        )
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertIn("orphaned_claims_requeued", result, f"key missing from result: {result}")
+        self.assertGreaterEqual(result["orphaned_claims_requeued"], 1, f"expected requeue; got {result}")
+
+        row = self._fetchone(
+            "SELECT status, claim_bridge_id FROM dispatch_runs WHERE id = ?", ("run_recon_orphan_claim",)
+        )
+        self.assertEqual(row["status"], "queued")
+        self.assertEqual(row["claim_bridge_id"] or "", "")
 
     def test_queued_channel_run_fails_when_current_wrapper_terminal_exits_before_claim(self):
         # Operator-reported (2026-05-28): sending to managed sc-manager

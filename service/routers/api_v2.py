@@ -14471,6 +14471,103 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     return closed
 
 
+async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: int = 200) -> list[dict[str, str]]:
+    """Requeue dispatch_runs stranded at 'claimed' by a dead claiming bridge.
+
+    Confirmed live bug (2026-06-02): a bridge claims a run (status -> 'claimed')
+    and then dies/restarts (wrapper restart, all hermes.exe killed) BEFORE it
+    transitions the run claimed -> delivered. The dead bridge never delivers, a
+    NEW bridge will NOT re-claim an already-'claimed' run, so the run is stranded:
+    the agent shows falsely busy/working, the message never reaches the console,
+    and the sender never gets a reply. (Observed: 3 hermes [STATE CHECK] runs
+    stuck at 'claimed' for 15+ min — a `claimed` event, NO `delivered` event,
+    only repeated `reply_reminder_skipped "target is busy"`.)
+
+    The existing reapers don't cover this promptly:
+      - `_repair_unusable_active_runs` skips a run unless it is the agent's
+        CURRENT active run; an orphaned claim by a dead bridge isn't current.
+      - `_close_orphaned_managed_runs` only acts after a long stale window /
+        wall-clock ceiling, and it FAILS the run rather than recovering it.
+
+    This recovers fast and non-destructively: a run is requeued only when ALL of:
+      1. status = 'claimed' (NOT delivered/running/terminal — those reached the
+         agent; leave them to the existing reapers),
+      2. claimed_at is older than `grace_seconds` ago (long enough that a live
+         bridge would have transitioned claimed -> delivered in seconds; short
+         enough to recover fast without racing an in-flight delivery),
+      3. there is NO `delivered` dispatch_event for the run (never delivered),
+      4. the `claim_bridge_id` is NOT a fresh/live bridge_instances row — uses the
+         SAME staleness definition as the active-run reaper
+         (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window). An empty
+         claim_bridge_id also qualifies (no owner at all).
+
+    GUARD: a claimed run whose claim bridge IS fresh is genuinely delivering right
+    now — it is left untouched.
+
+    For each match: requeue it (status='queued', clear claim_bridge_id /
+    claim_machine_id / claimed_at), append a `requeued_orphaned_claim` event noting
+    the dead bridge id, and invalidate the agent's live-state cache so the false
+    busy/working status clears. A live bridge then re-claims + delivers.
+    """
+    grace_param = f"-{max(1, int(grace_seconds))} seconds"
+    stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
+    cursor = await db.execute(
+        """
+        SELECT id, target_agent, claim_bridge_id
+        FROM dispatch_runs r
+        WHERE r.status = 'claimed'
+          AND COALESCE(r.claimed_at, '') != ''
+          AND datetime(r.claimed_at) <= datetime('now', ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM dispatch_events de
+            WHERE de.run_id = r.id AND de.event_type = 'delivered'
+          )
+          AND (
+            COALESCE(r.claim_bridge_id, '') = ''
+            OR NOT EXISTS (
+              SELECT 1 FROM bridge_instances bi
+              WHERE bi.id = r.claim_bridge_id
+                AND datetime(bi.last_seen) > datetime('now', ?)
+            )
+          )
+        ORDER BY r.claimed_at ASC
+        LIMIT ?
+        """,
+        (grace_param, stale_param, max(1, int(limit or 200))),
+    )
+    rows = await cursor.fetchall()
+    requeued: list[dict[str, str]] = []
+    for row in rows:
+        run_id = str(row["id"] or "").strip()
+        target_agent = str(row["target_agent"] or "").strip()
+        dead_bridge = str(row["claim_bridge_id"] or "").strip() or "(none)"
+        if not run_id:
+            continue
+        await db.execute(
+            """
+            UPDATE dispatch_runs
+            SET status = 'queued',
+                claim_bridge_id = '',
+                claim_machine_id = '',
+                claimed_at = ''
+            WHERE id = ?
+            """,
+            (run_id,),
+        )
+        await _append_dispatch_event(
+            db,
+            run_id,
+            "requeued_orphaned_claim",
+            f"Requeued: claim bridge '{dead_bridge}' is dead/stale and the run was "
+            f"never delivered (stranded at 'claimed' >{grace_seconds}s). A live "
+            f"bridge will re-claim.",
+        )
+        if target_agent:
+            await _invalidate_agent_live_state(db, target_agent)
+        requeued.append({"runId": run_id, "agentId": target_agent})
+    return requeued
+
+
 async def _close_idle_virtual_rpc_workers(db, *, limit: int = 200) -> list[dict[str, str]]:
     """Auto-close managed worker terminals idle longer than configured."""
     settings = await _load_settings(db)
