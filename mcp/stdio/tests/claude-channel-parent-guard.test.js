@@ -4,7 +4,7 @@
 // when its original controlling parent is reliably dead across consecutive
 // checks, and NEVER for a healthy sidecar or an unknown/rootless ppid.
 import assert from "node:assert/strict";
-import { parentIsGone, shouldSelfExit } from "../claude-channel.js";
+import { parentIsGone, shouldSelfExit, shouldSkipBeatForDeadParent } from "../claude-channel.js";
 
 // --- parentIsGone: rootless / unknown ppid must NEVER self-kill ---
 assert.equal(
@@ -87,6 +87,35 @@ assert.equal(shouldSelfExit(3), true, "default threshold (3): 3 misses must self
     if (shouldSelfExit(misses, 3)) { exited = true; break; }
   }
   assert.equal(exited, false, "a recovering/alive parent must never trip the guard");
+}
+
+// --- shouldSkipBeatForDeadParent: orphan-sidecar liveness-beat gate ---
+// Skip the beat immediately when the controlling parent is known (>1) and dead.
+assert.equal(
+  shouldSkipBeatForDeadParent(4242, () => false),
+  true,
+  "real ppid with a DEAD parent -> skip the liveness beat",
+);
+assert.equal(
+  shouldSkipBeatForDeadParent(4242, () => true),
+  false,
+  "real ppid with a LIVE parent -> beat normally",
+);
+// Unknown/rootless ppid must NEVER skip (always beat) -- conservative.
+assert.equal(shouldSkipBeatForDeadParent(0, () => false), false, "ppid=0 (unknown) -> always beat");
+assert.equal(shouldSkipBeatForDeadParent(1, () => false), false, "ppid=1 (rootless) -> always beat");
+assert.equal(shouldSkipBeatForDeadParent(undefined, () => false), false, "ppid=undefined -> always beat");
+assert.equal(shouldSkipBeatForDeadParent(null, () => false), false, "ppid=null -> always beat");
+// Missing isAlive -> conservative, never skip.
+assert.equal(shouldSkipBeatForDeadParent(4242), false, "missing isAlive -> beat (conservative)");
+// A transient false read just skips one beat; recovery resumes beating.
+{
+  const reads = [false, true, false]; // dead, then alive, then dead
+  let i = 0;
+  const isAlive = () => reads[i++];
+  assert.equal(shouldSkipBeatForDeadParent(9999, isAlive), true, "tick1: dead -> skip");
+  assert.equal(shouldSkipBeatForDeadParent(9999, isAlive), false, "tick2: alive -> beat resumes");
+  assert.equal(shouldSkipBeatForDeadParent(9999, isAlive), true, "tick3: dead again -> skip");
 }
 
 console.log("claude-channel-parent-guard.test.js: all assertions passed");

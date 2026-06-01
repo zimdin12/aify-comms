@@ -367,6 +367,23 @@ export function shouldSelfExit(misses, threshold = PARENT_GUARD_MISS_THRESHOLD) 
   return Number(misses) >= Number(threshold);
 }
 
+// Liveness-beat gate (status-liveness fix 2026-06-01). The sidecar's
+// unconditional liveness beat keeps the server seeing the agent `online` purely
+// because this process exists. If the controlling claude.exe died but the
+// sidecar survives (orphan), the slow self-exit guard above takes ~90s to act,
+// during which the orphan keeps beating -- so a dead RESIDENT shows online for
+// up to ~90s + the server's stale window. Gate the beat itself: skip posting
+// immediately when the original parent is known (>1) and provably dead. A
+// transient false read just skips ONE beat (resumes next tick); a real dead
+// parent makes the agent go stale faster, which is correct. Conservative on an
+// unknown/rootless ppid (0/1/undefined) -- never skips. Injected isAlive for
+// unit testing; production passes the real pidIsAlive.
+export function shouldSkipBeatForDeadParent(ppid, isAlive) {
+  if (!ppid || ppid <= 1) return false; // unknown/rootless -> always beat
+  if (typeof isAlive !== "function") return false; // conservative: beat
+  return !isAlive(ppid);
+}
+
 // pid liveness via signal 0. EPERM means the pid exists but we lack permission
 // (still alive); ESRCH/anything else means gone. Conservative on ambiguity.
 function pidIsAlive(pid) {
@@ -380,12 +397,20 @@ function pidIsAlive(pid) {
 }
 
 async function pollLoop() {
+  // Capture the original controlling parent pid ONCE (the managed claude.exe),
+  // up front so both the liveness-beat gate (below) and the self-exit guard
+  // (further down) read the same value.
+  const ORIGINAL_PPID = process.ppid;
   const stopLiveness = startLivenessHeartbeat({
     intervalMs: 30_000,
     beat: async () => {
       if (!SERVER_URL) return;
       const id = readBoundAgentId();
       if (!id) return;
+      // Orphan-sidecar liveness gate: if our controlling claude.exe is gone,
+      // stop beating immediately instead of misleading the server into showing
+      // a dead resident as online until the slow self-exit guard fires.
+      if (shouldSkipBeatForDeadParent(ORIGINAL_PPID, pidIsAlive)) return;
       await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
         bridgeId: channelBridgeId(id),
         bridgeKind: "channel-sidecar",
@@ -398,7 +423,7 @@ async function pollLoop() {
   // pid ONCE (the managed claude.exe). A periodic, unref'd check self-exits only
   // after the parent is seen dead for PARENT_GUARD_MISS_THRESHOLD consecutive
   // ticks — never on a transient read or for a healthy sidecar.
-  const ORIGINAL_PPID = process.ppid;
+  // (ORIGINAL_PPID was captured at the top of pollLoop, shared with the gate.)
   let parentMisses = 0;
   let parentGuardTimer = null;
   const stopParentGuard = () => {
