@@ -2545,6 +2545,28 @@ function connectDashboardSocket() {
         // already cached. Only refresh on a lifecycle status transition.
         if (!data.status || data.status === prevStatus) return;
       }
+      // Workstream C: operator-driven status push. Apply the recomputed status
+      // to just that agent's in-memory row (window._allAgents is an array of
+      // [id, info] tuples) and re-render the current page from state instead of
+      // forcing a full refetch. Falls back to a normal refresh if the agent
+      // isn't loaded yet or the re-render throws.
+      if (payload.event === 'agent_status' && data.agentId) {
+        const entry = Array.isArray(window._allAgents)
+          ? window._allAgents.find(([id]) => String(id) === String(data.agentId))
+          : null;
+        const info = entry?.[1];
+        if (info && data.status) {
+          info.status = data.status;
+          info.statusRaw = data.status;
+          if (data.statusNote !== undefined) info.statusNote = data.statusNote;
+          try {
+            const r = renderCurrentPageFromState();
+            if (r && typeof r.catch === 'function') r.catch(() => scheduleRealtimeRefresh());
+          } catch { scheduleRealtimeRefresh(); }
+          return;
+        }
+        // Agent not loaded yet → fall back to a normal refresh below.
+      }
     } catch {}
     scheduleRealtimeRefresh();
   };
@@ -8088,7 +8110,11 @@ async function loadSettings() {
   document.getElementById('s-reply-max').value = s.reply_reminder_max_count;
   document.getElementById('s-contract-stale').value = s.contract_stale_hours;
   if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(refreshDashboard, s.dashboard_refresh_seconds * 1000);
+  // Workstream C: the server now pushes status transitions over WS (agent_status)
+  // and applies them granularly, so this full-refetch timer is only a slow safety
+  // net. Floor it at 60s to avoid redundant full refetches; correctness no longer
+  // depends on this interval.
+  refreshInterval = setInterval(refreshDashboard, Math.max(60, s.dashboard_refresh_seconds || 60) * 1000);
   showSettingsTab(localStorage.getItem('aifySettingsTab') || 'appearance');
 }
 
