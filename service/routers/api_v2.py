@@ -3140,6 +3140,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
     turn_busy = False
     turn_runtime = ""
+    turn_updated_at = ""
     # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
     # handshake-complete signal. It remains an internal readiness bit; the
     # public idle-live status is `online` so operators do not see both
@@ -3156,6 +3157,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                 if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
                     turn_busy = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
+                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
             try:
                 turn_state_ready = int(_tb["ready"] or 0) == 1
             except (IndexError, KeyError):
@@ -3419,6 +3421,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # haven't already attached a more specific reason (e.g. offline).
         if effective_status == "available" and channel_managed_no_sidecar and not reason:
             reason = "No live channel sidecar heartbeat (not deliverable)."
+    refresh_after = _status_refresh_after(
+        agent_last_seen,
+        env_last_seen,
+        idle_minutes=int(settings.get("idle_minutes", 5) or 5),
+        offline_minutes=int(settings.get("offline_minutes", 30) or 30),
+        env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
+    )
+    # When `working` is driven by a fresh turn_busy (NOT an active run, which has
+    # its own lifecycle), clamp refresh_after to the turn-busy staleness window so
+    # a lost turn-end self-heals at ~120s instead of waiting out the 5-30min
+    # heartbeat windows. `active_run` working is intentionally left untouched.
+    if effective_status == "working" and turn_busy and not active_run and turn_updated_at:
+        busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_STALE_SECONDS)
+        if busy_deadline:
+            refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
     return {
         "status": effective_status,
         "reason": reason,
@@ -3427,13 +3444,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         "session_id": session_id,
         "terminal_id": terminal_id,
         "active_run_id": str((active_run["id"] if active_run else "") or "").strip(),
-        "refresh_after": _status_refresh_after(
-            agent_last_seen,
-            env_last_seen,
-            idle_minutes=int(settings.get("idle_minutes", 5) or 5),
-            offline_minutes=int(settings.get("offline_minutes", 30) or 30),
-            env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
-        ),
+        "refresh_after": refresh_after,
         "updated_at": now,
     }
 

@@ -2219,6 +2219,41 @@ class ApiV2RegressionTests(unittest.TestCase):
 
     # --- status-truthfulness bug fixes (2026-06-01) ---
 
+    def _async_compute_live_status(self, agent_id: str):
+        """Drive _compute_live_status_cache directly and return the cache dict."""
+        async def _run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                return await api_v2._compute_live_status_cache(db, row)
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_working_via_turnbusy_has_short_refresh_after(self):
+        # FIX 2: when `working` is derived from a fresh turn_busy (NOT an active
+        # run), refresh_after must be clamped to turn_updated_at +
+        # TURN_BUSY_STALE_SECONDS so a lost turn-end self-heals at ~120s, not at
+        # the 5-30min heartbeat windows.
+        self._register("tb-refresh-claude", runtime="claude-code", sessionMode="resident")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
+            """,
+            ("tb-refresh-claude", "run-tb-1", "bridge-tb-1", "claude-code", now),
+        )
+        cache = self._async_compute_live_status("tb-refresh-claude")
+        self.assertEqual(cache["status"], "working", cache)
+        limit = api_v2._iso_add_seconds(now, api_v2.TURN_BUSY_STALE_SECONDS)
+        self.assertTrue(cache["refresh_after"], cache)
+        self.assertLessEqual(
+            cache["refresh_after"], limit,
+            f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+120s ({limit}); cache={cache}",
+        )
+
     def test_heartbeat_turnbusy_invalidates_live_state(self):
         # FIX 1: a heartbeat that writes turn_busy must invalidate the live-state
         # cache so working/idle reflects the flip immediately — not after the 60s
