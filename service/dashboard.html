@@ -1282,6 +1282,10 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
                 <span>Hide offline</span>
               </label>
+              <label class="chat-toggle" title="Show conversations with removed/deleted agents (their history is read-only)">
+                <input type="checkbox" id="chat-show-deleted" onchange="setChatShowDeleted(this.checked)">
+                <span>Show deleted</span>
+              </label>
               <label class="chat-toggle" title="View chats without marking incoming messages read automatically">
                 <input type="checkbox" id="chat-peek-mode" onchange="setChatPeekMode(this.checked)">
                 <span>Peek mode</span>
@@ -5036,6 +5040,25 @@ function chatOpenOnly() {
   return localStorage.getItem('aifyChatOpenOnly') === '1';
 }
 
+// A DM partner that is no longer present in the live /agents list (window._allAgents)
+// has been removed/tombstoned. Tombstoned agents are absent from /agents, so
+// "not in _allAgents" is the deleted signal. dashboard/channels are never "deleted".
+function chatAgentIsDeleted(id) {
+  if (!id || id === 'dashboard') return false;
+  return !(window._allAgents || []).some(([agentId]) => agentId === id);
+}
+
+// Deleted agents are hidden from the chat rail by default; operators can opt in
+// to see their preserved history with this toggle.
+function chatShowDeleted() {
+  return localStorage.getItem('aifyChatShowDeleted') === '1';
+}
+
+function setChatShowDeleted(value) {
+  localStorage.setItem('aifyChatShowDeleted', value ? '1' : '0');
+  renderChat();
+}
+
 function setChatOpenOnly(value) {
   localStorage.setItem('aifyChatOpenOnly', value ? '1' : '0');
   renderChat();
@@ -5239,25 +5262,40 @@ function chatConversations() {
     return a.title.localeCompare(b.title);
   });
   const agentIds = new Set(agentIdsForChat());
+  // Include conversation partners from history even when they are no longer in
+  // the live /agents list (removed/tombstoned). They are tagged `deleted` and
+  // hidden by default in the dmItems map below; this lets the "Show deleted"
+  // toggle surface their preserved history. Exclude system, channel (#...), and
+  // dashboard pseudo-targets.
+  const isRealPartner = (pid) => pid && pid !== '_system' && pid !== 'dashboard' && !String(pid).startsWith('#');
   for (const m of window._allMsgs || []) {
-    const fromInfo = (window._allAgents || []).find(([agentId]) => agentId === m.from)?.[1] || null;
-    const toInfo = (window._allAgents || []).find(([agentId]) => agentId === m._to)?.[1] || null;
-    if (m._to === identity && m.from && m.from !== '_system' && fromInfo) agentIds.add(m.from);
-    if (m.from === identity && m._to && toInfo) agentIds.add(m._to);
+    if (m._to === identity && isRealPartner(m.from)) agentIds.add(m.from);
+    if (m.from === identity && isRealPartner(m._to)) agentIds.add(m._to);
   }
   agentIds.delete(identity);
+  const showDeleted = chatShowDeleted();
   const dmItems = sortItems([...agentIds].map(id => {
     const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
+    const deleted = chatAgentIsDeleted(id);
+    // Hide removed/tombstoned agents from the rail by default.
+    if (deleted && !showDeleted) return null;
     const last = conversationPreviewForAgent(id, identity);
     if (openOnly && !last) return null;
-    if (onlineOnly && !isOnlineChatAgent(info)) return null;
-    const presence = chatPresenceForAgent(info);
+    if (onlineOnly && !deleted && !isOnlineChatAgent(info)) return null;
+    // A deleted agent has no live status — show a 'deleted' presence, never a
+    // stale running/online badge, and never an actionable work rank.
+    const presence = deleted
+      ? {kind: 'deleted', label: 'Deleted', tone: 'muted', dotKind: 'offline'}
+      : chatPresenceForAgent(info);
     return {
       key: `dm:${id}`,
       kind: 'dm',
       id,
-      title: id,
-      meta: `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`,
+      deleted,
+      title: deleted ? `${id} (deleted)` : id,
+      meta: deleted
+        ? `removed agent · history only${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`
+        : `${info.role || 'agent'}${info.statusRaw ? ' · ' + info.statusRaw : ''}${last?.subject || last?.body || last?.preview ? ' · ' + (last.subject || last.body || last.preview) : ''}`,
       presence,
       runtime: info.runtime || '',
       workRank: ({blocked: 3, working: 3, recovering: 2, starting: 2, 'cli-takeover': 2}[presence?.kind || ''] || 0) + (Number(info.dispatchState?.queuedRuns || 0) > 0 ? 1 : 0),
@@ -5297,6 +5335,7 @@ function renderChatRail() {
   if (!el) return;
   const openToggle = document.getElementById('chat-open-only');
   const onlineToggle = document.getElementById('chat-online-only');
+  const showDeletedToggle = document.getElementById('chat-show-deleted');
   const unreadUpToggle = document.getElementById('chat-unread-up');
   const workingUpToggle = document.getElementById('chat-working-up');
   const peekToggle = document.getElementById('chat-peek-mode');
@@ -5304,6 +5343,7 @@ function renderChatRail() {
   const sortSelect = document.getElementById('chat-sort');
   if (openToggle) openToggle.checked = chatOpenOnly();
   if (onlineToggle) onlineToggle.checked = chatOnlineOnly();
+  if (showDeletedToggle) showDeletedToggle.checked = chatShowDeleted();
   if (unreadUpToggle) unreadUpToggle.checked = chatUnreadUp();
   if (workingUpToggle) workingUpToggle.checked = chatWorkingUp();
   if (peekToggle) peekToggle.checked = chatPeekMode();
@@ -5574,7 +5614,16 @@ function selectedChatMeta() {
   }
   const id = key.slice('dm:'.length);
   const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
-  return {kind: 'dm', id, title: id, subtitle: `${info.role || 'agent'} · ${info.statusRaw || info.status || 'unknown'} · ${info.runtime || 'runtime'}${info.machineId ? ' @ ' + info.machineId : ''}`};
+  const deleted = chatAgentIsDeleted(id);
+  return {
+    kind: 'dm',
+    id,
+    deleted,
+    title: deleted ? `${id} (deleted)` : id,
+    subtitle: deleted
+      ? 'Removed agent — history only. No live session; messaging and actions are disabled.'
+      : `${info.role || 'agent'} · ${info.statusRaw || info.status || 'unknown'} · ${info.runtime || 'runtime'}${info.machineId ? ' @ ' + info.machineId : ''}`,
+  };
 }
 
 function messagesForSelectedChat(meta) {
@@ -6152,6 +6201,30 @@ function updateChatControls(meta) {
       manageButton.title = 'Select a conversation first';
     }
   }
+  // Removed/tombstoned agent: the conversation is read-only history. Disable the
+  // live actions (send, queue, console, messenger) — you cannot message or
+  // attach to a deleted agent. "Clear DM" stays available so the operator can
+  // purge the leftover history. State is restored for live agents since this
+  // runs on every render.
+  const deletedPartner = isDm && !!meta.deleted;
+  const sendBtn = document.getElementById('chat-send-btn');
+  const queueBtn = document.getElementById('chat-queue-btn');
+  const bodyInput = document.getElementById('chat-body');
+  if (sendBtn) {
+    sendBtn.disabled = deletedPartner;
+    sendBtn.title = deletedPartner
+      ? 'This agent was removed — messaging is disabled (history only).'
+      : 'Send now. Busy steer-capable targets receive it between tool calls; busy non-steer targets queue or merge it for the next turn.';
+  }
+  if (queueBtn) queueBtn.disabled = deletedPartner;
+  if (bodyInput) {
+    bodyInput.disabled = deletedPartner;
+    bodyInput.placeholder = deletedPartner
+      ? 'This agent was removed. History is read-only.'
+      : 'Message agents or channels from here. Use @agent names naturally in the text.';
+  }
+  if (deletedPartner && consoleButton) { consoleButton.disabled = true; consoleButton.hidden = true; }
+  if (messengerButton) messengerButton.disabled = deletedPartner;
 }
 
 function updateChatReplyContext(meta) {
