@@ -929,6 +929,18 @@ detect_hermes_install_root() {
     elif [ -x "$bin_dir/python" ]; then
       venv_py="$bin_dir/python"
     fi
+    # Linux/macOS/WSL: `hermes` on PATH is often a thin launcher shim
+    # (~/.local/bin/hermes) that execs the REAL venv hermes elsewhere
+    # (e.g. ~/.hermes/hermes-agent/venv/bin/hermes). The venv python is then
+    # NOT next to the launcher, so the checks above miss it. Follow the shim's
+    # exec target to find the venv python next to the real hermes binary.
+    if [ -z "$venv_py" ]; then
+      local exec_target=""
+      exec_target="$(grep -oE '/[^"[:space:]]*/venv/bin/hermes' "$hermes_bin" 2>/dev/null | head -n 1 || true)"
+      if [ -n "$exec_target" ] && [ -x "${exec_target%/hermes}/python" ]; then
+        venv_py="${exec_target%/hermes}/python"
+      fi
+    fi
     if [ -n "$venv_py" ]; then
       local proj_root
       proj_root="$("$venv_py" -c "from hermes_cli import main; print(main.PROJECT_ROOT)" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
@@ -947,6 +959,15 @@ detect_hermes_install_root() {
         return 0
       fi
     fi
+  fi
+  # Standard-location fallback (Linux, macOS, WSL): the hermes source install
+  # lives under the hermes home, which defaults to ~/.hermes. This covers
+  # pip/pipx installs where the launcher is a shim and the venv python could
+  # not be located above. HERMES_HOME overrides the default home.
+  local std_root="${HERMES_HOME:-$HOME/.hermes}/hermes-agent"
+  if [ -d "$std_root/hermes_cli" ] || [ -d "$std_root/web" ]; then
+    printf '%s\n' "$std_root"
+    return 0
   fi
   return 0
 }
