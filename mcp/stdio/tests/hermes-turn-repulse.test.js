@@ -4,6 +4,7 @@ import {
   startInFlightRepulse,
   shouldManagedHostRepulse,
   isTerminalRunStatus,
+  shouldLatchComplete,
 } from "../hermes-turn-repulse.js";
 
 // --- startInFlightRepulse -------------------------------------------------
@@ -156,5 +157,56 @@ test("isTerminalRunStatus is false for in-flight / non-terminal statuses", () =>
   // under-show `working` on a long turn (the #172 regression).
   for (const s of ["delivered", "claimed", "running", "queued", "", null, undefined, "weird"]) {
     assert.strictEqual(isTerminalRunStatus(s), false, `expected NON-terminal: '${s}'`);
+  }
+});
+
+// --- shouldLatchComplete (the 2026-06-02 false-busy latch decision) --------
+
+test("shouldLatchComplete latches for delivered + require_reply=0 (the false-busy fix)", () => {
+  // A delivery-only message/nudge (info, reminder, 'you there?') is DONE once
+  // delivered; the agent owes no tracked turn. Latch so the re-pulse stops and
+  // the agent doesn't show `working` forever / block queued deliveries.
+  for (const rr of [0, false, undefined, null, ""]) {
+    assert.strictEqual(
+      shouldLatchComplete({ status: "delivered", requireReply: rr }),
+      true,
+      `delivered + rr=${JSON.stringify(rr)} must latch`,
+    );
+  }
+});
+
+test("shouldLatchComplete KEEPS pulsing for delivered + require_reply=1 (no #172 regression)", () => {
+  // A real turn the agent is working before it self-replies. Must NOT latch, or
+  // a long managed-hermes turn under-shows `working`.
+  for (const rr of [1, true]) {
+    assert.strictEqual(
+      shouldLatchComplete({ status: "delivered", requireReply: rr }),
+      false,
+      `delivered + rr=${JSON.stringify(rr)} must keep pulsing`,
+    );
+  }
+});
+
+test("shouldLatchComplete KEEPS pulsing for claimed/running regardless of require_reply", () => {
+  for (const status of ["claimed", "running", "queued"]) {
+    for (const rr of [0, 1, true, false]) {
+      assert.strictEqual(
+        shouldLatchComplete({ status, requireReply: rr }),
+        false,
+        `${status} + rr=${rr} must keep pulsing (real in-flight turn)`,
+      );
+    }
+  }
+});
+
+test("shouldLatchComplete latches for every terminal status regardless of require_reply", () => {
+  for (const status of ["completed", "failed", "cancelled", "stopped", "  COMPLETED  "]) {
+    for (const rr of [0, 1, true, false]) {
+      assert.strictEqual(
+        shouldLatchComplete({ status, requireReply: rr }),
+        true,
+        `${status} + rr=${rr} must latch (terminal)`,
+      );
+    }
   }
 });

@@ -809,18 +809,43 @@ test("runCli: 'run <id>' routes to the delivery loop", async () => {
 
 const WIN = 15 * 60 * 1000;
 
-test("makeInFlightProbe: open window + non-terminal run → keeps re-pulsing (no #172 regression)", async () => {
-  // A long turn still 'delivered' (the managed turn is just STARTING) must keep
-  // the beat alive so a >120s turn keeps showing `working`.
+test("makeInFlightProbe: open window + delivered require_reply=1 → keeps re-pulsing (no #172 regression)", async () => {
+  // A long turn still 'delivered' with require_reply=1 (a real turn the agent is
+  // working before it self-replies) must keep the beat alive so a >120s turn
+  // keeps showing `working`.
   const inFlight = { submittedAt: Date.now() - 5 * 60 * 1000, completed: false, runId: "run-1" };
   const probe = makeInFlightProbe({
     inFlight,
     serverUrl: "http://x",
-    httpCall: async () => ({ run: { status: "delivered" } }),
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
     maxWindowMs: WIN,
   });
-  assert.equal(await probe(), true, "delivered (non-terminal) within window must keep re-pulsing");
-  assert.equal(inFlight.completed, false, "must NOT latch completion on a non-terminal status");
+  assert.equal(await probe(), true, "delivered + rr=1 within window must keep re-pulsing");
+  assert.equal(inFlight.completed, false, "must NOT latch on a delivered require_reply=1 run");
+});
+
+test("makeInFlightProbe: open window + delivered require_reply=0 → latches and STOPS (false-busy fix)", async () => {
+  // The 2026-06-02 bug: a delivery-only run (info/nudge, require_reply=0) lingers
+  // 'delivered' (reconcile only closes it after 24h), so the old terminal-only
+  // latch re-pulsed turn_busy forever → agent stuck `working` → queued messages
+  // blocked + contract reminders skipped. A delivered require_reply=0 run owes no
+  // tracked turn, so it must latch immediately.
+  const inFlight = { submittedAt: Date.now() - 5 * 60 * 1000, completed: false, runId: "run-1" };
+  let polls = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => {
+      polls++;
+      return { run: { status: "delivered", requireReply: false } };
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), false, "delivered + rr=0 must stop the beat (no false-busy)");
+  assert.equal(inFlight.completed, true, "delivered + rr=0 latches completion");
+  assert.equal(inFlight.runId, "", "tracked runId cleared on latch");
+  assert.equal(await probe(), false, "stays latched");
+  assert.equal(polls, 1, "must not keep polling after the false-busy latch");
 });
 
 test("makeInFlightProbe: terminal run status latches completed=true and STOPS the beat (#3)", async () => {

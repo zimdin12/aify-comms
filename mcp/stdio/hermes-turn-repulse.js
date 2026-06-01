@@ -118,3 +118,30 @@ const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "stop
 export function isTerminalRunStatus(status) {
   return TERMINAL_RUN_STATUSES.has(String(status || "").trim().toLowerCase());
 }
+
+// The latch decision for the managed-host re-pulse window: given the in-flight
+// run's current status AND its require_reply flag, should we STOP re-pulsing
+// turn_busy (latch inFlight.completed=true)?
+//
+// Returns true (latch / stop) when:
+//   - the run reached a TERMINAL status (completed/failed/cancelled/stopped) —
+//     the existing turn-end signal; OR
+//   - the run is `delivered` AND require_reply is FALSY — a delivery-only
+//     message/nudge (info, reminder, "you there?") is DONE the moment it's
+//     delivered; the agent is not owed a tracked turn for it. This is the
+//     2026-06-02 false-busy fix: such runs linger in `delivered` (the reconcile
+//     only closes them after 24h), so the old terminal-only latch re-pulsed
+//     forever → agent stuck `working` → dispatcher blocked NEW messages behind
+//     the fake turn + contract reminders skipped it as "busy".
+//
+// Returns false (KEEP re-pulsing) for:
+//   - `claimed`/`running` (a real in-flight turn), AND
+//   - `delivered` AND require_reply is TRUTHY (a real turn the agent is working
+//     before it self-replies; this is the #172-safe behavior — do NOT stop it,
+//     or a long managed-hermes turn under-shows `working`).
+export function shouldLatchComplete({ status, requireReply } = {}) {
+  if (isTerminalRunStatus(status)) return true;
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "delivered" && !requireReply) return true;
+  return false;
+}

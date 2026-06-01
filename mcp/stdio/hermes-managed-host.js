@@ -41,7 +41,7 @@ import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import {
   startInFlightRepulse,
   shouldManagedHostRepulse,
-  isTerminalRunStatus,
+  shouldLatchComplete,
 } from "./hermes-turn-repulse.js";
 import {
   buildSessionActiveListFrame,
@@ -455,19 +455,25 @@ async function clearTurn(httpCall, agentId) {
   });
 }
 
-// Read the dispatch run's current status (the host-observable turn-end signal,
-// #3). Best-effort: any error → "" (treated as not-yet-terminal). The run's
-// terminal status (`completed` when the agent self-replies, or
-// failed/cancelled/stopped) is the ONLY real "this turn finished" signal the
-// managed-host can see — gateway turn-done events route to the TUI transport.
+// Read the dispatch run's current status + require_reply flag (the
+// host-observable turn-end signals). Best-effort: any error → status "" (treated
+// as not-yet-terminal, requireReply false). The run's terminal status
+// (`completed` when the agent self-replies, or failed/cancelled/stopped) is one
+// real "this turn finished" signal; a `delivered` run with require_reply=0 is
+// the OTHER (a delivery-only nudge owes no turn) — see shouldLatchComplete.
+// GET /dispatch/runs/{id} already exposes `requireReply` via
+// _serialize_dispatch_run_row (no server change needed).
 async function fetchRunStatus(httpCall, runId) {
   const id = String(runId || "").trim();
-  if (!id) return "";
+  if (!id) return { status: "", requireReply: false };
   try {
     const resp = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(id)}`);
-    return String(resp?.run?.status || "").trim();
+    return {
+      status: String(resp?.run?.status || "").trim(),
+      requireReply: !!resp?.run?.requireReply,
+    };
   } catch {
-    return "";
+    return { status: "", requireReply: false };
   }
 }
 
@@ -779,16 +785,22 @@ export async function deliverRun({
   }
 }
 
-// Build the re-pulse beat's in-flight probe (#172 + #3). Returned async fn is
-// passed to startInFlightRepulse as `isInFlight`; it returns true only when the
-// bounded post-submit window is open AND the in-flight run has NOT reached a
-// terminal status. On observing a terminal run status it flips
-// `inFlight.completed = true` (latching) so this and all future ticks stop —
-// fixing the false-`working`-to-15-min bug (#3) without regressing #172 (a
-// long, still-`delivered` turn keeps re-pulsing because `delivered` is not
-// terminal). Factored out so the wiring is unit-testable (the beat itself is
-// time-driven via setInterval). `serverUrl`, `httpCall`, and `maxWindowMs` are
-// injected; `fetchStatus` defaults to the live run-status reader.
+// Build the re-pulse beat's in-flight probe (#172 + #3 + the 2026-06-02
+// false-busy fix). Returned async fn is passed to startInFlightRepulse as
+// `isInFlight`; it returns true only when the bounded post-submit window is open
+// AND the in-flight run has NOT reached a latch condition. On observing a latch
+// condition it flips `inFlight.completed = true` (latching) so this and all
+// future ticks stop. shouldLatchComplete latches on:
+//   - a TERMINAL run status (completed/failed/cancelled/stopped) — the #3 fix;
+//   - `delivered` + require_reply=0 — a delivery-only nudge owes no tracked turn
+//     and otherwise lingers `delivered` for 24h, re-pulsing forever (false-busy
+//     → blocked queued deliveries + skipped contract reminders).
+// It deliberately KEEPS re-pulsing for `delivered` + require_reply=1 (a real
+// turn the agent works before self-replying — the #172-safe behavior) and for
+// claimed/running. Factored out so the wiring is unit-testable (the beat itself
+// is time-driven via setInterval). `serverUrl`, `httpCall`, and `maxWindowMs`
+// are injected; `fetchStatus` defaults to the live run reader and returns
+// `{ status, requireReply }`.
 export function makeInFlightProbe({
   inFlight,
   serverUrl,
@@ -808,9 +820,9 @@ export function makeInFlightProbe({
       return false;
     }
     // Window open + not yet flagged completed → check for the real turn-end.
-    const status = await fetchStatus(inFlight.runId);
-    if (isTerminalRunStatus(status)) {
-      inFlight.completed = true; // latch: observed completion → stop the beat.
+    const { status, requireReply } = await fetchStatus(inFlight.runId);
+    if (shouldLatchComplete({ status, requireReply })) {
+      inFlight.completed = true; // latch: observed turn-end → stop the beat.
       inFlight.runId = "";
       return false;
     }
