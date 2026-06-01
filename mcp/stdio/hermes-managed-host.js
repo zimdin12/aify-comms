@@ -38,6 +38,7 @@ import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { startInFlightRepulse, shouldManagedHostRepulse } from "./hermes-turn-repulse.js";
 import {
   buildSessionActiveListFrame,
   buildPromptSubmitFrame,
@@ -89,6 +90,20 @@ const ATTACH_WAIT_MS = Math.max(2000, Number(process.env.AIFY_HERMES_ATTACH_WAIT
 const ATTACH_POLL_MS = Math.max(100, Number(process.env.AIFY_HERMES_ATTACH_POLL_MS || 750));
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const RUNTIME = "hermes";
+// In-flight re-pulse cadence + bounded window (#172). prompt.submit is
+// FIRE-AND-FORGET (returns on accept, not turn completion) and the managed-host
+// WS client cannot reliably observe the gateway turn-complete event, so we
+// re-pulse turn_busy on an interval for a BOUNDED window after each submit so a
+// long managed-hermes turn keeps showing `working` past the server's 120s
+// window. The window is hard-capped so a missed completion CANNOT stick
+// `working` forever (anti-feedback-loop guard for this completion-event-less
+// path). The agent's own reply closing the run is the precise clear; the next
+// submit resets the window.
+const REPULSE_MS = Math.max(5000, Number(process.env.AIFY_HERMES_TURN_REPULSE_MS || 45000));
+const REPULSE_WINDOW_MS = Math.max(
+  REPULSE_MS,
+  Number(process.env.AIFY_HERMES_TURN_REPULSE_WINDOW_MS || 15 * 60 * 1000),
+);
 const HERMES_CMD = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
 
 function sleep(ms) {
@@ -545,6 +560,12 @@ export async function deliverRun({
   attachWaitMs = ATTACH_WAIT_MS,
   attachPollMs = ATTACH_POLL_MS,
   sleepImpl = sleep,
+  // In-flight tracker (#172): the delivery loop owns a single object whose
+  // { submittedAt, completed } fields gate the re-pulse beat. deliverRun stamps
+  // submittedAt on a successful submit (opens the window) and zeroes it on
+  // requeue/failure (closes it). `now` is injectable for tests.
+  inFlight = null,
+  now = Date.now,
 } = {}) {
   const key = sessionKeyFor(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
@@ -571,7 +592,9 @@ export async function deliverRun({
         `visible TUI session '${key}' not attached within ${attachWaitMs}ms`,
       ).catch(() => {});
       // No delivery happened — clear the turn_busy pulse so the agent does not
-      // falsely show "working" while the run sits requeued.
+      // falsely show "working" while the run sits requeued, and close the
+      // in-flight window so the re-pulse beat stops.
+      if (inFlight) inFlight.submittedAt = 0;
       await clearTurn(httpCall, agentId).catch(() => {});
       return;
     }
@@ -593,19 +616,26 @@ export async function deliverRun({
     // returns on accept, not turn completion), so the visible-TUI turn is only
     // just STARTING — clearing here loses the "working" signal for the entire
     // turn (operator-reported 2026-05-31: managed hermes never showed working).
-    // Mirror claude-channel.js: leave turn_busy set and let the server's 120s
-    // TURN_BUSY_STALE_SECONDS window close it, while the agent's own reply
+    // Instead OPEN the in-flight re-pulse window (#172): stamp submittedAt so
+    // the delivery loop's beat keeps turn_busy fresh past the 120s window for
+    // the duration of a long managed turn (bounded by REPULSE_WINDOW_MS so a
+    // missed completion can't stick `working` forever). The agent's own reply
     // (require_reply → _mark_dispatch_run_answered) clears it precisely on
-    // completion. The blocking hermes-channel.js path DOES clear because its
-    // chatStream runs the turn to completion first; this fire-and-forget path
-    // must NOT.
+    // completion. The blocking hermes-channel.js path uses a promise-anchored
+    // beat instead because its chatStream runs the turn to completion inline.
+    if (inFlight) {
+      inFlight.submittedAt = now();
+      inFlight.completed = false;
+    }
   } catch (error) {
     console.error(
       `[hermes-managed-host] run ${run?.id || "?"} delivery failed:`,
       error?.message || String(error),
     );
     await markRunFailed(httpCall, run, error).catch(() => {});
-    // Delivery failed → not working. Clear the pulse we set above.
+    // Delivery failed → not working. Close the in-flight window and clear the
+    // pulse we set above.
+    if (inFlight) inFlight.submittedAt = 0;
     await clearTurn(httpCall, agentId).catch(() => {});
   }
 }
@@ -619,6 +649,9 @@ export async function runPollCycle({
   httpCall,
   wsClient,
   maxBatch = 20,
+  // In-flight tracker passed through to deliverRun so a submitted turn opens
+  // the re-pulse window (#172).
+  inFlight = null,
 } = {}) {
   let processed = 0;
   let released = false;
@@ -645,7 +678,7 @@ export async function runPollCycle({
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
-      await deliverRun({ run, agentId, httpCall, wsClient });
+      await deliverRun({ run, agentId, httpCall, wsClient, inFlight });
       processed++;
     }
   } catch (error) {
@@ -756,6 +789,28 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     },
   });
 
+  // In-flight turn re-pulse (#172): a single tracker for this agent. deliverRun
+  // stamps `submittedAt` on a successful fire-and-forget prompt.submit; this
+  // beat re-pulses turn_busy while shouldManagedHostRepulse says the bounded
+  // window is open, so a managed-hermes turn longer than the server's 120s
+  // TURN_BUSY_STALE_SECONDS keeps showing `working`. Anchored on the
+  // bridge-owned submit timestamp + hard window cap — NEVER the server's
+  // derived status (anti-feedback-loop; mirrors claude decideRepulse).
+  const inFlight = { submittedAt: 0, completed: false };
+  const stopRepulse = startInFlightRepulse({
+    intervalMs: REPULSE_MS,
+    isInFlight: () =>
+      Boolean(serverUrl) &&
+      shouldManagedHostRepulse({
+        submittedAt: inFlight.submittedAt,
+        completed: inFlight.completed,
+        maxWindowMs: REPULSE_WINDOW_MS,
+      }),
+    pulse: async () => {
+      await reportTurnBusy(httpCall, id, { busy: true });
+    },
+  });
+
   let totalProcessed = 0;
   try {
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
@@ -772,7 +827,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           await sleepImpl(POLL_MS);
           continue;
         }
-        const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws });
+        const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws, inFlight });
         totalProcessed += result.processed || 0;
         if (result.released) {
           await teardownGatewayHost({ child: gatewayChild });
@@ -792,6 +847,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return { released: false, processed: totalProcessed };
   } finally {
     stopLiveness();
+    stopRepulse();
   }
 }
 

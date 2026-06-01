@@ -40,6 +40,16 @@ import { stopDaemon as defaultStopDaemon } from "./hermes-daemon.js";
 // Reuse claude-channel.js's dispatch content/prompt builder verbatim so the
 // hermes agent receives the same priority framing + inReplyTo guidance.
 import { dispatchContent } from "./claude-channel.js";
+import { startInFlightRepulse } from "./hermes-turn-repulse.js";
+
+// In-flight re-pulse cadence (#172). chatStream can run a turn well past the
+// server's 120s TURN_BUSY_STALE_SECONDS window; re-pulse turn_busy while the
+// chatStream promise is pending so the agent keeps showing `working`. Anchored
+// on the pending promise (a REAL bridge-owned signal), NOT derived status.
+const REPULSE_MS = Math.max(
+  5000,
+  Number(process.env.AIFY_HERMES_TURN_REPULSE_MS || 45000),
+);
 
 loadSettingsEnv();
 
@@ -221,6 +231,16 @@ export async function processClaimedRun({
   }
   const sessionId = pinnedSessionId(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
+  // In-flight re-pulse (#172): while chatStream is pending (turn running), keep
+  // turn_busy fresh past the server's 120s window. `inFlight` is the
+  // bridge-owned signal — flipped false in the finally below the moment the
+  // turn settles — NOT the server's derived status (anti-feedback-loop).
+  let inFlight = true;
+  const stopRepulse = startInFlightRepulse({
+    intervalMs: REPULSE_MS,
+    isInFlight: () => inFlight,
+    pulse: () => reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }),
+  });
   try {
     // Idempotent: 201 (created) and 409 (already exists) both resolve.
     await apiClient.ensureSession({ baseUrl, key, id: sessionId });
@@ -253,6 +273,10 @@ export async function processClaimedRun({
     );
     await markRunFailed(httpCall, run, error).catch(() => {});
   } finally {
+    // Turn settled (completed or failed): stop the in-flight re-pulse FIRST so
+    // no stray beat races the clear, then clear turn_busy.
+    inFlight = false;
+    stopRepulse();
     await clearTurn(httpCall, agentId).catch(() => {});
   }
 }
