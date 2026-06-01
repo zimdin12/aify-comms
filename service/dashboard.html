@@ -1973,6 +1973,10 @@ window._allMsgs = [];
 window._allRuns = [];
 window._filteredRuns = [];
 window._allAgents = [];
+// Set true once /agents has populated _allAgents at least once. Until then,
+// chatAgentIsDeleted must NOT treat an absent id as deleted (the roster simply
+// hasn't loaded yet) — see chatAgentIsDeleted.
+window._agentsLoaded = false;
 window._residentAgents = [];
 window._managedWorkers = [];
 window._environments = [];
@@ -5045,6 +5049,11 @@ function chatOpenOnly() {
 // "not in _allAgents" is the deleted signal. dashboard/channels are never "deleted".
 function chatAgentIsDeleted(id) {
   if (!id || id === 'dashboard') return false;
+  // Until /agents has populated the roster at least once, "absent from
+  // _allAgents" means "not loaded yet", NOT "deleted". Treating it as deleted
+  // pre-load would briefly disable the composer for a live agent if a render
+  // ever races ahead of the first /agents fetch.
+  if (!window._agentsLoaded) return false;
   return !(window._allAgents || []).some(([agentId]) => agentId === id);
 }
 
@@ -7542,6 +7551,7 @@ async function refreshDashboard() {
     const visibleResidentAgents = residentAgents.filter(([, info]) => shouldShowManualBinding(info));
     const hiddenResidentAgents = residentAgents.length - visibleResidentAgents.length;
     window._allAgents = agents;
+    window._agentsLoaded = true;
     window._residentAgents = residentAgents;
     window._managedWorkers = managedWorkers;
 
