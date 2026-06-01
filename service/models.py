@@ -1,6 +1,6 @@
 """Pydantic models for aify-comms API."""
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
@@ -344,6 +344,18 @@ class AgentControlRequest(BaseModel):
     action: str
     from_agent: Optional[str] = None
     body: Optional[str] = None
+
+
+class AgentConsoleInputRequest(BaseModel):
+    # Text to inject into another agent's live console (e.g. a command, or an
+    # empty string + enter=True to unstick a paused TUI). `from_` records the
+    # caller for the audit event; resolution is agent->terminal server-side so
+    # no caller can target an arbitrary terminal id.
+    text: Optional[str] = None
+    enter: Optional[bool] = True
+    from_: Optional[str] = Field(default=None, alias="from")
+
+    model_config = {"populate_by_name": True}
 
 
 class ClearRequest(BaseModel):

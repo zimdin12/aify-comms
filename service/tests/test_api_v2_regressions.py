@@ -12091,6 +12091,99 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertTrue(stop_controls, "expected a stop control for the seeded terminal")
         self.assertEqual(str(stop_controls[0].get("pid")), "55501")
 
+    # --- comms_console_tail / comms_console_input endpoints ---------------
+
+    def test_agent_console_tail_returns_last_lines_of_live_console(self):
+        # Seed a managed claude with a live (attached) console terminal whose
+        # output has many lines; the endpoint must tail the last N.
+        self._seed_managed_claude_with_attached_terminal("console-tailee", "term_console_tail")
+        full = "\n".join(f"line-{i}" for i in range(1, 121))
+        self._execute(
+            "UPDATE terminal_sessions SET output = ? WHERE id = ?",
+            (full, "term_console_tail"),
+        )
+        resp = self.client.get("/api/v1/agents/console-tailee/console?lines=5")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertTrue(data["ok"], data)
+        self.assertTrue(data["live"], data)
+        self.assertEqual(data["terminalId"], "term_console_tail")
+        out_lines = data["output"].splitlines()
+        self.assertEqual(out_lines, ["line-116", "line-117", "line-118", "line-119", "line-120"])
+
+    def test_agent_console_tail_live_false_when_no_live_console(self):
+        # Registered managed agent with NO consoleTerminal pointer / no terminal.
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("console-idle", runtime="claude-code", sessionMode="managed")
+        resp = self.client.get("/api/v1/agents/console-idle/console")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertTrue(data["ok"], data)
+        self.assertFalse(data["live"], data)
+        self.assertIn("no live console", data["message"].lower())
+        # Read is side-effect-free: no terminal was created.
+        self.assertEqual(
+            self._fetchall("SELECT id FROM terminal_sessions WHERE agent_id = ?", ("console-idle",)),
+            [],
+        )
+
+    def test_agent_console_input_appends_control_with_caller_recorded(self):
+        self._seed_managed_claude_with_attached_terminal("console-inputee", "term_console_in")
+        # The caller must be a registered agent.
+        self._register("console-manager", runtime="claude-code", sessionMode="managed")
+        resp = self.client.post(
+            "/api/v1/agents/console-inputee/console/input",
+            json={"text": "/status", "enter": True, "from": "console-manager"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertTrue(data["ok"], data)
+        self.assertTrue(data["live"], data)
+        control = self._fetchone(
+            "SELECT action, body, requested_by FROM terminal_controls WHERE terminal_id = ? ORDER BY id DESC LIMIT 1",
+            ("term_console_in",),
+        )
+        self.assertEqual(control["action"], "input")
+        self.assertEqual(control["body"], "/status\r")
+        self.assertEqual(control["requested_by"], "console-manager")
+        # Audit event records who sent the input.
+        events = self._fetchall(
+            "SELECT event_type, body FROM terminal_events WHERE terminal_id = ?",
+            ("term_console_in",),
+        )
+        audit = [e for e in events if e["event_type"] == "agent_console_input"]
+        self.assertTrue(audit, f"expected an agent_console_input audit event; got {[e['event_type'] for e in events]}")
+        self.assertIn("console-manager", audit[-1]["body"])
+
+    def test_agent_console_input_unknown_caller_rejected(self):
+        self._seed_managed_claude_with_attached_terminal("console-inputee2", "term_console_in2")
+        resp = self.client.post(
+            "/api/v1/agents/console-inputee2/console/input",
+            json={"text": "x", "from": "ghost-agent-not-registered"},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_agent_console_input_no_live_console_returns_clear_message(self):
+        # Managed agent, registered, but NO live console and nothing to autostart
+        # into (no running agent_sessions row / online env terminal). The endpoint
+        # must return a clear message, not crash.
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("console-cold", runtime="claude-code", sessionMode="managed")
+        self._register("console-caller", runtime="claude-code", sessionMode="managed")
+        resp = self.client.post(
+            "/api/v1/agents/console-cold/console/input",
+            json={"text": "hi", "from": "console-caller"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertFalse(data["ok"], data)
+        self.assertFalse(data["live"], data)
+        self.assertIn("no live console", data["message"].lower())
+
     async def _append_control(self, terminal_id: str, *, action: str) -> str:
         db = await get_db()
         try:

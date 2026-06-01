@@ -3548,6 +3548,75 @@ server.tool(
   }
 );
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// comms_console_tail / comms_console_input -- read & unstick a managed agent's console
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Handlers exported as named functions so they can be unit-tested with an
+// injected httpCall. They default to the module-level httpCall in production.
+export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: call = httpCall } = {}) {
+  if (!IS_REMOTE) {
+    return { content: [{ type: "text", text: "Console tail is only available in remote server mode." }], isError: true };
+  }
+  try {
+    const n = Math.max(1, Math.min(Number(lines || 40), 200));
+    const r = await call("GET", `/agents/${encodeURIComponent(agentId)}/console?lines=${n}`);
+    if (!r.live) {
+      return { content: [{ type: "text", text: r.message || `${agentId} has no live console.` }] };
+    }
+    return {
+      content: [{
+        type: "text",
+        text: `Console of ${agentId} (terminal ${r.terminalId}, status ${r.status}), last ${r.lines} lines:\n${r.output || "(empty)"}`,
+      }],
+    };
+  } catch (error) {
+    return { content: [{ type: "text", text: error.message }], isError: true };
+  }
+}
+
+export async function commsConsoleInputHandler({ agentId, text, enter, from }, { httpCall: call = httpCall } = {}) {
+  if (!IS_REMOTE) {
+    return { content: [{ type: "text", text: "Console input is only available in remote server mode." }], isError: true };
+  }
+  try {
+    const r = await call("POST", `/agents/${encodeURIComponent(agentId)}/console/input`, {
+      text: text || "",
+      enter: enter === undefined ? true : !!enter,
+      from: from || AIFY_AGENT_ID || "",
+    });
+    if (!r.ok) {
+      return { content: [{ type: "text", text: r.message || `Could not send input to ${agentId}.` }], isError: true };
+    }
+    return {
+      content: [{ type: "text", text: `Input sent to ${agentId}'s console (terminal ${r.terminalId}, control ${r.controlId}).` }],
+    };
+  } catch (error) {
+    return { content: [{ type: "text", text: error.message }], isError: true };
+  }
+}
+
+server.tool(
+  "comms_console_tail",
+  "Read the last N lines of another agent's live console (read-only; managed agents).",
+  {
+    agentId: z.string().describe("Agent whose console to read"),
+    lines: z.number().int().min(1).max(200).optional().describe("How many trailing lines to return. Default 40."),
+  },
+  (args) => commsConsoleTailHandler(args)
+);
+
+server.tool(
+  "comms_console_input",
+  "Send keystrokes/text into another agent's live console (e.g. a command, or Enter to unstick). Managed agents; audited.",
+  {
+    agentId: z.string().describe("Agent whose console to send input to"),
+    text: z.string().optional().describe("Text/command to type. Empty string + enter=true sends just Enter."),
+    enter: z.boolean().optional().describe("Append a carriage return (submit). Default true."),
+  },
+  (args) => commsConsoleInputHandler({ ...args, from: AIFY_AGENT_ID })
+);
+
 // comms_run_steer removed from stdio — ordinary comms_send does not require
 // knowing the runId, creates an inbox message, and steers busy steer-capable
 // targets unless queueIfBusy=true. Busy non-steer targets queue/merge instead.

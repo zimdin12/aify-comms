@@ -380,6 +380,35 @@ async def comms_run_status(runId: str) -> str:
 
 
 @mcp_server.tool()
+async def comms_console_tail(agentId: str, lines: int = 40) -> str:
+    """Read the last N lines of another agent's live console (read-only; managed agents)."""
+    n = max(1, min(int(lines or 40), 200))
+    r = await _api("GET", f"/agents/{agentId}/console", params={"lines": n})
+    if not r.get("ok"):
+        return r.get("detail") or r.get("message") or f"Could not read {agentId}'s console."
+    if not r.get("live"):
+        return r.get("message") or f"{agentId} has no live console."
+    output = r.get("output") or "(empty)"
+    return (
+        f"Console of {agentId} (terminal {r.get('terminalId')}, status {r.get('status')}), "
+        f"last {r.get('lines')} lines:\n{output}"
+    )
+
+
+@mcp_server.tool()
+async def comms_console_input(agentId: str, text: str = "", enter: bool = True, from_agent: str = "") -> str:
+    """Send keystrokes/text into another agent's live console (e.g. a command, or Enter to unstick). Managed agents; audited."""
+    r = await _api("POST", f"/agents/{agentId}/console/input", {
+        "text": text or "",
+        "enter": bool(enter),
+        "from": from_agent or "",
+    })
+    if not r.get("ok"):
+        return r.get("detail") or r.get("message") or f"Could not send input to {agentId}."
+    return f"Input sent to {agentId}'s console (terminal {r.get('terminalId')}, control {r.get('controlId')})."
+
+
+@mcp_server.tool()
 async def comms_run_interrupt(runId: str, from_agent: str = "") -> str:
     """Request interruption of an active dispatched run."""
     r = await _api("POST", f"/dispatch/runs/{runId}/control", {

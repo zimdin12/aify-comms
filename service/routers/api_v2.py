@@ -32,7 +32,7 @@ from service.models import (
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
     ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalOutputRequest,
-    VirtualTerminalEnsureRequest, AgentFavoriteUpdate,
+    VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
 )
 
 SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$')
@@ -10578,6 +10578,184 @@ async def get_agent(agent_id: str, request: Request):
         # _enforce_live_worker_gate for full rationale.
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
         return {"ok": True, "agentId": agent_id, "agent": payload}
+    finally:
+        await db.close()
+
+
+_CONSOLE_TAIL_MAX_LINES = 200
+_CONSOLE_TAIL_MAX_BYTES = 16 * 1024
+
+
+async def _resolve_live_console_terminal(db, agent_id: str):
+    """Resolve an agent's LIVE console terminal row from its runtime_state.
+
+    Returns the (non-terminated) terminal_sessions row pointed at by
+    runtime_state.consoleTerminal.terminalId (managed claude) or
+    runtime_state.virtualTerminalId (pi/hermes virtual), or None when the
+    agent has no live console. Resolution is agent-scoped on purpose: callers
+    can only reach a terminal *through* the agent, never by arbitrary id.
+    """
+    agent_row = await (
+        await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
+    ).fetchone()
+    if not agent_row:
+        return None
+    runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+    if not isinstance(runtime_state, dict):
+        return None
+    terminal_id = ""
+    console_terminal = runtime_state.get("consoleTerminal")
+    if isinstance(console_terminal, dict):
+        terminal_id = str(console_terminal.get("terminalId") or "").strip()
+    if not terminal_id:
+        terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
+    if not terminal_id:
+        return None
+    terminal = await (
+        await db.execute(
+            "SELECT * FROM terminal_sessions WHERE id = ? AND agent_id = ?",
+            (terminal_id, agent_id),
+        )
+    ).fetchone()
+    if not terminal:
+        return None
+    status = str(terminal["status"] or "").strip().lower()
+    if status in _TERMINAL_END_STATUSES:
+        return None
+    return terminal
+
+
+@router.get("/agents/{agent_id}/console")
+async def get_agent_console(agent_id: str, lines: int = 40):
+    """Read the tail of an agent's live console output (read-only).
+
+    Side-effect-free: never starts a worker. Resolves the agent's live console
+    terminal via runtime_state; if none, returns {ok, live:false, message}.
+    """
+    db = await get_db()
+    try:
+        terminal = await _resolve_live_console_terminal(db, agent_id)
+        if not terminal:
+            agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            if not agent_row:
+                raise HTTPException(404, f"Agent '{agent_id}' not found")
+            return {
+                "ok": True,
+                "live": False,
+                "message": f"{agent_id} has no live console (it lazy-starts on a message).",
+            }
+        # Drain any buffered output for this terminal so the tail is current,
+        # then re-read the row to pick up the flushed bytes.
+        await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal["id"])
+        terminal = await (
+            await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))
+        ).fetchone()
+        tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
+        full_output = (terminal["output"] if "output" in terminal.keys() else "") or ""
+        selected = full_output.splitlines()[-tail_lines:]
+        output = "\n".join(selected)
+        if len(output.encode("utf-8", "ignore")) > _CONSOLE_TAIL_MAX_BYTES:
+            output = output.encode("utf-8", "ignore")[-_CONSOLE_TAIL_MAX_BYTES:].decode("utf-8", "ignore")
+        return {
+            "ok": True,
+            "live": True,
+            "terminalId": terminal["id"],
+            "status": terminal["status"] or "",
+            "lines": len(selected),
+            "output": output,
+        }
+    finally:
+        await db.close()
+
+
+@router.post("/agents/{agent_id}/console/input")
+async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest, request: Request):
+    """Send input (keystrokes/text) into an agent's live console. Audited.
+
+    SAFETY: the caller (`from`) must be a registered agent; the input is
+    recorded against that caller in both the terminal control's requested_by
+    and an `agent_console_input` audit event. Callers can only target the
+    agent's own resolved console terminal — never an arbitrary terminal id.
+    Managed agents only (v1).
+    """
+    db = await get_db()
+    try:
+        agent_row = await (await db.execute("SELECT id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        caller = str(req.from_ or "").strip()
+        if not caller:
+            raise HTTPException(400, "console input requires a `from` caller (the requesting agent id)")
+        caller_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (caller,))).fetchone()
+        if not caller_row:
+            raise HTTPException(403, f"caller '{caller}' is not a registered agent")
+
+        settings = await _load_settings(db)
+        terminal = await _resolve_live_console_terminal(db, agent_id)
+        if not terminal:
+            # Best-effort lazy-autostart the SAME way dispatch does so the
+            # visible-TUI requirement is preserved. If nothing can be started
+            # (no live session / offline env), return the clear message.
+            started = await _ensure_managed_pty_for_dispatch(
+                db,
+                agent_id,
+                runtime=str(agent_row["runtime"] or ""),
+                settings=settings,
+                requested_by=caller,
+            )
+            await db.commit()
+            if not started:
+                return {
+                    "ok": False,
+                    "live": False,
+                    "message": f"{agent_id} has no live console; send a message to start it first.",
+                }
+            # Re-resolve via runtime_state (autostart publishes the pointer).
+            terminal = await _resolve_live_console_terminal(db, agent_id)
+            if not terminal:
+                # The freshly-started terminal row exists but its runtime_state
+                # pointer may not be the consoleTerminal shape yet (e.g. the
+                # `starting` row from _ensure_managed_pty_for_dispatch). Use it
+                # directly — it is agent-scoped (the helper only returns this
+                # agent's own session terminal).
+                started_id = started["terminal_id"] if "terminal_id" in started.keys() else started["id"]
+                terminal = await (
+                    await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (started_id,))
+                ).fetchone()
+            if not terminal:
+                return {
+                    "ok": False,
+                    "live": False,
+                    "message": f"{agent_id} has no live console; send a message to start it first.",
+                }
+
+        text = str(req.text or "")
+        body = text + ("\r" if (req.enter is None or req.enter) else "")
+        control_id = await _append_terminal_control(
+            db,
+            terminal_id=terminal["id"],
+            environment_id=terminal["environment_id"],
+            bridge_id=terminal["bridge_id"] or "",
+            action="input",
+            requested_by=caller,
+            body=body,
+        )
+        await _append_terminal_event(
+            db,
+            terminal["id"],
+            "agent_console_input",
+            json.dumps({"from": caller, "controlId": control_id, "bytes": len(body)}),
+        )
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_control_requested", {"terminalId": terminal["id"], "action": "input"})
+        return {
+            "ok": True,
+            "live": True,
+            "terminalId": terminal["id"],
+            "controlId": control_id,
+        }
     finally:
         await db.close()
 
