@@ -101,10 +101,10 @@ export class ClaudeAdapter extends RuntimeAdapter {
   // every token + tool result while a turn runs, so a fresh mtime means claude
   // is mid-turn even during a long GENERATION phase where no PostToolUse hook
   // fires (which otherwise let turn_busy go stale → dashboard wrongly 'online').
-  // Scoped to the agent's OWN session id (captured store, then env) so a
-  // teammate sharing the cwd never makes this agent look busy; falls back to the
-  // freshest .jsonl in the agent's own project dir only. (Does NOT cover a long
-  // BLOCKING tool call like a build — claude is idle-waiting then and the
+  // Scoped to the agent's OWN session id (captured store, then env); when that
+  // can't be resolved it returns 0 — NOT a newest-.jsonl-in-dir fallback — so a
+  // teammate sharing the cwd never makes this agent look busy. (Does NOT cover a
+  // long BLOCKING tool call like a build — claude is idle-waiting then and the
   // transcript doesn't grow.)
   async transcriptMtimeMs(opts = {}) {
     const obs = await this.transcriptStat(opts);
@@ -116,8 +116,9 @@ export class ClaudeAdapter extends RuntimeAdapter {
   // detection (status-liveness fix, 2026-06-01) needs size + mtime together so
   // a "freshly touched but not growing" transcript (e.g. the single final write
   // by the Stop hook at turn end) is NOT mistaken for ongoing generation. Same
-  // scoping rules as transcriptMtimeMs (agent's own session id, then env, then
-  // scoped-newest within the agent's own project dir only).
+  // scoping rules as transcriptMtimeMs: the agent's own session id (captured
+  // store, then env); returns null when it can't be resolved — no newest-in-dir
+  // fallback, which avoids shared-cwd teammate attribution.
   async transcriptStat(opts = {}) {
     const { env = process.env, homeDir = os.homedir(), cwd, agentId, dir } = opts;
     const scopedCwd = cwd || env.AIFY_AGENT_CWD || process.cwd();
