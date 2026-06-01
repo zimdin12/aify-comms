@@ -534,13 +534,20 @@ async function pollLoop() {
           try {
             const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
             const decision = decideRepulse(agentRes?.agent || {});
-            // Re-pulse condition: ONLY if there's an actual unsettled
-            // dispatch run (hasActiveRun = require_reply=true awaiting
-            // reply, or status=running). NOT based on serverStatus alone,
-            // which is DERIVED from turn_busy=1 — using it as a re-pulse
-            // trigger creates the self-reinforcing feedback loop
-            // (operator-reported 2026-05-23 "your and sc-coder status
-            // were stuck at working"):
+            // Re-pulse condition (see decideRepulse): re-pulse ONLY when
+            // the run is provably IN-FLIGHT — activeRun.status is 'claimed'
+            // or 'running'. hasActiveRun alone is NOT sufficient: a
+            // require_reply run that's been 'delivered' is idle (the agent
+            // finished the turn and merely owes a reply), and a missing
+            // status must not re-pulse either. Re-pulsing a delivered-
+            // awaiting-reply run would keep the server's `turn_busy` branch
+            // showing "working" instead of the intended idle "online /
+            // awaiting reply" state (channel_pending_reply).
+            //
+            // NOT based on serverStatus alone, which is DERIVED from
+            // turn_busy=1 — using it as a re-pulse trigger creates the
+            // self-reinforcing feedback loop (operator-reported 2026-05-23
+            // "your and sc-coder status were stuck at working"):
             //   1. dispatch delivered → turn_busy=1, LAST_DELIVERED set
             //   2. dispatch marked completed (require_reply=false case)
             //     → hasActiveRun=false but turn_busy still 1 fresh
@@ -549,14 +556,14 @@ async function pollLoop() {
             //   5. step 3 keeps holding → infinite loop until
             //      TURN_REFRESH_MAX_AGE_MS (10 min) clears the tracker.
             //
-            // Why hasActiveRun is the right anchor: it's POSITIVE
-            // evidence the agent owes work (a delivered run that hasn't
-            // been replied to, or a claimed/running run still in flight).
-            // For UserPromptSubmit-initiated turns (no dispatch),
-            // turn_busy relies on the server-side TURN_BUSY_STALE_SECONDS
-            // window + the authoritative Stop hook clear. Brief flicker
-            // for >120s assistant turns is acceptable; stuck-working-
-            // forever is not.
+            // Why activeRun.status is the right anchor: only a
+            // claimed/running run is POSITIVE evidence the turn is still
+            // executing. A 'delivered' run is the idle awaiting-reply state
+            // and must NOT re-pulse. For UserPromptSubmit-initiated turns
+            // (no dispatch), turn_busy relies on the server-side
+            // TURN_BUSY_STALE_SECONDS window + the authoritative Stop hook
+            // clear. Brief flicker for >120s assistant turns is acceptable;
+            // stuck-working-forever is not.
             if (decision.repulse) {
               await reportTurnBusy(agentId, { busy: true, runId: decision.runId }).catch(() => {});
             } else {
