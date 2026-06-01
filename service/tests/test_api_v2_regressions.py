@@ -9148,6 +9148,121 @@ class ApiV2RegressionTests(unittest.TestCase):
         reminders = self._fetchall("SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (contract_run_id,))
         self.assertEqual([row["body"] for row in reminders], ["recent reminder"])
 
+    async def _async_run_contract_reminders_once(self, **kwargs):
+        from service.db import get_db as _get_db
+        db = await _get_db()
+        try:
+            payload = await api_v2._run_contract_reminders_once(db, **kwargs)
+            await db.commit()
+            return payload
+        finally:
+            await db.close()
+
+    def _seed_overdue_handoff(self, *, run_id, message_id, from_agent, target_agent, status="delivered"):
+        """Seed an overdue, unanswered require_reply ("handoff") run + its message."""
+        overdue_at = api_v2._iso_from_ms(int((time.time() - 120) * 1000))
+        self._execute(
+            """
+            INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, timestamp)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (message_id, from_agent, target_agent, "direct", "request", "handoff", "please answer", "normal", 1, int(time.time() * 1000)),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (run_id, message_id, from_agent, target_agent, "start_if_possible", "managed",
+             "request", "handoff", "please answer", "normal", status, 1, overdue_at),
+        )
+
+    def test_reminder_not_skipped_when_turn_busy_is_same_runs_own_repulse(self):
+        # CONFIRMED DEADLOCK FIX: a delivered require_reply run sets turn_busy with
+        # turn_run_id = THAT run on its own delivery re-pulse. Treating that as
+        # "busy" skipped the run's OWN reminder forever → handoff never nudged →
+        # closed stale. With no active dispatch run, turn_busy for THE SAME run id
+        # must NOT count as busy → the reminder fires.
+        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
+        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        run_id = "run-handoff-same"
+        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-same", from_agent="sc-coder", target_agent="sc-architect")
+        self._execute(
+            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
+            ("sc-architect", 1, run_id, "", "claude-code", api_v2._now(), 1),
+        )
+
+        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
+        self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id],
+                         f"same-run turn_busy must not block the reminder; got {payload}")
+        self.assertFalse(any(s.get("runId") == run_id for s in payload["skipped"]), payload)
+
+    def test_reminder_skipped_when_turn_busy_is_a_different_run(self):
+        # turn_busy fresh for a DIFFERENT run id = the agent is busy on OTHER work
+        # → still skip (busy), reminder retried when idle.
+        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
+        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        run_id = "run-handoff-diff"
+        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-diff", from_agent="sc-coder", target_agent="sc-architect")
+        self._execute(
+            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
+            ("sc-architect", 1, "some-other-run", "", "claude-code", api_v2._now(), 1),
+        )
+
+        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
+        self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
+        skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
+        self.assertIsNotNone(skip, payload)
+        self.assertIn("busy", skip["reason"])
+
+    def test_reminder_skipped_when_agent_has_active_dispatch_run(self):
+        # A claimed/running dispatch run (hasActiveRun) = genuinely executing → skip,
+        # even if turn_busy happens to point at the run being reminded.
+        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
+        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        run_id = "run-handoff-active"
+        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-active", from_agent="sc-coder", target_agent="sc-architect")
+        # Separate claimed/running run for the same agent = hasActiveRun.
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at, started_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("run-other-active", None, "dashboard", "sc-architect", "start_if_possible", "managed",
+             "info", "other task", "work", "normal", "running", 0, api_v2._now(), api_v2._now()),
+        )
+        self._execute(
+            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
+            ("sc-architect", 1, run_id, "", "claude-code", api_v2._now(), 1),
+        )
+
+        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
+        self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
+        skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
+        self.assertIsNotNone(skip, payload)
+        self.assertIn("busy", skip["reason"])
+
+    def test_reminder_fires_when_agent_not_busy_at_all(self):
+        # No active run, no fresh turn_busy → remind (existing behavior preserved).
+        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
+        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
+        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
+
+        run_id = "run-handoff-idle"
+        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-idle", from_agent="sc-coder", target_agent="sc-architect")
+
+        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
+        self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id], payload)
 
     def test_contract_reminders_skip_dashboard_target_contracts(self):
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)

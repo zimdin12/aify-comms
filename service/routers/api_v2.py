@@ -1790,6 +1790,30 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     return False
 
 
+async def _turn_busy_state(db, agent_id: str) -> tuple[bool, str]:
+    """Return (fresh, turn_run_id) for the agent's agent_turn_state row.
+
+    `fresh` is True when turn_busy=1 was updated within TURN_BUSY_STALE_SECONDS.
+    `turn_run_id` is the run the bridge attributed that turn-busy pulse to (''
+    when unknown). Callers that only need the boolean use _is_turn_busy_fresh;
+    the reminder loop needs the run id so it can tell a GENUINE other-work
+    turn_busy apart from a delivered-run's OWN delivery re-pulse (which would
+    otherwise make a handoff skip its own reminder forever — deadlock)."""
+    try:
+        row = await (await db.execute(
+            "SELECT turn_busy, turn_run_id, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
+            (agent_id,),
+        )).fetchone()
+    except Exception:
+        return (False, "")
+    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
+        return (False, "")
+    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
+    fresh = bool(seen and time.time() - seen <= TURN_BUSY_STALE_SECONDS)
+    run_id = str((row["turn_run_id"] if "turn_run_id" in row.keys() else "") or "")
+    return (fresh, run_id)
+
+
 async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     """True when the agent is mid-turn per agent_turn_state — turn_busy=1 updated
     within TURN_BUSY_STALE_SECONDS. This is the canonical 'busy via turn' half of
@@ -1800,17 +1824,8 @@ async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     alone, so a mid-turn agent with no tracked run (e.g. a resident claude on its
     own turn) is not reminder-nagged while working. (holistic status review
     Finding 2, 2026-05-31.)"""
-    try:
-        row = await (await db.execute(
-            "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
-            (agent_id,),
-        )).fetchone()
-    except Exception:
-        return False
-    if not row or not int((row["turn_busy"] if "turn_busy" in row.keys() else 0) or 0):
-        return False
-    seen = _iso_to_epoch(str(row["turn_updated_at"] or ""))
-    return bool(seen and time.time() - seen <= TURN_BUSY_STALE_SECONDS)
+    fresh, _run_id = await _turn_busy_state(db, agent_id)
+    return fresh
 
 
 async def _fresh_same_mode_bridge_conflict(
@@ -15141,7 +15156,19 @@ async def _run_contract_reminders_once(
         # definition the status engine + claim-gate use). Without the turn_busy
         # half, a mid-turn agent with no tracked run (resident claude on its own
         # turn) was reminder-nagged while it was clearly working.
-        target_busy = bool(active_state.get("hasActiveRun")) or await _is_turn_busy_fresh(db, row["target_agent"])
+        #
+        # BUT: a delivered require_reply run sets turn_busy with turn_run_id =
+        # THAT run on its own delivery re-pulse. If we treat that as "busy" we
+        # skip THIS run's own reminder — forever — and the handoff never gets
+        # nudged, so the agent never replies and the run closes stale (confirmed
+        # deadlock: ~24 consecutive reply_reminder_skipped "target is busy" then
+        # "Closed stale delivered run requiring a reply"). So turn_busy only
+        # counts as busy-for-skip when it is for OTHER work — a DIFFERENT run id
+        # than the one we are about to remind. A claimed/running dispatch run
+        # (hasActiveRun) always counts: the agent is genuinely executing.
+        turn_fresh, turn_run_id = await _turn_busy_state(db, row["target_agent"])
+        busy_for_other_work = turn_fresh and turn_run_id != row["id"]
+        target_busy = bool(active_state.get("hasActiveRun")) or busy_for_other_work
         if target_busy and not terminal_blocked_without_live_backing:
             reason = "target is busy; reminder will be retried when the agent is idle"
             skipped.append({"runId": row["id"], "targetAgentId": row["target_agent"], "reason": reason})
