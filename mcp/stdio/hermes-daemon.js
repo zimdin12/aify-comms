@@ -20,11 +20,102 @@
 
 import { spawn as nodeSpawn, execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { probeApiServer } from "./hermes-version.js";
 import { agentEndpoint } from "./hermes-endpoint.js";
+import { terminateProcessTree } from "./runtimes.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFile = promisify(nodeExecFile);
+
+// --- per-agent daemon pid tracking -----------------------------------------
+// Each hermes agent gets at most ONE `hermes gateway run` daemon. We persist the
+// daemon's pid in a file alongside the per-agent port/key files (same tempDir +
+// sanitizeAgentId convention from hermes-endpoint.js) so a later (re)spawn can
+// kill the PRIOR daemon — even if its port has since changed/been abandoned —
+// instead of leaking a stray hermes.exe. Mirrors the reuse-on-persist pattern of
+// resolveGatewayPort/loadOrCreateKey.
+
+// Sanitize an agentId into a safe filename fragment. Kept identical to
+// hermes-endpoint.js's private sanitizeAgentId so the pid file sits next to the
+// agent's port/key files.
+function sanitizeAgentId(agentId) {
+  return String(agentId || "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function daemonPidFile(agentId, tempDir, fsImpl) {
+  return path.join(tempDir || os.tmpdir(), `aify-hermes-daemon-pid-${sanitizeAgentId(agentId)}`);
+}
+
+// Read the persisted daemon pid for an agent, or undefined. Never throws.
+export function readDaemonPid(agentId, tempDir, { fs: fsImpl = fs } = {}) {
+  if (!agentId) return undefined;
+  try {
+    const raw = String(fsImpl.readFileSync(daemonPidFile(agentId, tempDir), "utf8")).trim();
+    const pid = parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Persist the daemon pid for an agent. Best-effort; never throws.
+export function writeDaemonPid(agentId, pid, tempDir, { fs: fsImpl = fs } = {}) {
+  const n = Number(pid);
+  if (!agentId || !Number.isInteger(n) || n <= 0) return false;
+  try {
+    fsImpl.writeFileSync(daemonPidFile(agentId, tempDir), String(n));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Remove the persisted daemon pid for an agent. Best-effort; never throws.
+export function clearDaemonPid(agentId, tempDir, { fs: fsImpl = fs } = {}) {
+  if (!agentId) return false;
+  try {
+    fsImpl.rmSync(daemonPidFile(agentId, tempDir), { force: true });
+    return true;
+  } catch {
+    try {
+      fsImpl.unlinkSync(daemonPidFile(agentId, tempDir));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Is a pid alive right now? Best-effort, signal-0 probe. Never throws.
+function defaultIsAlive(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  try {
+    process.kill(n, 0);
+    return true;
+  } catch (err) {
+    // EPERM = exists but not ours to signal → still alive.
+    return err && err.code === "EPERM";
+  }
+}
+
+// Default tree-killer keyed on a raw pid. Wraps terminateProcessTree (which
+// takes a {pid} handle). Never throws.
+function defaultKillTree(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  try {
+    terminateProcessTree({ pid: n }, "SIGKILL");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Ensure one api_server-enabled hermes gateway daemon is up for an agent.
 //   - Resolve the per-agent endpoint: explicit `endpoint` wins; else derive via
@@ -47,6 +138,12 @@ export async function ensureDaemon({
   probe = probeApiServer,
   healthTimeoutMs = 15000,
   pollMs = 300,
+  // Injectable pid-tracking + killer so tests assert kill-prior fires without
+  // touching real processes. Defaults are the real fs / tree-killer / alive-probe.
+  killTree = defaultKillTree,
+  isAlive = defaultIsAlive,
+  readPid = readDaemonPid,
+  writePid = writeDaemonPid,
 } = {}) {
   // Resolve the effective endpoint. Precedence: explicit fields > endpoint
   // object > agentEndpoint(agentId) > legacy shared default.
@@ -69,7 +166,21 @@ export async function ensureDaemon({
     };
   }
 
-  // 2. Spawn the daemon DETACHED so it outlives this bridge process.
+  // 2. KILL-PRIOR before spawning a fresh daemon. The probe said NOT up, so the
+  //    daemon we previously tracked (if any) is either dead or unhealthy — and
+  //    its port may have been re-resolved (collision/death), so killByPort on the
+  //    CURRENT port would miss it. Kill the prior pid's TREE to stop hermes.exe
+  //    proliferation. Stale-pid-safe: only kill a pid that is still alive, and
+  //    never the (already-confirmed-down) current daemon. Best-effort; never
+  //    blocks the spawn.
+  if (agentId) {
+    const priorPid = readPid(agentId, tempDir);
+    if (priorPid && isAlive(priorPid)) {
+      killTree(priorPid);
+    }
+  }
+
+  // 3. Spawn the daemon DETACHED so it outlives this bridge process.
   const child = spawn(hermesCmd, ["gateway", "run", "--replace"], {
     env: {
       ...process.env,
@@ -86,7 +197,12 @@ export async function ensureDaemon({
   });
   if (child && typeof child.unref === "function") child.unref();
 
-  // 3. Poll for health until the daemon answers or we time out.
+  // Persist the NEW daemon's pid so the next (re)spawn can kill-prior it.
+  if (agentId && child && Number.isInteger(Number(child.pid))) {
+    writePid(agentId, child.pid, tempDir);
+  }
+
+  // 4. Poll for health until the daemon answers or we time out.
   const deadline = Date.now() + healthTimeoutMs;
   for (;;) {
     const res = await probe({ baseUrl: effBaseUrl, key: effKey });
@@ -178,21 +294,46 @@ export async function stopDaemon({
   port,
   probe = probeApiServer, // accepted for symmetry/future use; not required here
   killByPort = defaultKillByPort,
+  // Injectable pid-tracking + killer (defaults to the real fs / tree-killer /
+  // alive-probe) so tests assert the tracked-pid kill without real processes.
+  killTree = defaultKillTree,
+  isAlive = defaultIsAlive,
+  readPid = readDaemonPid,
+  clearPid = clearDaemonPid,
 } = {}) {
+  let stopped = false;
+  let pid;
   try {
     let derived = endpoint;
     if (!derived && agentId) {
       derived = agentEndpoint(agentId, tempDir ? { tempDir } : undefined);
     }
     const effPort = port ?? derived?.port;
-    if (!effPort) return { stopped: false };
-    const res = await killByPort(effPort);
-    if (res && res.killed) {
-      return { stopped: true, pid: res.pid };
+
+    // 1. Port-based kill: take down whatever is LISTENING on the current port.
+    if (effPort) {
+      const res = await killByPort(effPort);
+      if (res && res.killed) {
+        stopped = true;
+        pid = res.pid;
+      }
     }
-    return { stopped: false };
+
+    // 2. Tracked-pid kill: covers a daemon whose port has already changed/been
+    //    abandoned (so killByPort on the current port would miss the stray). Kill
+    //    the tracked pid's TREE if it is still alive, then clear the pid file.
+    //    Stale-pid-safe: only signal a pid that is alive.
+    if (agentId) {
+      const trackedPid = readPid(agentId, tempDir);
+      if (trackedPid && isAlive(trackedPid)) {
+        killTree(trackedPid);
+        stopped = true;
+        if (pid === undefined) pid = trackedPid;
+      }
+      clearPid(agentId, tempDir);
+    }
   } catch {
     // Best-effort teardown must never throw — a failed reap is logged by callers.
-    return { stopped: false };
   }
+  return stopped ? { stopped: true, pid } : { stopped: false };
 }

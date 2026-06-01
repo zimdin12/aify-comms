@@ -9,7 +9,13 @@ import { test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureDaemon, stopDaemon } from "../hermes-daemon.js";
+import {
+  ensureDaemon,
+  stopDaemon,
+  readDaemonPid,
+  writeDaemonPid,
+  clearDaemonPid,
+} from "../hermes-daemon.js";
 import { agentEndpoint } from "../hermes-endpoint.js";
 
 function makeTempDir() {
@@ -300,6 +306,197 @@ test("stopDaemon: explicit endpoint port wins over agentId derivation", async ()
   };
   await stopDaemon({ endpoint: { port: 9999 }, killByPort });
   assert.equal(seen, 9999, "explicit endpoint.port must be used");
+});
+
+// --- per-agent daemon pid tracking + kill-prior ----------------------------
+
+// Records killTree(pid) calls. Default isAlive: every nonzero pid is alive.
+function recordingKillTree() {
+  const calls = [];
+  const fn = (pid) => {
+    calls.push(pid);
+    return true;
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+test("pid helpers: write → read round-trips; clear removes the file", async () => {
+  const dir = makeTempDir();
+  try {
+    assert.equal(readDaemonPid("pidder", dir), undefined, "no file → undefined");
+    assert.equal(writeDaemonPid("pidder", 12345, dir), true);
+    assert.equal(readDaemonPid("pidder", dir), 12345, "round-trips the pid");
+    assert.equal(clearDaemonPid("pidder", dir), true);
+    assert.equal(readDaemonPid("pidder", dir), undefined, "cleared → undefined");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("ensureDaemon already-up: no spawn AND no kill-prior even if a prior pid exists", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("idem", 9999, dir);
+    const spawn = recordingSpawn();
+    const killTree = recordingKillTree();
+    const probe = sequencedProbe([{ available: true, version: "0.15.1" }]);
+    const result = await ensureDaemon({
+      agentId: "idem",
+      tempDir: dir,
+      endpoint: agentEndpoint("idem", { tempDir: dir }),
+      spawn,
+      probe,
+      killTree,
+      isAlive: () => true,
+    });
+    assert.equal(result.started, false);
+    assert.equal(spawn.calls.length, 0, "idempotent fast-path must not spawn");
+    assert.equal(killTree.calls.length, 0, "idempotent fast-path must not kill-prior");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("ensureDaemon down + prior pid alive: kills prior, spawns, writes new pid", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("respawn", 4242, dir);
+    const child = fakeChild(8001);
+    const spawn = recordingSpawn(child);
+    const killTree = recordingKillTree();
+    const probe = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+    const result = await ensureDaemon({
+      agentId: "respawn",
+      tempDir: dir,
+      endpoint: agentEndpoint("respawn", { tempDir: dir }),
+      spawn,
+      probe,
+      killTree,
+      isAlive: (pid) => pid === 4242,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+    assert.equal(result.started, true);
+    assert.equal(killTree.calls.length, 1, "prior daemon must be killed exactly once");
+    assert.equal(killTree.calls[0], 4242, "kill-prior must target the tracked prior pid");
+    assert.equal(spawn.calls.length, 1, "a fresh daemon must be spawned");
+    assert.equal(readDaemonPid("respawn", dir), 8001, "new child pid must be persisted");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("ensureDaemon down + no prior pid: spawns, writes pid, no kill", async () => {
+  const dir = makeTempDir();
+  try {
+    const child = fakeChild(8002);
+    const spawn = recordingSpawn(child);
+    const killTree = recordingKillTree();
+    const probe = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+    await ensureDaemon({
+      agentId: "fresh",
+      tempDir: dir,
+      endpoint: agentEndpoint("fresh", { tempDir: dir }),
+      spawn,
+      probe,
+      killTree,
+      isAlive: () => true,
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+    assert.equal(killTree.calls.length, 0, "no prior pid → no kill");
+    assert.equal(spawn.calls.length, 1);
+    assert.equal(readDaemonPid("fresh", dir), 8002, "new child pid persisted");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("ensureDaemon down + prior pid NOT alive: spawns, writes new pid, no kill (stale-pid safe)", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("stale", 1111, dir);
+    const child = fakeChild(8003);
+    const spawn = recordingSpawn(child);
+    const killTree = recordingKillTree();
+    const probe = sequencedProbe([
+      { available: false, reason: "down" },
+      { available: true, version: "0.15.1" },
+    ]);
+    await ensureDaemon({
+      agentId: "stale",
+      tempDir: dir,
+      endpoint: agentEndpoint("stale", { tempDir: dir }),
+      spawn,
+      probe,
+      killTree,
+      isAlive: () => false, // prior pid is dead → must NOT signal a recycled pid
+      healthTimeoutMs: 2000,
+      pollMs: 10,
+    });
+    assert.equal(killTree.calls.length, 0, "dead prior pid must not be killed");
+    assert.equal(spawn.calls.length, 1);
+    assert.equal(readDaemonPid("stale", dir), 8003, "new child pid replaces the stale one");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: kills by port AND by tracked pid, then clears the pid file", async () => {
+  const dir = makeTempDir();
+  try {
+    const ep = agentEndpoint("stop-both", { tempDir: dir });
+    writeDaemonPid("stop-both", 7373, dir);
+    const portCalls = [];
+    const killByPort = async (port) => {
+      portCalls.push(port);
+      return { killed: true, pid: 6262 };
+    };
+    const killTree = recordingKillTree();
+    const result = await stopDaemon({
+      agentId: "stop-both",
+      tempDir: dir,
+      killByPort,
+      killTree,
+      isAlive: (pid) => pid === 7373,
+    });
+    assert.equal(portCalls.length, 1, "killByPort must be called");
+    assert.equal(portCalls[0], ep.port, "killByPort gets the agent's port");
+    assert.equal(killTree.calls.length, 1, "tracked pid must also be killed");
+    assert.equal(killTree.calls[0], 7373, "kill-tree gets the tracked daemon pid");
+    assert.equal(result.stopped, true);
+    assert.equal(readDaemonPid("stop-both", dir), undefined, "pid file must be cleared");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: tracked pid not alive → no kill-tree, still clears pid file", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("stop-dead", 2222, dir);
+    const killByPort = async () => ({ killed: false });
+    const killTree = recordingKillTree();
+    const result = await stopDaemon({
+      agentId: "stop-dead",
+      tempDir: dir,
+      killByPort,
+      killTree,
+      isAlive: () => false,
+    });
+    assert.equal(killTree.calls.length, 0, "dead tracked pid must not be signalled");
+    assert.equal(result.stopped, false);
+    assert.equal(readDaemonPid("stop-dead", dir), undefined, "pid file cleared regardless");
+  } finally {
+    cleanup(dir);
+  }
 });
 
 test("per-agent already-up: probes the agent's baseUrl and never spawns", async () => {
