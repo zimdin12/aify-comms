@@ -2,6 +2,22 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Status = f(liveness, activity, env, policy); managed online requires a visible console; collision-proof hermes ports (2026-06-01)
+
+Workplan `docs/superpowers/plans/2026-06-01-status-liveness-worker-hygiene.md` finalized the status/worker-hygiene model. All shipped + deployed this pass:
+
+**Two-axis status: liveness separated from activity.** Liveness (is the worker process alive?) and activity (is it mid-turn?) are now distinct signals. Every long-lived bridge (resident MCP `server.js`, channel-sidecar `claude-channel.js`, managed-hermes `hermes-managed-host.js`) emits an **unconditional 30s liveness heartbeat** regardless of activity, so idle-but-alive agents stay `online` instead of decaying to `idle`/`available`. The beat is gated OFF the moment the sidecar's controlling parent process dies, so an orphan stops beating immediately rather than faking liveness.
+
+**Managed-claude `online` requires a visible console (visible-TUI enforcement).** Managed claude is `online` only with BOTH a live console PTY AND a live, non-superseded channel-sidecar. A live sidecar with no console is a "headless orphan" — a visible-TUI-requirement violation and a proliferation source — and now reports `available` and is reaped. A live console with a dead/superseded sidecar is also not `online` (it can't deliver). *Why:* the hard requirement that managed agents show a real TUI in the dashboard console; a headless worker silently breaks that contract and accumulates processes.
+
+**Headless-orphan + ghost-row reaping, defense in depth.** Host-side: the managed worker tree is tree-killed when its console PTY closes, and the channel-sidecar self-exits once its parent claude process is gone. Server-side: `_reconcile_managed_worker_hygiene` (in the 60s reconcile loop) reaps ghost console rows (dead worker but stale `attached` terminal) and headless orphans (live sidecar, no console → agent downgraded to `available`).
+
+**Collision-proof hermes gateway ports.** `resolveGatewayPort` now assigns a port that is both bindable AND cross-agent unique — it reads other agents' `aify-hermes-port-*` marker files and skips ports already claimed. Two agents that hash to the same base port (the comms-senior-dev/graph-hermes-tl `9341` collision → "gateway websocket connection failed") now get distinct ports. Takes effect on hermes respawn; supersedes the manual deterministic-pin workaround.
+
+**Server-authoritative, self-healing status + live push.** The live-status cache self-heals on the 60s reconcile loop (no longer dependent on a browser `setInterval` that bg tabs throttle), invalidates on state-changing events, and pushes `agent_status` over WebSocket on operator-driven transitions; the dashboard applies a pushed status to just that agent's row. Bundled status-bug fixes: `turn_busy` cache invalidation on heartbeat; `working` re-evaluated within the 120s turn-busy window; transcript-activity requires growth, not mere freshness; a dead worker that still owes a reply no longer shows `online`.
+
+**Chat run-note gating (less noise).** The per-message dashboard chat run-note (the `<details>` showing "Delivered to Claude resident session; awaiting explicit reply" etc.) now renders ONLY for noteworthy runs — failed, cancelled, steered, queued-behind-active, or reply-present (`isNoteworthyDeliveryRun`). Routine deliveries no longer show it; the awaiting-reply state is still surfaced via the chat presence note.
+
 ## Managed-worker lifecycle + status hardening (2026-05-31, second pass)
 
 A live stress-test surfaced a cascade of lifecycle/status bugs; all fixed at root cause:

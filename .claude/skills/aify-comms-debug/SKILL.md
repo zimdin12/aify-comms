@@ -151,6 +151,25 @@ clear inherited gateway env before starting the dashboard, and the Hermes
 plugin always overwrites MCP-child env with the gateway URL owned by the
 current dashboard process.
 
+## Hermes `gateway websocket connection failed` / two agents collide on one port
+
+**Symptom.** A managed/resident hermes agent fails to come up with a "gateway
+websocket connection failed" error, typically when two hermes agents on the
+same host hash to the same base gateway port (the observed
+comms-senior-dev/graph-hermes-tl collision on `9341`).
+
+**Cause.** `resolveGatewayPort` picked a port from a deterministic hash of the
+agent id and only checked that the port was bindable — it did not check whether
+another agent had already taken it. Two agents hashing to the same base port
+raced for the one port; the loser's gateway WS never came up.
+
+**Fix (2026-06-01).** `resolveGatewayPort` now assigns a port that is both
+bindable AND cross-agent unique — it reads the other agents'
+`aify-hermes-port-*` marker files and skips ports already claimed. Two
+colliding agents now get distinct ports automatically. Takes effect when a
+hermes agent respawns (relaunch its `hermes-aify`). The old deterministic-pin
+workaround (manually pinning one agent to a free port) is no longer needed.
+
 ## Hermes `mcp test` works, but live turn has no aify tools
 
 **Symptom.** Inside `hermes-aify`, `hermes mcp list` shows `aify-comms`
@@ -247,12 +266,20 @@ another heartbeat kept the cache row fresh, so the UI kept showing
 immediately, and readiness/registration changes could leave future-dated cache
 rows in place.
 
-**Fix.** Update and restart/rebuild the service. Current builds downgrade
-managed wrapper-backed agents with no live `terminal_sessions` row to
+**Fix (2026-06-01).** Update and restart/rebuild the service. Current builds
+downgrade managed wrapper-backed agents with no live `terminal_sessions` row to
 `available`, persist that downgrade, invalidate live-state cache on
-`PATCH /agents/{id}/ready`, and invalidate cache on registration. After
-updating, restart the affected environment bridge or wrapper so a real worker
-can re-register and recreate the backing terminal.
+`PATCH /agents/{id}/ready`, and invalidate cache on registration. Managed
+**claude** specifically now requires BOTH a live console PTY AND a live,
+non-superseded channel-sidecar (`claude-channel.js`) to be `online`; a headless
+orphan (live sidecar, no console — a visible-TUI violation and a proliferation
+source) now reports `available` and is reaped by
+`_reconcile_managed_worker_hygiene` (in the 60s reconcile loop), which also
+reaps ghost console rows (dead worker, stale `attached` terminal). Host-side
+defenses back this: the managed worker tree is tree-killed when its console PTY
+closes, and the channel-sidecar self-exits once its parent claude process is
+gone. After updating, restart the affected environment bridge or wrapper so a
+real worker can re-register and recreate the backing terminal.
 
 ## Status semantics: `working` vs `online · awaiting reply` (2026-05-31)
 
@@ -323,10 +350,15 @@ for managed claude the PTY only RENDERS — `claude-channel.js` (the channel
 sidecar) is the actual claimer. A live PTY with a dead/superseded sidecar
 delivered nothing.
 
-**Fix (2026-05-31).** Managed claude now requires a live, non-superseded
-channel-sidecar to be `online`; otherwise it honestly reports `available` (note:
-"No live channel sidecar heartbeat (not deliverable)"). If you see `available`
-with a live Console, the sidecar is down — restart the wrapper (and ensure the
+**Fix (2026-06-01).** Managed claude now requires BOTH a live console PTY AND a
+live, non-superseded channel-sidecar to be `online`; otherwise it honestly
+reports `available` (note: "No live channel sidecar heartbeat (not
+deliverable)"). The inverse case is also handled: a live sidecar with no console
+is a "headless orphan" (visible-TUI violation + proliferation source) — it reads
+`available` and is reaped by `_reconcile_managed_worker_hygiene` (60s reconcile
+loop), backed host-side by PTY-close tree-kill of the worker and channel-sidecar
+self-exit when its parent claude is gone. If you see `available` with a live
+Console, the sidecar is down — restart the wrapper (and ensure the
 self-heal/per-agent-id build is deployed).
 
 ## Managed hermes never shows `working` during a turn

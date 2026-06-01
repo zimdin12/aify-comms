@@ -109,7 +109,7 @@ Status is computed by a single live-state engine (the same one the dashboard, `c
 | Status | Meaning |
 |---|---|
 | `available` | Env online, agent registered, no live worker yet — sending wakes it (wrapper PTY auto-spawns under `managed_via_wrapper`, or PiSession/HermesSession/etc. spawns on demand). |
-| `online` | Worker alive and idle. Internal bridge readiness is folded into this public state, so operators should not see a separate `ready` status. |
+| `online` | Worker alive and idle. Internal bridge readiness is folded into this public state, so operators should not see a separate `ready` status. For **managed claude**, `online` requires BOTH a live console PTY AND a live, non-superseded channel-sidecar (`claude-channel.js`): a live console with a dead/superseded sidecar, or a live sidecar with no console (a "headless orphan", which is reaped), reads `available`, not `online`. Idle-but-alive agents stay `online` via an unconditional 30s liveness heartbeat from each long-lived bridge. |
 | `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Plan 4's `mcp/stdio/turn-busy-heartbeat.js` keeps this fresh during long turns. Managed Claude PTY turns are tracked as running until their reply closes the run; if Claude visibly returns to an idle prompt without a chat reply, reconcile closes the turn as completed-without-reply so it becomes audit debt instead of live work. |
 | `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
 | `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
