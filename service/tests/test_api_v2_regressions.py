@@ -2358,6 +2358,255 @@ class ApiV2RegressionTests(unittest.TestCase):
                 await db.close()
         self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
 
+    def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
+        """Stamp a fresh, far-future cached agent_live_state row so a test can
+        prove a code path invalidated (deleted) it."""
+        self._execute(
+            """
+            INSERT OR REPLACE INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            (agent_id, status, "seeded", api_v2._now(), "2099-01-01T00:00:00Z"),
+        )
+
+    def test_virtual_worker_start_invalidates_live_state(self):
+        # FIX 1: a virtual/RPC worker START (ensure_virtual_terminal) sets
+        # terminal_status='running' + runtime_state.virtualTerminalId and broadcasts
+        # terminal_started — it must ALSO invalidate the live-state cache so a managed
+        # agent that just got a live worker stops showing the stale `available` until
+        # the 60s sweep.
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-vw",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("vw-pi", runtime="pi", sessionMode="managed")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, spawn_spec_id, spawn_request_id, status, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("sess_vw_pi", "vw-pi", "linux:test-host:default", "pi", "/workspace/repo",
+             "managed-warm", "managed", None, None, "running", now, now),
+        )
+        self._seed_cached_live_state("vw-pi")
+        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("vw-pi",))
+        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+
+        resp = self.client.post(
+            "/api/v1/agents/vw-pi/virtual-terminal/ensure",
+            json={"bridgeId": "bridge-vw", "runtime": "pi"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        # The worker is now running (virtualTerminalId set).
+        agent_rs = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("vw-pi",))
+        self.assertTrue(
+            str(json.loads(agent_rs["runtime_state"] or "{}").get("virtualTerminalId") or "").strip(),
+            "precondition: virtualTerminalId must be set by the start path",
+        )
+        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("vw-pi",))
+        self.assertIsNone(post, "virtual worker start must invalidate (delete) the live_state cache row")
+
+    def test_console_stop_reconcile_invalidates_live_state(self):
+        # FIX 2: the console-stop reconcile branch (terminal already stopped/failed
+        # OR the bridge can't claim) marks the terminal stopped + clears the binding
+        # + broadcasts terminal_stopped, but historically omitted the cache invalidate
+        # for VIRTUAL terminals (where _clear_console_terminal_binding no-ops because
+        # the pointer is virtualTerminalId, not consoleTerminal). The sibling
+        # bridge-reported completion path DOES invalidate; this branch must too.
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-cs",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("cs-pi", runtime="pi", sessionMode="managed")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, terminal_id, terminal_status,
+                spawn_spec_id, spawn_request_id, status, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("sess_cs_pi", "cs-pi", "linux:test-host:default", "pi", "/workspace/repo",
+             "managed-warm", "managed", "term_cs_recon", "stopped", None, None, "running", now, now),
+        )
+        # A virtual terminal already in `stopped` → drives the reconcile branch
+        # (terminal_status in {stopped,failed}). bridge_id deliberately empty so
+        # bridge_can_claim is also false.
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("term_cs_recon", "sess_cs_pi", "cs-pi", "linux:test-host:default", "",
+             "pi", "/workspace/repo", api_v2.VIRTUAL_PI_RPC_COMMAND, "", "stopped",
+             "dashboard", now, now, None, ""),
+        )
+        self._seed_cached_live_state("cs-pi", status="online")
+        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("cs-pi",))
+        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+
+        resp = self.client.post(
+            "/api/v1/terminals/term_cs_recon/stop",
+            json={"requestedBy": "dashboard"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        # Confirm we actually hit the reconcile branch.
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            ("term_cs_recon", "console_stop_reconciled"),
+        )
+        self.assertIsNotNone(event, "precondition: reconcile branch must have fired")
+        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("cs-pi",))
+        self.assertIsNone(post, "console-stop reconcile must invalidate (delete) the live_state cache row")
+
+    def test_orphan_reason_says_no_console_not_no_sidecar(self):
+        # FIX 3 (#166): the status-F1 block must distinguish the headless-orphan case
+        # (LIVE sidecar, DEAD console) from the genuine dead-sidecar case. The orphan
+        # case must NOT claim "no live channel sidecar" — it must mention the console.
+        terminal_id = "term_reason_orphan"
+        self._seed_managed_claude_with_attached_terminal("reason-orphan-claude", terminal_id)
+        self._stamp_live_channel_sidecar("reason-orphan-claude")  # sidecar IS alive
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (terminal_id,),
+        )
+        cache = self._async_compute_live_status("reason-orphan-claude")
+        self.assertEqual(cache["status"], "available", cache)
+        reason = (cache.get("reason") or "").lower()
+        self.assertIn("console", reason, f"orphan reason must mention the console; got {reason!r}")
+        self.assertNotIn(
+            "no live channel sidecar", reason,
+            f"orphan reason must NOT claim a dead sidecar; got {reason!r}",
+        )
+
+        # The genuine dead-sidecar case still says sidecar.
+        self._seed_managed_claude_with_attached_terminal("reason-deadsc-claude", "term_reason_deadsc")
+        # No _stamp_live_channel_sidecar → sidecar is dead. Console also stopped.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            ("term_reason_deadsc",),
+        )
+        cache2 = self._async_compute_live_status("reason-deadsc-claude")
+        self.assertEqual(cache2["status"], "available", cache2)
+        reason2 = (cache2.get("reason") or "").lower()
+        self.assertIn("sidecar", reason2, f"dead-sidecar reason must mention the sidecar; got {reason2!r}")
+
+    def test_env_disable_invalidates_bound_agents(self):
+        # FIX 4: the env-disable control path sets bound agents `offline` but must
+        # ALSO invalidate their live_state — `offline` is not a manual-status
+        # short-circuit, so otherwise they show the wrong status until the sweep.
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-envdis",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("envdis-pi", runtime="pi", sessionMode="managed")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, spawn_spec_id, spawn_request_id, status, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("sess_envdis", "envdis-pi", "linux:test-host:default", "pi", "/workspace/repo",
+             "managed-warm", "managed", None, None, "running", now, now),
+        )
+        self._seed_cached_live_state("envdis-pi", status="online")
+        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("envdis-pi",))
+        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+
+        resp = self.client.post(
+            "/api/v1/environments/linux:test-host:default/control",
+            json={"action": "stop", "requestedBy": "dashboard"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        agent = self._fetchone("SELECT status FROM agents WHERE id = ?", ("envdis-pi",))
+        self.assertEqual(agent["status"], "offline", agent)
+        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("envdis-pi",))
+        self.assertIsNone(post, "env-disable must invalidate (delete) bound agents' live_state cache rows")
+
+    def test_stale_claimed_run_aged_out_despite_live_bridge(self):
+        # FIX 5: a claimed/running run with a LIVE (fresh) bridge but a dead inner
+        # controller (no progress for longer than the wall-clock ceiling) must be
+        # aged-out — the bridge-liveness reaper alone never catches it. A fresh
+        # running run with the same live bridge must NOT be touched.
+        self.client.put("/api/v1/settings", json={
+            "active_managed_run_stale_minutes": 5,
+            "active_managed_run_wall_ceiling_minutes": 30,
+        })
+        self._register("aged-hermes", runtime="hermes", sessionMode="managed")
+        live_seen = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-live-aged", "aged-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
+        )
+        old = (datetime.now(timezone.utc) - timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fresh = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Stale run: started 45 min ago, no progress, but the bridge is LIVE.
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("run_aged_stale", None, "dashboard", "aged-hermes", "start_if_possible",
+             "managed", "request", "controller died silently", "body", "normal",
+             "running", 0, old, old, old, "bridge-live-aged"),
+        )
+        # Fresh run on the same live bridge: started 2 min ago → must survive.
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("run_aged_fresh", None, "dashboard", "aged-hermes", "start_if_possible",
+             "managed", "request", "still progressing", "body", "normal",
+             "running", 0, fresh, fresh, fresh, "bridge-live-aged"),
+        )
+        self._seed_cached_live_state("aged-hermes", status="working")
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        closed_ids = {c["runId"] for c in closed}
+        self.assertIn("run_aged_stale", closed_ids, f"stale run must be aged out; closed={closed}")
+        self.assertNotIn("run_aged_fresh", closed_ids, f"fresh run must NOT be aged out; closed={closed}")
+        stale_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_aged_stale",))
+        self.assertEqual(stale_row["status"], "failed")
+        fresh_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_aged_fresh",))
+        self.assertEqual(fresh_row["status"], "running")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("aged-hermes",))
+        self.assertIsNone(live, "aging out a stale run must invalidate the agent's live_state cache row")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill

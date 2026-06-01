@@ -137,6 +137,13 @@ DEFAULT_SETTINGS = {
     # Tuned tighter than the 30-min generic terminal window because
     # managed dispatches are typically per-turn and shouldn't linger.
     "active_managed_run_stale_minutes": 5,
+    # Absolute wall-clock ceiling for a claimed/running managed run, applied
+    # REGARDLESS of bridge liveness. Catches the case where the owning bridge
+    # keeps heartbeating but the inner controller died without PATCHing the run
+    # terminal — the bridge-liveness reaper above never fires, so the agent is
+    # pinned `working` forever. Keyed on real staleness (no progress events +
+    # started/claimed age) so genuinely-progressing runs are never aged out.
+    "active_managed_run_wall_ceiling_minutes": 30,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     # Auto-confirm the Claude "WARNING: Loading development channels" prompt
@@ -3260,6 +3267,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # liveness probe because it has no wrapper PTY in the channel path; claude
     # is covered by its PTY terminal_session and harmlessly passes through here.
     channel_managed_no_sidecar = False
+    # #166: distinguish "sidecar is alive but the console PTY is dead" (a headless
+    # orphan being reaped) from a genuinely dead sidecar — they need different
+    # operator-facing reasons. Both still produce `available` (not deliverable).
+    channel_managed_no_console = False
     runtime_for_delivery = _normalize_runtime(agent_row["runtime"] or "")
     if (
         agent_session_mode == "managed"
@@ -3278,7 +3289,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             has_live_worker = True
         else:
             has_live_worker = False
-            channel_managed_no_sidecar = True
+            if sidecar_live and not console_live:
+                # Headless orphan: the delivery sidecar is alive but the visible
+                # console PTY is gone (a visible-TUI violation being reaped by
+                # _reconcile_managed_worker_hygiene). The sidecar is NOT the issue.
+                channel_managed_no_console = True
+            else:
+                channel_managed_no_sidecar = True
     elif (
         not has_live_worker
         and agent_session_mode == "managed"
@@ -3437,7 +3454,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # `available` rather than deliverable — the channel sidecar
         # (hermes-channel.js) is not heartbeating. Only annotate when we
         # haven't already attached a more specific reason (e.g. offline).
-        if effective_status == "available" and channel_managed_no_sidecar and not reason:
+        if effective_status == "available" and channel_managed_no_console and not reason:
+            reason = "Worker has no visible console (headless orphan being reaped)."
+        elif effective_status == "available" and channel_managed_no_sidecar and not reason:
             reason = "No live channel sidecar heartbeat (not deliverable)."
     refresh_after = _status_refresh_after(
         agent_last_seen,
@@ -7653,6 +7672,20 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                         now,
                     ),
                 )
+        # Env recovery / status transition: when the env flips between online and
+        # offline/degraded, bound agents' derived status (offline ↔ available/online)
+        # changes too. Invalidate their live-status cache so the transition shows
+        # immediately rather than after the ~90s env window / 60s sweep.
+        prior_status = str((existing["status"] if existing else "") or "").strip().lower()
+        if existing and prior_status != requested_status:
+            bound_rows = await (await db.execute(
+                "SELECT DISTINCT agent_id FROM agent_sessions WHERE environment_id = ?",
+                (env_id,),
+            )).fetchall()
+            for bound in bound_rows:
+                bound_agent = str(bound["agent_id"] or "").strip()
+                if bound_agent:
+                    await _invalidate_agent_live_state(db, bound_agent)
         await db.commit()
         row_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         row = await row_cursor.fetchone()
@@ -7829,6 +7862,17 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
             """,
             (now, environment_id),
         )
+        # `offline` is not a manual-status short-circuit, so the live-status cache
+        # would otherwise keep serving the old status for these bound agents until
+        # the 60s sweep. Invalidate each so the disable reflects immediately.
+        bound_rows = await (await db.execute(
+            "SELECT DISTINCT agent_id FROM agent_sessions WHERE environment_id = ?",
+            (environment_id,),
+        )).fetchall()
+        for bound in bound_rows:
+            bound_agent = str(bound["agent_id"] or "").strip()
+            if bound_agent:
+                await _invalidate_agent_live_state(db, bound_agent)
         await db.commit()
         ws = await _get_ws(request)
         if ws: await ws.broadcast("environment_control_requested", {"environmentId": environment_id, "action": action})
@@ -8656,6 +8700,10 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                 "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
                 (json.dumps(next_runtime_state), now, session["agent_id"]),
             )
+            # The agent now has a live worker (virtualTerminalId + terminal_status
+            # running). Invalidate the live-status cache so it recomputes to online
+            # immediately instead of lying `available` until the 60s sweep.
+            await _invalidate_agent_live_state(db, session["agent_id"])
             await db.commit()
             terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
             updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
@@ -9070,6 +9118,10 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
             """,
             (json.dumps(next_runtime_state), now, agent_id),
         )
+        # The agent now has a live worker (virtualTerminalId + terminal_status
+        # running). Invalidate the live-status cache so it recomputes to online
+        # immediately instead of lying `available` until the 60s sweep.
+        await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
         updated_session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
@@ -9382,6 +9434,13 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
                 (now, terminal["session_id"]),
             )
             await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
+            # _clear_console_terminal_binding only invalidates when the agent's
+            # consoleTerminal pointer matches (no-ops for virtual/RPC terminals,
+            # whose pointer is virtualTerminalId). Invalidate explicitly here —
+            # mirroring the sibling bridge-reported completion path — so the
+            # reconciled stop drops the agent out of `online`/`working`
+            # immediately rather than lying until the 60s sweep.
+            await _invalidate_agent_live_state(db, terminal["agent_id"])
             await _append_terminal_event(
                 db,
                 terminal_id,
@@ -14054,6 +14113,14 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     stale_minutes = int(settings.get("active_managed_run_stale_minutes", 5) or 5)
     stale_seconds = max(60, stale_minutes * 60)
     cutoff_param = f"-{stale_seconds} seconds"
+    # Absolute wall-clock ceiling (FIX 5, 2026-06-01): applied regardless of
+    # bridge liveness, so a run pinned `working` by a live bridge whose inner
+    # controller died is still aged out. Always >= stale_seconds so it never
+    # narrows the existing bridge-staleness reaper. Keyed on no-progress for the
+    # ceiling window (same dispatch_events check) so progressing runs are safe.
+    ceiling_minutes = int(settings.get("active_managed_run_wall_ceiling_minutes", 30) or 30)
+    ceiling_seconds = max(stale_seconds, ceiling_minutes * 60)
+    ceiling_param = f"-{ceiling_seconds} seconds"
     # Defense against false-positive reaping (code review C1, 2026-05-22):
     # an orphan candidate must satisfy ALL of:
     #   1. status claimed/running
@@ -14079,24 +14146,43 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         FROM dispatch_runs r
         WHERE r.status IN ('claimed', 'running')
           AND (
-            COALESCE(r.claim_bridge_id, '') = ''
-            OR NOT EXISTS (
-              SELECT 1 FROM bridge_instances bi
-              WHERE bi.id = r.claim_bridge_id
-                AND datetime(bi.last_seen) > datetime('now', ?)
+            -- Branch 1: no owning bridge (empty OR stale) + no progress for the
+            -- stale window — the original fast bridge-liveness reaper.
+            (
+              (
+                COALESCE(r.claim_bridge_id, '') = ''
+                OR NOT EXISTS (
+                  SELECT 1 FROM bridge_instances bi
+                  WHERE bi.id = r.claim_bridge_id
+                    AND datetime(bi.last_seen) > datetime('now', ?)
+                )
+              )
+              AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)
+              AND NOT EXISTS (
+                SELECT 1 FROM dispatch_events de
+                WHERE de.run_id = r.id
+                  AND datetime(de.created_at) > datetime('now', ?)
+                  AND de.event_type NOT IN ('reply_reminder_skipped')
+              )
             )
-          )
-          AND datetime(COALESCE(r.started_at, r.requested_at)) <= datetime('now', ?)
-          AND NOT EXISTS (
-            SELECT 1 FROM dispatch_events de
-            WHERE de.run_id = r.id
-              AND datetime(de.created_at) > datetime('now', ?)
-              AND de.event_type NOT IN ('reply_reminder_skipped')
+            -- Branch 2 (FIX 5): absolute wall-clock ceiling, applied REGARDLESS of
+            -- bridge liveness. A run that has made no progress for the ceiling
+            -- window is aged out even if the bridge is still heartbeating (the
+            -- inner controller died without PATCHing the run terminal).
+            OR (
+              datetime(COALESCE(r.started_at, r.claimed_at, r.requested_at)) <= datetime('now', ?)
+              AND NOT EXISTS (
+                SELECT 1 FROM dispatch_events de
+                WHERE de.run_id = r.id
+                  AND datetime(de.created_at) > datetime('now', ?)
+                  AND de.event_type NOT IN ('reply_reminder_skipped')
+              )
+            )
           )
         ORDER BY r.requested_at ASC
         LIMIT ?
         """,
-        (cutoff_param, cutoff_param, cutoff_param, limit),
+        (cutoff_param, cutoff_param, cutoff_param, ceiling_param, ceiling_param, limit),
     )
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
@@ -14111,8 +14197,10 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         reason = (
             f"Active run (dispatch_mode={dispatch_mode or '(default)'}, "
             f"execution_mode={execution_mode or '(default)'}) has no owning bridge "
-            f"and made no progress for {stale_seconds}s — bridge crashed, "
-            f"failure PATCH was dropped, or the wrapper PTY never claimed."
+            f"and made no progress for {stale_seconds}s, or exceeded the "
+            f"{ceiling_seconds}s wall-clock ceiling with no progress — bridge "
+            f"crashed, the inner controller died without reporting, the failure "
+            f"PATCH was dropped, or the wrapper PTY never claimed."
         )
         await db.execute(
             """
