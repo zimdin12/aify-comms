@@ -36,6 +36,7 @@ import {
   runCli,
   ensureStableSession,
   resolveHermesPython,
+  makeInFlightProbe,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +155,51 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
     !findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
     "must NOT clear turn on a successful delivery (the fire-and-forget turn is just starting)",
   );
+});
+
+test("deliverRun: on successful submit stamps inFlight {submittedAt, completed:false, runId} (opens re-pulse window) (#3)", async () => {
+  const { httpCall } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "prompt.submit": { status: "streaming" },
+  });
+  const inFlight = { submittedAt: 0, completed: false, runId: "" };
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    inFlight,
+    now: () => 123_456,
+  });
+
+  assert.equal(inFlight.submittedAt, 123_456, "window opened with the submit timestamp");
+  assert.equal(inFlight.completed, false, "freshly-opened window is not completed");
+  assert.equal(inFlight.runId, "run-1", "tracks WHICH run opened the window (for terminal-status polling)");
+});
+
+test("deliverRun: requeue (TUI never attaches) closes inFlight window {submittedAt:0, runId:''} (#3)", async () => {
+  const { httpCall } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": { result: { sessions: [] } }, // never attaches
+    "prompt.submit": { status: "streaming" },
+  });
+  const inFlight = { submittedAt: 999, completed: false, runId: "old-run" };
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    inFlight,
+    attachWaitMs: 10,
+    attachPollMs: 1,
+    sleepImpl: async () => {},
+  });
+
+  assert.equal(inFlight.submittedAt, 0, "requeue closes the window");
+  assert.equal(inFlight.runId, "", "requeue clears the tracked runId");
 });
 
 test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", async () => {
@@ -614,6 +660,118 @@ test("runCli: 'run <id>' routes to the delivery loop", async () => {
   assert.equal(res.mode, "run");
   assert.equal(res.agentId, "sc-hermes");
   assert.ok(findCall(calls, "POST", "/dispatch/claim"));
+});
+
+// ---------------------------------------------------------------------------
+// makeInFlightProbe — the re-pulse gate (#3 false-working fix + #172 safety)
+// ---------------------------------------------------------------------------
+
+const WIN = 15 * 60 * 1000;
+
+test("makeInFlightProbe: open window + non-terminal run → keeps re-pulsing (no #172 regression)", async () => {
+  // A long turn still 'delivered' (the managed turn is just STARTING) must keep
+  // the beat alive so a >120s turn keeps showing `working`.
+  const inFlight = { submittedAt: Date.now() - 5 * 60 * 1000, completed: false, runId: "run-1" };
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered" } }),
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), true, "delivered (non-terminal) within window must keep re-pulsing");
+  assert.equal(inFlight.completed, false, "must NOT latch completion on a non-terminal status");
+});
+
+test("makeInFlightProbe: terminal run status latches completed=true and STOPS the beat (#3)", async () => {
+  // The bug: a turn that finishes (agent self-replied → run 'completed') kept
+  // re-pulsing turn_busy=true until the 15-min cap. Observing the terminal
+  // status must stop the beat immediately.
+  const inFlight = { submittedAt: Date.now() - 2 * 60 * 1000, completed: false, runId: "run-1" };
+  let polls = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => {
+      polls++;
+      return { run: { status: "completed" } };
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), false, "completed run must stop the beat well within the window");
+  assert.equal(inFlight.completed, true, "completion is latched");
+  assert.equal(inFlight.runId, "", "tracked runId cleared on completion");
+  // Latched: a second call short-circuits via shouldManagedHostRepulse(completed)
+  // and does NOT poll again.
+  assert.equal(await probe(), false);
+  assert.equal(polls, 1, "must not keep polling run status after completion latches");
+});
+
+test("makeInFlightProbe: failed/cancelled/stopped also stop the beat", async () => {
+  for (const status of ["failed", "cancelled", "stopped"]) {
+    const inFlight = { submittedAt: Date.now() - 1000, completed: false, runId: "run-x" };
+    const probe = makeInFlightProbe({
+      inFlight,
+      serverUrl: "http://x",
+      httpCall: async () => ({ run: { status } }),
+      maxWindowMs: WIN,
+    });
+    assert.equal(await probe(), false, `terminal '${status}' must stop the beat`);
+    assert.equal(inFlight.completed, true);
+  }
+});
+
+test("makeInFlightProbe: past the hard window → false WITHOUT polling run status (15-min cap backstop)", async () => {
+  let polls = 0;
+  const inFlight = { submittedAt: Date.now() - (WIN + 1000), completed: false, runId: "run-1" };
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => {
+      polls++;
+      return { run: { status: "delivered" } };
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), false, "expired window stops the beat regardless of run status");
+  assert.equal(polls, 0, "expired window short-circuits before any run-status poll");
+});
+
+test("makeInFlightProbe: no submit (closed window) → false, no poll", async () => {
+  let polls = 0;
+  const inFlight = { submittedAt: 0, completed: false, runId: "" };
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => {
+      polls++;
+      return {};
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), false);
+  assert.equal(polls, 0, "no open window → never polls");
+});
+
+test("makeInFlightProbe: run-status fetch error → treated as non-terminal, keeps re-pulsing (best-effort)", async () => {
+  const inFlight = { submittedAt: Date.now() - 1000, completed: false, runId: "run-1" };
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => {
+      throw new Error("network down");
+    },
+    maxWindowMs: WIN,
+  });
+  // A transient status-read failure must NOT prematurely latch completion (that
+  // would under-show working). It stays in-flight until window expiry.
+  assert.equal(await probe(), true, "status read failure → assume still in-flight (no premature stop)");
+  assert.equal(inFlight.completed, false);
+});
+
+test("makeInFlightProbe: no serverUrl → false (never beats offline)", async () => {
+  const inFlight = { submittedAt: Date.now(), completed: false, runId: "run-1" };
+  const probe = makeInFlightProbe({ inFlight, serverUrl: "", httpCall: async () => ({}), maxWindowMs: WIN });
+  assert.equal(await probe(), false);
 });
 
 // ---------------------------------------------------------------------------

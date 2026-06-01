@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   startInFlightRepulse,
   shouldManagedHostRepulse,
+  isTerminalRunStatus,
 } from "../hermes-turn-repulse.js";
 
 // --- startInFlightRepulse -------------------------------------------------
@@ -98,8 +99,28 @@ test("shouldManagedHostRepulse is false past the bounded window (anti-stuck guar
 
 test("shouldManagedHostRepulse short-circuits the moment completion is observed", () => {
   const t0 = 100_000;
+  // completed:true stops the window EVEN deep inside an otherwise-open window —
+  // this is the #3 fix: an observed turn-end must beat the bounded window.
   assert.strictEqual(
     shouldManagedHostRepulse({ submittedAt: t0, now: t0 + 10_000, maxWindowMs: 600_000, completed: true }),
+    false,
+  );
+});
+
+test("shouldManagedHostRepulse: completed:false within window still re-pulses (no #172 regression)", () => {
+  const t0 = 100_000;
+  // A long, NOT-yet-completed turn well inside the window must keep re-pulsing
+  // so a >120s managed-hermes turn keeps showing `working`.
+  assert.strictEqual(
+    shouldManagedHostRepulse({ submittedAt: t0, now: t0 + 300_000, maxWindowMs: 600_000, completed: false }),
+    true,
+  );
+});
+
+test("shouldManagedHostRepulse: completed:false past window stops (existing anti-stuck guard preserved)", () => {
+  const t0 = 100_000;
+  assert.strictEqual(
+    shouldManagedHostRepulse({ submittedAt: t0, now: t0 + 600_001, maxWindowMs: 600_000, completed: false }),
     false,
   );
 });
@@ -117,5 +138,23 @@ test("shouldManagedHostRepulse is anchored on submit state, never on derived sta
   // only the bridge-owned submit timestamp, not the server's status.
   for (const now of [0, 1, 1_000_000, Date.now()]) {
     assert.strictEqual(shouldManagedHostRepulse({ submittedAt: 0, now }), false);
+  }
+});
+
+// --- isTerminalRunStatus (true turn-end discriminator) --------------------
+
+test("isTerminalRunStatus is true for completed/failed/cancelled/stopped (case/space-insensitive)", () => {
+  for (const s of ["completed", "failed", "cancelled", "stopped", "COMPLETED", "  Failed  "]) {
+    assert.strictEqual(isTerminalRunStatus(s), true, `expected terminal: '${s}'`);
+  }
+});
+
+test("isTerminalRunStatus is false for in-flight / non-terminal statuses", () => {
+  // CRITICAL (#172 safety): 'delivered' is NOT terminal — the managed turn is
+  // only just STARTING at delivered. 'claimed'/'running'/'queued' are mid-turn.
+  // Treating any of these as completion would stop the re-pulse early and
+  // under-show `working` on a long turn (the #172 regression).
+  for (const s of ["delivered", "claimed", "running", "queued", "", null, undefined, "weird"]) {
+    assert.strictEqual(isTerminalRunStatus(s), false, `expected NON-terminal: '${s}'`);
   }
 });

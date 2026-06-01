@@ -97,3 +97,24 @@ export function shouldManagedHostRepulse({
   if (!(elapsed >= 0)) return false; // clock skew guard
   return elapsed < (Number(maxWindowMs) || 0);
 }
+
+// The TRUE turn-end discriminator for the managed-host re-pulse window (#3).
+//
+// The managed-host WS client cannot observe the gateway's per-token turn-done
+// event (events route to the visible-TUI transport, which OWNS them). The ONE
+// real, host-observable "this turn's generation finished" signal is the
+// dispatch RUN reaching a TERMINAL status:
+//   - `completed`: the agent self-replied (require_reply →
+//     _mark_dispatch_run_answered), which ALSO clears server turn_busy. This is
+//     the precise turn-end.
+//   - `failed` / `cancelled` / `stopped`: the run was terminated; no turn is in
+//     flight anymore.
+// `delivered` is DELIBERATELY excluded: the managed turn is only just STARTING
+// at `delivered` (prompt.submit is fire-and-forget). Treating `delivered` (or
+// any mid-turn `claimed`/`running`) as completion would close the window early
+// and under-show `working` on a long turn — the exact #172 regression. So this
+// matches ONLY post-turn terminal states.
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "stopped"]);
+export function isTerminalRunStatus(status) {
+  return TERMINAL_RUN_STATUSES.has(String(status || "").trim().toLowerCase());
+}

@@ -38,7 +38,11 @@ import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
-import { startInFlightRepulse, shouldManagedHostRepulse } from "./hermes-turn-repulse.js";
+import {
+  startInFlightRepulse,
+  shouldManagedHostRepulse,
+  isTerminalRunStatus,
+} from "./hermes-turn-repulse.js";
 import {
   buildSessionActiveListFrame,
   buildPromptSubmitFrame,
@@ -451,6 +455,22 @@ async function clearTurn(httpCall, agentId) {
   });
 }
 
+// Read the dispatch run's current status (the host-observable turn-end signal,
+// #3). Best-effort: any error → "" (treated as not-yet-terminal). The run's
+// terminal status (`completed` when the agent self-replies, or
+// failed/cancelled/stopped) is the ONLY real "this turn finished" signal the
+// managed-host can see — gateway turn-done events route to the TUI transport.
+async function fetchRunStatus(httpCall, runId) {
+  const id = String(runId || "").trim();
+  if (!id) return "";
+  try {
+    const resp = await httpCall("GET", `/dispatch/runs/${encodeURIComponent(id)}`);
+    return String(resp?.run?.status || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function markRunDelivered(httpCall, run) {
   const runId = String(run?.id || "");
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
@@ -597,7 +617,10 @@ export async function deliverRun({
       // No delivery happened — clear the turn_busy pulse so the agent does not
       // falsely show "working" while the run sits requeued, and close the
       // in-flight window so the re-pulse beat stops.
-      if (inFlight) inFlight.submittedAt = 0;
+      if (inFlight) {
+        inFlight.submittedAt = 0;
+        inFlight.runId = "";
+      }
       await clearTurn(httpCall, agentId).catch(() => {});
       return;
     }
@@ -629,6 +652,10 @@ export async function deliverRun({
     if (inFlight) {
       inFlight.submittedAt = now();
       inFlight.completed = false;
+      // Track WHICH run opened this window so the re-pulse beat can poll that
+      // run's status and detect the true turn-end (terminal status) — see
+      // runDeliveryLoop's isInFlight probe. (#3)
+      inFlight.runId = String(run?.id || "");
     }
   } catch (error) {
     console.error(
@@ -638,9 +665,51 @@ export async function deliverRun({
     await markRunFailed(httpCall, run, error).catch(() => {});
     // Delivery failed → not working. Close the in-flight window and clear the
     // pulse we set above.
-    if (inFlight) inFlight.submittedAt = 0;
+    if (inFlight) {
+      inFlight.submittedAt = 0;
+      inFlight.runId = "";
+    }
     await clearTurn(httpCall, agentId).catch(() => {});
   }
+}
+
+// Build the re-pulse beat's in-flight probe (#172 + #3). Returned async fn is
+// passed to startInFlightRepulse as `isInFlight`; it returns true only when the
+// bounded post-submit window is open AND the in-flight run has NOT reached a
+// terminal status. On observing a terminal run status it flips
+// `inFlight.completed = true` (latching) so this and all future ticks stop —
+// fixing the false-`working`-to-15-min bug (#3) without regressing #172 (a
+// long, still-`delivered` turn keeps re-pulsing because `delivered` is not
+// terminal). Factored out so the wiring is unit-testable (the beat itself is
+// time-driven via setInterval). `serverUrl`, `httpCall`, and `maxWindowMs` are
+// injected; `fetchStatus` defaults to the live run-status reader.
+export function makeInFlightProbe({
+  inFlight,
+  serverUrl,
+  httpCall,
+  maxWindowMs = REPULSE_WINDOW_MS,
+  fetchStatus = (runId) => fetchRunStatus(httpCall, runId),
+} = {}) {
+  return async function isInFlight() {
+    if (!serverUrl || !inFlight) return false;
+    if (
+      !shouldManagedHostRepulse({
+        submittedAt: inFlight.submittedAt,
+        completed: inFlight.completed,
+        maxWindowMs,
+      })
+    ) {
+      return false;
+    }
+    // Window open + not yet flagged completed → check for the real turn-end.
+    const status = await fetchStatus(inFlight.runId);
+    if (isTerminalRunStatus(status)) {
+      inFlight.completed = true; // latch: observed completion → stop the beat.
+      inFlight.runId = "";
+      return false;
+    }
+    return true;
+  };
 }
 
 // One poll cycle: claim a small batch of channel/resident runs and deliver each.
@@ -799,16 +868,15 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // TURN_BUSY_STALE_SECONDS keeps showing `working`. Anchored on the
   // bridge-owned submit timestamp + hard window cap — NEVER the server's
   // derived status (anti-feedback-loop; mirrors claude decideRepulse).
-  const inFlight = { submittedAt: 0, completed: false };
+  const inFlight = { submittedAt: 0, completed: false, runId: "" };
   const stopRepulse = startInFlightRepulse({
     intervalMs: REPULSE_MS,
-    isInFlight: () =>
-      Boolean(serverUrl) &&
-      shouldManagedHostRepulse({
-        submittedAt: inFlight.submittedAt,
-        completed: inFlight.completed,
-        maxWindowMs: REPULSE_WINDOW_MS,
-      }),
+    isInFlight: makeInFlightProbe({
+      inFlight,
+      serverUrl,
+      httpCall,
+      maxWindowMs: REPULSE_WINDOW_MS,
+    }),
     pulse: async () => {
       await reportTurnBusy(httpCall, id, { busy: true });
     },
