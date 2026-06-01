@@ -37,6 +37,7 @@ import {
   ensureStableSession,
   resolveHermesPython,
   makeInFlightProbe,
+  makeInFlightPulse,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -772,6 +773,63 @@ test("makeInFlightProbe: no serverUrl → false (never beats offline)", async ()
   const inFlight = { submittedAt: Date.now(), completed: false, runId: "run-1" };
   const probe = makeInFlightProbe({ inFlight, serverUrl: "", httpCall: async () => ({}), maxWindowMs: WIN });
   assert.equal(await probe(), false);
+});
+
+// ---------------------------------------------------------------------------
+// makeInFlightPulse — the re-pulse must thread the OPEN run's id (linkage fix)
+// ---------------------------------------------------------------------------
+
+test("makeInFlightPulse: re-pulse posts busy=true WITH the in-flight runId (preserves turn_run_id linkage)", async () => {
+  const posts = [];
+  const inFlight = { submittedAt: Date.now(), completed: false, runId: "run-77" };
+  const pulse = makeInFlightPulse({
+    httpCall: async () => ({ ok: true }),
+    agentId: "sc-hermes",
+    inFlight,
+    reportTurnBusyImpl: async (_httpCall, agentId, body) => {
+      posts.push({ agentId, body });
+    },
+  });
+
+  await pulse();
+
+  assert.equal(posts.length, 1, "exactly one re-pulse");
+  assert.equal(posts[0].agentId, "sc-hermes");
+  assert.equal(posts[0].body.busy, true, "re-pulse marks busy");
+  assert.equal(
+    posts[0].body.runId,
+    "run-77",
+    "re-pulse MUST carry the open run's id (else the server overwrites turn_run_id to empty, dropping the dashboard 'working on <run>' link)",
+  );
+});
+
+test("makeInFlightPulse: tracks the CURRENT inFlight.runId at pulse time (window re-stamped between beats)", async () => {
+  const posts = [];
+  const inFlight = { submittedAt: Date.now(), completed: false, runId: "run-a" };
+  const pulse = makeInFlightPulse({
+    httpCall: async () => ({}),
+    agentId: "sc-hermes",
+    inFlight,
+    reportTurnBusyImpl: async (_h, _id, body) => posts.push(body.runId),
+  });
+
+  await pulse();
+  inFlight.runId = "run-b"; // a newer turn opened the window
+  await pulse();
+
+  assert.deepEqual(posts, ["run-a", "run-b"], "each beat reads the live runId");
+});
+
+test("makeInFlightPulse: missing/empty runId falls back to '' (no crash, server keeps stale or clears)", async () => {
+  const posts = [];
+  const pulse = makeInFlightPulse({
+    httpCall: async () => ({}),
+    agentId: "sc-hermes",
+    inFlight: { submittedAt: Date.now(), completed: false, runId: "" },
+    reportTurnBusyImpl: async (_h, _id, body) => posts.push(body.runId),
+  });
+  await pulse();
+  assert.equal(posts[0], "", "empty runId threads as '' without throwing");
 });
 
 // ---------------------------------------------------------------------------

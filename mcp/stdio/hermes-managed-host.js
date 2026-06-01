@@ -712,6 +712,30 @@ export function makeInFlightProbe({
   };
 }
 
+// The re-pulse PULSE for the managed-host beat. Returns the `pulse` callback for
+// startInFlightRepulse. CRITICAL: it threads the OPEN run's id
+// (`inFlight.runId`) onto the busy heartbeat. The server heartbeat handler
+// OVERWRITES agent_turn_state.turn_run_id from the body on every busy beat, so
+// a re-pulse WITHOUT a runId would clear the run linkage on the first tick and
+// drop the dashboard's "working on <run>" association mid-turn. `inFlight.runId`
+// is stamped on submit and cleared on requeue/completion, so this always
+// reflects the run that currently owns the window. Factored out so the wiring
+// (runId threaded, not empty) is unit-testable independent of the time-driven
+// setInterval beat. `reportTurnBusyImpl` is injectable for tests.
+export function makeInFlightPulse({
+  httpCall,
+  agentId,
+  inFlight,
+  reportTurnBusyImpl = reportTurnBusy,
+} = {}) {
+  return async function pulse() {
+    await reportTurnBusyImpl(httpCall, agentId, {
+      busy: true,
+      runId: (inFlight && inFlight.runId) || "",
+    });
+  };
+}
+
 // One poll cycle: claim a small batch of channel/resident runs and deliver each.
 // Returns { processed, released }. NEVER throws.
 export async function runPollCycle({
@@ -877,9 +901,12 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       httpCall,
       maxWindowMs: REPULSE_WINDOW_MS,
     }),
-    pulse: async () => {
-      await reportTurnBusy(httpCall, id, { busy: true });
-    },
+    // Thread the in-flight runId so the server heartbeat handler keeps
+    // turn_run_id pointing at the open run (it OVERWRITES turn_run_id from the
+    // body on every busy beat). Omitting it cleared the run linkage on the
+    // first re-pulse, dropping the dashboard's "working on <run>" association
+    // mid-turn. See makeInFlightPulse.
+    pulse: makeInFlightPulse({ httpCall, agentId: id, inFlight }),
   });
 
   let totalProcessed = 0;
