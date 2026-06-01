@@ -381,6 +381,35 @@ respawns (relaunch its `hermes-aify`, which kill-priors the old loop and loads t
 new bridge file). A loop still claiming under the machine-global
 `hermes-managed-host-<machine>` id (no `-<agentId>` suffix) is running old code.
 
+## Hermes agent shows `online` while working
+
+**Symptom.** A hermes agent is clearly mid-turn (TUI streaming, tools running)
+but the dashboard/`comms_agent_info` reads `online`, not `working`.
+
+**Cause.** Hermes turn detection is dispatch/hook-based: aify only sees a turn
+via (a) an aify dispatch run, or (b) the `pre_llm_call` turn-start hook. Work the
+agent does autonomously (not driven by an aify dispatch), or direct TUI/gateway
+input that doesn't trip the hook, never emits a `turn_busy` signal, so status
+stays `online`. This is a known open limitation, not a stale-bridge bug.
+
+**Fix / status.** The long **managed**-turn case IS fixed (in-flight re-pulse,
+`mcp/stdio/hermes-turn-repulse.js`) — relaunch `hermes-aify` to load it. The
+autonomous/direct-typed case needs new gateway instrumentation (a hermes
+busy/streaming signal or a turn-end hook) and is not fixed yet. See
+KNOWN_ISSUES.md (tasks #172 / #171). No action needed if delivery itself works —
+only the live status is imprecise.
+
+## Runs view: routine `delivered` runs show a blank summary (expected)
+
+**Symptom / question.** A successful `delivered` run in the Runs view has an
+empty `summary`, so the Runs list looks quiet.
+
+**Cause.** Intentional (D2): routine successful deliveries now carry an empty
+`summary` to keep the Runs view from filling with redundant "Delivered to ..."
+notes. Failed/cancelled/noteworthy runs still carry their summary, so real
+problems remain visible. A blank summary on a `delivered` run is not a dropped
+result — the team-visible answer is still the message/reply flow.
+
 ## Codex: `Invalid request: AbsolutePathBuf deserialized without a base path`
 
 **Symptom.** Dispatches to a Codex agent fail with this Rust error. Dashboard may also show `Codex WebSocket app-server connection closed (1006)`.

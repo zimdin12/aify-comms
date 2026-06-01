@@ -18,6 +18,12 @@ Workplan `docs/superpowers/plans/2026-06-01-status-liveness-worker-hygiene.md` f
 
 **Chat run-note gating (less noise).** The per-message dashboard chat run-note (the `<details>` showing "Delivered to Claude resident session; awaiting explicit reply" etc.) now renders ONLY for noteworthy runs — failed, cancelled, steered, queued-behind-active, or reply-present (`isNoteworthyDeliveryRun`). Routine deliveries no longer show it; the awaiting-reply state is still surfaced via the chat presence note.
 
+**Routine delivered runs carry an empty `summary` (D2).** A successful, unremarkable `delivered` run now stores an empty `summary` so the Runs view stays quiet; failed/cancelled/noteworthy runs still carry their summary. A blank summary on a `delivered` run is not lost work — the team-visible answer is still the message/reply flow.
+
+**The three compensating carve-outs were evaluated against the liveness beat and KEPT (not removed).** Sidecar claim-path self-heal, complementary-pair protection in `_record_bridge_registration`, and idle-resident-accepts-sidecar in `_resident_bridge_is_fresh`. The unconditional liveness beat only refreshes `last_seen` and short-circuits superseded rows — it never un-supersedes a row nor prevents register-time supersession — so each carve-out still does real work, and each removal probe broke its behaviour test. Removing them would reintroduce the queued-but-never-claimed delivery stalls they were added to fix. See KNOWN_ISSUES.md (task #154).
+
+**Follow-up status fixes bundled this pass.** Live-status cache invalidation now also fires on worker-start, on console-stop reconcile, and on env (online/offline) transitions, so a started/stopped worker reflects immediately instead of on the next sweep. Stale-claimed runs gained a wall-clock ceiling so a run claimed but never progressed can't pin an agent `working` indefinitely. In-flight managed-hermes turns re-pulse `turn_busy` (`mcp/stdio/hermes-turn-repulse.js`) so a long fire-and-forget `prompt.submit` turn shows `working` for its full duration. The remaining gap — autonomous/direct-typed hermes work that trips neither an aify dispatch nor the `pre_llm_call` hook — still reads `online`; tracked in KNOWN_ISSUES.md (tasks #172 / #171).
+
 ## Managed-worker lifecycle + status hardening (2026-05-31, second pass)
 
 A live stress-test surfaced a cascade of lifecycle/status bugs; all fixed at root cause:
