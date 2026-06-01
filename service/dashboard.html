@@ -6211,6 +6211,21 @@ function messageDeliveryDetail(deliveryRun) {
   return run.error || run.summary || run.status || '';
 }
 
+function isNoteworthyDeliveryRun(deliveryRun) {
+  if (!deliveryRun?.run) return false;
+  const run = deliveryRun.run;
+  const control = deliveryRun.control;
+  // Steer activity, failures/cancellations, queued-behind, and runs that
+  // produced a linked reply are worth surfacing. Routine deliveries
+  // (delivered/running/completed-without-reply) are chat noise — the
+  // "awaiting reply" state is already shown via the chat presence note.
+  if (control?.action === 'steer') return true;
+  if (run.blockedByActiveRun || run.queuedBehindActiveRun || run.status === 'queued') return true;
+  if (run.status === 'failed' || run.status === 'cancelled') return true;
+  if (run.resultMessageId) return true;
+  return false;
+}
+
 function renderChatMessage(m, currentFrom) {
   const system = m.from === '_system';
   const mine = !system && m.from === currentFrom;
@@ -6228,7 +6243,7 @@ function renderChatMessage(m, currentFrom) {
   const relatedRun = deliveryRun?.run;
   const deliveryLabel = messageDeliveryLabel(deliveryRun);
   const deliveryDetail = messageDeliveryDetail(deliveryRun);
-  const runDetail = relatedRun && (deliveryDetail || relatedRun.status)
+  const runDetail = relatedRun && isNoteworthyDeliveryRun(deliveryRun)
     ? `<details class="chat-run-note"><summary>${esc(deliveryLabel || 'run')} · ${runOpenButton(relatedRun.id)}${relatedRun.resultMessageId ? ` · reply ${messageOpenButton(relatedRun.resultMessageId, 'linked')}` : ''}</summary><pre>${esc(deliveryDetail || relatedRun.status || '')}</pre></details>`
     : '';
   const subjectText = String(m.subject || '').trim();
