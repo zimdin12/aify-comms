@@ -3622,6 +3622,7 @@ function managedAgentsTableHtml(workers) {
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed identity', () => prefillWorkerMessage(id, 'request')),
       actionButtonFn('Assign env', 'Open identity editor to retarget this agent and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
+      (!['stopped', 'offline'].includes((info.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop this managed agent's worker (console/TUI + session). Identity, history, and saved spawn spec are kept — a later message or Recreate brings it back.", () => stopManagedAgent(id), 'btn-danger') : '',
       actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => recreateAgent(id), 'btn-danger'),
       actionButtonFn('Remove', 'Unregister this managed identity and cancel queued work', () => deleteAgent(id), 'btn-danger'),
     ];
@@ -7963,6 +7964,20 @@ function recreateAgent(agentId) {
     return;
   }
   controlSession(session.id, 'recreate');
+}
+
+// Stop a managed agent's worker (console/TUI + session). Prefers the proven
+// per-session Stop control (same as the Sessions page); falls back to the
+// agent-level control stop if no session record is resolvable. The agent's
+// identity, history, and saved spawn spec are preserved — a later dispatch (or
+// Recreate) brings it back.
+function stopManagedAgent(agentId) {
+  const session = primarySessionForAgent(agentId);
+  if (session?.id) {
+    controlSession(session.id, 'stop');
+    return;
+  }
+  controlResidentAgent(agentId, 'stop');
 }
 
 async function createSpawnRequest() {
