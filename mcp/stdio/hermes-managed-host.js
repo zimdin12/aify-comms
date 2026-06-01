@@ -500,6 +500,91 @@ async function markRunFailed(httpCall, run, error) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// GATEWAY LIVENESS GAP — reactive mitigation (status-liveness).
+//
+// runtimes.js compute-capabilities grants `resident-run` (→ agent shows
+// `available`) to a hermes agent whenever runtimeConfig.gatewayUrl is a
+// non-empty string — that is a PRESENCE check, not a LIVENESS check. After the
+// ephemeral gateway host on that port dies, the bridge keeps heartbeating, so
+// the agent stays `available` for the whole ~150s lease and the dispatcher
+// accepts a run that only discovers the dead port at connect time
+// (ECONNREFUSED). The durable fix (probe gateway reachability in the capability
+// check) is delicate (async probe / flap risk) and is deferred — see
+// KNOWN_ISSUES.md. This is the REACTIVE half: when an INITIAL gateway connect
+// is refused/unreachable, fail the run cleanly and self-correct availability.
+
+// Classify an error as an INITIAL gateway-connect refusal/unreachability — the
+// dead-ephemeral-port incident shape. This is deliberately narrow: it matches
+// the socket-level connect codes (ECONNREFUSED / host- or net-unreachable /
+// connect-timeout / DNS) but NOT the mid-stream errors the WS client throws
+// AFTER a healthy connect (`hermes gateway WS closed`, `... WS not open`, RPC
+// timeouts, or a 4009 busy). Only the connect failure should self-correct the
+// agent off `available`; a transient mid-turn blip must not.
+export function isGatewayConnectRefused(err) {
+  if (!err) return false;
+  const code = String(err.code || "").toUpperCase();
+  if (
+    code === "ECONNREFUSED" ||
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN"
+  ) {
+    return true;
+  }
+  const message = String(err.message || err || "");
+  // WS open errors surface only the message on some impls. Exclude the known
+  // post-connect / RPC messages so a mid-stream drop never trips the signal.
+  if (/WS closed|WS not open|timed out|session busy/i.test(message)) return false;
+  return /ECONNREFUSED|connection refused|connect ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|getaddrinfo/i.test(
+    message,
+  );
+}
+
+// Build the actionable run-failure message for a dead gateway port.
+export function gatewayUnreachableMessage(gatewayUrl) {
+  const url = String(gatewayUrl || "").trim() || "(unknown)";
+  return (
+    `Hermes gateway unreachable at ${url} (connection refused). ` +
+    `The gateway host likely died; restart this agent's hermes-aify session to get a fresh gateway.`
+  );
+}
+
+// Self-correct off `available` via the EXISTING resident-lost signal (the same
+// host→server path server.js uses when a resident Codex app-server is
+// unreachable). The server transitions the agent resident→managed (or stopped),
+// which immediately drops `resident-run`/`available` instead of waiting out the
+// ~150s heartbeat lease. NOTE: deliberately NO bridgeId — the managed-host's
+// channel-sidecar bridge id is not the resident MCP bridge that owns
+// runtime_state.bridgeInstanceId, so sending it would hit the server's
+// bridge_not_current guard and be ignored. Best-effort: never throws.
+export async function reportGatewayDead({
+  httpCall,
+  agentId,
+  runtime = RUNTIME,
+  machineId = MACHINE_ID,
+  gatewayUrl = "",
+  reason = "",
+} = {}) {
+  const id = String(agentId || "").trim();
+  if (!httpCall || !id) return;
+  const why = reason || gatewayUnreachableMessage(gatewayUrl);
+  try {
+    await httpCall("POST", `/agents/${encodeURIComponent(id)}/resident-lost`, {
+      machineId,
+      runtime,
+      reason: why,
+    });
+  } catch (error) {
+    console.error(
+      `[hermes-managed-host] resident-lost self-correct for '${id}' failed (best-effort):`,
+      error?.message || String(error),
+    );
+  }
+}
+
 // COLD-START requeue: the visible TUI has not (yet) attached its `aify-<id>`
 // session to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
 // permanent failure. Put the run back to `queued` (claimable) so the very next
@@ -589,6 +674,10 @@ export async function deliverRun({
   // requeue/failure (closes it). `now` is injectable for tests.
   inFlight = null,
   now = Date.now,
+  // The gateway WS URL this delivery is connecting through. Used only to build
+  // an actionable failure message + drive the self-correct when the connect is
+  // refused (dead ephemeral port). Optional; "" → message says "(unknown)".
+  gatewayUrl = "",
 } = {}) {
   const key = sessionKeyFor(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
@@ -658,6 +747,23 @@ export async function deliverRun({
       inFlight.runId = String(run?.id || "");
     }
   } catch (error) {
+    // Gateway connect-refused (dead ephemeral port): fail the run with an
+    // ACTIONABLE message instead of a raw ECONNREFUSED, and self-correct the
+    // agent off `available` (resident-lost) so the next capability computation
+    // stops accepting runs against the dead gateway. Narrow classifier — a
+    // mid-stream / RPC error falls through to the normal failure path.
+    if (isGatewayConnectRefused(error)) {
+      const message = gatewayUnreachableMessage(gatewayUrl);
+      console.error(`[hermes-managed-host] run ${run?.id || "?"} delivery failed: ${message}`);
+      await markRunFailed(httpCall, run, new Error(message)).catch(() => {});
+      await reportGatewayDead({ httpCall, agentId, gatewayUrl, reason: message }).catch(() => {});
+      if (inFlight) {
+        inFlight.submittedAt = 0;
+        inFlight.runId = "";
+      }
+      await clearTurn(httpCall, agentId).catch(() => {});
+      return;
+    }
     console.error(
       `[hermes-managed-host] run ${run?.id || "?"} delivery failed:`,
       error?.message || String(error),
@@ -748,6 +854,9 @@ export async function runPollCycle({
   // In-flight tracker passed through to deliverRun so a submitted turn opens
   // the re-pulse window (#172).
   inFlight = null,
+  // Gateway WS URL threaded to deliverRun for actionable connect-refused
+  // failures + the gateway-dead self-correct.
+  gatewayUrl = "",
 } = {}) {
   let processed = 0;
   let released = false;
@@ -774,7 +883,7 @@ export async function runPollCycle({
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
-      await deliverRun({ run, agentId, httpCall, wsClient, inFlight });
+      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl });
       processed++;
     }
   } catch (error) {
@@ -869,6 +978,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     wsClient = await openWs(host.wsUrl);
     return wsClient;
   };
+  // Latch so the gateway-dead self-correct fires AT MOST once per loop lifetime —
+  // a refused connect repeats every poll until the agent is torn down, and we
+  // must not spam resident-lost (which the server treats as a state transition).
+  let gatewayDeadReported = false;
 
   // A3 (status-liveness): unconditional liveness beat so an idle-but-alive
   // managed-hermes sidecar keeps its bridge_instances.last_seen fresh and is
@@ -917,15 +1030,36 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           await sleepImpl(POLL_MS);
           continue;
         }
+        let connectErr = null;
         const ws = await ensureWs().catch((err) => {
+          connectErr = err;
           console.error("[hermes-managed-host] WS connect failed:", err?.message || String(err));
           return null;
         });
         if (!ws) {
+          // Dead ephemeral gateway port (the resident-run liveness gap): the
+          // agent shows `available` but the gateway host is gone. Self-correct
+          // ONCE so the dispatcher stops accepting runs against the dead port,
+          // rather than waiting out the ~150s heartbeat lease.
+          if (!gatewayDeadReported && isGatewayConnectRefused(connectErr)) {
+            gatewayDeadReported = true;
+            console.error(`[hermes-managed-host] ${gatewayUnreachableMessage(host.wsUrl)}`);
+            await reportGatewayDead({
+              httpCall,
+              agentId: id,
+              gatewayUrl: host.wsUrl,
+            }).catch(() => {});
+          }
           await sleepImpl(POLL_MS);
           continue;
         }
-        const result = await runPollCycle({ agentId: id, httpCall, wsClient: ws, inFlight });
+        const result = await runPollCycle({
+          agentId: id,
+          httpCall,
+          wsClient: ws,
+          inFlight,
+          gatewayUrl: host.wsUrl,
+        });
         totalProcessed += result.processed || 0;
         if (result.released) {
           await teardownGatewayHost({ child: gatewayChild });

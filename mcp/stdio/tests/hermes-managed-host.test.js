@@ -38,6 +38,9 @@ import {
   resolveHermesPython,
   makeInFlightProbe,
   makeInFlightPulse,
+  isGatewayConnectRefused,
+  gatewayUnreachableMessage,
+  reportGatewayDead,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -311,6 +314,143 @@ test("deliverRun: TUI never attaches within window → run REQUEUED (claimable),
     findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
     "requeue (no delivery) must clear the turn_busy pulse",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Gateway connect-refusal: reactive fail + self-correct (gateway-liveness gap).
+//
+// runtimes.js compute-capabilities grants resident-run to a hermes agent
+// whenever runtimeConfig.gatewayUrl is a non-empty string (presence, not
+// liveness). After the ephemeral gateway host on that port dies, the bridge
+// keeps heartbeating and the agent shows `available` for the whole lease, so the
+// dispatcher accepts a run that only discovers the dead port at connect time
+// (ECONNREFUSED). These tests pin the REACTIVE mitigation: on an INITIAL gateway
+// connect refusal, (a) fail the run with an actionable message and (b) signal
+// the agent off `available` via the existing /agents/{id}/resident-lost path —
+// while a NON-connect / mid-stream error does NOT trip the self-correct.
+// ---------------------------------------------------------------------------
+
+test("isGatewayConnectRefused: true for ECONNREFUSED (the dead-port incident shape)", () => {
+  assert.equal(isGatewayConnectRefused(Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9342"), { code: "ECONNREFUSED" })), true);
+  // Code-only (no descriptive message) still classifies.
+  assert.equal(isGatewayConnectRefused({ code: "ECONNREFUSED" }), true);
+});
+
+test("isGatewayConnectRefused: true for other connect-unreachable codes (host/net/timeout/DNS)", () => {
+  for (const code of ["EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT", "ENOTFOUND"]) {
+    assert.equal(isGatewayConnectRefused({ code }), true, `expected ${code} to classify as gateway-unreachable`);
+  }
+});
+
+test("isGatewayConnectRefused: FALSE for mid-stream / RPC / busy errors (no false self-correct)", () => {
+  // These are the in-turn errors the WS client throws AFTER a healthy connect —
+  // they must NOT be mistaken for a dead gateway port.
+  assert.equal(isGatewayConnectRefused(new Error("hermes gateway WS closed")), false);
+  assert.equal(isGatewayConnectRefused(new Error("hermes gateway WS not open")), false);
+  assert.equal(isGatewayConnectRefused(new Error("hermes RPC prompt.submit timed out")), false);
+  assert.equal(isGatewayConnectRefused(Object.assign(new Error("session busy"), { code: 4009 })), false);
+  assert.equal(isGatewayConnectRefused(null), false);
+  assert.equal(isGatewayConnectRefused(new Error("some unrelated failure")), false);
+});
+
+test("gatewayUnreachableMessage: actionable — names the URL, says refused, says restart hermes-aify", () => {
+  const msg = gatewayUnreachableMessage("ws://127.0.0.1:9342/api/ws?token=x");
+  assert.match(msg, /unreachable/i);
+  assert.match(msg, /ws:\/\/127\.0\.0\.1:9342/);
+  assert.match(msg, /restart/i);
+  assert.match(msg, /hermes-aify/i);
+});
+
+test("reportGatewayDead: POSTs /agents/{id}/resident-lost WITHOUT a bridgeId (so the server guard doesn't ignore it)", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  await reportGatewayDead({
+    httpCall,
+    agentId: "sc-hermes",
+    gatewayUrl: "ws://127.0.0.1:9342/api/ws",
+    reason: "gateway refused",
+  });
+  const lost = findCall(calls, "POST", "/agents/sc-hermes/resident-lost");
+  assert.ok(lost, "expected POST /agents/sc-hermes/resident-lost");
+  assert.equal(lost.body.runtime, "hermes");
+  assert.equal(lost.body.bridgeId ?? "", "", "must NOT send a bridgeId (channel-sidecar id != current resident bridge → would be ignored)");
+  assert.match(String(lost.body.reason), /gateway refused/);
+});
+
+test("reportGatewayDead: swallows httpCall errors (best-effort self-correct)", async () => {
+  const httpCall = async () => { throw new Error("network down"); };
+  await assert.doesNotReject(() => reportGatewayDead({ httpCall, agentId: "sc-hermes", gatewayUrl: "ws://x" }));
+});
+
+test("deliverRun: gateway connect-refused mid-claim → FAILS run with actionable message AND self-corrects (resident-lost)", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const econnrefused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9342"), { code: "ECONNREFUSED" });
+  // active_list resolves the sid, then prompt.submit hits the dead gateway.
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "prompt.submit": econnrefused,
+  });
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    gatewayUrl: "ws://127.0.0.1:9342/api/ws",
+  });
+
+  // (a) run failed with the actionable message — not a raw ECONNREFUSED dump.
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.ok(patch, "expected a PATCH /dispatch/runs/<id>");
+  assert.equal(String(patch.body.status), "failed");
+  assert.match(String(patch.body.error || patch.body.summary), /unreachable/i);
+  assert.match(String(patch.body.error || patch.body.summary), /restart/i);
+  // (b) self-corrected off `available` via resident-lost.
+  assert.ok(findCall(calls, "POST", "/agents/sc-hermes/resident-lost"), "expected the resident-lost self-correct");
+});
+
+test("deliverRun: NON-connect submit error → FAILS run but does NOT self-correct (no false resident-lost)", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  // A mid-turn WS-closed style error (healthy connect, then the socket dropped).
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "prompt.submit": new Error("hermes gateway WS closed"),
+  });
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    gatewayUrl: "ws://127.0.0.1:9342/api/ws",
+  });
+
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "failed", "non-connect error still fails the run");
+  assert.ok(
+    !findCall(calls, "POST", "/agents/sc-hermes/resident-lost"),
+    "a mid-stream / non-connect error must NOT trip the gateway-dead self-correct",
+  );
+});
+
+test("runDeliveryLoop: initial WS connect refused → self-corrects ONCE via resident-lost, does not spin the signal", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp();
+  const econnrefused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9342"), { code: "ECONNREFUSED" });
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => { throw econnrefused; },
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    maxIterations: 3,
+  });
+
+  const lostCalls = calls.filter((c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost");
+  assert.equal(lostCalls.length, 1, "gateway-dead self-correct must fire exactly once across repeated failed connects");
 });
 
 test("waitForActiveSession: returns the sid as soon as the key appears", async () => {
