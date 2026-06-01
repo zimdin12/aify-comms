@@ -2140,6 +2140,83 @@ class ApiV2RegressionTests(unittest.TestCase):
         term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(term["status"], "attached", "live-but-idle console must NOT be reaped")
 
+    # --- B2: status rule refinement (status-F1) + orphan-worker detection ---
+
+    def test_managed_claude_online_requires_live_console(self):
+        # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
+        # console PTY AND a live channel-sidecar exist. A live sidecar with NO
+        # console is a headless orphan worker → `available`, never `online`.
+        terminal_id = "term_online_console"
+        self._seed_managed_claude_with_attached_terminal("online-claude", terminal_id)
+        self._stamp_live_channel_sidecar("online-claude")  # fresh sidecar
+        # Live `attached` console + fresh sidecar → online.
+        asyncio.run(self._async_invalidate("online-claude"))
+        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
+
+        # Now stop the console terminal, leaving ONLY the fresh sidecar.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (terminal_id,),
+        )
+        asyncio.run(self._async_invalidate("online-claude"))
+        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        self.assertNotEqual(agent["status"], "online", agent)
+        self.assertEqual(agent["status"], "available", agent)
+
+    def test_managed_hygiene_reaps_orphan_worker(self):
+        # MANAGED claude, FRESH sidecar (worker alive), newest terminal row is
+        # `stopped` ~200s ago (no live console), runtime_state.consoleTerminal set
+        # → headless orphan: reap pointer, invalidate cache, count it.
+        terminal_id = "term_orphan_worker"
+        self._seed_managed_claude_with_attached_terminal("orphan-claude", terminal_id)
+        self._stamp_live_channel_sidecar("orphan-claude")  # worker alive
+        # Stamp a cached live_state row so we can prove invalidation deletes it.
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            ("orphan-claude", "online", "stale", api_v2._now(), "2099-01-01T00:00:00Z"),
+        )
+        # Newest terminal row terminal-state with stopped_at ~200s in the past.
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, terminal_id),
+        )
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["orphan_workers_reaped"], 1, result)
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("orphan-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("orphan-claude",))
+        self.assertIsNone(live, "agent_live_state row must be invalidated (deleted)")
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            (terminal_id, "reconciled_managed_orphan_worker"),
+        )
+        self.assertIsNotNone(event, "reconciled_managed_orphan_worker event must be appended")
+
+    def test_managed_hygiene_keeps_online_console(self):
+        # MANAGED claude, FRESH sidecar + live `attached` console → NOT an orphan.
+        terminal_id = "term_orphan_keep"
+        self._seed_managed_claude_with_attached_terminal("keep-claude", terminal_id)
+        self._stamp_live_channel_sidecar("keep-claude")  # worker alive
+        # terminal row stays `attached` (live console).
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["orphan_workers_reaped"], 0, result)
+        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "attached", "live console must be untouched")
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("keep-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertIn("consoleTerminal", rs, "consoleTerminal pointer must be preserved")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill

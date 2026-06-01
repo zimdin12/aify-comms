@@ -460,6 +460,12 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
 # stays well within this window; a process that has exited goes stale quickly.
 CHANNEL_SIDECAR_STALE_SECONDS = 180
 
+# Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
+# but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
+# 30s liveness beat + console startup so a transiently-restarting console (PTY
+# respawn between beats) is never falsely reaped.
+MANAGED_ORPHAN_GRACE_SECONDS = 90
+
 
 async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
     """Task 1.6 (2026-05-30): True when a standalone channel sidecar
@@ -2224,11 +2230,16 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
       the worker is genuinely dead (no live channel sidecar) — a live-but-idle
       console is never falsely reaped.
 
-    B2 (later) extends this SAME function with the orphan-worker half (a live
-    sidecar but NO live console = visible-TUI violation) plus a status rule.
-    The structure below — per-agent verdict via `_has_live_channel_sidecar`,
-    then two independent branches keyed on that verdict — is the extension
-    point: B2 fills the `live` branch and the `orphan_workers_reaped` key.
+    B2 — orphan-worker half (implemented here, 2026-06-01): the inverse. The
+    console PTY died but the channel-sidecar keeps beating, so the agent looks
+    like a LIVE worker with NO visible console = a headless background orphan
+    (visible-TUI violation + proliferation). We clear the stale console pointer,
+    invalidate the live-status cache (so the refined status-F1 recomputes the
+    agent to `available`), append an observability event, and count it. The
+    actual process kill is host-side (B3: tree-kill on PTY close). We do NOT emit
+    a dispatch_control — an orphan has no run, so there is no run_id to attach
+    one to. A MANAGED_ORPHAN_GRACE_SECONDS guard prevents reaping a console that
+    is merely restarting between liveness beats.
 
     DB-only: the reconcile loop has no `ws` in scope; the dashboard reflects
     the reaped row on its next refresh (Workstream C adds WS push later).
@@ -2249,16 +2260,14 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
     )
     rows = await cursor.fetchall()
-    if not rows:
-        return result
     now = _now()
-    for row in rows:
+    for row in (rows or []):
         terminal_id = row["terminal_id"]
         agent_id = row["agent_id"]
         sidecar_live = await _has_live_channel_sidecar(db, agent_id)
         if sidecar_live:
-            # Worker alive — a live-but-idle console stays. (B2 will add the
-            # orphan-worker half here: live sidecar + no live console.)
+            # Worker alive — a live-but-idle console stays. The orphan-worker
+            # half below handles "live sidecar + no live console".
             continue
         # Worker dead → this active terminal row is a ghost. Reap it.
         await db.execute(
@@ -2309,6 +2318,91 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
             (terminal_id,),
         )
         result["managed_ghost_rows_reaped"] += 1
+
+    # B2 — orphan-worker half (2026-06-01): the inverse failure. The console PTY
+    # died but the channel-sidecar keeps beating → the agent has a LIVE worker
+    # (sidecar) with NO visible console = a "headless background orphan", which
+    # violates the visible-TUI hard requirement and drives proliferation. The
+    # actual process kill is host-side (B3: tree-kill on PTY close); B2 is the
+    # server-side status truth: clear the stale console pointer, invalidate the
+    # cache (so the refined status-F1 recomputes the agent to `available`), and
+    # count it for observability. We do NOT emit a dispatch_control here — an
+    # orphan has no run, so there is no run_id to attach one to.
+    orphan_cursor = await db.execute(
+        """
+        SELECT a.id AS agent_id, a.runtime_state AS runtime_state
+        FROM agents a
+        WHERE a.session_mode = 'managed'
+          AND a.runtime IN ({placeholders})
+        """.format(
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
+        ),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
+    )
+    orphan_agents = await orphan_cursor.fetchall()
+    for agent in orphan_agents:
+        agent_id = agent["agent_id"]
+        # Worker alive (sidecar beating) but NO live console PTY.
+        if not await _has_live_channel_sidecar(db, agent_id):
+            continue
+        if await _has_live_terminal_session(db, agent_id):
+            continue
+        # Most-recent real (non-vterm) terminal row. No row at all = never had a
+        # console → skip (avoid startup-race false positives; status-F1 already
+        # reports it `available`).
+        last_term = await (
+            await db.execute(
+                """
+                SELECT id, status, stopped_at, updated_at
+                FROM terminal_sessions
+                WHERE agent_id = ?
+                  AND id NOT LIKE 'vterm_%'
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (agent_id,),
+            )
+        ).fetchone()
+        if not last_term:
+            continue
+        term_status = str(last_term["status"] or "").strip().lower()
+        if term_status not in ("stopped", "failed"):
+            # Console is in some non-live, non-terminal state (e.g. transient) —
+            # let it settle rather than reaping mid-transition.
+            continue
+        ended_at = str(last_term["stopped_at"] or "").strip() or str(last_term["updated_at"] or "").strip()
+        ended_epoch = _iso_to_epoch(ended_at)
+        if ended_epoch <= 0:
+            continue
+        if (_iso_to_epoch(now) - ended_epoch) < MANAGED_ORPHAN_GRACE_SECONDS:
+            # Within grace — a transiently-restarting console PTY, not an orphan.
+            continue
+        terminal_id = str(last_term["id"] or "")
+        # Clear the consoleTerminal pointer ONLY if it still points at this
+        # now-dead terminal (mirror the ghost-row guard).
+        runtime_state = _json_loads_or(agent["runtime_state"], {})
+        console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
+        if (
+            isinstance(console_terminal, dict)
+            and str(console_terminal.get("terminalId") or "").strip() == terminal_id
+        ):
+            runtime_state.pop("consoleTerminal", None)
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(runtime_state), now, agent_id),
+            )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_managed_orphan_worker",
+            json.dumps({
+                "agentId": agent_id,
+                "reason": "live sidecar but no console PTY = headless orphan; worker killed host-side",
+            }),
+        )
+        # Recompute status now → refined status-F1 drops the agent to `available`.
+        await _invalidate_agent_live_state(db, agent_id)
+        result["orphan_workers_reaped"] += 1
     return result
 
 
@@ -3143,12 +3237,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         agent_session_mode == "managed"
         and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
     ):
-        # status-F1: the channel-sidecar is the ONLY claimer for these runtimes;
-        # the wrapper PTY only renders. REQUIRE a live, non-superseded sidecar —
-        # this OVERRIDES a PTY-derived has_live_worker so a managed claude with a
-        # live "Console" but a dead/superseded sidecar correctly reports
-        # `available` (not deliverable) instead of a falsely-positive `online`.
-        if await _has_live_channel_sidecar(db, agent_row["id"]):
+        # status-F1 (refined 2026-06-01, Workstream B): managed claude's worker IS
+        # its wrapper-PTY console; the channel-sidecar only delivers. Visible-TUI is
+        # a HARD requirement, so `online` REQUIRES BOTH a live console PTY AND a live
+        # channel sidecar. A live sidecar with NO console is a headless orphan worker
+        # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
+        # falsely-positive `online`. A live console with a dead sidecar is also not
+        # deliverable → `available` (the original status-F1 intent, preserved).
+        sidecar_live = await _has_live_channel_sidecar(db, agent_row["id"])
+        console_live = await _has_live_terminal_session(db, agent_row["id"])
+        if sidecar_live and console_live:
             has_live_worker = True
         else:
             has_live_worker = False
