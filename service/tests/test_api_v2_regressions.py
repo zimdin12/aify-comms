@@ -1977,6 +1977,169 @@ class ApiV2RegressionTests(unittest.TestCase):
         sess = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(sess["terminal_id"], "", f"agent_session terminal_id binding must be cleared; got {sess['terminal_id']!r}")
 
+    def _seed_managed_claude_with_attached_terminal(self, agent_id: str, terminal_id: str):
+        """B1 helper: seed a MANAGED claude-code agent whose runtime_state
+        points at an `attached` (non-vterm) terminal_sessions row, the exact
+        shape that produces a ghost console when the worker dies."""
+        now = api_v2._now()
+        # Environment + agent via the proven HTTP fixtures (creates the env row
+        # the terminal/session FKs require).
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(agent_id, runtime="claude-code", sessionMode="managed")
+        # Force the managed claude shape: session_handle + consoleTerminal pointer.
+        self._execute(
+            "UPDATE agents SET session_mode='managed', runtime='claude-code', session_handle=?, runtime_state=? WHERE id = ?",
+            (
+                "claude-managed-handle-1",
+                json.dumps({
+                    "consoleTerminal": {
+                        "terminalId": terminal_id,
+                        "bridgeId": "bridge-current",
+                        "sessionHandle": "claude-managed-handle-1",
+                        "at": now,
+                    }
+                }),
+                agent_id,
+            ),
+        )
+        # agent_sessions row bound to the terminal (mirrors the model's clear path).
+        # spawn_spec_id/spawn_request_id are passed as NULL (not '') so their
+        # FKs don't fire — the same shape the production insert uses.
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, terminal_id, terminal_status,
+                spawn_spec_id, spawn_request_id, status,
+                started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "claude-code",
+                "/workspace/repo",
+                "managed-warm",
+                "managed",
+                terminal_id,
+                "attached",
+                None,
+                None,
+                "running",
+                now,
+                now,
+            ),
+        )
+        # The attached (non-vterm) terminal row — the ghost-console surface.
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent " + agent_id,
+                "",
+                "attached",
+                "dashboard",
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+
+    def _run_managed_worker_hygiene(self):
+        import asyncio as _asyncio
+        from service.db import get_db as _get_db
+
+        async def _run():
+            db = await _get_db()
+            try:
+                result = await api_v2._reconcile_managed_worker_hygiene(db)
+                await db.commit()
+                return result
+            finally:
+                await db.close()
+
+        return _asyncio.new_event_loop().run_until_complete(_run())
+
+    def test_managed_hygiene_reaps_ghost_console_row(self):
+        # MANAGED claude with a dead worker (NO channel-sidecar bridge row at
+        # all → _has_live_channel_sidecar False) but a stale `attached`
+        # terminal row + a consoleTerminal pointer = a phantom "Console
+        # attached" for a dead agent. The reaper must reap it.
+        terminal_id = "term_ghost_console"
+        self._seed_managed_claude_with_attached_terminal("ghost-claude", terminal_id)
+        # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
+        self.assertEqual(result["orphan_workers_reaped"], 0, result)
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "stopped")
+        self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("ghost-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE terminal_id = ?", (terminal_id,))
+        self.assertIsNone(sess, "agent_session terminal binding must be cleared")
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            (terminal_id, "reconciled_managed_ghost_console"),
+        )
+        self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
+
+    def test_managed_hygiene_keeps_live_console(self):
+        # MANAGED claude with a FRESH channel-sidecar heartbeat → the worker
+        # is alive; a live-but-idle console must NOT be reaped.
+        terminal_id = "term_live_console"
+        self._seed_managed_claude_with_attached_terminal("live-claude", terminal_id)
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "bridge-sidecar-live",
+                "live-claude",
+                "linux:test-host",
+                "claude-code",
+                "managed",
+                "claude-managed-handle-1",
+                terminal_id,
+                "channel-sidecar",
+                now,
+                now,
+                "",
+            ),
+        )
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "attached", "live-but-idle console must NOT be reaped")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill

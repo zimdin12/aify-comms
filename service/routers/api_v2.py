@@ -2208,6 +2208,110 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
     return len(rows)
 
 
+async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
+    """Periodic managed-worker hygiene sweep (Workstream B).
+
+    Scoped to MANAGED claude-code agents — the surface where the incident
+    occurs. claude-aify's claude-channel.js sidecar beats every 30s while the
+    wrapper is alive (Workstream A liveness), so `_has_live_channel_sidecar`
+    is a TRUE "alive now" signal: the sidecar's bridge_instances row goes
+    stale within CHANNEL_SIDECAR_STALE_SECONDS after the worker dies.
+
+    B1 — ghost-console half (implemented here):
+      A managed claude wrapper dies but its `terminal_sessions` row stays in
+      an active state (`attached`, etc.), so the dashboard renders a phantom
+      "Console attached" for a dead agent. We reap that ghost row ONLY when
+      the worker is genuinely dead (no live channel sidecar) — a live-but-idle
+      console is never falsely reaped.
+
+    B2 (later) extends this SAME function with the orphan-worker half (a live
+    sidecar but NO live console = visible-TUI violation) plus a status rule.
+    The structure below — per-agent verdict via `_has_live_channel_sidecar`,
+    then two independent branches keyed on that verdict — is the extension
+    point: B2 fills the `live` branch and the `orphan_workers_reaped` key.
+
+    DB-only: the reconcile loop has no `ws` in scope; the dashboard reflects
+    the reaped row on its next refresh (Workstream C adds WS push later).
+    """
+    result = {"managed_ghost_rows_reaped": 0, "orphan_workers_reaped": 0}
+    cursor = await db.execute(
+        """
+        SELECT t.id AS terminal_id, t.agent_id AS agent_id
+        FROM terminal_sessions t
+        JOIN agents a ON a.id = t.agent_id
+        WHERE a.session_mode = 'managed'
+          AND a.runtime IN ({placeholders})
+          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND t.id NOT LIKE 'vterm_%'
+        """.format(
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
+        ),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return result
+    now = _now()
+    for row in rows:
+        terminal_id = row["terminal_id"]
+        agent_id = row["agent_id"]
+        sidecar_live = await _has_live_channel_sidecar(db, agent_id)
+        if sidecar_live:
+            # Worker alive — a live-but-idle console stays. (B2 will add the
+            # orphan-worker half here: live sidecar + no live console.)
+            continue
+        # Worker dead → this active terminal row is a ghost. Reap it.
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                stopped_at = ?,
+                updated_at = ?,
+                error = COALESCE(NULLIF(error, ''), 'reconciled_managed_ghost_console_dead_worker')
+            WHERE id = ?
+            """,
+            (now, now, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_managed_ghost_console",
+            json.dumps({
+                "agentId": agent_id,
+                "reason": "managed claude wrapper is dead (no live channel sidecar) but its terminal row stayed active; phantom console reaped",
+            }),
+        )
+        # Clear the agent's runtime_state.consoleTerminal pointer (pop + write
+        # back), but only if it still points at this terminal.
+        agent_row = await (
+            await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
+        ).fetchone()
+        if agent_row:
+            runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+            console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
+            if (
+                isinstance(console_terminal, dict)
+                and str(console_terminal.get("terminalId") or "").strip() == str(terminal_id)
+            ):
+                runtime_state.pop("consoleTerminal", None)
+                await db.execute(
+                    "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                    (json.dumps(runtime_state), now, agent_id),
+                )
+        # Clear the agent_sessions terminal binding (mirror the model fn).
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = '',
+                terminal_status = ''
+            WHERE terminal_id = ?
+            """,
+            (terminal_id,),
+        )
+        result["managed_ghost_rows_reaped"] += 1
+    return result
+
+
 async def _record_channel_sidecar_heartbeat(
     db,
     *,
