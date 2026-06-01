@@ -57,6 +57,7 @@ import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { transcriptIsGenerating } from "./transcript-activity.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -253,16 +254,24 @@ function __markControllerStart(promise) {
 // mid-turn — feed it into the turn-busy heartbeat so 'working' holds through long
 // generation. (Does NOT cover a long blocking tool like a build — claude is
 // idle-waiting on the subprocess then and nothing can truthfully show working.)
-const __CLAUDE_TRANSCRIPT_ACTIVE_MS = Math.max(
-  15000,
-  Number(process.env.AIFY_CLAUDE_TRANSCRIPT_ACTIVE_MS || 45000) || 45000,
-);
+// GROWTH, not freshness (status-liveness fix 2026-06-01): an earlier version
+// used "mtime within the last N seconds". That re-pulsed turn_busy after every
+// turn, because the claude Stop hook clears turn_busy AND writes the final
+// assistant message (fresh mtime) -- the next tick saw "fresh" and re-asserted
+// busy, keeping an idle resident `working` for ~150s. Now we compare the current
+// observation against the previous one and only count GROWTH (new bytes / newer
+// mtime) as active. During streaming, consecutive ticks see growth -> active.
+// After the final write, at most ONE tick sees growth; the next tick (no further
+// growth) returns false, so the Stop-hook clear sticks.
+let __lastTranscriptObs = null;
 async function __claudeTranscriptActive() {
   try {
     if (!__runtimeAdapter || __runtimeAdapter.name !== "claude-code") return false;
-    if (typeof __runtimeAdapter.transcriptMtimeMs !== "function") return false;
-    const m = await __runtimeAdapter.transcriptMtimeMs({ agentId: AIFY_AGENT_ID });
-    return !!m && Date.now() - m <= __CLAUDE_TRANSCRIPT_ACTIVE_MS;
+    if (typeof __runtimeAdapter.transcriptStat !== "function") return false;
+    const curr = await __runtimeAdapter.transcriptStat({ agentId: AIFY_AGENT_ID });
+    const active = transcriptIsGenerating(__lastTranscriptObs, curr);
+    __lastTranscriptObs = curr;
+    return active;
   } catch {
     return false;
   }
