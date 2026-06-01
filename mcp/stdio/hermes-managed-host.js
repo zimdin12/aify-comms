@@ -38,6 +38,7 @@ import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
   startInFlightRepulse,
   shouldManagedHostRepulse,
@@ -109,6 +110,26 @@ const REPULSE_WINDOW_MS = Math.max(
   Number(process.env.AIFY_HERMES_TURN_REPULSE_WINDOW_MS || 15 * 60 * 1000),
 );
 const HERMES_CMD = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
+// Proactive gateway-liveness probe cadence (status-liveness, 2026-06-02). Every
+// interval the delivery loop probes the gateway HOST (dashboard index) for
+// reachability; after GATEWAY_PROBE_THRESHOLD consecutive failures it reports
+// the gateway dead (resident-lost) so the agent stops showing `available` while
+// the gateway host is actually gone — the complement to the reactive
+// connect-refused self-correct in deliverRun/runDeliveryLoop.
+const GATEWAY_PROBE_MS = Math.max(
+  5000,
+  Number(process.env.AIFY_HERMES_GATEWAY_PROBE_MS || 30000),
+);
+const GATEWAY_PROBE_THRESHOLD = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3),
+);
+// Per-probe HTTP timeout — short so a slow probe still completes within the
+// interval and counts as ONE failure (not a hang). Debounced by the threshold.
+const GATEWAY_PROBE_TIMEOUT_MS = Math.max(
+  500,
+  Number(process.env.AIFY_HERMES_GATEWAY_PROBE_TIMEOUT_MS || 5000),
+);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -591,6 +612,65 @@ export async function reportGatewayDead({
   }
 }
 
+// Derive the gateway HOST index URL (`http://127.0.0.1:<port>/`) from the
+// gateway WS URL (`ws://127.0.0.1:<port>/api/ws?token=...`). The index is the
+// cheapest reachability signal for the hidden `hermes dashboard --tui` host —
+// the same surface ensureGatewayHost's idempotent probe uses. Returns "" when
+// the URL can't be parsed (probe then treats the gateway as unreachable).
+export function gatewayIndexUrlFromWs(wsUrl) {
+  const raw = String(wsUrl || "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    const proto = u.protocol === "wss:" ? "https:" : "http:";
+    return `${proto}//${u.host}/`;
+  } catch {
+    const m = raw.match(/^wss?:\/\/([^/]+)/i);
+    if (!m) return "";
+    const proto = /^wss:/i.test(raw) ? "https:" : "http:";
+    return `${proto}//${m[1]}/`;
+  }
+}
+
+// Build a single-shot gateway reachability probe for the proactive liveness
+// checker. Resolves `{ alive: boolean }`; a non-OK response or a thrown
+// fetch/timeout counts as not-alive (a failure). `fetchImpl` + `timeoutMs` are
+// injectable so the driver is unit-testable with no real sockets.
+export function makeGatewayReachabilityProbe({
+  indexUrl,
+  fetchImpl = (typeof fetch !== "undefined" ? fetch : undefined),
+  timeoutMs = GATEWAY_PROBE_TIMEOUT_MS,
+} = {}) {
+  return async function probe() {
+    const url = String(indexUrl || "").trim();
+    if (!url || typeof fetchImpl !== "function") return { alive: false };
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => {
+          try {
+            controller.abort();
+          } catch {
+            /* ignore */
+          }
+        }, timeoutMs)
+      : null;
+    try {
+      const res = await fetchImpl(url, {
+        method: "GET",
+        signal: controller ? controller.signal : undefined,
+      });
+      // A live dashboard host returns the index (200). Any HTTP response at all
+      // means the port is bound + serving, so treat ok===false defensively but
+      // a thrown connect (ECONNREFUSED) below is the real dead-gateway signal.
+      return { alive: !!(res && res.ok !== false) };
+    } catch {
+      return { alive: false };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+}
+
 // COLD-START requeue: the visible TUI has not (yet) attached its `aify-<id>`
 // session to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
 // permanent failure. Put the run back to `queued` (claimable) so the very next
@@ -993,7 +1073,43 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // Latch so the gateway-dead self-correct fires AT MOST once per loop lifetime —
   // a refused connect repeats every poll until the agent is torn down, and we
   // must not spam resident-lost (which the server treats as a state transition).
+  // SHARED between the REACTIVE path (a run's connect-refusal, below) and the
+  // PROACTIVE periodic probe (started further down) so the two never both fire.
   let gatewayDeadReported = false;
+  const reportGatewayDeadOnce = async (reason) => {
+    if (gatewayDeadReported) return;
+    gatewayDeadReported = true;
+    console.error(`[hermes-managed-host] ${reason || gatewayUnreachableMessage(host.wsUrl)}`);
+    await reportGatewayDead({
+      httpCall,
+      agentId: id,
+      gatewayUrl: host.wsUrl,
+      reason,
+    }).catch(() => {});
+  };
+
+  // PROACTIVE gateway-liveness probe (status-liveness, 2026-06-02). Every
+  // GATEWAY_PROBE_MS, probe the gateway HOST's dashboard index for
+  // reachability; after GATEWAY_PROBE_THRESHOLD consecutive failures, report the
+  // gateway dead ONCE (resident-lost) so the agent stops showing `available`
+  // even when NO run is pending (the reactive deliverRun path only triggers on
+  // an actual claimed run). Debounced by the threshold so a single slow/transient
+  // probe never flaps a healthy agent. Unref'd timer; swallows probe errors.
+  const stopGatewayProbe = startGatewayLivenessProbe({
+    intervalMs: GATEWAY_PROBE_MS,
+    threshold: GATEWAY_PROBE_THRESHOLD,
+    probe: makeGatewayReachabilityProbe({
+      indexUrl: gatewayIndexUrlFromWs(host.wsUrl),
+      fetchImpl,
+    }),
+    reportDead: async ({ consecutiveFailures } = {}) => {
+      if (!serverUrl) return;
+      await reportGatewayDeadOnce(
+        `Hermes gateway unreachable at ${host.wsUrl} after ${consecutiveFailures} consecutive ` +
+          `liveness probes; the gateway host likely died. Self-correcting off 'available' (resident-lost).`,
+      );
+    },
+  });
 
   // A3 (status-liveness): unconditional liveness beat so an idle-but-alive
   // managed-hermes sidecar keeps its bridge_instances.last_seen fresh and is
@@ -1053,14 +1169,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           // agent shows `available` but the gateway host is gone. Self-correct
           // ONCE so the dispatcher stops accepting runs against the dead port,
           // rather than waiting out the ~150s heartbeat lease.
-          if (!gatewayDeadReported && isGatewayConnectRefused(connectErr)) {
-            gatewayDeadReported = true;
-            console.error(`[hermes-managed-host] ${gatewayUnreachableMessage(host.wsUrl)}`);
-            await reportGatewayDead({
-              httpCall,
-              agentId: id,
-              gatewayUrl: host.wsUrl,
-            }).catch(() => {});
+          if (isGatewayConnectRefused(connectErr)) {
+            await reportGatewayDeadOnce(gatewayUnreachableMessage(host.wsUrl));
           }
           await sleepImpl(POLL_MS);
           continue;
@@ -1092,6 +1202,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   } finally {
     stopLiveness();
     stopRepulse();
+    stopGatewayProbe();
   }
 }
 

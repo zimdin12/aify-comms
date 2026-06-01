@@ -41,6 +41,8 @@ import { stopDaemon as defaultStopDaemon } from "./hermes-daemon.js";
 // hermes agent receives the same priority framing + inReplyTo guidance.
 import { dispatchContent } from "./claude-channel.js";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
+import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
+import { reportGatewayDead } from "./hermes-managed-host.js";
 
 // In-flight re-pulse cadence (#172). chatStream can run a turn well past the
 // server's 120s TURN_BUSY_STALE_SECONDS window; re-pulse turn_busy while the
@@ -109,6 +111,22 @@ const POLL_MS = Math.max(
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const RUNTIME = "hermes";
+// Proactive gateway-liveness probe cadence (status-liveness, 2026-06-02). The
+// resident/api_server hermes path shows `available` whenever a gatewayUrl is
+// PRESENT — a presence check, not a liveness check. So if the per-agent
+// `hermes gateway run` api_server (the daemon this sidecar drives) DIES while
+// the bridge keeps heartbeating, the agent stays `available` for the whole
+// heartbeat lease. This periodic probe hits the api_server /health; after
+// GATEWAY_PROBE_THRESHOLD consecutive failures it reports the gateway dead
+// (resident-lost) so the agent self-corrects off `available` → `stale`.
+const GATEWAY_PROBE_MS = Math.max(
+  5000,
+  Number(process.env.AIFY_HERMES_GATEWAY_PROBE_MS || 30000),
+);
+const GATEWAY_PROBE_THRESHOLD = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3),
+);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -401,12 +419,81 @@ export function installShutdownTeardown({
   proc.once("SIGINT", onSignal);
 }
 
+// Build a single-shot api_server reachability probe for the proactive
+// gateway-liveness checker. Resolves `{ alive: boolean }` by hitting the
+// api_server /health via probeApiServer (NEVER throws on its own — a thrown
+// probe still counts as a failure in the driver). `probe` is injectable for
+// tests so the driver wiring is unit-testable with no real sockets.
+export function makeApiServerLivenessProbe({
+  baseUrl,
+  key,
+  apiClient,
+  probe = probeApiServer,
+} = {}) {
+  return async function livenessProbe() {
+    const result = await probe({ baseUrl, key, client: apiClient });
+    return { alive: !!(result && result.available) };
+  };
+}
+
+// Start the proactive gateway-liveness probe for the resident/api_server hermes
+// path. Reports the gateway dead (resident-lost) after the debounced threshold.
+// Exported + fully injectable so the wiring is unit-testable. Returns stop().
+export function startApiServerGatewayProbe({
+  agentId,
+  baseUrl,
+  key,
+  apiClient,
+  httpCall,
+  serverUrl = AIFY_SERVER_URL,
+  intervalMs = GATEWAY_PROBE_MS,
+  threshold = GATEWAY_PROBE_THRESHOLD,
+  probe = probeApiServer,
+  reportDeadImpl = reportGatewayDead,
+} = {}) {
+  return startGatewayLivenessProbe({
+    intervalMs,
+    threshold,
+    probe: makeApiServerLivenessProbe({ baseUrl, key, apiClient, probe }),
+    reportDead: async ({ consecutiveFailures } = {}) => {
+      if (!serverUrl) return;
+      // NO bridgeId: the resident agent's current bridge is server.js's resident
+      // MCP bridge, not this channel-sidecar — sending the sidecar's id would hit
+      // the server's bridge_not_current guard and be ignored. reportGatewayDead
+      // already omits bridgeId for exactly this reason.
+      await reportDeadImpl({
+        httpCall,
+        agentId,
+        gatewayUrl: baseUrl,
+        reason:
+          `Hermes api_server unreachable at ${baseUrl} after ${consecutiveFailures} consecutive ` +
+          `liveness probes; the gateway daemon likely died. Self-correcting off 'available' (resident-lost).`,
+      }).catch(() => {});
+    },
+  });
+}
+
 async function pollLoop() {
   const httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY);
   const apiClient = createHermesApiServerClient();
   // Track the last bound agent so the poll-end / release teardown knows which
   // per-agent daemon to reap.
   let lastAgentId = "";
+  // PROACTIVE gateway-liveness probe (status-liveness, 2026-06-02). Lazily
+  // started once we know the bound agentId (the endpoint is derived from it),
+  // and re-targeted if the bound agent changes. Stopped on every exit path.
+  let stopGatewayProbe = null;
+  let probedAgentId = "";
+  const stopProbe = () => {
+    if (stopGatewayProbe) {
+      try {
+        stopGatewayProbe();
+      } catch {
+        /* best-effort */
+      }
+      stopGatewayProbe = null;
+    }
+  };
   while (true) {
     try {
       if (!AIFY_SERVER_URL) {
@@ -419,6 +506,22 @@ async function pollLoop() {
         continue;
       }
       lastAgentId = agentId;
+      // (Re)start the proactive gateway-liveness probe for this agent. The
+      // api_server endpoint is derived from the agentId, so (re)target if the
+      // bound agent changes. Started here (not at boot) because the bound
+      // agentId may not be known until the binding file is written.
+      if (probedAgentId !== agentId) {
+        stopProbe();
+        const { baseUrl, key } = resolveHermesEndpoint(agentId);
+        stopGatewayProbe = startApiServerGatewayProbe({
+          agentId,
+          baseUrl,
+          key,
+          apiClient,
+          httpCall,
+        });
+        probedAgentId = agentId;
+      }
       const result = await runPollCycle({ agentId, httpCall, apiClient });
       // Mode FSM (Task 4.1): a release signal means the operator switched this
       // agent to resident — stop driving and exit so the resident TUI/CLI owns
@@ -426,6 +529,7 @@ async function pollLoop() {
       // Tear down THIS agent's daemon before exiting: the resident TUI brings up
       // its own gateway, so the managed daemon must not linger.
       if (result && result.released) {
+        stopProbe();
         await teardownDaemon({ agentId });
         return;
       }

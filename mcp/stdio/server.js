@@ -57,6 +57,12 @@ import { fillSessionHandleFromAdapter } from "./register-helpers.js";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-heartbeat.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
+import {
+  reportGatewayDead,
+  gatewayIndexUrlFromWs,
+  makeGatewayReachabilityProbe,
+} from "./hermes-managed-host.js";
 import { transcriptIsGenerating } from "./transcript-activity.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
@@ -306,6 +312,42 @@ const __stopLivenessHeartbeat = startLivenessHeartbeat({
   },
 });
 
+// PROACTIVE gateway-liveness probe for RESIDENT hermes (status-liveness,
+// 2026-06-02). A hermes agent shows `available`/`online` whenever its gatewayUrl
+// is PRESENT (runtimes.js `gatewayOk = !!gatewayUrl`; server
+// `_has_hermes_gateway_url`) — a PRESENCE check, not a LIVENESS check. So if the
+// resident gateway HOST (`hermes dashboard --tui` serving the WS this bridge's
+// gatewayUrl points at) DIES while this MCP bridge keeps heartbeating (the A3
+// beat proves the BRIDGE is alive, not the gateway), the agent stays `available`
+// for the whole heartbeat lease. This long-lived bridge runs for the resident
+// session's entire lifetime and KNOWS the gatewayUrl, so it's the right place to
+// probe gateway reachability and self-correct off `available` → `stale` via the
+// existing resident-lost path. Debounced (3 consecutive failures) so a single
+// slow/transient probe never flaps a healthy agent. Only armed when this IS a
+// gateway-backed hermes (AIFY_HERMES_GATEWAY_URL present). Mirrors the managed
+// path's probe in hermes-managed-host.js (deliberately NO bridgeId on
+// reportGatewayDead — see that helper).
+let __stopGatewayProbe = () => {};
+if (AIFY_HERMES_GATEWAY_URL && AIFY_AGENT_ID) {
+  __stopGatewayProbe = startGatewayLivenessProbe({
+    intervalMs: 30_000,
+    threshold: Math.max(1, Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3)),
+    probe: makeGatewayReachabilityProbe({ indexUrl: gatewayIndexUrlFromWs(AIFY_HERMES_GATEWAY_URL) }),
+    reportDead: async ({ consecutiveFailures } = {}) => {
+      if (!__serverUrl) return;
+      await reportGatewayDead({
+        httpCall,
+        agentId: AIFY_AGENT_ID,
+        gatewayUrl: AIFY_HERMES_GATEWAY_URL,
+        reason:
+          `Resident hermes gateway unreachable at ${AIFY_HERMES_GATEWAY_URL} after ` +
+          `${consecutiveFailures} consecutive liveness probes; the gateway host likely died. ` +
+          `Self-correcting off 'available' (resident-lost).`,
+      }).catch(() => {});
+    },
+  });
+}
+
 // Startup diagnostic: surface the env vars the bridge sees so operators
 // can verify env propagation through *-aify → runtime → MCP child.
 // Now adapter-driven (Plan 1 of the RuntimeAdapter refactor): the runtime
@@ -367,6 +409,7 @@ function cleanupOnExit() {
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
   try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
   try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
+  try { __stopGatewayProbe(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
