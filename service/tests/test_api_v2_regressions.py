@@ -11592,3 +11592,43 @@ class ApiV2RegressionTests(unittest.TestCase):
             row["last_seen"], "2026-01-01T00:00:00Z",
             "a superseded bridge must not refresh its own liveness",
         )
+
+    # --- Workstream C1: operator-driven agent_status push ---------------
+
+    def _agent_status_events(self):
+        return [
+            args[1]
+            for args, _kwargs in self.ws.broadcasts
+            if args and args[0] == "agent_status"
+        ]
+
+    def test_stop_worker_broadcasts_agent_status(self):
+        self._register("c1-stopworker")
+        self.ws.broadcasts.clear()
+
+        resp = self.client.post("/api/v1/agents/c1-stopworker/stop-worker")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        events = self._agent_status_events()
+        self.assertTrue(events, "stop-worker must push an agent_status event")
+        evt = events[-1]
+        self.assertEqual(evt["agentId"], "c1-stopworker")
+        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
+        self.assertIn("statusNote", evt)
+
+    def test_control_stop_broadcasts_agent_status(self):
+        self._register("c1-control")
+        self.ws.broadcasts.clear()
+
+        resp = self.client.post(
+            "/api/v1/agents/c1-control/control",
+            json={"action": "stop", "from_agent": "dashboard"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        events = self._agent_status_events()
+        self.assertTrue(events, "control(stop) must push an agent_status event")
+        evt = events[-1]
+        self.assertEqual(evt["agentId"], "c1-control")
+        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
+        self.assertIn("statusNote", evt)

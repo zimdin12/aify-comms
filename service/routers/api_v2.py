@@ -731,6 +731,32 @@ async def _get_ws(request: Request):
     except Exception:
         return None
 
+
+async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
+    """Recompute one agent's live status and push it to dashboards so an
+    operator-driven state transition is reflected without waiting for the 60s
+    reconcile sweep or a full client refetch. Best-effort: never raise into the
+    caller. Mirrors the single-agent GET status compute (_compute_live_status_cache).
+    """
+    if ws is None:
+        return
+    try:
+        agent_id = str(agent_id or "").strip()
+        if not agent_id:
+            return
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            return
+        settings = await _load_settings(db)
+        cache = await _compute_live_status_cache(db, row, settings=settings)
+        await ws.broadcast("agent_status", {
+            "agentId": agent_id,
+            "status": cache.get("status") or "",
+            "statusNote": cache.get("reason") or "",
+        })
+    except Exception:
+        pass
+
 async def _touch_agent(db, agent_id: str):
     await db.execute(
         "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
@@ -10895,6 +10921,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 "agent_control_requested",
                 {"agentId": agent_id, "action": action, "controlId": control_id, "cancelledQueued": cancelled_queued},
             )
+        await _broadcast_agent_status(ws, db, agent_id)
         return {
             "ok": True,
             "agentId": agent_id,
@@ -10921,7 +10948,10 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         if cursor.rowcount == 0:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         ws = await _get_ws(request)
-        if ws: await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status})
+        if ws:
+            # Keep req.status authoritative (operator-set), enrich with the note
+            # so dashboards can render it on the agent's row without a refetch.
+            await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status, "statusNote": note})
         return {"ok": True, "agentId": agent_id, "status": status_val, "statusRaw": req.status, "statusNote": note}
     finally:
         await db.close()
@@ -12834,6 +12864,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("agent_worker_stopped", {"agentId": agent_id, "virtualTerminalId": virtual_terminal_id})
+        await _broadcast_agent_status(ws, db, agent_id)
         return {
             "ok": True,
             "agentId": agent_id,
