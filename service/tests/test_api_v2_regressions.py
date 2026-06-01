@@ -1977,6 +1977,387 @@ class ApiV2RegressionTests(unittest.TestCase):
         sess = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
         self.assertEqual(sess["terminal_id"], "", f"agent_session terminal_id binding must be cleared; got {sess['terminal_id']!r}")
 
+    def _seed_managed_claude_with_attached_terminal(self, agent_id: str, terminal_id: str):
+        """B1 helper: seed a MANAGED claude-code agent whose runtime_state
+        points at an `attached` (non-vterm) terminal_sessions row, the exact
+        shape that produces a ghost console when the worker dies."""
+        now = api_v2._now()
+        # Environment + agent via the proven HTTP fixtures (creates the env row
+        # the terminal/session FKs require).
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(agent_id, runtime="claude-code", sessionMode="managed")
+        # Force the managed claude shape: session_handle + consoleTerminal pointer.
+        self._execute(
+            "UPDATE agents SET session_mode='managed', runtime='claude-code', session_handle=?, runtime_state=? WHERE id = ?",
+            (
+                "claude-managed-handle-1",
+                json.dumps({
+                    "consoleTerminal": {
+                        "terminalId": terminal_id,
+                        "bridgeId": "bridge-current",
+                        "sessionHandle": "claude-managed-handle-1",
+                        "at": now,
+                    }
+                }),
+                agent_id,
+            ),
+        )
+        # agent_sessions row bound to the terminal (mirrors the model's clear path).
+        # spawn_spec_id/spawn_request_id are passed as NULL (not '') so their
+        # FKs don't fire — the same shape the production insert uses.
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, terminal_id, terminal_status,
+                spawn_spec_id, spawn_request_id, status,
+                started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "claude-code",
+                "/workspace/repo",
+                "managed-warm",
+                "managed",
+                terminal_id,
+                "attached",
+                None,
+                None,
+                "running",
+                now,
+                now,
+            ),
+        )
+        # The attached (non-vterm) terminal row — the ghost-console surface.
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "bridge-current",
+                "claude-code",
+                "/workspace/repo",
+                "claude-aify --aify-agent " + agent_id,
+                "",
+                "attached",
+                "dashboard",
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+
+    def _run_managed_worker_hygiene(self):
+        import asyncio as _asyncio
+        from service.db import get_db as _get_db
+
+        async def _run():
+            db = await _get_db()
+            try:
+                result = await api_v2._reconcile_managed_worker_hygiene(db)
+                await db.commit()
+                return result
+            finally:
+                await db.close()
+
+        return _asyncio.new_event_loop().run_until_complete(_run())
+
+    def test_managed_hygiene_reaps_ghost_console_row(self):
+        # MANAGED claude with a dead worker (NO channel-sidecar bridge row at
+        # all → _has_live_channel_sidecar False) but a stale `attached`
+        # terminal row + a consoleTerminal pointer = a phantom "Console
+        # attached" for a dead agent. The reaper must reap it.
+        terminal_id = "term_ghost_console"
+        self._seed_managed_claude_with_attached_terminal("ghost-claude", terminal_id)
+        # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
+        self.assertEqual(result["orphan_workers_reaped"], 0, result)
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "stopped")
+        self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("ghost-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE terminal_id = ?", (terminal_id,))
+        self.assertIsNone(sess, "agent_session terminal binding must be cleared")
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            (terminal_id, "reconciled_managed_ghost_console"),
+        )
+        self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
+
+    def test_managed_hygiene_keeps_live_console(self):
+        # MANAGED claude with a FRESH channel-sidecar heartbeat → the worker
+        # is alive; a live-but-idle console must NOT be reaped.
+        terminal_id = "term_live_console"
+        self._seed_managed_claude_with_attached_terminal("live-claude", terminal_id)
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "bridge-sidecar-live",
+                "live-claude",
+                "linux:test-host",
+                "claude-code",
+                "managed",
+                "claude-managed-handle-1",
+                terminal_id,
+                "channel-sidecar",
+                now,
+                now,
+                "",
+            ),
+        )
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "attached", "live-but-idle console must NOT be reaped")
+
+    # --- B2: status rule refinement (status-F1) + orphan-worker detection ---
+
+    def test_managed_claude_online_requires_live_console(self):
+        # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
+        # console PTY AND a live channel-sidecar exist. A live sidecar with NO
+        # console is a headless orphan worker → `available`, never `online`.
+        terminal_id = "term_online_console"
+        self._seed_managed_claude_with_attached_terminal("online-claude", terminal_id)
+        self._stamp_live_channel_sidecar("online-claude")  # fresh sidecar
+        # Live `attached` console + fresh sidecar → online.
+        asyncio.run(self._async_invalidate("online-claude"))
+        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
+
+        # Now stop the console terminal, leaving ONLY the fresh sidecar.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (terminal_id,),
+        )
+        asyncio.run(self._async_invalidate("online-claude"))
+        agent = self.client.get("/api/v1/agents/online-claude").json()["agent"]
+        self.assertNotEqual(agent["status"], "online", agent)
+        self.assertEqual(agent["status"], "available", agent)
+
+    def test_managed_hygiene_reaps_orphan_worker(self):
+        # MANAGED claude, FRESH sidecar (worker alive), newest terminal row is
+        # `stopped` ~200s ago (no live console), runtime_state.consoleTerminal set
+        # → headless orphan: reap pointer, invalidate cache, count it.
+        terminal_id = "term_orphan_worker"
+        self._seed_managed_claude_with_attached_terminal("orphan-claude", terminal_id)
+        self._stamp_live_channel_sidecar("orphan-claude")  # worker alive
+        # Stamp a cached live_state row so we can prove invalidation deletes it.
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            ("orphan-claude", "online", "stale", api_v2._now(), "2099-01-01T00:00:00Z"),
+        )
+        # Newest terminal row terminal-state with stopped_at ~200s in the past.
+        old = "2000-01-01T00:00:00Z"
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
+            (old, old, terminal_id),
+        )
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["orphan_workers_reaped"], 1, result)
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("orphan-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("orphan-claude",))
+        self.assertIsNone(live, "agent_live_state row must be invalidated (deleted)")
+        event = self._fetchone(
+            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            (terminal_id, "reconciled_managed_orphan_worker"),
+        )
+        self.assertIsNotNone(event, "reconciled_managed_orphan_worker event must be appended")
+
+    def test_managed_hygiene_keeps_online_console(self):
+        # MANAGED claude, FRESH sidecar + live `attached` console → NOT an orphan.
+        terminal_id = "term_orphan_keep"
+        self._seed_managed_claude_with_attached_terminal("keep-claude", terminal_id)
+        self._stamp_live_channel_sidecar("keep-claude")  # worker alive
+        # terminal row stays `attached` (live console).
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["orphan_workers_reaped"], 0, result)
+        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "attached", "live console must be untouched")
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("keep-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertIn("consoleTerminal", rs, "consoleTerminal pointer must be preserved")
+
+    # --- status-truthfulness bug fixes (2026-06-01) ---
+
+    def _async_compute_live_status(self, agent_id: str):
+        """Drive _compute_live_status_cache directly and return the cache dict."""
+        async def _run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+                return await api_v2._compute_live_status_cache(db, row)
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_working_via_turnbusy_has_short_refresh_after(self):
+        # FIX 2: when `working` is derived from a fresh turn_busy (NOT an active
+        # run), refresh_after must be clamped to turn_updated_at +
+        # TURN_BUSY_STALE_SECONDS so a lost turn-end self-heals at ~120s, not at
+        # the 5-30min heartbeat windows.
+        self._register("tb-refresh-claude", runtime="claude-code", sessionMode="resident")
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
+            """,
+            ("tb-refresh-claude", "run-tb-1", "bridge-tb-1", "claude-code", now),
+        )
+        cache = self._async_compute_live_status("tb-refresh-claude")
+        self.assertEqual(cache["status"], "working", cache)
+        limit = api_v2._iso_add_seconds(now, api_v2.TURN_BUSY_STALE_SECONDS)
+        self.assertTrue(cache["refresh_after"], cache)
+        self.assertLessEqual(
+            cache["refresh_after"], limit,
+            f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+120s ({limit}); cache={cache}",
+        )
+
+    def test_heartbeat_turnbusy_invalidates_live_state(self):
+        # FIX 1: a heartbeat that writes turn_busy must invalidate the live-state
+        # cache so working/idle reflects the flip immediately — not after the 60s
+        # sweep. (The /turn-start and /turn-end endpoints already invalidate.)
+        self._register("hb-turn-claude", runtime="claude-code", sessionMode="resident")
+        # Seed a fresh cached live_state row with refresh_after far in the future.
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
+            VALUES (?,?,?,?,?)
+            """,
+            ("hb-turn-claude", "online", "cached", api_v2._now(), "2099-01-01T00:00:00Z"),
+        )
+        # Pre-condition: the cache row exists.
+        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
+        self.assertIsNotNone(pre, "precondition: live_state cache row must exist before heartbeat")
+
+        resp = self.client.post(
+            "/api/v1/agents/hb-turn-claude/heartbeat",
+            json={
+                "bridgeId": "bridge-hb-1",
+                "turnBusy": True,
+                "turnRunId": "run-hb-1",
+                "turnRuntime": "claude-code",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
+        self.assertIsNone(post, "turnBusy heartbeat must invalidate (delete) the live_state cache row")
+
+    def test_channel_pending_reply_online_only_when_live(self):
+        # FIX 3 (a): a managed claude with a channel_pending_reply run AND a LIVE
+        # worker (live console PTY + live sidecar) reads `online` (awaiting reply).
+        terminal_id = "term_pending_live"
+        self._seed_managed_claude_with_attached_terminal("pending-live-claude", terminal_id)
+        self._stamp_live_channel_sidecar("pending-live-claude")  # live worker
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_pending_live_1", None, "dashboard", "pending-live-claude",
+                "start_if_possible", "channel", "request", "owed question",
+                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("pending-live-claude"))
+        agent = self.client.get("/api/v1/agents/pending-live-claude").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
+        self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
+
+    def test_channel_pending_reply_not_online_when_worker_dead(self):
+        # FIX 3 (b): same pending reply but NO live worker (managed claude with a
+        # live sidecar but a DEAD/stopped console) must NOT be upgraded to
+        # `online` — a dead worker that owes a reply reads available/stale/offline,
+        # never online (visible-TUI truthfulness).
+        terminal_id = "term_pending_dead"
+        self._seed_managed_claude_with_attached_terminal("pending-dead-claude", terminal_id)
+        self._stamp_live_channel_sidecar("pending-dead-claude")  # sidecar alive...
+        # ...but the console PTY is dead → managed claude has no live worker.
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
+            (terminal_id,),
+        )
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority, status,
+                require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_pending_dead_1", None, "dashboard", "pending-dead-claude",
+                "start_if_possible", "channel", "request", "owed question",
+                "answer please", "normal", "delivered", 1, "2026-05-21T00:00:00Z",
+            ),
+        )
+        asyncio.run(self._async_invalidate("pending-dead-claude"))
+        agent = self.client.get("/api/v1/agents/pending-dead-claude").json()["agent"]
+        self.assertNotEqual(agent["status"], "online", agent)
+        self.assertIn(agent["status"], {"available", "stale", "offline"}, agent)
+
+    def test_has_live_terminal_session_counts_recovering(self):
+        # FIX 4: a console PTY momentarily in `recovering` is still a live
+        # terminal session. Without this, B2's managed-claude online gate
+        # (which requires _has_live_terminal_session) briefly flips to available.
+        self._seed_managed_claude_with_attached_terminal("recovering-claude", "term_recovering")
+        self._execute(
+            "UPDATE terminal_sessions SET status = 'recovering' WHERE id = ?",
+            ("term_recovering",),
+        )
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._has_live_terminal_session(db, "recovering-claude")
+            finally:
+                await db.close()
+        self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill
@@ -8633,6 +9014,33 @@ class ApiV2RegressionTests(unittest.TestCase):
             "a live resident must not stay frozen offline after a reconcile pass",
         )
 
+    def test_periodic_reconcile_runs_managed_worker_hygiene(self):
+        # Workstream B4: the managed-worker-hygiene reaper must run inside the
+        # periodic reconcile pass so ghost console rows are reaped automatically
+        # without a separate bespoke invocation.
+        # Seed a MANAGED claude-code agent with NO live channel-sidecar bridge
+        # + a stale `attached` terminal_sessions row (a GHOST) — exactly the
+        # shape tested in test_managed_hygiene_reaps_ghost_console_row.
+        terminal_id = "term_periodic_ghost"
+        self._seed_managed_claude_with_attached_terminal("periodic-ghost-claude", terminal_id)
+        # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+
+        # The reconcile result must carry both hygiene keys.
+        self.assertIn("managed_ghost_rows_reaped", result, f"key missing from result: {result}")
+        self.assertIn("orphan_workers_reaped", result, f"key missing from result: {result}")
+        # The ghost row must have been reaped by the reconcile pass.
+        self.assertGreaterEqual(
+            result["managed_ghost_rows_reaped"], 1,
+            f"expected at least one ghost row reaped; got {result}",
+        )
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(
+            term["status"], "stopped",
+            "terminal row must be stopped after reconcile-driven hygiene reap",
+        )
+
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
@@ -11204,3 +11612,164 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-patch",))
         self.assertEqual((row["session_handle"] or ""), "")
+
+    # ---- Workstream A2: unconditional liveness beat (2026-06-01) ----
+
+    def _has_live_channel_sidecar(self, agent_id: str) -> bool:
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._has_live_channel_sidecar(db, agent_id)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_liveness_beat_creates_sidecar_row_for_idle_sidecar(self):
+        # An idle standalone channel-sidecar that has never claimed a dispatch
+        # has NO bridge_instances row. Before the fix the heartbeat handler only
+        # UPDATEd (matching zero rows), so the sidecar's liveness was never
+        # recorded and _has_live_channel_sidecar stayed False even though the
+        # process is alive. A {liveness:true} beat must UPSERT the row.
+        self._register("idle-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+
+        # No channel-sidecar row exists yet, so the agent is not "live".
+        self.assertFalse(self._has_live_channel_sidecar("idle-side"))
+        no_row = self._fetchone(
+            "SELECT id FROM bridge_instances WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'",
+            ("idle-side",),
+        )
+        self.assertIsNone(no_row)
+
+        resp = self.client.post(
+            "/api/v1/agents/idle-side/heartbeat",
+            json={"bridgeId": "chan-live-1", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(resp.json().get("ok"), resp.text)
+
+        row = self._fetchone(
+            "SELECT bridge_kind, last_seen, COALESCE(superseded_by,'') AS sb "
+            "FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-live-1", "idle-side"),
+        )
+        self.assertIsNotNone(row, "liveness beat must create the sidecar bridge row")
+        self.assertEqual(row["bridge_kind"], "channel-sidecar")
+        self.assertEqual(row["sb"], "", "liveness beat must not supersede the new row")
+        self.assertTrue(str(row["last_seen"] or "").strip(), "last_seen must be stamped")
+
+        self.assertTrue(
+            self._has_live_channel_sidecar("idle-side"),
+            "_has_live_channel_sidecar must be True after the liveness beat",
+        )
+
+    def test_liveness_beat_refreshes_existing_bridge_last_seen(self):
+        # A sidecar row that already exists with a stale last_seen must be
+        # refreshed by the liveness beat (regression guard for the UPDATE path).
+        self._register("refresh-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "chan-refresh", "refresh-side", "win32:test-host", "hermes",
+                "managed", "", "", "channel-sidecar",
+                "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "", None,
+            ),
+        )
+
+        resp = self.client.post(
+            "/api/v1/agents/refresh-side/heartbeat",
+            json={"bridgeId": "chan-refresh", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(resp.json().get("ok"), resp.text)
+
+        row = self._fetchone(
+            "SELECT last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-refresh", "refresh-side"),
+        )
+        self.assertNotEqual(
+            row["last_seen"], "2026-01-01T00:00:00Z",
+            "liveness beat must advance last_seen on the existing row",
+        )
+
+    def test_liveness_beat_does_not_revive_superseded_bridge(self):
+        # A superseded bridge row must NOT be kept alive by a liveness beat —
+        # the existing supersession guard short-circuits before the upsert.
+        self._register("super-side", runtime="hermes", machineId="win32:test-host", sessionMode="managed")
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "chan-super", "super-side", "win32:test-host", "hermes",
+                "managed", "", "", "channel-sidecar",
+                "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "newer-bridge", "2026-01-01T00:00:00Z",
+            ),
+        )
+
+        resp = self.client.post(
+            "/api/v1/agents/super-side/heartbeat",
+            json={"bridgeId": "chan-super", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertFalse(body.get("ok"), body)
+        self.assertTrue(body.get("ignored"), body)
+
+        row = self._fetchone(
+            "SELECT COALESCE(superseded_by,'') AS sb, last_seen FROM bridge_instances WHERE id = ? AND agent_id = ?",
+            ("chan-super", "super-side"),
+        )
+        self.assertEqual(row["sb"], "newer-bridge", "supersession must be preserved")
+        self.assertEqual(
+            row["last_seen"], "2026-01-01T00:00:00Z",
+            "a superseded bridge must not refresh its own liveness",
+        )
+
+    # --- Workstream C1: operator-driven agent_status push ---------------
+
+    def _agent_status_events(self):
+        return [
+            args[1]
+            for args, _kwargs in self.ws.broadcasts
+            if args and args[0] == "agent_status"
+        ]
+
+    def test_stop_worker_broadcasts_agent_status(self):
+        self._register("c1-stopworker")
+        self.ws.broadcasts.clear()
+
+        resp = self.client.post("/api/v1/agents/c1-stopworker/stop-worker")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        events = self._agent_status_events()
+        self.assertTrue(events, "stop-worker must push an agent_status event")
+        evt = events[-1]
+        self.assertEqual(evt["agentId"], "c1-stopworker")
+        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
+        self.assertIn("statusNote", evt)
+
+    def test_control_stop_broadcasts_agent_status(self):
+        self._register("c1-control")
+        self.ws.broadcasts.clear()
+
+        resp = self.client.post(
+            "/api/v1/agents/c1-control/control",
+            json={"action": "stop", "from_agent": "dashboard"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        events = self._agent_status_events()
+        self.assertTrue(events, "control(stop) must push an agent_status event")
+        evt = events[-1]
+        self.assertEqual(evt["agentId"], "c1-control")
+        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
+        self.assertIn("statusNote", evt)

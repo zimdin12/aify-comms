@@ -1648,7 +1648,7 @@ codex-aify --aify-agent coder --aify-role coder -auto</pre>
       <p><b>Dashboard composer:</b> <b>Send</b> is the normal teamwork path. It starts idle agents, steers busy steer-capable agents, and uses next-turn queue/merge as the fallback. <b>Queue</b> forces the explicit next-turn path.</p>
       <p><b>Work Loop:</b> requests, reviews, and errors are tracked reply contracts by default. Routine info messages are notes unless they explicitly require a reply. Reminder messages are nudges, not new obligations; by default they repeat until the original work is answered or operator-closed. Use <b>Close</b> or <b>Close Selected</b> when an operator has reviewed stale/audit-only contracts.</p>
       <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY attach/control/view surface. Click into it to drive the CLI directly with normal terminal keys, paste, selection, and copy. Messaging an agent stays in <b>Messenger</b> mode and creates tracked run/message contracts. Managed runtimes use bridge-owned terminal backing by default when available; native Codex/OpenCode/Pi adapters remain fallback paths when terminal backing is disabled or unavailable. Blocked console input is never silently swallowed.</p>
-      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed terminal-backed turns stay working until the reply closes the run; if a runtime visibly returns to an idle prompt after output without sending an explicit chat reply, reconcile closes that turn as completed-without-reply so it becomes Work Loop audit debt, not live work. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed).</p>
+      <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed terminal-backed turns stay working until the reply closes the run; if a runtime visibly returns to an idle prompt after output without sending an explicit chat reply, reconcile closes that turn as completed-without-reply so it becomes Work Loop audit debt, not live work. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed). For managed Claude, <b>online</b> requires BOTH a visible console PTY AND a live channel-sidecar (<code>claude-channel.js</code>) — a live console with no sidecar, or a live sidecar with no console (a "headless orphan", which is also reaped to enforce the visible-TUI rule), reads <b>available</b>, not online. Idle-but-alive agents stay <b>online</b> via an unconditional 30s liveness heartbeat from each long-lived bridge. Status is server-authoritative: the live-state cache self-heals on a 60s reconcile loop (no longer dependent on a browser timer) and pushes live <code>agent_status</code> updates over WebSocket on operator-driven transitions. The per-message chat run-note (the collapsible delivery detail) now appears only for noteworthy runs — failed, cancelled, steered, queued-behind-active, or reply-present — not routine deliveries.</p>
       <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
       <p><b>Spawn/respawn:</b> spawning starts a <b>fresh</b> session — prior context is not resumed. Re-spawning an existing agent replaces its backing (no native handle until its first run completes). To preserve an agent's context use <b>Compact</b>/<b>Continue</b>, not re-spawn.</p>
       <p><b>Bridge changes need a host bridge restart:</b> runtime/console/status fixes that live in the host <code>aify-comms</code> bridge (interactive console, accurate turn-busy status, runtime advertisement) only take effect after you restart that bridge — a container rebuild alone does not apply them.</p>
@@ -2544,6 +2544,28 @@ function connectDashboardSocket() {
         // NOT drive a full dashboard refetch on every chunk — the buffer is
         // already cached. Only refresh on a lifecycle status transition.
         if (!data.status || data.status === prevStatus) return;
+      }
+      // Workstream C: operator-driven status push. Apply the recomputed status
+      // to just that agent's in-memory row (window._allAgents is an array of
+      // [id, info] tuples) and re-render the current page from state instead of
+      // forcing a full refetch. Falls back to a normal refresh if the agent
+      // isn't loaded yet or the re-render throws.
+      if (payload.event === 'agent_status' && data.agentId) {
+        const entry = Array.isArray(window._allAgents)
+          ? window._allAgents.find(([id]) => String(id) === String(data.agentId))
+          : null;
+        const info = entry?.[1];
+        if (info && data.status) {
+          info.status = data.status;
+          info.statusRaw = data.status;
+          if (data.statusNote !== undefined) info.statusNote = data.statusNote;
+          try {
+            const r = renderCurrentPageFromState();
+            if (r && typeof r.catch === 'function') r.catch(() => scheduleRealtimeRefresh());
+          } catch { scheduleRealtimeRefresh(); }
+          return;
+        }
+        // Agent not loaded yet → fall back to a normal refresh below.
       }
     } catch {}
     scheduleRealtimeRefresh();
@@ -6211,6 +6233,21 @@ function messageDeliveryDetail(deliveryRun) {
   return run.error || run.summary || run.status || '';
 }
 
+function isNoteworthyDeliveryRun(deliveryRun) {
+  if (!deliveryRun?.run) return false;
+  const run = deliveryRun.run;
+  const control = deliveryRun.control;
+  // Steer activity, failures/cancellations, queued-behind, and runs that
+  // produced a linked reply are worth surfacing. Routine deliveries
+  // (delivered/running/completed-without-reply) are chat noise — the
+  // "awaiting reply" state is already shown via the chat presence note.
+  if (control?.action === 'steer') return true;
+  if (run.blockedByActiveRun || run.queuedBehindActiveRun || run.status === 'queued') return true;
+  if (run.status === 'failed' || run.status === 'cancelled') return true;
+  if (run.resultMessageId) return true;
+  return false;
+}
+
 function renderChatMessage(m, currentFrom) {
   const system = m.from === '_system';
   const mine = !system && m.from === currentFrom;
@@ -6228,7 +6265,7 @@ function renderChatMessage(m, currentFrom) {
   const relatedRun = deliveryRun?.run;
   const deliveryLabel = messageDeliveryLabel(deliveryRun);
   const deliveryDetail = messageDeliveryDetail(deliveryRun);
-  const runDetail = relatedRun && (deliveryDetail || relatedRun.status)
+  const runDetail = relatedRun && isNoteworthyDeliveryRun(deliveryRun)
     ? `<details class="chat-run-note"><summary>${esc(deliveryLabel || 'run')} · ${runOpenButton(relatedRun.id)}${relatedRun.resultMessageId ? ` · reply ${messageOpenButton(relatedRun.resultMessageId, 'linked')}` : ''}</summary><pre>${esc(deliveryDetail || relatedRun.status || '')}</pre></details>`
     : '';
   const subjectText = String(m.subject || '').trim();
@@ -8073,7 +8110,11 @@ async function loadSettings() {
   document.getElementById('s-reply-max').value = s.reply_reminder_max_count;
   document.getElementById('s-contract-stale').value = s.contract_stale_hours;
   if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(refreshDashboard, s.dashboard_refresh_seconds * 1000);
+  // Workstream C: the server now pushes status transitions over WS (agent_status)
+  // and applies them granularly, so this full-refetch timer is only a slow safety
+  // net. Floor it at 60s to avoid redundant full refetches; correctness no longer
+  // depends on this interval.
+  refreshInterval = setInterval(refreshDashboard, Math.max(60, s.dashboard_refresh_seconds || 60) * 1000);
   showSettingsTab(localStorage.getItem('aifySettingsTab') || 'appearance');
 }
 

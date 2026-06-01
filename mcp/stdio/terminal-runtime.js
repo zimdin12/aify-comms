@@ -456,7 +456,24 @@ export class TerminalProcessManager {
       nextDetail.classification = classification;
       if (classification.status === "failed" && !nextDetail.error) nextDetail.error = new Error(classification.message);
     }
+    // B3 (visible-TUI): when a managed console PTY exits, best-effort reap any
+    // descendant worker tree (claude.exe + channel-sidecar + MCP children) that
+    // Windows may have left reparented/alive. Harmless no-op if the root is
+    // already gone. The authoritative backstop is the sidecar self-exit guard.
+    // Reached ONLY on the final-exit path — the hermes resume-heal restart
+    // branch above returns before here, so a healthy re-spawn is never reaped.
+    if (state.kind === "pty" && state.term) {
+      try { this._reapPtyTree(state.term); } catch { /* best effort */ }
+    }
     await this.onExit(id, nextDetail);
+  }
+
+  // Indirection so the final-exit descendant reap (B3) is observable in tests
+  // without spawning/killing a real process tree. Production delegates straight
+  // to terminateProcessTree (taskkill /t /f on win32; process-group + captured
+  // descendants on POSIX). Tests override this method to record the call.
+  _reapPtyTree(term) {
+    terminateProcessTree(term, "SIGKILL");
   }
 
   input(id, body = "") {

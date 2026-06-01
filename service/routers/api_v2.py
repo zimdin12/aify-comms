@@ -429,7 +429,7 @@ async def _has_live_terminal_session(db, agent_id: str) -> bool:
             """
             SELECT COUNT(*) AS cnt FROM terminal_sessions
             WHERE agent_id = ?
-              AND status IN ('starting', 'attached', 'running', 'active', 'idle')
+              AND status IN ('starting', 'attached', 'running', 'active', 'idle', 'recovering')
               AND id NOT LIKE 'vterm_%'
             """,
             (agent_id,),
@@ -459,6 +459,12 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
 # (claim_dispatch: "the claim poll itself is the heartbeat"), so a live sidecar
 # stays well within this window; a process that has exited goes stale quickly.
 CHANNEL_SIDECAR_STALE_SECONDS = 180
+
+# Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
+# but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
+# 30s liveness beat + console startup so a transiently-restarting console (PTY
+# respawn between beats) is never falsely reaped.
+MANAGED_ORPHAN_GRACE_SECONDS = 90
 
 
 async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
@@ -724,6 +730,32 @@ async def _get_ws(request: Request):
         return request.app.state.ws_manager
     except Exception:
         return None
+
+
+async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
+    """Recompute one agent's live status and push it to dashboards so an
+    operator-driven state transition is reflected without waiting for the 60s
+    reconcile sweep or a full client refetch. Best-effort: never raise into the
+    caller. Mirrors the single-agent GET status compute (_compute_live_status_cache).
+    """
+    if ws is None:
+        return
+    try:
+        agent_id = str(agent_id or "").strip()
+        if not agent_id:
+            return
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            return
+        settings = await _load_settings(db)
+        cache = await _compute_live_status_cache(db, row, settings=settings)
+        await ws.broadcast("agent_status", {
+            "agentId": agent_id,
+            "status": cache.get("status") or "",
+            "statusNote": cache.get("reason") or "",
+        })
+    except Exception:
+        pass
 
 async def _touch_agent(db, agent_id: str):
     await db.execute(
@@ -2208,6 +2240,198 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
     return len(rows)
 
 
+async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
+    """Periodic managed-worker hygiene sweep (Workstream B).
+
+    Scoped to MANAGED claude-code agents — the surface where the incident
+    occurs. claude-aify's claude-channel.js sidecar beats every 30s while the
+    wrapper is alive (Workstream A liveness), so `_has_live_channel_sidecar`
+    is a TRUE "alive now" signal: the sidecar's bridge_instances row goes
+    stale within CHANNEL_SIDECAR_STALE_SECONDS after the worker dies.
+
+    B1 — ghost-console half (implemented here):
+      A managed claude wrapper dies but its `terminal_sessions` row stays in
+      an active state (`attached`, etc.), so the dashboard renders a phantom
+      "Console attached" for a dead agent. We reap that ghost row ONLY when
+      the worker is genuinely dead (no live channel sidecar) — a live-but-idle
+      console is never falsely reaped.
+
+    B2 — orphan-worker half (implemented here, 2026-06-01): the inverse. The
+    console PTY died but the channel-sidecar keeps beating, so the agent looks
+    like a LIVE worker with NO visible console = a headless background orphan
+    (visible-TUI violation + proliferation). We clear the stale console pointer,
+    invalidate the live-status cache (so the refined status-F1 recomputes the
+    agent to `available`), append an observability event, and count it. The
+    actual process kill is host-side (B3: tree-kill on PTY close). We do NOT emit
+    a dispatch_control — an orphan has no run, so there is no run_id to attach
+    one to. A MANAGED_ORPHAN_GRACE_SECONDS guard prevents reaping a console that
+    is merely restarting between liveness beats.
+
+    DB-only: the reconcile loop has no `ws` in scope; the dashboard reflects
+    the reaped row on its next refresh (Workstream C adds WS push later).
+    """
+    result = {"managed_ghost_rows_reaped": 0, "orphan_workers_reaped": 0}
+    cursor = await db.execute(
+        """
+        SELECT t.id AS terminal_id, t.agent_id AS agent_id
+        FROM terminal_sessions t
+        JOIN agents a ON a.id = t.agent_id
+        WHERE a.session_mode = 'managed'
+          AND a.runtime IN ({placeholders})
+          AND t.status IN ('starting','attached','running','active','idle','recovering')
+          AND t.id NOT LIKE 'vterm_%'
+        """.format(
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
+        ),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
+    )
+    rows = await cursor.fetchall()
+    now = _now()
+    for row in (rows or []):
+        terminal_id = row["terminal_id"]
+        agent_id = row["agent_id"]
+        sidecar_live = await _has_live_channel_sidecar(db, agent_id)
+        if sidecar_live:
+            # Worker alive — a live-but-idle console stays. The orphan-worker
+            # half below handles "live sidecar + no live console".
+            continue
+        # Worker dead → this active terminal row is a ghost. Reap it.
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                stopped_at = ?,
+                updated_at = ?,
+                error = COALESCE(NULLIF(error, ''), 'reconciled_managed_ghost_console_dead_worker')
+            WHERE id = ?
+            """,
+            (now, now, terminal_id),
+        )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_managed_ghost_console",
+            json.dumps({
+                "agentId": agent_id,
+                "reason": "managed claude wrapper is dead (no live channel sidecar) but its terminal row stayed active; phantom console reaped",
+            }),
+        )
+        # Clear the agent's runtime_state.consoleTerminal pointer (pop + write
+        # back), but only if it still points at this terminal.
+        agent_row = await (
+            await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
+        ).fetchone()
+        if agent_row:
+            runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+            console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
+            if (
+                isinstance(console_terminal, dict)
+                and str(console_terminal.get("terminalId") or "").strip() == str(terminal_id)
+            ):
+                runtime_state.pop("consoleTerminal", None)
+                await db.execute(
+                    "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                    (json.dumps(runtime_state), now, agent_id),
+                )
+        # Clear the agent_sessions terminal binding (mirror the model fn).
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET terminal_id = '',
+                terminal_status = ''
+            WHERE terminal_id = ?
+            """,
+            (terminal_id,),
+        )
+        result["managed_ghost_rows_reaped"] += 1
+
+    # B2 — orphan-worker half (2026-06-01): the inverse failure. The console PTY
+    # died but the channel-sidecar keeps beating → the agent has a LIVE worker
+    # (sidecar) with NO visible console = a "headless background orphan", which
+    # violates the visible-TUI hard requirement and drives proliferation. The
+    # actual process kill is host-side (B3: tree-kill on PTY close); B2 is the
+    # server-side status truth: clear the stale console pointer, invalidate the
+    # cache (so the refined status-F1 recomputes the agent to `available`), and
+    # count it for observability. We do NOT emit a dispatch_control here — an
+    # orphan has no run, so there is no run_id to attach one to.
+    orphan_cursor = await db.execute(
+        """
+        SELECT a.id AS agent_id, a.runtime_state AS runtime_state
+        FROM agents a
+        WHERE a.session_mode = 'managed'
+          AND a.runtime IN ({placeholders})
+        """.format(
+            placeholders=",".join("?" for _ in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES)
+        ),
+        tuple(_CHANNEL_SIDECAR_DELIVERY_RUNTIMES),
+    )
+    orphan_agents = await orphan_cursor.fetchall()
+    for agent in orphan_agents:
+        agent_id = agent["agent_id"]
+        # Worker alive (sidecar beating) but NO live console PTY.
+        if not await _has_live_channel_sidecar(db, agent_id):
+            continue
+        if await _has_live_terminal_session(db, agent_id):
+            continue
+        # Most-recent real (non-vterm) terminal row. No row at all = never had a
+        # console → skip (avoid startup-race false positives; status-F1 already
+        # reports it `available`).
+        last_term = await (
+            await db.execute(
+                """
+                SELECT id, status, stopped_at, updated_at
+                FROM terminal_sessions
+                WHERE agent_id = ?
+                  AND id NOT LIKE 'vterm_%'
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (agent_id,),
+            )
+        ).fetchone()
+        if not last_term:
+            continue
+        term_status = str(last_term["status"] or "").strip().lower()
+        if term_status not in ("stopped", "failed"):
+            # Console is in some non-live, non-terminal state (e.g. transient) —
+            # let it settle rather than reaping mid-transition.
+            continue
+        ended_at = str(last_term["stopped_at"] or "").strip() or str(last_term["updated_at"] or "").strip()
+        ended_epoch = _iso_to_epoch(ended_at)
+        if ended_epoch <= 0:
+            continue
+        if (_iso_to_epoch(now) - ended_epoch) < MANAGED_ORPHAN_GRACE_SECONDS:
+            # Within grace — a transiently-restarting console PTY, not an orphan.
+            continue
+        terminal_id = str(last_term["id"] or "")
+        # Clear the consoleTerminal pointer ONLY if it still points at this
+        # now-dead terminal (mirror the ghost-row guard).
+        runtime_state = _json_loads_or(agent["runtime_state"], {})
+        console_terminal = runtime_state.get("consoleTerminal") if isinstance(runtime_state, dict) else None
+        if (
+            isinstance(console_terminal, dict)
+            and str(console_terminal.get("terminalId") or "").strip() == terminal_id
+        ):
+            runtime_state.pop("consoleTerminal", None)
+            await db.execute(
+                "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
+                (json.dumps(runtime_state), now, agent_id),
+            )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_managed_orphan_worker",
+            json.dumps({
+                "agentId": agent_id,
+                "reason": "live sidecar but no console PTY = headless orphan; worker killed host-side",
+            }),
+        )
+        # Recompute status now → refined status-F1 drops the agent to `available`.
+        await _invalidate_agent_live_state(db, agent_id)
+        result["orphan_workers_reaped"] += 1
+    return result
+
+
 async def _record_channel_sidecar_heartbeat(
     db,
     *,
@@ -2916,6 +3140,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # within TURN_BUSY_STALE_SECONDS) is treated as not-busy.
     turn_busy = False
     turn_runtime = ""
+    turn_updated_at = ""
     # Plan 4 task 12 (2026-05-25): `ready` is the bridge-pushed
     # handshake-complete signal. It remains an internal readiness bit; the
     # public idle-live status is `online` so operators do not see both
@@ -2932,6 +3157,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                 if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
                     turn_busy = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
+                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
             try:
                 turn_state_ready = int(_tb["ready"] or 0) == 1
             except (IndexError, KeyError):
@@ -3039,12 +3265,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         agent_session_mode == "managed"
         and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
     ):
-        # status-F1: the channel-sidecar is the ONLY claimer for these runtimes;
-        # the wrapper PTY only renders. REQUIRE a live, non-superseded sidecar —
-        # this OVERRIDES a PTY-derived has_live_worker so a managed claude with a
-        # live "Console" but a dead/superseded sidecar correctly reports
-        # `available` (not deliverable) instead of a falsely-positive `online`.
-        if await _has_live_channel_sidecar(db, agent_row["id"]):
+        # status-F1 (refined 2026-06-01, Workstream B): managed claude's worker IS
+        # its wrapper-PTY console; the channel-sidecar only delivers. Visible-TUI is
+        # a HARD requirement, so `online` REQUIRES BOTH a live console PTY AND a live
+        # channel sidecar. A live sidecar with NO console is a headless orphan worker
+        # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
+        # falsely-positive `online`. A live console with a dead sidecar is also not
+        # deliverable → `available` (the original status-F1 intent, preserved).
+        sidecar_live = await _has_live_channel_sidecar(db, agent_row["id"])
+        console_live = await _has_live_terminal_session(db, agent_row["id"])
+        if sidecar_live and console_live:
             has_live_worker = True
         else:
             has_live_worker = False
@@ -3113,7 +3343,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
-    elif resident_bridge_stale and not active_run and not turn_busy and not channel_pending_reply_run:
+    elif resident_bridge_stale and not active_run and not turn_busy:
+        # A stale resident bridge means a DEAD worker → `stale`, even when the
+        # agent owes a channel reply. (Previously `and not channel_pending_reply_run`
+        # suppressed this so the channel-pending branch could manufacture `online`
+        # for a dead agent — the FIX-3 bug. The channel-pending branch now refuses
+        # to upgrade a dead worker, so this stale derivation is the correct landing.)
         effective_status = "stale"
         reason = "Resident bridge heartbeat is stale or missing."
     # A console terminal reaching an end state returns ownership to managed (the
@@ -3148,13 +3383,26 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # signal (claude Stop hook / hermes post_llm_call / codex turn/completed /
         # pi agent_end) clears turn_busy precisely; this branch is the
         # idle-owes-reply state after that.
-        awaiting_reply = True
-        if effective_status not in {"offline", "stale", "blocked"}:
-            effective_status = "online"
-        reason = (
-            f'Idle — awaiting reply: '
-            f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+        # FIX (2026-06-01): only show `online` when the worker is actually live.
+        # A DEAD worker that owes a reply must NOT be manufactured into `online`
+        # (visible-TUI truthfulness): a managed claude with a dead console/sidecar
+        # has has_live_worker=False (status-F1), and a resident with a stale bridge
+        # is positively dead. In either case fall through so the
+        # available/stale/offline derivation below stands. A live resident with no
+        # tracked terminal row (resident_bridge_stale=False, has_live_worker may be
+        # False) is NOT dead and keeps the online-awaiting-reply state.
+        worker_is_dead = (
+            (agent_session_mode == "managed" and not has_live_worker)
+            or resident_bridge_stale
         )
+        if not worker_is_dead:
+            awaiting_reply = True
+            if effective_status not in {"offline", "stale", "blocked"}:
+                effective_status = "online"
+            reason = (
+                f'Idle — awaiting reply: '
+                f'{channel_pending_reply_run["subject"] or channel_pending_reply_run["id"]}.'
+            )
     elif session_status in {"recovering", "restarting"} or terminal_status == "stopping":
         effective_status = "working"
         reason = session_status or terminal_status or "Session is transitioning."
@@ -3191,6 +3439,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # haven't already attached a more specific reason (e.g. offline).
         if effective_status == "available" and channel_managed_no_sidecar and not reason:
             reason = "No live channel sidecar heartbeat (not deliverable)."
+    refresh_after = _status_refresh_after(
+        agent_last_seen,
+        env_last_seen,
+        idle_minutes=int(settings.get("idle_minutes", 5) or 5),
+        offline_minutes=int(settings.get("offline_minutes", 30) or 30),
+        env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
+    )
+    # When `working` is driven by a fresh turn_busy (NOT an active run, which has
+    # its own lifecycle), clamp refresh_after to the turn-busy staleness window so
+    # a lost turn-end self-heals at ~120s instead of waiting out the 5-30min
+    # heartbeat windows. `active_run` working is intentionally left untouched.
+    if effective_status == "working" and turn_busy and not active_run and turn_updated_at:
+        busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_STALE_SECONDS)
+        if busy_deadline:
+            refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
     return {
         "status": effective_status,
         "reason": reason,
@@ -3199,13 +3462,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         "session_id": session_id,
         "terminal_id": terminal_id,
         "active_run_id": str((active_run["id"] if active_run else "") or "").strip(),
-        "refresh_after": _status_refresh_after(
-            agent_last_seen,
-            env_last_seen,
-            idle_minutes=int(settings.get("idle_minutes", 5) or 5),
-            offline_minutes=int(settings.get("offline_minutes", 30) or 30),
-            env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
-        ),
+        "refresh_after": refresh_after,
         "updated_at": now,
     }
 
@@ -10693,6 +10950,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 "agent_control_requested",
                 {"agentId": agent_id, "action": action, "controlId": control_id, "cancelledQueued": cancelled_queued},
             )
+        await _broadcast_agent_status(ws, db, agent_id)
         return {
             "ok": True,
             "agentId": agent_id,
@@ -10719,7 +10977,10 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         if cursor.rowcount == 0:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         ws = await _get_ws(request)
-        if ws: await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status})
+        if ws:
+            # Keep req.status authoritative (operator-set), enrich with the note
+            # so dashboards can render it on the agent's row without a refetch.
+            await ws.broadcast("agent_status", {"agentId": agent_id, "status": req.status, "statusNote": note})
         return {"ok": True, "agentId": agent_id, "status": status_val, "statusRaw": req.status, "statusNote": note}
     finally:
         await db.close()
@@ -12455,6 +12716,55 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
                     (now, bridge_id, agent_id),
                 )
+        # Unconditional liveness beat (Workstream A, 2026-06-01). A long-lived
+        # bridge posts {bridgeId, bridgeKind, liveness:true} on a fixed interval
+        # regardless of turn activity, so last_seen is a true "alive now" signal.
+        # Unlike the plain UPDATE above (which no-ops when the bridge has no row
+        # yet — e.g. an idle channel-sidecar that never claimed), this UPSERTS the
+        # row, touching ONLY last_seen + bridge_kind. It never clears
+        # superseded_by and never touches turn state. (A superseded existing row
+        # is already short-circuited by the guard above.)
+        if body.get("liveness") and bridge_id:
+            arow = await (await db.execute(
+                "SELECT machine_id, runtime FROM agents WHERE id = ?", (agent_id,),
+            )).fetchone()
+            arow_machine = (arow["machine_id"] if arow else "") or ""
+            arow_runtime = (arow["runtime"] if arow else "") or "generic"
+            if bridge_kind == "channel-sidecar":
+                await _record_channel_sidecar_heartbeat(
+                    db,
+                    bridge_id=bridge_id,
+                    agent_id=agent_id,
+                    machine_id=arow_machine,
+                    runtime=arow_runtime,
+                    now=now,
+                )
+            else:
+                updated = await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ?, "
+                    "bridge_kind = COALESCE(NULLIF(?, ''), bridge_kind) "
+                    "WHERE id = ? AND agent_id = ?",
+                    (now, bridge_kind, bridge_id, agent_id),
+                )
+                if not getattr(updated, "rowcount", 0):
+                    await db.execute(
+                        """
+                        INSERT OR IGNORE INTO bridge_instances (
+                            id, agent_id, machine_id, runtime, session_mode,
+                            session_handle, terminal_id, bridge_kind,
+                            registered_at, last_seen, superseded_by, superseded_at
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (bridge_id, agent_id,
+                         _normalize_machine_id(arow_machine),
+                         arow_runtime,
+                         "managed", "", "", bridge_kind or "resident",
+                         now, now, "", None),
+                    )
+                    await db.execute(
+                        "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
+                        (now, bridge_id, agent_id),
+                    )
         # Authoritative turn-busy signal (contract with the bridge). Missing
         # "turnBusy" → liveness only (old-bridge safe). turnBusy=true: latest
         # bridge wins. turnBusy=false: only the owning bridge+run may clear,
@@ -12491,6 +12801,11 @@ async def agent_heartbeat(agent_id: str, request: Request):
                             "UPDATE agent_turn_state SET turn_busy = 0, turn_updated_at = ? WHERE agent_id = ?",
                             (now, agent_id),
                         )
+            # A turn_busy flip changes derived status (working ⇄ idle). Invalidate
+            # the live-state cache so the next read recomputes immediately, instead
+            # of lagging up to the 60s reconcile sweep. Symmetric with the dedicated
+            # /turn-start and /turn-end endpoints, which already invalidate.
+            await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         return {"ok": True}
     finally:
@@ -12583,6 +12898,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("agent_worker_stopped", {"agentId": agent_id, "virtualTerminalId": virtual_terminal_id})
+        await _broadcast_agent_status(ws, db, agent_id)
         return {
             "ok": True,
             "agentId": agent_id,

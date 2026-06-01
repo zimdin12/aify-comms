@@ -66,6 +66,34 @@ export function isPortFree(port, host = "127.0.0.1") {
   });
 }
 
+// Returns a Set of port numbers already claimed by OTHER agents' persist files
+// under tempDir. The current agent's own file is excluded so that the reuse
+// branch can return its own previously-claimed port even when the gateway is
+// already bound (and therefore not "free" by isPortFree). Unreadable or
+// out-of-range entries are silently ignored.
+function claimedByOtherAgents(tempDir, selfAgentId) {
+  const ownFile = `aify-hermes-port-${sanitizeAgentId(selfAgentId)}`;
+  const claimed = new Set();
+  try {
+    const entries = fs.readdirSync(tempDir);
+    for (const name of entries) {
+      if (!name.startsWith("aify-hermes-port-")) continue;
+      if (name === ownFile) continue; // exclude self
+      try {
+        const val = parseInt(String(fs.readFileSync(path.join(tempDir, name), "utf8")).trim(), 10);
+        if (Number.isInteger(val) && val >= PORT_BASE && val < PORT_BASE + PORT_SPAN) {
+          claimed.add(val);
+        }
+      } catch {
+        /* unreadable file → treat as no claim */
+      }
+    }
+  } catch {
+    /* tempDir missing or unlistable → no claims */
+  }
+  return claimed;
+}
+
 // Collision-resilient per-agent GATEWAY port (operator-reported 2026-05-31:
 // `comms-senior-dev` and `graph-hermes-tl` both hashed to 9341, so the second
 // agent's `hermes dashboard --tui --port 9341` could not bind → "gateway startup
@@ -74,19 +102,28 @@ export function isPortFree(port, host = "127.0.0.1") {
 // stable per agent but collision-free:
 //   1. If we already claimed a port (persisted file), reuse it — so ensure-host,
 //      the delivery loop, and the visible TUI all agree on the SAME port.
-//   2. Else probe forward from agentPort() within the range for a FREE port
-//      (never grabbing a port a colliding agent's gateway already holds) and
-//      persist it.
+//      NOTE: we do NOT require portFree here — the agent's own gateway may already
+//      be bound to this port (that is the whole point of persistence). We only
+//      skip the persisted port if another agent's file has claimed it (collision).
+//   2. Else probe forward from agentPort() within the range for a port that is
+//      both FREE (bindable) AND not claimed by any other agent's persist file,
+//      then persist it.
 // Persist file mirrors the per-agent key file convention.
 export async function resolveGatewayPort(
   agentId,
   { tempDir = os.tmpdir(), portFree = isPortFree, probeSpan = 64 } = {},
 ) {
   const file = path.join(tempDir, `aify-hermes-port-${sanitizeAgentId(agentId)}`);
+  const claimed = claimedByOtherAgents(tempDir, agentId);
   try {
     const existing = parseInt(String(fs.readFileSync(file, "utf8")).trim(), 10);
     if (Number.isInteger(existing) && existing >= PORT_BASE && existing < PORT_BASE + PORT_SPAN) {
-      return existing;
+      // Only reuse if no OTHER agent has claimed this port. We do not require
+      // portFree — the agent's own gateway may already hold the port.
+      if (!claimed.has(existing)) {
+        return existing;
+      }
+      // Another agent claimed our persisted port → fall through and re-probe.
     }
   } catch {
     /* no persisted port → probe below */
@@ -96,7 +133,7 @@ export async function resolveGatewayPort(
   for (let i = 0; i < Math.max(1, probeSpan); i += 1) {
     const candidate = PORT_BASE + (((start - PORT_BASE) + i) % PORT_SPAN);
     // eslint-disable-next-line no-await-in-loop
-    if (await portFree(candidate)) {
+    if ((await portFree(candidate)) && !claimed.has(candidate)) {
       chosen = candidate;
       break;
     }

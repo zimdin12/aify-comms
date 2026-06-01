@@ -11,6 +11,7 @@ import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
+import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 
 loadSettingsEnv();
 
@@ -337,7 +338,118 @@ async function markDispatchDeliveryFailed(runId, error) {
 const LAST_DELIVERED_AT_PER_AGENT = new Map();
 const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 
+// B3 (visible-TUI): orphan-sidecar self-exit guard. The channel sidecar runs as
+// a child of the managed claude.exe. On Windows a child does NOT die with its
+// parent, so if the controlling claude.exe (and its visible console PTY) dies
+// but this sidecar survives, the agent keeps "beating" headless — a visible-TUI
+// violation and a proliferation source. This guard detects the gone parent and
+// self-exits so the worker truly disappears.
+//
+// CONSERVATIVE by construction: it only acts when there was a real original
+// parent pid (>1) that is now reliably dead across CONSECUTIVE checks. A healthy
+// sidecar (parent alive) never trips it; a transient process.kill error is
+// tolerated by the consecutive-miss counter.
+const PARENT_GUARD_CHECK_MS = 30_000;
+const PARENT_GUARD_MISS_THRESHOLD = 3; // ~90s of consecutive dead-parent reads
+
+// True when the sidecar's original controlling parent is gone, so a surviving
+// orphan sidecar should self-exit. Conservative: an unknown/rootless ppid
+// (0/1/undefined) NEVER self-kills.
+export function parentIsGone({ originalPpid, isAlive } = {}) {
+  if (!originalPpid || originalPpid <= 1) return false; // unknown/rootless → never self-kill
+  if (typeof isAlive !== "function") return false;
+  return !isAlive(originalPpid);
+}
+
+// Consecutive-miss latch: only act once we have seen the parent dead for
+// `threshold` checks in a row. Exported for unit testing.
+export function shouldSelfExit(misses, threshold = PARENT_GUARD_MISS_THRESHOLD) {
+  return Number(misses) >= Number(threshold);
+}
+
+// Liveness-beat gate (status-liveness fix 2026-06-01). The sidecar's
+// unconditional liveness beat keeps the server seeing the agent `online` purely
+// because this process exists. If the controlling claude.exe died but the
+// sidecar survives (orphan), the slow self-exit guard above takes ~90s to act,
+// during which the orphan keeps beating -- so a dead RESIDENT shows online for
+// up to ~90s + the server's stale window. Gate the beat itself: skip posting
+// immediately when the original parent is known (>1) and provably dead. A
+// transient false read just skips ONE beat (resumes next tick); a real dead
+// parent makes the agent go stale faster, which is correct. Conservative on an
+// unknown/rootless ppid (0/1/undefined) -- never skips. Injected isAlive for
+// unit testing; production passes the real pidIsAlive.
+export function shouldSkipBeatForDeadParent(ppid, isAlive) {
+  if (!ppid || ppid <= 1) return false; // unknown/rootless -> always beat
+  if (typeof isAlive !== "function") return false; // conservative: beat
+  return !isAlive(ppid);
+}
+
+// pid liveness via signal 0. EPERM means the pid exists but we lack permission
+// (still alive); ESRCH/anything else means gone. Conservative on ambiguity.
+function pidIsAlive(pid) {
+  if (!pid || pid <= 1) return true; // treat unknown as alive → never trip the guard
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
 async function pollLoop() {
+  // Capture the original controlling parent pid ONCE (the managed claude.exe),
+  // up front so both the liveness-beat gate (below) and the self-exit guard
+  // (further down) read the same value.
+  const ORIGINAL_PPID = process.ppid;
+  const stopLiveness = startLivenessHeartbeat({
+    intervalMs: 30_000,
+    beat: async () => {
+      if (!SERVER_URL) return;
+      const id = readBoundAgentId();
+      if (!id) return;
+      // Orphan-sidecar liveness gate: if our controlling claude.exe is gone,
+      // stop beating immediately instead of misleading the server into showing
+      // a dead resident as online until the slow self-exit guard fires.
+      if (shouldSkipBeatForDeadParent(ORIGINAL_PPID, pidIsAlive)) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
+        bridgeId: channelBridgeId(id),
+        bridgeKind: "channel-sidecar",
+        liveness: true,
+      });
+    },
+  });
+
+  // B3: orphan-sidecar self-exit guard. Capture the original controlling parent
+  // pid ONCE (the managed claude.exe). A periodic, unref'd check self-exits only
+  // after the parent is seen dead for PARENT_GUARD_MISS_THRESHOLD consecutive
+  // ticks — never on a transient read or for a healthy sidecar.
+  // (ORIGINAL_PPID was captured at the top of pollLoop, shared with the gate.)
+  let parentMisses = 0;
+  let parentGuardTimer = null;
+  const stopParentGuard = () => {
+    if (parentGuardTimer) { clearInterval(parentGuardTimer); parentGuardTimer = null; }
+  };
+  if (IS_MAIN && ORIGINAL_PPID && ORIGINAL_PPID > 1) {
+    parentGuardTimer = setInterval(() => {
+      if (parentIsGone({ originalPpid: ORIGINAL_PPID, isAlive: pidIsAlive })) {
+        parentMisses += 1;
+      } else {
+        parentMisses = 0; // reset on any live (or transient) observation
+        return;
+      }
+      if (shouldSelfExit(parentMisses, PARENT_GUARD_MISS_THRESHOLD)) {
+        console.error(
+          `[claude-channel] controlling parent ${ORIGINAL_PPID} gone — orphan sidecar self-exiting`,
+        );
+        stopParentGuard();
+        stopLiveness();
+        try { removeOwnMarker(); } catch { /* best effort */ }
+        process.exit(0);
+      }
+    }, PARENT_GUARD_CHECK_MS);
+    if (typeof parentGuardTimer.unref === "function") parentGuardTimer.unref();
+  }
+  try {
   while (true) {
     try {
       if (!SERVER_URL) {
@@ -521,6 +633,10 @@ async function pollLoop() {
     }
 
     await sleep(POLL_MS);
+  }
+  } finally {
+    stopParentGuard();
+    stopLiveness();
   }
 }
 

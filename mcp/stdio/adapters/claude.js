@@ -107,6 +107,18 @@ export class ClaudeAdapter extends RuntimeAdapter {
   // BLOCKING tool call like a build — claude is idle-waiting then and the
   // transcript doesn't grow.)
   async transcriptMtimeMs(opts = {}) {
+    const obs = await this.transcriptStat(opts);
+    return obs ? obs.mtimeMs : 0;
+  }
+
+  // Like transcriptMtimeMs but returns BOTH mtime and byte size of THIS agent's
+  // own transcript, or null if it can't be resolved. Growth-based activity
+  // detection (status-liveness fix, 2026-06-01) needs size + mtime together so
+  // a "freshly touched but not growing" transcript (e.g. the single final write
+  // by the Stop hook at turn end) is NOT mistaken for ongoing generation. Same
+  // scoping rules as transcriptMtimeMs (agent's own session id, then env, then
+  // scoped-newest within the agent's own project dir only).
+  async transcriptStat(opts = {}) {
     const { env = process.env, homeDir = os.homedir(), cwd, agentId, dir } = opts;
     const scopedCwd = cwd || env.AIFY_AGENT_CWD || process.cwd();
     const projDir = path.join(homeDir, ".claude", "projects", encodeClaudeCwd(scopedCwd));
@@ -117,17 +129,19 @@ export class ClaudeAdapter extends RuntimeAdapter {
     if (sid) {
       try {
         const stat = await fs.stat(path.join(projDir, `${sid}.jsonl`));
-        if (stat.isFile()) return stat.mtimeMs;
+        if (stat.isFile()) return { mtimeMs: stat.mtimeMs, size: stat.size };
       } catch { /* fall through to scoped-newest */ }
     }
     let files;
-    try { files = await fs.readdir(projDir); } catch { return 0; }
-    let newest = 0;
+    try { files = await fs.readdir(projDir); } catch { return null; }
+    let newest = null;
     for (const f of files) {
       if (!f.endsWith(".jsonl")) continue;
       try {
         const st = await fs.stat(path.join(projDir, f));
-        if (st.isFile() && st.mtimeMs > newest) newest = st.mtimeMs;
+        if (st.isFile() && (!newest || st.mtimeMs > newest.mtimeMs)) {
+          newest = { mtimeMs: st.mtimeMs, size: st.size };
+        }
       } catch { /* skip */ }
     }
     return newest;

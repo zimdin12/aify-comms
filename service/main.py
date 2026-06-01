@@ -64,6 +64,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_reconcilable_delivered_runs,
         _prune_superseded_bridges,
         _prune_terminal_history,
+        _reconcile_managed_worker_hygiene,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
@@ -96,6 +97,12 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.
         closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
+        # Managed console↔worker lifetime coupling (Workstream B): reap ghost
+        # console rows (dead worker, terminal still 'attached') and detect
+        # headless orphan workers (live sidecar, no console PTY) so a managed
+        # claude is either online-with-console or fully down — never a headless
+        # background worker (visible-TUI hard requirement).
+        managed_hygiene = await _reconcile_managed_worker_hygiene(db)
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
@@ -114,6 +121,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
+            "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
+            "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "pruned_superseded_bridges": pruned_bridges,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
