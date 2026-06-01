@@ -302,11 +302,13 @@ async function markDispatchDelivered(run) {
   const requireReply = !!run?.requireReply;
   const runId = String(run?.id || "");
   const awaitingReply = requireReply;
+  // D2 (#162): a routine require_reply delivery is normal-path, not noteworthy —
+  // emit NO summary so the Runs audit view stays clean. The audit signal is the
+  // 'delivered' event we append below; meaningful summaries are reserved for
+  // failures/requeues (see markDispatchDeliveryFailed).
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: awaitingReply ? "delivered" : "completed",
-    summary: channelRun
-      ? "Delivered to Claude channel session; awaiting explicit reply"
-      : "Delivered to Claude resident session; awaiting explicit reply",
+    summary: "",
     runtime: "claude-code",
     agentStatus: "active",
     appendEvent: channelRun

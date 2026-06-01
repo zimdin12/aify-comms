@@ -455,7 +455,10 @@ async function markRunDelivered(httpCall, run) {
   const runId = String(run?.id || "");
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: "delivered",
-    summary: "Delivered to managed hermes visible TUI (prompt.submit); awaiting explicit reply",
+    // D2 (#162): routine delivery is normal-path — no summary so the Runs audit
+    // view stays clean. The 'delivered' event below carries the audit signal;
+    // meaningful summaries are reserved for failures (see markRunFailed).
+    summary: "",
     runtime: RUNTIME,
     agentStatus: "active",
     appendEvent: "Delivered to managed-hermes visible TUI (agent self-replies)",
