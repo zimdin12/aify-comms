@@ -8873,6 +8873,33 @@ class ApiV2RegressionTests(unittest.TestCase):
             "a live resident must not stay frozen offline after a reconcile pass",
         )
 
+    def test_periodic_reconcile_runs_managed_worker_hygiene(self):
+        # Workstream B4: the managed-worker-hygiene reaper must run inside the
+        # periodic reconcile pass so ghost console rows are reaped automatically
+        # without a separate bespoke invocation.
+        # Seed a MANAGED claude-code agent with NO live channel-sidecar bridge
+        # + a stale `attached` terminal_sessions row (a GHOST) — exactly the
+        # shape tested in test_managed_hygiene_reaps_ghost_console_row.
+        terminal_id = "term_periodic_ghost"
+        self._seed_managed_claude_with_attached_terminal("periodic-ghost-claude", terminal_id)
+        # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+
+        result = asyncio.run(service_main._run_dispatch_reconcile_once())
+
+        # The reconcile result must carry both hygiene keys.
+        self.assertIn("managed_ghost_rows_reaped", result, f"key missing from result: {result}")
+        self.assertIn("orphan_workers_reaped", result, f"key missing from result: {result}")
+        # The ghost row must have been reaped by the reconcile pass.
+        self.assertGreaterEqual(
+            result["managed_ghost_rows_reaped"], 1,
+            f"expected at least one ghost row reaped; got {result}",
+        )
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(
+            term["status"], "stopped",
+            "terminal row must be stopped after reconcile-driven hygiene reap",
+        )
+
     def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
