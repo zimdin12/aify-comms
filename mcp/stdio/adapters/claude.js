@@ -126,24 +126,20 @@ export class ClaudeAdapter extends RuntimeAdapter {
     let sid = "";
     try { sid = readClaudeSessionId({ agentId: resolvedAgentId, dir }) || ""; } catch { sid = ""; }
     if (!sid) sid = String(env.CLAUDE_SESSION_ID || "").trim();
-    if (sid) {
-      try {
-        const stat = await fs.stat(path.join(projDir, `${sid}.jsonl`));
-        if (stat.isFile()) return { mtimeMs: stat.mtimeMs, size: stat.size };
-      } catch { /* fall through to scoped-newest */ }
-    }
-    let files;
-    try { files = await fs.readdir(projDir); } catch { return null; }
-    let newest = null;
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      try {
-        const st = await fs.stat(path.join(projDir, f));
-        if (st.isFile() && (!newest || st.mtimeMs > newest.mtimeMs)) {
-          newest = { mtimeMs: st.mtimeMs, size: st.size };
-        }
-      } catch { /* skip */ }
-    }
-    return newest;
+    // When this agent's OWN session id can't be resolved, return the
+    // "unknown / not active" sentinel (null) rather than falling back to the
+    // newest .jsonl in the shared project dir. Two claude agents can share a
+    // cwd; if a teammate is streaming, the newest-in-dir is the teammate's
+    // transcript, and reading it as "active" would pulse turn_busy for THIS
+    // idle agent → dashboard wrongly shows "working" (shared-cwd attribution
+    // bug, operator-reported 2026-06-01). Growth-based activity treats
+    // null/0 as not-active, and ACTIVE_CONTROLLER_PROMISES still covers
+    // controller-driven turns, so dropping the fallback is safe.
+    if (!sid) return null;
+    try {
+      const stat = await fs.stat(path.join(projDir, `${sid}.jsonl`));
+      if (stat.isFile()) return { mtimeMs: stat.mtimeMs, size: stat.size };
+    } catch { /* transcript not present yet */ }
+    return null;
   }
 }
