@@ -1780,6 +1780,11 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     # non-superseded channel-sidecar bridge is proof the resident session is
     # alive. Treat that as fresh too. (If the session dies, the sidecar child dies
     # and its bridge goes stale — so this never masks a genuinely dead resident.)
+    # KEPT (Task A' #154, 2026-06-01): still needed even with the 30s liveness
+    # beat. Residents are operator-launched and may run a MIXED bridge version
+    # that predates liveness-heartbeat.js, so the resident MCP bridge can still
+    # go stale while idle; a live channel sidecar is the proof-of-life fallback.
+    # Removal probe broke test_idle_resident_with_live_sidecar_is_not_stale.
     if await _has_live_channel_sidecar(db, row["id"]):
         return True
     return False
@@ -2618,6 +2623,12 @@ async def _record_bridge_registration(
     # existing row whenever the registering bridge and the existing row form a
     # sidecar↔wrapper-child pair for the SAME managed agent+machine.
     new_kind = bridge_kind or "managed-resident"  # "" means resident/env bridge
+    # KEPT (Task A' #154, 2026-06-01): the liveness beat does not prevent
+    # register-time supersession (it only refreshes last_seen and cannot save a
+    # row from a competing registration), so this is the only thing protecting a
+    # sidecar↔wrapper-child complementary pair from killing each other. Removal
+    # probe broke test_wrapper_child_registration_does_not_supersede_channel_sidecar
+    # and test_wrapper_child_does_not_supersede_a_STALE_channel_sidecar.
     complementary_pair = (
         (new_kind == "managed-wrapper-child" and normalized_session_mode_value == "managed")
         or new_kind == "channel-sidecar"
@@ -13595,6 +13606,11 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         # A live channel-sidecar poll is proof of life: un-supersede its OWN row
         # so it resumes claiming. The mode-FSM release above (driver_state-gated)
         # is the ONLY legitimate "stop driving" signal for a channel sidecar.
+        # KEPT (Task A' #154, 2026-06-01): the 30s liveness beat does NOT revive a
+        # superseded bridge (it short-circuits on superseded rows — see
+        # test_liveness_beat_does_not_revive_superseded_bridge), so only this
+        # claim-path self-heal can un-supersede a still-live sidecar. Removal
+        # probe broke test_superseded_channel_sidecar_self_heals_on_claim.
         if str(req.bridgeKind or "").strip().lower() == "channel-sidecar" and req.bridgeId:
             await db.execute(
                 """
