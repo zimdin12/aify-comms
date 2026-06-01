@@ -313,6 +313,25 @@ handle a different LIVE agent already owns (`session-collision` note) instead of
 binding it. **Fix:** pull/rebuild + restart `aify-comms`; the reaper collapses each
 agent to one instance on next managed launch.
 
+## Many `hermes.exe` processes for a few hermes agents
+
+**Symptom.** `ps` / Task Manager shows far more `hermes.exe` (gateway/api_server)
+processes than you have hermes agents — e.g. 13 `hermes.exe` for 4 agents. A
+`Another hermes.exe is running` warning may appear on (re)spawn.
+
+**Cause.** Each hermes agent runs a per-agent gateway/api_server daemon
+(`hermes-daemon.js`). Older builds spawned a fresh daemon on every
+spawn/restart without killing the prior one, so daemons accumulated across
+session restarts and wrapper churn.
+
+**Fix (2026-06-02, `8fd3da9`).** `ensureDaemon` now tracks each agent's daemon
+PID in `aify-hermes-daemon-pid-<agent>` and kills the prior live daemon before
+spawning a replacement; `stopDaemon` kills by BOTH port and tracked PID — one
+daemon per agent from then on. Takes effect when the agent's `hermes-aify`
+relaunches. To clean up an existing pile, stop the affected `hermes-aify`
+wrappers and kill stray `hermes.exe` whose port files (`aify-hermes-port-*`) no
+longer match a live agent, then relaunch.
+
 ## Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
 
 **Symptom.** Messages to a claude/hermes agent sit `queued` and never deliver;
@@ -797,6 +816,26 @@ If you still see the old behavior after update, capture the run ID plus `/api/v1
 **Cause.** The server saw a new live bridge polling for the agent while the DB still had an active run claimed by an older bridge. If that run was older than the bridge-replacement grace window, the server treated it as orphaned and failed it to unblock the queue.
 
 **Fix.** Usually no repair is needed beyond shutting down the stale bridge and re-registering from the live session. This is a recovery path, not silent data loss for older dispatch-backed messages. If it happens seconds after a reconnect, update and restart the dashboard service: current builds wait briefly before failing another bridge's active run. Current normal sends will fail fast instead of queueing fresh work behind stale state. If this repeats on every dispatch, an old bridge is probably still polling; current builds should block it with `bridge_not_current` before it can claim fresh work.
+
+## Team stranded after a restart: runs stuck `claimed`, never delivered
+
+**Symptom.** After killing/restarting wrappers (or a host bridge restart) the
+team stops moving: dispatch runs sit at `claimed`, never `delivered`; agents
+show `working`/busy; and the manager that sent the pings never gets a reply.
+New sends queue behind the stuck run.
+
+**Cause.** A run was `claimed` by a bridge that then died before delivering
+(common after a mass wrapper kill — e.g. killing all `hermes.exe`). The claim
+held the agent busy, but the claiming bridge was gone, so nothing ever delivered
+or closed the run.
+
+**Fix (2026-06-02, `a76afb5`).** The 60s reconcile loop now requeues such runs:
+a run that is `claimed` (claimed > 90s ago), has no `delivered` event, and whose
+claiming bridge (`claim_bridge_id`) is dead is set back to `queued` so a live
+bridge re-claims and delivers it — recovered, not failed. This runs BEFORE the
+orphaned-managed-run reaper, so stranded handoffs are recovered rather than
+closed. On a pre-fix build, rebuild the service; for an immediate unstick,
+restart the target wrapper so a live bridge re-claims.
 
 ## Bridge "lost" the agent / has to be re-registered manually
 

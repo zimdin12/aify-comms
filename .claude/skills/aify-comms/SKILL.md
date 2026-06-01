@@ -145,6 +145,8 @@ Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_c
 
 Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`. `comms_dispatch` is lower-level debug/control; prefer `comms_send` for teamwork.
 
+Consoles (managed agents): `comms_console_tail` reads the last N lines of another agent's live console (read-only, default 40); `comms_console_input` types text/keystrokes into it (e.g. a command, or just Enter to unstick) — audited. Use these to inspect or recover a managed agent that's stuck at a prompt; they don't work on resident agents (no aify-owned console).
+
 Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_share`, `comms_read`, `comms_files`.
 
 Dashboard: `comms_dashboard`.
