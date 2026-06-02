@@ -2335,6 +2335,84 @@ class ApiV2RegressionTests(unittest.TestCase):
             term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
             self.assertEqual(term["status"], "stopped", term)
 
+    def _run_prune_orphaned_dispatch_runs(self, **kwargs):
+        async def _run():
+            db = await get_db()
+            try:
+                n = await api_v2._prune_orphaned_dispatch_runs(db, **kwargs)
+                await db.commit()
+                return n
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def _seed_dispatch_run(self, run_id, *, from_agent, target_agent, status, requested_at):
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at, finished_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, None, from_agent, target_agent, "start_if_possible", "managed",
+                "request", "s", "b", "normal", status, 0, requested_at, requested_at,
+            ),
+        )
+
+    def test_prune_orphaned_dispatch_runs_deletes_terminal_runs_for_tombstoned_agent(self):
+        # WS4 Task 4.3: TERMINAL-status dispatch_runs whose target/from agent is
+        # tombstoned (or unknown) and older than the TTL are pruned. Live agents'
+        # history and non-terminal runs are never touched.
+        old = "2026-05-01T00:00:00Z"  # well past a 24h TTL relative to "now"
+        recent = api_v2._now()
+
+        # Tombstone a removed target agent.
+        self._execute(
+            "INSERT INTO agent_tombstones (agent_id, removed_at) VALUES (?,?)",
+            ("ghost-target", api_v2._now()),
+        )
+        # A live agent that must NEVER have its history pruned.
+        self._register("live-agent")
+
+        # SHOULD be deleted: terminal run for a tombstoned target, past TTL.
+        self._seed_dispatch_run("run_ghost_old", from_agent="dashboard", target_agent="ghost-target", status="completed", requested_at=old)
+        # SHOULD be deleted: terminal run from a tombstoned sender, past TTL.
+        self._seed_dispatch_run("run_ghost_from", from_agent="ghost-target", target_agent="someone", status="failed", requested_at=old)
+        # SHOULD be deleted: terminal run for an UNKNOWN (never-registered) agent, past TTL.
+        self._seed_dispatch_run("run_unknown_old", from_agent="dashboard", target_agent="never-existed", status="cancelled", requested_at=old)
+
+        # SHOULD SURVIVE: terminal run for a tombstoned target but RECENT (within TTL).
+        self._seed_dispatch_run("run_ghost_recent", from_agent="dashboard", target_agent="ghost-target", status="completed", requested_at=recent)
+        # SHOULD SURVIVE: NON-terminal run for the tombstoned target, even if old.
+        self._seed_dispatch_run("run_ghost_queued", from_agent="dashboard", target_agent="ghost-target", status="queued", requested_at=old)
+        # SHOULD SURVIVE: terminal run for a LIVE agent, even if old.
+        self._seed_dispatch_run("run_live_old", from_agent="dashboard", target_agent="live-agent", status="completed", requested_at=old)
+
+        deleted = self._run_prune_orphaned_dispatch_runs(ttl_hours=24)
+        self.assertEqual(deleted, 3, "exactly the 3 old terminal orphan runs should be pruned")
+
+        surviving = {r["id"] for r in self._fetchall("SELECT id FROM dispatch_runs")}
+        self.assertEqual(
+            surviving,
+            {"run_ghost_recent", "run_ghost_queued", "run_live_old"},
+            surviving,
+        )
+
+    def test_prune_orphaned_dispatch_runs_respects_ttl_window(self):
+        # A terminal run for a tombstoned target that is recent (inside the TTL)
+        # is NOT pruned — the window must be honored so freshly-removed agents'
+        # recent audit history is briefly retained.
+        self._execute(
+            "INSERT INTO agent_tombstones (agent_id, removed_at) VALUES (?,?)",
+            ("fresh-ghost", api_v2._now()),
+        )
+        self._seed_dispatch_run("run_fresh", from_agent="dashboard", target_agent="fresh-ghost", status="completed", requested_at=api_v2._now())
+        deleted = self._run_prune_orphaned_dispatch_runs(ttl_hours=24)
+        self.assertEqual(deleted, 0)
+        self.assertIsNotNone(self._fetchone("SELECT id FROM dispatch_runs WHERE id = ?", ("run_fresh",)))
+
     def test_managed_claude_online_requires_live_console(self):
         # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
         # console PTY AND a live channel-sidecar exist. A live sidecar with NO

@@ -153,6 +153,12 @@ DEFAULT_SETTINGS = {
     # claimer is left alone (it will be claimed on the next poll). Default 180s
     # comfortably exceeds the claim poll cadence + lazy-autostart-on-claim spawn.
     "queued_run_backstop_seconds": 180,
+    # WS4 Task 4.3: TTL before a TERMINAL dispatch_run whose endpoints have no
+    # live owner (tombstoned/removed/unknown target AND from) is pruned. Keeps a
+    # just-removed agent's recent audit history briefly, then GCs it so removed
+    # agents and test teardown don't accrete dispatch_runs forever. Never touches
+    # non-terminal runs or any run referencing a currently-live agent.
+    "orphaned_dispatch_run_retention_hours": 24,
     "managed_claude_model": "",
     "managed_claude_effort": "high",
     # Auto-confirm the Claude "WARNING: Loading development channels" prompt
@@ -15145,6 +15151,61 @@ async def _prune_superseded_bridges(
             )
             """,
             (f"-{max(1, int(ttl_hours))} hours", int(chunk)),
+        )
+        await db.commit()
+        n = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        removed += n
+        if n < chunk:
+            break
+    return removed
+
+
+async def _prune_orphaned_dispatch_runs(
+    db,
+    *,
+    ttl_hours: int = 24,
+    chunk: int = 2000,
+    max_chunks: int = 50,
+) -> int:
+    """Reclaim TERMINAL dispatch_runs whose endpoints have no live owner (WS4 Task 4.3).
+
+    A tombstoned/removed agent leaves its dispatch_runs behind forever — the
+    rows reference an agent that no longer exists, so they accrue with every
+    test agent and every team teardown. This prunes only runs that are SAFE to
+    drop, conservatively:
+
+      DELETE a run iff ALL of:
+        - status is TERMINAL ('completed', 'failed', 'cancelled') — never an
+          in-flight 'queued'/'claimed'/'delivered'/'running' run; and
+        - it is older than `ttl_hours` (keyed on finished_at, falling back to
+          requested_at) — recent audit history of a just-removed agent is kept; and
+        - NEITHER `target_agent` NOR `from_agent` is a CURRENTLY-LIVE agent
+          (present in the `agents` table). A live agent is one still registered;
+          a tombstoned/removed/unknown ref is not. This is the hard safety
+          guarantee: a run touching ANY live agent is its history and is NEVER
+          deleted.
+
+    Endpoints like 'dashboard' or an external sender are 'unknown' (not in
+    `agents`) and so do not protect a row — but a row is only pruned when BOTH
+    ends lack a live owner, so no live agent ever loses inbound or outbound
+    history. Chunked so a live control plane is never locked for long.
+    """
+    cutoff = f"-{max(1, int(ttl_hours))} hours"
+    removed = 0
+    for _ in range(max_chunks):
+        cur = await db.execute(
+            """
+            DELETE FROM dispatch_runs WHERE id IN (
+                SELECT id FROM dispatch_runs r
+                WHERE r.status IN ('completed', 'failed', 'cancelled')
+                  AND datetime(COALESCE(r.finished_at, r.requested_at)) < datetime('now', ?)
+                  AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.id = r.target_agent)
+                  AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.id = r.from_agent)
+                ORDER BY datetime(COALESCE(finished_at, requested_at)) ASC
+                LIMIT ?
+            )
+            """,
+            (cutoff, int(chunk)),
         )
         await db.commit()
         n = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0

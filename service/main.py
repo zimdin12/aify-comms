@@ -62,6 +62,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_idle_virtual_rpc_workers,
         _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
+        _load_settings,
+        _prune_orphaned_dispatch_runs,
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
@@ -84,6 +86,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
                 break
         pruned = await _prune_terminal_history(db)
         pruned_bridges = await _prune_superseded_bridges(db)
+        # WS4 Task 4.3: GC TERMINAL dispatch_runs whose endpoints have no live
+        # owner (tombstoned/removed/unknown), past the retention TTL. Never
+        # touches non-terminal runs or any run referencing a live agent.
+        _reconcile_settings = await _load_settings(db)
+        pruned_orphaned_runs = await _prune_orphaned_dispatch_runs(
+            db,
+            ttl_hours=int(
+                _reconcile_settings.get("orphaned_dispatch_run_retention_hours", 24) or 24
+            ),
+        )
         reminders = await _run_contract_reminders_once(db, limit=50, recent_only=True)
         # Event-driven (service-start event): clear stale managed PTY rows
         # for agents that are currently registered as resident. A previous
@@ -145,6 +157,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "pruned_superseded_bridges": pruned_bridges,
+            "pruned_orphaned_dispatch_runs": pruned_orphaned_runs,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:
