@@ -1,73 +1,138 @@
 #!/usr/bin/env node
-// Unit tests for the hermes RuntimeAdapter (api_server delivery model).
+// Unit tests for the hermes RuntimeAdapter (native-session-id model).
 //
-// Task C2 (2026-05-30 hermes-apiserver-delivery plan): discoverSessionId must
-// return the STABLE per-agent pinned api_server session id (pinnedSessionId),
-// keyed by the adapter's agent-id resolution — NEVER the gateway global
-// session.most_recent. Capabilities advertise the channel/api_server delivery
-// model with the retired tui_gateway WS bind path removed.
+// Native-session-id model (2026-06-03 hermes-native-session-ids plan, Task 4):
+// discoverSessionId returns the agent's OWN REAL hermes session id — resolved
+// from the TUI active-session file, then HERMES_SESSION_ID env, then the
+// per-agent session-id marker — NEVER the synthetic `aify-<agentId>` name. The
+// retired pinnedSessionId path is gone; hermes is now symmetric with claude
+// (captured UUID) / codex (resume thread).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import os from "node:os";
+import path from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { HermesAdapter } from "../adapters/hermes.js";
-import { pinnedSessionId } from "../hermes-session-id.js";
+import { writeSessionIdMarker, clearGatewayMarkers } from "../hermes-endpoint.js";
 
-test("discoverSessionId returns the pinned per-agent session id from opts.agentId", async () => {
+test("discoverSessionId reads the real id from the TUI active-session file", async () => {
   const adapter = new HermesAdapter();
-  const id = await adapter.discoverSessionId({ agentId: "sc-coder", env: {} });
-  assert.equal(id, pinnedSessionId("sc-coder"));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-adapter-"));
+  const file = path.join(dir, "active.json");
+  try {
+    writeFileSync(file, JSON.stringify({ session_id: "20260603_120000_abc123" }));
+    const id = await adapter.discoverSessionId({
+      env: { AIFY_HERMES_ACTIVE_SESSION_FILE: file },
+    });
+    assert.equal(id, "20260603_120000_abc123");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test("discoverSessionId resolves agentId from AIFY_AGENT_ID env when not passed", async () => {
+test("discoverSessionId accepts a bare (non-JSON) active-session file", async () => {
   const adapter = new HermesAdapter();
-  const id = await adapter.discoverSessionId({ env: { AIFY_AGENT_ID: "sc-tester" } });
-  assert.equal(id, pinnedSessionId("sc-tester"));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "aify-hermes-adapter-"));
+  const file = path.join(dir, "active.txt");
+  try {
+    writeFileSync(file, "7afed304\n");
+    const id = await adapter.discoverSessionId({
+      env: { AIFY_HERMES_ACTIVE_SESSION_FILE: file },
+    });
+    assert.equal(id, "7afed304");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test("discoverSessionId prefers explicit agentId over env", async () => {
+test("discoverSessionId falls back to HERMES_SESSION_ID env (the real visible id)", async () => {
   const adapter = new HermesAdapter();
-  const id = await adapter.discoverSessionId({
-    agentId: "explicit-agent",
-    env: { AIFY_AGENT_ID: "env-agent" },
-  });
-  assert.equal(id, pinnedSessionId("explicit-agent"));
+  // No active-session file → durable env handle wins. getCurrentSessionId reads
+  // process.env, so set it there for this assertion.
+  const prev = process.env.HERMES_SESSION_ID;
+  try {
+    process.env.HERMES_SESSION_ID = "20260601_real_env";
+    const id = await adapter.discoverSessionId({ env: {} });
+    assert.equal(id, "20260601_real_env");
+  } finally {
+    if (prev === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prev;
+  }
 });
 
-test("discoverSessionId never returns a gateway-global most_recent value", async () => {
+test("discoverSessionId falls back to the per-agent session-id marker", async () => {
   const adapter = new HermesAdapter();
-  // Even with a gateway URL set in the (legacy) env, the pinned id must be a
-  // pure function of the agentId — never a value pulled off the gateway.
-  const id = await adapter.discoverSessionId({
-    agentId: "sc-coder",
-    env: { AIFY_HERMES_GATEWAY_URL: "ws://127.0.0.1:9999" },
-  });
-  assert.equal(id, pinnedSessionId("sc-coder"));
-  assert.match(id, /^aify-/);
+  const prevSid = process.env.HERMES_SESSION_ID;
+  const prevSess = process.env.HERMES_SESSION;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    writeSessionIdMarker("marker-agent", "20260603_marker_bound");
+    const id = await adapter.discoverSessionId({ agentId: "marker-agent", env: {} });
+    assert.equal(id, "20260603_marker_bound");
+  } finally {
+    clearGatewayMarkers("marker-agent");
+    if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prevSid;
+    if (prevSess === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = prevSess;
+  }
 });
 
-test("discoverSessionId returns null when no agentId is resolvable", async () => {
+test("discoverSessionId never returns a synthetic aify-<id> name", async () => {
   const adapter = new HermesAdapter();
-  const id = await adapter.discoverSessionId({ env: {} });
-  assert.equal(id, null);
+  const prevSid = process.env.HERMES_SESSION_ID;
+  const prevSess = process.env.HERMES_SESSION;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    const id = await adapter.discoverSessionId({
+      agentId: "sc-coder",
+      env: { AIFY_HERMES_GATEWAY_URL: "ws://127.0.0.1:9999" },
+    });
+    // No active file, no env session, no marker → falsy, and NEVER `aify-...`.
+    assert.ok(!id || !/^aify-/.test(String(id)), `must not be a synthetic name, got ${id}`);
+  } finally {
+    if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prevSid;
+    if (prevSess === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = prevSess;
+  }
 });
 
-test("capabilities advertise the channel/api_server model (steer off, interrupt on)", () => {
+test("discoverSessionId returns null when nothing is resolvable", async () => {
   const adapter = new HermesAdapter();
-  // api_server chat has no mid-turn steer; /v1/runs/{id}/stop gives interrupt.
-  assert.equal(adapter.supportsSteering, false);
+  const prevSid = process.env.HERMES_SESSION_ID;
+  const prevSess = process.env.HERMES_SESSION;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    const id = await adapter.discoverSessionId({ env: {} });
+    assert.equal(id, null);
+  } finally {
+    if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prevSid;
+    if (prevSess === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = prevSess;
+  }
+});
+
+test("capabilities: managed + interrupt on", () => {
+  const adapter = new HermesAdapter();
   assert.equal(adapter.supportsInterrupt, true);
   assert.equal(adapter.supportsManaged, true);
 });
 
-test("sessionIdSource is 'pinned' (id is a pure function of agentId)", () => {
+test("sessionIdSource is 'captured' (the real visible session id)", () => {
   const adapter = new HermesAdapter();
-  assert.equal(adapter.sessionIdSource, "pinned");
+  assert.equal(adapter.sessionIdSource, "captured");
 });
 
 test("resumeCommand returns the operator TUI takeover command", () => {
   const adapter = new HermesAdapter();
   assert.equal(
-    adapter.resumeCommand("aify-sc-coder"),
-    "hermes --tui --resume aify-sc-coder",
+    adapter.resumeCommand("20260603_real_id"),
+    "hermes --tui --resume 20260603_real_id",
   );
 });

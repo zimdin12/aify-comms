@@ -1,6 +1,7 @@
+import fs from "node:fs";
 import { RuntimeAdapter } from "./base.js";
 import { HermesController } from "../controllers/hermes-controller.js";
-import { pinnedSessionId } from "../hermes-session-id.js";
+import { readSessionIdMarker } from "../hermes-endpoint.js";
 
 export class HermesAdapter extends RuntimeAdapter {
   get name() { return "hermes"; }
@@ -24,9 +25,11 @@ export class HermesAdapter extends RuntimeAdapter {
   get preferredDeliveryMode() { return "managed-via-wrapper"; }
 
   // Symmetric adapter contract (Phase 2: every adapter advertises these).
-  // hermes session ids are PINNED — a pure function of agentId (pinnedSessionId),
-  // never captured from a runtime log or supplied by an operator at resume time.
-  get sessionIdSource() { return "pinned"; }
+  // Native-session-id model (2026-06-03): hermes lives in a NORMAL hermes
+  // session (its own timestamp id), captured from the visible TUI's
+  // active-session file / env — symmetric with claude (UUID, "captured"). The
+  // synthetic `aify-<agentId>` pinned id has been retired.
+  get sessionIdSource() { return "captured"; }
 
   // Operator takeover: the command an operator runs to attach a resident TUI to
   // the agent's pinned session.
@@ -48,23 +51,70 @@ export class HermesAdapter extends RuntimeAdapter {
     return env;
   }
 
-  // Session-id truth (2026-05-30 hermes-apiserver-delivery): a managed hermes
-  // agent's session is the STABLE per-agent api_server session id derived from
-  // its OWN agentId (pinnedSessionId). The hermes-channel.js sidecar pins and
-  // drives exactly this session, so the adapter must report the byte-identical
-  // value.
-  //
-  // NEVER return the gateway global session.most_recent: that reads hermes'
-  // shared global state and cross-contaminates managed agents that share a
-  // gateway (#135). agentId precedence: explicit opts.agentId, then env
-  // AIFY_AGENT_ID / AIFY_COMMS_AGENT_ID. No agentId → null (no machine-global
-  // guess). Injectable via opts for tests.
+  // Native-session-id model (2026-06-03): a hermes agent's session is its OWN
+  // real hermes session id (a timestamp/hash like `20260603_...` or `7afed304`),
+  // visible in the TUI — symmetric with claude's UUID / codex's thread. The
+  // synthetic `aify-<agentId>` name is RETIRED. Resolve the real id, in order:
+  //   (a) the TUI active-session file (AIFY_HERMES_ACTIVE_SESSION_FILE /
+  //       HERMES_TUI_ACTIVE_SESSION_FILE) — the live visible session;
+  //   (b) the durable env handle (HERMES_SESSION_ID / HERMES_SESSION via
+  //       getCurrentSessionId / sessionEnvVars);
+  //   (c) the per-agent session-id marker (the last bound real id) as a
+  //       fallback so a re-register/relaunch agrees with what launch bound;
+  //   (d) null if none. NEVER returns `aify-<agentId>`.
+  // (Spec says ""; a falsy sentinel is equivalent for every caller —
+  // computeInitialSessionHandle falls through to env on any falsy value — and
+  // null keeps the symmetric "no session" contract with the other adapters.)
+  // Defensive: the file read is wrapped in try/catch and never throws.
   async discoverSessionId(opts = {}) {
     const { env = process.env, agentId } = opts;
+
+    const active = this._readActiveSessionFile(env);
+    if (active) return active;
+
+    const envSession = this.getCurrentSessionId();
+    if (envSession) return envSession;
+
     const resolvedAgentId = String(
       agentId || env.AIFY_AGENT_ID || env.AIFY_COMMS_AGENT_ID || "",
     ).trim();
-    if (!resolvedAgentId) return null;
-    return pinnedSessionId(resolvedAgentId);
+    if (resolvedAgentId) {
+      const marked = readSessionIdMarker(resolvedAgentId);
+      if (marked) return marked;
+    }
+    return null;
+  }
+
+  // Read the real session id from the TUI active-session file. Mirrors the
+  // service-side parser (service/runtimes/hermes.py `_read_active_session_file`):
+  // a JSON object with `session_id` / `sessionId` / `id`, falling back to the
+  // raw file contents. Best-effort: never throws (returns "" on any failure).
+  _readActiveSessionFile(env = process.env) {
+    const file = String(
+      env.AIFY_HERMES_ACTIVE_SESSION_FILE ||
+        env.HERMES_TUI_ACTIVE_SESSION_FILE ||
+        "",
+    ).trim();
+    if (!file) return "";
+    let raw = "";
+    try {
+      raw = String(fs.readFileSync(file, "utf8")).trim();
+    } catch {
+      return ""; // missing/unreadable → no active session
+    }
+    if (!raw) return "";
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const key of ["session_id", "sessionId", "id"]) {
+          const val = parsed[key];
+          if (typeof val === "string" && val.trim()) return val.trim();
+        }
+        return ""; // JSON object with no recognized id key
+      }
+    } catch {
+      // not JSON → treat the raw contents as the id (mirrors python fallback)
+    }
+    return raw;
   }
 }

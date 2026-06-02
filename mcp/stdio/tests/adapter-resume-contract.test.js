@@ -86,14 +86,17 @@ test("opencode resumeCommand returns the opencode-aify takeover command", () => 
 
 // ─────────────────── hermes (already implemented; regression) ───────────────────
 
-test("hermes sessionIdSource is 'pinned'", () => {
-  assert.equal(new HermesAdapter().sessionIdSource, "pinned");
+test("hermes sessionIdSource is 'captured' (native real session id)", () => {
+  // Native-session-id model (2026-06-03, Task 4): hermes captures its OWN real
+  // visible session id (active-session file / env), symmetric with claude — the
+  // retired 'pinned' aify-<id> source is gone.
+  assert.equal(new HermesAdapter().sessionIdSource, "captured");
 });
 
 test("hermes resumeCommand returns the TUI takeover command", () => {
   assert.equal(
-    new HermesAdapter().resumeCommand("aify-x"),
-    "hermes --tui --resume aify-x",
+    new HermesAdapter().resumeCommand("20260603_real_id"),
+    "hermes --tui --resume 20260603_real_id",
   );
 });
 

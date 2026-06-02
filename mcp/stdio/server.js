@@ -71,7 +71,7 @@ import {
   stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
-import { clearGatewayMarkers as hermesClearGatewayMarkers, readGatewayUrlMarker } from "./hermes-endpoint.js";
+import { clearGatewayMarkers as hermesClearGatewayMarkers, readGatewayUrlMarker, writeSessionIdMarker } from "./hermes-endpoint.js";
 import {
   reportGatewayDead,
   gatewayIndexUrlFromWs,
@@ -963,9 +963,10 @@ function wakeModeSummary(info = {}) {
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
   // hermes deliverability is keyed on the GATEWAY, never the handle (resident-run
-  // / hermes-live require a live ws:// gateway). The handle is now always recorded
-  // (the stable aify-<agentId> session — see fillSessionHandleFromAdapter), so this
-  // diagnostic must key on the gateway alone, mirroring the service (api_v2.py).
+  // / hermes-live require a live ws:// gateway). The handle is now the agent's
+  // REAL hermes session id (native-session-id model, 2026-06-03), recorded like
+  // any other runtime, so this diagnostic must key on the gateway alone,
+  // mirroring the service (api_v2.py).
   if (sessionMode === "resident" && runtime === "hermes" && !/^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))) return "hermes-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
@@ -1112,6 +1113,12 @@ async function autoRegisterConfiguredAgent() {
       ? (codexLiveBinding?.threadId || await discoverCodexLiveThreadId(runtimeConfig, cwd))
       : "";
   const sessionHandle = initialHandle || discoveredCodexThreadId || "";
+  // Native-session-id model (2026-06-03): bind agentId -> the REAL hermes
+  // session id in the per-agent marker so the wrapper resumes the SAME session
+  // next launch and the delivery loop targets it. Best-effort; never throws.
+  if (runtime === "hermes" && AIFY_AGENT_ID && sessionHandle) {
+    try { writeSessionIdMarker(AIFY_AGENT_ID, sessionHandle); } catch { /* best-effort */ }
+  }
   // Wrapper-declared session mode + channel state. The *-aify wrappers set
   // AIFY_SESSION_MODE (resident default for human TTY, managed when
   // aify-comms spawns the wrapper) and AIFY_CHANNELS_ENABLED=1 when they
@@ -3173,6 +3180,14 @@ server.tool(
       initialSessionHandle ||
       (allowPreviousSessionHandle ? previousInfo?.sessionHandle : "") ||
       "";
+    // Native-session-id model (2026-06-03): comms_register binds this agent's
+    // identity to its REAL hermes session id by persisting the per-agent marker,
+    // so a relaunch resumes the SAME session and the delivery loop targets it.
+    // Best-effort; never throws. (Gateway-url resolution is unchanged.)
+    const resolvedAgentId = String(args?.agentId || agentId || "").trim();
+    if (resolvedRuntime === "hermes" && resolvedAgentId && resolvedSessionHandle) {
+      try { writeSessionIdMarker(resolvedAgentId, resolvedSessionHandle); } catch { /* best-effort */ }
+    }
     const capabilities = defaultCapabilitiesForRuntime(resolvedRuntime, resolvedSessionMode, resolvedSessionHandle, runtimeConfig);
 
     const agentData = {

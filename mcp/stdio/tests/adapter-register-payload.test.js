@@ -26,29 +26,32 @@ test("fillSessionHandleFromAdapter fills empty sessionHandle from adapter env", 
   delete process.env.CLAUDE_SESSION_ID;
 });
 
-test("fillSessionHandleFromAdapter ignores Hermes env handle for fresh live gateway", () => {
-  process.env.HERMES_SESSION_ID = "historical-visible-looking-session";
+test("fillSessionHandleFromAdapter fills Hermes handle from the REAL env session id", () => {
+  // Native-session-id model (2026-06-03, Task 4 — reverts e89af02): hermes is
+  // treated like every other runtime. The real visible session id (from the
+  // adapter's env) becomes the handle; no synthetic `aify-<id>` override, and
+  // the handle is NOT suppressed for a live gateway (deliverability keys on the
+  // gateway, not the handle).
+  process.env.HERMES_SESSION_ID = "20260603_real_visible_session";
   process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:9999/api/ws?token=x";
-  delete process.env.AIFY_EXPLICIT_SESSION_HANDLE;
   const adapter = adapterFor("hermes");
   const args = { agentId: "h" };
   const out = fillSessionHandleFromAdapter(args, adapter);
-  assert.strictEqual(out.sessionHandle || "", "");
+  assert.strictEqual(out.sessionHandle, "20260603_real_visible_session");
+  assert.ok(!/^aify-/.test(out.sessionHandle), "must not be a synthetic aify-<id> name");
   delete process.env.HERMES_SESSION_ID;
   delete process.env.AIFY_HERMES_GATEWAY_URL;
 });
 
-test("fillSessionHandleFromAdapter keeps explicit Hermes resume handle", () => {
-  process.env.HERMES_SESSION_ID = "explicit-resume-session";
+test("fillSessionHandleFromAdapter preserves a caller-supplied Hermes handle", () => {
+  process.env.HERMES_SESSION_ID = "env-session-should-not-override";
   process.env.AIFY_HERMES_GATEWAY_URL = "ws://127.0.0.1:9999/api/ws?token=x";
-  process.env.AIFY_EXPLICIT_SESSION_HANDLE = "true";
   const adapter = adapterFor("hermes");
-  const args = { agentId: "h" };
+  const args = { agentId: "h", sessionHandle: "caller-supplied-real-id" };
   const out = fillSessionHandleFromAdapter(args, adapter);
-  assert.strictEqual(out.sessionHandle, "explicit-resume-session");
+  assert.strictEqual(out.sessionHandle, "caller-supplied-real-id");
   delete process.env.HERMES_SESSION_ID;
   delete process.env.AIFY_HERMES_GATEWAY_URL;
-  delete process.env.AIFY_EXPLICIT_SESSION_HANDLE;
 });
 
 test("fillSessionHandleFromAdapter leaves empty when env has no handle", () => {
