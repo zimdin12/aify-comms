@@ -35,38 +35,14 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
-class _DummyWS:
-    async def broadcast(self, *_args, **_kwargs):
-        return None
-
-    async def notify_agent(self, *_args, **_kwargs):
-        return None
+from service.tests._base import FastApiTestCase
 
 
-class AgentStatusReadGateTests(unittest.TestCase):
+class AgentStatusReadGateTests(FastApiTestCase):
     """Plan 5 Tasks C1 + C2 — read-path live-worker gate."""
 
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        app.state.ws_manager = _DummyWS()
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-        # Plan 4 defaults are on; confirm via no-op PUT for explicitness.
-        self.client.put(
-            "/api/v1/settings",
-            json={"managed_via_wrapper": ["codex", "hermes"]},
-        )
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
+    # Plan 4 defaults are on; confirm via no-op PUT for explicitness.
+    LEGACY_SETTINGS = {"managed_via_wrapper": ["codex", "hermes"]}
 
     def _heartbeat_environment(self, runtime: str) -> None:
         payload = {

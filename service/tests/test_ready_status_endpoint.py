@@ -22,35 +22,11 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
-class _DummyWS:
-    def __init__(self):
-        self.broadcasts = []
-
-    async def broadcast(self, *args, **kwargs):
-        self.broadcasts.append((args, kwargs))
-        return None
-
-    async def notify_agent(self, *args, **kwargs):
-        return None
+from service.tests._base import FastApiTestCase
 
 
-class ReadyStatusEndpointTests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test-ready.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        self.ws = _DummyWS()
-        app.state.ws_manager = self.ws
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
+class ReadyStatusEndpointTests(FastApiTestCase):
+    DB_NAME = "aify-test-ready.db"
 
     def _register(self, agent_id: str, *, role: str = "tester", **extra):
         payload = {"agentId": agent_id, "role": role}

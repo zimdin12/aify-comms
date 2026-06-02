@@ -19,38 +19,10 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-class _DummyWS:
-    def __init__(self):
-        self.broadcasts = []
-        self.notifications = []
-
-    async def broadcast(self, *_args, **_kwargs):
-        self.broadcasts.append((_args, _kwargs))
-        return None
-
-    async def notify_agent(self, *_args, **_kwargs):
-        self.notifications.append((_args, _kwargs))
-        return None
+from service.tests._base import FastApiTestCase
 
 
-class LifecyclePhase7Tests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        self.ws = _DummyWS()
-        app.state.ws_manager = self.ws
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
-
+class LifecyclePhase7Tests(FastApiTestCase):
     def _register(self, agent_id: str, *, role: str = "coder", **extra):
         payload = {"agentId": agent_id, "role": role}
         payload.update(extra)

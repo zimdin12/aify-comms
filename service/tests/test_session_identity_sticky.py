@@ -32,31 +32,10 @@ from service.db import init_db
 from service.routers.api_v2 import router
 
 
-class _DummyWS:
-    async def broadcast(self, *_args, **_kwargs):
-        return None
-
-    async def notify_agent(self, *_args, **_kwargs):
-        return None
+from service.tests._base import FastApiTestCase
 
 
-class SessionIdentityStickyTests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        app.state.ws_manager = _DummyWS()
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
-
+class SessionIdentityStickyTests(FastApiTestCase):
     # ── helpers ──────────────────────────────────────────────────────────
     def _register(self, agent_id="claude-1", runtime="claude-code", session_mode="managed"):
         res = self.client.post(

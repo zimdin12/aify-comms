@@ -17,61 +17,30 @@ from service import main as service_main
 from service.routers import api_v2
 from service.routers.api_v2 import router
 
-
-class _DummyWS:
-    def __init__(self):
-        self.broadcasts = []
-        self.notifications = []
-
-    async def broadcast(self, *_args, **_kwargs):
-        self.broadcasts.append((_args, _kwargs))
-        return None
-
-    async def notify_agent(self, *_args, **_kwargs):
-        self.notifications.append((_args, _kwargs))
-        return None
+from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
 
 
-class ApiV2RegressionTests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
+# Back-compat alias: a few tests below reference _DummyWS directly.
+_DummyWS = DummyWS
 
-        app = FastAPI()
-        self.ws = _DummyWS()
-        app.state.ws_manager = self.ws
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-        # Most existing regression tests were written when PTY-input
-        # ("via-console") was the implicit default for managed claude.
-        # The new default (operator design) is channel routing — managed
-        # claude flows through claude-channel.js notifications. Opt this
-        # whole suite into the legacy via-console mode so the historical
-        # contracts (consoleDeliveries, terminal-control inputs, idle-
-        # prompt closes, etc.) still apply. Individual tests for the new
-        # channel-route default set this back to False explicitly.
-        #
-        # Plan 4 (2026-05-25) also flipped managed_via_wrapper and
-        # managed_pty_eager_spawn defaults to ON. Most legacy regressions
-        # predate the wrapper-backed path / eager-spawn behavior; opt
-        # this whole suite back into the pre-Plan-4 defaults so those
-        # historical contracts still apply. Plan-4-specific tests live
-        # in test_default_settings_plan4.py and opt back in explicitly.
-        self.client.put(
-            "/api/v1/settings",
-            json={
-                "insert_messages_via_console": True,
-                "managed_via_wrapper": False,
-                "managed_pty_eager_spawn": False,
-            },
-        )
 
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
+class ApiV2RegressionTests(FastApiTestCase):
+    # Most existing regression tests were written when PTY-input
+    # ("via-console") was the implicit default for managed claude. The new
+    # default (operator design) is channel routing — managed claude flows
+    # through claude-channel.js notifications. Opt this whole suite into the
+    # legacy via-console mode so the historical contracts (consoleDeliveries,
+    # terminal-control inputs, idle-prompt closes, etc.) still apply.
+    # Individual tests for the new channel-route default set this back to
+    # False explicitly.
+    #
+    # Plan 4 (2026-05-25) also flipped managed_via_wrapper and
+    # managed_pty_eager_spawn defaults to ON. Most legacy regressions predate
+    # the wrapper-backed path / eager-spawn behavior; opt this whole suite
+    # back into the pre-Plan-4 defaults so those historical contracts still
+    # apply. Plan-4-specific tests live in test_default_settings_plan4.py and
+    # opt back in explicitly.
+    LEGACY_SETTINGS = PRE_PLAN4_SETTINGS
 
     def _register(self, agent_id: str, *, role: str = "coder", **extra):
         payload = {"agentId": agent_id, "role": role}

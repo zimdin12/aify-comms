@@ -42,31 +42,10 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-class _DummyWS:
-    async def broadcast(self, *_args, **_kwargs):
-        return None
-
-    async def notify_agent(self, *_args, **_kwargs):
-        return None
+from service.tests._base import FastApiTestCase
 
 
-class ReplyBypassesLiveGateTests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        app.state.ws_manager = _DummyWS()
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
-
+class ReplyBypassesLiveGateTests(FastApiTestCase):
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------

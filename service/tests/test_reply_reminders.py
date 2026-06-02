@@ -30,16 +30,7 @@ from service.routers import api_v2
 from service.routers.api_v2 import router, DEFAULT_SETTINGS
 
 
-class _DummyWS:
-    def __init__(self):
-        self.events = []
-        self.notifications = []
-
-    async def broadcast(self, *args, **kwargs):
-        self.events.append((args, kwargs))
-
-    async def notify_agent(self, *args, **kwargs):
-        self.notifications.append((args, kwargs))
+from service.tests._base import FastApiTestCase
 
 
 # Every runtime is meant to behave identically — the reminder rides the
@@ -49,24 +40,7 @@ class _DummyWS:
 _RUNTIMES = ["hermes", "codex"]
 
 
-class ReplyReminderTests(unittest.TestCase):
-    def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
-        asyncio.run(init_db(self._db_path))
-
-        app = FastAPI()
-        self.ws = _DummyWS()
-        app.state.ws_manager = self.ws
-        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
-        app.state.testing = True
-        app.include_router(router, prefix="/api/v1")
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        self.client.close()
-        self._tmpdir.cleanup()
-
+class ReplyReminderTests(FastApiTestCase):
     # --- helpers ---------------------------------------------------------
 
     def _register_live_resident(self, agent_id, *, runtime, bridge_id, port, role="coder"):
