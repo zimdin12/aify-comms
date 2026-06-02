@@ -36,6 +36,7 @@ import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { resolveGatewayPort } from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
+import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
@@ -967,6 +968,7 @@ export async function runPollCycle({
   let processed = 0;
   let released = false;
   let terminal = null;
+  let claimOk = false;
   try {
     for (let i = 0; i < maxBatch; i++) {
       let claim;
@@ -981,8 +983,10 @@ export async function runPollCycle({
           bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
         });
-        // A successful claim resets the 404 grace counter.
+        // A successful claim round-trip resets the 404 grace counter and marks
+        // the loop a LIVE CLAIMER (drives the ready-marker — Task 1.4).
         claimErrorCounter.count = 0;
+        claimOk = true;
       } catch (claimErr) {
         const cls = classifyClaimError(claimErr, claimErrorCounter);
         if (cls.terminal) {
@@ -1014,7 +1018,7 @@ export async function runPollCycle({
   } catch (error) {
     console.error("[hermes-managed-host] poll cycle error:", error?.message || String(error));
   }
-  return terminal ? { processed, released, terminal } : { processed, released };
+  return terminal ? { processed, released, terminal, claimOk } : { processed, released, claimOk };
 }
 
 // ---------------------------------------------------------------------------
@@ -1289,10 +1293,15 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // agent-removed) the loop tears down + self-exits(0). Injectable so tests
     // never actually exit the test process.
     procExit = (code) => process.exit(code),
-    // Marker cleanup run on teardown (Task 4.1 wires the real port/key marker
-    // clear here; Task 1.4 wires clearLoopReady). Default no-op so the loop is
-    // self-contained until those tasks land.
-    clearMarkers = async () => {},
+    // Temp dir holding the agent's markers (port/key/daemon-pid/loop-ready).
+    // Injectable so the ready-marker tests don't touch the real tmp dir.
+    markerDir = TMP_DIR,
+    // Ready-marker writer/clearer (Task 1.4). Injectable for tests.
+    writeReady = writeLoopReady,
+    clearReady = clearLoopReady,
+    // Marker cleanup run on teardown. Clears the loop-ready marker (Task 1.4);
+    // Task 4.1 extends this with the port/key marker clear. Injectable override.
+    clearMarkers,
     // Port→PID→kill primitive for a reused (child===null) gateway host (Task
     // 1.2). Injectable so tests assert the port-kill without touching a process.
     killByPort = defaultKillByPort,
@@ -1327,12 +1336,21 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   const teardownState = { done: false };
   let gatewayChild = null;
   let gatewayPort = port; // persisted even on reused:true (Task 1.2).
+  // On teardown, drop the loop-ready marker (Task 1.4) so the wrapper's
+  // health-gate never sees a stale "live claimer" for a torn-down loop. An
+  // explicit clearMarkers override (Task 4.1 port/key clear) wins when provided.
+  const effClearMarkers =
+    typeof clearMarkers === "function"
+      ? clearMarkers
+      : async () => {
+          clearReady(id, markerDir);
+        };
   const teardown = () =>
     makeTeardown({
       gatewayChild,
       gatewayPort,
       killByPort,
-      clearMarkers,
+      clearMarkers: effClearMarkers,
       state: teardownState,
     })();
   installTeardown({ getChild: () => gatewayChild, teardown });
@@ -1479,6 +1497,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           claimErrorCounter,
         });
         totalProcessed += result.processed || 0;
+        // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
+        // started (above) + a successful /dispatch/claim round-trip (even with 0
+        // runs). Write/refresh the ready marker the wrapper health-gates on so a
+        // visible TUI is only exec'd once work can actually be delivered. Refresh
+        // on EVERY successful claim so the marker's mtime stays fresh.
+        if (result.claimOk) {
+          writeReady(id, markerDir);
+        }
         // Task 1.3: a TERMINAL claim signal (410 agent-removed / graced 404) is
         // the lifecycle owner's exit cue. Tear down the gateway host (kills by
         // child or by PORT — Task 1.2), clear markers, and self-exit(0) so a

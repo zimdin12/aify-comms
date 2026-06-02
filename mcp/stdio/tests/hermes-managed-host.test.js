@@ -771,6 +771,61 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
   assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child");
 });
 
+test("runDeliveryLoop: writes the loop-ready marker after the first successful claim round-trip (Task 1.4)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall } = makeAifyHttp(); // claim returns { run: null } => claimOk, 0 runs
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  const written = [];
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: (id) => written.push(id),
+    clearReady: () => {},
+    maxIterations: 1,
+  });
+
+  assert.ok(written.includes("sc-hermes"), "ready marker written after a successful claim round-trip");
+});
+
+test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1.4)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const httpCall = async (method, endpoint) => {
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      const e = new Error("HTTP 410: gone");
+      e.status = 410;
+      throw e;
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  const cleared = [];
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: (id) => cleared.push(id),
+    killByPort: () => {},
+    procExit: () => {},
+    maxIterations: 5,
+  });
+
+  assert.ok(cleared.includes("sc-hermes"), "ready marker cleared on terminal teardown");
+});
+
 test("runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) + self-exits(0), does not keep polling", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
