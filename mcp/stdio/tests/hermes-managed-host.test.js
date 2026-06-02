@@ -825,6 +825,66 @@ test("runDeliveryLoop: clears the loop-ready marker on terminal teardown (Task 1
   assert.ok(cleared.includes("sc-hermes"), "ready marker cleared on terminal teardown");
 });
 
+test("runDeliveryLoop: POSTs claimer-acquire after the first successful claim round-trip (WS5 Task 5.1)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp(); // claim returns { run: null } => claimOk
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    maxIterations: 1,
+  });
+
+  const acquire = findCall(calls, "POST", "/agents/sc-hermes/claimer-lease");
+  assert.ok(acquire, "expected a claimer-lease POST after becoming a live claimer");
+  assert.equal(acquire.body.action, "acquire", "must POST action=acquire on ready");
+});
+
+test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const calls = [];
+  const httpCall = async (method, endpoint, body = null) => {
+    calls.push({ method, endpoint, body });
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      const e = new Error("HTTP 410: gone");
+      e.status = 410;
+      throw e;
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    killByPort: () => {},
+    procExit: () => {},
+    maxIterations: 5,
+  });
+
+  const release = calls.find(
+    (c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/claimer-lease" && c.body?.action === "release",
+  );
+  assert.ok(release, "expected a claimer-lease release POST on terminal teardown");
+});
+
 test("runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) + self-exits(0), does not keep polling", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();

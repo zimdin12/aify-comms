@@ -400,6 +400,22 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     turn_updated_at TEXT NOT NULL,
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
+
+-- WS5 Task 5.1 (2026-06-02): explicit delivery-loop claimer lease. A managed
+-- sidecar-delivery loop (hermes-managed-host.js / claude-channel.js) POSTs
+-- `claimer-acquire` when it becomes a live claimer (gateway ok + heartbeat +
+-- first successful /dispatch/claim) and `claimer-release` on terminal teardown.
+-- The lease is a POSITIVE deliverability signal that resolves the lazy-claim
+-- ambiguity at SEND time: state='released' (or never-recorded) disambiguates a
+-- genuinely-deaf target from a healthy claimer that simply has not polled yet.
+-- One lease row per agent (the loop is the single lifecycle owner).
+CREATE TABLE IF NOT EXISTS claimer_leases (
+    agent_id TEXT PRIMARY KEY,
+    bridge_id TEXT DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'released',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
 """
 
 AGENT_MIGRATIONS = {

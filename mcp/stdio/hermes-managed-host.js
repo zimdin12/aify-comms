@@ -1248,6 +1248,27 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   const teardownState = { done: false };
   let gatewayChild = null;
   let gatewayPort = port; // persisted even on reused:true (Task 1.2).
+  // WS5 Task 5.1 (2026-06-02): the explicit claimer lease. POST `acquire` once
+  // the loop is a live claimer (same point as the loop-ready marker) and
+  // `release` in the terminal teardown. The lease is the server's POSITIVE
+  // "a loop is a live claimer right now" signal that lets a send to a deaf
+  // managed target fail fast (a released/stale lease ⇒ deaf) without breaking
+  // lazy delivery (no lease ever ⇒ fall back). Best-effort/no-throw — a lease
+  // POST failure must never crash the delivery loop. Only when serverUrl is set
+  // and the lease was actually acquired do we bother releasing.
+  let claimerLeaseAcquired = false;
+  const postClaimerLease = async (action) => {
+    if (!serverUrl) return;
+    try {
+      await httpCall("POST", `/agents/${encodeURIComponent(id)}/claimer-lease`, {
+        action,
+        bridgeId: channelBridgeId(id),
+      });
+      if (action === "acquire") claimerLeaseAcquired = true;
+    } catch {
+      /* best-effort: never throw from the lease post */
+    }
+  };
   // On teardown, drop the loop-ready marker (Task 1.4) so the wrapper's
   // health-gate never sees a stale "live claimer" for a torn-down loop. An
   // explicit clearMarkers override (Task 4.1 port/key clear) wins when provided.
@@ -1255,8 +1276,13 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     typeof clearMarkers === "function"
       ? clearMarkers
       : async () => {
-          // Terminal teardown: drop the loop-ready marker (Task 1.4) AND the
-          // port/key gateway markers (Task 4.1) so a restart is a clean slate.
+          // Terminal teardown: release the claimer lease (WS5 Task 5.1) so the
+          // agent is IMMEDIATELY not-deliverable (deaf) — no waiting for the
+          // lease staleness backstop — then drop the loop-ready marker (Task
+          // 1.4) AND the port/key gateway markers (Task 4.1) so a restart is a
+          // clean slate. Release even if the acquire post failed, so a partial
+          // acquire never strands a phantom lease.
+          await postClaimerLease("release");
           clearReady(id, markerDir);
           try {
             clearGatewayMarkers(id, markerDir);
@@ -1423,6 +1449,12 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         // on EVERY successful claim so the marker's mtime stays fresh.
         if (result.claimOk) {
           writeReady(id, markerDir);
+          // WS5 Task 5.1: the same readiness gate also acquires/refreshes the
+          // explicit claimer lease — the server's positive "live claimer now"
+          // signal. Refresh on EVERY successful claim so the lease's freshness
+          // tracks the loop's liveness (the release-on-teardown is what makes a
+          // dead loop deaf immediately; this refresh backstops a missed release).
+          await postClaimerLease("acquire");
         }
         // Task 1.3: a TERMINAL claim signal (410 agent-removed / graced 404) is
         // the lifecycle owner's exit cue. Tear down the gateway host (kills by

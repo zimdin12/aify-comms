@@ -491,6 +491,16 @@ def _has_live_rpc_controller(agent_id: str) -> bool:
 # stays well within this window; a process that has exited goes stale quickly.
 CHANNEL_SIDECAR_STALE_SECONDS = 180
 
+# WS5 Task 5.1 (2026-06-02): an ACQUIRED claimer lease that has not been
+# refreshed within this window is treated as stale (the loop died without
+# POSTing `claimer-release` — e.g. SIGKILL / crash). The loop refreshes its
+# lease on every successful /dispatch/claim round-trip (same cadence as the
+# channel-sidecar heartbeat), so a live loop stays well inside this window.
+# A clean `claimer-release` makes the lease not-live IMMEDIATELY (no wait);
+# this window only backstops a MISSED release. Kept longer than the sidecar
+# stale window so the lease is never the FIRST signal to expire on a live loop.
+CLAIMER_LEASE_STALE_SECONDS = 240
+
 # Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
 # but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
 # 30s liveness beat + console startup so a transiently-restarting console (PTY
@@ -541,6 +551,80 @@ async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
         return age <= CHANNEL_SIDECAR_STALE_SECONDS
     except Exception:
         return False
+
+
+async def _claimer_lease_row(db, agent_id: str):
+    """WS5 Task 5.1: fetch the agent's single claimer-lease row (or None when no
+    lease has EVER been recorded). Returns the raw row so callers can distinguish
+    'no lease ever' (fall back to the sidecar/bridge check — lazy-claim contract)
+    from 'lease present' (the lease is authoritative)."""
+    if db is None:
+        return None
+    try:
+        cursor = await db.execute(
+            "SELECT agent_id, bridge_id, state, updated_at FROM claimer_leases WHERE agent_id = ?",
+            (agent_id,),
+        )
+        return await cursor.fetchone()
+    except Exception:
+        return None
+
+
+async def _has_live_claimer_lease(db, agent_id: str) -> bool:
+    """WS5 Task 5.1 (2026-06-02): True when the agent has a currently-LIVE
+    delivery-loop claimer lease.
+
+    A lease is the POSITIVE "a loop is a live claimer RIGHT NOW" signal the
+    delivery loop POSTs on becoming ready (`claimer-acquire`) and clears on
+    teardown (`claimer-release`). This is the disambiguator that unblocks the
+    Task 5.1b deaf-target fail-fast: unlike the channel-sidecar heartbeat (which
+    a not-yet-polled healthy loop has not written yet), a lease is set the moment
+    the loop is ready and cleared the moment it exits.
+
+    True ONLY when the lease state is 'acquired' AND its last refresh is within
+    CLAIMER_LEASE_STALE_SECONDS (backstop for a missed release after a crash).
+    A 'released' lease ⇒ False IMMEDIATELY (no staleness wait). No lease row ⇒
+    False (caller must treat absence-of-lease as 'fall back to the sidecar check',
+    NOT as deaf — see `_has_recorded_claimer_lease`).
+    """
+    row = await _claimer_lease_row(db, agent_id)
+    if not row:
+        return False
+    if str(row["state"] or "").strip().lower() != "acquired":
+        return False
+    updated = _iso_to_epoch(str(row["updated_at"] or ""))
+    if not updated:
+        return False
+    age = datetime.now(timezone.utc).timestamp() - updated
+    return age <= CLAIMER_LEASE_STALE_SECONDS
+
+
+async def _has_recorded_claimer_lease(db, agent_id: str) -> bool:
+    """WS5 Task 5.1: True when a lease has EVER been recorded for this agent
+    (acquired OR released). Used to decide whether the lease is AUTHORITATIVE
+    (so a released/stale lease ⇒ deaf) vs whether to fall back to the
+    sidecar/bridge-freshness check (no lease ever ⇒ pre-existing/older loop or a
+    lazy claimer that has not polled — must NOT be treated as deaf)."""
+    return await _claimer_lease_row(db, agent_id) is not None
+
+
+async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: str, now: str) -> str:
+    """WS5 Task 5.1: upsert the agent's claimer lease. `action` is 'acquire'
+    (→ state='acquired') or 'release' (→ state='released'). Idempotent; one row
+    per agent. Returns the resulting state."""
+    state = "acquired" if str(action or "").strip().lower() == "acquire" else "released"
+    await db.execute(
+        """
+        INSERT INTO claimer_leases (agent_id, bridge_id, state, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(agent_id) DO UPDATE SET
+            bridge_id = excluded.bridge_id,
+            state = excluded.state,
+            updated_at = excluded.updated_at
+        """,
+        (agent_id, str(bridge_id or "").strip(), state, now),
+    )
+    return state
 
 
 async def _enforce_live_worker_gate(
@@ -13240,6 +13324,49 @@ async def agent_heartbeat(agent_id: str, request: Request):
         await db.close()
 
 
+@router.post("/agents/{agent_id}/claimer-lease")
+async def post_claimer_lease(agent_id: str, request: Request):
+    """WS5 Task 5.1 (2026-06-02): record a delivery-loop claimer lease.
+
+    The managed sidecar-delivery loop (hermes-managed-host.js) POSTs
+    {action: "acquire"} the moment it becomes a live claimer (gateway ok +
+    heartbeat + first successful /dispatch/claim — the same point it writes the
+    loop-ready marker) and {action: "release"} in its terminal teardown path.
+
+    The lease is the positive deliverability signal that lets the send path tell
+    a genuinely-deaf target (released/stale lease) apart from a healthy claimer
+    that simply has not polled yet (no lease ever ⇒ fall back to lazy delivery).
+    Best-effort/no-throw on the bridge side; tombstoned agents 410 so a removed
+    agent's loop stops re-acquiring.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    action = str(body.get("action", "") or "").strip().lower()
+    bridge_id = str(body.get("bridgeId", "") or "").strip()
+    if action not in {"acquire", "release"}:
+        raise HTTPException(400, "action must be 'acquire' or 'release'")
+    now = _now()
+    db = await get_db()
+    try:
+        tombstone = await _agent_tombstone(db, agent_id)
+        if tombstone:
+            raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
+        agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        state = await _record_claimer_lease(db, agent_id, action=action, bridge_id=bridge_id, now=now)
+        # A lease flip changes deliverability/derived status — invalidate the
+        # live-state cache so the next read recomputes immediately.
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        return {"ok": True, "state": state}
+    finally:
+        await db.close()
+
+
 @router.post("/agents/{agent_id}/stop-worker")
 async def stop_agent_worker(agent_id: str, request: Request):
     """Phase 4: dashboard Stop → agent.status = 'available'.
@@ -14741,8 +14868,21 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
         return await _resident_bridge_is_fresh(
             db, agent_row, lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150)
         )
-    # Managed sidecar-delivery runtimes: the channel-sidecar IS the claimer.
+    # Managed sidecar-delivery runtimes: the channel-sidecar / delivery loop IS
+    # the claimer. WS5 Task 5.1 (2026-06-02): PREFER the explicit claimer lease.
+    # A lease is the positive "the loop is a live claimer right now" signal the
+    # delivery loop POSTs on ready and clears on teardown — it resolves the
+    # lazy-claim ambiguity that BLOCKED the Task 3.3/5.1b deaf-target fail-fast.
+    # Precedence:
+    #   1. A lease has been recorded ⇒ the lease is AUTHORITATIVE:
+    #        acquired+fresh ⇒ deliverable; released/stale ⇒ NOT deliverable
+    #        (immediately — no waiting for the 180s sidecar staleness window).
+    #   2. No lease has EVER been recorded ⇒ fall back to the channel-sidecar
+    #        heartbeat (pre-existing/older loops + the lazy-claim contract: a
+    #        not-yet-polled healthy claimer must NOT be treated as deaf).
     if runtime in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
+        if await _has_recorded_claimer_lease(db, agent_row["id"]):
+            return await _has_live_claimer_lease(db, agent_row["id"])
         return await _has_live_channel_sidecar(db, agent_row["id"])
     # Native managed (codex / pi / opencode): a fresh, non-superseded bridge row
     # for the agent is the claiming worker. Channel sidecar also counts (defensive).
