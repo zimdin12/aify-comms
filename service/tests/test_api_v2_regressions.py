@@ -2504,34 +2504,48 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+backstop ({limit}); cache={cache}",
         )
 
-    def test_turn_busy_status_uses_long_backstop_but_claim_gate_stays_short(self):
-        # WS5 Task 5.3 — the second-based window is split by ROLE:
-        #   * STATUS staleness → the LONG backstop (a dropped turn-end self-heals at
-        #     the single ~15m ceiling, no flap against the re-pulse cadence).
-        #   * CLAIM/SEND busy gate → stays SHORT (120s) so a queued run is NOT
-        #     stranded behind a possibly-finished turn for 15 minutes (Bug B safety).
-        # Seed turn_busy aged 200s: PAST the 120s claim window, UNDER the backstop.
-        assert api_v2.TURN_BUSY_STALE_SECONDS < 200 < api_v2.TURN_BUSY_BACKSTOP_SECONDS
+    def test_turn_busy_status_and_claim_gate_share_one_short_window(self):
+        # WS5 Task 5.3 originally SPLIT the window by role (status → long 15m
+        # backstop; claim/send gate → short 120s). That split was REVERTED on
+        # 2026-06-02 (commit 0fc84e6): in live use turn-end events were NOT
+        # reliable, so the 15m status backstop became the effective window and
+        # IDLE agents showed `working` for 15 minutes while new sends queued
+        # behind the phantom-busy — deadlocking the team. TURN_BUSY_BACKSTOP_SECONDS
+        # is now == TURN_BUSY_STALE_SECONDS (single 120s self-heal), so STATUS and
+        # the CLAIM/SEND gate share ONE short window. This test pins that unified
+        # behavior (replaces the superseded split-window assertion).
+        self.assertEqual(
+            api_v2.TURN_BUSY_BACKSTOP_SECONDS, api_v2.TURN_BUSY_STALE_SECONDS,
+            "revert 0fc84e6: status backstop collapsed to the short claim window",
+        )
         self._register("tb-split-claude", runtime="claude-code", sessionMode="resident")
         from datetime import datetime, timezone
-        aged = api_v2._iso_from_ms(int((datetime.now(timezone.utc).timestamp() - 200) * 1000))
+        # Aged PAST the shared window: both status self-heals off `working` AND the
+        # claim/send gate opens, so a dropped turn-end can never strand a queue >120s.
+        aged_past = api_v2._iso_from_ms(int((datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 80)) * 1000))
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id, turn_updated_at = excluded.turn_updated_at
             """,
-            ("tb-split-claude", "run-split-1", "bridge-split-1", "claude-code", aged),
+            ("tb-split-claude", "run-split-1", "bridge-split-1", "claude-code", aged_past),
         )
-        # STATUS: still working (within the long backstop) — a dropped end event has
-        # not yet self-healed.
         cache = self._async_compute_live_status("tb-split-claude")
-        self.assertEqual(cache["status"], "working", f"200s < backstop → still working; {cache}")
-        # CLAIM/SEND gate: NOT busy (past the short 120s window) — the queue drains.
+        self.assertNotEqual(cache["status"], "working", f"past shared window → status self-heals off working; {cache}")
         self.assertFalse(
             self._turn_busy_gate_for("tb-split-claude"),
-            "200s > short claim window → busy gate is OPEN so a queued run is deliverable (not stranded)",
+            "past shared window → busy gate is OPEN so a queued run is deliverable (not stranded)",
         )
+        # WITHIN the shared window: still working AND gate closed (both halves agree).
+        fresh = api_v2._now()
+        self._execute(
+            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
+            (fresh, "tb-split-claude"),
+        )
+        cache_fresh = self._async_compute_live_status("tb-split-claude")
+        self.assertEqual(cache_fresh["status"], "working", f"within shared window → working; {cache_fresh}")
+        self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within shared window → gate closed")
 
     def test_turn_end_event_flips_managed_hermes_off_working_immediately(self):
         # WS5 Task 5.2 — Bug A (false-working): a managed hermes that finished its
@@ -2630,6 +2644,169 @@ class ApiV2RegressionTests(FastApiTestCase):
             return False
         from datetime import datetime, timezone
         return (datetime.now(timezone.utc).timestamp() - epoch) <= api_v2.TURN_BUSY_STALE_SECONDS
+
+    # --- send-deadlock fix (2026-06-02): channel/resident steer past turn_busy ---
+
+    def _register_resident_channel_claude(self, agent_id: str, *, bridge_id: str):
+        """Resident claude with channelEnabled — gets the `steer` capability, the
+        mid-turn-inject signal the claim gate keys on."""
+        return self._register(
+            agent_id,
+            runtime="claude-code",
+            sessionMode="resident",
+            machineId="linux:test-host",
+            bridgeId=bridge_id,
+            launchMode="detached",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"channelEnabled": True},
+        )
+
+    def _seed_fresh_turn_busy(self, agent_id: str, run_id: str, bridge_id: str, runtime: str = "claude-code"):
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id,
+                turn_bridge_id = excluded.turn_bridge_id, turn_runtime = excluded.turn_runtime,
+                turn_updated_at = excluded.turn_updated_at
+            """,
+            (agent_id, run_id, bridge_id, runtime, api_v2._now()),
+        )
+
+    def _seed_queued_dispatch_run(self, run_id: str, target: str, *, execution_mode: str, require_reply: int = 0, from_agent: str = "sc-claude"):
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                message_type, subject, body, priority, status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, None, from_agent, target, "start_if_possible", execution_mode,
+                "info", "fyi", "for your info", "normal", "queued", require_reply, api_v2._now(),
+            ),
+        )
+
+    def test_channel_send_to_busy_channel_claude_is_claimed_not_deferred(self):
+        # SEND DEADLOCK (fix 1): a 2nd channel/resident, rr=0 send to a
+        # channelEnabled (steer-capable) resident claude that is mid-turn
+        # (turn_busy fresh) must be CLAIMED immediately and injected, not held
+        # behind the turn for up to 120s. This is the steer behavior — claude
+        # queues multiple injects safely and in order.
+        self._register_resident_channel_claude("sc-manager", bridge_id="bridge-sc-manager")
+        # He is mid-turn, turn_busy anchored on the very message that was sent TO him.
+        self._seed_fresh_turn_busy("sc-manager", "run_inbound_365680", "channel-linux:test-host-sc-manager")
+        # A 2nd send queues. A resident channelEnabled claude's dispatches resolve
+        # to execution_mode='resident' (see _agent_execution_mode) — the exact
+        # shape of the two deadlocked sends in the live evidence.
+        self._seed_queued_dispatch_run("run_queued_306769", "sc-manager", execution_mode="resident", require_reply=0)
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "sc-manager",
+                "bridgeId": "channel-linux:test-host-sc-manager",
+                "bridgeKind": "channel-sidecar",
+                "machineId": "linux:test-host",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        run = claim.json().get("run")
+        self.assertIsNotNone(run, f"steer-capable busy claude must claim the queued channel run, not defer: {claim.json()}")
+        self.assertEqual(run["id"], "run_queued_306769")
+
+    def test_busy_non_channel_resident_still_defers_queued_run(self):
+        # GATE PRESERVED (fix 1 safety): a resident codex (NOT steer/inject
+        # capable for a mid-turn channel inject) that is turn_busy must STILL
+        # defer its queued run — the carve-out is scoped to steerable targets.
+        self._register(
+            "codex-res",
+            runtime="codex",
+            sessionMode="resident",
+            machineId="linux:test-host",
+            bridgeId="bridge-codex-res",
+            sessionHandle="thread-codex",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:9"},
+        )
+        self._seed_fresh_turn_busy("codex-res", "run_codex_inbound", "bridge-codex-res", runtime="codex")
+        self._seed_queued_dispatch_run("run_codex_queued", "codex-res", execution_mode="resident", require_reply=0)
+        # Strip steer so this target is genuinely not mid-turn-injectable.
+        self._execute(
+            "UPDATE agents SET capabilities = ? WHERE id = ?",
+            (json.dumps(["resident-run", "resume", "interrupt"]), "codex-res"),
+        )
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "codex-res",
+                "bridgeId": "bridge-codex-res",
+                "machineId": "linux:test-host",
+                "executionModes": ["resident"],
+            },
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertIsNone(claim.json().get("run"), f"non-steerable busy target must STILL defer: {claim.json()}")
+        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_codex_queued",))
+        self.assertEqual(run["status"], "queued", "deferred run stays queued")
+
+    def test_rr0_channel_delivery_completion_clears_turn_busy(self):
+        # SEND DEADLOCK (fix 2): when the channel bridge marks an rr=0
+        # channel/resident delivery COMPLETED, the recipient's turn_busy (which
+        # the delivery re-pulse stamped) must be cleared — an info/response wake
+        # is not sustained work — so the next queued send finds an open gate.
+        self._register_resident_channel_claude("sc-manager2", bridge_id="bridge-sc-manager2")
+        # rr=0 channel run mid-delivery; its delivery re-pulsed turn_busy onto it.
+        self._seed_queued_dispatch_run("run_rr0_done", "sc-manager2", execution_mode="channel", require_reply=0)
+        self._execute("UPDATE dispatch_runs SET status='claimed' WHERE id = ?", ("run_rr0_done",))
+        self._seed_fresh_turn_busy("sc-manager2", "run_rr0_done", "channel-linux:test-host-sc-manager2")
+        self.assertTrue(self._turn_busy_gate_for("sc-manager2"), "precondition: turn_busy fresh")
+
+        resp = self.client.patch(
+            "/api/v1/dispatch/runs/run_rr0_done",
+            json={"status": "completed", "summary": "Delivered and completed by channel bridge"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("sc-manager2",))
+        self.assertEqual(int(tb["turn_busy"] or 0), 0, "rr=0 channel delivery completion must clear turn_busy")
+        self.assertFalse(self._turn_busy_gate_for("sc-manager2"), "busy gate is now open so the queue can drain")
+
+    def test_rr0_delivery_completion_does_not_clear_while_other_rr1_in_flight(self):
+        # ANTI-FEEDBACK-LOOP / safety: an rr=0 completion must NOT clear
+        # turn_busy while ANOTHER require_reply=1 channel/resident run is still
+        # open for the same agent (genuine reply-owing work in flight).
+        self._register_resident_channel_claude("sc-manager3", bridge_id="bridge-sc-manager3")
+        # A genuine rr=1 turn is in flight.
+        self._seed_queued_dispatch_run("run_rr1_open", "sc-manager3", execution_mode="channel", require_reply=1)
+        self._execute("UPDATE dispatch_runs SET status='running' WHERE id = ?", ("run_rr1_open",))
+        # An rr=0 delivery completes alongside it.
+        self._seed_queued_dispatch_run("run_rr0_alongside", "sc-manager3", execution_mode="channel", require_reply=0)
+        self._execute("UPDATE dispatch_runs SET status='claimed' WHERE id = ?", ("run_rr0_alongside",))
+        self._seed_fresh_turn_busy("sc-manager3", "run_rr1_open", "channel-linux:test-host-sc-manager3")
+
+        resp = self.client.patch(
+            "/api/v1/dispatch/runs/run_rr0_alongside",
+            json={"status": "completed", "summary": "Delivered and completed by channel bridge"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("sc-manager3",))
+        self.assertEqual(int(tb["turn_busy"] or 0), 1, "must NOT clear turn_busy while a real rr=1 turn is still open")
+
+    def test_turn_busy_not_rearmed_from_derived_status(self):
+        # ANTI-FEEDBACK-LOOP invariant: computing derived status for a mid-turn
+        # agent must never WRITE/RE-ARM turn_busy — only the bridge sets it and
+        # only an event/backstop/clear clears it. Reading status must leave
+        # turn_busy exactly as the bridge left it (still 1, same updated_at).
+        self._register_resident_channel_claude("sc-manager4", bridge_id="bridge-sc-manager4")
+        self._seed_fresh_turn_busy("sc-manager4", "run_status_probe", "channel-linux:test-host-sc-manager4")
+        before = self._fetchone("SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("sc-manager4",))
+        cache = self._async_compute_live_status("sc-manager4")
+        self.assertEqual(cache["status"], "working", cache)
+        after = self._fetchone("SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("sc-manager4",))
+        self.assertEqual(int(after["turn_busy"] or 0), 1, "status read must not clear turn_busy")
+        self.assertEqual(after["turn_updated_at"], before["turn_updated_at"], "status read must not re-stamp turn_busy")
 
     def test_heartbeat_turnbusy_invalidates_live_state(self):
         # FIX 1: a heartbeat that writes turn_busy must invalidate the live-state

@@ -5816,6 +5816,61 @@ async def _has_claimable_spawn_request(db, agent_id: str) -> bool:
     return bool(row)
 
 
+async def _has_claimable_steerable_run(
+    db,
+    *,
+    agent_row,
+    supported_modes: set[str],
+    agent_runtime: str,
+) -> bool:
+    """True when the turn-busy claim gate should be BYPASSED because a queued
+    channel/resident run can be steered (injected) into a mid-turn target.
+
+    Used only by the /dispatch/claim turn-busy gate (send-deadlock fix,
+    2026-06-02). The carve-out fires when BOTH hold:
+
+      * the TARGET can accept a mid-turn inject — `steer` is in its computed
+        capabilities (_row_capabilities). For claude that means a managed or
+        channelEnabled-resident session; a plain resident claude without
+        channelEnabled, or a resident codex/opencode/pi, has no `steer` and is
+        NOT bypassed. This is the SAME predicate the send-time steer path uses
+        (line ~6770: `active_run and "steer" in capabilities`), so the gate and
+        the steer route agree on who is injectable.
+      * there is at least one QUEUED run in channel/resident execution mode that
+        this bridge's supported_modes can actually claim. A managed (headless)
+        run is never injectable, so it stays queued behind the turn as before.
+
+    Returning False preserves the original "wait for the turn to end" behavior.
+    """
+    capabilities = _row_capabilities(agent_row)
+    if "steer" not in capabilities:
+        return False
+    target_agent = str((agent_row["id"] if agent_row else "") or "")
+    if not target_agent:
+        return False
+    cursor = await db.execute(
+        """
+        SELECT execution_mode, requested_runtime
+        FROM dispatch_runs
+        WHERE target_agent = ? AND status = 'queued'
+        ORDER BY requested_at ASC
+        LIMIT 25
+        """,
+        (target_agent,),
+    )
+    for run in await cursor.fetchall():
+        run_execution_mode = str((run["execution_mode"] or "managed")).strip().lower()
+        if run_execution_mode not in {"channel", "resident"}:
+            continue
+        if supported_modes and run_execution_mode not in supported_modes:
+            continue
+        requested_runtime = str(run["requested_runtime"] or "").strip()
+        if requested_runtime and _normalize_runtime(requested_runtime) != agent_runtime:
+            continue
+        return True
+    return False
+
+
 async def _select_online_environment_for_runtime(
     db, runtime: str, *, offline_seconds: int = 90
 ) -> Optional[dict[str, Any]]:
@@ -7114,6 +7169,57 @@ def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: 
     return False
 
 
+async def _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent: str, exclude_run_id: str) -> bool:
+    """Clear turn_busy for a channel/resident target ONLY when no OTHER
+    require_reply=1 channel/resident run is still open for it.
+
+    Event-based working-state clear shared by two completion paths:
+
+      * a reply landing for an rr=1 run (_mark_dispatch_run_answered); and
+      * an rr=0 channel/resident delivery being marked completed by the bridge
+        (PATCH /dispatch/runs) — an info/response wake is NOT sustained work, so
+        leaving turn_busy stamped from its delivery re-pulse (claude-channel.js
+        re-pulses turn_busy on every delivery) was the send-deadlock: the next
+        queued send saw a fresh phantom turn_busy and waited out the 120s window.
+
+    The "no other open rr=1 run" guard is the anti-feedback-loop safety: we only
+    clear when the agent is NOT owing a reply on some other in-flight turn, so we
+    never race a legitimate, still-running reply turn to 0. We never RE-ARM
+    turn_busy here (anti-loop invariant) — only ever clear it.
+    """
+    if not target_agent:
+        return False
+    remaining_cursor = await db.execute(
+        """
+        SELECT COUNT(*) AS open_count
+        FROM dispatch_runs
+        WHERE target_agent = ?
+          AND id != ?
+          AND status IN ('claimed', 'running', 'delivered')
+          AND execution_mode IN ('channel', 'resident')
+          AND COALESCE(require_reply, 0) = 1
+        """,
+        (target_agent, exclude_run_id),
+    )
+    remaining = await remaining_cursor.fetchone()
+    if not remaining or int(remaining["open_count"] or 0) != 0:
+        return False
+    await db.execute(
+        """
+        INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+        VALUES (?, 0, '', '', '', ?)
+        ON CONFLICT(agent_id) DO UPDATE SET
+            turn_busy = 0,
+            turn_run_id = '',
+            turn_bridge_id = '',
+            turn_runtime = '',
+            turn_updated_at = excluded.turn_updated_at
+        """,
+        (target_agent, _now()),
+    )
+    return True
+
+
 async def _mark_dispatch_run_answered(
     db,
     run_id: str,
@@ -7148,36 +7254,10 @@ async def _mark_dispatch_run_answered(
         # long after the agent's reply lands — operator sees "working"
         # linger when the actual work is done. Clear it here for any
         # channel-or-resident dispatch that just got answered AND has
-        # no other in-flight runs for the same agent (so we don't clear
-        # while OTHER dispatches are still being processed).
+        # no other in-flight rr=1 runs for the same agent (so we don't
+        # clear while real reply-owing work is still in flight).
         if mode in {"channel", "resident"} and target_agent:
-            remaining_cursor = await db.execute(
-                """
-                SELECT COUNT(*) AS open_count
-                FROM dispatch_runs
-                WHERE target_agent = ?
-                  AND id != ?
-                  AND status IN ('claimed', 'running', 'delivered')
-                  AND execution_mode IN ('channel', 'resident')
-                  AND COALESCE(require_reply, 0) = 1
-                """,
-                (target_agent, run_id),
-            )
-            remaining = await remaining_cursor.fetchone()
-            if remaining and int(remaining["open_count"] or 0) == 0:
-                await db.execute(
-                    """
-                    INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-                    VALUES (?, 0, '', '', '', ?)
-                    ON CONFLICT(agent_id) DO UPDATE SET
-                        turn_busy = 0,
-                        turn_run_id = '',
-                        turn_bridge_id = '',
-                        turn_runtime = '',
-                        turn_updated_at = excluded.turn_updated_at
-                    """,
-                    (target_agent, _now()),
-                )
+            await _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent, run_id)
         await _invalidate_agent_live_state(db, target_agent)
         return
     await db.execute(
@@ -14453,6 +14533,20 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         # didn't respect turn_busy. Stop hook (or 120s stale window)
         # is the authoritative clear; once that fires, next claim
         # picks up the queued run as designed.
+        #
+        # CHANNEL/RESIDENT STEER CARVE-OUT (2026-06-02, send-deadlock fix):
+        # a channel/resident-mode run to a STEER-capable target (a managed or
+        # channelEnabled resident claude — `steer` in _row_capabilities, the
+        # same signal used by the send-time steer path) is INJECTED into the
+        # agent's input mid-turn; claude queues multiple injects safely and in
+        # order. Deferring such a run behind turn_busy was the deadlock: every
+        # delivery re-pulses the recipient's turn_busy (claude-channel.js), so a
+        # queued rr=0 send never found a 120s gap and waited minutes. So when the
+        # target can steer AND a claimable channel/resident run is queued, do NOT
+        # defer — fall through and let it claim + inject immediately. The gate is
+        # PRESERVED for every other case (non-steer-capable runtimes, managed
+        # headless runs) so a genuinely-uninjectable target still waits for the
+        # turn to end.
         try:
             tb_row = await (await db.execute(
                 "SELECT turn_busy, turn_updated_at FROM agent_turn_state WHERE agent_id = ?",
@@ -14461,8 +14555,14 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             if tb_row and int(tb_row["turn_busy"] or 0) == 1:
                 tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
                 if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                    await db.commit()
-                    return {"ok": True, "run": None}
+                    if not await _has_claimable_steerable_run(
+                        db,
+                        agent_row=agent,
+                        supported_modes=supported_modes,
+                        agent_runtime=agent_runtime,
+                    ):
+                        await db.commit()
+                        return {"ok": True, "run": None}
         except Exception:
             # If turn_busy state is unreadable, fall through and let the
             # normal claim flow proceed — better to deliver than block.
@@ -16154,6 +16254,22 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                 )
                 await _maybe_report_async_manager_result_to_dashboard(db, refreshed_row)
                 if refreshed_row:
+                    # Send-deadlock fix (2026-06-02): an rr=0 channel/resident
+                    # delivery that the bridge just marked completed is NOT
+                    # sustained work — clear the recipient's turn_busy (which the
+                    # delivery re-pulse left stamped) so a queued send isn't held
+                    # behind a phantom turn for up to 120s. rr=1 runs keep their
+                    # turn_busy and clear via _mark_dispatch_run_answered when the
+                    # reply lands; the guard ensures we never clear while another
+                    # rr=1 turn is still open (anti-feedback-loop invariant).
+                    if (
+                        req.status == "completed"
+                        and not _row_require_reply(refreshed_row)
+                        and str((refreshed_row["execution_mode"] or "")).strip().lower() in {"channel", "resident"}
+                    ):
+                        await _clear_turn_busy_if_no_open_reply_owing_run(
+                            db, refreshed_row["target_agent"], run_id
+                        )
                     await _apply_pending_resident_takeover_if_ready(db, refreshed_row["target_agent"])
                     if req.status == "completed":
                         await _run_contract_reminders_once(
