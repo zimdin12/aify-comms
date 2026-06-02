@@ -56,6 +56,10 @@ import {
   isGatewaySessionWorking,
   isSessionBusyError,
 } from "./hermes-gateway-protocol.js";
+import {
+  startHermesGatewayTurnDetector,
+  DEFAULT_IDLE_DEBOUNCE_TICKS,
+} from "./hermes-gateway-turn-detector.js";
 
 loadSettingsEnv();
 
@@ -110,6 +114,21 @@ const RUNTIME = "hermes";
 // path). The agent's own reply closing the run is the precise clear; the next
 // submit resets the window.
 const REPULSE_MS = Math.max(5000, Number(process.env.AIFY_HERMES_TURN_REPULSE_MS || 45000));
+// Continuous gateway turn-state detector cadence (fix/hermes-working-debounce).
+// A faster, dedicated poll of the gateway session["running"] status that drives
+// the BIDIRECTIONAL turn-state detector (sets working on a gateway-running turn,
+// clears on sustained idle). Faster than REPULSE_MS so turn-state reflects
+// promptly; the idle→end debounce (GATEWAY_TURN_IDLE_DEBOUNCE ticks at this
+// cadence) is what prevents the mid-turn-idle flap. ~3s × 3 ticks = ~9s of
+// sustained idle before a turn-end — well under the 120s server backstop.
+const GATEWAY_TURN_POLL_MS = Math.max(
+  1000,
+  Number(process.env.AIFY_HERMES_GATEWAY_TURN_POLL_MS || 3000),
+);
+const GATEWAY_TURN_IDLE_DEBOUNCE = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE || DEFAULT_IDLE_DEBOUNCE_TICKS),
+);
 const REPULSE_WINDOW_MS = Math.max(
   REPULSE_MS,
   Number(process.env.AIFY_HERMES_TURN_REPULSE_WINDOW_MS || 15 * 60 * 1000),
@@ -927,7 +946,15 @@ export function makeInFlightProbe({
   fetchStatus = (runId) => fetchRunStatus(httpCall, runId),
   readGatewayStatus = null,
   clearTurnImpl = null,
+  // DEBOUNCE (fix/hermes-working-debounce): require N CONSECUTIVE gateway-idle
+  // reads before latching the turn-end. The hermes gateway session["running"]
+  // flag flips False MID-TURN (between tool calls / generation gaps), so a
+  // SINGLE idle read is NOT a real turn boundary — latching on it false-cleared
+  // turn_busy mid-turn → the working↔online flap. Any "working" read resets the
+  // streak. Tunable; defaults to the flap-safe DEFAULT_IDLE_DEBOUNCE_TICKS.
+  idleDebounce = DEFAULT_IDLE_DEBOUNCE_TICKS,
 } = {}) {
+  const idleThreshold = Math.max(1, Number(idleDebounce) || DEFAULT_IDLE_DEBOUNCE_TICKS);
   return async function isInFlight() {
     if (!serverUrl || !inFlight) return false;
     if (
@@ -949,17 +976,27 @@ export function makeInFlightProbe({
       }
       if (isGatewaySessionWorking(gwStatus)) {
         inFlight.observedWorking = true;
+        inFlight.idleStreak = 0; // a working read resets the idle streak (no flap).
       }
-      // idle is the turn-end ONLY after we've seen working (submit-race guard).
+      // idle is the turn-end ONLY after we've seen working (submit-race guard)
+      // AND only once a SUSTAINED run of idle reads confirms it (debounce). A
+      // momentary mid-turn idle blip increments but never reaches the threshold,
+      // and the next working read zeroes it — so it can never false-clear.
       if (inFlight.observedWorking && isGatewaySessionIdle(gwStatus)) {
-        inFlight.completed = true; // latch: gateway says the turn ended.
-        inFlight.runId = "";
-        inFlight.observedWorking = false;
-        if (typeof clearTurnImpl === "function") {
-          // Authoritative /turn-end: clear turn_busy NOW, not on the 120s window.
-          await clearTurnImpl();
+        inFlight.idleStreak = (Number(inFlight.idleStreak) || 0) + 1;
+        if (inFlight.idleStreak >= idleThreshold) {
+          inFlight.completed = true; // latch: gateway sustained idle → turn ended.
+          inFlight.runId = "";
+          inFlight.observedWorking = false;
+          inFlight.idleStreak = 0;
+          if (typeof clearTurnImpl === "function") {
+            // Authoritative /turn-end: clear turn_busy NOW, not on the 120s window.
+            await clearTurnImpl();
+          }
+          return false;
         }
-        return false;
+        // Below threshold: still in-flight, keep re-pulsing (no premature clear).
+        return true;
       }
     }
     // Backstop turn-END: the in-flight run reaching a terminal status (the agent
@@ -1487,6 +1524,28 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     pulse: makeInFlightPulse({ httpCall, agentId: id, inFlight }),
   });
 
+  // Continuous, bidirectional gateway turn-state detector
+  // (fix/hermes-working-debounce). The in-flight re-pulse above is the DISPATCH
+  // instant path (only armed inside a dispatch's submit window). This detector is
+  // the CONTINUOUS backstop in BOTH directions, running for the whole loop
+  // lifetime independent of any dispatch — so an AUTONOMOUS / direct-typed-in-the
+  // -TUI turn (which never stamps inFlight.submittedAt) is still reflected as
+  // `working` (#172), AND the debounced idle→end transition prevents the mid-turn
+  // -idle flap. ANTI-FEEDBACK-LOOP: it keys ONLY on the gateway's session
+  // ["running"] truth via readManagedSessionStatus, never the aify server's
+  // derived status; /turn-start is edge-triggered (set once per turn, no per-tick
+  // spam). The 120s server window remains the long backstop for a dropped tick.
+  const stopGatewayTurnDetector = startHermesGatewayTurnDetector({
+    intervalMs: GATEWAY_TURN_POLL_MS,
+    idleDebounce: GATEWAY_TURN_IDLE_DEBOUNCE,
+    readGatewayStatus: readManagedSessionStatus,
+    // SET working on a gateway-running turn (edge-triggered). busy:true POSTs the
+    // turn-start heartbeat; no runId because an autonomous turn has no aify run.
+    postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true }).catch(() => {}),
+    // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
+    postTurnEnd: () => clearTurn(httpCall, id).catch(() => {}),
+  });
+
   let totalProcessed = 0;
   // Consecutive-404 self-heal counter (Task 1.3) — persists across poll cycles
   // so a 404 that survives the grace window terminates the loop.
@@ -1545,6 +1604,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         if (result.terminal) {
           stopLiveness();
           stopRepulse();
+          stopGatewayTurnDetector();
           stopGatewayProbe();
           await teardown();
           // Marker hygiene (fix/hermes-leak P4): the default teardown
@@ -1582,6 +1642,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   } finally {
     stopLiveness();
     stopRepulse();
+    stopGatewayTurnDetector();
     stopGatewayProbe();
   }
 }

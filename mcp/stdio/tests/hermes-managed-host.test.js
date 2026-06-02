@@ -1216,13 +1216,14 @@ test("makeInFlightProbe: run-status fetch error → treated as non-terminal, kee
 // /turn-end (clearTurnImpl) so turn_busy clears IMMEDIATELY — no 120s wait.
 // ---------------------------------------------------------------------------
 
-test("makeInFlightProbe: gateway idle after working → latches + fires /turn-end immediately (Bug A)", async () => {
-  // turn-END signal: the gateway reports the aify-<agent> session 'working' on the
-  // first probe (mid-turn), then 'idle' (turn ended). On idle the probe must stop
-  // the beat AND clear turn_busy authoritatively (the 120s stale window is now a
-  // backstop, not the primary transition).
+test("makeInFlightProbe: gateway idle SUSTAINED (>= debounce) after working → latches + fires /turn-end once (Bug A, debounced)", async () => {
+  // turn-END signal: the gateway reports the aify-<agent> session 'working' (mid-
+  // turn), then SUSTAINED 'idle' (turn ended). With the debounce (idleDebounce=2),
+  // the turn-end latches only on the 2nd consecutive idle — and then the probe
+  // stops the beat AND clears turn_busy authoritatively (the 120s stale window is
+  // now a backstop, not the primary transition).
   const inFlight = { submittedAt: Date.now() - 60 * 1000, completed: false, runId: "run-1" };
-  const statuses = ["working", "idle"];
+  const statuses = ["working", "idle", "idle"];
   let i = 0;
   let cleared = 0;
   const probe = makeInFlightProbe({
@@ -1234,15 +1235,46 @@ test("makeInFlightProbe: gateway idle after working → latches + fires /turn-en
       cleared++;
     },
     maxWindowMs: WIN,
+    idleDebounce: 2,
   });
   assert.equal(await probe(), true, "first tick: gateway 'working' → keep re-pulsing (mid-turn)");
   assert.equal(cleared, 0, "no turn-end while working");
-  assert.equal(await probe(), false, "second tick: gateway 'idle' → turn ended, stop the beat");
-  assert.equal(inFlight.completed, true, "idle latches completion");
-  assert.equal(cleared, 1, "idle fires the authoritative /turn-end exactly once");
-  // Latched: a third call short-circuits and does NOT clear again.
+  assert.equal(await probe(), true, "second tick: first 'idle' below debounce → still re-pulsing (no false clear)");
+  assert.equal(cleared, 0, "one idle must NOT clear");
+  assert.equal(await probe(), false, "third tick: second consecutive 'idle' → turn ended, stop the beat");
+  assert.equal(inFlight.completed, true, "sustained idle latches completion");
+  assert.equal(cleared, 1, "sustained idle fires the authoritative /turn-end exactly once");
+  // Latched: a fourth call short-circuits and does NOT clear again.
   assert.equal(await probe(), false);
   assert.equal(cleared, 1, "turn-end fires once, not on every subsequent tick");
+});
+
+test("makeInFlightProbe: momentary mid-turn idle (working→idle→working) does NOT clear (the flap fix)", async () => {
+  // THE REPORTED FLAP: the gateway session['running'] flips False for a tick mid-
+  // turn (between tool calls / a generation gap), surfacing 'idle', then back to
+  // 'working'. A single-idle latch false-cleared turn_busy → working↔online flap.
+  // With the debounce, the lone idle increments the streak but the next 'working'
+  // resets it, so the turn is NEVER ended early.
+  const inFlight = { submittedAt: Date.now() - 60 * 1000, completed: false, runId: "run-1" };
+  const statuses = ["working", "idle", "working", "idle", "working"];
+  let i = 0;
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => statuses[Math.min(i++, statuses.length - 1)],
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    maxWindowMs: WIN,
+    idleDebounce: 3,
+  });
+  for (let t = 0; t < statuses.length; t++) {
+    assert.equal(await probe(), true, `tick ${t}: mid-turn blip must keep re-pulsing`);
+  }
+  assert.equal(cleared, 0, "no flap: a momentary idle between working reads never clears");
+  assert.equal(inFlight.completed, false, "turn stays in-flight across mid-turn idle blips");
 });
 
 test("makeInFlightProbe: a transient 'idle' BEFORE any 'working' does NOT end the turn (submit race guard)", async () => {
