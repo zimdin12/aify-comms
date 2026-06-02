@@ -123,33 +123,41 @@ def test_ps_wrapper_waits_for_ready_marker_before_runtime(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# (b) loud-fail + exit nonzero on timeout in BOTH branches
+# (b) NON-FATAL on timeout in BOTH branches (2026-06-02 hotfix): a slow/transient
+#     loop must NOT take the team down. On the gate timeout the wrapper WARNs and
+#     starts the TUI anyway (the loop keeps retrying); it must NOT exit non-zero.
 # --------------------------------------------------------------------------
 
 
-def test_bash_wrapper_loud_fails_and_exits_on_timeout(tmp_path):
+def test_bash_wrapper_warns_and_starts_tui_on_timeout(tmp_path):
     bash_text, _ = _emit_wrappers(tmp_path)
 
-    assert "failed to become a live claimer" in bash_text, (
-        "bash wrapper must emit the loud loop-failure message on timeout"
+    assert "not yet a live claimer" in bash_text, (
+        "bash wrapper must emit the non-fatal WARN when the loop is slow to ready"
     )
-    fail_idx = bash_text.find("failed to become a live claimer")
-    after = bash_text[fail_idx : fail_idx + 400]
-    assert "exit 1" in after, (
-        "bash wrapper must exit non-zero (not exec a TUI) when the loop never readies"
+    warn_idx = bash_text.find("not yet a live claimer")
+    after = bash_text[warn_idx : warn_idx + 400]
+    assert "starting TUI anyway" in after, (
+        "bash wrapper must start the TUI anyway (non-fatal) when the loop is slow"
+    )
+    assert "exit 1" not in after, (
+        "bash wrapper must NOT exit non-zero on a slow loop (no team-down)"
     )
 
 
-def test_ps_wrapper_loud_fails_and_exits_on_timeout(tmp_path):
+def test_ps_wrapper_warns_and_starts_tui_on_timeout(tmp_path):
     _, ps_text = _emit_wrappers(tmp_path)
 
-    assert "failed to become a live claimer" in ps_text, (
-        "PowerShell wrapper must emit the loud loop-failure message on timeout"
+    assert "not yet a live claimer" in ps_text, (
+        "PowerShell wrapper must emit the non-fatal WARN when the loop is slow"
     )
-    fail_idx = ps_text.find("failed to become a live claimer")
-    after = ps_text[fail_idx : fail_idx + 400]
-    assert "exit 1" in after, (
-        "PowerShell wrapper must exit non-zero when the loop never readies"
+    warn_idx = ps_text.find("not yet a live claimer")
+    after = ps_text[warn_idx : warn_idx + 400]
+    assert "starting TUI anyway" in after, (
+        "PowerShell wrapper must start the TUI anyway (non-fatal) when the loop is slow"
+    )
+    assert "exit 1" not in after, (
+        "PowerShell wrapper must NOT exit non-zero on a slow loop (no team-down)"
     )
 
 

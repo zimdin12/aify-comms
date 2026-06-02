@@ -1496,14 +1496,18 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
     HERMES_LOOP_GATE_WAITED=\$((HERMES_LOOP_GATE_WAITED + 1))
   done
   if [ "\$HERMES_LOOP_READY" != true ]; then
-    # LOUD failure: never exec a visible TUI that cannot receive work.
-    echo "[hermes-aify] FATAL: hermes delivery loop for '\$HERMES_AIFY_AGENT_ID' failed to become a live claimer within \${HERMES_LOOP_GATE_DEADLINE}s; not starting TUI." >&2
-    echo "[hermes-aify]   (marker \$HERMES_LOOP_READY_FILE never appeared — the loop could not claim dispatch runs)" >&2
-    # Reap the dead/stuck loop we spawned so it doesn't linger.
-    [ -n "\$HERMES_LOOP_PID" ] && kill "\$HERMES_LOOP_PID" >/dev/null 2>&1 || true
-    exit 1
+    # NON-FATAL (2026-06-02 hotfix): a slow/transient loop must NOT take the team
+    # down. The earlier hard FATAL+exit turned any momentary loop hiccup (agent
+    # not yet registered, service mid-restart, gateway warming up) into a dead
+    # agent with no TUI. Instead: WARN, leave the loop running (it keeps retrying
+    # the gateway + /dispatch/claim and will write the marker once it claims), and
+    # start the visible TUI anyway. Deliverability is reflected server-side by the
+    # claimer-lease gate until the loop becomes live — a started TUI that is
+    # briefly not-yet-deliverable beats no TUI at all.
+    echo "[hermes-aify] WARN: hermes delivery loop for '\$HERMES_AIFY_AGENT_ID' not yet a live claimer after \${HERMES_LOOP_GATE_DEADLINE}s; starting TUI anyway (loop keeps retrying in the background)." >&2
+  else
+    echo "[hermes-aify] delivery loop live (pid \$HERMES_LOOP_PID); starting visible TUI." >&2
   fi
-  echo "[hermes-aify] delivery loop live (pid \$HERMES_LOOP_PID); starting visible TUI." >&2
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
   export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
@@ -1888,13 +1892,15 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
     Start-Sleep -Seconds 1
   }
   if (-not \$hermesLoopReady) {
-    # LOUD failure: never launch a visible TUI that cannot receive work.
-    [Console]::Error.WriteLine("[hermes-aify] FATAL: hermes delivery loop for '\$HermesAifyAgentId' failed to become a live claimer within \$hermesLoopGateDeadline s; not starting TUI.")
-    [Console]::Error.WriteLine("[hermes-aify]   (marker \$hermesLoopReadyFile never appeared -- the loop could not claim dispatch runs)")
-    if (\$hermesLoopPid -gt 0) { try { Stop-Process -Id \$hermesLoopPid -Force -ErrorAction SilentlyContinue } catch {} }
-    exit 1
+    # NON-FATAL (2026-06-02 hotfix): a slow/transient loop must NOT take the team
+    # down. Warn, leave the loop running (it keeps retrying the gateway +
+    # /dispatch/claim and writes the marker once it claims), and start the TUI
+    # anyway. Deliverability is reflected server-side by the claimer-lease gate
+    # until the loop becomes live — a started TUI beats no TUI.
+    [Console]::Error.WriteLine("[hermes-aify] WARN: hermes delivery loop for '\$HermesAifyAgentId' not yet a live claimer after \$hermesLoopGateDeadline s; starting TUI anyway (loop keeps retrying in the background).")
+  } else {
+    [Console]::Error.WriteLine("[hermes-aify] delivery loop live (pid \$hermesLoopPid); starting visible TUI.")
   }
-  [Console]::Error.WriteLine("[hermes-aify] delivery loop live (pid \$hermesLoopPid); starting visible TUI.")
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
   \$env:HERMES_TUI_RESUME = \$pinnedSession

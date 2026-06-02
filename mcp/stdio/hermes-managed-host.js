@@ -398,9 +398,19 @@ export async function openGatewayWsClient(wsUrl, { WebSocketImpl, timeoutMs = RP
   const pending = new Map();
   let nextId = 100;
 
+  // CONNECT TIMEOUT (2026-06-02 hotfix): a gateway that accepts the socket but
+  // never completes the WS upgrade would otherwise hang this await FOREVER (the
+  // open/error promise never settles), silently wedging the whole delivery loop
+  // — it never claims, never writes its ready marker, and the agent looks dead.
+  // Reject after `timeoutMs` so the caller treats it like a dead gateway (retry
+  // / self-correct) instead of hanging.
   await new Promise((resolve, reject) => {
-    socket.once("open", resolve);
-    socket.once("error", reject);
+    const timer = setTimeout(() => {
+      try { socket.terminate?.() ?? socket.close?.(); } catch { /* ignore */ }
+      reject(new Error(`hermes gateway WS connect timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    socket.once("open", () => { clearTimeout(timer); resolve(); });
+    socket.once("error", (err) => { clearTimeout(timer); reject(err); });
   });
 
   socket.on("message", (raw) => {
