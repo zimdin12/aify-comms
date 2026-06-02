@@ -1472,18 +1472,30 @@ aify_hermes_kill_prior() {
   fi
 }
 
-# MANAGED launch (visible-TUI model, Plan 2026-05-31): \`--aify-agent\` present
-# AND session-mode resolved to managed (bridge-spawned in the dashboard PTY).
+# GATEWAY-HOST launch (visible-TUI model) — serves BOTH managed and resident
+# agent-id launches (convergence 2026-06-02). A normal \`hermes --tui\` spawns its
+# tui_gateway over STDIO, which no external WS injector can reach, so an injected
+# aify message can never render in it. The ONLY topology that renders in a visible
+# TUI is: one shared \`hermes dashboard --tui\` gateway host that BOTH the visible
+# TUI attaches to AND the delivery loop injects into (prompt.submit against the
+# visible TUI's discovered sid). The former resident path used the REST api_server
+# daemon (renders nothing) + started no delivery loop — that was the resident
+# "nothing arrives in my terminal" bug.
 #   1. kill-prior: reap a stale delivery loop + gateway host for this agent.
 #   2. ensure-host: bring up the HIDDEN per-agent \`hermes dashboard --tui\`
 #      gateway host (windowsHide) and learn its {port,token,wsUrl}.
 #   3. start the background delivery loop (detached, survives the exec below): it
-#      claims dispatch runs and prompt.submits them into the TUI's session.
+#      claims channel/resident dispatch runs and prompt.submits them into the
+#      visible TUI's session.
 #   4. exec \`hermes --tui\` IN THIS PTY, attached to the gateway host and
-#      resuming the STABLE session \`aify-<agentId>\` — the REAL TUI renders
-#      windowless in the dashboard console. The in-session agent self-replies via
-#      comms_send (wake-only; symmetric with claude).
-if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
+#      resuming the STABLE session \`aify-<agentId>\`. For a managed launch the PTY
+#      is the dashboard console (windowless); for a resident launch the PTY is the
+#      operator's own terminal (visible). Same exec, same delivery — the only
+#      difference is who owns the PTY. The agent self-replies via comms_send.
+# The agent still REGISTERS with its resolved sessionMode (AIFY_SESSION_MODE,
+# exported at line ~1270 before this branch), so residents stay resident and
+# managed stays managed — only the LAUNCH mechanism is now shared.
+if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_CHANNELS_ENABLED=1
@@ -1558,31 +1570,13 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
   exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$AIFY_HERMES_PINNED_SESSION" "\${HERMES_PERMISSION_FLAGS[@]}"
 fi
 
-# RESIDENT/interactive launch with an agent id: attach an operator TUI to THIS
-# agent's pinned session. \`--resume <pinned session>\` resumes the SAME stable
-# DB session (\`aify-<agentId>\`) the managed model drives, so the operator sees
-# one continuous transcript.
-# TODO(managed-hermes visible-TUI, Phase 1 follow-up): migrate this resident path
-# off the api_server \`hermes gateway run\` daemon onto the same hidden
-# \`hermes dashboard --tui\` gateway-host model the managed branch now uses (so it
-# attaches via HERMES_TUI_GATEWAY_URL too). For now it keeps using
-# aify_hermes_ensure_daemon so resident launch is NOT broken by this change.
-if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
-  aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
-  AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-  # Daemon teardown leak fix (fix/hermes-leak P3): the resident path starts a
-  # per-agent api_server daemon (aify_hermes_ensure_daemon) but historically
-  # bare-\`exec\`d the TUI, replacing the shell so the daemon was never stopped —
-  # a resident TUI that exits leaked its \`hermes gateway run\` daemon. Run the
-  # TUI as a child (no exec) and stop the daemon on exit via a trap, so the
-  # daemon stop (killByPort + tracked-pid + clearGatewayMarkers) always runs.
-  trap 'node "\$AIFY_HERMES_DAEMON_CLI" stop "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 || true' EXIT
-  "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
-  _hermes_rc=\$?
-  trap - EXIT
-  node "\$AIFY_HERMES_DAEMON_CLI" stop "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 || true
-  exit \$_hermes_rc
-fi
+# RESIDENT agent-id launch: handled by the unified GATEWAY-HOST branch above
+# (convergence 2026-06-02). The former REST api_server-daemon resident path was
+# removed — it rendered nothing in the visible TUI (api_server chat does not emit
+# to tui_gateway WS clients) and started no delivery loop, so injected aify
+# messages never appeared in the operator's terminal. \`aify_hermes_ensure_daemon\`
+# / \`AIFY_HERMES_DAEMON_CLI\` remain defined above for any explicit fallback use
+# but are no longer the resident default.
 
 aify_hermes_exec_plain_or_tui() {
   # Default to hermes --tui for the operator's interactive TUI when
