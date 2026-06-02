@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import {
+  reapOrphanedManagedSurvivors,
+  orphanedOwnedAgentIds,
+} from "../reap-managed-survivors.js";
+
+// On env-bridge boot we reap managed-triad survivors whose owning bridge is NOT
+// fresh in bridge_instances, and SKIP any owned by a currently-live different
+// bridge. The "is the owning bridge live?" determination is injected as a list
+// of { agentId, owningBridgeId, ownerLive } records the bridge derives from the
+// server (/agents live status + runtimeState.bridgeInstanceId).
+
+// ---------------------------------------------------------------------------
+// orphanedOwnedAgentIds: select agents to reap — those WITHOUT a live owner,
+// and never an agent owned by THIS freshly-booted bridge id.
+// ---------------------------------------------------------------------------
+{
+  const records = [
+    { agentId: "dead-owner", owningBridgeId: "bridge-OLD", ownerLive: false },
+    { agentId: "live-other", owningBridgeId: "bridge-OTHER", ownerLive: true },
+    { agentId: "no-owner", owningBridgeId: "", ownerLive: false },
+    { agentId: "us", owningBridgeId: "bridge-SELF", ownerLive: true },
+  ];
+  const reap = orphanedOwnedAgentIds(records, { selfBridgeId: "bridge-SELF" });
+  assert.deepEqual(reap.sort(), ["dead-owner", "no-owner"], "reap dead/ownerless; skip live-other + self");
+}
+
+// ---------------------------------------------------------------------------
+// 1. boot sweep reaps survivors of a dead owner, SKIPS a live different bridge.
+// ---------------------------------------------------------------------------
+{
+  const calls = { killByPort: [], killTree: [], stopDaemon: [] };
+  const ownership = [
+    { agentId: "sc-coder", owningBridgeId: "bridge-OLD", ownerLive: false },     // dead owner → reap
+    { agentId: "graph-tl", owningBridgeId: "bridge-LIVE", ownerLive: true },     // live other → skip
+  ];
+  const procs = [
+    { pid: 100, ppid: 1, commandLine: "node hermes-managed-host.js run sc-coder" },
+    { pid: 200, ppid: 1, commandLine: "node hermes-managed-host.js run graph-tl" }, // owned by live bridge → must NOT die
+  ];
+  const markers = [
+    { kind: "port", agentId: "sc-coder", value: 9342 },
+    { kind: "port", agentId: "graph-tl", value: 9341 },
+    { kind: "daemon-pid", agentId: "sc-coder", value: 4242 },
+  ];
+
+  const result = reapOrphanedManagedSurvivors({
+    selfBridgeId: "bridge-NEW",
+    cwdRoots: ["C:/Docker/aify-comms"],
+    fetchOwnership: () => ownership,
+    listProcesses: () => procs,
+    readMarkers: () => markers,
+    killByPort: (p) => { calls.killByPort.push(p); return { killed: true }; },
+    stopDaemon: (o) => { calls.stopDaemon.push(o); return { stopped: true }; },
+    killTree: (pid) => { calls.killTree.push(pid); return true; },
+  });
+
+  assert.deepEqual(calls.killByPort, [9342], "only the dead-owner gateway killed (9341 belongs to live bridge)");
+  assert.deepEqual(calls.killTree, [100], "only the dead-owner loop killed (200 belongs to live bridge)");
+  assert.equal(calls.stopDaemon.length, 1);
+  assert.equal(calls.stopDaemon[0].agentId, "sc-coder");
+  // graph-tl (owned by a live different bridge) is NEVER touched.
+  assert.ok(!calls.killByPort.includes(9341));
+  assert.ok(!calls.killTree.includes(200));
+  assert.ok(result && result.killed);
+}
+
+// ---------------------------------------------------------------------------
+// 2. nothing orphaned → no-op (all owners live, or owned by self).
+// ---------------------------------------------------------------------------
+{
+  const calls = [];
+  const result = reapOrphanedManagedSurvivors({
+    selfBridgeId: "bridge-SELF",
+    fetchOwnership: () => [
+      { agentId: "a", owningBridgeId: "bridge-LIVE", ownerLive: true },
+      { agentId: "b", owningBridgeId: "bridge-SELF", ownerLive: true },
+    ],
+    listProcesses: () => [{ pid: 100, ppid: 1, commandLine: "node hermes-managed-host.js run a" }],
+    readMarkers: () => [{ kind: "port", agentId: "a", value: 9342 }],
+    killByPort: (p) => calls.push(["port", p]),
+    stopDaemon: (o) => calls.push(["daemon", o]),
+    killTree: (pid) => calls.push(["tree", pid]),
+  });
+  assert.deepEqual(calls, [], "no orphans → kills nothing");
+  assert.equal(result.killed.gatewayHosts.length, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 3. FAIL-SAFE: a throwing fetchOwnership → reap NOTHING (no scope = no kill).
+// ---------------------------------------------------------------------------
+{
+  const calls = [];
+  const result = reapOrphanedManagedSurvivors({
+    selfBridgeId: "bridge-SELF",
+    fetchOwnership: () => { throw new Error("server unreachable"); },
+    listProcesses: () => [{ pid: 100, ppid: 1, commandLine: "node hermes-managed-host.js run a" }],
+    readMarkers: () => [{ kind: "port", agentId: "a", value: 9342 }],
+    killByPort: (p) => calls.push(["port", p]),
+    stopDaemon: (o) => calls.push(["daemon", o]),
+    killTree: (pid) => calls.push(["tree", pid]),
+  });
+  assert.deepEqual(calls, [], "ownership unknown → fail-safe, kills nothing");
+  assert.ok(result && result.skipped === "ownership-unavailable");
+}
+
+console.log("server-boot-reap.test.js: all assertions passed");

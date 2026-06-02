@@ -60,6 +60,7 @@ import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
   runManagedTeardown,
+  reapOrphanedManagedSurvivors,
   enumerateManagedSurvivors,
   defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
@@ -1555,6 +1556,94 @@ function runManagedTeardownSync(reason = "bridge exit") {
   }
 }
 
+// A live status string means a managed agent's owning bridge/claimer is alive
+// RIGHT NOW. Conservative: when the agent is online/working/ready/busy we treat
+// the owner as live and SKIP reaping (leaking a survivor is acceptable; killing
+// a live owner's children is not). offline/available/idle/disconnected ⇒ no
+// live owner ⇒ eligible for reap.
+function statusImpliesLiveOwner(status) {
+  return ["online", "working", "ready", "busy"].includes(String(status || "").toLowerCase());
+}
+
+// Build per-agent ownership records for the boot sweep: managed agents in THIS
+// environment (within cwdRoots) with their owning bridge id + whether that
+// owner is live right now. Derived from /agents + /sessions. Throws on HTTP
+// failure so the sweep fail-safes to reaping nothing.
+async function fetchManagedOwnershipForEnv() {
+  const environment = effectiveEnvironmentPayload();
+  const [agentsRes, sessionsRes] = await Promise.all([
+    httpCall("GET", "/agents"),
+    httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
+  ]);
+  const sessionByAgent = new Map();
+  for (const session of sessionsRes?.sessions || []) {
+    if (session?.agentId && !sessionByAgent.has(session.agentId)) sessionByAgent.set(session.agentId, session);
+  }
+  const records = [];
+  for (const [agentId, info] of Object.entries(agentsRes?.agents || {})) {
+    if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
+    const runtimeState = info.runtimeState || {};
+    const session = sessionByAgent.get(agentId);
+    const belongsToEnvironment =
+      session || String(runtimeState.environmentId || "") === environment.id;
+    if (!belongsToEnvironment) continue;
+    const workspace = session?.workspace || info.cwd || DEFAULT_CWD;
+    if (!workspaceWithinRoots(workspace, environment.cwdRoots)) continue;
+    records.push({
+      agentId,
+      owningBridgeId: String(runtimeState.bridgeInstanceId || "").trim(),
+      ownerLive: statusImpliesLiveOwner(info.status),
+    });
+  }
+  return records;
+}
+
+// Env-bridge BOOT survivor sweep (before ensureSpawnLoop). Reaps managed-triad
+// survivors of dead/crashed predecessors so "restart = zero survivors" holds
+// even after SIGKILL — while NEVER touching an agent owned by a currently-live
+// different bridge. Fail-safe: if ownership can't be fetched, reaps nothing.
+async function runBootSurvivorSweep() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+  let records = null;
+  try {
+    records = await fetchManagedOwnershipForEnv();
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("[aify] boot survivor sweep: ownership query failed — reaping nothing (fail-safe):", error?.message || error);
+    }
+    return;
+  }
+  try {
+    const result = reapOrphanedManagedSurvivors({
+      selfBridgeId: BRIDGE_INSTANCE_ID,
+      cwdRoots: cwdRootsForEnvironment(),
+      fetchOwnership: () => records,
+      listProcesses: listManagedProcesses,
+      readMarkers: () => readManagedMarkers(os.tmpdir()),
+      killByPort: defaultKillByPort,
+      stopDaemon,
+      killTree: killManagedTree,
+    });
+    if (result?.skipped === "ownership-unavailable") return;
+    if (Array.isArray(result?.pending) && result.pending.length) {
+      await Promise.allSettled(result.pending);
+    }
+    const n =
+      (result?.killed?.gatewayHosts?.length || 0) +
+      (result?.killed?.deliveryLoops?.length || 0) +
+      (result?.killed?.daemons?.length || 0) +
+      (result?.killed?.consolePtys?.length || 0);
+    if (n) {
+      console.error(`[aify] boot survivor sweep: reaped ${n} orphaned managed survivor(s) (owning bridge not live)`);
+    }
+    if (result?.errors?.length) {
+      console.error(`[aify] boot survivor sweep had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
+    }
+  } catch (error) {
+    console.error("[aify] boot survivor sweep failed:", error?.message || error);
+  }
+}
+
 
 function environmentHeartbeatPayload() {
   const hostname = (() => {
@@ -2208,6 +2297,11 @@ function ensureDispatchLoop() {
 
 ensureEnvironmentHeartbeat();
 ensureEnvironmentControlLoop();
+// WS2: reap crash/SIGKILL managed-triad survivors of a dead predecessor BEFORE
+// the spawn loop brings fresh managed agents up — so "restart = zero survivors"
+// holds. Async + best-effort; never blocks boot. Skips agents owned by a
+// currently-live different bridge.
+runBootSurvivorSweep().catch((error) => console.error("[aify] boot survivor sweep error:", error?.message || error));
 ensureSpawnLoop();
 ensureTerminalControlLoop();
 

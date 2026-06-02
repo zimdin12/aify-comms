@@ -371,4 +371,87 @@ export function runManagedTeardown({
   return reapManagedSurvivors(found, { killByPort, stopDaemon, killTree, killByPid, log });
 }
 
-export default { enumerateManagedSurvivors, reapManagedSurvivors, runManagedTeardown };
+// --- boot-time orphan sweep -------------------------------------------------
+
+// Given per-agent ownership records [{ agentId, owningBridgeId, ownerLive }],
+// return the agent ids whose managed survivors should be reaped on boot:
+//   - ownerLive === false  → the owning bridge is NOT fresh in bridge_instances
+//                            (dead/crashed/SIGKILLed predecessor) → REAP.
+//   - owningBridgeId === selfBridgeId → owned by THIS freshly-booted bridge →
+//                            never reap (defensive: a fresh boot can't legitimately
+//                            own a survivor, but never kill our own).
+//   - ownerLive === true (a different live bridge) → SKIP (the live owner manages it).
+export function orphanedOwnedAgentIds(records = [], { selfBridgeId = "" } = {}) {
+  const self = String(selfBridgeId || "").trim();
+  const out = [];
+  for (const r of records || []) {
+    const agentId = String(r?.agentId || "").trim();
+    if (!agentId) continue;
+    const owner = String(r?.owningBridgeId || "").trim();
+    if (owner && owner === self) continue; // never our own
+    if (r?.ownerLive === true) continue; // a live different bridge owns it → skip
+    out.push(agentId);
+  }
+  return out;
+}
+
+// Env-bridge BOOT sweep (before ensureSpawnLoop). Reap managed-triad survivors
+// for agents in this env whose owning bridge is NOT live, and SKIP any owned by
+// a currently-live different bridge.
+//
+//   selfBridgeId   — this freshly-booted bridge's instance id.
+//   cwdRoots       — this env's roots (parity; ownership is already env-scoped).
+//   fetchOwnership — () => [{ agentId, owningBridgeId, ownerLive }] for the
+//                    managed agents in this env (derived from the server).
+//   listProcesses / readMarkers — survivor enumerators (injectable).
+//   killByPort / stopDaemon / killTree / killByPid — kill primitives.
+//
+// FAIL-SAFE: if fetchOwnership throws or returns nothing usable, reap NOTHING
+// (an unknown scope must never become a blanket sweep). Returns the reap result,
+// or { skipped:"ownership-unavailable" } when scope could not be determined.
+export function reapOrphanedManagedSurvivors({
+  selfBridgeId = "",
+  cwdRoots = [],
+  fetchOwnership,
+  listProcesses,
+  readMarkers,
+  consolePtyPids = [],
+  killByPort,
+  stopDaemon,
+  killTree,
+  killByPid,
+  log = (msg) => console.error(msg),
+} = {}) {
+  let records;
+  try {
+    records = fetchOwnership ? fetchOwnership() : null;
+  } catch (err) {
+    try { log(`[aify] boot reap: ownership query failed (${err?.message || err}) — reaping nothing (fail-safe)`); } catch { /* ignore */ }
+    return { skipped: "ownership-unavailable", killed: { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] }, errors: [] };
+  }
+  if (!Array.isArray(records)) {
+    return { skipped: "ownership-unavailable", killed: { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] }, errors: [] };
+  }
+
+  const orphanIds = orphanedOwnedAgentIds(records, { selfBridgeId });
+  if (orphanIds.length === 0) {
+    return { killed: { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] }, errors: [] };
+  }
+
+  const found = enumerateManagedSurvivors({
+    ownedAgentIds: orphanIds,
+    cwdRoots,
+    listProcesses,
+    readMarkers,
+    consolePtyPids,
+  });
+  return reapManagedSurvivors(found, { killByPort, stopDaemon, killTree, killByPid, log });
+}
+
+export default {
+  enumerateManagedSurvivors,
+  reapManagedSurvivors,
+  runManagedTeardown,
+  orphanedOwnedAgentIds,
+  reapOrphanedManagedSurvivors,
+};
