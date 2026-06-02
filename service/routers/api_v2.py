@@ -1104,6 +1104,37 @@ def _machine_family(machine_id: Any) -> str:
     return str(machine_id or "").strip().split(":", 1)[0].lower()
 
 
+def _machine_ids_same_host(a: Any, b: Any) -> bool:
+    """Tolerant machine_id equality for dispatch-claim routing.
+
+    machine_id is "<platform>:<host>". On WSL the platform tag is unstable
+    across spawn contexts: the SAME machine registers as both
+    "wsl-<distro>:host" (when WSL_DISTRO_NAME is set) and "linux:host" (when it
+    isn't), because the env var is not propagated to every process. An exact
+    comparison then treats one machine as two — a WSL delivery loop
+    ("wsl-ubuntu:host") could never claim runs for a WSL-registered agent
+    ("linux:host"), so deliveries sat queued forever (observed 2026-06-02,
+    ci-senior-dev). Collapse the linux/WSL platform family so they match, while
+    keeping win32/darwin distinct (a Windows bridge must NOT claim a WSL agent's
+    runs). Fully generic: only the host component and a family collapse are
+    compared, nothing machine-specific.
+    """
+    na, nb = _normalize_machine_id(a), _normalize_machine_id(b)
+    if na == nb:
+        return True
+    if not na or not nb:
+        return False
+    fa, _, ha = na.partition(":")
+    fb, _, hb = nb.partition(":")
+    if not ha or ha != hb:
+        return False
+
+    def _fam(f: str) -> str:
+        return "linux" if f == "linux" or f.startswith("wsl") else f
+
+    return _fam(fa) == _fam(fb)
+
+
 def _dedupe_preserve(values: list[str]) -> list[str]:
     seen = set()
     result = []
@@ -1375,8 +1406,8 @@ def _validate_registration_cwd(
         return
     if not _has_codex_live_app_server(runtime_config):
         return
-    if family in {"linux", "darwin"} and _WINDOWS_DRIVE_CWD_RE.match(resolved_cwd):
-        hint = '/mnt/<drive>/...' if family == "linux" else "/Users/..."
+    if family in {"linux", "darwin", "wsl"} and _WINDOWS_DRIVE_CWD_RE.match(resolved_cwd):
+        hint = '/mnt/<drive>/...' if family in {"linux", "wsl"} else "/Users/..."
         raise HTTPException(
             400,
             (
@@ -14426,7 +14457,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             await db.rollback()
             raise HTTPException(404, f"Agent '{req.agentId}' not found")
 
-        if req.machineId and agent["machine_id"] and agent["machine_id"] != req.machineId:
+        if req.machineId and agent["machine_id"] and not _machine_ids_same_host(agent["machine_id"], req.machineId):
             await db.rollback()
             return {"ok": True, "run": None}
 
@@ -16466,7 +16497,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
             raise HTTPException(404, f"Agent '{req.agentId}' not found")
 
         machine_id = req.machineId or ""
-        if machine_id and agent["machine_id"] and agent["machine_id"] != machine_id:
+        if machine_id and agent["machine_id"] and not _machine_ids_same_host(agent["machine_id"], machine_id):
             await db.rollback()
             return {"ok": True, "controls": []}
 

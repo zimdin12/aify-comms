@@ -2061,6 +2061,31 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode, sessionHandl
   return caps;
 }
 
+// Deterministic platform tag for machine_id, generic for ANY machine. WSL does
+// NOT propagate WSL_DISTRO_NAME to every spawn context (present in interactive
+// shells, absent in many child processes), so deriving the tag from it made the
+// SAME machine register as both `wsl-<distro>:host` (env present) and
+// `linux:host` (env absent). That divergence broke the machine_id match in
+// dispatch-claim + bridge supersession — a WSL delivery loop registered as
+// `wsl-ubuntu:host` could never claim runs for an agent recorded as
+// `linux:host`, so deliveries sat queued forever (observed 2026-06-02). Detect
+// WSL from /proc (visible to EVERY process on the machine, independent of env)
+// and emit a STABLE `wsl` tag; native platforms keep process.platform. The host
+// component is still the machine's own hostname, so this stays fully dynamic
+// across everyone's PCs — nothing is hardcoded.
+function stablePlatformTag() {
+  if (process.platform === "linux") {
+    try {
+      if (/microsoft|wsl/i.test(fs.readFileSync("/proc/sys/kernel/osrelease", "utf8"))) {
+        return "wsl";
+      }
+    } catch {
+      // not WSL or /proc unreadable → fall through to the platform tag
+    }
+  }
+  return process.platform;
+}
+
 export function defaultMachineId() {
   let host =
     process.env.AIFY_MACHINE_ID ||
@@ -2075,7 +2100,7 @@ export function defaultMachineId() {
     }
   }
   host = host || "unknown-host";
-  const wsl = process.env.WSL_DISTRO_NAME ? `wsl-${process.env.WSL_DISTRO_NAME}` : process.platform;
+  const wsl = stablePlatformTag();
   // Lowercase the whole "<platform>:<host>" id. Hostnames report with
   // inconsistent casing across launch paths (e.g. win32:StevenZ-L vs
   // win32:STEVENZ-L); the service compares machine_id case-insensitively
