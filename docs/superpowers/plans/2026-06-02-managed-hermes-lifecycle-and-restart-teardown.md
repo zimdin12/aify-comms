@@ -239,6 +239,10 @@ test("enumerate excludes resident sessions and other-env agents", () => {
 - [ ] **Step 1: Failing test** — `online`/deliverability is driven by an explicit lease set on loop start and cleared on loop exit/teardown, independent of the 30s heartbeat cadence; a cleanly-exited loop is immediately non-deliverable.
 - [ ] **Step 2: Run red.** **Step 3: Implement** — loop POSTs a `claimer-acquire` on ready (Task 1.4) and `claimer-release` in teardown; server records it; `_has_live_channel_sidecar`/new `_has_live_claimer` prefers the lease, with `CHANNEL_SIDECAR_STALE_SECONDS` only as the backstop if a lease release was missed. **Step 4: Run green.** **Step 5: Commit.**
 
+### Operator-confirmed bugs this workstream MUST fix (acceptance criteria)
+- **Bug A (false-working):** a managed hermes that finishes its turn stays `working` (turn_busy only decays on the 120s timer). Acceptance: on a real turn-end event the agent flips to idle/`online` immediately (no 120s wait).
+- **Bug B (stranded queue, downstream of A):** `comms_send` to that agent queues as next-turn work "because the system thinks he's working", and it never delivers because the turn never appears to end. Acceptance: after the turn-end event clears `turn_busy`, any queued run for that agent is delivered on the next claim (regression test: turn-start → send (queues) → turn-end → queued run becomes delivered, agent not left `working`). For a genuinely deaf target (no live claimer) the WS3 fail-fast applies instead of an indefinite queue.
+
 ### Task 5.2: Event-driven turn-start/turn-end for hermes
 
 **Files:** `mcp/stdio/hermes-managed-host.js` / hermes plugin hooks (`pre_llm_call`/`post_llm_call` or gateway WS `run.*`), `service/routers/api_v2.py` (`turn_busy` set/clear on events; `TURN_BUSY_STALE_SECONDS` demoted to long backstop). Tests both sides.
