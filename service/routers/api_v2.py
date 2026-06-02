@@ -314,17 +314,33 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # re-arm of turn_busy on derived status — only the bridge sets it and only an event
 # (or this backstop) clears it (anti-feedback-loop invariant).
 TURN_BUSY_STALE_SECONDS = 120
-# 2026-06-02 REVERTED from 15*60 back to 120s (== TURN_BUSY_STALE_SECONDS). The
-# 15-min status backstop (WS5 Task 5.3) assumed the turn-END event is RELIABLE so
-# the backstop "rarely fires" — but in live use the resident/managed claude
-# turn-end (Stop hook) and rr=0 channel deliveries do NOT reliably clear turn_busy,
-# so the 15-min window BECAME the effective status window: IDLE agents showed
-# `working` for 15 min and new sends queued behind that phantom-busy, deadlocking
-# the team. Status now self-heals at the same 120s as the claim-gate. The
-# event-driven turn-end still clears instantly when it fires; this is only the
-# dropped-event backstop. (A real >120s turn with no re-pulse can briefly read
-# online — far less harmful than a 15-min false-working deadlock.)
-TURN_BUSY_BACKSTOP_SECONDS = TURN_BUSY_STALE_SECONDS
+# pure-event-status change #3 (2026-06-02): STATUS is now PURE-EVENT. The
+# turn-START event sets turn_busy=1 → working; the turn-END event clears
+# turn_busy=0 → idle, INSTANTLY (the /turn-end POST invalidates the live-status
+# cache, so the transition does not wait on any timer). The seconds window is NO
+# LONGER the deciding factor for STATUS.
+#
+# This LONG ceiling is the dropped-event SELF-HEAL ONLY — it catches a MISSED
+# turn-end on a STILL-ALIVE agent (e.g. a claude Stop hook that didn't fire and
+# whose transcript-detector backstop also somehow missed). It is NOT a primary
+# transition: the event clears instantly, and the 60s reconcile + cache
+# invalidation recompute, so a real dropped event self-heals at this single long
+# wall-clock ceiling rather than flapping against any re-pulse cadence.
+#
+# The earlier 15-min-then-reverted-to-120s saga (commit 0fc84e6) collapsed this
+# to 120s ONLY because the turn-END event was UNRELIABLE in live use, so the long
+# window became the effective status window and idle agents showed `working`. That
+# root cause is fixed by change #1 (the hook-independent transcript turn-END
+# detector) + change #2 (liveness wins over turn_busy), so the long ceiling is
+# now safe to restore: a missed Stop hook is caught by the detector in ~30s, and a
+# dead worker is caught by the liveness lease — only a still-alive agent with BOTH
+# event paths missed reaches this 30-min ceiling, which is exactly its purpose.
+# DECOUPLED from the short claim window below (#5 keeps the claim-gate at 120s so a
+# queued send is never stranded behind a missed end-event).
+#
+# ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
+# ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
+TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
 # Runtimes with native managed adapters. Codex/Hermes may be promoted to the
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy

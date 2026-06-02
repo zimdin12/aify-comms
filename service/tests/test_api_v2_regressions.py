@@ -2504,48 +2504,57 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+backstop ({limit}); cache={cache}",
         )
 
-    def test_turn_busy_status_and_claim_gate_share_one_short_window(self):
-        # WS5 Task 5.3 originally SPLIT the window by role (status → long 15m
-        # backstop; claim/send gate → short 120s). That split was REVERTED on
-        # 2026-06-02 (commit 0fc84e6): in live use turn-end events were NOT
-        # reliable, so the 15m status backstop became the effective window and
-        # IDLE agents showed `working` for 15 minutes while new sends queued
-        # behind the phantom-busy — deadlocking the team. TURN_BUSY_BACKSTOP_SECONDS
-        # is now == TURN_BUSY_STALE_SECONDS (single 120s self-heal), so STATUS and
-        # the CLAIM/SEND gate share ONE short window. This test pins that unified
-        # behavior (replaces the superseded split-window assertion).
-        self.assertEqual(
+    def test_turn_busy_status_long_ceiling_claim_gate_short_window_split(self):
+        # pure-event-status changes #3 + #5 (2026-06-02): STATUS and the CLAIM/SEND
+        # gate are DELIBERATELY RE-SPLIT.
+        #   - STATUS goes pure-event with a LONG ceiling (30m) as the dropped-event
+        #     self-heal only — safe now that change #1 (transcript turn-end detector)
+        #     + change #2 (liveness wins) make a real turn-end reliable.
+        #   - The CLAIM/SEND gate KEEPS the short 120s window so a queued send is
+        #     never stranded behind a missed end-event.
+        #
+        # This SUPERSEDES the prior "single shared 120s window" test (commit 0fc84e6
+        # collapsed them because turn-end events were unreliable — the root cause #1
+        # now fixes, so the split is restored). It pins the new split behavior.
+        self.assertGreater(
             api_v2.TURN_BUSY_BACKSTOP_SECONDS, api_v2.TURN_BUSY_STALE_SECONDS,
-            "revert 0fc84e6: status backstop collapsed to the short claim window",
+            "status backstop (long ceiling) must be DECOUPLED from the short claim window",
         )
+        self.assertEqual(api_v2.TURN_BUSY_STALE_SECONDS, 120, "claim-gate window stays 120s (#5)")
         self._register("tb-split-claude", runtime="claude-code", sessionMode="resident")
         from datetime import datetime, timezone
-        # Aged PAST the shared window: both status self-heals off `working` AND the
-        # claim/send gate opens, so a dropped turn-end can never strand a queue >120s.
-        aged_past = api_v2._iso_from_ms(int((datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 80)) * 1000))
+        # Aged PAST the short claim window (120s) but WELL WITHIN the long status
+        # ceiling: STATUS still `working` (pure-event, no flap) while the CLAIM/SEND
+        # gate is OPEN so a queued run is deliverable (never stranded > 120s).
+        aged_past_gate = api_v2._iso_from_ms(int(
+            (datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 80)) * 1000
+        ))
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
             VALUES (?, 1, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_run_id = excluded.turn_run_id, turn_updated_at = excluded.turn_updated_at
             """,
-            ("tb-split-claude", "run-split-1", "bridge-split-1", "claude-code", aged_past),
+            ("tb-split-claude", "run-split-1", "bridge-split-1", "claude-code", aged_past_gate),
         )
         cache = self._async_compute_live_status("tb-split-claude")
-        self.assertNotEqual(cache["status"], "working", f"past shared window → status self-heals off working; {cache}")
+        self.assertEqual(
+            cache["status"], "working",
+            f"past the 120s claim window but within the long status ceiling → STILL working (pure-event); {cache}",
+        )
         self.assertFalse(
             self._turn_busy_gate_for("tb-split-claude"),
-            "past shared window → busy gate is OPEN so a queued run is deliverable (not stranded)",
+            "past the 120s claim window → busy gate is OPEN so a queued run is deliverable (not stranded)",
         )
-        # WITHIN the shared window: still working AND gate closed (both halves agree).
+        # WITHIN both windows: working AND gate closed (both halves agree).
         fresh = api_v2._now()
         self._execute(
             "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
             (fresh, "tb-split-claude"),
         )
         cache_fresh = self._async_compute_live_status("tb-split-claude")
-        self.assertEqual(cache_fresh["status"], "working", f"within shared window → working; {cache_fresh}")
-        self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within shared window → gate closed")
+        self.assertEqual(cache_fresh["status"], "working", f"within both windows → working; {cache_fresh}")
+        self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within the claim window → gate closed")
 
     def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
         # pure-event-status change #2: a DEAD resident worker stuck with
@@ -2596,6 +2605,70 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotEqual(
             cache["status"], "working",
             f"a dead resident must never read working off a lingering turn_busy; {cache}",
+        )
+
+    def test_status_is_pure_event_long_ceiling_not_short_window(self):
+        # pure-event-status change #3: STATUS is now PURE-EVENT. A turn started by
+        # a start event with NO re-pulse must stay `working` well past the old 120s
+        # window (the short window no longer decides status — the turn-END EVENT
+        # does, and a dropped event self-heals only at the single LONG ceiling).
+        # An explicit /turn-end still clears it INSTANTLY (the event is primary).
+        #
+        # Anti-feedback-loop: status is derived from turn_busy; nothing here
+        # re-arms turn_busy from that derived status.
+        self.assertGreaterEqual(
+            api_v2.TURN_BUSY_BACKSTOP_SECONDS, 30 * 60,
+            "STATUS backstop must be the single LONG ceiling (>=30m), not the short claim window",
+        )
+        self.assertGreater(
+            api_v2.TURN_BUSY_BACKSTOP_SECONDS, api_v2.TURN_BUSY_STALE_SECONDS,
+            "status backstop (long) must be DECOUPLED from the short claim window (120s)",
+        )
+        self._heartbeat_environment()
+        self._register(
+            "pure-event-claude",
+            runtime="claude-code",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="claude-pure-event",
+            bridgeId="bridge-pure-event",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+            runtimeConfig={"channelEnabled": True},
+        )
+        # Keep the resident bridge FRESH (alive agent) so liveness backstops don't
+        # fire — this isolates the turn_busy → status path.
+        self._execute(
+            "UPDATE bridge_instances SET last_seen=? WHERE id=?",
+            (api_v2._now(), "bridge-pure-event"),
+        )
+        # turn_busy set by a START event, aged PAST the old 120s window but well
+        # WITHIN the long ceiling, with NO re-pulse.
+        aged = api_v2._iso_from_ms(int(
+            (datetime.now(timezone.utc).timestamp() - (api_v2.TURN_BUSY_STALE_SECONDS + 90)) * 1000
+        ))
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
+            """,
+            ("pure-event-claude", "run-pure-event", "bridge-pure-event", "claude-code", aged),
+        )
+        cache = self._async_compute_live_status("pure-event-claude")
+        self.assertEqual(
+            cache["status"], "working",
+            f"past the OLD 120s window but within the long ceiling → still working (no flap); {cache}",
+        )
+        # An explicit turn-END event clears it INSTANTLY (event is primary).
+        self._execute(
+            "UPDATE agent_turn_state SET turn_busy = 0 WHERE agent_id = ?",
+            ("pure-event-claude",),
+        )
+        cache2 = self._async_compute_live_status("pure-event-claude")
+        self.assertNotEqual(
+            cache2["status"], "working",
+            f"turn-end event (turn_busy=0) must clear working instantly, no timer wait; {cache2}",
         )
 
     def test_turn_end_event_flips_managed_hermes_off_working_immediately(self):
