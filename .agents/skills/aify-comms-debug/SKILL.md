@@ -416,9 +416,7 @@ the prior `hermes --tui --resume aify-<agent>` visible TUI, so each silent relau
 leaked a duplicate resume-TUI. kill-prior now reaps that prior resume-TUI too,
 matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a broad
 `hermes --tui`, gated **pre-spawn only** so the post-spawn self-reap-race call can't
-kill the gateway/daemon/TUI the current launch just started. The resident wrapper
-also tears down its per-agent api_server daemon on TUI exit (no more leaked
-`hermes gateway run`).
+kill the gateway/daemon/TUI the current launch just started.
 
 **STOP reaps the whole triad; restart reaps the pile (2026-06-02, `f0bdaef`).** You
 no longer hand-kill stray `hermes.exe`. A dashboard **Stop** on a managed-hermes

@@ -93,13 +93,13 @@ restart the bridge:
 
 ## Auto / bypass flag
 
-`hermes-aify -auto` (also `--auto` or `--yolo`) adds Hermes' `--yolo` flag to the
-interactive TUI launch, bypassing all dangerous-command approval prompts
-(`HERMES_YOLO_MODE=1`). Without it, `hermes-aify` preserves normal visible
-approval behavior. This mirrors `claude-aify -auto`
-(`--dangerously-skip-permissions`) and `codex-aify -auto`
-(`--dangerously-bypass-approvals-and-sandbox`). The flag is consumed by the
-wrapper and applied only to the default chat/TUI launch, not to explicit
+`hermes-aify` now adds Hermes' `--yolo` flag (`HERMES_YOLO_MODE=1`) to the
+interactive TUI launch **by default**, bypassing all dangerous-command approval
+prompts. Pass `--safe` (or `--no-auto`) to opt OUT and KEEP normal visible
+approval prompts. This mirrors `claude-aify`
+(`--dangerously-skip-permissions` by default) and `codex-aify`
+(`--dangerously-bypass-approvals-and-sandbox` by default). The flag is consumed
+by the wrapper and applied only to the default chat/TUI launch, not to explicit
 passthrough subcommands like `hermes-aify model list`.
 
 ## Session-mode flag
@@ -121,11 +121,12 @@ aify-<agentId>` rendered in the dashboard Console via xterm.js. The agent
 self-replies via `comms_send`. Session continuity is the deterministic stable
 pinned id `aify-<agentId>`.
 
-Half-migration note (honest): the `install.sh` RESIDENT branch still calls
-`aify_hermes_ensure_daemon` (the api_server daemon) — a known leftover that has
-not been fully removed. As of 2026-06-02 it no longer **leaks**: the resident
-wrapper now stops that daemon on TUI exit (see "Resident hermes tears down its
-api_server daemon on exit" below). Both branches resume the stable pinned
+Resident and managed now share one delivery model: the RESIDENT branch uses the
+SAME hidden `hermes dashboard --tui` gateway host + background delivery loop as
+managed (injected messages render in the visible TUI via gateway-WS
+`prompt.submit` / `session.steer`). The old per-agent `hermes gateway run`
+api_server daemon resident path was DELETED — resident no longer starts or tears
+down any api_server daemon. Both branches resume the stable pinned
 `aify-<agentId>` session, so continuity is consistent regardless. The retired
 managed-delivery pieces (the per-agent `hermes gateway run` api_server daemon
 AS the delivery path, `aify.session.bind_transport` / `HermesResidentController`,
@@ -222,13 +223,6 @@ broad `hermes --tui`. This reap (and the gateway port-kill + daemon stop) is gat
 the **pre-spawn call only**, so the post-spawn self-reap-race call can never kill the
 gateway/daemon/TUI the current launch just brought up (the 2026-06-02 port-kill root
 cause behind "gateway websocket connection failed").
-
-**Resident hermes tears down its api_server daemon on exit (2026-06-02).** The
-resident branch starts a per-agent api_server daemon (`aify_hermes_ensure_daemon`) but
-historically bare-`exec`'d the TUI, so the daemon leaked (a stray `hermes gateway
-run`) when the resident TUI exited. The wrapper now runs the TUI as a child (no `exec`)
-and stops the daemon on every exit path (bash `trap EXIT` + explicit stop; PowerShell
-`finally`), routing to `stopDaemon` (kill-by-port + tracked-pid + clearGatewayMarkers).
 
 A managed agent whose **owning environment bridge is offline computes `offline`**
 immediately — regardless of any surviving delivery-loop heartbeat — because a

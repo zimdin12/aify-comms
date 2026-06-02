@@ -1581,14 +1581,15 @@ aify-comms</pre>
         <div class="guide-card">
           <h4>Claude Code Resident</h4>
           <pre>cd /path/to/project
-claude-aify --aify-agent manager --aify-role manager -auto</pre>
+claude-aify --aify-agent manager --aify-role manager</pre>
         </div>
         <div class="guide-card">
           <h4>Codex Resident</h4>
           <pre>cd /path/to/project
-codex-aify --aify-agent coder --aify-role coder -auto</pre>
+codex-aify --aify-agent coder --aify-role coder</pre>
         </div>
       </div>
+      <p>Permissions are bypassed by default; pass <code>--safe</code> (or <code>--no-auto</code>) to keep normal approval prompts in a resident session.</p>
       <p>Use resident mode when you want the visible CLI to own the session. Use managed mode when you want the dashboard to start, stop, restart, and compact the agent without keeping a terminal open.</p>
           </section>
 

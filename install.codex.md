@@ -44,13 +44,13 @@ codex-aify
 
 That wrapper starts a local `codex app-server --listen ws://127.0.0.1:...`, launches the visible TUI with `codex --remote ...`, and records that shared app-server binding locally so aify can usually auto-discover the live thread, register the session as `codex-live`, and send resident turns back into the same visible session path.
 
-Add `-auto` when you want the visible resident Codex session to bypass approvals/sandbox prompts:
+The visible resident Codex session now bypasses approvals/sandbox prompts **by default**:
 
 ```bash
-codex-aify -auto
+codex-aify
 ```
 
-The wrapper removes `-auto` before launching Codex and adds the best permission flag supported by the installed Codex CLI.
+The wrapper adds the best permission flag supported by the installed Codex CLI (`--dangerously-bypass-approvals-and-sandbox`) by default. Pass `--safe` (or `--no-auto`) to opt OUT and keep normal visible CLI approval prompts.
 
 ### Session-mode flag
 
@@ -128,7 +128,7 @@ Important:
 - Active dispatch works only when the agent is installed through the local `stdio` MCP server.
 - `comms_register` creates a resident session for messaging/presence and, for Codex, captures the live `thread.id` when available.
 - If started with `codex-aify`, resident wakeups use the same WebSocket app-server as the visible TUI and show up as `codex-live`. Current upstream Codex may not render externally injected `turn/start` traffic live in the `--remote` TUI (see issue #15320); the dashboard Console is the source of truth for those wake events until upstream renders them in the visible TUI.
-- `codex-aify -auto` adds `--dangerously-bypass-approvals-and-sandbox`. The wrapper does not use the older `--full-auto` alias. Without `-auto`, `codex-aify` preserves normal visible CLI permission behavior.
+- `codex-aify` adds `--dangerously-bypass-approvals-and-sandbox` by default. The wrapper does not use the older `--full-auto` alias. Pass `--safe` (or `--no-auto`) to keep normal visible CLI permission behavior.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stale/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
 - `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
 - Every aify-comms message is answered with a `comms_send` tool call: delivered dashboard-managed runs AND resident/live CLI sessions reply with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the team/chat-visible reply and closes the run; stdout/logs/tool output/run summaries/final plain text are the agent's own working output, not the reply. Treat each message as a small contract. Safety net: the `managed_reply_capture_fallback` setting (default on) auto-mirrors a delivered run's summary when it ends with no explicit reply; set it off for strict comms_send-only delivery — but always send the explicit `comms_send`.
