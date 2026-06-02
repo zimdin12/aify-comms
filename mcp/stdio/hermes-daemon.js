@@ -230,7 +230,7 @@ export async function ensureDaemon({
 // (→ OwningProcess → Stop-Process); POSIX uses lsof (→ PID → kill). NEVER throws
 // — on any failure or no-match it resolves { killed:false }. Injectable so tests
 // never touch a real process.
-async function defaultKillByPort(port) {
+export async function defaultKillByPort(port) {
   if (!port) return { killed: false };
   try {
     if (process.platform === "win32") {

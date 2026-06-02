@@ -35,6 +35,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
 import { resolveGatewayPort } from "./hermes-endpoint.js";
+import { defaultKillByPort } from "./hermes-daemon.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
 import { dispatchContent } from "./claude-channel.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
@@ -935,7 +936,17 @@ export function makeInFlightPulse({
 }
 
 // One poll cycle: claim a small batch of channel/resident runs and deliver each.
-// Returns { processed, released }. NEVER throws.
+// Returns { processed, released, terminal? }. NEVER throws.
+//
+// TERMINAL self-exit (Task 1.3): a /dispatch/claim 410 (agent intentionally
+// removed) — or a 404 sustained past the consecutive-count grace — is a TERMINAL
+// condition for the triad's lifecycle owner. Instead of swallowing it (the
+// orphan-loop defect #3, where the loop polled a tombstoned agent forever) we
+// surface `terminal:"agent-removed"` so runDeliveryLoop breaks, tears down the
+// gateway host, and self-exits. Transient WS/connect/RPC/5xx errors are still
+// swallowed here so the loop keeps its existing retry behaviour. The
+// `claimErrorCounter` (the 404 self-heal counter) is owned by the loop and
+// passed in so it persists across poll cycles.
 export async function runPollCycle({
   agentId,
   machineId = MACHINE_ID,
@@ -949,21 +960,43 @@ export async function runPollCycle({
   // Gateway WS URL threaded to deliverRun for actionable connect-refused
   // failures + the gateway-dead self-correct.
   gatewayUrl = "",
+  // Consecutive-404 self-heal counter (owned by the loop; persists across
+  // cycles). `{ count }`. Optional — defaults to a fresh per-cycle counter.
+  claimErrorCounter = { count: 0 },
 } = {}) {
   let processed = 0;
   let released = false;
+  let terminal = null;
   try {
     for (let i = 0; i < maxBatch; i++) {
-      const claim = await httpCall("POST", "/dispatch/claim", {
-        agentId,
-        machineId,
-        bridgeId,
-        // Standalone channel sidecar (NOT a wrapper-PTY child): the service gate
-        // accepts a channel-sidecar claim for managed hermes the same way it
-        // accepts claude's.
-        bridgeKind: "channel-sidecar",
-        executionModes: ["channel", "resident"],
-      });
+      let claim;
+      try {
+        claim = await httpCall("POST", "/dispatch/claim", {
+          agentId,
+          machineId,
+          bridgeId,
+          // Standalone channel sidecar (NOT a wrapper-PTY child): the service gate
+          // accepts a channel-sidecar claim for managed hermes the same way it
+          // accepts claude's.
+          bridgeKind: "channel-sidecar",
+          executionModes: ["channel", "resident"],
+        });
+        // A successful claim resets the 404 grace counter.
+        claimErrorCounter.count = 0;
+      } catch (claimErr) {
+        const cls = classifyClaimError(claimErr, claimErrorCounter);
+        if (cls.terminal) {
+          console.error(
+            `[hermes-managed-host] /dispatch/claim ${claimErr?.status} for '${agentId}' is TERMINAL (${cls.reason}); tearing down + exiting.`,
+          );
+          terminal = cls.reason;
+          break;
+        }
+        // Transient (WS/connect/RPC/5xx, or pre-grace 404): swallow + retry on
+        // the next cycle, preserving the loop's existing behaviour.
+        console.error("[hermes-managed-host] poll cycle claim error:", claimErr?.message || String(claimErr));
+        break;
+      }
       // Mode FSM release: operator switched this agent to resident — stop driving.
       if (claim?.release) {
         console.error(
@@ -981,7 +1014,7 @@ export async function runPollCycle({
   } catch (error) {
     console.error("[hermes-managed-host] poll cycle error:", error?.message || String(error));
   }
-  return { processed, released };
+  return terminal ? { processed, released, terminal } : { processed, released };
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,17 +1038,66 @@ export async function teardownGatewayHost({ child, state = _teardownState } = {}
   }
 }
 
-// Wire SIGTERM/SIGINT → teardownGatewayHost → exit. `getChild` returns the
-// current gateway-host child (it's spawned after handler install). `proc` is
+// Build a bound teardown callback that kills the gateway host the loop owns —
+// by its OWNED CHILD HANDLE when one exists, else BY PORT (a reused host the
+// loop attached to via the idempotent probe has child===null but still must be
+// killed when this loop is its lifecycle owner). Best-effort + idempotent via a
+// shared `state` flag. NEVER throws. `killByPort` defaults to the real
+// port→PID→kill from hermes-daemon.js; `clearMarkers` (optional) runs after the
+// kill so a teardown also drops the agent's port/key markers (Task 4.1 wiring).
+export function makeTeardown({
+  gatewayChild = null,
+  gatewayPort,
+  killByPort = defaultKillByPort,
+  clearMarkers,
+  state = { done: false },
+} = {}) {
+  return async function teardown() {
+    if (state.done) return;
+    state.done = true;
+    try {
+      if (gatewayChild && typeof gatewayChild.kill === "function") {
+        gatewayChild.kill("SIGTERM");
+      } else if (gatewayPort) {
+        // Reused host (no owned child handle): kill whatever is LISTENING on the
+        // resolved gateway port so a restart leaves zero survivors.
+        await killByPort(gatewayPort);
+      }
+    } catch (error) {
+      console.error(
+        "[hermes-managed-host] gateway-host teardown failed (best-effort):",
+        error?.message || String(error),
+      );
+    }
+    if (typeof clearMarkers === "function") {
+      try {
+        await clearMarkers();
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+}
+
+// Wire SIGTERM/SIGINT → teardown → exit. When the caller supplies a bound
+// `teardown` (the port-aware makeTeardown from runDeliveryLoop, Task 1.2) it is
+// used so a SIGTERM kills a reused (child===null) host BY PORT too; otherwise it
+// falls back to the legacy child-only teardownGatewayHost. `getChild` returns
+// the current gateway-host child (it's spawned after handler install). `proc` is
 // injectable for tests.
 export function installShutdownTeardown({
   getChild,
+  teardown,
   proc = process,
   state = _teardownState,
 } = {}) {
   const onSignal = async () => {
-    const child = typeof getChild === "function" ? getChild() : null;
-    await teardownGatewayHost({ child, state });
+    if (typeof teardown === "function") {
+      await teardown();
+    } else {
+      const child = typeof getChild === "function" ? getChild() : null;
+      await teardownGatewayHost({ child, state });
+    }
     try {
       proc.exit(0);
     } catch {
@@ -1024,6 +1106,162 @@ export function installShutdownTeardown({
   };
   proc.once("SIGTERM", onSignal);
   proc.once("SIGINT", onSignal);
+}
+
+// ---------------------------------------------------------------------------
+// Terminal-condition classifier for the delivery loop.
+//
+// The delivery loop is the triad's lifecycle OWNER: on a terminal condition it
+// must break, tear down the gateway host (Task 1.2), and self-exit(0) — never
+// swallow the signal and keep polling a dead/removed agent (the orphan-loop
+// defect #3). A 410 from /dispatch/claim means the agent was intentionally
+// removed (tombstoned) → terminal immediately. A 404 means the server has no
+// such agent right now, which is also seen transiently during a service-restart
+// window, so it is terminal only AFTER a small consecutive-count grace.
+// Everything else (transient WS/connect drops, RPC timeouts, 5xx) is
+// NON-terminal: the loop keeps its existing retry behaviour.
+// ---------------------------------------------------------------------------
+
+const CLAIM_404_GRACE = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_CLAIM_404_GRACE || 3),
+);
+
+// Classify a /dispatch/claim error against a small mutable counter object
+// `{ count }` (the consecutive-404 self-heal counter). Returns one of:
+//   { terminal:true, reason:"agent-removed" }   — 410, or 404 past the grace
+//   { terminal:false }                            — transient (retry)
+// `grace` is injectable for tests.
+export function classifyClaimError(err, counter = { count: 0 }, { grace = CLAIM_404_GRACE } = {}) {
+  const status = Number(err?.status);
+  if (status === 410) {
+    return { terminal: true, reason: "agent-removed" };
+  }
+  if (status === 404) {
+    counter.count = (counter.count || 0) + 1;
+    if (counter.count >= grace) {
+      return { terminal: true, reason: "agent-removed" };
+    }
+    return { terminal: false };
+  }
+  // Any non-404 success or non-terminal error resets the 404 grace counter.
+  counter.count = 0;
+  return { terminal: false };
+}
+
+// ---------------------------------------------------------------------------
+// makeDeliveryLoop — the triad-supervisor seam (Tasks 1.1 + 1.3).
+//
+// This is the testable core of the delivery loop's lifecycle ownership:
+//   1. Start the liveness heartbeat (bridge_instances registration) FIRST, so
+//      the agent's channel-sidecar bridge exists BEFORE the gateway is brought
+//      up. A fresh hermes therefore never shows `online` with no live claimer.
+//   2. Bring the gateway up inside a BOUNDED-RETRY path — a transient gateway
+//      failure is non-fatal and never calls process.exit synchronously.
+//   3. Poll claim (`claimOnce`) each iteration. A terminal condition (410 /
+//      graced-404 / release) BREAKS the loop, runs teardown, and resolves a
+//      terminal result. Transient errors are swallowed and retried.
+//
+// All collaborators are injected (`ensureGatewayHost`, `startLivenessHeartbeat`,
+// `openWs`, `claimOnce`, `teardown`, `sleepImpl`). Production `runDeliveryLoop`
+// builds the real collaborators and delegates here.
+// ---------------------------------------------------------------------------
+export function makeDeliveryLoop({
+  agentId,
+  ensureGatewayHost: ensureGatewayHostImpl,
+  startLivenessHeartbeat: startLivenessHeartbeatImpl,
+  openWs,
+  claimOnce,
+  teardown = async () => {},
+  sleepImpl = sleep,
+  maxIterations,
+  gatewayRetryMs = POLL_MS,
+  onReady,
+  onClaimOk,
+} = {}) {
+  const id = String(agentId || "").trim();
+  return {
+    async runUntilIdle() {
+      // 1. Register liveness FIRST (before any gateway await).
+      let heartbeat = null;
+      if (typeof startLivenessHeartbeatImpl === "function") {
+        heartbeat = startLivenessHeartbeatImpl();
+      }
+
+      // 2. Bounded-retry gateway bring-up — a transient failure is non-fatal.
+      let host = null;
+      for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
+        try {
+          host = await ensureGatewayHostImpl();
+          break;
+        } catch (error) {
+          console.error(
+            `[hermes-managed-host] gateway bring-up failed for '${id}' (attempt ${attempt + 1}); retrying:`,
+            error?.message || String(error),
+          );
+          await sleepImpl(gatewayRetryMs);
+        }
+      }
+      if (!host) {
+        // Exhausted the bounded retry budget (test bound) without a gateway —
+        // not a terminal removal, just give up this loop run cleanly.
+        if (heartbeat && typeof heartbeat.stop === "function") heartbeat.stop();
+        return { exit: undefined, processed: 0 };
+      }
+
+      // 3. Poll claim until a terminal condition. Transient errors retry.
+      const counter = { count: 0 };
+      let ws = null;
+      let processed = 0;
+      let ready = false;
+      let result = { exit: undefined, processed: 0 };
+      try {
+        for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
+          try {
+            if (!ws && typeof openWs === "function") {
+              ws = await openWs(host.wsUrl);
+            }
+            const claim = await claimOnce({ host, ws });
+            // First successful claim round-trip → the loop is a live claimer.
+            counter.count = 0;
+            if (!ready) {
+              ready = true;
+              if (typeof onReady === "function") await onReady({ host });
+            }
+            if (typeof onClaimOk === "function") await onClaimOk({ host });
+            processed += claim?.processed || 0;
+            if (claim?.release) {
+              result = { exit: "released", processed };
+              break;
+            }
+          } catch (error) {
+            const cls = classifyClaimError(error, counter);
+            if (cls.terminal) {
+              result = { exit: cls.reason, processed };
+              break;
+            }
+            // Transient: drop the WS so the next iteration reconnects, retry.
+            try {
+              ws?.close?.();
+            } catch {
+              /* ignore */
+            }
+            ws = null;
+            console.error(
+              `[hermes-managed-host] transient claim error for '${id}' (retrying):`,
+              error?.message || String(error),
+            );
+          }
+          await sleepImpl(POLL_MS);
+        }
+      } finally {
+        if (heartbeat && typeof heartbeat.stop === "function") heartbeat.stop();
+        await teardown();
+      }
+      result.processed = processed;
+      return result;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1285,17 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     sleepImpl = sleep,
     maxIterations,
     serverUrl = AIFY_SERVER_URL,
+    // Terminal-exit hook (Task 1.3). On a terminal /dispatch/claim signal (410
+    // agent-removed) the loop tears down + self-exits(0). Injectable so tests
+    // never actually exit the test process.
+    procExit = (code) => process.exit(code),
+    // Marker cleanup run on teardown (Task 4.1 wires the real port/key marker
+    // clear here; Task 1.4 wires clearLoopReady). Default no-op so the loop is
+    // self-contained until those tasks land.
+    clearMarkers = async () => {},
+    // Port→PID→kill primitive for a reused (child===null) gateway host (Task
+    // 1.2). Injectable so tests assert the port-kill without touching a process.
+    killByPort = defaultKillByPort,
   } = deps;
   const id = String(agentId || "").trim();
   if (!id) {
@@ -1055,14 +1304,69 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   }
   const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
 
+  // Task 1.1: register the channel-sidecar liveness heartbeat BEFORE the gateway
+  // bring-up so the agent's bridge_instances row exists before any gateway await.
+  // A fresh hermes can therefore never show `online`/`available` with NO live
+  // claimer (defect #2). Stopped on either return path via the finally below.
+  const stopLiveness = startLivenessHeartbeat({
+    intervalMs: 30_000,
+    beat: async () => {
+      if (!serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
+        bridgeId: channelBridgeId(id),
+        bridgeKind: "channel-sidecar",
+        liveness: true,
+      });
+    },
+  });
+
+  // Teardown state shared between the SIGTERM handler and the terminal/release
+  // self-exit so the gateway host is killed at most once. `makeTeardown` kills
+  // the OWNED child when present, else BY PORT (a reused host has child===null
+  // but the loop is still its lifecycle owner — Task 1.2).
+  const teardownState = { done: false };
   let gatewayChild = null;
-  installTeardown({ getChild: () => gatewayChild });
+  let gatewayPort = port; // persisted even on reused:true (Task 1.2).
+  const teardown = () =>
+    makeTeardown({
+      gatewayChild,
+      gatewayPort,
+      killByPort,
+      clearMarkers,
+      state: teardownState,
+    })();
+  installTeardown({ getChild: () => gatewayChild, teardown });
 
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
+  // Task 1.1: bring the gateway up inside a BOUNDED-RETRY path. A transient
+  // failure (e.g. "index token timeout") is NON-fatal — the loop keeps its
+  // liveness heartbeat and retries, rather than the old pre-loop throw →
+  // process.exit(1) that left the agent `online` with no claimer (defect #2).
   // Idempotent: if the wrapper's `ensure-host` already started it, probeFirst
   // reuses it (child=null); otherwise we (re)spawn it ourselves.
-  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+  let host = null;
+  for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
+    try {
+      host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+      break;
+    } catch (error) {
+      console.error(
+        `[hermes-managed-host] gateway bring-up failed for '${id}' (attempt ${attempt + 1}); retrying:`,
+        error?.message || String(error),
+      );
+      await sleepImpl(POLL_MS);
+    }
+  }
+  if (!host) {
+    // Exhausted the (test-bound) retry budget without a gateway. Not a terminal
+    // removal; stop the heartbeat and return cleanly.
+    stopLiveness();
+    return { released: false, processed: 0 };
+  }
   gatewayChild = host.child;
+  // Persist the resolved port (Task 1.2) so teardown can port-kill a reused host
+  // whose child handle is null.
+  if (host.port) gatewayPort = host.port;
 
   let wsClient = null;
   const ensureWs = async () => {
@@ -1111,20 +1415,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     },
   });
 
-  // A3 (status-liveness): unconditional liveness beat so an idle-but-alive
-  // managed-hermes sidecar keeps its bridge_instances.last_seen fresh and is
-  // not reaped as dead. Stopped on either return path via the finally below.
-  const stopLiveness = startLivenessHeartbeat({
-    intervalMs: 30_000,
-    beat: async () => {
-      if (!serverUrl) return;
-      await httpCall("POST", `/agents/${encodeURIComponent(id)}/heartbeat`, {
-        bridgeId: channelBridgeId(id),
-        bridgeKind: "channel-sidecar",
-        liveness: true,
-      });
-    },
-  });
+  // (The unconditional liveness beat is started BEFORE the gateway bring-up
+  // above — Task 1.1 — so the bridge row exists before any gateway await.)
 
   // In-flight turn re-pulse (#172): a single tracker for this agent. deliverRun
   // stamps `submittedAt` on a successful fire-and-forget prompt.submit; this
@@ -1151,6 +1443,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   });
 
   let totalProcessed = 0;
+  // Consecutive-404 self-heal counter (Task 1.3) — persists across poll cycles
+  // so a 404 that survives the grace window terminates the loop.
+  const claimErrorCounter = { count: 0 };
   try {
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
@@ -1181,10 +1476,26 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           wsClient: ws,
           inFlight,
           gatewayUrl: host.wsUrl,
+          claimErrorCounter,
         });
         totalProcessed += result.processed || 0;
+        // Task 1.3: a TERMINAL claim signal (410 agent-removed / graced 404) is
+        // the lifecycle owner's exit cue. Tear down the gateway host (kills by
+        // child or by PORT — Task 1.2), clear markers, and self-exit(0) so a
+        // tombstoned agent's loop CANNOT keep polling forever (defect #3).
+        if (result.terminal) {
+          stopLiveness();
+          stopRepulse();
+          stopGatewayProbe();
+          await teardown();
+          console.error(
+            `[hermes-managed-host] agent '${id}' ${result.terminal}; gateway torn down, exiting.`,
+          );
+          procExit(0);
+          return { released: false, processed: totalProcessed, terminal: result.terminal };
+        }
         if (result.released) {
-          await teardownGatewayHost({ child: gatewayChild });
+          await teardown();
           return { released: true, processed: totalProcessed };
         }
       } catch (error) {

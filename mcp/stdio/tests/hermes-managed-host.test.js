@@ -41,6 +41,8 @@ import {
   isGatewayConnectRefused,
   gatewayUnreachableMessage,
   reportGatewayDead,
+  makeDeliveryLoop,
+  makeTeardown,
 } from "../hermes-managed-host.js";
 
 // ---------------------------------------------------------------------------
@@ -653,6 +655,35 @@ test("teardownGatewayHost: guards against double teardown", async () => {
   assert.equal(kills, 1, "double teardown kills only once");
 });
 
+test("makeTeardown: kills by port when child is null (reused host)", async () => {
+  const killed = [];
+  const td = makeTeardown({ gatewayChild: null, gatewayPort: 9313, killByPort: (p) => killed.push(p) });
+  await td();
+  assert.deepEqual(killed, [9313]);
+});
+
+test("makeTeardown: kills the child (not by port) when a child exists", async () => {
+  let childKilled = false;
+  const killed = [];
+  const td = makeTeardown({
+    gatewayChild: { kill: () => { childKilled = true; } },
+    gatewayPort: 9313,
+    killByPort: (p) => killed.push(p),
+  });
+  await td();
+  assert.equal(childKilled, true, "must kill the owned child");
+  assert.deepEqual(killed, [], "must not also port-kill when a child handle exists");
+});
+
+test("makeTeardown: idempotent (double teardown kills once)", async () => {
+  const killed = [];
+  const state = { done: false };
+  const td = makeTeardown({ gatewayChild: null, gatewayPort: 9313, killByPort: (p) => killed.push(p), state });
+  await td();
+  await td();
+  assert.deepEqual(killed, [9313]);
+});
+
 test("installShutdownTeardown: SIGTERM handler tears down the gateway-host child then exits", async () => {
   const registered = {};
   const fakeProc = {
@@ -738,6 +769,52 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
   // A claim was attempted against the gateway-backed agent.
   assert.ok(findCall(calls, "POST", "/dispatch/claim"));
   assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child");
+});
+
+test("runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) + self-exits(0), does not keep polling", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  // claim always 410 (agent tombstoned).
+  const calls = [];
+  const httpCall = async (method, endpoint, body = null) => {
+    calls.push({ method, endpoint, body });
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      const e = new Error("HTTP 410: gone");
+      e.status = 410;
+      throw e;
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  let exitCode;
+  const killedPorts = [];
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    procExit: (code) => {
+      exitCode = code;
+    },
+    killByPort: (p) => {
+      killedPorts.push(p);
+    },
+    // 404 grace not relevant; 410 is immediate-terminal.
+    maxIterations: 5,
+  });
+
+  assert.equal(exitCode, 0, "terminal 410 must self-exit(0)");
+  assert.equal(result.terminal, "agent-removed", "loop reports the terminal reason");
+  // The reused gateway host (child===null via probeFirst) is killed BY PORT.
+  assert.equal(killedPorts.length, 1, "reused host torn down by port-kill");
+  assert.ok(killedPorts[0] >= 8642 && killedPorts[0] <= 9641, "killed the resolved gateway port");
+  // It did NOT keep polling indefinitely (broke on the first terminal claim).
+  const claimCount = calls.filter((c) => c.endpoint === "/dispatch/claim").length;
+  assert.ok(claimCount <= 2, `must stop claiming after terminal 410 (got ${claimCount})`);
 });
 
 test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
@@ -1037,6 +1114,127 @@ test("ensureStableSession: python failure is swallowed (best-effort, returns fal
     spawnSync: () => ({ status: 2, stdout: "", stderr: "boom" }),
   });
   assert.equal(ok, false);
+});
+
+// ---------------------------------------------------------------------------
+// makeDeliveryLoop — the triad-supervisor seam (Tasks 1.1, 1.3)
+//
+// The delivery loop is the single lifecycle owner of the managed-hermes triad.
+// It must register liveness BEFORE bringing the gateway up (so a fresh hermes
+// never shows `online` with no claimer), retry a transient gateway failure
+// (non-fatal — never a synchronous process.exit), and self-exit + teardown on a
+// terminal /dispatch/claim signal (410 agent-removed / release).
+// ---------------------------------------------------------------------------
+
+test("makeDeliveryLoop: loop registers liveness before gateway bring-up, retries on gateway failure", async () => {
+  const beats = [];
+  const fakeBeat = () => beats.push(Date.now());
+  let gwCalls = 0;
+  const ensureGatewayHostFake = async () => {
+    gwCalls++;
+    if (gwCalls < 2) throw new Error("index token timeout");
+    return { child: null, reused: true, wsUrl: "ws://127.0.0.1:9313", port: 9313, token: "t" };
+  };
+  const loop = makeDeliveryLoop({
+    agentId: "sc-hermes",
+    ensureGatewayHost: ensureGatewayHostFake,
+    startLivenessHeartbeat: () => {
+      fakeBeat();
+      return { stop() {} };
+    },
+    claimOnce: async () => ({ processed: 0, release: false }),
+    openWs: async () => makeFakeWsClient({}),
+    sleepImpl: async () => {},
+    maxIterations: 2,
+  });
+  await loop.runUntilIdle();
+  assert.ok(beats.length >= 1, "heartbeat started before/independent of gateway");
+  assert.ok(gwCalls >= 2, "gateway bring-up retried, not fatal");
+});
+
+test("makeDeliveryLoop: 410 from claim is terminal: teardown + exit, not swallowed", async () => {
+  let toreDown = false;
+  const loop = makeDeliveryLoop({
+    agentId: "sc-hermes",
+    ensureGatewayHost: async () => ({
+      child: null,
+      reused: true,
+      wsUrl: "ws://127.0.0.1:9313",
+      port: 9313,
+      token: "t",
+    }),
+    startLivenessHeartbeat: () => ({ stop() {} }),
+    openWs: async () => makeFakeWsClient({}),
+    claimOnce: async () => {
+      const e = new Error("gone");
+      e.status = 410;
+      throw e;
+    },
+    teardown: () => {
+      toreDown = true;
+    },
+    sleepImpl: async () => {},
+  });
+  const r = await loop.runUntilIdle();
+  assert.equal(r.exit, "agent-removed");
+  assert.ok(toreDown);
+});
+
+test("makeDeliveryLoop: release===true tears down the gateway host (not just exits)", async () => {
+  let toreDown = false;
+  const loop = makeDeliveryLoop({
+    agentId: "sc-hermes",
+    ensureGatewayHost: async () => ({
+      child: null,
+      reused: true,
+      wsUrl: "ws://127.0.0.1:9313",
+      port: 9313,
+      token: "t",
+    }),
+    startLivenessHeartbeat: () => ({ stop() {} }),
+    openWs: async () => makeFakeWsClient({}),
+    claimOnce: async () => ({ processed: 0, release: true }),
+    teardown: () => {
+      toreDown = true;
+    },
+    sleepImpl: async () => {},
+  });
+  const r = await loop.runUntilIdle();
+  assert.equal(r.exit, "released");
+  assert.ok(toreDown, "release must still tear down the gateway host");
+});
+
+test("makeDeliveryLoop: transient WS/connect error is NON-terminal (keeps retrying)", async () => {
+  let claims = 0;
+  let toreDown = false;
+  const loop = makeDeliveryLoop({
+    agentId: "sc-hermes",
+    ensureGatewayHost: async () => ({
+      child: null,
+      reused: true,
+      wsUrl: "ws://127.0.0.1:9313",
+      port: 9313,
+      token: "t",
+    }),
+    startLivenessHeartbeat: () => ({ stop() {} }),
+    openWs: async () => makeFakeWsClient({}),
+    claimOnce: async () => {
+      claims++;
+      if (claims < 2) {
+        const e = new Error("hermes gateway WS closed");
+        throw e;
+      }
+      return { processed: 0, release: false };
+    },
+    teardown: () => {
+      toreDown = true;
+    },
+    sleepImpl: async () => {},
+    maxIterations: 2,
+  });
+  const r = await loop.runUntilIdle();
+  assert.ok(claims >= 2, "transient WS error must not terminate the loop");
+  assert.ok(!toreDown || r.exit === undefined, "transient error is not a terminal teardown");
 });
 
 test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async () => {
