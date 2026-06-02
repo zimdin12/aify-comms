@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// Pure tests for the claude hook-independent turn-END detector (pure-event-status
-// change #1, 2026-06-02; rewritten 2026-06-02 to a STRUCTURAL signal).
+// Pure tests for the claude hook-independent turn-state detector (pure-event-status
+// change #1, 2026-06-02; rewritten 2026-06-02 to a STRUCTURAL signal; made
+// BIDIRECTIONAL 2026-06-02 to also SET working — fixes RESIDENT-claude
+// under-report where a channel-woken / scheduled turn never fires
+// UserPromptSubmit→/turn-start so turn_busy is never set).
 //
 // WHY structural, not growth-based: the original detector fired /turn-end after a
 // SINGLE no-growth tick. But the claude session transcript grows PER COMPLETED
@@ -17,13 +20,17 @@
 //          {end_turn, stop_sequence, max_tokens} with NO pending tool_use.
 //   IN-FLIGHT otherwise: stop_reason "tool_use" (long build / pending tool / a
 //          Task sub-agent dispatch), a trailing user/tool_result feeding the next
-//          step, or an unknown/null tail.
-// Fire /turn-end ONCE per ended turn; re-arm when a new in-flight turn starts.
-// Null/unreadable summary => NOT-ended (never false-clear).
+//          step, or an assistant mid-stream (null stop_reason).
+//   UNKNOWN  null/unreadable tail or no last role.
+//
+// BIDIRECTIONAL, edge-triggered, idempotent: observe() returns a DIRECTIVE
+//   "start" — on a transition into IN-FLIGHT from ended/unknown (POST /turn-start)
+//   "end"   — on a transition into ENDED from in-flight/unknown (POST /turn-end)
+//   null    — no transition (steady state, or UNKNOWN which never flips anything)
+// so it never spams either endpoint, and re-arms in BOTH directions across turns.
 //
 // ANTI-FEEDBACK-LOOP: the detector keys ONLY on transcript STRUCTURE (process
-// truth), NEVER on the server's computed status — so it cannot self-reinforce. It
-// only ever fires turn-end (a CLEAR); it never sets turn_busy.
+// truth), NEVER on the server's computed status — so it cannot self-reinforce.
 import assert from "node:assert/strict";
 import { makeTurnEndDetector } from "../turn-end-detector.js";
 
@@ -34,84 +41,105 @@ const TOOL_USE = { lastRole: "assistant", lastStopReason: "tool_use", pendingToo
 // A trailing user line (prompt or tool_result) — the model owes the next step.
 const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: false };
 
-// (a) the very first ENDED summary fires once (a completed turn we just observed).
+// (a) the very first ENDED summary emits "end" once (a completed turn we just
+//     observed at boot); the same ended tail again emits nothing.
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(ENDED("end_turn")), true, "last assistant end_turn -> FIRE turn-end");
-  assert.equal(d.observe(ENDED("end_turn")), false, "same ended tail again -> do NOT re-fire");
+  assert.equal(d.observe(ENDED("end_turn")), "end", "last assistant end_turn -> END");
+  assert.equal(d.observe(ENDED("end_turn")), null, "same ended tail again -> no re-fire");
 }
 
-// (b) a pending tool_use tail (long build / pending tool) NEVER fires — still working.
+// (b) an in-flight tail when state is unknown/cleared emits "start" ONCE, then
+//     steady in-flight emits nothing (no /turn-start spam every tick).
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(TOOL_USE), false, "stop_reason tool_use -> still working, no fire");
-  assert.equal(d.observe(TOOL_USE), false, "still tool_use -> no fire");
+  assert.equal(d.observe(TOOL_USE), "start", "first in-flight (tool_use) -> START (set working)");
+  assert.equal(d.observe(TOOL_USE), null, "still tool_use -> no re-fire");
 }
 
 // (c) sub-agent dispatch: parent transcript static, last assistant = tool_use (Task),
-//     pendingToolUse true across many ticks -> never fires.
+//     pendingToolUse true across many ticks -> START once, then nothing (stays working).
 {
   const d = makeTurnEndDetector();
+  assert.equal(d.observe(TOOL_USE), "start", "sub-agent dispatch begins -> START");
   for (let i = 0; i < 10; i++) {
-    assert.equal(d.observe(TOOL_USE), false, `sub-agent dispatch tick ${i} -> no fire`);
+    assert.equal(d.observe(TOOL_USE), null, `sub-agent dispatch tick ${i} -> no fire (stays working)`);
   }
 }
 
-// (d) end_turn fires exactly once, then a NEW in-flight turn re-arms and its
-//     subsequent end_turn fires again.
+// (d) full bidirectional re-arm: in-flight->ended->new-in-flight->ended fires
+//     start, end, start, end.
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(ENDED("end_turn")), true, "turn 1 ended -> FIRE");
-  assert.equal(d.observe(ENDED("end_turn")), false, "turn 1 still ended -> no re-fire");
-  // turn 2 begins (model working again on a new prompt / tool)
-  assert.equal(d.observe(TOOL_USE), false, "turn 2 in-flight -> no fire (re-arms)");
-  assert.equal(d.observe(ENDED("end_turn")), true, "turn 2 ended -> FIRE again (re-armed)");
+  assert.equal(d.observe(TOOL_USE), "start", "turn 1 in-flight -> START");
+  assert.equal(d.observe(ENDED("end_turn")), "end", "turn 1 ended -> END");
+  assert.equal(d.observe(ENDED("end_turn")), null, "turn 1 still ended -> no re-fire");
+  assert.equal(d.observe(TOOL_USE), "start", "turn 2 in-flight -> START again (re-armed)");
+  assert.equal(d.observe(ENDED("end_turn")), "end", "turn 2 ended -> END again (re-armed)");
 }
 
-// (e) null / unreadable tail NEVER fires (transient stat failure / unresolved
-//     session id is NOT evidence the turn ended).
+// (e) null / unreadable tail NEVER fires either way and does NOT change state
+//     (transient stat failure / unresolved session id is not evidence of anything).
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(null), false, "null summary -> no fire");
-  assert.equal(d.observe(undefined), false, "undefined summary -> no fire");
-  assert.equal(d.observe({}), false, "empty summary (no lastRole) -> no fire");
+  assert.equal(d.observe(null), null, "null summary -> no fire");
+  assert.equal(d.observe(undefined), null, "undefined summary -> no fire");
+  assert.equal(d.observe({}), null, "empty summary (no lastRole) -> no fire");
 }
 
 // (f) between-tool-calls: a trailing user/tool_result line means the model owes
-//     the next step -> in-flight, no fire.
+//     the next step -> in-flight; first one STARTs, the rest are steady.
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(USER_PENDING), false, "trailing user/tool_result -> in-flight, no fire");
-  assert.equal(d.observe(TOOL_USE), false, "then a tool_use -> in-flight, no fire");
+  assert.equal(d.observe(USER_PENDING), "start", "trailing user/tool_result -> in-flight START");
+  assert.equal(d.observe(TOOL_USE), null, "then a tool_use -> still in-flight, no fire");
 }
 
-// (g) other terminal stop reasons (stop_sequence, max_tokens) also fire once.
+// (g) other terminal stop reasons (stop_sequence, max_tokens) also end once.
 {
   for (const sr of ["stop_sequence", "max_tokens"]) {
     const d = makeTurnEndDetector();
-    assert.equal(d.observe(ENDED(sr)), true, `stop_reason ${sr} -> FIRE`);
-    assert.equal(d.observe(ENDED(sr)), false, `stop_reason ${sr} again -> no re-fire`);
+    assert.equal(d.observe(TOOL_USE), "start", `${sr}: in-flight first -> START`);
+    assert.equal(d.observe(ENDED(sr)), "end", `stop_reason ${sr} -> END`);
+    assert.equal(d.observe(ENDED(sr)), null, `stop_reason ${sr} again -> no re-fire`);
   }
 }
 
-// (h) an unreadable tick in the MIDDLE of a turn does not lose arming: a null
-//     between an in-flight tail and an ended tail still fires on the ended tail.
+// (h) an unreadable tick in the MIDDLE of a turn does not lose state: a null
+//     between an in-flight tail and an ended tail still ends on the ended tail,
+//     and does not re-START.
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe(TOOL_USE), false, "in-flight");
-  assert.equal(d.observe(null), false, "transient unreadable -> no fire, no state loss");
-  assert.equal(d.observe(ENDED("end_turn")), true, "ended after transient -> FIRE");
+  assert.equal(d.observe(TOOL_USE), "start", "in-flight -> START");
+  assert.equal(d.observe(null), null, "transient unreadable -> no fire, no state loss");
+  assert.equal(d.observe(ENDED("end_turn")), "end", "ended after transient -> END");
 }
 
 // (i) an assistant message with an unknown / null stop_reason (mid-stream, not yet
-//     a terminal yield) is treated as in-flight, never fires.
+//     a terminal yield) is treated as in-flight -> START once.
 {
   const d = makeTurnEndDetector();
   assert.equal(
     d.observe({ lastRole: "assistant", lastStopReason: null, pendingToolUse: false }),
-    false,
-    "assistant null stop_reason -> not a yield, no fire",
+    "start",
+    "assistant null stop_reason -> mid-stream in-flight, START",
   );
+  assert.equal(
+    d.observe({ lastRole: "assistant", lastStopReason: null, pendingToolUse: false }),
+    null,
+    "still mid-stream -> no re-fire",
+  );
+}
+
+// (j) RESIDENT under-report repro: a turn that begins WITHOUT a /turn-start hook
+//     (channel-woken / scheduled — no UserPromptSubmit) is observed by the
+//     detector mid-flight and STARTs working, then ENDs when it yields.
+{
+  const d = makeTurnEndDetector();
+  // first observation of this turn is already mid-tool (the hook never fired).
+  assert.equal(d.observe(TOOL_USE), "start", "channel-woken turn observed in-flight -> START (the fix)");
+  assert.equal(d.observe(USER_PENDING), null, "still in-flight -> no fire");
+  assert.equal(d.observe(ENDED("end_turn")), "end", "yields -> END");
 }
 
 console.log("turn-end-detector.test.js: all assertions passed");

@@ -344,6 +344,20 @@ if (
   __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
     intervalMs: 30_000,
     readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
+    // SET working when the transcript tail transitions into in-flight. RESIDENT
+    // under-report fix (2026-06-02): a channel-woken / scheduled claude turn never
+    // fires UserPromptSubmit→/turn-start, so turn_busy stays 0 and the dashboard
+    // shows the agent NOT working. Keying on the transcript (process truth) covers
+    // typed, channel-woken, AND scheduled turns — the robust replacement for the
+    // removed PostToolUse re-pulse. Idempotent (edge-triggered in the detector).
+    postTurnStart: async () => {
+      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        turnRuntime: "claude-code",
+        source: "bridge-transcript-detector",
+      });
+    },
     postTurnEnd: async () => {
       if (!AIFY_AGENT_ID || !__serverUrl) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
