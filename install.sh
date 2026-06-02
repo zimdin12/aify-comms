@@ -1431,6 +1431,22 @@ aify_hermes_kill_prior() {
         lsof -ti tcp:"\$host_port" 2>/dev/null | xargs -r kill >/dev/null 2>&1 || true
       fi
     fi
+    # Managed visible-TUI leak fix (fix/hermes-leak P1): reap a prior
+    # \`hermes --tui --resume aify-<agent>\` visible TUI for THIS agent. A silent
+    # relaunch otherwise leaks a duplicate resume-TUI per launch (the observed
+    # accumulation). AGENT-SCOPED: match the EXACT pinned resume handle
+    # (\`aify-<sanitized agentId>\`), NEVER a broad \`hermes --tui\` — mirrors the
+    # agent-scoped safety of reap-managed-claude.js. PRE-spawn ONLY
+    # (exclude_pid empty): at pre-spawn the new TUI does not exist yet, so no
+    # exclude is needed; the post-spawn call must NOT run this (it would kill the
+    # TUI we just exec'd).
+    if [ -z "\$exclude_pid" ] && command -v pkill >/dev/null 2>&1; then
+      local _pinned
+      _pinned="aify-\$(printf '%s' "\$agent_id" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
+      if [ -n "\$_pinned" ]; then
+        pkill -f -- "--tui --resume \$_pinned" >/dev/null 2>&1 || true
+      fi
+    fi
   fi
   # Also reap the prior per-agent DAEMON for this agentId — PRE-spawn call only
   # (exclude_pid empty), so the post-spawn call never kills the daemon/gateway the
@@ -1528,7 +1544,18 @@ fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_ensure_daemon "\$HERMES_AIFY_AGENT_ID"
   AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
+  # Daemon teardown leak fix (fix/hermes-leak P3): the resident path starts a
+  # per-agent api_server daemon (aify_hermes_ensure_daemon) but historically
+  # bare-\`exec\`d the TUI, replacing the shell so the daemon was never stopped —
+  # a resident TUI that exits leaked its \`hermes gateway run\` daemon. Run the
+  # TUI as a child (no exec) and stop the daemon on exit via a trap, so the
+  # daemon stop (killByPort + tracked-pid + clearGatewayMarkers) always runs.
+  trap 'node "\$AIFY_HERMES_DAEMON_CLI" stop "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 || true' EXIT
+  "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}" --resume "\$AIFY_HERMES_PINNED_SESSION"
+  _hermes_rc=\$?
+  trap - EXIT
+  node "\$AIFY_HERMES_DAEMON_CLI" stop "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 || true
+  exit \$_hermes_rc
 fi
 
 aify_hermes_exec_plain_or_tui() {
@@ -1803,6 +1830,21 @@ function Invoke-AifyHermesKillPrior {
     # Also reap the prior per-agent DAEMON for this agentId (pre-spawn only, so the
     # post-spawn call never kills the daemon/gateway the current launch brought up).
     try { & node \$AifyHermesDaemonCli stop \$AgentId 2>\$null | Out-Null } catch {}
+    # Managed visible-TUI leak fix (fix/hermes-leak P1): reap a prior
+    # 'hermes(.exe)? --tui --resume aify-<agent>' visible TUI for THIS agent. A
+    # silent relaunch otherwise leaks a duplicate resume-TUI per launch (the
+    # observed accumulation). AGENT-SCOPED: match the EXACT pinned resume handle
+    # on the command line, NEVER a broad '--tui' — mirrors reap-managed-claude.js.
+    # PRE-spawn ONLY (\$ExcludeLoopPid -le 0): the new TUI does not exist yet, so
+    # no exclude is needed; the post-spawn call must NOT run this.
+    try {
+      \$pinned = 'aify-' + ((\$AgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
+      if (\$pinned) {
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+          Where-Object { \$_.CommandLine -and \$_.CommandLine -match '--tui\\s+--resume\\s+' + [regex]::Escape(\$pinned) + '(\\s|\$)' } |
+          ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+      }
+    } catch {}
   }
 }
 
@@ -1896,7 +1938,16 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
 if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
   \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-  Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
+  try {
+    Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
+  } finally {
+    # Daemon teardown leak fix (fix/hermes-leak P3): the resident path starts a
+    # per-agent api_server daemon but historically never stopped it, leaking the
+    # 'hermes gateway run' daemon when the resident TUI exited. Invoke-HermesRuntime
+    # runs-then-returns (not exec), so stop the daemon (killByPort + tracked-pid +
+    # clearGatewayMarkers) in a finally so it runs on every TUI exit path.
+    try { & node \$AifyHermesDaemonCli stop \$HermesAifyAgentId 2>\$null | Out-Null } catch {}
+  }
   exit \$script:HermesRuntimeExitCode
 }
 
