@@ -3402,9 +3402,12 @@ elif [ "$CLIENT" = "hermes" ]; then
   # We cannot ensure a real per-agent daemon at install time without an agent
   # id, but we MUST tell the operator the daemon is brought up lazily at launch
   # and how it fails loudly if it can't — replacing the old patch's silent path.
-  echo "Hermes managed delivery: per-agent api_server daemon is ensured at launch"
-  echo "  by hermes-aify (node mcp/stdio/hermes-daemon-cli.js <agentId>); on failure"
-  echo "  the wrapper prints a FATAL error and exits non-zero (no silent no-op)."
+  echo "Hermes delivery (managed AND resident): hermes-aify brings up a per-agent"
+  echo "  hidden tui_gateway host (node mcp/stdio/hermes-managed-host.js ensure-host"
+  echo "  <agentId>) + a background delivery loop that prompt.submits into the visible"
+  echo "  TUI's session; on failure the wrapper prints a FATAL error and exits"
+  echo "  non-zero (no silent no-op). Both modes share this gateway-host path so"
+  echo "  injected messages render in the visible terminal (2026-06-02 convergence)."
   if command -v node >/dev/null 2>&1; then
     if node --check "$SCRIPT_DIR/mcp/stdio/hermes-daemon-cli.js" >/dev/null 2>&1 \
       && node --check "$SCRIPT_DIR/mcp/stdio/hermes-channel.js" >/dev/null 2>&1; then
