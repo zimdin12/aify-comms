@@ -136,6 +136,50 @@ back to native Hermes controllers (`HermesController` /
 terminal output for operator visibility. That fallback does not provide the
 same live TUI symmetry as wrapper mode.
 
+### Loop health-gate (the wrapper refuses a deaf TUI)
+
+The delivery loop is the lifecycle owner of the managed-hermes triad: it
+registers its channel-sidecar liveness and becomes a live dispatch claimer
+BEFORE the visible TUI is shown. To enforce that, the `hermes-aify` wrapper
+spawns the delivery loop, then **health-gates on a loop-ready marker
+(`aify-hermes-loop-ready-<agent>` in `os.tmpdir()`) for up to 30s before
+exec'ing `hermes --tui`**. The loop only writes that marker once it has brought
+up the gateway host, started its heartbeat, and completed a first
+`/dispatch/claim` round-trip — i.e. it is genuinely a live claimer.
+
+If the marker never appears within the window (or the loop process dies), the
+wrapper **fails loud and does NOT start the TUI**:
+
+```
+[hermes-aify] FATAL: hermes delivery loop for '<agent>' failed to become a live claimer within 30s; not starting TUI.
+[hermes-aify]   (marker <path> never appeared — the loop could not claim dispatch runs)
+```
+
+It then reaps the stuck loop and exits non-zero. This is the visible-TUI
+invariant in action: a TUI is never shown for an agent that cannot actually
+receive work, so a green Console always means a live claimer is behind it.
+
+### Restarting aify-comms is a clean slate
+
+The environment bridge OWNS the managed-hermes triads it spawned. Two hooks
+keep a restart honest:
+
+- **Shutdown teardown** — on graceful shutdown (and on the supersede path), the
+  bridge tears down every managed session it owns: it stops the console PTYs,
+  port-kills the gateway hosts, and reaps the detached delivery loops/daemons
+  for its owned agents.
+- **Boot-time survivor sweep** — on the next env-bridge start, before the spawn
+  loop comes up, the bridge sweeps for managed-triad survivors of a
+  crashed/SIGKILL'd predecessor and reaps any whose owning bridge is no longer
+  live in `bridge_instances`.
+
+Both are **scoped to the agents this env bridge owns** (its `cwdRoots`) and
+**never touch resident sessions or another env's agents**. The net effect:
+restarting `aify-comms` is a guaranteed clean slate for managed sessions — no
+orphaned gateway hosts, no zombie `hermes.exe` proliferation, even after a hard
+crash. Managed sessions are re-spawned fresh by the dashboard/spawn loop, not
+inherited.
+
 `hermes-aify` does NOT require the `--strict-mcp-config` + minimal-MCP
 isolation that `claude-aify` needs to work around the Claude Code stdio MCP
 race bug.
@@ -249,7 +293,7 @@ TUI attached on the pinned id. Re-run `install.sh --client hermes`, restart that
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
 - The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
-- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. No matching turn-end shell hook exists upstream; the 120s server-side `turn_busy` stale window handles cleanup.
+- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. For managed hermes, turn-END is now event-driven: the delivery loop watches the gateway session and clears `turn_busy` immediately when the session goes idle (so `working` clears as soon as the turn finishes, and any queued run delivers on the next claim). The server-side `turn_busy` staleness window is demoted to a long (~15m) backstop that only fires if that idle signal is dropped. Operator-typed (direct) hermes turns without a managed delivery loop still rely on that backstop for cleanup.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes
