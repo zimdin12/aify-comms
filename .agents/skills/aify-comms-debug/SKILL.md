@@ -501,15 +501,19 @@ working flipped 1→0 while the turn was only just starting. (The blocking
 `hermes-channel.js` path is fine — its `chatStream` runs the turn to completion
 before clearing.)
 
-**Fix (2026-05-31, refined 2026-06-02).** On a successful submit the loop leaves
-`turn_busy` set rather than clearing it in a `finally`, so `working` reflects the
-real turn. As of 2026-06-02 turn-END is **event-driven**: the delivery loop watches
-the gateway session and clears `turn_busy` IMMEDIATELY when the session goes idle
-(`/turn-end`), so `working` flips off the moment the turn finishes — no wait. A
-queued run for that agent then delivers on the next claim. STATUS is now pure-event
-(the seconds window no longer decides `working`); the staleness window is demoted to
-the single 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling for a DROPPED end-event, while
-the claim-gate keeps the short 120s `TURN_BUSY_STALE_SECONDS`. This is BRIDGE code: it
+**Fix (2026-05-31, refined 2026-06-02 `2216c44`).** On a successful submit the loop
+leaves `turn_busy` set rather than clearing it in a `finally`, so `working` reflects the
+real turn. As of 2026-06-02 turn-state is driven by a **continuous, bidirectional
+gateway-status detector** (`mcp/stdio/hermes-gateway-turn-detector.js` in `runDeliveryLoop`):
+gateway session `working` → `/turn-start`, gateway session `idle` SUSTAINED (≥3 ticks ≈ 9s,
+DEBOUNCED) → `/turn-end`. The DEBOUNCE matters here: the hermes gateway `session["running"]`
+flag flips False MID-TURN (between tool calls / generation gaps), so the earlier
+single-idle-read clear false-cleared `turn_busy` mid-turn → a `working`↔`online` FLAP.
+Requiring N consecutive idle reads (any `working` read resets the streak) means a momentary
+mid-turn idle blip can never clear the turn; the same debounce was applied to the in-flight
+re-pulse probe. STATUS is pure-event (the seconds window no longer decides `working`); the
+staleness window is the 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling for a DROPPED end-event,
+while the claim-gate keeps the short 120s `TURN_BUSY_STALE_SECONDS`. This is BRIDGE code: it
 activates when the managed hermes agent's delivery loop respawns (relaunch its
 `hermes-aify`, which kill-priors the old loop and loads the new bridge file). A loop
 still claiming under the machine-global `hermes-managed-host-<machine>` id (no
@@ -523,19 +527,28 @@ but the dashboard/`comms_agent_info` reads `online`, not `working`.
 **Cause.** Hermes turn detection used to be purely dispatch/hook-based: aify only
 saw a turn via (a) an aify dispatch run, or (b) the `pre_llm_call` turn-start hook.
 
-**Fix / status (2026-06-02).** STATUS is pure-event (the event decides `working`,
-not a window). For **managed** hermes this is resolved end-to-end: the delivery loop
-watches the gateway session and reports turn-start AND turn-end events (gateway
-session idle → `/turn-end`), so `working` is set and CLEARED on real turn boundaries,
-covering dispatch, autonomous, AND direct-typed turns that run through the managed
-gateway. The long in-flight re-pulse (`mcp/stdio/hermes-turn-repulse.js`) and the
-`turn_busy` staleness window are now BACKSTOPS only (the 30-min
-`TURN_BUSY_BACKSTOP_SECONDS` ceiling). Relaunch `hermes-aify` to load it. The residual
-is the **resident** (operator-launched, no managed delivery loop) hermes turn: Hermes
-has no upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys on
-the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
-off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action
-needed if delivery itself works.
+**Fix / status (2026-06-02, `2216c44`).** STATUS is pure-event (the event decides
+`working`, not a window). For **managed** hermes this is resolved end-to-end by a
+**continuous, bidirectional gateway-status detector** (`mcp/stdio/hermes-gateway-turn-detector.js`,
+wired into `runDeliveryLoop`) — the hermes mirror of the claude transcript detector. It
+reads the gateway session `status` (`session.active_list` → `working`/`idle`) every ~3s
+for the WHOLE delivery-loop lifetime, NOT just inside a dispatch's in-flight window:
+gateway `working` edge-triggers `/turn-start` (SET), gateway `idle` SUSTAINED (≥3
+consecutive ticks ≈ 9s; tune via `AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE`) POSTs
+`/turn-end` (CLEAR). Because it runs continuously it covers dispatch, channel-woken,
+**autonomous, AND direct-typed-in-the-TUI** turns (the old #172 "working but shown
+online"), and because `working` is set off the live gateway-running truth there is **no
+15-min in-flight-window (`REPULSE_WINDOW_MS`) cap** dropping a still-running long turn to
+`online`. It keys ONLY on the gateway's own session truth (anti-feedback-loop), never the
+aify server's derived status. The dispatch delivery pulse + in-flight re-pulse remain the
+instant path; this detector is the continuous backstop in both directions; the staleness
+window is the 30-min `TURN_BUSY_BACKSTOP_SECONDS` dropped-event ceiling. Relaunch
+`hermes-aify` to load it. The residual is the **resident** (operator-launched, non-managed,
+NO delivery loop and therefore NO gateway turn detector) hermes turn: Hermes has no
+upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys
+on the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
+off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action needed
+if delivery itself works.
 
 ## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 
