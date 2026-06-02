@@ -2556,6 +2556,30 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(cache_fresh["status"], "working", f"within both windows → working; {cache_fresh}")
         self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within the claim window → gate closed")
 
+    def test_claim_gate_uses_short_window_not_backstop(self):
+        # pure-event-status change #5: the CLAIM/SEND gate paths keep the SHORT
+        # TURN_BUSY_STALE_SECONDS (120s) window — never the long status backstop —
+        # so a queued send is not stranded behind a missed end-event for up to the
+        # 30-min ceiling. Static guard on the two claim-gate sites so a future
+        # refactor can't silently widen the gate to the long ceiling.
+        import re
+        from pathlib import Path
+        src = Path(api_v2.__file__).read_text(encoding="utf-8")
+        gate_lines = [
+            ln for ln in src.splitlines()
+            if "tb_epoch" in ln and "TURN_BUSY" in ln and "<=" in ln
+        ]
+        self.assertGreaterEqual(len(gate_lines), 2, "expected both claim-gate turn_busy freshness checks present")
+        for ln in gate_lines:
+            self.assertIn(
+                "TURN_BUSY_STALE_SECONDS", ln,
+                f"claim-gate must use the short 120s window, not the backstop: {ln.strip()}",
+            )
+            self.assertNotIn(
+                "TURN_BUSY_BACKSTOP_SECONDS", ln,
+                f"claim-gate must NOT use the long status ceiling: {ln.strip()}",
+            )
+
     def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
         # pure-event-status change #2: a DEAD resident worker stuck with
         # turn_busy=1 must derive `stale`/offline from its stale bridge lease —

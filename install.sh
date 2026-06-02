@@ -2774,9 +2774,16 @@ install_hermes_turn_hooks() {
   # LLM call — close enough to a user-prompt-submit signal that
   # the dashboard flips to "working" the moment the operator
   # submits a prompt in hermes-aify. No clean upstream turn-end
-  # hook exists for shell hooks; the existing 120s server-side
-  # turn_busy stale window (or the per-process exit signal for
-  # managed hermes dispatches) handles cleanup.
+  # hook exists for shell hooks, so RESIDENT hermes has no
+  # event-driven turn-end (pure-event-status change #6, 2026-06-02):
+  # it relies on the single LONG status ceiling
+  # (TURN_BUSY_BACKSTOP_SECONDS, 30m) to self-heal status off
+  # 'working', and on the short 120s claim-gate window so a queued
+  # send is not stranded. (Managed hermes dispatches still get the
+  # per-process exit signal as a precise turn-end.) Unlike claude,
+  # resident hermes is NOT covered by the transcript turn-END detector
+  # (that keys on the claude transcript), so the long ceiling is its
+  # only status backstop -- intentional, no behaviour change here.
   local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
   local hook_dir="$config_root/agent-hooks"
