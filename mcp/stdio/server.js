@@ -59,6 +59,14 @@ import { startTurnBusyHeartbeat, makeDefaultTurnBusyPoster } from "./turn-busy-h
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
+  runManagedTeardown,
+  enumerateManagedSurvivors,
+  defaultListProcesses as listManagedProcesses,
+  defaultReadMarkers as readManagedMarkers,
+  defaultKillTree as killManagedTree,
+} from "./reap-managed-survivors.js";
+import { defaultKillByPort, stopDaemon } from "./hermes-daemon.js";
+import {
   reportGatewayDead,
   gatewayIndexUrlFromWs,
   makeGatewayReachabilityProbe,
@@ -419,6 +427,10 @@ function cleanupOnExit() {
     terminalControlTimer = null;
   }
   TERMINAL_MANAGER.stopAll("bridge process exiting").catch(() => {});
+  // WS2: synchronous best-effort triad reap for the non-graceful process.on('exit')
+  // path (no async work can run here). Kills the detached delivery-loop + daemon
+  // trees this env bridge owns. Scoped identically to the graceful path.
+  try { runManagedTeardownSync("bridge exit"); } catch { /* best effort */ }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
@@ -440,6 +452,11 @@ async function shutdownWithStatus(code) {
   // still fire stopAll best-effort for the non-graceful case; that second
   // call is a no-op for terminals already stopped here.
   try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
+  // WS2: restart = clean slate. After the in-memory PTYs are stopped, reap every
+  // DETACHED managed-hermes triad survivor (gateway host, delivery loop, daemon)
+  // this env bridge owns — the processes engineered to outlive the launcher.
+  // Scoped strictly to ownedManagedAgentIds(); never a resident/other-env process.
+  try { await runManagedTeardownForBridge("graceful shutdown"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllCodexSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllHermesSessions("bridge exiting"); } catch { /* best effort */ }
@@ -1450,6 +1467,94 @@ function cwdRootsForEnvironment() {
   return dedupePreserveOrder([DEFAULT_CWD]);
 }
 
+// The managed agent ids THIS environment bridge owns. REMOTE_AGENT_STATE is
+// populated by syncManagedEnvironmentAgents only with agents whose sessionMode
+// is "managed", whose runtime this env advertises, and whose workspace is
+// within this env's cwdRoots — i.e. exactly the bridge's owned managed agents.
+// Scoping the survivor reap to this set is the safety invariant: another env's
+// children, another team's agents, and resident operator sessions are never in
+// REMOTE_AGENT_STATE, so they can never be enumerated for kill.
+function ownedManagedAgentIds() {
+  const ids = [];
+  for (const [agentId, state] of REMOTE_AGENT_STATE.entries()) {
+    const info = state?.info || {};
+    if (String(info.sessionMode || "") !== "managed") continue;
+    if (!agentId) continue;
+    ids.push(agentId);
+  }
+  return dedupePreserveOrder(ids);
+}
+
+// Tear down every managed-hermes triad survivor (gateway host, delivery loop,
+// daemon, console PTY) this env bridge owns. Scoped strictly to
+// ownedManagedAgentIds() — NEVER a resident session or another bridge's child.
+// async: awaits the port-kill/stopDaemon promises so the kills land before
+// process.exit. Best-effort; never throws.
+async function runManagedTeardownForBridge(reason = "bridge teardown") {
+  if (!IS_ENVIRONMENT_BRIDGE) return;
+  const ownedAgentIds = ownedManagedAgentIds();
+  if (!ownedAgentIds.length) return;
+  try {
+    const result = runManagedTeardown({
+      ownedAgentIds,
+      cwdRoots: cwdRootsForEnvironment(),
+      listProcesses: listManagedProcesses,
+      readMarkers: () => readManagedMarkers(os.tmpdir()),
+      // Owned console PTYs are already killed by TERMINAL_MANAGER.stopAll on the
+      // graceful path; the detached triad (gateway/loop/daemon) is the survivor
+      // concern here, enumerated from markers + the process scan.
+      consolePtyPids: [],
+      killByPort: defaultKillByPort,
+      stopDaemon,
+      killTree: killManagedTree,
+    });
+    if (Array.isArray(result?.pending) && result.pending.length) {
+      await Promise.allSettled(result.pending);
+    }
+    const n =
+      (result?.killed?.gatewayHosts?.length || 0) +
+      (result?.killed?.deliveryLoops?.length || 0) +
+      (result?.killed?.daemons?.length || 0) +
+      (result?.killed?.consolePtys?.length || 0);
+    if (n) {
+      console.error(`[aify] managed teardown (${reason}): reaped ${n} survivor(s) for agents ${ownedAgentIds.join(", ")}`);
+    }
+    if (result?.errors?.length) {
+      console.error(`[aify] managed teardown (${reason}) had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
+    }
+  } catch (error) {
+    console.error(`[aify] managed teardown (${reason}) failed:`, error?.message || error);
+  }
+}
+
+// Synchronous best-effort variant for the process.on('exit') path
+// (cleanupOnExit), where no async work can run. Fires spawnSync kills (taskkill
+// /t /f for loops + console-style trees; the gateway port-kill is the async
+// path's job — here we kill the tracked daemon pid + delivery-loop trees, the
+// processes most likely to be orphaned). Scoped identically; never throws.
+function runManagedTeardownSync(reason = "bridge exit") {
+  if (!IS_ENVIRONMENT_BRIDGE) return;
+  const ownedAgentIds = ownedManagedAgentIds();
+  if (!ownedAgentIds.length) return;
+  try {
+    const found = enumerateManagedSurvivors({
+      ownedAgentIds,
+      cwdRoots: cwdRootsForEnvironment(),
+      listProcesses: listManagedProcesses,
+      readMarkers: () => readManagedMarkers(os.tmpdir()),
+      consolePtyPids: [],
+    });
+    for (const l of found.deliveryLoops) {
+      try { killManagedTree(l.pid); } catch { /* best effort */ }
+    }
+    for (const d of found.daemons) {
+      try { killManagedTree(d.pid); } catch { /* best effort */ }
+    }
+  } catch (error) {
+    console.error(`[aify] managed teardown sync (${reason}) failed:`, error?.message || error);
+  }
+}
+
 
 function environmentHeartbeatPayload() {
   const hostname = (() => {
@@ -1656,6 +1761,10 @@ async function runEnvironmentControlLoop() {
       } catch {
         // The process is going down anyway; best effort.
       }
+      // Supersede / env-stop path: route through shutdownWithStatus so the WS2
+      // managed-triad teardown (runManagedTeardownForBridge) reaps this older
+      // bridge's detached survivors before it exits — same clean-slate guarantee
+      // as a SIGINT/SIGTERM restart.
       setTimeout(() => { shutdownWithStatus(0); }, 50);
       return;
     }

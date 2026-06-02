@@ -279,6 +279,10 @@ export function reapManagedSurvivors(
 ) {
   const killed = { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] };
   const errors = [];
+  // Async kill primitives (killByPort/stopDaemon) return promises. Collect them
+  // so a graceful (async) caller can `await Promise.allSettled(result.pending)`
+  // before process.exit; a sync caller (cleanupOnExit) just ignores them.
+  const pending = [];
 
   const gatewayHosts = found.gatewayHosts || [];
   const deliveryLoops = found.deliveryLoops || [];
@@ -291,9 +295,9 @@ export function reapManagedSurvivors(
   for (const d of daemons) {
     try {
       const r = stopDaemon({ agentId: d.agentId, port: d.port });
+      if (r && typeof r.then === "function") pending.push(Promise.resolve(r).catch(() => {}));
       killed.daemons.push({ agentId: d.agentId, pid: d.pid, port: d.port });
       try { log(`[aify] reap-survivors: stopped daemon agent=${d.agentId} port=${d.port ?? "?"} pid=${d.pid}`); } catch { /* ignore */ }
-      void r;
     } catch (err) {
       errors.push({ kind: "daemon", agentId: d.agentId, error: String(err?.message || err) });
     }
@@ -301,7 +305,8 @@ export function reapManagedSurvivors(
 
   for (const g of gatewayHosts) {
     try {
-      killByPort(g.port);
+      const r = killByPort(g.port);
+      if (r && typeof r.then === "function") pending.push(Promise.resolve(r).catch(() => {}));
       killed.gatewayHosts.push({ agentId: g.agentId, port: g.port });
       try { log(`[aify] reap-survivors: killed gateway host agent=${g.agentId} port=${g.port}`); } catch { /* ignore */ }
     } catch (err) {
@@ -333,7 +338,37 @@ export function reapManagedSurvivors(
     }
   }
 
-  return { killed, errors };
+  return { killed, errors, pending };
 }
 
-export default { enumerateManagedSurvivors, reapManagedSurvivors };
+// --- teardown orchestrator (the server.js seam) -----------------------------
+
+// Enumerate + reap in one call — the seam server.js wires into
+// shutdownWithStatus (after TERMINAL_MANAGER.stopAll) and the supersede path,
+// ONLY when IS_ENVIRONMENT_BRIDGE. Pure + injectable: pass the bridge's owned
+// agent ids + cwdRoots, the process/marker/console-pty enumerators, and the
+// kill primitives. Fail-safe: empty ownedAgentIds → no-op (enumerate finds
+// nothing). Returns the reap result ({ killed, errors }).
+export function runManagedTeardown({
+  ownedAgentIds = [],
+  cwdRoots = [],
+  listProcesses,
+  readMarkers,
+  consolePtyPids = [],
+  killByPort,
+  stopDaemon,
+  killTree,
+  killByPid,
+  log,
+} = {}) {
+  const found = enumerateManagedSurvivors({
+    ownedAgentIds,
+    cwdRoots,
+    listProcesses,
+    readMarkers,
+    consolePtyPids,
+  });
+  return reapManagedSurvivors(found, { killByPort, stopDaemon, killTree, killByPid, log });
+}
+
+export default { enumerateManagedSurvivors, reapManagedSurvivors, runManagedTeardown };
