@@ -188,6 +188,17 @@ export function dispatchContent(agentId, run) {
     priority === "urgent" ? "Drop current work and handle this immediately." :
     priority === "high" ? "Read before continuing current work." :
     "Handle when you reach a natural break.";
+  const requireReply = !!run.requireReply;
+  // require_reply dispatches MUST be answered in THIS turn. A managed/channel
+  // session goes idle after the turn ends and is NOT re-woken to finish a
+  // deferred reply — root-caused 2026-06-02: a session that split read (turn 1)
+  // from reply (turn 2) stranded the reply ~20min until the next dispatch
+  // happened to re-wake it. So instruct the same-turn reply explicitly.
+  const replyLine = run.messageId
+    ? (requireReply
+        ? `Send your reply now, in THIS turn, before you end: call comms_send with inReplyTo="${run.messageId}". Do NOT defer the reply to a later turn — a managed session will not be re-woken to finish a deferred reply, and the reply would strand.`
+        : `When you reply, include inReplyTo="${run.messageId}" so the sender sees your response linked to their original message.`)
+    : "Reply through aify when the task is done.";
   return [
     claudeAifyReceiptLine(),
     `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
@@ -198,9 +209,7 @@ export function dispatchContent(agentId, run) {
     run.messageId ? `Message ID: ${run.messageId}` : "",
     "",
     "Handle this directly in the current session.",
-    run.messageId
-      ? `When you reply, include inReplyTo="${run.messageId}" so the sender sees your response linked to their original message.`
-      : "Reply through aify when the task is done.",
+    replyLine,
     "",
     "```",
     body,
@@ -235,7 +244,8 @@ const mcp = new Server(
       'Events from aify resident dispatch arrive as <channel source="aify-comms-channel" ...>. ' +
       "These are real wake-up events for the current session. Handle them directly in this session. " +
       "Use the existing comms_* tools to coordinate and reply. " +
-      "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically.",
+      "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically. " +
+      "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand.",
   },
 );
 
