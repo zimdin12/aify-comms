@@ -19,7 +19,10 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Resident Hermes wakes native TUI, but dashboard has no resident session/console evidence
 - Hermes `mcp test` works, but the live turn has no `mcp_aify_comms_*` tools
 - Hermes fails immediately with `'NoneType' object is not iterable`
-- Agent shows `online` but the Console/worker is gone
+- Agent shows `online` but the Console/worker is gone (`online` requires a live claimer)
+- Send to a managed agent fails fast (deaf target — no live claimer)
+- Restarting aify-comms kills all managed sessions (by design — clean slate)
+- Managed agent finished but its reply never landed (deferred-reply strand)
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
@@ -266,20 +269,27 @@ another heartbeat kept the cache row fresh, so the UI kept showing
 immediately, and readiness/registration changes could leave future-dated cache
 rows in place.
 
-**Fix (2026-06-01).** Update and restart/rebuild the service. Current builds
-downgrade managed wrapper-backed agents with no live `terminal_sessions` row to
-`available`, persist that downgrade, invalidate live-state cache on
-`PATCH /agents/{id}/ready`, and invalidate cache on registration. Managed
-**claude** specifically now requires BOTH a live console PTY AND a live,
-non-superseded channel-sidecar (`claude-channel.js`) to be `online`; a headless
-orphan (live sidecar, no console — a visible-TUI violation and a proliferation
-source) now reports `available` and is reaped by
-`_reconcile_managed_worker_hygiene` (in the 60s reconcile loop), which also
-reaps ghost console rows (dead worker, stale `attached` terminal). Host-side
-defenses back this: the managed worker tree is tree-killed when its console PTY
-closes, and the channel-sidecar self-exits once its parent claude process is
-gone. After updating, restart the affected environment bridge or wrapper so a
-real worker can re-register and recreate the backing terminal.
+**Fix (2026-06-01 / 2026-06-02).** Update and restart/rebuild the service. Current
+builds downgrade managed wrapper-backed agents with no live `terminal_sessions` row
+to `available`, persist that downgrade, invalidate live-state cache on
+`PATCH /agents/{id}/ready`, and invalidate cache on registration. **`online` now
+means deliverable — it requires a live CLAIMER, not just process presence.** Both
+managed **claude** AND managed **hermes** are now in the channel-sidecar-delivery
+gate: `online` requires a live, non-superseded channel-sidecar (the actual claimer —
+`claude-channel.js` for claude, the `hermes-managed-host.js` delivery loop for
+hermes) in addition to a live console PTY. A live PTY / `-aify` wrapper / virtual-rpc
+row alone can no longer manufacture `online`. As of 2026-06-02 the delivery loop also
+publishes an explicit claimer **lease** (acquired when it becomes a live claimer,
+released on clean teardown), so a cleanly-exited loop is immediately non-deliverable
+rather than waiting out a staleness window. A headless orphan (live sidecar, no
+console — a visible-TUI violation and a proliferation source) reports `available` and
+is reaped by `_reconcile_managed_worker_hygiene` (60s reconcile loop), which now
+covers the hermes triad and also reaps ghost console rows (dead worker, stale
+`attached` terminal). Host-side defenses back this: the managed worker tree is
+tree-killed when its console PTY closes, the channel-sidecar self-exits once its
+parent process is gone, and the env bridge reaps console rows whose local
+`process_id` is dead. After updating, restart the affected environment bridge or
+wrapper so a real worker can re-register and recreate the backing terminal.
 
 ## Status semantics: `working` vs `online · awaiting reply` (2026-05-31)
 
@@ -328,9 +338,19 @@ session restarts and wrapper churn.
 PID in `aify-hermes-daemon-pid-<agent>` and kills the prior live daemon before
 spawning a replacement; `stopDaemon` kills by BOTH port and tracked PID — one
 daemon per agent from then on. Takes effect when the agent's `hermes-aify`
-relaunches. To clean up an existing pile, stop the affected `hermes-aify`
-wrappers and kill stray `hermes.exe` whose port files (`aify-hermes-port-*`) no
-longer match a live agent, then relaunch.
+relaunches.
+
+**Restart now reaps the whole pile (2026-06-02).** You no longer have to hand-kill
+stray `hermes.exe`. The environment bridge owns the managed-hermes triad (gateway
+host, delivery loop, console PTY) and tears it down on shutdown; on the next boot
+it sweeps for survivors of a crashed/killed predecessor and reaps any whose owning
+bridge is no longer live in `bridge_instances`. Both are scoped to the agents this
+env bridge owns and never touch resident sessions or another env's agents. So
+**restarting `aify-comms` collapses the pile to zero managed survivors** — see
+"Restarting aify-comms kills all managed sessions (by design)" below. The daemon
+kill-prior above is the per-spawn backstop. To clean up a pile without a full
+restart, stop the affected `hermes-aify` wrappers and kill stray `hermes.exe` whose
+port files (`aify-hermes-port-*`) no longer match a live agent, then relaunch.
 
 ## Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
 
@@ -392,31 +412,114 @@ working flipped 1→0 while the turn was only just starting. (The blocking
 `hermes-channel.js` path is fine — its `chatStream` runs the turn to completion
 before clearing.)
 
-**Fix (2026-05-31).** On a successful submit the loop now leaves `turn_busy` set
-(the server's 120s stale window + the agent's reply close it); it clears only on
-the not-attached requeue path or a failed delivery — mirroring `claude-channel.js`.
-This is BRIDGE code: it activates when the managed hermes agent's delivery loop
-respawns (relaunch its `hermes-aify`, which kill-priors the old loop and loads the
-new bridge file). A loop still claiming under the machine-global
-`hermes-managed-host-<machine>` id (no `-<agentId>` suffix) is running old code.
+**Fix (2026-05-31, refined 2026-06-02).** On a successful submit the loop leaves
+`turn_busy` set rather than clearing it in a `finally`, so `working` reflects the
+real turn. As of 2026-06-02 turn-END is **event-driven**: the delivery loop watches
+the gateway session and clears `turn_busy` IMMEDIATELY when the session goes idle
+(`/turn-end`), so `working` flips off the moment the turn finishes — no 120s wait. A
+queued run for that agent then delivers on the next claim. The server-side
+`turn_busy` staleness window is demoted to a long (~15m) BACKSTOP that only fires if
+the idle signal is dropped, and the status vs. claim-gate windows are split. This is
+BRIDGE code: it activates when the managed hermes agent's delivery loop respawns
+(relaunch its `hermes-aify`, which kill-priors the old loop and loads the new bridge
+file). A loop still claiming under the machine-global `hermes-managed-host-<machine>`
+id (no `-<agentId>` suffix) is running old code.
 
 ## Hermes agent shows `online` while working
 
 **Symptom.** A hermes agent is clearly mid-turn (TUI streaming, tools running)
 but the dashboard/`comms_agent_info` reads `online`, not `working`.
 
-**Cause.** Hermes turn detection is dispatch/hook-based: aify only sees a turn
-via (a) an aify dispatch run, or (b) the `pre_llm_call` turn-start hook. Work the
-agent does autonomously (not driven by an aify dispatch), or direct TUI/gateway
-input that doesn't trip the hook, never emits a `turn_busy` signal, so status
-stays `online`. This is a known open limitation, not a stale-bridge bug.
+**Cause.** Hermes turn detection used to be purely dispatch/hook-based: aify only
+saw a turn via (a) an aify dispatch run, or (b) the `pre_llm_call` turn-start hook.
 
-**Fix / status.** The long **managed**-turn case IS fixed (in-flight re-pulse,
-`mcp/stdio/hermes-turn-repulse.js`) — relaunch `hermes-aify` to load it. The
-autonomous/direct-typed case needs new gateway instrumentation (a hermes
-busy/streaming signal or a turn-end hook) and is not fixed yet. See
-KNOWN_ISSUES.md (tasks #172 / #171). No action needed if delivery itself works —
-only the live status is imprecise.
+**Fix / status (2026-06-02).** For **managed** hermes this is now resolved
+end-to-end: the delivery loop watches the gateway session and reports turn-start AND
+turn-end events (gateway session idle → `/turn-end`), so `working` is set and CLEARED
+on real turn boundaries, covering dispatch, autonomous, AND direct-typed turns that
+run through the managed gateway. The long in-flight re-pulse
+(`mcp/stdio/hermes-turn-repulse.js`) and the 15m `turn_busy` staleness window are now
+BACKSTOPS only. Relaunch `hermes-aify` to load it. The residual is the **resident**
+(operator-launched, no managed delivery loop) direct-typed turn, which still relies on
+the `pre_llm_call` turn-start hook plus the staleness backstop for cleanup — see
+KNOWN_ISSUES.md (#172). No action needed if delivery itself works.
+
+## Send to a managed agent fails fast (deaf target — no live claimer)
+
+**Symptom.** `comms_send` to a managed claude/hermes agent returns immediately with
+`ok: false`, `recipientStatus: available`, and a fix like:
+
+```
+Agent "<id>" has no live delivery-loop claimer (its lease was released or went
+stale), so a message would never be delivered. Restart its managed worker (respawn
+the delivery loop / console), then resend.
+```
+
+No `dispatch_runs` row is written.
+
+**Cause (by design, 2026-06-02).** The target is a sidecar-delivery managed runtime
+(claude/hermes) that **recorded a claimer lease at some point but that lease is no
+longer live** (released on clean teardown, or went stale). That's a genuinely DEAF
+worker — the delivery loop/channel-sidecar that would claim the run is gone, so the
+old behavior queued the message against a claimer that never comes, piling up toward
+`buffer_full`. The send now fails fast and surfaces the reason to the sender instead.
+
+**Important — this is NOT cold-start blocking.** An `available` agent that has
+**never recorded a lease** is treated as cold-startable, not deaf, so
+lazy-autostart-on-send still works (the disambiguator is the explicit lease, not mere
+sidecar-row absence). Only a worker that *had* a claimer and lost it fails fast.
+
+**Fix.** Respawn the agent's managed worker (its delivery loop + console — relaunch
+`hermes-aify`, or restart from dashboard **Sessions**), confirm it comes back
+`online`, then resend. If you expected it to be live, check why its loop exited
+(see the loop's stderr / dashboard Console).
+
+## Restarting aify-comms kills all managed sessions (by design — clean slate)
+
+**Symptom / question.** After restarting the `aify-comms` environment bridge, every
+managed agent's Console is gone and its worker processes (gateway hosts, delivery
+loops, daemons, PTYs) are no longer running. Agents read `offline`/`available` until
+re-spawned.
+
+**This is intended (2026-06-02).** Restarting `aify-comms` is a guaranteed **clean
+slate** for managed sessions, so a restart can never leave dead claimers holding busy
+agents, orphaned gateway hosts, or `hermes.exe` proliferation — even after a hard
+crash. Two hooks enforce it:
+
+- **Shutdown teardown** — on graceful shutdown (and the supersede path), the bridge
+  tears down every managed session it owns: stops console PTYs, port-kills gateway
+  hosts, reaps detached delivery loops/daemons.
+- **Boot survivor sweep** — on the next start, before the spawn loop, it reaps any
+  managed-triad survivors of a crashed/SIGKILL'd predecessor whose owning bridge is
+  no longer live in `bridge_instances`.
+
+Both are **scoped to the agents this env bridge owns** (its `cwdRoots`) and **never
+touch resident sessions or another env's agents**. Managed sessions are re-spawned
+fresh from their spec by the dashboard/spawn loop — they are not inherited across a
+restart. If you need a session to persist a restart with its terminal intact, run it
+**resident** (`*-aify`), which the teardown explicitly excludes.
+
+## Managed agent finished but its reply never landed
+
+**Symptom.** A managed claude/hermes agent clearly handled a `require_reply` dispatch
+(you can see the work in its Console), the run sits `delivered`/`awaiting reply`, and
+the reply only shows up much later (~20min) when the next dispatch happens to wake the
+agent again — or never.
+
+**Cause (root-caused 2026-06-02).** The agent **read the message in one turn and
+deferred its `comms_send(inReplyTo=...)` reply to a later turn.** A managed/channel
+session goes idle after a turn ends and is **NOT re-woken to finish a deferred
+reply** — so the reply strands until some unrelated dispatch re-wakes the session.
+This is not a threading/infra defect; the reply threads correctly once it is actually
+sent.
+
+**Fix.** Reply in the SAME turn. The channel wake text for `require_reply` dispatches
+now explicitly instructs the agent to call `comms_send(inReplyTo="<id>")` in THIS turn
+before ending, and warns that a managed session will not be re-woken to finish a
+deferred reply (relaunch the wrapper to load the updated `claude-channel.js`). If you
+are the agent: do not split read and reply across turns — send your reply before you
+end the turn. The WS3 queued-run backstop will eventually fail a truly undeliverable
+run, but the correct behavior is the same-turn reply.
 
 ## Runs view: routine `delivered` runs show a blank summary (expected)
 
@@ -829,13 +932,24 @@ New sends queue behind the stuck run.
 held the agent busy, but the claiming bridge was gone, so nothing ever delivered
 or closed the run.
 
-**Fix (2026-06-02, `a76afb5`).** The 60s reconcile loop now requeues such runs:
-a run that is `claimed` (claimed > 90s ago), has no `delivered` event, and whose
-claiming bridge (`claim_bridge_id`) is dead is set back to `queued` so a live
-bridge re-claims and delivers it — recovered, not failed. This runs BEFORE the
-orphaned-managed-run reaper, so stranded handoffs are recovered rather than
-closed. On a pre-fix build, rebuild the service; for an immediate unstick,
-restart the target wrapper so a live bridge re-claims.
+**Fix (2026-06-02, `a76afb5` + lifecycle batch).** Two layers now prevent this:
+
+- **Restart = clean slate.** Restarting `aify-comms` is no longer the trigger for a
+  stranded team — it is the cure. The env bridge tears down all managed sessions it
+  owns on shutdown and boot-sweeps any survivors of a crashed predecessor (see
+  "Restarting aify-comms kills all managed sessions (by design)"), so a restart
+  leaves no dead claimer holding a busy agent. Managed sessions re-spawn fresh.
+- **Requeue + queued-run backstop.** The 60s reconcile loop requeues a run that is
+  `claimed` (claimed > 90s ago), has no `delivered` event, and whose claiming bridge
+  (`claim_bridge_id`) is dead → back to `queued` so a live bridge re-claims and
+  delivers it (recovered, not failed; runs BEFORE the orphaned-managed-run reaper).
+  And a `queued` run whose target has **no live claimer** past the backstop window
+  (~180s) is FAILED with an actionable error and mirrored back to the sender, so a
+  genuinely deaf target no longer piles up an indefinite queue (see "Send to a
+  managed agent fails fast (deaf target)").
+
+On a pre-fix build, rebuild the service; for an immediate unstick, restart the target
+wrapper (or `aify-comms`) so a live bridge re-claims.
 
 ## Bridge "lost" the agent / has to be re-registered manually
 
