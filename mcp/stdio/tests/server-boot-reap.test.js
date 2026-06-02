@@ -85,8 +85,23 @@ import {
     { agentId: "no-owner", owningBridgeId: "", ownerLive: false },
     { agentId: "us", owningBridgeId: "bridge-SELF", ownerLive: true },
   ];
+  // Default (runtime) semantics: never reap our own id.
   const reap = orphanedOwnedAgentIds(records, { selfBridgeId: "bridge-SELF" });
   assert.deepEqual(reap.sort(), ["dead-owner", "no-owner"], "reap dead/ownerless; skip live-other + self");
+
+  // Boot semantics (treatSelfAsOrphan): a survivor whose agent record reads SELF
+  // is a predecessor's orphan (the sync-before-sweep race / SIGKILL stale-online
+  // env row rebinds it to self) and MUST be reaped — while a genuinely-live
+  // DIFFERENT bridge's agent is STILL skipped.
+  const bootReap = orphanedOwnedAgentIds(records, {
+    selfBridgeId: "bridge-SELF",
+    treatSelfAsOrphan: true,
+  });
+  assert.deepEqual(
+    bootReap.sort(),
+    ["dead-owner", "no-owner", "us"],
+    "boot: reap dead/ownerless + self-bound predecessor; STILL skip a live different bridge",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +181,76 @@ import {
   });
   assert.deepEqual(calls, [], "ownership unknown → fail-safe, kills nothing");
   assert.ok(result && result.skipped === "ownership-unavailable");
+}
+
+// ---------------------------------------------------------------------------
+// 4. WS2 REGRESSION: the sync-before-sweep race. After restart the env
+//    heartbeat's syncManagedEnvironmentAgents() re-binds the survivor agents'
+//    runtimeState.bridgeInstanceId to the NEW (self) bridge BEFORE the boot
+//    sweep reads ownership — so the agent records read SELF and ownerLive=true.
+//    Without treatSelfAsOrphan the sweep skips them (the bug: survivors live on).
+//    With treatSelfAsOrphan the boot sweep reaps the self-bound predecessor
+//    survivors, and STILL never touches a co-located live OTHER bridge's agent.
+// ---------------------------------------------------------------------------
+{
+  const calls = { killByPort: [], killTree: [], stopDaemon: [] };
+  // Both managed agents now read self as owner (rebound by the racing sync);
+  // ownerLive=true because self is live. A second, genuinely-live different
+  // bridge owns "peer-agent".
+  const ownership = [
+    { agentId: "sc-architect", owningBridgeId: "bridge-NEW", ownerLive: true }, // rebound to self → must STILL be reaped
+    { agentId: "sc-coder", owningBridgeId: "bridge-NEW", ownerLive: true },     // rebound to self → must STILL be reaped
+    { agentId: "peer-agent", owningBridgeId: "bridge-OTHER", ownerLive: true }, // live different bridge → must NOT die
+  ];
+  const procs = [
+    { pid: 301, ppid: 1, commandLine: "node hermes-managed-host.js run sc-architect" },
+    { pid: 302, ppid: 1, commandLine: "node hermes-managed-host.js run sc-coder" },
+    { pid: 303, ppid: 1, commandLine: "node hermes-managed-host.js run peer-agent" },
+    // A resident operator session for an owned agent must never be reaped (it is
+    // not a delivery loop; it carries --aify-agent and is excluded outright).
+    { pid: 999, ppid: 1, commandLine: "claude --aify-agent sc-architect" },
+  ];
+  const markers = [
+    { kind: "port", agentId: "sc-architect", value: 9342 },
+    { kind: "port", agentId: "sc-coder", value: 9343 },
+    { kind: "port", agentId: "peer-agent", value: 9341 },
+    { kind: "daemon-pid", agentId: "sc-architect", value: 4242 },
+  ];
+
+  // Without the fix (default): both survivors are skipped — reproduces the bug.
+  const buggy = reapOrphanedManagedSurvivors({
+    selfBridgeId: "bridge-NEW",
+    cwdRoots: ["C:/Docker/aify-comms"],
+    fetchOwnership: () => ownership,
+    listProcesses: () => procs,
+    readMarkers: () => markers,
+    killByPort: () => ({ killed: true }),
+    stopDaemon: () => ({ stopped: true }),
+    killTree: () => true,
+  });
+  assert.equal(buggy.killed.deliveryLoops.length, 0, "default semantics reproduce the WS2 miss (self-bound survivors skipped)");
+
+  // With the fix (boot path): self-bound predecessor survivors ARE reaped; the
+  // live OTHER bridge's agent is NOT.
+  const result = reapOrphanedManagedSurvivors({
+    selfBridgeId: "bridge-NEW",
+    cwdRoots: ["C:/Docker/aify-comms"],
+    treatSelfAsOrphan: true,
+    fetchOwnership: () => ownership,
+    listProcesses: () => procs,
+    readMarkers: () => markers,
+    killByPort: (p) => { calls.killByPort.push(p); return { killed: true }; },
+    stopDaemon: (o) => { calls.stopDaemon.push(o); return { stopped: true }; },
+    killTree: (pid) => { calls.killTree.push(pid); return true; },
+  });
+
+  assert.deepEqual(calls.killTree.sort((a, b) => a - b), [301, 302], "boot reaps both self-bound predecessor delivery loops");
+  assert.ok(!calls.killTree.includes(303), "live OTHER bridge's loop NEVER reaped");
+  assert.ok(!calls.killTree.includes(999), "resident operator session NEVER reaped");
+  assert.deepEqual(calls.killByPort.sort((a, b) => a - b), [9342, 9343], "boot reaps both self-bound gateways; not 9341 (live other)");
+  assert.ok(!calls.killByPort.includes(9341), "live OTHER bridge's gateway NEVER reaped");
+  assert.equal(calls.stopDaemon.length, 1);
+  assert.equal(calls.stopDaemon[0].agentId, "sc-architect");
 }
 
 console.log("server-boot-reap.test.js: all assertions passed");

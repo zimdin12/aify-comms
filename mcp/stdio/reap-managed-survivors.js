@@ -415,19 +415,38 @@ export function bridgeOwnerIsLive(owningBridgeId, { environments = [], selfBridg
 // return the agent ids whose managed survivors should be reaped on boot:
 //   - ownerLive === false  → the owning bridge is NOT fresh in bridge_instances
 //                            (dead/crashed/SIGKILLed predecessor) → REAP.
-//   - owningBridgeId === selfBridgeId → owned by THIS freshly-booted bridge →
-//                            never reap (defensive: a fresh boot can't legitimately
-//                            own a survivor, but never kill our own).
+//   - owningBridgeId === selfBridgeId → owned by THIS freshly-booted bridge.
+//                            By DEFAULT this is skipped (never kill our own at
+//                            runtime). On a FRESH BOOT, pass treatSelfAsOrphan:
+//                            true — see below.
 //   - ownerLive === true (a different live bridge) → SKIP (the live owner manages it).
-export function orphanedOwnedAgentIds(records = [], { selfBridgeId = "" } = {}) {
+//
+// treatSelfAsOrphan (boot-only): on a freshly-booted env bridge that has not yet
+// spawned ANY managed child, every enumerated survivor PROCESS necessarily
+// predates this boot (it belongs to the dead predecessor). The predecessor's
+// env-heartbeat re-sync can re-bind an agent's runtimeState.bridgeInstanceId to
+// THIS bridge id before the sweep reads it (the sync-before-sweep race), or a
+// SIGKILL can leave the env row briefly still showing the old bridge online — in
+// either case the agent record reads "self" yet the running process is an orphan.
+// With treatSelfAsOrphan the boot sweep reaps a self-owned agent's survivor too,
+// because a fresh boot cannot legitimately own a running survivor. SAFETY is
+// unchanged: an agent owned by a genuinely-live DIFFERENT bridge (owner !== self
+// && ownerLive === true) is STILL skipped, so a co-located other-env's agents are
+// never touched; and enumeration is still scoped to these agent ids + cwdRoots.
+export function orphanedOwnedAgentIds(records = [], { selfBridgeId = "", treatSelfAsOrphan = false } = {}) {
   const self = String(selfBridgeId || "").trim();
   const out = [];
   for (const r of records || []) {
     const agentId = String(r?.agentId || "").trim();
     if (!agentId) continue;
     const owner = String(r?.owningBridgeId || "").trim();
-    if (owner && owner === self) continue; // never our own
-    if (r?.ownerLive === true) continue; // a live different bridge owns it → skip
+    if (owner && owner === self) {
+      // Owned by this bridge id. At runtime we never reap our own; on a fresh
+      // boot a "self"-owned survivor is a predecessor's orphan (race / SIGKILL).
+      if (treatSelfAsOrphan) out.push(agentId);
+      continue;
+    }
+    if (r?.ownerLive === true) continue; // a live DIFFERENT bridge owns it → skip
     out.push(agentId);
   }
   return out;
@@ -458,6 +477,12 @@ export function reapOrphanedManagedSurvivors({
   stopDaemon,
   killTree,
   killByPid,
+  // Boot-only: treat a survivor whose agent record reads THIS bridge id as an
+  // orphan too. A fresh env-bridge boot has spawned no managed children, so any
+  // running survivor predates the boot regardless of whose id the agent record
+  // now carries (closes the sync-before-sweep race + the SIGKILL stale-online
+  // env-row gap). A genuinely-live DIFFERENT bridge's agents are still skipped.
+  treatSelfAsOrphan = false,
   log = (msg) => console.error(msg),
 } = {}) {
   let records;
@@ -471,7 +496,7 @@ export function reapOrphanedManagedSurvivors({
     return { skipped: "ownership-unavailable", killed: { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] }, errors: [] };
   }
 
-  const orphanIds = orphanedOwnedAgentIds(records, { selfBridgeId });
+  const orphanIds = orphanedOwnedAgentIds(records, { selfBridgeId, treatSelfAsOrphan });
   if (orphanIds.length === 0) {
     return { killed: { gatewayHosts: [], deliveryLoops: [], daemons: [], consolePtys: [] }, errors: [] };
   }

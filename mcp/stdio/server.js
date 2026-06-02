@@ -1650,6 +1650,13 @@ async function runBootSurvivorSweep() {
       killByPort: defaultKillByPort,
       stopDaemon,
       killTree: killManagedTree,
+      // Fresh boot: a survivor whose agent record now reads THIS bridge id is a
+      // predecessor's orphan (the heartbeat re-sync can rebind it to self before
+      // this sweep reads ownership; a SIGKILL can leave the env row briefly
+      // online under the old id). This bridge has spawned no managed children
+      // yet, so any running survivor predates the boot and is reapable. A live
+      // DIFFERENT bridge's agents are still skipped (owner !== self && ownerLive).
+      treatSelfAsOrphan: true,
     });
     if (result?.skipped === "ownership-unavailable") return;
     if (Array.isArray(result?.pending) && result.pending.length) {
@@ -2353,13 +2360,22 @@ function ensureDispatchLoop() {
   }, DISPATCH_POLL_MS);
 }
 
-ensureEnvironmentHeartbeat();
 ensureEnvironmentControlLoop();
 // WS2: reap crash/SIGKILL managed-triad survivors of a dead predecessor BEFORE
-// the spawn loop brings fresh managed agents up — so "restart = zero survivors"
-// holds. Async + best-effort; never blocks boot. Skips agents owned by a
-// currently-live different bridge.
-runBootSurvivorSweep().catch((error) => console.error("[aify] boot survivor sweep error:", error?.message || error));
+// the spawn loop brings fresh managed agents up AND before the environment
+// heartbeat's syncManagedEnvironmentAgents() can re-bind those agents'
+// runtimeState.bridgeInstanceId to THIS fresh bridge — so "restart = zero
+// survivors" holds. If the heartbeat/sync ran first, the survivor's agent record
+// would already read self as its owner and the sweep would skip exactly the
+// orphans it exists to kill (the sync-before-sweep race). We therefore run the
+// sweep to completion FIRST (it reads ownership while the agents still point at
+// the dead predecessor), THEN start the heartbeat loop. Async + best-effort;
+// errors never block boot. Skips agents owned by a currently-live different bridge.
+runBootSurvivorSweep()
+  .catch((error) => console.error("[aify] boot survivor sweep error:", error?.message || error))
+  .finally(() => {
+    ensureEnvironmentHeartbeat();
+  });
 ensureSpawnLoop();
 ensureTerminalControlLoop();
 
