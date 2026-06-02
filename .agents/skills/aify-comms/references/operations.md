@@ -99,6 +99,7 @@ Never register the same `agentId` from two tabs. Re-registering the same ID supe
 - Chat Peek mode lets an operator watch without marking messages read.
 - Chat composer Queue is opt-in. A normal unchecked send follows ordinary live `comms_send` semantics; checking Queue sets `queueIfBusy=true`.
 - Chat Console attaches to the same managed PTY used for terminal-capable Messenger delivery. Hiding panes or opening Console should not change the identity mode to `cli-takeover`.
+- Console terminals are copyable even on the dashboard's usual non-secure `http://` origin (where `navigator.clipboard` is undefined): the **Copy** button on the Console toolbar copies the current selection or the whole scrollback if nothing is selected, **Ctrl+Shift+C** copies the selection, and **Shift+drag** selects text even while an attached TUI is capturing the mouse. Copy uses a `document.execCommand('copy')` fallback so it works on any origin; paste and interactive input are unchanged.
 - Channel Leave/Remove stops future fan-out for that identity but keeps history; re-add from Chat details to rejoin.
 - Sessions hide ended/completed/cancelled rows by default; show ended/debug rows when investigating lifecycle history.
 
@@ -113,7 +114,7 @@ Status is computed by a single live-state engine (the same one the dashboard, `c
 | `working` | An open turn: a tracked run is claimed/running, **or** a fresh bridge `turnBusy` heartbeat says the runtime is mid-turn. Plan 4's `mcp/stdio/turn-busy-heartbeat.js` keeps this fresh during long turns. Managed Claude PTY turns are tracked as running until their reply closes the run; if Claude visibly returns to an idle prompt without a chat reply, reconcile closes the turn as completed-without-reply so it becomes audit debt instead of live work. **Hermes caveat:** hermes turn detection is dispatch/hook-based — it sees a turn only via an aify dispatch run or the `pre_llm_call` turn-start hook (managed long turns re-pulse via `mcp/stdio/hermes-turn-repulse.js`). Autonomous or direct TUI/gateway hermes work that doesn't trip either may read `online` while actually working (see KNOWN_ISSUES.md). |
 | `idle` | Heartbeat past the idle threshold but not yet offline; session may be paused. |
 | `offline` | Heartbeat past the offline threshold, or the backing environment is down. |
-| `stale` | Resident wrapper bridge heartbeat is missing/expired, or a stored resident binding points at a bridge that no longer owns delivery. Restart the visible wrapper and re-register from it, or switch the identity back to managed. |
+| `stale` | Resident wrapper bridge heartbeat is missing/expired, a stored resident binding points at a bridge that no longer owns delivery, or a resident agent has no usable wake handle (wake-mode `*-missing-handle`, e.g. a resident hermes registered without a usable `gatewayUrl`) — it cannot be woken, so it reads `stale` (label and sidebar dot share one live-state source, so they agree). Restart the visible wrapper and re-register from it, or switch the identity back to managed. |
 | `blocked` | Agent-reported note state, not necessarily unreachable. |
 | `stopped` | Wake/dispatch disabled until restart or re-register. |
 

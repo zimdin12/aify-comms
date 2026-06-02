@@ -548,7 +548,9 @@ NO delivery loop and therefore NO gateway turn detector) hermes turn: Hermes has
 upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys
 on the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
 off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action needed
-if delivery itself works.
+if delivery itself works. (Separately, as of `4611588` a resident hermes with no usable
+wake handle — wake-mode `*-missing-handle` — reads `stale`, not `available`, so this
+residual is now ONLY the missing turn-state detector, not a false-`available`.)
 
 ## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 
@@ -1203,6 +1205,19 @@ If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real
 
 **Fix.** Already fixed in commit `c1a1da1` — bridge does raw passthrough now (`TERMINAL_MANAGER.input(terminalId, rawBody)` with no auto-`\r`). The dashboard sends `\r` explicitly when the operator presses Enter. If you still see this, restart the bridge (the change is in `mcp/stdio/server.js` and loads at bridge start).
 
+## Can't copy text out of a Console terminal
+
+**Symptom.** Selecting text in a dashboard Console (xterm.js) and trying to copy does nothing — no clipboard contents, or only a "use browser copy/menu" toast. Plain click-drag may not even select, because the attached TUI is capturing the mouse (mouse tracking).
+
+**Cause.** The dashboard is usually served over plain `http://192.168.x:8800` (a non-secure origin), where `navigator.clipboard` is `undefined`, so the async Clipboard API silently fails. And an interactive TUI grabs the mouse, so a plain drag is sent to the app instead of selecting text.
+
+**Fix / how to copy (`69711d6`, in the `99cdada` merge).** Three ways, all working on the http origin via a `document.execCommand('copy')` textarea fallback:
+- **Copy button** on the Console toolbar (next to Refresh/Stop) — copies the current selection, or selects + copies the whole scrollback buffer if nothing is selected.
+- **Ctrl+Shift+C** — copies the current xterm selection (now routed through the same robust copy path, not the old "use browser menu" dead end).
+- **Shift+drag** — hold Shift while dragging to select text even while the TUI captures the mouse, then use the Copy button or Ctrl+Shift+C.
+
+Paste and interactive input are unchanged. If copy still fails after updating, the running container predates the fix — rebuild the service (`docker compose up -d --build`), since `dashboard.html` is COPY'd into the image.
+
 ## Pi-aify wrapper exits mid-turn / "terminal failed before reply"
 
 **Symptom.** Dashboard chat to a managed pi agent starts the wrapper PTY, the run goes to `running`, then `term_*` status flips to `stopped` and the run fails with "Terminal failed before an explicit reply was recorded".
@@ -1373,6 +1388,8 @@ If hermes asks the bridge to spawn a child process (`terminal/create`, etc.), th
 ## Hermes-aify wrapper fell through to plain hermes (Plan 5 Section A)
 
 **Symptom.** A `hermes-aify` resident agent reports `wakeMode='hermes-missing-handle'`. From the operator's hermes shell, `echo $AIFY_HERMES_GATEWAY_URL` prints empty. Dispatches to the agent never wake it; the wrapper appears to have launched ok.
+
+**Status note (`4611588`).** A resident hermes whose wake-mode ends in `-missing-handle` (no usable gateway handle) now reads **`stale`**, not `available` — the status label and the sidebar dot share one live-state source, so they agree (they used to split: `available` label + red `unreachable` dot). So if you see this agent as `stale` with a red dot, that's the consistent missing-handle state, not a separate bug; recover it with the fix below. A genuinely-live resident (fresh bridge + usable `gatewayUrl` → `hermes-live`) still reads `available`/`online`.
 
 **Detection.**
 
