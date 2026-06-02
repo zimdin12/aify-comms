@@ -149,6 +149,106 @@ export function defaultReadMarkers(tempDir = os.tmpdir(), { fs: fsImpl = fs } = 
   return out;
 }
 
+// Enumerate ALL per-agent hermes marker FILES in tempDir as
+// [{ agentId, files:[absolutePath,...] }] grouped by agent. Covers the three
+// kinds the triad writes: aify-hermes-port-<agent>, aify-hermes-daemon-pid-<agent>,
+// and aify-hermes-key-<agent>. Used by the boot-time tombstoned-marker sweep
+// (fix/hermes-leak P4) to delete dead markers for agents that no longer exist.
+// Never throws → [] on failure.
+export function defaultListMarkerFiles(tempDir = os.tmpdir(), { fs: fsImpl = fs } = {}) {
+  const prefixes = [
+    "aify-hermes-port-",
+    "aify-hermes-daemon-pid-",
+    "aify-hermes-key-",
+  ];
+  const byAgent = new Map();
+  let entries = [];
+  try {
+    entries = fsImpl.readdirSync(tempDir);
+  } catch {
+    return [];
+  }
+  for (const name of entries) {
+    const prefix = prefixes.find((p) => name.startsWith(p));
+    if (!prefix) continue;
+    const agentId = name.slice(prefix.length);
+    if (!agentId) continue;
+    if (!byAgent.has(agentId)) byAgent.set(agentId, []);
+    byAgent.get(agentId).push(path.join(tempDir, name));
+  }
+  return Array.from(byAgent.entries()).map(([agentId, files]) => ({ agentId, files }));
+}
+
+// Pure: given the marker-file groups and the set of agent ids that still EXIST
+// on the server (the live `/agents` keyset), return the marker agent ids that
+// are tombstoned/unknown — i.e. have markers but are NOT a known agent. These
+// are safe to delete machine-wide: a removed agent no longer exists in any env,
+// so its leftover port/key/daemon markers can never belong to a live session.
+// SAFETY: an agent still present in `knownAgentIds` is NEVER swept (it may be a
+// co-located other-env's live agent). Fail-safe: callers pass null/undefined for
+// knownAgentIds → return [] (unknown keyset must never become a blanket sweep).
+export function tombstonedMarkerAgentIds(markerGroups = [], knownAgentIds) {
+  if (knownAgentIds == null) return []; // unknown keyset → sweep nothing (fail-safe)
+  const known = new Set(
+    (Array.isArray(knownAgentIds) ? knownAgentIds : Array.from(knownAgentIds || []))
+      .map((a) => String(a || "").trim())
+      .filter(Boolean),
+  );
+  const out = [];
+  for (const g of markerGroups || []) {
+    const agentId = String(g?.agentId || "").trim();
+    if (!agentId) continue;
+    if (known.has(agentId)) continue; // still a live/known agent → keep its markers
+    out.push(agentId);
+  }
+  return out;
+}
+
+// Boot-time tombstoned-marker sweep (fix/hermes-leak P4). Delete the marker
+// FILES (aify-hermes-{port,daemon-pid,key}-<agent>) for every agent that has
+// markers but no longer exists on the server. The companion to the survivor
+// PROCESS sweep: that sweep kills orphaned processes; this clears the stale
+// marker files a removed agent leaves behind so they don't accumulate and so the
+// process sweep doesn't keep re-finding a phantom gateway/daemon. Pure +
+// injectable. Fail-safe: knownAgentIds null/undefined → deletes NOTHING.
+// Returns { swept:[{agentId,files}], errors }.
+export function sweepTombstonedMarkers({
+  knownAgentIds,
+  tempDir = os.tmpdir(),
+  listMarkerFiles = defaultListMarkerFiles,
+  rm = (p) => fs.rmSync(p, { force: true }),
+  log = (msg) => console.error(msg),
+} = {}) {
+  const swept = [];
+  const errors = [];
+  if (knownAgentIds == null) return { swept, errors, skipped: "known-agents-unavailable" };
+  let groups = [];
+  try {
+    groups = listMarkerFiles(tempDir) || [];
+  } catch {
+    groups = [];
+  }
+  const tombstoned = new Set(tombstonedMarkerAgentIds(groups, knownAgentIds));
+  for (const g of groups) {
+    const agentId = String(g?.agentId || "").trim();
+    if (!agentId || !tombstoned.has(agentId)) continue;
+    const removed = [];
+    for (const file of g.files || []) {
+      try {
+        rm(file);
+        removed.push(file);
+      } catch (err) {
+        errors.push({ agentId, file, error: String(err?.message || err) });
+      }
+    }
+    if (removed.length) {
+      swept.push({ agentId, files: removed });
+      try { log(`[aify] tombstoned-marker sweep: cleared ${removed.length} marker(s) for removed agent=${agentId}`); } catch { /* ignore */ }
+    }
+  }
+  return { swept, errors };
+}
+
 // --- enumeration ------------------------------------------------------------
 
 // Enumerate managed-hermes triad survivors for ONLY the owned/in-root agents.
@@ -240,6 +340,40 @@ export function enumerateManagedSurvivors({
   }
 
   return found;
+}
+
+// --- stop-control triad-teardown decision (the bridge stop-handler seam) ----
+
+// Body sentinel a REMOVE stop control stamps (server: _REAP_TRIAD_BODY_SENTINEL)
+// to carry the triad-reap intent forward when the agent row is already gone and
+// sessionMode can no longer be resolved at claim time.
+export const REAP_TRIAD_BODY_SENTINEL = "__aify_reap_triad__";
+
+// fix/hermes-leak P2: decide whether a claimed terminal STOP control is for a
+// MANAGED HERMES agent and therefore must trigger the agent-scoped triad
+// teardown (gateway host + delivery loop + daemon) in addition to the PTY stop.
+// Returns the agentId to scope the teardown to, or null when no triad reap
+// applies. AGENT-SCOPED + fail-safe:
+//   - action must be "stop" (input/resize/start never reap)
+//   - runtime must be hermes (the "hermes" / "hermes-agent" family; claude has
+//     its own reaper, other runtimes have no triad)
+//   - the agent must be MANAGED, proven by EITHER sessionMode==="managed" OR the
+//     REMOVE body sentinel (the agent row is gone post-delete, so sessionMode is
+//     unresolvable then; the sentinel is the explicit triad-reap flag). A RESIDENT
+//     hermes carries neither → NEVER reaped (operator's own session).
+//   - agentId must be present (no id → nothing to scope → no reap)
+export function stopControlTriadAgentId(control) {
+  if (!control || typeof control !== "object") return null;
+  if (String(control.action || "").trim().toLowerCase() !== "stop") return null;
+  const runtime = String(control.runtime || "").trim().toLowerCase();
+  const isHermes = runtime === "hermes" || runtime === "hermes-agent";
+  if (!isHermes) return null;
+  const managed = String(control.sessionMode || "").trim().toLowerCase() === "managed";
+  const sentinel = String(control.body || "").includes(REAP_TRIAD_BODY_SENTINEL);
+  if (!managed && !sentinel) return null;
+  const agentId = String(control.agentId || "").trim();
+  if (!agentId) return null;
+  return agentId;
 }
 
 // --- default kill primitives ------------------------------------------------
@@ -518,4 +652,8 @@ export default {
   orphanedOwnedAgentIds,
   bridgeOwnerIsLive,
   reapOrphanedManagedSurvivors,
+  defaultListMarkerFiles,
+  tombstonedMarkerAgentIds,
+  sweepTombstonedMarkers,
+  stopControlTriadAgentId,
 };

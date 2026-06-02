@@ -4747,7 +4747,14 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
     }
 
 
-def _terminal_control_to_dict(row, *, pid: str = "") -> dict[str, Any]:
+def _terminal_control_to_dict(
+    row,
+    *,
+    pid: str = "",
+    agent_id: str = "",
+    runtime: str = "",
+    session_mode: str = "",
+) -> dict[str, Any]:
     return {
         "id": row["id"],
         "terminalId": row["terminal_id"],
@@ -4768,6 +4775,15 @@ def _terminal_control_to_dict(row, *, pid: str = "") -> dict[str, Any]:
         # `stop` control when it never owned the PTY in its in-memory Map
         # (owning bridge restarted/died). Empty when unknown.
         "pid": str(pid or ""),
+        # Target terminal's agent + runtime, and the agent's session_mode, so a
+        # claiming bridge can detect a MANAGED-HERMES `stop` and run the triad
+        # teardown (gateway/loop/daemon), not just the PTY stop (fix/hermes-leak
+        # P2). Empty when the terminal/agent is gone (e.g. claimed after REMOVE
+        # deleted the agent) — REMOVE therefore stamps the body sentinel below so
+        # the triad reap still fires.
+        "agentId": str(agent_id or ""),
+        "runtime": str(runtime or ""),
+        "sessionMode": str(session_mode or ""),
     }
 
 
@@ -10062,11 +10078,25 @@ async def claim_terminal_controls(req: TerminalControlClaim):
         out = []
         for row in controls:
             term_row = await (await db.execute(
-                "SELECT process_id FROM terminal_sessions WHERE id = ?",
+                "SELECT process_id, agent_id, runtime FROM terminal_sessions WHERE id = ?",
                 (row["terminal_id"],),
             )).fetchone()
             pid = str((term_row["process_id"] if term_row else "") or "")
-            out.append(_terminal_control_to_dict(row, pid=pid))
+            agent_id = str((term_row["agent_id"] if term_row else "") or "")
+            runtime = str((term_row["runtime"] if term_row else "") or "")
+            # Surface the target agent's session_mode so a claiming bridge can
+            # decide whether a `stop` control needs a MANAGED-HERMES triad teardown
+            # (fix/hermes-leak P2). Best-effort; resident/unknown → "".
+            session_mode = ""
+            if agent_id:
+                agent_row = await (await db.execute(
+                    "SELECT session_mode FROM agents WHERE id = ?",
+                    (agent_id,),
+                )).fetchone()
+                session_mode = _normalize_session_mode((agent_row["session_mode"] if agent_row else "") or "")
+            out.append(_terminal_control_to_dict(
+                row, pid=pid, agent_id=agent_id, runtime=runtime, session_mode=session_mode,
+            ))
         return {"ok": True, "controls": out}
     finally:
         await db.close()
@@ -11608,6 +11638,29 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
 async def unregister_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
+        # fix/hermes-leak P2 (REMOVE): for a MANAGED agent, tear the triad down by
+        # signalling the bridge BEFORE the agent record is gone. We cannot use a
+        # terminal_control here: deleting the agent cascades agents → agent_sessions
+        # → terminal_sessions → terminal_controls, so any control emitted in this
+        # request is wiped by the same delete. Instead REMOVE drives the triad reap
+        # through the SAME agent-control STOP path (status=stopped + the bridge's
+        # managed-hermes terminal stop reaps the triad), committed in its own
+        # transaction, THEN tombstones. This makes REMOVE = STOP-then-tombstone, so
+        # the surviving stop control (claimed before the tombstone delete) carries
+        # the triad-reap. Resident agents are skipped (operator's own session).
+        cursor = await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))
+        agent_row = await cursor.fetchone()
+        managed = bool(agent_row) and _normalize_session_mode(agent_row["session_mode"] or "resident") == "managed"
+        if managed:
+            now = _now()
+            await db.execute(
+                "UPDATE agents SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ? WHERE id = ?",
+                ("Removed from dashboard; tearing down managed session.", now, agent_id),
+            )
+            await _request_stop_agent_terminals(
+                db, agent_id, requested_by="api", now=now, reap_triad=True,
+            )
+            await db.commit()
         deleted = await _remove_agent_record(
             db,
             agent_id,
@@ -11622,14 +11675,30 @@ async def unregister_agent(agent_id: str, request: Request):
         await db.close()
 
 
-async def _request_stop_agent_terminals(db, agent_id: str, *, requested_by: str, now: str) -> int:
+# Body sentinel prefix on a `stop` terminal control that must ALSO reap the
+# MANAGED-HERMES triad (gateway host + delivery loop + daemon), not just the PTY
+# (fix/hermes-leak P2). Used by REMOVE: after the agent row is deleted the claim
+# can no longer resolve session_mode, so the sentinel carries the triad-reap
+# intent forward. The bridge honors runtime=hermes + (sessionMode=managed OR this
+# sentinel). The human-readable suffix is preserved for the console.
+_REAP_TRIAD_BODY_SENTINEL = "__aify_reap_triad__"
+
+
+async def _request_stop_agent_terminals(
+    db, agent_id: str, *, requested_by: str, now: str, reap_triad: bool = False,
+) -> int:
     """Stop an agent's live MANAGED terminals — an operator Stop must kill the
     running console/TUI, since aify-comms is the lifecycle driver for managed
     sessions (operator-reported 2026-05-31: Stop interrupted the run + marked the
     agent stopped but left the host TUI running). Appends a 'stop' terminal
     control (the bridge's terminal-control poll reaps the PTY) and marks the
     terminal 'stopping'. Skips synthetic (vterm_) and already terminal-state
-    rows. Returns the number of terminals signaled."""
+    rows. Returns the number of terminals signaled.
+
+    reap_triad (fix/hermes-leak P2): stamp the body sentinel so a MANAGED-HERMES
+    stop also tears down the detached triad (gateway/loop/daemon) on the bridge,
+    even when the agent row is already gone (REMOVE) and session_mode can't be
+    resolved at claim time."""
     cursor = await db.execute(
         """
         SELECT id, environment_id, bridge_id, session_id FROM terminal_sessions
@@ -11639,6 +11708,9 @@ async def _request_stop_agent_terminals(db, agent_id: str, *, requested_by: str,
         """,
         (agent_id,),
     )
+    stop_body = "Agent stopped from dashboard."
+    if reap_triad:
+        stop_body = f"{_REAP_TRIAD_BODY_SENTINEL} {stop_body}"
     count = 0
     for t in await cursor.fetchall():
         await _append_terminal_control(
@@ -11648,7 +11720,7 @@ async def _request_stop_agent_terminals(db, agent_id: str, *, requested_by: str,
             bridge_id=t["bridge_id"] or "",
             action="stop",
             requested_by=requested_by,
-            body="Agent stopped from dashboard.",
+            body=stop_body,
         )
         await db.execute(
             "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",

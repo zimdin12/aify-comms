@@ -67,8 +67,11 @@ import {
   defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
   defaultKillTree as killManagedTree,
+  sweepTombstonedMarkers,
+  stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
+import { clearGatewayMarkers as hermesClearGatewayMarkers } from "./hermes-endpoint.js";
 import {
   reportGatewayDead,
   gatewayIndexUrlFromWs,
@@ -1560,6 +1563,51 @@ async function runManagedTeardownForBridge(reason = "bridge teardown") {
   }
 }
 
+// Tear down ONE managed-hermes agent's triad (gateway host, delivery loop,
+// daemon, console PTY) — the agent-scoped reaper for a Dashboard STOP/REMOVE of
+// a managed hermes agent (fix/hermes-leak P2). Scoped strictly to the single
+// agentId passed in: enumeration keys on the delivery-loop cmdline + the agent's
+// own port/daemon-pid markers, so another agent's or a resident operator's
+// processes can NEVER be enumerated. async: awaits the port-kill/stopDaemon
+// promises. Best-effort; never throws.
+async function runSingleAgentManagedTeardown(agentId, reason = "agent stop") {
+  const id = String(agentId || "").trim();
+  if (!id) return;
+  try {
+    const result = runManagedTeardown({
+      ownedAgentIds: [id],
+      cwdRoots: cwdRootsForEnvironment(),
+      listProcesses: listManagedProcesses,
+      readMarkers: () => readManagedMarkers(os.tmpdir()),
+      // The console PTY is killed by the in-memory TERMINAL_MANAGER.stop on the
+      // stop control itself; here we reap the DETACHED triad (gateway/loop/daemon)
+      // that the PTY stop leaves behind.
+      consolePtyPids: [],
+      killByPort: defaultKillByPort,
+      stopDaemon,
+      killTree: killManagedTree,
+    });
+    if (Array.isArray(result?.pending) && result.pending.length) {
+      await Promise.allSettled(result.pending);
+    }
+    const n =
+      (result?.killed?.gatewayHosts?.length || 0) +
+      (result?.killed?.deliveryLoops?.length || 0) +
+      (result?.killed?.daemons?.length || 0);
+    if (n) {
+      console.error(`[aify] single-agent managed teardown (${reason}): reaped ${n} survivor(s) for agent ${id}`);
+    }
+    // Marker hygiene (P4): a STOP/REMOVE is the lifecycle end of this managed
+    // session; clear its gateway port/key markers so they don't linger.
+    try { hermesClearGatewayMarkers(id, os.tmpdir()); } catch { /* best effort */ }
+    if (result?.errors?.length) {
+      console.error(`[aify] single-agent managed teardown (${reason}) had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
+    }
+  } catch (error) {
+    console.error(`[aify] single-agent managed teardown (${reason}) failed:`, error?.message || error);
+  }
+}
+
 // Synchronous best-effort variant for the process.on('exit') path
 // (cleanupOnExit), where no async work can run. Fires spawnSync kills (taskkill
 // /t /f for loops + console-style trees; the gateway port-kill is the async
@@ -1705,6 +1753,45 @@ async function runBootSurvivorSweep() {
     }
   } catch (error) {
     console.error("[aify] boot survivor sweep failed:", error?.message || error);
+  }
+}
+
+// Env-bridge BOOT tombstoned-marker sweep (fix/hermes-leak P4). The survivor
+// sweep above kills orphaned PROCESSES; this deletes the stale marker FILES
+// (aify-hermes-{port,daemon-pid,key}-<agent>) a REMOVED agent leaves behind.
+// A tombstoned agent never relaunches, so its gateway port/key markers are dead
+// weight that would otherwise persist forever (the loop's agent-removed teardown
+// now clears them too, but a SIGKILLed loop never runs that, so the boot sweep is
+// the backstop). Scope: an agent absent from the live `/agents` keyset no longer
+// exists in ANY environment, so deleting its markers is machine-safe; a still-
+// known agent (incl. a co-located other-env's live agent) is NEVER swept.
+// FAIL-SAFE: if `/agents` can't be fetched, the keyset is null → sweep nothing.
+async function runBootTombstonedMarkerSweep() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
+  let knownAgentIds = null;
+  try {
+    const agentsRes = await httpCall("GET", "/agents");
+    knownAgentIds = Object.keys(agentsRes?.agents || {});
+  } catch (error) {
+    // Unknown keyset → fail-safe (sweep nothing). 404 is just "no agents yet".
+    if (error?.status !== 404) {
+      console.error("[aify] boot tombstoned-marker sweep: /agents query failed — sweeping nothing (fail-safe):", error?.message || error);
+      return;
+    }
+    knownAgentIds = [];
+  }
+  try {
+    const result = sweepTombstonedMarkers({ knownAgentIds, tempDir: os.tmpdir() });
+    if (result?.skipped) return;
+    const n = result?.swept?.length || 0;
+    if (n) {
+      console.error(`[aify] boot tombstoned-marker sweep: cleared markers for ${n} removed agent(s)`);
+    }
+    if (result?.errors?.length) {
+      console.error(`[aify] boot tombstoned-marker sweep had ${result.errors.length} error(s):`, JSON.stringify(result.errors));
+    }
+  } catch (error) {
+    console.error("[aify] boot tombstoned-marker sweep failed:", error?.message || error);
   }
 }
 
@@ -2153,6 +2240,17 @@ async function runTerminalControlLoop() {
           if (orphanPid) {
             TERMINAL_MANAGER.killByPid(orphanPid);
           }
+          // fix/hermes-leak P2: a STOP/REMOVE of a MANAGED HERMES agent must tear
+          // down the WHOLE triad (detached gateway host + delivery loop + daemon),
+          // not just the PTY above — otherwise Stop/Remove leaves the gateway/loop/
+          // daemon orphaned (the big latent leak). AGENT-SCOPED: stopControlTriadAgentId
+          // returns the agent id ONLY for a managed-hermes stop (sessionMode=managed
+          // or the REMOVE body sentinel); a resident hermes / claude / another runtime
+          // returns null and is never touched.
+          const triadAgentId = stopControlTriadAgentId(control);
+          if (triadAgentId && IS_ENVIRONMENT_BRIDGE) {
+            await runSingleAgentManagedTeardown(triadAgentId, "dashboard stop/remove");
+          }
           await updateTerminalControl(control.id, { status: "completed", terminalStatus: "stopped" });
         } else {
           throw new Error(`Unsupported terminal control action: ${control.action}`);
@@ -2404,7 +2502,13 @@ ensureEnvironmentControlLoop();
 runBootSurvivorSweep()
   .catch((error) => console.error("[aify] boot survivor sweep error:", error?.message || error))
   .finally(() => {
-    ensureEnvironmentHeartbeat();
+    // fix/hermes-leak P4: clear stale marker FILES for removed agents alongside
+    // the process survivor sweep (best-effort; never blocks boot/heartbeat).
+    runBootTombstonedMarkerSweep()
+      .catch((error) => console.error("[aify] boot tombstoned-marker sweep error:", error?.message || error))
+      .finally(() => {
+        ensureEnvironmentHeartbeat();
+      });
   });
 ensureSpawnLoop();
 ensureTerminalControlLoop();

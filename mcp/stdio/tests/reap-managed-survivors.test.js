@@ -5,6 +5,8 @@ import {
   reapManagedSurvivors,
   cmdlineDeliveryLoopAgent,
   cmdlineResidentAgent,
+  tombstonedMarkerAgentIds,
+  sweepTombstonedMarkers,
 } from "../reap-managed-survivors.js";
 
 // ---------------------------------------------------------------------------
@@ -182,6 +184,79 @@ import {
   });
   assert.deepEqual(killedPids.sort((a, b) => a - b), [100, 7777], "loop + pty still killed despite gateway throw");
   assert.ok(Array.isArray(result.errors) && result.errors.length >= 1, "errors recorded, not swallowed");
+}
+
+// ---------------------------------------------------------------------------
+// 8. tombstonedMarkerAgentIds (fix/hermes-leak P4): markers for agents NOT in
+//    the live keyset are tombstoned; known agents are kept; unknown keyset is
+//    fail-safe (sweeps nothing).
+// ---------------------------------------------------------------------------
+{
+  const groups = [
+    { agentId: "sc-coder", files: ["/tmp/aify-hermes-port-sc-coder"] },
+    { agentId: "ghost", files: ["/tmp/aify-hermes-port-ghost", "/tmp/aify-hermes-key-ghost"] },
+    { agentId: "other-env", files: ["/tmp/aify-hermes-daemon-pid-other-env"] },
+  ];
+  // sc-coder + other-env are live/known; ghost is tombstoned.
+  assert.deepEqual(
+    tombstonedMarkerAgentIds(groups, ["sc-coder", "other-env"]).sort(),
+    ["ghost"],
+    "only the agent absent from the known keyset is tombstoned",
+  );
+  // Fail-safe: unknown keyset → sweep nothing.
+  assert.deepEqual(tombstonedMarkerAgentIds(groups, null), [], "null keyset → fail-safe empty");
+  assert.deepEqual(tombstonedMarkerAgentIds(groups, undefined), [], "undefined keyset → fail-safe empty");
+  // Empty known set (a real, fetched keyset that happens to be empty) → all swept.
+  assert.deepEqual(
+    tombstonedMarkerAgentIds(groups, []).sort(),
+    ["ghost", "other-env", "sc-coder"],
+    "an explicit empty keyset tombstones every marker agent",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 9. sweepTombstonedMarkers (fix/hermes-leak P4): deletes ALL marker files for
+//    tombstoned agents, NEVER a known agent's; fail-safe on unknown keyset.
+// ---------------------------------------------------------------------------
+{
+  const groups = [
+    { agentId: "sc-coder", files: ["/tmp/aify-hermes-port-sc-coder", "/tmp/aify-hermes-key-sc-coder"] },
+    { agentId: "ghost", files: ["/tmp/aify-hermes-port-ghost", "/tmp/aify-hermes-daemon-pid-ghost", "/tmp/aify-hermes-key-ghost"] },
+  ];
+  const removed = [];
+  const res = sweepTombstonedMarkers({
+    knownAgentIds: ["sc-coder"],
+    listMarkerFiles: () => groups,
+    rm: (p) => removed.push(p),
+    log: () => {},
+  });
+  assert.deepEqual(
+    removed.sort(),
+    ["/tmp/aify-hermes-daemon-pid-ghost", "/tmp/aify-hermes-key-ghost", "/tmp/aify-hermes-port-ghost"],
+    "all three ghost markers deleted; sc-coder's untouched",
+  );
+  assert.equal(res.swept.length, 1, "one tombstoned agent swept");
+  assert.equal(res.swept[0].agentId, "ghost");
+
+  // Fail-safe: unknown keyset deletes NOTHING.
+  const removed2 = [];
+  const res2 = sweepTombstonedMarkers({
+    knownAgentIds: null,
+    listMarkerFiles: () => groups,
+    rm: (p) => removed2.push(p),
+    log: () => {},
+  });
+  assert.deepEqual(removed2, [], "null keyset → delete nothing (fail-safe)");
+  assert.equal(res2.skipped, "known-agents-unavailable");
+
+  // A throwing rm is recorded, not fatal.
+  const res3 = sweepTombstonedMarkers({
+    knownAgentIds: [],
+    listMarkerFiles: () => [{ agentId: "ghost", files: ["/tmp/aify-hermes-port-ghost"] }],
+    rm: () => { throw new Error("EPERM"); },
+    log: () => {},
+  });
+  assert.ok(res3.errors.length >= 1, "rm failure recorded in errors");
 }
 
 console.log("reap-managed-survivors.test.js: all assertions passed");
