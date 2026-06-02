@@ -87,6 +87,19 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Default the server URL when none was passed positionally. Without this, a
+# documented invocation like `install.sh --client claude` (no URL) left
+# SERVER_URL empty, which made the claude gating below run remove_claude_wrapper
+# and DELETE ~/.local/bin/claude-aify even though the install otherwise printed
+# "Installation complete" — the live incident: claude-aify missing post-install
+# while codex-aify/hermes-aify were present. The hermes wrapper already defaulted
+# via DEFAULT_AIFY_SERVER_URL (see default_server in install_hermes_wrapper), so
+# claude was the inconsistent path. Apply the same default here so every client
+# gets a usable URL and the claude wrapper is installed (not removed).
+if [ -z "$SERVER_URL" ]; then
+  SERVER_URL="$DEFAULT_AIFY_SERVER_URL"
+fi
+
 if [ "$CLIENT" = "pi" ]; then
   echo "Pi/OMP resident wrapper install is disabled."
   echo "Managed Pi remains supported through the environment bridge using plain 'omp --mode rpc'."
