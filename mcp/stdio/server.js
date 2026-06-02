@@ -134,7 +134,13 @@ function uniqueServerUrls(urls) {
 }
 function defaultFallbackServerUrls(primary) {
   if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
-  return ["http://host.docker.internal:8800", "http://192.168.100.10:8800"];
+  // Loopback only. Previously this also added host.docker.internal and a
+  // hardcoded LAN IP (192.168.100.10), which silently failed a local bridge
+  // over to a developer's shared server — a plain local install would register
+  // its agents on a remote host. Fallbacks now stay on the loopback the
+  // operator already chose. Set AIFY_SERVER_FALLBACK_URLS / CLAUDE_MCP_FALLBACK_URLS
+  // to opt into any non-loopback fallback explicitly.
+  return ["http://127.0.0.1:8800", "http://localhost:8800"];
 }
 const SERVER_URLS = uniqueServerUrls([
   SERVER_URL,
