@@ -371,6 +371,44 @@ export function runManagedTeardown({
   return reapManagedSurvivors(found, { killByPort, stopDaemon, killTree, killByPid, log });
 }
 
+// --- owning-bridge liveness (the ownerLive signal) --------------------------
+
+// Decide whether an agent's OWNING ENVIRONMENT BRIDGE is alive — the signal that
+// feeds `ownerLive`. This MUST NOT be derived from the agent's status: after a
+// SIGKILL/crash the survivor's detached delivery loop keeps heartbeating + holds
+// its claimer lease, so the agent stays online/working and a status-based signal
+// would mark the DEAD owner as live → the orphan it exists to kill would be
+// skipped forever (the WS2 boot-sweep bug).
+//
+// Instead we mirror how the server judges bridge freshness (a fresh,
+// non-superseded bridge_instances row) using the only host-side source that
+// exposes it without a new endpoint: GET /environments. Each environment row
+// reports its CURRENT bridgeId and a last_seen-derived online/offline status. An
+// owning bridge is LIVE iff it is the current bridgeId of an ONLINE environment.
+//
+//   - A crash survivor's stored owningBridgeId points at the DEAD predecessor.
+//     Once the new bridge heartbeats, the env's bridgeId is the NEW id, so the
+//     old id matches no online env → NOT live → reaped. Before the new heartbeat
+//     lands, the env row still carries the dead bridge with a stale last_seen →
+//     status offline → NOT live → reaped. Both orderings classify it ORPHANED.
+//   - A genuinely live DIFFERENT bridge IS the current bridgeId of an online env
+//     → LIVE → skipped.
+//   - The freshly-booted bridge's own id is always live (defensive; the
+//     orphanedOwnedAgentIds self-skip also covers it).
+export function bridgeOwnerIsLive(owningBridgeId, { environments = [], selfBridgeId = "" } = {}) {
+  const owner = String(owningBridgeId || "").trim();
+  if (!owner) return false; // never synced / unknown owner → not live → eligible
+  if (owner === String(selfBridgeId || "").trim()) return true; // our own bridge
+  for (const env of environments || []) {
+    if (!env) continue;
+    const envBridge = String(env.bridgeId || "").trim();
+    if (envBridge && envBridge === owner && String(env.status || "").toLowerCase() === "online") {
+      return true;
+    }
+  }
+  return false;
+}
+
 // --- boot-time orphan sweep -------------------------------------------------
 
 // Given per-agent ownership records [{ agentId, owningBridgeId, ownerLive }],
@@ -453,5 +491,6 @@ export default {
   reapManagedSurvivors,
   runManagedTeardown,
   orphanedOwnedAgentIds,
+  bridgeOwnerIsLive,
   reapOrphanedManagedSurvivors,
 };

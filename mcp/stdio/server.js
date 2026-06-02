@@ -62,6 +62,7 @@ import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
   runManagedTeardown,
   reapOrphanedManagedSurvivors,
+  bridgeOwnerIsLive,
   enumerateManagedSurvivors,
   defaultListProcesses as listManagedProcesses,
   defaultReadMarkers as readManagedMarkers,
@@ -1534,6 +1535,13 @@ async function runManagedTeardownForBridge(reason = "bridge teardown") {
 // /t /f for loops + console-style trees; the gateway port-kill is the async
 // path's job — here we kill the tracked daemon pid + delivery-loop trees, the
 // processes most likely to be orphaned). Scoped identically; never throws.
+//
+// NOTE: this sync exit path CANNOT port-kill gateway hosts (defaultKillByPort is
+// async and nothing can await on process exit), so a SIGKILLed/crashed bridge's
+// gateway-host survivors are not reaped here. The env-bridge BOOT survivor sweep
+// (runBootSurvivorSweep) is their backstop — and now that the sweep correctly
+// keys ownerLive on owning-bridge freshness (not agent status), it reaps those
+// gateway survivors on the next bridge start, so this gap is self-healing.
 function runManagedTeardownSync(reason = "bridge exit") {
   if (!IS_ENVIRONMENT_BRIDGE) return;
   const ownedAgentIds = ownedManagedAgentIds();
@@ -1568,29 +1576,32 @@ function runManagedTeardownSync(reason = "bridge exit") {
   }
 }
 
-// A live status string means a managed agent's owning bridge/claimer is alive
-// RIGHT NOW. Conservative: when the agent is online/working/ready/busy we treat
-// the owner as live and SKIP reaping (leaking a survivor is acceptable; killing
-// a live owner's children is not). offline/available/idle/disconnected ⇒ no
-// live owner ⇒ eligible for reap.
-function statusImpliesLiveOwner(status) {
-  return ["online", "working", "ready", "busy"].includes(String(status || "").toLowerCase());
-}
-
 // Build per-agent ownership records for the boot sweep: managed agents in THIS
 // environment (within cwdRoots) with their owning bridge id + whether that
-// owner is live right now. Derived from /agents + /sessions. Throws on HTTP
-// failure so the sweep fail-safes to reaping nothing.
+// OWNING ENVIRONMENT BRIDGE is alive. Derived from /agents + /sessions +
+// /environments. Throws on HTTP failure so the sweep fail-safes to reaping
+// nothing.
+//
+// ownerLive must NOT be derived from the agent's status: after a SIGKILL/crash
+// the survivor's detached delivery loop keeps heartbeating + holds its claimer
+// lease, so the agent stays online/working. A status-based signal would mark the
+// DEAD owner as live and the sweep would skip exactly the orphans it exists to
+// kill. Instead we key on owning-bridge freshness: the agent's stored
+// runtimeState.bridgeInstanceId vs the CURRENT bridgeId of an ONLINE environment
+// (GET /environments — the host-side mirror of the server's
+// _resident_bridge_is_fresh check). See bridgeOwnerIsLive.
 async function fetchManagedOwnershipForEnv() {
   const environment = effectiveEnvironmentPayload();
-  const [agentsRes, sessionsRes] = await Promise.all([
+  const [agentsRes, sessionsRes, environmentsRes] = await Promise.all([
     httpCall("GET", "/agents"),
     httpCall("GET", `/sessions?environmentId=${encodeURIComponent(environment.id)}&limit=500`),
+    httpCall("GET", "/environments"),
   ]);
   const sessionByAgent = new Map();
   for (const session of sessionsRes?.sessions || []) {
     if (session?.agentId && !sessionByAgent.has(session.agentId)) sessionByAgent.set(session.agentId, session);
   }
+  const environments = Array.isArray(environmentsRes?.environments) ? environmentsRes.environments : [];
   const records = [];
   for (const [agentId, info] of Object.entries(agentsRes?.agents || {})) {
     if (normalizeSessionMode(info.sessionMode) !== "managed") continue;
@@ -1601,10 +1612,14 @@ async function fetchManagedOwnershipForEnv() {
     if (!belongsToEnvironment) continue;
     const workspace = session?.workspace || info.cwd || DEFAULT_CWD;
     if (!workspaceWithinRoots(workspace, environment.cwdRoots)) continue;
+    const owningBridgeId = String(runtimeState.bridgeInstanceId || "").trim();
     records.push({
       agentId,
-      owningBridgeId: String(runtimeState.bridgeInstanceId || "").trim(),
-      ownerLive: statusImpliesLiveOwner(info.status),
+      owningBridgeId,
+      ownerLive: bridgeOwnerIsLive(owningBridgeId, {
+        environments,
+        selfBridgeId: BRIDGE_INSTANCE_ID,
+      }),
     });
   }
   return records;

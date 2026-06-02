@@ -3,13 +3,76 @@ import assert from "node:assert/strict";
 import {
   reapOrphanedManagedSurvivors,
   orphanedOwnedAgentIds,
+  bridgeOwnerIsLive,
 } from "../reap-managed-survivors.js";
 
 // On env-bridge boot we reap managed-triad survivors whose owning bridge is NOT
 // fresh in bridge_instances, and SKIP any owned by a currently-live different
 // bridge. The "is the owning bridge live?" determination is injected as a list
 // of { agentId, owningBridgeId, ownerLive } records the bridge derives from the
-// server (/agents live status + runtimeState.bridgeInstanceId).
+// server. ownerLive reflects whether the OWNING ENVIRONMENT BRIDGE is alive —
+// NOT the agent's derived status (a SIGKILL survivor's detached delivery loop
+// keeps the agent online/working, so status would falsely mark a dead owner as
+// live and the orphan would never be reaped). The bridge derives ownerLive
+// host-side from GET /environments (each env's current bridgeId + online/offline
+// status) cross-checked against the agent's runtimeState.bridgeInstanceId.
+
+// ---------------------------------------------------------------------------
+// bridgeOwnerIsLive: the OWNING-BRIDGE freshness predicate that feeds ownerLive.
+// An owning bridge is live iff it is the CURRENT bridgeId of an ONLINE
+// environment. The agent's derived status must NOT enter this decision.
+// ---------------------------------------------------------------------------
+{
+  // Crash/SIGKILL survivor: stored owningBridgeId points at the DEAD predecessor
+  // bridge. The env's row now carries the NEW bridge id (online) — the old id
+  // matches no online env → owner is NOT live even though the survivor's
+  // detached loop keeps the agent's status online.
+  const environments = [
+    { id: "win:host:default", bridgeId: "bridge-NEW", status: "online" },
+  ];
+  assert.equal(
+    bridgeOwnerIsLive("bridge-OLD", { environments, selfBridgeId: "bridge-NEW" }),
+    false,
+    "dead predecessor bridge id matches no online env → owner NOT live (would be reaped)",
+  );
+
+  // A genuinely live DIFFERENT bridge: it IS the current bridgeId of an online
+  // env → owner live → must be skipped.
+  const multiEnv = [
+    { id: "win:host:default", bridgeId: "bridge-NEW", status: "online" },
+    { id: "linux:peer:default", bridgeId: "bridge-OTHER", status: "online" },
+  ];
+  assert.equal(
+    bridgeOwnerIsLive("bridge-OTHER", { environments: multiEnv, selfBridgeId: "bridge-NEW" }),
+    true,
+    "owning bridge is the current bridge of an online env → owner LIVE (skip)",
+  );
+
+  // Same id but the env is OFFLINE (stale last_seen): owner not live.
+  assert.equal(
+    bridgeOwnerIsLive("bridge-OLD", {
+      environments: [{ id: "win:host:default", bridgeId: "bridge-OLD", status: "offline" }],
+      selfBridgeId: "bridge-NEW",
+    }),
+    false,
+    "owning bridge is the current bridge of an OFFLINE env → owner NOT live (reap)",
+  );
+
+  // The freshly-booted bridge's OWN id is always treated as live (defensive;
+  // orphanedOwnedAgentIds also skips self).
+  assert.equal(
+    bridgeOwnerIsLive("bridge-NEW", { environments: [], selfBridgeId: "bridge-NEW" }),
+    true,
+    "self bridge id → live",
+  );
+
+  // Empty owning bridge id (never synced) → not live → eligible for reap.
+  assert.equal(
+    bridgeOwnerIsLive("", { environments, selfBridgeId: "bridge-NEW" }),
+    false,
+    "no owning bridge id → not live",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // orphanedOwnedAgentIds: select agents to reap — those WITHOUT a live owner,
