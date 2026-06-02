@@ -885,6 +885,87 @@ test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)
   assert.ok(release, "expected a claimer-lease release POST on terminal teardown");
 });
 
+test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) terminal teardown (fix/hermes-leak P4)", async () => {
+  // On a TERMINAL agent-removed (410) teardown the agent is tombstoned, so there
+  // will be NO relaunch — the port/key markers kept for kill-prior are now dead
+  // weight. The loop must clear them so the env-bridge boot sweep doesn't keep
+  // re-finding a phantom gateway for a removed agent.
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const httpCall = async (method, endpoint) => {
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      const e = new Error("HTTP 410: gone");
+      e.status = 410;
+      throw e;
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  const clearedGateway = [];
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    clearGatewayMarkers: (id) => clearedGateway.push(id),
+    killByPort: () => {},
+    procExit: () => {},
+    maxIterations: 5,
+  });
+
+  assert.ok(
+    clearedGateway.includes("sc-hermes"),
+    "agent-removed (410) teardown must clear the gateway port/key markers (no relaunch coming)",
+  );
+});
+
+test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released) teardown (fix/hermes-leak P4)", async () => {
+  // A `released` (graceful, non-410) teardown is NOT an agent removal — the
+  // agent may relaunch — so the gateway port/key markers MUST be preserved for
+  // kill-prior (the 2026-06-02 port-drift guard). Only agent-removed clears them.
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  let claims = 0;
+  const httpCall = async (method, endpoint) => {
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      claims += 1;
+      // Signal a graceful release (not a 410) on the first claim.
+      return { release: true };
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  const clearedGateway = [];
+
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    clearGatewayMarkers: (id) => clearedGateway.push(id),
+    killByPort: () => {},
+    procExit: () => {},
+    maxIterations: 3,
+  });
+
+  assert.equal(
+    clearedGateway.length,
+    0,
+    "a non-removed (released) teardown must preserve gateway markers for kill-prior",
+  );
+});
+
 test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing the shared gateway, does not keep polling", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();

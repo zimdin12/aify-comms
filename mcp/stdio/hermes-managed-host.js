@@ -1547,6 +1547,16 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           stopRepulse();
           stopGatewayProbe();
           await teardown();
+          // Marker hygiene (fix/hermes-leak P4): the default teardown
+          // intentionally PRESERVES the gateway port/key markers so kill-prior
+          // can reap the shared gateway on a relaunch. But agent-removed (410)
+          // is TERMINAL — the agent is tombstoned and will NOT relaunch — so the
+          // port/key markers are now dead weight that the env-bridge boot sweep
+          // would keep re-finding. Clear them ONLY for agent-removed (a transient
+          // `released`/dead-gateway teardown still keeps them for relaunch).
+          if (result.terminal === "agent-removed") {
+            try { clearGatewayMarkers(id, markerDir); } catch { /* best effort */ }
+          }
           console.error(
             `[hermes-managed-host] agent '${id}' ${result.terminal}; gateway torn down, exiting.`,
           );
