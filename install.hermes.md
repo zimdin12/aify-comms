@@ -123,7 +123,9 @@ pinned id `aify-<agentId>`.
 
 Half-migration note (honest): the `install.sh` RESIDENT branch still calls
 `aify_hermes_ensure_daemon` (the api_server daemon) — a known leftover that has
-not been fully removed. Both branches now resume the stable pinned
+not been fully removed. As of 2026-06-02 it no longer **leaks**: the resident
+wrapper now stops that daemon on TUI exit (see "Resident hermes tears down its
+api_server daemon on exit" below). Both branches resume the stable pinned
 `aify-<agentId>` session, so continuity is consistent regardless. The retired
 managed-delivery pieces (the per-agent `hermes gateway run` api_server daemon
 AS the delivery path, `aify.session.bind_transport` / `HermesResidentController`,
@@ -177,10 +179,21 @@ keep a restart honest:
   bridge tears down every managed session it owns: it stops the console PTYs,
   port-kills the gateway hosts, and reaps the detached delivery loops/daemons
   for its owned agents.
-- **Boot-time survivor sweep** — on the next env-bridge start, before the spawn
-  loop comes up, the bridge sweeps for managed-triad survivors of a
-  crashed/SIGKILL'd predecessor and reaps any whose owning bridge is no longer
-  live in `bridge_instances`.
+- **Dashboard STOP reaps the whole triad** (2026-06-02) — a dashboard **Stop**
+  on a managed-hermes agent now tears down the entire triad (gateway host +
+  delivery loop + daemon), agent-scoped, not just the console PTY. The stop
+  control carries the target's `agentId` + runtime + sessionMode so the bridge
+  recognizes a managed-hermes stop and runs an agent-scoped teardown; a resident
+  hermes / claude / other-runtime stop is never touched, and another agent's
+  processes are never enumerated. (STOP and Relaunch reap **synchronously**.)
+- **Boot-time survivor sweep + marker sweep** — on the next env-bridge start,
+  before the spawn loop comes up, the bridge sweeps for managed-triad survivors
+  of a crashed/SIGKILL'd predecessor and reaps any whose owning bridge is no
+  longer live in `bridge_instances`. A companion **tombstoned-marker sweep**
+  deletes the `aify-hermes-{port,daemon-pid,key}-<agent>` marker files for any
+  agent absent from the live `/agents` keyset (removed/tombstoned). Fail-safe:
+  a still-known agent (including a co-located other-env's live agent) is never
+  swept, and an unknown keyset sweeps nothing.
 
 Both are **scoped to the agents this env bridge owns** (its `cwdRoots`) and
 **never touch resident sessions or another env's agents**. The net effect:
@@ -199,6 +212,23 @@ shares with its visible TUI is reaped by **kill-prior on relaunch** and the
 This is what fixed the "gateway websocket connection failed" incident where a
 loop exit (e.g. a transient 410) port-killed the gateway out from under the live
 TUI and dropped the TUI's WebSocket.
+
+**kill-prior also reaps the prior visible resume-TUI (2026-06-02).** On a silent
+relaunch, kill-prior previously reaped the prior delivery loop, gateway host, and
+daemon but NOT the prior `hermes --tui --resume aify-<agent>` visible TUI, so each
+relaunch leaked a duplicate resume-TUI. kill-prior now also reaps that prior
+resume-TUI, matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a
+broad `hermes --tui`. This reap (and the gateway port-kill + daemon stop) is gated to
+the **pre-spawn call only**, so the post-spawn self-reap-race call can never kill the
+gateway/daemon/TUI the current launch just brought up (the 2026-06-02 port-kill root
+cause behind "gateway websocket connection failed").
+
+**Resident hermes tears down its api_server daemon on exit (2026-06-02).** The
+resident branch starts a per-agent api_server daemon (`aify_hermes_ensure_daemon`) but
+historically bare-`exec`'d the TUI, so the daemon leaked (a stray `hermes gateway
+run`) when the resident TUI exited. The wrapper now runs the TUI as a child (no `exec`)
+and stops the daemon on every exit path (bash `trap EXIT` + explicit stop; PowerShell
+`finally`), routing to `stopDaemon` (kill-by-port + tracked-pid + clearGatewayMarkers).
 
 A managed agent whose **owning environment bridge is offline computes `offline`**
 immediately — regardless of any surviving delivery-loop heartbeat — because a
@@ -320,7 +350,7 @@ TUI attached on the pinned id. Re-run `install.sh --client hermes`, restart that
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
 - The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
-- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. For managed hermes, turn-END is now event-driven: the delivery loop watches the gateway session and clears `turn_busy` immediately when the session goes idle (so `working` clears as soon as the turn finishes, and any queued run delivers on the next claim). The server-side `turn_busy` staleness window is demoted to a long (~15m) backstop that only fires if that idle signal is dropped. Operator-typed (direct) hermes turns without a managed delivery loop still rely on that backstop for cleanup.
+- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` to the aify service before each LLM call. Closest equivalent to claude-aify's `UserPromptSubmit` hook — flips the dashboard to `working` when the operator submits a prompt to hermes-aify. STATUS is now **pure event-driven** (2026-06-02): the turn-START event sets `working` and a turn-END event clears it instantly; **no seconds-window decides `working`**. For managed hermes, turn-END is the delivery loop's gateway-session-idle event (clears `turn_busy` the moment the session goes idle, so `working` clears as soon as the turn finishes and any queued run delivers on the next claim). **Resident hermes has NO upstream turn-end hook** — Hermes does not expose one for shell hooks, and the bridge's transcript turn-END detector keys on the *claude* transcript, so it does not cover resident hermes. A resident hermes turn therefore self-heals off `working` only at the single LONG status ceiling (`TURN_BUSY_BACKSTOP_SECONDS`, ~30m) for a dropped end-event; the short 120s claim-gate (`TURN_BUSY_STALE_SECONDS`) still keeps a queued send from being stranded behind it. (Documented caveat, not a regression.)
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes

@@ -187,14 +187,20 @@ killByPort` branch that port-killed that gateway whenever the loop exited (e.g. 
 transient 410). Since the visible TUI shares the same gateway, killing it dropped the
 TUI's WebSocket.
 
-**Fix (2026-06-02, `774fb07`).** Pull and relaunch the agent's `hermes-aify`. The
-loop now kills the gateway **only if it spawned that host itself** (an owned child
-handle) and **never port-kills a reused/shared gateway**; it also no longer clears the
-gateway port/key markers (kill-prior needs the persisted port marker to reap the
-gateway on relaunch). The gateway's lifetime ties to the TUI/console — reaped by
+**Fix (2026-06-02, `774fb07` + `14cf5ed`).** Pull and relaunch the agent's
+`hermes-aify`. The loop now kills the gateway **only if it spawned that host itself**
+(an owned child handle) and **never port-kills a reused/shared gateway**; it also no
+longer clears the gateway port/key markers (kill-prior needs the persisted port
+marker to reap the gateway on relaunch). A SECOND root cause of the same symptom was
+kill-prior itself: the managed wrapper calls it twice (pre-spawn + a post-spawn
+self-reap-race call), and the post-spawn call ran AFTER ensure-host started the
+CURRENT gateway on the agent's port, so its port-kill killed the live gateway the TUI
+was about to attach to. The gateway port-kill, daemon stop, AND resume-TUI reap are
+now gated **pre-spawn only** (`14cf5ed` + `99563af`); the post-spawn call reaps only
+stale delivery loops. The gateway's lifetime ties to the TUI/console — reaped by
 kill-prior on relaunch and the env-bridge survivor sweep on restart, not by a loop
-exit. A loop still on old code is the one to relaunch; verify the TUI's WebSocket now
-survives a loop restart.
+exit. A wrapper still on old code is the one to relaunch; verify the TUI's WebSocket
+now survives a loop restart.
 
 ## Hermes `mcp test` works, but live turn has no aify tools
 
@@ -329,17 +335,40 @@ agents are excluded (their liveness is the resident bridge, not the env bridge).
 "awaiting reply" reason) instead of `working`; or a genuinely-working resident
 claude "shows working only sometimes."
 
-**Cause + current behavior.** `working` now means *actually running a turn* — a
-fresh `turn_busy` (the runtime's turn-start..turn-end) or a claimed/running run.
-A delivered+`require_reply` run whose turn has ENDED (agent idle, owes the reply)
-is `online` with an "Idle — awaiting reply" reason, NOT `working` — this fixed the
-old "blink working while idle". `turn_busy` is driven event-driven by each
-runtime: claude `UserPromptSubmit`/`PostToolUse`→`/turn-start` + `Stop`→`/turn-end`;
-codex hooks + app-server `turn/completed`; hermes `post_llm_call`/`/v1/runs`
-`run.completed`; pi `agent_end`. If resident claude flips off `working` mid-turn,
-the `PostToolUse` re-pulse (keeps `turn_busy` fresh past the 120s stale window)
-requires the current `~/.claude/settings.json` hooks — reinstall `claude-aify`
-and restart the session.
+**Cause + current behavior (pure-event as of 2026-06-02).** `working` means
+*actually running a turn* — `turn_busy` set, decided by the turn EVENT, not by a
+staleness window. A turn-START event sets `working`; a turn-END event clears it
+instantly. A delivered+`require_reply` run whose turn has ENDED (agent idle, owes
+the reply) is `online` with an "Idle — awaiting reply" reason, NOT `working` — this
+fixed the old "blink working while idle". Per-runtime turn signals: claude
+`UserPromptSubmit`→`/turn-start` (START) + `Stop`→`/turn-end` (fast-path END), with a
+bridge **transcript turn-END detector** as the hook-independent backstop; codex hooks
++ app-server `turn/completed`; hermes `pre_llm_call`/managed delivery-loop idle event;
+pi `agent_end`.
+
+**Note: the claude `PostToolUse` re-pulse was REMOVED (pure-event #4).** Earlier
+builds re-asserted `turn_busy` on every tool call to hold `working` past a short
+window. With status pure-event there is no short window to outlast — `turn_busy` is
+set once at turn-start and cleared only by the turn-END event — and re-pulsing would
+defeat that event. So claude turn hooks are `UserPromptSubmit` (start) + `Stop` (end)
+ONLY; the installer also removes any leftover `PostToolUse` `/turn-start` hook. Rerun
+`install.sh --client claude` + restart the session to pick this up. A long
+tool-using or generation turn stays `working` simply because `turn_busy` stays set
+until the end-event. The bridge's transcript turn-END detector (`turn-end-detector.js`
++ `claude-turn-end-detector.js`, reading `adapters/claude.js` `transcriptTail` →
+`{lastRole, lastStopReason, pendingToolUse}`) covers a missed `Stop` hook: it fires
+`/turn-end` only when the last assistant message yielded to the user (terminal
+`stop_reason` ∈ {`end_turn`, `stop_sequence`, `max_tokens`}, no pending `tool_use`); a
+long blocking tool call or a Task sub-agent dispatch shows a pending `tool_use` (or a
+static parent transcript — sub-agents write a separate `subagents/*.jsonl`) and
+correctly STAYS `working` (the earlier growth-based detector false-cleared on those —
+fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
+self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`); the claim-gate
+keeps the 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send isn't stranded. Resident
+hermes has no upstream turn-end event and relies on the 30-min ceiling
+(KNOWN_ISSUES.md #172). A send to a busy channel-capable target (managed/resident
+claude) now STEERS in immediately instead of deferring behind `turn_busy`, and an
+`rr=0` channel/resident delivery clears the recipient's `turn_busy`.
 
 ## Managed claude instance proliferation / a managed agent killed my session
 
@@ -372,17 +401,36 @@ spawning a replacement; `stopDaemon` kills by BOTH port and tracked PID — one
 daemon per agent from then on. Takes effect when the agent's `hermes-aify`
 relaunches.
 
-**Restart now reaps the whole pile (2026-06-02).** You no longer have to hand-kill
-stray `hermes.exe`. The environment bridge owns the managed-hermes triad (gateway
-host, delivery loop, console PTY) and tears it down on shutdown; on the next boot
-it sweeps for survivors of a crashed/killed predecessor and reaps any whose owning
-bridge is no longer live in `bridge_instances`. Both are scoped to the agents this
-env bridge owns and never touch resident sessions or another env's agents. So
-**restarting `aify-comms` collapses the pile to zero managed survivors** — see
-"Restarting aify-comms kills all managed sessions (by design)" below. The daemon
-kill-prior above is the per-spawn backstop. To clean up a pile without a full
-restart, stop the affected `hermes-aify` wrappers and kill stray `hermes.exe` whose
-port files (`aify-hermes-port-*`) no longer match a live agent, then relaunch.
+**Relaunch also reaps the prior visible resume-TUI (2026-06-02, `99563af`).**
+kill-prior used to reap the prior delivery loop, gateway host, and daemon but NOT
+the prior `hermes --tui --resume aify-<agent>` visible TUI, so each silent relaunch
+leaked a duplicate resume-TUI. kill-prior now reaps that prior resume-TUI too,
+matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a broad
+`hermes --tui`, gated **pre-spawn only** so the post-spawn self-reap-race call can't
+kill the gateway/daemon/TUI the current launch just started. The resident wrapper
+also tears down its per-agent api_server daemon on TUI exit (no more leaked
+`hermes gateway run`).
+
+**STOP reaps the whole triad; restart reaps the pile (2026-06-02, `f0bdaef`).** You
+no longer hand-kill stray `hermes.exe`. A dashboard **Stop** on a managed-hermes
+agent now reaps the entire triad (gateway host + delivery loop + daemon),
+agent-scoped — not just the console PTY (a resident/claude/other-runtime stop is
+never touched). The environment bridge also owns the triad and tears it down on
+shutdown; on the next boot it sweeps for survivors of a crashed/killed predecessor
+(plus a tombstoned-marker sweep that deletes `aify-hermes-{port,daemon-pid,key}-<agent>`
+for agents absent from the live `/agents` keyset) and reaps any whose owning bridge is
+no longer live. All scoped to the agents this env bridge owns; resident/other-env
+sessions are never touched. So **restarting `aify-comms` collapses the pile to zero
+managed survivors** — see "Restarting aify-comms kills all managed sessions (by
+design)" below. The daemon kill-prior above is the per-spawn backstop.
+
+**Caveat — REMOVE is not reaped synchronously.** Relaunch and STOP reap the triad
+**instantly**. Dashboard **REMOVE** does not: deleting the agent FK-cascades and wipes
+the emitted triad-reap stop control before the bridge claims it, so a removed
+managed-hermes agent's procs may linger until the **next env-bridge boot** (the
+tombstoned-marker + survivor sweeps clean them then). To clean up sooner, restart
+`aify-comms`, or stop the affected `hermes-aify` wrappers and kill stray `hermes.exe`
+whose port files (`aify-hermes-port-*`) no longer match a live agent, then relaunch.
 
 ## Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
 
@@ -448,14 +496,15 @@ before clearing.)
 `turn_busy` set rather than clearing it in a `finally`, so `working` reflects the
 real turn. As of 2026-06-02 turn-END is **event-driven**: the delivery loop watches
 the gateway session and clears `turn_busy` IMMEDIATELY when the session goes idle
-(`/turn-end`), so `working` flips off the moment the turn finishes — no 120s wait. A
-queued run for that agent then delivers on the next claim. The server-side
-`turn_busy` staleness window is demoted to a long (~15m) BACKSTOP that only fires if
-the idle signal is dropped, and the status vs. claim-gate windows are split. This is
-BRIDGE code: it activates when the managed hermes agent's delivery loop respawns
-(relaunch its `hermes-aify`, which kill-priors the old loop and loads the new bridge
-file). A loop still claiming under the machine-global `hermes-managed-host-<machine>`
-id (no `-<agentId>` suffix) is running old code.
+(`/turn-end`), so `working` flips off the moment the turn finishes — no wait. A
+queued run for that agent then delivers on the next claim. STATUS is now pure-event
+(the seconds window no longer decides `working`); the staleness window is demoted to
+the single 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling for a DROPPED end-event, while
+the claim-gate keeps the short 120s `TURN_BUSY_STALE_SECONDS`. This is BRIDGE code: it
+activates when the managed hermes agent's delivery loop respawns (relaunch its
+`hermes-aify`, which kill-priors the old loop and loads the new bridge file). A loop
+still claiming under the machine-global `hermes-managed-host-<machine>` id (no
+`-<agentId>` suffix) is running old code.
 
 ## Hermes agent shows `online` while working
 
@@ -465,16 +514,19 @@ but the dashboard/`comms_agent_info` reads `online`, not `working`.
 **Cause.** Hermes turn detection used to be purely dispatch/hook-based: aify only
 saw a turn via (a) an aify dispatch run, or (b) the `pre_llm_call` turn-start hook.
 
-**Fix / status (2026-06-02).** For **managed** hermes this is now resolved
-end-to-end: the delivery loop watches the gateway session and reports turn-start AND
-turn-end events (gateway session idle → `/turn-end`), so `working` is set and CLEARED
-on real turn boundaries, covering dispatch, autonomous, AND direct-typed turns that
-run through the managed gateway. The long in-flight re-pulse
-(`mcp/stdio/hermes-turn-repulse.js`) and the 15m `turn_busy` staleness window are now
-BACKSTOPS only. Relaunch `hermes-aify` to load it. The residual is the **resident**
-(operator-launched, no managed delivery loop) direct-typed turn, which still relies on
-the `pre_llm_call` turn-start hook plus the staleness backstop for cleanup — see
-KNOWN_ISSUES.md (#172). No action needed if delivery itself works.
+**Fix / status (2026-06-02).** STATUS is pure-event (the event decides `working`,
+not a window). For **managed** hermes this is resolved end-to-end: the delivery loop
+watches the gateway session and reports turn-start AND turn-end events (gateway
+session idle → `/turn-end`), so `working` is set and CLEARED on real turn boundaries,
+covering dispatch, autonomous, AND direct-typed turns that run through the managed
+gateway. The long in-flight re-pulse (`mcp/stdio/hermes-turn-repulse.js`) and the
+`turn_busy` staleness window are now BACKSTOPS only (the 30-min
+`TURN_BUSY_BACKSTOP_SECONDS` ceiling). Relaunch `hermes-aify` to load it. The residual
+is the **resident** (operator-launched, no managed delivery loop) hermes turn: Hermes
+has no upstream turn-END hook and the bridge's transcript turn-END detector keys on
+the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
+off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action
+needed if delivery itself works.
 
 ## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 
