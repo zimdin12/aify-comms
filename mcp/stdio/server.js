@@ -50,6 +50,7 @@ import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-sessi
 import { createVirtualTerminalInputManager } from "./virtual-terminal-input.js";
 import { TerminalProcessManager, bridgeTerminalSupported } from "./terminal-runtime.js";
 import { terminalControlFailurePatch, orphanPidToKill } from "./terminal-control.js";
+import { reportDeadOwnedSessions } from "./dead-pty-reporter.js";
 import { terminalChildEnv } from "./terminal-env.js";
 import { managedViaWrapperRuntimesFromSettingsResponse } from "./managed-wrapper-settings.js";
 import { adapterFor } from "./adapters/index.js";
@@ -1971,10 +1972,41 @@ async function handleVirtualTerminalControl(agentId, terminalId, control) {
   throw new Error(`Unsupported virtual-terminal control action: ${action}`);
 }
 
+// WS4 Task 4.2: host-reported dead-PTY marking. The server cannot probe a
+// remote host pid; only the OWNING env bridge can. For each console PTY this
+// bridge owns in-memory that is still `attached` but whose local pid is no
+// longer alive, POST /terminals/{id}/report-dead so the server marks the row
+// stopped + invalidates live-state (a frozen/crashed console can otherwise keep
+// manufacturing presence). Best-effort; never throws. Does NOT kill anything —
+// the in-memory exit path owns real teardown; this only reconciles stale rows.
+async function reportDeadOwnedTerminals() {
+  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || !bridgeTerminalSupported()) return [];
+  try {
+    const owned = TERMINAL_MANAGER.listOwnedSessions?.() || [];
+    if (!owned.length) return [];
+    return await reportDeadOwnedSessions(owned, {
+      report: async ({ terminalId, pid }) => {
+        await httpCall("POST", `/terminals/${encodeURIComponent(terminalId)}/report-dead`, {
+          bridgeId: BRIDGE_INSTANCE_ID,
+          processId: pid != null ? String(pid) : "",
+          reason: "Console PTY process is no longer alive (host-reported).",
+        });
+        console.error(`[aify] terminal ${terminalId} (pid ${pid}) is dead locally — reported to server for stop/reconcile`);
+      },
+    });
+  } catch (error) {
+    logTransientOrError("[aify] dead-PTY report failed", error);
+    return [];
+  }
+}
+
 async function runTerminalControlLoop() {
   if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE || terminalControlBusy || !bridgeTerminalSupported()) return;
   terminalControlBusy = true;
   try {
+    // Reconcile any console PTY this bridge owns whose local pid has died but
+    // whose server row is still `attached` (WS4 Task 4.2). Cheap + best-effort.
+    await reportDeadOwnedTerminals();
     const environment = effectiveEnvironmentPayload();
     const claim = await httpCall("POST", "/terminals/controls/claim", {
       environmentId: environment.id,

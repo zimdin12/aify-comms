@@ -536,6 +536,29 @@ export class TerminalProcessManager {
     return { killed: true };
   }
 
+  // Enumerate the console PTYs THIS bridge currently owns in-memory, with their
+  // root pid. Used by the env-bridge dead-PTY check (WS4 Task 4.2): a row that
+  // is still `attached` server-side but whose local pid is no longer alive must
+  // be host-reported as dead (the server cannot probe a remote pid). Returns
+  // `[{ terminalId, pid, status, agentId, runtime }]`. Only owned, pid-bearing
+  // entries are included.
+  listOwnedSessions() {
+    const out = [];
+    for (const [id, state] of this.terminals.entries()) {
+      const pid = state?.term?.pid ?? state?.proc?.pid;
+      const numeric = Number(pid);
+      if (!Number.isInteger(numeric) || numeric <= 0) continue;
+      out.push({
+        terminalId: id,
+        pid: numeric,
+        status: String(state?.status || ""),
+        agentId: String(state?.agentId || ""),
+        runtime: String(state?.runtime || ""),
+      });
+    }
+    return out;
+  }
+
   async stopAll(reason = "terminal manager shutdown") {
     const ids = Array.from(this.terminals.keys());
     for (const id of ids) {

@@ -2275,6 +2275,66 @@ class ApiV2RegressionTests(unittest.TestCase):
         self.assertEqual(payload.get("runtime"), "hermes", payload)
         self.assertIn("hermes delivery loop", payload.get("reason", ""), f"reason should be hermes-aware; got {payload!r}")
 
+    def test_host_reported_dead_pty_marks_row_stopped_and_invalidates(self):
+        # WS4 Task 4.2 (server side): the OWNING environment bridge is the only
+        # thing that can probe a local PID. When it reports a console PTY's
+        # process_id as DEAD, the server marks the terminal_sessions row stopped
+        # and invalidates the agent's live state (so a frozen/crashed console
+        # can't keep manufacturing presence).
+        terminal_id = "term_dead_pty"
+        self._seed_managed_hermes_with_attached_terminal("dead-pty-hermes", terminal_id)
+        self._execute(
+            "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
+            ("4242", terminal_id),
+        )
+        # Seed a live_state row so we can prove invalidation deletes it.
+        self._execute(
+            "INSERT INTO agent_live_state (agent_id, status, updated_at) VALUES (?,?,?)",
+            ("dead-pty-hermes", "online", api_v2._now()),
+        )
+
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "4242", "reason": "host pid not alive"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "stopped", term)
+        self.assertIn("host pid not alive", term["error"] or "")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("dead-pty-hermes",))
+        self.assertIsNone(live, "agent live-state must be invalidated on host-reported dead PTY")
+
+    def test_host_reported_dead_pty_is_idempotent_and_pid_guarded(self):
+        # A report for a terminal that is already stopped is a harmless no-op
+        # (200, still stopped). A report whose pid no longer matches the stored
+        # process_id is rejected/ignored so a stale report can't stop a row that
+        # the owning bridge has since restarted with a NEW pid.
+        terminal_id = "term_dead_pty_idem"
+        self._seed_managed_hermes_with_attached_terminal("idem-hermes", terminal_id)
+        self._execute(
+            "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
+            ("9001", terminal_id),
+        )
+        # Stale report: pid mismatch → must NOT stop the row.
+        resp = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/report-dead",
+            json={"bridgeId": "bridge-current", "processId": "1234", "reason": "stale"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "attached", "pid-mismatched report must not stop the row")
+
+        # Matching report stops it; a second matching report is idempotent.
+        for _ in range(2):
+            resp = self.client.post(
+                f"/api/v1/terminals/{terminal_id}/report-dead",
+                json={"bridgeId": "bridge-current", "processId": "9001"},
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+            self.assertEqual(term["status"], "stopped", term)
+
     def test_managed_claude_online_requires_live_console(self):
         # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
         # console PTY AND a live channel-sidecar exist. A live sidecar with NO

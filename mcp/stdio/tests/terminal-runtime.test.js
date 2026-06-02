@@ -327,6 +327,35 @@ while (Date.now() < authDeadline && !chunks.join("").includes("Pi authentication
 assert.match(chunks.join(""), /Pi authentication failed fast/);
 } // end real-PTY section (skipped on win32: node-pty winpty teardown limitation)
 
+// listOwnedSessions (WS4 Task 4.2): enumerate owned PTYs with their root pid so
+// the env-bridge dead-PTY check can host-report a row whose local pid died.
+// Drive it off injected map state (no real process needed).
+{
+  const ownedManager = new TerminalProcessManager({ onExit: async () => {} });
+  ownedManager.terminals.set("owned-pty", {
+    id: "owned-pty",
+    status: "attached",
+    agentId: "agent-x",
+    runtime: "hermes",
+    term: { pid: 4321 },
+  });
+  ownedManager.terminals.set("owned-pipe", {
+    id: "owned-pipe",
+    status: "attached",
+    agentId: "agent-y",
+    runtime: "pi",
+    proc: { pid: 5678 },
+  });
+  ownedManager.terminals.set("no-pid", { id: "no-pid", status: "attached", agentId: "z" });
+  const owned = ownedManager.listOwnedSessions();
+  assert.equal(owned.length, 2, "only pid-bearing owned sessions are listed");
+  const byId = Object.fromEntries(owned.map((s) => [s.terminalId, s]));
+  assert.equal(byId["owned-pty"].pid, 4321);
+  assert.equal(byId["owned-pty"].agentId, "agent-x");
+  assert.equal(byId["owned-pipe"].pid, 5678);
+  assert.ok(!byId["no-pid"], "a session without a pid is excluded");
+}
+
 await manager.stopAll("test cleanup");
 fs.rmSync(tmp, { recursive: true, force: true });
 

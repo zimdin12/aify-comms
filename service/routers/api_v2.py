@@ -31,7 +31,7 @@ from service.models import (
     DispatchControlRequest, DispatchControlClaimRequest, DispatchControlUpdate,
     EnvironmentHeartbeat, EnvironmentControlRequest, EnvironmentControlClaim, EnvironmentControlUpdate, EnvironmentRootsUpdate,
     AgentEnvironmentAssignRequest, AgentRenameRequest, SpawnRequestCreate, SpawnRequestClaim, SpawnRequestUpdate, SessionControlRequest, AgentControlRequest,
-    ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalOutputRequest,
+    ConsoleStartRequest, TerminalControlRequest, TerminalControlClaim, TerminalControlUpdate, TerminalDeadReport, TerminalOutputRequest,
     VirtualTerminalEnsureRequest, AgentFavoriteUpdate, AgentConsoleInputRequest,
 )
 
@@ -9558,6 +9558,93 @@ async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: 
         if ws:
             await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
         return {"ok": True, "terminal": _terminal_session_to_dict(updated)}
+    finally:
+        await db.close()
+
+
+@router.post("/terminals/{terminal_id}/report-dead")
+async def report_terminal_dead(terminal_id: str, req: TerminalDeadReport, request: Request):
+    """Host-reported dead-PTY signal (WS4 Task 4.2).
+
+    The server cannot probe a remote host's PID; only the OWNING environment
+    bridge can. When a bridge observes that one of its `attached` console PTY
+    rows has a `process_id` that is no longer alive locally, it POSTs here so the
+    server can mark the row stopped, close any active runs, clear the console
+    binding, and invalidate the agent's live state (a frozen/crashed console
+    can otherwise keep manufacturing presence).
+
+    SAFETY: if a `processId` is supplied it MUST match the stored process_id.
+    A bridge that has since restarted the console owns a NEW pid; a stale
+    report carrying the OLD pid must NOT stop the live row. Already-terminal
+    rows are a harmless idempotent no-op.
+    """
+    db = await get_db()
+    try:
+        terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        if not terminal:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        now = _now()
+        current_status = str(terminal["status"] or "").strip().lower()
+        # Idempotent: already terminal → nothing to do.
+        if current_status in _TERMINAL_END_STATUSES:
+            return {"ok": True, "terminal": _terminal_session_to_dict(terminal), "changed": False}
+        # PID guard: a supplied pid must match the stored process_id so a stale
+        # report can't stop a row a restarted bridge now owns with a NEW pid.
+        reported_pid = str(req.processId or "").strip()
+        stored_pid = str(terminal["process_id"] or "").strip()
+        if reported_pid and stored_pid and reported_pid != stored_pid:
+            await _append_terminal_event(
+                db,
+                terminal_id,
+                "console_dead_report_ignored",
+                json.dumps({"reportedPid": reported_pid, "storedPid": stored_pid, "bridgeId": req.bridgeId or ""}),
+            )
+            await db.commit()
+            return {"ok": True, "terminal": _terminal_session_to_dict(terminal), "changed": False, "ignored": "pid-mismatch"}
+        reason = str(req.reason or "").strip() or "Console PTY process is no longer alive (host-reported)."
+        # Close any active runs bound to this terminal before stopping the row.
+        await _close_active_terminal_runs_for_terminal(
+            db,
+            terminal,
+            "stopped",
+            now=now,
+            reason=reason,
+        )
+        await db.execute(
+            """
+            UPDATE terminal_sessions
+            SET status = 'stopped',
+                updated_at = ?,
+                stopped_at = COALESCE(stopped_at, ?),
+                error = CASE WHEN COALESCE(error, '') = '' THEN ? ELSE error END
+            WHERE id = ?
+            """,
+            (now, now, reason, terminal_id),
+        )
+        await db.execute(
+            """
+            UPDATE agent_sessions
+            SET owner_mode = 'managed',
+                terminal_status = 'stopped',
+                last_seen = ?
+            WHERE id = ?
+            """,
+            (now, terminal["session_id"]),
+        )
+        await _clear_console_terminal_binding(db, terminal["agent_id"], terminal_id, now=now)
+        await _invalidate_agent_live_state(db, terminal["agent_id"])
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "console_dead_reported",
+            json.dumps({"reportedPid": reported_pid, "bridgeId": req.bridgeId or "", "reason": reason}),
+        )
+        await db.commit()
+        updated = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("terminal_stopped", {"terminalId": terminal_id, "sessionId": terminal["session_id"]})
+        return {"ok": True, "terminal": _terminal_session_to_dict(updated), "changed": True}
     finally:
         await db.close()
 

@@ -326,6 +326,18 @@ class TerminalControlUpdate(BaseModel):
     processId: Optional[str] = None
 
 
+class TerminalDeadReport(BaseModel):
+    # Host-reported dead-PTY signal (WS4 Task 4.2). The owning environment
+    # bridge is the only thing that can probe a local PID; when a console PTY's
+    # process is no longer alive it POSTs this so the server can mark the row
+    # stopped + invalidate live-state. `processId` (when present) must match the
+    # stored process_id so a stale report can't stop a row a restarted bridge
+    # now owns with a NEW pid.
+    bridgeId: Optional[str] = None
+    processId: Optional[str] = None
+    reason: Optional[str] = None
+
+
 class TerminalOutputRequest(BaseModel):
     bridgeId: Optional[str] = None
     output: Optional[str] = None
