@@ -209,5 +209,99 @@ class LifecyclePhase7Tests(FastApiTestCase):
         self.assertEqual(rows[0]["environment_id"], "env-online")
 
 
+class EnvironmentForgetTombstoneTests(FastApiTestCase):
+    """Forgetting an environment must STICK against a lingering bridge heartbeat.
+
+    Regression: the /environments/heartbeat blind UPDATE flipped a `forgotten`
+    row back to `online`, so a still-running aify-comms bridge resurrected the
+    env seconds after the operator forgot it.
+    """
+
+    ENV_ID = "linux:test-host:default"
+
+    def _heartbeat(self, *, bridge_started_at=None, **extra):
+        metadata = {}
+        if bridge_started_at is not None:
+            metadata["bridgeStartedAt"] = bridge_started_at
+        payload = {
+            "id": self.ENV_ID,
+            "label": "Linux on test-host",
+            "machineId": "linux:test-host",
+            "os": "linux",
+            "kind": "linux",
+            "bridgeId": "bridge-current",
+            "cwdRoots": ["/workspace"],
+            "runtimes": [],
+            "metadata": metadata,
+        }
+        payload.update(extra)
+        return self.client.post("/api/v1/environments/heartbeat", json=payload)
+
+    def _forget(self):
+        response = self.client.post(
+            f"/api/v1/environments/{self.ENV_ID}/control",
+            json={"action": "forget", "requestedBy": "operator"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def _env_status(self):
+        async def _run():
+            db = await get_db()
+            try:
+                cur = await db.execute(
+                    "SELECT status FROM environments WHERE id = ?", (self.ENV_ID,)
+                )
+                row = await cur.fetchone()
+                return row["status"] if row else None
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_passive_heartbeat_does_not_resurrect_forgotten_env(self):
+        # Bridge launched BEFORE the forget, then keeps heartbeating.
+        launch = _iso(datetime.now(timezone.utc) - timedelta(minutes=5))
+        self.assertEqual(self._heartbeat(bridge_started_at=launch).status_code, 200)
+        self._forget()
+        self.assertEqual(self._env_status(), "forgotten")
+
+        # Lingering heartbeat from the SAME pre-forget bridge launch.
+        res = self._heartbeat(bridge_started_at=launch)
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertTrue(body.get("forgotten"), body)
+        self.assertEqual(body["environment"]["status"], "forgotten")
+        self.assertEqual(self._env_status(), "forgotten")
+
+        # And it stays out of the normal list.
+        listed = self.client.get("/api/v1/environments").json()["environments"]
+        self.assertNotIn(self.ENV_ID, [e["id"] for e in listed])
+
+    def test_heartbeat_without_started_at_does_not_resurrect(self):
+        self.assertEqual(self._heartbeat().status_code, 200)
+        self._forget()
+        # No bridgeStartedAt at all (old bridge) must not clear the tombstone.
+        res = self._heartbeat()
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json().get("forgotten"))
+        self.assertEqual(self._env_status(), "forgotten")
+
+    def test_fresh_relaunch_clears_tombstone(self):
+        old_launch = _iso(datetime.now(timezone.utc) - timedelta(minutes=5))
+        self.assertEqual(self._heartbeat(bridge_started_at=old_launch).status_code, 200)
+        self._forget()
+        self.assertEqual(self._env_status(), "forgotten")
+
+        # Operator relaunches aify-comms: a NEWER bridgeStartedAt re-registers.
+        new_launch = _iso(datetime.now(timezone.utc) + timedelta(seconds=5))
+        res = self._heartbeat(bridge_started_at=new_launch, bridgeId="bridge-relaunched")
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.json().get("forgotten"))
+        self.assertEqual(res.json()["environment"]["status"], "online")
+        self.assertEqual(self._env_status(), "online")
+        listed = self.client.get("/api/v1/environments").json()["environments"]
+        self.assertIn(self.ENV_ID, [e["id"] for e in listed])
+
+
 if __name__ == "__main__":
     unittest.main()

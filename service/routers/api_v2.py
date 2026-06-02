@@ -8080,6 +8080,23 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     try:
         existing_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         existing = await existing_cursor.fetchone()
+        # Forget-tombstone guard (2026-06-03): a row in `forgotten` status is the
+        # environment-level equivalent of an agent tombstone. A passive heartbeat
+        # from a still-running aify-comms bridge that predates the forget MUST NOT
+        # resurrect it (the old bug: the blind UPDATE below flipped status back to
+        # 'online' seconds after the operator forgot the env). Only a genuine fresh
+        # (re)launch — a bridge whose bridgeStartedAt is newer than forgottenAt —
+        # is allowed to clear the tombstone and re-register. Mirrors how agent
+        # registration honors agent_tombstones unless explicitly restored.
+        if existing and str(existing["status"] or "").strip().lower() == "forgotten":
+            forgotten_meta = _json_loads_or(existing["metadata"], {})
+            forgotten_at = _timestamp_sort_key(forgotten_meta.get("forgottenAt"))
+            incoming_started = _bridge_started_at(metadata)
+            relaunched = bool(incoming_started) and (not forgotten_at or incoming_started > forgotten_at)
+            if not relaunched:
+                # Lingering/passive heartbeat — keep the env forgotten, do not touch
+                # last_seen or status. Return the tombstoned record as-is.
+                return {"ok": True, "environment": _environment_record_to_dict(existing), "forgotten": True}
         registered_at = existing["registered_at"] if existing else now
         existing_metadata = _json_loads_or(existing["metadata"], {}) if existing else {}
         manual_roots = bool(existing_metadata.get("manualRoots"))

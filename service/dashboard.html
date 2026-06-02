@@ -4957,7 +4957,7 @@ async function controlEnvironment(environmentId, action) {
   const label = action === 'stop' ? 'stop this bridge process' : 'hide this environment target';
   const detail = action === 'stop'
     ? 'Managed agents from this environment become offline/detached until you restart the bridge or assign them to another environment.'
-    : 'Agent identities, chats, sessions, and saved spawn specs remain. The environment row is hidden from normal lists and can reappear if its bridge heartbeats again.';
+    : 'Agent identities, chats, sessions, and saved spawn specs remain. The environment row is hidden from normal lists. A passive heartbeat from a still-running bridge will NOT bring it back; only a fresh bridge relaunch re-registers it.';
   if (!confirm(`Really ${label}?\n\nEnvironment: ${environmentId}\n\n${detail}`)) return;
   try {
     const response = await apiFetch(API + `/environments/${encodeURIComponent(environmentId)}/control`, {
@@ -5303,7 +5303,8 @@ function chatConversations() {
     if (timeDiff) return timeDiff;
     return a.title.localeCompare(b.title);
   });
-  const agentIds = new Set(agentIdsForChat());
+  const liveChatAgentIds = new Set(agentIdsForChat());
+  const agentIds = new Set(liveChatAgentIds);
   // Include conversation partners from history even when they are no longer in
   // the live /agents list (removed/tombstoned). They are tagged `deleted` and
   // hidden by default in the dmItems map below; this lets the "Show deleted"
@@ -5316,9 +5317,23 @@ function chatConversations() {
   }
   agentIds.delete(identity);
   const showDeleted = chatShowDeleted();
+  // Rail-list deleted check: a conversation partner pulled from message history
+  // that is NOT a live chat agent and NOT present in the loaded /agents roster
+  // is a removed/tombstoned identity and must be hidden when the toggle is off.
+  // Unlike chatAgentIsDeleted (which is intentionally lenient before the roster
+  // first loads — see its comment — so the composer never disables a live agent
+  // mid-load), the rail must NOT leak deleted partners while !_agentsLoaded:
+  // _allMsgs is cached and can render a chat list before/around the first
+  // /agents fetch, surfacing removed agents the operator already deleted.
+  const isRosterPresent = (id) => (window._allAgents || []).some(([agentId]) => agentId === id);
+  const isRailDeleted = (id) => {
+    if (!id || id === 'dashboard') return false;
+    if (liveChatAgentIds.has(id)) return false;
+    return !isRosterPresent(id);
+  };
   const dmItems = sortItems([...agentIds].map(id => {
     const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
-    const deleted = chatAgentIsDeleted(id);
+    const deleted = isRailDeleted(id);
     // Hide removed/tombstoned agents from the rail by default.
     if (deleted && !showDeleted) return null;
     const last = conversationPreviewForAgent(id, identity);
