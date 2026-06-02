@@ -627,6 +627,47 @@ async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: st
     return state
 
 
+async def _managed_target_is_deaf(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
+    """WS5 Task 5.1b (2026-06-02): True when a managed sidecar-delivery target is
+    genuinely DEAF — it HAD a delivery-loop claimer that has RELEASED its lease (or
+    let it go stale), so a send would queue against a worker that will never claim
+    it. This is the disambiguator that unblocks the Task 3.3 fail-fast that was
+    BLOCKED at send time (a live-console/no-claimer agent was indistinguishable
+    from a healthy claimer that simply had not polled yet).
+
+    Deaf == ALL of:
+      - the runtime is a managed sidecar-delivery runtime (claude-code / hermes:
+        its delivery loop / channel sidecar is the SOLE claimer); AND
+      - session_mode is managed; AND
+      - a claimer lease has been RECORDED for this agent (so the loop has run at
+        least once and we know the lease is authoritative); AND
+      - that lease is NOT live (released cleanly, or stale past the backstop).
+
+    NOT deaf (so lazy-autostart-on-send keeps working):
+      - a cold `available` agent that NEVER recorded a lease (spawnable: no worker
+        yet but a bridge will spawn-on-claim) — there is NO lease row, so this
+        returns False and the send falls through to the cold-start path; AND
+      - an agent whose lease is currently ACQUIRED+fresh (a live claimer).
+
+    The WS3.2 queued-run backstop still covers any in-flight stranded run after
+    its long age window (the lazy-claim ambiguity has resolved by then).
+    """
+    if agent_row is None:
+        return False
+    runtime = _normalize_runtime(agent_row["runtime"] or "")
+    if runtime not in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
+        return False
+    if _normalize_session_mode(agent_row["session_mode"] or "resident") != "managed":
+        return False
+    agent_id = agent_row["id"]
+    # No lease EVER recorded ⇒ cold-startable, NOT deaf (preserve lazy delivery).
+    if not await _has_recorded_claimer_lease(db, agent_id):
+        return False
+    # A lease was recorded: it is authoritative. Live ⇒ deliverable (not deaf);
+    # released/stale ⇒ deaf.
+    return not await _has_live_claimer_lease(db, agent_id)
+
+
 async def _enforce_live_worker_gate(
     payload: dict[str, Any],
     db,
@@ -4938,6 +4979,27 @@ async def _preflight_live_send_recipients(
             hint["fix"] = (
                 f'Agent "{recipient_id}" already has {queued_runs} queued run(s). '
                 "Wait for the queue to drain, cancel stale runs, or send normally so aify can steer or merge when possible. Use queueIfBusy=true only when you intentionally want next-turn delivery."
+            )
+            not_started.append(hint)
+            continue
+
+        # WS5 Task 5.1b (2026-06-02): fail fast on a send to a genuinely-DEAF
+        # managed sidecar-delivery target (it HAD a delivery-loop claimer that
+        # released/lost its lease) so the run does NOT queue against a worker that
+        # will never claim it (which would pile up to buffer_full). A cold
+        # `available` agent that never recorded a lease is NOT deaf — it falls
+        # through to the cold-start path (lazy-autostart-on-send preserved).
+        if await _managed_target_is_deaf(db, row, settings=settings):
+            hint = _dispatch_fix_hint(
+                recipient_id,
+                row,
+                "managed worker is up-but-deaf (its delivery loop released its claimer lease)",
+            )
+            hint["recipientStatus"] = "available"
+            hint["fix"] = (
+                f'Agent "{recipient_id}" has no live delivery-loop claimer (its lease was '
+                "released or went stale), so a message would never be delivered. Restart its "
+                "managed worker (respawn the delivery loop / console), then resend."
             )
             not_started.append(hint)
             continue

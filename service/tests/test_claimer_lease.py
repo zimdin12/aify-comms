@@ -227,5 +227,169 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         )
 
 
+class DeafTargetFailFastTests(unittest.TestCase):
+    """WS5 Task 5.1b — send to a deaf managed sidecar-delivery target fails fast."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._db_path = Path(self._tmpdir.name) / "aify-test.db"
+        asyncio.run(init_db(self._db_path))
+        app = FastAPI()
+        app.state.ws_manager = _DummyWS()
+        app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
+        app.state.testing = True
+        app.include_router(router, prefix="/api/v1")
+        self.client = TestClient(app)
+        # Production wrapper-backed defaults (managed hermes routes to channel).
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+
+    def tearDown(self):
+        self.client.close()
+        self._tmpdir.cleanup()
+
+    def _heartbeat_hermes_env(self):
+        resp = self.client.post(
+            "/api/v1/environments/heartbeat",
+            json={
+                "id": "linux:test-host:default",
+                "label": "Linux on test-host",
+                "machineId": "linux:test-host",
+                "os": "linux",
+                "kind": "linux",
+                "bridgeId": "bridge-current",
+                "cwdRoots": ["/workspace"],
+                "runtimes": [
+                    {
+                        "runtime": "hermes",
+                        "modes": ["managed-warm"],
+                        "capabilities": {"nativeResume": True, "interrupt": True},
+                    }
+                ],
+                "metadata": {},
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def _register_managed_hermes(self, agent_id: str):
+        resp = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["native-managed-run", "managed-run", "resume", "interrupt"],
+                "runtimeConfig": {"gatewayUrl": "ws://127.0.0.1:9119/api/ws?token=t"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def _post_lease(self, agent_id: str, action: str):
+        resp = self.client.post(
+            f"/api/v1/agents/{agent_id}/claimer-lease",
+            json={"action": action, "bridgeId": "hermes-channel-linux:test-host"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def _count_dispatch_runs(self, agent_id: str) -> int:
+        async def _go():
+            db = await get_db()
+            try:
+                row = await (await db.execute(
+                    "SELECT COUNT(*) AS n FROM dispatch_runs WHERE target_agent = ?",
+                    (agent_id,),
+                )).fetchone()
+                return int(row["n"])
+            finally:
+                await db.close()
+
+        return _run(_go())
+
+    def test_send_to_deaf_managed_hermes_fails_fast_no_run(self):
+        # A managed hermes whose loop ACQUIRED then RELEASED its lease is deaf.
+        self._heartbeat_hermes_env()
+        self._register_managed_hermes("deaf-hermes")
+        self._post_lease("deaf-hermes", "acquire")
+        self._post_lease("deaf-hermes", "release")
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "deaf-hermes",
+                "type": "request",
+                "subject": "are you there",
+                "body": "hello deaf agent",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        body = sent.json()
+        self.assertFalse(body.get("ok"), f"send to a deaf target must fail fast; got {body}")
+        # No dispatch_runs row was written (no silent pileup).
+        self.assertEqual(
+            self._count_dispatch_runs("deaf-hermes"),
+            0,
+            f"deaf fail-fast must write NO queued run; got {body}",
+        )
+        # The deaf reason is surfaced.
+        not_started = body.get("notStarted") or []
+        self.assertTrue(
+            any("deaf" in (item.get("reason") or "").lower() for item in not_started),
+            f"expected a deaf reason in notStarted; got {not_started}",
+        )
+
+    def test_send_to_cold_available_hermes_no_lease_still_queues_and_coldstarts(self):
+        # A managed hermes that NEVER recorded a lease is cold-startable, NOT deaf:
+        # the send must NOT fail fast — it cold-starts a spawn_request (unchanged
+        # lazy-autostart-on-send behavior).
+        self._heartbeat_hermes_env()
+        self._register_managed_hermes("cold-hermes")
+
+        avail = self.client.get("/api/v1/agents/cold-hermes").json()["agent"]
+        self.assertEqual(avail["status"], "available", avail)
+
+        sent = self.client.post(
+            "/api/v1/messages/send",
+            json={
+                "from_agent": "dashboard",
+                "to": "cold-hermes",
+                "type": "request",
+                "subject": "wake up",
+                "body": "please get to work",
+                "trigger": True,
+            },
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        body = sent.json()
+        self.assertNotEqual(
+            body.get("error"),
+            "Message was not sent because one or more recipients cannot start live work now.",
+            f"cold available hermes (no lease ever) must NOT be hard-rejected; got {body}",
+        )
+
+        async def _go():
+            db = await get_db()
+            try:
+                row = await (await db.execute(
+                    "SELECT COUNT(*) AS n FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed')",
+                    ("cold-hermes",),
+                )).fetchone()
+                return int(row["n"])
+            finally:
+                await db.close()
+
+        self.assertEqual(_run(_go()), 1, f"cold-start must back the agent with a spawn_request; got {body}")
+
+
 if __name__ == "__main__":
     unittest.main()
