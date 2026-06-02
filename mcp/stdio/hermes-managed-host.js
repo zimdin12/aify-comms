@@ -1113,8 +1113,6 @@ export async function teardownGatewayHost({ child, state = _teardownState } = {}
 // kill so a teardown also drops the agent's port/key markers (Task 4.1 wiring).
 export function makeTeardown({
   gatewayChild = null,
-  gatewayPort,
-  killByPort = defaultKillByPort,
   clearMarkers,
   state = { done: false },
 } = {}) {
@@ -1122,12 +1120,16 @@ export function makeTeardown({
     if (state.done) return;
     state.done = true;
     try {
+      // Kill the gateway host ONLY if THIS loop itself spawned it (an owned
+      // child handle). A REUSED gateway (gatewayChild===null) is the one the
+      // wrapper's `ensure-host` started for the VISIBLE TUI — the TUI shares that
+      // gateway, so the loop MUST NOT kill it. Port-killing a reused gateway here
+      // dropped the TUI's WebSocket ("gateway websocket connection failed",
+      // 2026-06-02). A reused/shared gateway is reaped by kill-prior on relaunch
+      // and the env-bridge survivor sweep on restart — its lifetime ties to the
+      // TUI/console, NOT this loop.
       if (gatewayChild && typeof gatewayChild.kill === "function") {
         gatewayChild.kill("SIGTERM");
-      } else if (gatewayPort) {
-        // Reused host (no owned child handle): kill whatever is LISTENING on the
-        // resolved gateway port so a restart leaves zero survivors.
-        await killByPort(gatewayPort);
       }
     } catch (error) {
       console.error(
@@ -1304,12 +1306,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   });
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
-  // self-exit so the gateway host is killed at most once. `makeTeardown` kills
-  // the OWNED child when present, else BY PORT (a reused host has child===null
-  // but the loop is still its lifecycle owner — Task 1.2).
+  // self-exit so teardown runs at most once. `makeTeardown` kills the gateway
+  // host ONLY when this loop SPAWNED it (an owned child handle). A REUSED gateway
+  // (child===null, started by the wrapper for the visible TUI) is shared with the
+  // TUI and is NEVER killed by the loop (2026-06-02 fix — killing it dropped the
+  // TUI's WebSocket). The reused gateway is reaped by kill-prior on relaunch /
+  // the env-bridge survivor sweep on restart, keyed off its persisted port marker.
   const teardownState = { done: false };
   let gatewayChild = null;
-  let gatewayPort = port; // persisted even on reused:true (Task 1.2).
   // WS5 Task 5.1 (2026-06-02): the explicit claimer lease. POST `acquire` once
   // the loop is a live claimer (same point as the loop-ready marker) and
   // `release` in the terminal teardown. The lease is the server's POSITIVE
@@ -1339,24 +1343,19 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       ? clearMarkers
       : async () => {
           // Terminal teardown: release the claimer lease (WS5 Task 5.1) so the
-          // agent is IMMEDIATELY not-deliverable (deaf) — no waiting for the
-          // lease staleness backstop — then drop the loop-ready marker (Task
-          // 1.4) AND the port/key gateway markers (Task 4.1) so a restart is a
-          // clean slate. Release even if the acquire post failed, so a partial
-          // acquire never strands a phantom lease.
+          // agent is IMMEDIATELY not-deliverable, and drop the loop's OWN
+          // loop-ready marker (Task 1.4). Do NOT clear the gateway port/key
+          // markers here (2026-06-02): they tie to the gateway host — which the
+          // loop no longer kills — and kill-prior needs the persisted PORT marker
+          // to reap that gateway on the next relaunch. Clearing them while the
+          // gateway+TUI are still alive caused port-drift. Release even if the
+          // acquire post failed, so a partial acquire never strands a phantom lease.
           await postClaimerLease("release");
           clearReady(id, markerDir);
-          try {
-            clearGatewayMarkers(id, markerDir);
-          } catch {
-            /* best-effort */
-          }
         };
   const teardown = () =>
     makeTeardown({
       gatewayChild,
-      gatewayPort,
-      killByPort,
       clearMarkers: effClearMarkers,
       state: teardownState,
     })();
@@ -1389,9 +1388,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return { released: false, processed: 0 };
   }
   gatewayChild = host.child;
-  // Persist the resolved port (Task 1.2) so teardown can port-kill a reused host
-  // whose child handle is null.
-  if (host.port) gatewayPort = host.port;
+  // `host.child` is non-null ONLY when THIS loop spawned the gateway; on the
+  // reused path (the wrapper/TUI's gateway) it is null, so the loop's teardown
+  // leaves that shared gateway alone (2026-06-02 fix).
 
   let wsClient = null;
   const ensureWs = async () => {

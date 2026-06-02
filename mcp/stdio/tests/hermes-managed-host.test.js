@@ -654,33 +654,33 @@ test("teardownGatewayHost: guards against double teardown", async () => {
   assert.equal(kills, 1, "double teardown kills only once");
 });
 
-test("makeTeardown: kills by port when child is null (reused host)", async () => {
-  const killed = [];
-  const td = makeTeardown({ gatewayChild: null, gatewayPort: 9313, killByPort: (p) => killed.push(p) });
+test("makeTeardown: does NOT kill a reused/shared gateway (child===null)", async () => {
+  // 2026-06-02: a reused gateway (no owned child handle) is the wrapper/TUI's
+  // gateway — shared with the visible TUI. The loop must NOT kill it (killing it
+  // dropped the TUI's WebSocket). Only the loop's own markers are cleared.
+  let cleared = false;
+  const td = makeTeardown({ gatewayChild: null, clearMarkers: async () => { cleared = true; } });
   await td();
-  assert.deepEqual(killed, [9313]);
+  assert.equal(cleared, true, "clears the loop's own markers");
+  // No throw, no kill — there's nothing the loop owns to kill.
 });
 
-test("makeTeardown: kills the child (not by port) when a child exists", async () => {
+test("makeTeardown: kills the child ONLY when this loop spawned it", async () => {
   let childKilled = false;
-  const killed = [];
   const td = makeTeardown({
     gatewayChild: { kill: () => { childKilled = true; } },
-    gatewayPort: 9313,
-    killByPort: (p) => killed.push(p),
   });
   await td();
-  assert.equal(childKilled, true, "must kill the owned child");
-  assert.deepEqual(killed, [], "must not also port-kill when a child handle exists");
+  assert.equal(childKilled, true, "must kill a gateway THIS loop spawned (owned child)");
 });
 
-test("makeTeardown: idempotent (double teardown kills once)", async () => {
-  const killed = [];
+test("makeTeardown: idempotent (double teardown clears once)", async () => {
+  let clears = 0;
   const state = { done: false };
-  const td = makeTeardown({ gatewayChild: null, gatewayPort: 9313, killByPort: (p) => killed.push(p), state });
+  const td = makeTeardown({ gatewayChild: null, clearMarkers: async () => { clears++; }, state });
   await td();
   await td();
-  assert.deepEqual(killed, [9313]);
+  assert.equal(clears, 1, "teardown body runs at most once");
 });
 
 test("installShutdownTeardown: SIGTERM handler tears down the gateway-host child then exits", async () => {
@@ -885,7 +885,7 @@ test("runDeliveryLoop: POSTs claimer-release on terminal teardown (WS5 Task 5.1)
   assert.ok(release, "expected a claimer-lease release POST on terminal teardown");
 });
 
-test("runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) + self-exits(0), does not keep polling", async () => {
+test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing the shared gateway, does not keep polling", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   // claim always 410 (agent tombstoned).
@@ -923,9 +923,11 @@ test("runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) + self-ex
 
   assert.equal(exitCode, 0, "terminal 410 must self-exit(0)");
   assert.equal(result.terminal, "agent-removed", "loop reports the terminal reason");
-  // The reused gateway host (child===null via probeFirst) is killed BY PORT.
-  assert.equal(killedPorts.length, 1, "reused host torn down by port-kill");
-  assert.ok(killedPorts[0] >= 8642 && killedPorts[0] <= 9641, "killed the resolved gateway port");
+  // 2026-06-02: the reused gateway host (child===null via probeFirst) is SHARED
+  // with the visible TUI, so the loop must NOT port-kill it on teardown (doing so
+  // dropped the TUI's WebSocket). It self-exits and leaves the gateway for the
+  // TUI; kill-prior / the env-bridge sweep reap it later by its port marker.
+  assert.equal(killedPorts.length, 0, "must NOT port-kill the shared/reused gateway");
   // It did NOT keep polling indefinitely (broke on the first terminal claim).
   const claimCount = calls.filter((c) => c.endpoint === "/dispatch/claim").length;
   assert.ok(claimCount <= 2, `must stop claiming after terminal 410 (got ${claimCount})`);
