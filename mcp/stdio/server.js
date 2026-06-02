@@ -962,7 +962,11 @@ function wakeModeSummary(info = {}) {
   if (sessionMode === "resident" && runtime === "opencode" && capabilities.includes("resident-run") && info.sessionHandle) return "opencode-session-resume";
   if (sessionMode === "resident" && runtime === "pi" && capabilities.includes("resident-run") && info.sessionHandle) return "pi-session-resume";
   if (sessionMode === "resident" && runtime === "codex" && !info.sessionHandle) return "codex-missing-handle";
-  if (sessionMode === "resident" && runtime === "hermes" && !info.sessionHandle && !/^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))) return "hermes-missing-handle";
+  // hermes deliverability is keyed on the GATEWAY, never the handle (resident-run
+  // / hermes-live require a live ws:// gateway). The handle is now always recorded
+  // (the stable aify-<agentId> session — see fillSessionHandleFromAdapter), so this
+  // diagnostic must key on the gateway alone, mirroring the service (api_v2.py).
+  if (sessionMode === "resident" && runtime === "hermes" && !/^wss?:\/\//i.test(String(parseJson(info.runtimeConfig, {})?.gatewayUrl || ""))) return "hermes-missing-handle";
   if (sessionMode === "resident" && runtime === "opencode" && !info.sessionHandle) return "opencode-missing-handle";
   if (sessionMode === "resident" && runtime === "pi" && !info.sessionHandle) return "pi-missing-handle";
   if (sessionMode === "resident" && runtime === "claude-code") return "claude-needs-channel";
