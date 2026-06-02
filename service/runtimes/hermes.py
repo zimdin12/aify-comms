@@ -22,10 +22,12 @@ class HermesAdapter(RuntimeAdapter):
     session_env_vars = ["HERMES_SESSION_ID", "HERMES_SESSION"]
     supports_resident = True
     supports_managed = True
-    # ASYMMETRY(hermes): the api_server `chat` delivery path has no mid-turn steer
-    # (mirror mcp/stdio/adapters/hermes.js). Interrupt is available via the
-    # api_server `/v1/runs/{id}/stop` endpoint, so interrupt stays True.
-    supports_steering = False
+    # ASYMMETRY(hermes): resident hermes delivers via the WebSocket tui_gateway,
+    # so steering IS supported — the gateway delivery loop
+    # (mcp/stdio/hermes-managed-host.js) steers via `session.steer` on a
+    # 4009-busy. Interrupt is available via the api_server `/v1/runs/{id}/stop`
+    # endpoint, so interrupt stays True.
+    supports_steering = True
     supports_interrupt = True
     supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"
@@ -34,9 +36,10 @@ class HermesAdapter(RuntimeAdapter):
     wrapper_name = "hermes-aify"
 
     def resume_command(self, session_id) -> str:
-        # Mirror mcp/stdio/adapters/hermes.js resumeCommand: the resident TUI
-        # attaches to the per-agent daemon via HERMES_TUI_GATEWAY_URL.
-        return f"hermes --tui --resume {session_id}"
+        # The aify-aware way to reopen an agent is the wrapper: hermes-aify's
+        # --resume recovery maps the real session id back to its agent and
+        # resumes that real session via the gateway-host.
+        return f"hermes-aify --resume {session_id}"
 
     def console_command(self, *, agent_id: str, handle: str, interactive: bool) -> str:
         parts = ["hermes-aify", "--aify-agent", agent_id]
