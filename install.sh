@@ -1312,6 +1312,30 @@ export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-\$AIFY_SERVER_URL}"
 # crashes in subprocess reader threads, so force UTF-8 for this process tree.
 export PYTHONUTF8="\${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="\${PYTHONIOENCODING:-utf-8}"
+# Recover the aify agent id from a --resume handle when --aify-agent wasn't given
+# (2026-06-03). After closing + reopening, hermes' OWN resume picker offers
+# `--resume <session>`, not `--aify-agent`, so an operator naturally resumes by
+# session — and would otherwise land in a plain TUI with NO gateway (send-only,
+# not deliverable). Map the resumed session back to its agent so the gateway-host
+# model still engages:
+#   1. the stable session is named `aify-<agentId>` → the id is the suffix (exact,
+#      offline-robust — this is what hermes' picker shows for an aify agent).
+#   2. otherwise ask the aify service which hermes agent owns this session handle.
+# Best-effort; never blocks the launch. (Same idea is wired into claude/codex.)
+if [ -z "\$HERMES_AIFY_AGENT_ID" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
+  case "\$HERMES_SESSION_HANDLE" in
+    aify-*) HERMES_AIFY_AGENT_ID="\${HERMES_SESSION_HANDLE#aify-}" ;;
+    *)
+      if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+        _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_SERVER_URL%/}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="hermes"){process.stdout.write(k);break;}}}catch{}})' "\$HERMES_SESSION_HANDLE" 2>/dev/null)"
+        [ -n "\$_aify_rec" ] && HERMES_AIFY_AGENT_ID="\$_aify_rec"
+      fi
+      ;;
+  esac
+  if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
+    echo "[hermes-aify] resolved aify agent '\$HERMES_AIFY_AGENT_ID' from --resume '\$HERMES_SESSION_HANDLE' — engaging gateway-host model (resuming aify-\$HERMES_AIFY_AGENT_ID)." >&2
+  fi
+fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
