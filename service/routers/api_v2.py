@@ -2318,7 +2318,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     result = {"managed_ghost_rows_reaped": 0, "orphan_workers_reaped": 0}
     cursor = await db.execute(
         """
-        SELECT t.id AS terminal_id, t.agent_id AS agent_id
+        SELECT t.id AS terminal_id, t.agent_id AS agent_id, a.runtime AS runtime
         FROM terminal_sessions t
         JOIN agents a ON a.id = t.agent_id
         WHERE a.session_mode = 'managed'
@@ -2335,6 +2335,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     for row in (rows or []):
         terminal_id = row["terminal_id"]
         agent_id = row["agent_id"]
+        ghost_runtime = _normalize_runtime(str(row["runtime"] or "") if "runtime" in row.keys() else "") or "managed"
         sidecar_live = await _has_live_channel_sidecar(db, agent_id)
         if sidecar_live:
             # Worker alive — a live-but-idle console stays. The orphan-worker
@@ -2352,13 +2353,27 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
             """,
             (now, now, terminal_id),
         )
+        # WS3 Task 3.4: runtime-aware reason. For hermes the dead claimer is the
+        # delivery loop (hermes-managed-host.js, registered as a channel-sidecar);
+        # for claude it is the claude-channel.js sidecar inside the wrapper PTY.
+        if ghost_runtime == "hermes":
+            ghost_reason = (
+                "managed hermes delivery loop is dead (no live channel sidecar) but its "
+                "console terminal row stayed active; phantom console reaped"
+            )
+        else:
+            ghost_reason = (
+                f"managed {ghost_runtime} wrapper is dead (no live channel sidecar) but its "
+                "terminal row stayed active; phantom console reaped"
+            )
         await _append_terminal_event(
             db,
             terminal_id,
             "reconciled_managed_ghost_console",
             json.dumps({
                 "agentId": agent_id,
-                "reason": "managed claude wrapper is dead (no live channel sidecar) but its terminal row stayed active; phantom console reaped",
+                "runtime": ghost_runtime,
+                "reason": ghost_reason,
             }),
         )
         # Clear the agent's runtime_state.consoleTerminal pointer (pop + write
@@ -2401,7 +2416,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     # orphan has no run, so there is no run_id to attach one to.
     orphan_cursor = await db.execute(
         """
-        SELECT a.id AS agent_id, a.runtime_state AS runtime_state
+        SELECT a.id AS agent_id, a.runtime AS runtime, a.runtime_state AS runtime_state
         FROM agents a
         WHERE a.session_mode = 'managed'
           AND a.runtime IN ({placeholders})
@@ -2413,6 +2428,7 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     orphan_agents = await orphan_cursor.fetchall()
     for agent in orphan_agents:
         agent_id = agent["agent_id"]
+        orphan_runtime = _normalize_runtime(str(agent["runtime"] or "") if "runtime" in agent.keys() else "") or "managed"
         # Worker alive (sidecar beating) but NO live console PTY.
         if not await _has_live_channel_sidecar(db, agent_id):
             continue
@@ -2462,13 +2478,21 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
                 "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",
                 (json.dumps(runtime_state), now, agent_id),
             )
+        if orphan_runtime == "hermes":
+            orphan_reason = (
+                "live hermes delivery loop (channel sidecar) but no console PTY = headless "
+                "orphan (visible-TUI violation); worker killed host-side"
+            )
+        else:
+            orphan_reason = "live sidecar but no console PTY = headless orphan; worker killed host-side"
         await _append_terminal_event(
             db,
             terminal_id,
             "reconciled_managed_orphan_worker",
             json.dumps({
                 "agentId": agent_id,
-                "reason": "live sidecar but no console PTY = headless orphan; worker killed host-side",
+                "runtime": orphan_runtime,
+                "reason": orphan_reason,
             }),
         )
         # Recompute status now → refined status-F1 drops the agent to `available`.
@@ -14592,8 +14616,12 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
 async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
     """WS3 (2026-06-02): True when SOME process can claim + deliver a dispatch to
     this agent right now — the runtime-agnostic "live claimer" deliverability
-    predicate shared by the queued-run backstop (Task 3.2) and the deaf-target
-    fail-fast (Task 3.3).
+    predicate used by the queued-run backstop (Task 3.2). (Task 3.3 deaf-target
+    fail-fast was BLOCKED — see report — because a healthy wrapper-backed managed
+    agent legitimately has a live console but no yet-registered claimer before its
+    first /dispatch/claim poll, so this predicate cannot distinguish a deaf target
+    from a not-yet-polled-healthy one at SEND time. The backstop reaper applies it
+    only AFTER a long age window, where that ambiguity has resolved.)
 
     A live claimer is one of:
       - managed sidecar-delivery runtimes (claude-code / hermes): a fresh,

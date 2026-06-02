@@ -2247,6 +2247,34 @@ class ApiV2RegressionTests(unittest.TestCase):
         agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
         self.assertEqual(agent["status"], "online", agent)
 
+    def test_managed_hygiene_reaps_hermes_ghost_console_row(self):
+        # WS3 Task 3.4: now that hermes is in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
+        # _reconcile_managed_worker_hygiene must cover the hermes triad: a managed
+        # hermes with a stale (here: absent) channel-sidecar + an `attached`
+        # console row is a ghost console for a dead worker — reaped exactly like
+        # claude's ghost path, with a hermes-aware reason string.
+        terminal_id = "term_hermes_ghost_console"
+        self._seed_managed_hermes_with_attached_terminal("ghost-hermes", terminal_id)
+        # No channel-sidecar bridge row → no live claimer → dead worker.
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
+        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(term["status"], "stopped")
+        self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("ghost-hermes",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        event = self._fetchone(
+            "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+            (terminal_id, "reconciled_managed_ghost_console"),
+        )
+        self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
+        payload = json.loads(event["body"] or "{}")
+        self.assertEqual(payload.get("runtime"), "hermes", payload)
+        self.assertIn("hermes delivery loop", payload.get("reason", ""), f"reason should be hermes-aware; got {payload!r}")
+
     def test_managed_claude_online_requires_live_console(self):
         # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
         # console PTY AND a live channel-sidecar exist. A live sidecar with NO
