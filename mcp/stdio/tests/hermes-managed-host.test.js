@@ -41,7 +41,6 @@ import {
   isGatewayConnectRefused,
   gatewayUnreachableMessage,
   reportGatewayDead,
-  makeDeliveryLoop,
   makeTeardown,
 } from "../hermes-managed-host.js";
 
@@ -1172,124 +1171,62 @@ test("ensureStableSession: python failure is swallowed (best-effort, returns fal
 });
 
 // ---------------------------------------------------------------------------
-// makeDeliveryLoop — the triad-supervisor seam (Tasks 1.1, 1.3)
+// runDeliveryLoop lifecycle-ownership (Tasks 1.1, 1.3)
 //
-// The delivery loop is the single lifecycle owner of the managed-hermes triad.
-// It must register liveness BEFORE bringing the gateway up (so a fresh hermes
-// never shows `online` with no claimer), retry a transient gateway failure
-// (non-fatal — never a synchronous process.exit), and self-exit + teardown on a
-// terminal /dispatch/claim signal (410 agent-removed / release).
+// runDeliveryLoop is the SINGLE lifecycle owner of the managed-hermes triad
+// (there is intentionally no separate generic seam — the production loop carries
+// concurrent probe/re-pulse/connect-refused lifecycles + a return-based terminal
+// contract that a generic claimOnce/onReady seam can't host without shim
+// adapters + dead hooks). The four lifecycle invariants the old seam asserted
+// are covered here against the REAL loop:
+//   1. liveness registered BEFORE the gateway bring-up — asserted directly below
+//      (injected startLivenessHeartbeat ordered before the gateway-host spawn);
+//   2. terminal 410 → teardown + self-exit(0), not swallowed — covered by
+//      "runDeliveryLoop: 410 from /dispatch/claim tears down (port-kill) +
+//      self-exits(0)";
+//   3. release → teardown (not just exit) — covered by "runDeliveryLoop: starts
+//      the claim/deliver loop and tears down the gateway host on release";
+//   4. transient WS/connect error is NON-terminal (keeps retrying) — covered by
+//      "runDeliveryLoop: initial WS connect refused → self-corrects ONCE ...
+//      does not spin the signal" (loops maxIterations without terminating).
 // ---------------------------------------------------------------------------
 
-test("makeDeliveryLoop: loop registers liveness before gateway bring-up, retries on gateway failure", async () => {
-  const beats = [];
-  const fakeBeat = () => beats.push(Date.now());
-  let gwCalls = 0;
-  const ensureGatewayHostFake = async () => {
-    gwCalls++;
-    if (gwCalls < 2) throw new Error("index token timeout");
-    return { child: null, reused: true, wsUrl: "ws://127.0.0.1:9313", port: 9313, token: "t" };
+test("runDeliveryLoop: registers the liveness heartbeat BEFORE bringing the gateway host up (Task 1.1)", async () => {
+  const events = [];
+  const { spawn } = makeFakeSpawn();
+  // Record the gateway-host spawn relative to the heartbeat registration.
+  const spawnImpl = (cmd, args, opts) => {
+    events.push("gateway-spawn");
+    return spawn(cmd, args, opts);
   };
-  const loop = makeDeliveryLoop({
-    agentId: "sc-hermes",
-    ensureGatewayHost: ensureGatewayHostFake,
-    startLivenessHeartbeat: () => {
-      fakeBeat();
-      return { stop() {} };
-    },
-    claimOnce: async () => ({ processed: 0, release: false }),
-    openWs: async () => makeFakeWsClient({}),
-    sleepImpl: async () => {},
-    maxIterations: 2,
-  });
-  await loop.runUntilIdle();
-  assert.ok(beats.length >= 1, "heartbeat started before/independent of gateway");
-  assert.ok(gwCalls >= 2, "gateway bring-up retried, not fatal");
-});
+  const fetchImpl = makeFakeFetch();
+  const { httpCall } = makeAifyHttp();
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
 
-test("makeDeliveryLoop: 410 from claim is terminal: teardown + exit, not swallowed", async () => {
-  let toreDown = false;
-  const loop = makeDeliveryLoop({
-    agentId: "sc-hermes",
-    ensureGatewayHost: async () => ({
-      child: null,
-      reused: true,
-      wsUrl: "ws://127.0.0.1:9313",
-      port: 9313,
-      token: "t",
-    }),
-    startLivenessHeartbeat: () => ({ stop() {} }),
-    openWs: async () => makeFakeWsClient({}),
-    claimOnce: async () => {
-      const e = new Error("gone");
-      e.status = 410;
-      throw e;
-    },
-    teardown: () => {
-      toreDown = true;
-    },
+  await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
     sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    // Injected heartbeat factory: record registration order + return a stop fn.
+    startLivenessHeartbeat: ({ beat } = {}) => {
+      events.push("liveness-start");
+      void beat?.(); // fire once like the real beat (drives the heartbeat POST)
+      return () => {};
+    },
+    maxIterations: 1,
   });
-  const r = await loop.runUntilIdle();
-  assert.equal(r.exit, "agent-removed");
-  assert.ok(toreDown);
-});
 
-test("makeDeliveryLoop: release===true tears down the gateway host (not just exits)", async () => {
-  let toreDown = false;
-  const loop = makeDeliveryLoop({
-    agentId: "sc-hermes",
-    ensureGatewayHost: async () => ({
-      child: null,
-      reused: true,
-      wsUrl: "ws://127.0.0.1:9313",
-      port: 9313,
-      token: "t",
-    }),
-    startLivenessHeartbeat: () => ({ stop() {} }),
-    openWs: async () => makeFakeWsClient({}),
-    claimOnce: async () => ({ processed: 0, release: true }),
-    teardown: () => {
-      toreDown = true;
-    },
-    sleepImpl: async () => {},
-  });
-  const r = await loop.runUntilIdle();
-  assert.equal(r.exit, "released");
-  assert.ok(toreDown, "release must still tear down the gateway host");
-});
-
-test("makeDeliveryLoop: transient WS/connect error is NON-terminal (keeps retrying)", async () => {
-  let claims = 0;
-  let toreDown = false;
-  const loop = makeDeliveryLoop({
-    agentId: "sc-hermes",
-    ensureGatewayHost: async () => ({
-      child: null,
-      reused: true,
-      wsUrl: "ws://127.0.0.1:9313",
-      port: 9313,
-      token: "t",
-    }),
-    startLivenessHeartbeat: () => ({ stop() {} }),
-    openWs: async () => makeFakeWsClient({}),
-    claimOnce: async () => {
-      claims++;
-      if (claims < 2) {
-        const e = new Error("hermes gateway WS closed");
-        throw e;
-      }
-      return { processed: 0, release: false };
-    },
-    teardown: () => {
-      toreDown = true;
-    },
-    sleepImpl: async () => {},
-    maxIterations: 2,
-  });
-  const r = await loop.runUntilIdle();
-  assert.ok(claims >= 2, "transient WS error must not terminate the loop");
-  assert.ok(!toreDown || r.exit === undefined, "transient error is not a terminal teardown");
+  const livenessIdx = events.indexOf("liveness-start");
+  const spawnIdx = events.indexOf("gateway-spawn");
+  assert.ok(livenessIdx >= 0, "liveness heartbeat must be registered");
+  assert.ok(
+    spawnIdx === -1 || livenessIdx < spawnIdx,
+    "liveness must register before the gateway host is spawned (no online-with-no-claimer window)",
+  );
 });
 
 test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async () => {

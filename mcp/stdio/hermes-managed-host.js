@@ -1154,122 +1154,25 @@ export function classifyClaimError(err, counter = { count: 0 }, { grace = CLAIM_
 }
 
 // ---------------------------------------------------------------------------
-// makeDeliveryLoop — the triad-supervisor seam (Tasks 1.1 + 1.3).
+// Delivery loop (the `run` CLI mode).
 //
-// This is the testable core of the delivery loop's lifecycle ownership:
-//   1. Start the liveness heartbeat (bridge_instances registration) FIRST, so
-//      the agent's channel-sidecar bridge exists BEFORE the gateway is brought
-//      up. A fresh hermes therefore never shows `online` with no live claimer.
+// runDeliveryLoop is the SINGLE lifecycle owner of the managed-hermes triad.
+// Its inline loop intentionally carries the full production lifecycle, which has
+// no clean home in a generic seam:
+//   1. Register the channel-sidecar liveness heartbeat FIRST (before any gateway
+//      await) so a fresh hermes never shows `online`/`available` with no live
+//      claimer (defect #2).
 //   2. Bring the gateway up inside a BOUNDED-RETRY path — a transient gateway
 //      failure is non-fatal and never calls process.exit synchronously.
-//   3. Poll claim (`claimOnce`) each iteration. A terminal condition (410 /
-//      graced-404 / release) BREAKS the loop, runs teardown, and resolves a
-//      terminal result. Transient errors are swallowed and retried.
-//
-// All collaborators are injected (`ensureGatewayHost`, `startLivenessHeartbeat`,
-// `openWs`, `claimOnce`, `teardown`, `sleepImpl`). Production `runDeliveryLoop`
-// builds the real collaborators and delegates here.
-// ---------------------------------------------------------------------------
-export function makeDeliveryLoop({
-  agentId,
-  ensureGatewayHost: ensureGatewayHostImpl,
-  startLivenessHeartbeat: startLivenessHeartbeatImpl,
-  openWs,
-  claimOnce,
-  teardown = async () => {},
-  sleepImpl = sleep,
-  maxIterations,
-  gatewayRetryMs = POLL_MS,
-  onReady,
-  onClaimOk,
-} = {}) {
-  const id = String(agentId || "").trim();
-  return {
-    async runUntilIdle() {
-      // 1. Register liveness FIRST (before any gateway await).
-      let heartbeat = null;
-      if (typeof startLivenessHeartbeatImpl === "function") {
-        heartbeat = startLivenessHeartbeatImpl();
-      }
-
-      // 2. Bounded-retry gateway bring-up — a transient failure is non-fatal.
-      let host = null;
-      for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
-        try {
-          host = await ensureGatewayHostImpl();
-          break;
-        } catch (error) {
-          console.error(
-            `[hermes-managed-host] gateway bring-up failed for '${id}' (attempt ${attempt + 1}); retrying:`,
-            error?.message || String(error),
-          );
-          await sleepImpl(gatewayRetryMs);
-        }
-      }
-      if (!host) {
-        // Exhausted the bounded retry budget (test bound) without a gateway —
-        // not a terminal removal, just give up this loop run cleanly.
-        if (heartbeat && typeof heartbeat.stop === "function") heartbeat.stop();
-        return { exit: undefined, processed: 0 };
-      }
-
-      // 3. Poll claim until a terminal condition. Transient errors retry.
-      const counter = { count: 0 };
-      let ws = null;
-      let processed = 0;
-      let ready = false;
-      let result = { exit: undefined, processed: 0 };
-      try {
-        for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
-          try {
-            if (!ws && typeof openWs === "function") {
-              ws = await openWs(host.wsUrl);
-            }
-            const claim = await claimOnce({ host, ws });
-            // First successful claim round-trip → the loop is a live claimer.
-            counter.count = 0;
-            if (!ready) {
-              ready = true;
-              if (typeof onReady === "function") await onReady({ host });
-            }
-            if (typeof onClaimOk === "function") await onClaimOk({ host });
-            processed += claim?.processed || 0;
-            if (claim?.release) {
-              result = { exit: "released", processed };
-              break;
-            }
-          } catch (error) {
-            const cls = classifyClaimError(error, counter);
-            if (cls.terminal) {
-              result = { exit: cls.reason, processed };
-              break;
-            }
-            // Transient: drop the WS so the next iteration reconnects, retry.
-            try {
-              ws?.close?.();
-            } catch {
-              /* ignore */
-            }
-            ws = null;
-            console.error(
-              `[hermes-managed-host] transient claim error for '${id}' (retrying):`,
-              error?.message || String(error),
-            );
-          }
-          await sleepImpl(POLL_MS);
-        }
-      } finally {
-        if (heartbeat && typeof heartbeat.stop === "function") heartbeat.stop();
-        await teardown();
-      }
-      result.processed = processed;
-      return result;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Delivery loop (the `run` CLI mode).
+//   3. Run the reactive + proactive gateway-dead self-correct, the in-flight
+//      re-pulse beat, runPollCycle (which classifies terminal/release/claimOk by
+//      RETURN, not by throw), the loop-ready marker, and procExit(0) on terminal.
+// These concurrent lifecycles (probe/re-pulse/connect-refused latch) and the
+// return-based terminal contract are why the loop is NOT factored behind a
+// generic claimOnce/onReady seam — doing so would require shim adapters + dead
+// hooks (the exact test/prod drift such a seam is meant to prevent). The
+// liveness-first / bounded-retry / terminal-exit / release-teardown / transient
+// behaviors are unit-tested directly against runDeliveryLoop below.
 // ---------------------------------------------------------------------------
 
 // Drive the claim/deliver loop for `agentId`. Assumes (or brings up via the
@@ -1305,6 +1208,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // Port→PID→kill primitive for a reused (child===null) gateway host (Task
     // 1.2). Injectable so tests assert the port-kill without touching a process.
     killByPort = defaultKillByPort,
+    // Liveness-heartbeat factory (Task 1.1). Injectable so tests can assert the
+    // beat is registered BEFORE the gateway bring-up; production uses the real
+    // unconditional beat from liveness-heartbeat.js.
+    startLivenessHeartbeat: startLivenessHeartbeatImpl = startLivenessHeartbeat,
   } = deps;
   const id = String(agentId || "").trim();
   if (!id) {
@@ -1317,7 +1224,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // bring-up so the agent's bridge_instances row exists before any gateway await.
   // A fresh hermes can therefore never show `online`/`available` with NO live
   // claimer (defect #2). Stopped on either return path via the finally below.
-  const stopLiveness = startLivenessHeartbeat({
+  const stopLiveness = startLivenessHeartbeatImpl({
     intervalMs: 30_000,
     beat: async () => {
       if (!serverUrl) return;
