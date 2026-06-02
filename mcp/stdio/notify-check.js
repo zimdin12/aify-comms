@@ -94,29 +94,24 @@ try {
   const data = await resp.json();
 
   if (heartbeatAllowed) {
-    // For PostToolUse hook payloads ONLY, re-pulse turn_busy=1 with empty
-    // runId (operator-initiated turn, no dispatch). This is what keeps
-    // status='working' alive for long multi-tool claude turns past the
-    // 120s TURN_BUSY_STALE_SECONDS window — every tool call is positive
-    // evidence the agent is still working. Pre-fix the heartbeat updated
-    // agents.last_seen but NOT turn_updated_at, so >120s turns silently
-    // flipped to 'online' on the dashboard while claude was still using
-    // tools (operator-reported 2026-05-23: "graph-tech-lead showing
-    // online, but he is working").
+    // LIVENESS-ONLY heartbeat (pure-event-status change #4, 2026-06-02).
     //
-    // Safe by design — this is a HOOK script firing on actual tool use,
-    // not a polling loop reacting to derived status. The 2026-05-23
-    // feedback-loop fix in claude-channel.js stays in place: the bridge
-    // poll loop only re-pulses on hasActiveRun (dispatch anchor); hook
-    // refreshes here are bound to real activity, no self-reinforcement.
-    const heartbeatBody = (hookPayload?.hook_event_name === "PostToolUse")
-      ? JSON.stringify({ turnBusy: true, turnRuntime: "claude-code" })
-      : undefined;
-    const hbHeaders = heartbeatBody ? { ...headers, "Content-Type": "application/json" } : headers;
+    // The PostToolUse turn_busy RE-PULSE was REMOVED here. It used to re-assert
+    // turn_busy=1 on every tool call to keep status='working' alive past the old
+    // short status window. With STATUS now PURE-EVENT (the short status window is
+    // gone — change #3), re-arming turn_busy on every tool call would defeat the
+    // event model: the turn-START event sets working and the turn-END event
+    // (claude Stop hook, or the bridge transcript turn-END detector — change #1)
+    // clears it; nothing else may set turn_busy. The transcript-growth signal that
+    // formerly fed this re-pulse is now repurposed as the #1 turn-END DETECTOR
+    // (server.js), never a turn_busy re-arm.
+    //
+    // What remains is a LIVENESS-ONLY heartbeat (no turnBusy field): it refreshes
+    // agents.last_seen so an active resident is not reaped as dead, but it does NOT
+    // touch turn_updated_at / turn_busy and so cannot influence derived status.
     fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
       method: "POST",
-      headers: hbHeaders,
-      body: heartbeatBody,
+      headers,
       signal: AbortSignal.timeout(2000),
     }).catch(() => {});
   }

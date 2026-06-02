@@ -1,12 +1,18 @@
 """Static guards for the claude-aify turn-lifecycle hooks (install.sh).
 
 Resident/managed claude has no native turn-end RPC (unlike codex turn/completed,
-pi agent_end). The dashboard's "working" status is driven by turn_busy, which
-these hooks set/refresh/clear via the claude Stop/UserPromptSubmit/PostToolUse
-hooks. Operator-reported (2026-05-31): a working resident claude "shows working
-sometimes" — root cause was turn_busy STALING mid-turn (set once at
-UserPromptSubmit, never re-pulsed), so turns longer than TURN_BUSY_STALE_SECONDS
-(120s) flipped off 'working'. The fix re-pulses /turn-start on PostToolUse.
+pi agent_end). The dashboard's "working" status is driven by turn_busy, which the
+turn-START hook (UserPromptSubmit → /turn-start) sets and the turn-END hook (Stop
+→ /turn-end) clears.
+
+pure-event-status change #4 (2026-06-02): STATUS is now PURE-EVENT. The
+PostToolUse turn_busy RE-PULSE was REMOVED — it re-armed turn_busy on every tool
+call to hold status past the old short status window, which with a pure-event
+model would defeat the turn-END event. turn_busy is now set ONLY at turn START
+(UserPromptSubmit) and cleared ONLY by an event (the Stop hook fast-path, or the
+bridge transcript turn-END detector — change #1) or the single long ceiling. So
+the generated wrapper must wire UserPromptSubmit → /turn-start and Stop →
+/turn-end, but must NOT wire PostToolUse → /turn-start.
 """
 from pathlib import Path
 
@@ -20,12 +26,16 @@ def install_text() -> str:
     return _INSTALL_SH.read_text(encoding="utf-8")
 
 
-def test_turn_start_hook_wires_userpromptsubmit_and_posttooluse(install_text: str):
-    # turn-start must fire at turn START (UserPromptSubmit) AND re-pulse on every
-    # tool call (PostToolUse) so turn_busy never stales mid-turn (task #134).
+def test_turn_start_hook_wires_userpromptsubmit_only_not_posttooluse(install_text: str):
+    # pure-event-status #4: turn-start fires at turn START (UserPromptSubmit) ONLY.
+    # The PostToolUse re-pulse is REMOVED — re-arming turn_busy on every tool call
+    # would defeat the pure-event turn-END transition (status no longer relies on a
+    # short window that needed re-pulsing).
     assert "install_claude_turn_start_hook()" in install_text
     assert "wireTurnStart('UserPromptSubmit')" in install_text, "turn-start must wire UserPromptSubmit (turn start)"
-    assert "wireTurnStart('PostToolUse')" in install_text, "turn-start must RE-PULSE on PostToolUse (task #134 fix)"
+    assert "wireTurnStart('PostToolUse')" not in install_text, (
+        "turn-start must NOT re-pulse on PostToolUse (pure-event #4 removes the window-defeat re-pulse)"
+    )
     assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-start" in install_text
 
 

@@ -74,7 +74,6 @@ import {
   gatewayIndexUrlFromWs,
   makeGatewayReachabilityProbe,
 } from "./hermes-managed-host.js";
-import { transcriptIsGenerating } from "./transcript-activity.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
@@ -263,45 +262,32 @@ function __markControllerStart(promise) {
   promise.then(cleanup, cleanup);
   return promise;
 }
-// Continuous "actively working" signal for claude (operator-reported 2026-05-31,
-// sc-manager: a 12-min turn with the transcript streaming ~20KB/3s still showed
-// 'online'). claude only emits PostToolUse on tool calls, so a long GENERATION
-// phase (few/no tool calls) lets turn_busy go stale and the dashboard wrongly
-// shows 'online' while claude is clearly streaming. The transcript .jsonl grows
-// on every token + tool result, so a fresh transcript mtime is proof claude is
-// mid-turn — feed it into the turn-busy heartbeat so 'working' holds through long
-// generation. (Does NOT cover a long blocking tool like a build — claude is
-// idle-waiting on the subprocess then and nothing can truthfully show working.)
-// GROWTH, not freshness (status-liveness fix 2026-06-01): an earlier version
-// used "mtime within the last N seconds". That re-pulsed turn_busy after every
-// turn, because the claude Stop hook clears turn_busy AND writes the final
-// assistant message (fresh mtime) -- the next tick saw "fresh" and re-asserted
-// busy, keeping an idle resident `working` for ~150s. Now we compare the current
-// observation against the previous one and only count GROWTH (new bytes / newer
-// mtime) as active. During streaming, consecutive ticks see growth -> active.
-// After the final write, at most ONE tick sees growth; the next tick (no further
-// growth) returns false, so the Stop-hook clear sticks.
-let __lastTranscriptObs = null;
-async function __claudeTranscriptActive() {
-  try {
-    if (!__runtimeAdapter || __runtimeAdapter.name !== "claude-code") return false;
-    if (typeof __runtimeAdapter.transcriptStat !== "function") return false;
-    const curr = await __runtimeAdapter.transcriptStat({ agentId: AIFY_AGENT_ID });
-    const active = transcriptIsGenerating(__lastTranscriptObs, curr);
-    __lastTranscriptObs = curr;
-    return active;
-  } catch {
-    return false;
-  }
-}
+// Turn-busy heartbeat re-pulse — NATIVE RUNTIMES ONLY (codex/pi/hermes).
+//
+// pure-event-status change #4 (2026-06-02): the claude transcript-growth signal
+// was REMOVED from this heartbeat's isActive. It used to re-pulse turn_busy while
+// claude's transcript was growing, to hold 'working' through a long GENERATION
+// phase past the old short status window. With STATUS now PURE-EVENT (change #3),
+// turn_busy is set ONCE at turn START and stays set until the turn-END event — the
+// long ceiling holds it through a long generation with NO re-pulse needed, so the
+// transcript signal is no longer used to re-arm turn_busy. Instead it is
+// repurposed as the #1 turn-END DETECTOR (startClaudeTurnEndDetector below):
+// transcript GROWTH that STOPS is read as a turn-end, never as a turn_busy
+// re-arm. This removal is the anti-feedback-loop guarantee for claude: nothing on
+// the claude path re-asserts turn_busy from a derived/observed condition.
+//
+// isActive now keys ONLY on an in-flight native controller (codex/pi/hermes),
+// which is process truth (the controller's start() promise is unresolved) — not
+// derived status. claude has no such controller, so claude never triggers this
+// re-pulse; its liveness is carried by the unconditional liveness heartbeat
+// below, and its 'working' status by the pure-event turn_busy.
 const __stopTurnBusyHeartbeat = startTurnBusyHeartbeat({
   agentId: AIFY_AGENT_ID,
   intervalMs: 30_000,
-  // Active when a runtime controller is mid-turn (codex/pi/hermes) OR claude's
-  // own transcript is freshly growing (the long-generation gap above).
-  isActive: async () => ACTIVE_CONTROLLER_PROMISES.size > 0 || (await __claudeTranscriptActive()),
+  // Active ONLY when a native runtime controller is mid-turn (codex/pi/hermes).
+  isActive: () => ACTIVE_CONTROLLER_PROMISES.size > 0,
   // Pass BRIDGE_INSTANCE_ID so the keep-alive also refreshes this bridge's
-  // bridge_instances.last_seen — without it a tool call longer than the
+  // bridge_instances.last_seen — without it a controller turn longer than the
   // server's active-run bridge-stale window is reaped as a dead bridge
   // mid-turn even though the turn is alive.
   postFn: makeDefaultTurnBusyPoster(__serverUrl, API_KEY, BRIDGE_INSTANCE_ID),

@@ -2880,14 +2880,21 @@ install_claude_turn_start_hook() {
     }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
-    // Wire /turn-start on BOTH UserPromptSubmit (turn START) AND PostToolUse
-    // (RE-PULSE). Without the re-pulse (task #134), turn_busy is set once at
-    // prompt-submit and then STALES after TURN_BUSY_STALE_SECONDS (120s) on any
-    // turn longer than that, so the dashboard flips a genuinely-working resident
-    // claude off 'working' mid-turn (operator-reported: 'working sometimes').
-    // PostToolUse fires after every tool call, keeping turn_busy fresh for the
-    // duration of a tool-using turn. The Stop hook (install_claude_turn_end_hook)
-    // is the authoritative clear. Idempotent: filtered by the turn-start marker.
+    // Wire /turn-start on UserPromptSubmit (turn START) ONLY.
+    //
+    // pure-event-status change #4 (2026-06-02): the PostToolUse RE-PULSE was
+    // REMOVED. It used to re-assert turn_busy on every tool call so the dashboard
+    // held 'working' past the old short status window (task #134). STATUS is now
+    // PURE-EVENT: turn_busy is set ONCE at turn START and cleared ONLY by an event
+    // — the Stop hook (install_claude_turn_end_hook) as the fast-path clear, or the
+    // bridge transcript turn-END detector (change #1) as the hook-independent
+    // backstop — or the single long ceiling. Re-arming turn_busy on every tool call
+    // would defeat that turn-END event (an idle agent that just finished a
+    // tool-using turn would keep re-pulsing). So we wire UserPromptSubmit only and
+    // NOT PostToolUse. Idempotent: filtered by the turn-start marker. (A long
+    // GENERATION phase is held 'working' simply because turn_busy stays set until
+    // the turn-END event — the long status ceiling needs no re-pulse; a turn that
+    // outlives a missed end-event self-heals at that single long ceiling.)
     const wireTurnStart = (eventKey) => {
       if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
       settings.hooks[eventKey] = settings.hooks[eventKey].filter(
@@ -2897,8 +2904,15 @@ install_claude_turn_start_hook() {
         hooks: [{ type: 'command', command, timeout: 3 }]
       });
     };
+    // Remove any PostToolUse turn-start hook a prior install wired (pure-event #4):
+    // a re-pulse left behind would defeat the pure-event turn-END transition.
+    if (Array.isArray(settings.hooks.PostToolUse)) {
+      settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+        h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-start')
+      );
+      if (settings.hooks.PostToolUse.length === 0) delete settings.hooks.PostToolUse;
+    }
     wireTurnStart('UserPromptSubmit');
-    wireTurnStart('PostToolUse');
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   " "$node_settings_file" "$hook_command"
 }
