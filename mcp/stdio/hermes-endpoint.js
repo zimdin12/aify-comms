@@ -167,6 +167,29 @@ function loadOrCreateKey(agentId, tempDir) {
   return key;
 }
 
+// Clear the per-agent GATEWAY markers — the `aify-hermes-port-<agent>` and
+// `aify-hermes-key-<agent>` files. Best-effort, scoped to ONE agent, NEVER
+// throws (missing files are fine).
+//
+// CALL ONLY ON A TERMINAL TEARDOWN — agent removed (410 from /dispatch/claim),
+// explicit `stopDaemon`, or the delivery-loop's terminal-condition self-exit.
+// Do NOT call on a transient gateway retry: the same agent reuses the SAME
+// stable port across a restart, and dropping the port marker mid-restart would
+// force a needless re-probe (and risk a different port). The marker writers
+// (`resolveGatewayPort` / `loadOrCreateKey`) NEVER delete these today — this is
+// the single owned deletion path (Task 4.1).
+export function clearGatewayMarkers(agentId, dir = os.tmpdir()) {
+  const safe = sanitizeAgentId(agentId);
+  if (!safe) return;
+  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`]) {
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      /* best-effort: never throw on teardown */
+    }
+  }
+}
+
 // Resolve the per-agent endpoint. tempDir is injectable for tests; defaults to
 // os.tmpdir() in production.
 export function agentEndpoint(agentId, { tempDir = os.tmpdir() } = {}) {

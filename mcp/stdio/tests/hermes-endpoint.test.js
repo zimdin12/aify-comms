@@ -12,7 +12,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentEndpoint } from "../hermes-endpoint.js";
+import { agentEndpoint, clearGatewayMarkers } from "../hermes-endpoint.js";
 
 // Make a throwaway temp dir for the per-agent key files.
 function makeTempDir() {
@@ -101,4 +101,63 @@ test("distinct agentIds get distinct key files (one identity per agent)", () => 
   } finally {
     cleanup(dir);
   }
+});
+
+// --- clearGatewayMarkers (Task 4.1) ---------------------------------------
+// On a TERMINAL teardown (agent removed / explicit stop), the per-agent port
+// and key markers must be removed so a restart is a clean slate and a stale
+// port marker can never strand a future probe/reuse. Best-effort: missing
+// files must not throw. Scoped to ONE agent — sibling agents' markers untouched.
+
+test("clearGatewayMarkers removes the agent's port and key markers", () => {
+  const dir = makeTempDir();
+  try {
+    // Materialize both markers for the agent.
+    const ep = agentEndpoint("teardown-me", { tempDir: dir });
+    // resolveGatewayPort writes the port file; force it by reading endpoint then
+    // writing a port marker the same way the daemon path would.
+    fs.writeFileSync(path.join(dir, "aify-hermes-port-teardown-me"), String(ep.port));
+    assert.ok(fs.existsSync(path.join(dir, "aify-hermes-key-teardown-me")), "key marker should exist pre-clear");
+    assert.ok(fs.existsSync(path.join(dir, "aify-hermes-port-teardown-me")), "port marker should exist pre-clear");
+
+    clearGatewayMarkers("teardown-me", dir);
+
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-key-teardown-me")), "key marker should be removed");
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-port-teardown-me")), "port marker should be removed");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("clearGatewayMarkers does not throw when markers are missing", () => {
+  const dir = makeTempDir();
+  try {
+    assert.doesNotThrow(() => clearGatewayMarkers("never-existed", dir));
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("clearGatewayMarkers is scoped to one agent (siblings untouched)", () => {
+  const dir = makeTempDir();
+  try {
+    agentEndpoint("keep-me", { tempDir: dir });
+    fs.writeFileSync(path.join(dir, "aify-hermes-port-keep-me"), "8888");
+    agentEndpoint("drop-me", { tempDir: dir });
+    fs.writeFileSync(path.join(dir, "aify-hermes-port-drop-me"), "8889");
+
+    clearGatewayMarkers("drop-me", dir);
+
+    assert.ok(fs.existsSync(path.join(dir, "aify-hermes-key-keep-me")), "sibling key marker must survive");
+    assert.ok(fs.existsSync(path.join(dir, "aify-hermes-port-keep-me")), "sibling port marker must survive");
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-key-drop-me")), "target key marker removed");
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-port-drop-me")), "target port marker removed");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("clearGatewayMarkers defaults dir to os.tmpdir() without throwing", () => {
+  // No dir arg → must not throw even if nothing to clean.
+  assert.doesNotThrow(() => clearGatewayMarkers("no-dir-agent"));
 });

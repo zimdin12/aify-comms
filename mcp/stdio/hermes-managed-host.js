@@ -34,7 +34,7 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
-import { resolveGatewayPort } from "./hermes-endpoint.js";
+import { resolveGatewayPort, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
 import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
@@ -1205,6 +1205,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // Marker cleanup run on teardown. Clears the loop-ready marker (Task 1.4);
     // Task 4.1 extends this with the port/key marker clear. Injectable override.
     clearMarkers,
+    // Port/key gateway-marker clear used by the default teardown cleanup (Task
+    // 4.1). The delivery-loop teardown is the TERMINAL path (410 agent-removed /
+    // dead gateway / release / SIGTERM) — NOT a transient gateway retry — so it
+    // is correct to drop the agent's stable port + key markers here. Injectable.
+    clearGatewayMarkers = defaultClearGatewayMarkers,
     // Port→PID→kill primitive for a reused (child===null) gateway host (Task
     // 1.2). Injectable so tests assert the port-kill without touching a process.
     killByPort = defaultKillByPort,
@@ -1250,7 +1255,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     typeof clearMarkers === "function"
       ? clearMarkers
       : async () => {
+          // Terminal teardown: drop the loop-ready marker (Task 1.4) AND the
+          // port/key gateway markers (Task 4.1) so a restart is a clean slate.
           clearReady(id, markerDir);
+          try {
+            clearGatewayMarkers(id, markerDir);
+          } catch {
+            /* best-effort */
+          }
         };
   const teardown = () =>
     makeTeardown({

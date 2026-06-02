@@ -272,6 +272,22 @@ test("stopDaemon: resolves the agent's port and calls killByPort with it", async
   }
 });
 
+test("stopDaemon: clears the agent's port/key gateway markers (terminal teardown, Task 4.1)", async () => {
+  const dir = makeTempDir();
+  try {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    agentEndpoint("clear-me", { tempDir: dir }); // writes key marker
+    fs.writeFileSync(path.join(dir, "aify-hermes-port-clear-me"), "8765"); // port marker
+    const killByPort = async () => ({ killed: false });
+    await stopDaemon({ agentId: "clear-me", tempDir: dir, killByPort });
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-port-clear-me")), "port marker cleared on stop");
+    assert.ok(!fs.existsSync(path.join(dir, "aify-hermes-key-clear-me")), "key marker cleared on stop");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("stopDaemon: idempotent when no process on the port (not-found → stopped:false, no throw)", async () => {
   const dir = makeTempDir();
   try {

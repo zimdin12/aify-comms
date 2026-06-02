@@ -24,7 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { probeApiServer } from "./hermes-version.js";
-import { agentEndpoint } from "./hermes-endpoint.js";
+import { agentEndpoint, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { terminateProcessTree } from "./runtimes.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -373,6 +373,10 @@ export async function stopDaemon({
   // Injectable cmdline lookup so the tracked-pid cross-check is testable without
   // touching real processes.
   getCmdline = defaultGetCmdline,
+  // Terminal teardown clears the agent's port/key markers (Task 4.1). stopDaemon
+  // is an explicit/terminal stop, so dropping the markers here is safe (NOT a
+  // transient retry). Injectable for tests.
+  clearGatewayMarkers = defaultClearGatewayMarkers,
 } = {}) {
   let stopped = false;
   let pid;
@@ -412,6 +416,13 @@ export async function stopDaemon({
         }
       }
       clearPid(agentId, tempDir);
+      // Terminal stop → also drop the agent's port/key gateway markers so a
+      // restart is a clean slate (Task 4.1). Best-effort; never throws.
+      try {
+        clearGatewayMarkers(agentId, tempDir);
+      } catch {
+        /* best-effort */
+      }
     }
   } catch {
     // Best-effort teardown must never throw — a failed reap is logged by callers.
