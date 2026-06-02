@@ -1,95 +1,117 @@
 #!/usr/bin/env node
 // Pure tests for the claude hook-independent turn-END detector (pure-event-status
-// change #1, 2026-06-02). The claude Stop hook is NOT a guaranteed turn
-// terminator (misses on interrupt/ESC, MCP-continuations, crash, or its short
-// curl failing), so a turn could stay turn_busy=1 forever. This detector gives
-// claude an EVENT-DRIVEN turn-end independent of the Stop hook by watching the
-// transcript: when a transcript that WAS growing stops growing for one tick AND
-// a turn was in flight, it fires turn-end ONCE. It re-arms on the next growth so
-// the next turn is detected too.
+// change #1, 2026-06-02; rewritten 2026-06-02 to a STRUCTURAL signal).
 //
-// ANTI-FEEDBACK-LOOP: the detector keys ONLY on transcript GROWTH (process
-// truth), NEVER on the server's computed status — so it cannot self-reinforce.
-// It is CONSERVATIVE: it fires turn-end only after a growth phase is followed by
-// a no-growth tick, so a single between-tool-calls pause that still shows growth
-// never triggers a false clear.
+// WHY structural, not growth-based: the original detector fired /turn-end after a
+// SINGLE no-growth tick. But the claude session transcript grows PER COMPLETED
+// MESSAGE, not per token, and Task sub-agents write to a SEPARATE subagents/*.jsonl
+// — the PARENT session file does NOT grow during a long blocking tool call
+// (build/test >30s), a long generation, or any sub-agent dispatch. So the
+// growth-based detector FALSE-CLEARED turn_busy mid-turn (agent shows idle while
+// actually working) — a ship-blocker for a team that runs parallel sub-agents.
+//
+// The fix reads the transcript TAIL STRUCTURE. The detector consumes a small
+// structural summary { lastRole, lastStopReason, pendingToolUse } (produced by the
+// adapter from the real JSONL schema) and decides:
+//   ENDED  iff the last assistant message YIELDED to the user — stop_reason in
+//          {end_turn, stop_sequence, max_tokens} with NO pending tool_use.
+//   IN-FLIGHT otherwise: stop_reason "tool_use" (long build / pending tool / a
+//          Task sub-agent dispatch), a trailing user/tool_result feeding the next
+//          step, or an unknown/null tail.
+// Fire /turn-end ONCE per ended turn; re-arm when a new in-flight turn starts.
+// Null/unreadable summary => NOT-ended (never false-clear).
+//
+// ANTI-FEEDBACK-LOOP: the detector keys ONLY on transcript STRUCTURE (process
+// truth), NEVER on the server's computed status — so it cannot self-reinforce. It
+// only ever fires turn-end (a CLEAR); it never sets turn_busy.
 import assert from "node:assert/strict";
 import { makeTurnEndDetector } from "../turn-end-detector.js";
 
-// (a) baseline: first observation establishes a baseline, never fires.
+// Terminal (yielded-to-user) stop reasons that mean the turn ENDED.
+const ENDED = (stopReason) => ({ lastRole: "assistant", lastStopReason: stopReason, pendingToolUse: false });
+// A long build / pending tool / sub-agent dispatch: last assistant awaiting a tool.
+const TOOL_USE = { lastRole: "assistant", lastStopReason: "tool_use", pendingToolUse: true };
+// A trailing user line (prompt or tool_result) — the model owes the next step.
+const USER_PENDING = { lastRole: "user", lastStopReason: null, pendingToolUse: false };
+
+// (a) the very first ENDED summary fires once (a completed turn we just observed).
 {
   const d = makeTurnEndDetector();
-  assert.equal(d.observe({ mtimeMs: 100, size: 10 }), false, "first obs is baseline, no fire");
+  assert.equal(d.observe(ENDED("end_turn")), true, "last assistant end_turn -> FIRE turn-end");
+  assert.equal(d.observe(ENDED("end_turn")), false, "same ended tail again -> do NOT re-fire");
 }
 
-// (b) growth ticks (mid-turn) never fire turn-end.
+// (b) a pending tool_use tail (long build / pending tool) NEVER fires — still working.
 {
   const d = makeTurnEndDetector();
-  d.observe({ mtimeMs: 100, size: 10 }); // baseline
-  assert.equal(d.observe({ mtimeMs: 130, size: 40 }), false, "growth -> no fire (still working)");
-  assert.equal(d.observe({ mtimeMs: 160, size: 90 }), false, "growth -> no fire (still working)");
+  assert.equal(d.observe(TOOL_USE), false, "stop_reason tool_use -> still working, no fire");
+  assert.equal(d.observe(TOOL_USE), false, "still tool_use -> no fire");
 }
 
-// (c) growth then a no-growth tick fires turn-end exactly ONCE.
+// (c) sub-agent dispatch: parent transcript static, last assistant = tool_use (Task),
+//     pendingToolUse true across many ticks -> never fires.
 {
   const d = makeTurnEndDetector();
-  d.observe({ mtimeMs: 100, size: 10 });          // baseline
-  assert.equal(d.observe({ mtimeMs: 130, size: 40 }), false, "growth");
-  assert.equal(d.observe({ mtimeMs: 160, size: 90 }), false, "growth (final write)");
-  assert.equal(d.observe({ mtimeMs: 160, size: 90 }), true, "no growth after growth -> FIRE turn-end once");
-  assert.equal(d.observe({ mtimeMs: 160, size: 90 }), false, "already fired -> do NOT fire again (no re-fire)");
+  for (let i = 0; i < 10; i++) {
+    assert.equal(d.observe(TOOL_USE), false, `sub-agent dispatch tick ${i} -> no fire`);
+  }
 }
 
-// (d) re-arm: a NEW growth phase after a fire produces a NEW turn-end on the
-//     next no-growth tick (the next turn is detected).
+// (d) end_turn fires exactly once, then a NEW in-flight turn re-arms and its
+//     subsequent end_turn fires again.
 {
   const d = makeTurnEndDetector();
-  d.observe({ mtimeMs: 100, size: 10 });          // baseline
-  d.observe({ mtimeMs: 130, size: 40 });          // turn 1 growth
-  assert.equal(d.observe({ mtimeMs: 130, size: 40 }), true, "turn 1 ends");
-  // turn 2 starts: growth resumes
-  assert.equal(d.observe({ mtimeMs: 200, size: 80 }), false, "turn 2 growth -> no fire");
-  assert.equal(d.observe({ mtimeMs: 200, size: 80 }), true, "turn 2 ends -> FIRE again (re-armed)");
+  assert.equal(d.observe(ENDED("end_turn")), true, "turn 1 ended -> FIRE");
+  assert.equal(d.observe(ENDED("end_turn")), false, "turn 1 still ended -> no re-fire");
+  // turn 2 begins (model working again on a new prompt / tool)
+  assert.equal(d.observe(TOOL_USE), false, "turn 2 in-flight -> no fire (re-arms)");
+  assert.equal(d.observe(ENDED("end_turn")), true, "turn 2 ended -> FIRE again (re-armed)");
 }
 
-// (e) no-growth from baseline (an idle agent that never started a turn) never
-//     fires — turn-end only follows an observed growth phase.
+// (e) null / unreadable tail NEVER fires (transient stat failure / unresolved
+//     session id is NOT evidence the turn ended).
 {
   const d = makeTurnEndDetector();
-  d.observe({ mtimeMs: 100, size: 10 });          // baseline
-  assert.equal(d.observe({ mtimeMs: 100, size: 10 }), false, "idle (no growth ever) -> no fire");
-  assert.equal(d.observe({ mtimeMs: 100, size: 10 }), false, "still idle -> no fire");
+  assert.equal(d.observe(null), false, "null summary -> no fire");
+  assert.equal(d.observe(undefined), false, "undefined summary -> no fire");
+  assert.equal(d.observe({}), false, "empty summary (no lastRole) -> no fire");
 }
 
-// (f) full streaming-then-idle sequence: exactly one fire, on the first
-//     no-growth tick after the final write.
+// (f) between-tool-calls: a trailing user/tool_result line means the model owes
+//     the next step -> in-flight, no fire.
 {
   const d = makeTurnEndDetector();
-  const obs = [
-    { mtimeMs: 100, size: 10 },  // baseline
-    { mtimeMs: 130, size: 40 },  // streaming
-    { mtimeMs: 160, size: 90 },  // streaming
-    { mtimeMs: 200, size: 120 }, // final write (still growth)
-    { mtimeMs: 200, size: 120 }, // idle -> FIRE
-    { mtimeMs: 200, size: 120 }, // idle -> no re-fire
-    { mtimeMs: 200, size: 120 }, // idle -> no re-fire
-  ];
-  const fires = obs.map((o) => d.observe(o));
-  assert.deepEqual(
-    fires,
-    [false, false, false, false, true, false, false],
-    "exactly one turn-end fire on the first no-growth tick after the growth phase",
+  assert.equal(d.observe(USER_PENDING), false, "trailing user/tool_result -> in-flight, no fire");
+  assert.equal(d.observe(TOOL_USE), false, "then a tool_use -> in-flight, no fire");
+}
+
+// (g) other terminal stop reasons (stop_sequence, max_tokens) also fire once.
+{
+  for (const sr of ["stop_sequence", "max_tokens"]) {
+    const d = makeTurnEndDetector();
+    assert.equal(d.observe(ENDED(sr)), true, `stop_reason ${sr} -> FIRE`);
+    assert.equal(d.observe(ENDED(sr)), false, `stop_reason ${sr} again -> no re-fire`);
+  }
+}
+
+// (h) an unreadable tick in the MIDDLE of a turn does not lose arming: a null
+//     between an in-flight tail and an ended tail still fires on the ended tail.
+{
+  const d = makeTurnEndDetector();
+  assert.equal(d.observe(TOOL_USE), false, "in-flight");
+  assert.equal(d.observe(null), false, "transient unreadable -> no fire, no state loss");
+  assert.equal(d.observe(ENDED("end_turn")), true, "ended after transient -> FIRE");
+}
+
+// (i) an assistant message with an unknown / null stop_reason (mid-stream, not yet
+//     a terminal yield) is treated as in-flight, never fires.
+{
+  const d = makeTurnEndDetector();
+  assert.equal(
+    d.observe({ lastRole: "assistant", lastStopReason: null, pendingToolUse: false }),
+    false,
+    "assistant null stop_reason -> not a yield, no fire",
   );
-}
-
-// (g) unreadable/sentinel observations (null / zero mtime) never fire — a
-//     transient stat failure must not be read as 'turn ended'.
-{
-  const d = makeTurnEndDetector();
-  d.observe({ mtimeMs: 100, size: 10 });
-  d.observe({ mtimeMs: 130, size: 40 }); // growth, turn in flight
-  assert.equal(d.observe(null), false, "null obs -> no fire (defensive)");
-  assert.equal(d.observe({ mtimeMs: 0, size: 0 }), false, "zero obs -> no fire (defensive)");
 }
 
 console.log("turn-end-detector.test.js: all assertions passed");

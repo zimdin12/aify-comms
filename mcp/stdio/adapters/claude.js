@@ -120,6 +120,24 @@ export class ClaudeAdapter extends RuntimeAdapter {
   // store, then env); returns null when it can't be resolved — no newest-in-dir
   // fallback, which avoids shared-cwd teammate attribution.
   async transcriptStat(opts = {}) {
+    const transcriptPath = this._resolveTranscriptPath(opts);
+    if (!transcriptPath) return null;
+    try {
+      const stat = await fs.stat(transcriptPath);
+      if (stat.isFile()) return { mtimeMs: stat.mtimeMs, size: stat.size };
+    } catch { /* transcript not present yet */ }
+    return null;
+  }
+
+  // Resolve the absolute path to THIS agent's OWN claude session .jsonl, or null
+  // when the session id can't be resolved. Shared by transcriptStat and
+  // transcriptTail so both use identical session scoping (captured store →
+  // CLAUDE_SESSION_ID; NEVER a newest-.jsonl-in-dir fallback). Two claude agents
+  // can share a cwd; falling back to the newest file would attribute a
+  // teammate's transcript to this agent (shared-cwd attribution bug,
+  // operator-reported 2026-06-01), so an unresolved id returns null and callers
+  // treat that as "unknown / not active".
+  _resolveTranscriptPath(opts = {}) {
     const { env = process.env, homeDir = os.homedir(), cwd, agentId, dir } = opts;
     const scopedCwd = cwd || env.AIFY_AGENT_CWD || process.cwd();
     const projDir = path.join(homeDir, ".claude", "projects", encodeClaudeCwd(scopedCwd));
@@ -127,20 +145,95 @@ export class ClaudeAdapter extends RuntimeAdapter {
     let sid = "";
     try { sid = readClaudeSessionId({ agentId: resolvedAgentId, dir }) || ""; } catch { sid = ""; }
     if (!sid) sid = String(env.CLAUDE_SESSION_ID || "").trim();
-    // When this agent's OWN session id can't be resolved, return the
-    // "unknown / not active" sentinel (null) rather than falling back to the
-    // newest .jsonl in the shared project dir. Two claude agents can share a
-    // cwd; if a teammate is streaming, the newest-in-dir is the teammate's
-    // transcript, and reading it as "active" would pulse turn_busy for THIS
-    // idle agent → dashboard wrongly shows "working" (shared-cwd attribution
-    // bug, operator-reported 2026-06-01). Growth-based activity treats
-    // null/0 as not-active, and ACTIVE_CONTROLLER_PROMISES still covers
-    // controller-driven turns, so dropping the fallback is safe.
     if (!sid) return null;
-    try {
-      const stat = await fs.stat(path.join(projDir, `${sid}.jsonl`));
-      if (stat.isFile()) return { mtimeMs: stat.mtimeMs, size: stat.size };
-    } catch { /* transcript not present yet */ }
-    return null;
+    return path.join(projDir, `${sid}.jsonl`);
   }
+
+  // Structural summary of THIS agent's OWN transcript TAIL — the turn-end
+  // signal (pure-event-status change #1 rewrite, 2026-06-02). Returns null when
+  // the session id can't be resolved or the file can't be read (same scoping as
+  // transcriptStat — captured store / env, NEVER a shared-dir fallback); the
+  // turn-end detector treats null as "unknown / not-ended" (never false-clear).
+  //
+  // WHY STRUCTURE, NOT GROWTH: the claude transcript grows PER COMPLETED MESSAGE,
+  // not per token, and Task sub-agents write to a SEPARATE subagents/*.jsonl —
+  // the PARENT session file is STATIC during a long blocking tool call (build/
+  // test >30s), a long generation, or any sub-agent dispatch. So "stopped
+  // growing" can NOT distinguish a finished turn from a working one. Instead we
+  // read the tail and report the last MESSAGE's structure:
+  //   { lastRole, lastStopReason, pendingToolUse }
+  // from the real JSONL schema (sampled from a live session 2026-06-02):
+  //   - each line is a JSON object with a top-level `type`;
+  //   - MESSAGE lines (type "assistant"/"user") carry `message.role`,
+  //     `message.stop_reason` (assistant only), and `message.content[].type`
+  //     ∈ {text,thinking,tool_use,tool_result};
+  //   - NON-message bookkeeping lines (type "last-prompt"/"mode"/
+  //     "permission-mode"/"attachment"/"summary"/"system") are appended AFTER the
+  //     last assistant message and MUST be skipped to find the last real message.
+  // pendingToolUse is true iff that last message is an assistant whose content
+  // contains a tool_use block (a tool call awaiting its result — a long build, a
+  // pending tool, or a Task sub-agent dispatch). The detector reads ENDED iff
+  // lastRole==="assistant" && terminal stop_reason && !pendingToolUse.
+  async transcriptTail(opts = {}) {
+    const transcriptPath = this._resolveTranscriptPath(opts);
+    if (!transcriptPath) return null;
+    const tailBytes = Number(opts.tailBytes) > 0 ? Number(opts.tailBytes) : 64 * 1024;
+    let text;
+    try {
+      const fh = await fs.open(transcriptPath, "r");
+      try {
+        const stat = await fh.stat();
+        if (!stat.isFile()) return null;
+        const start = Math.max(0, stat.size - tailBytes);
+        const len = stat.size - start;
+        if (len <= 0) return { lastRole: null, lastStopReason: null, pendingToolUse: false };
+        const buf = Buffer.alloc(len);
+        await fh.read(buf, 0, len, start);
+        text = buf.toString("utf8");
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      return null;
+    }
+    return summarizeTranscriptTail(text);
+  }
+}
+
+// Bookkeeping line types claude appends AFTER the last assistant message — they
+// carry no message.role / stop_reason and must be skipped when locating the last
+// real message.
+const NON_MESSAGE_TYPES = new Set([
+  "last-prompt", "mode", "permission-mode", "attachment", "summary", "system",
+]);
+
+// Parse a transcript tail (a chunk of trailing bytes, possibly starting
+// mid-line) into a structural summary { lastRole, lastStopReason, pendingToolUse }.
+// Walks lines from the END, skipping bookkeeping lines and any partial first
+// line, and returns the first parseable MESSAGE line's structure. When the tail
+// holds no message line, returns lastRole:null so the caller treats it as
+// "unknown / not-ended".
+export function summarizeTranscriptTail(text) {
+  const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false };
+  if (!text) return empty;
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let obj;
+    try { obj = JSON.parse(line); }
+    catch { continue; } // partial first line (truncated by the byte window) or junk
+    if (!obj || typeof obj !== "object") continue;
+    if (NON_MESSAGE_TYPES.has(obj.type)) continue;
+    const msg = obj.message;
+    const role = msg && msg.role ? msg.role : (obj.type === "assistant" || obj.type === "user" ? obj.type : null);
+    if (!role) continue; // not a message line
+    const stopReason = msg && typeof msg.stop_reason !== "undefined" ? msg.stop_reason : null;
+    let pendingToolUse = false;
+    if (role === "assistant" && msg && Array.isArray(msg.content)) {
+      pendingToolUse = msg.content.some((b) => b && b.type === "tool_use");
+    }
+    return { lastRole: role, lastStopReason: stopReason ?? null, pendingToolUse };
+  }
+  return empty;
 }

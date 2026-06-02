@@ -270,11 +270,12 @@ function __markControllerStart(promise) {
 // phase past the old short status window. With STATUS now PURE-EVENT (change #3),
 // turn_busy is set ONCE at turn START and stays set until the turn-END event — the
 // long ceiling holds it through a long generation with NO re-pulse needed, so the
-// transcript signal is no longer used to re-arm turn_busy. Instead it is
-// repurposed as the #1 turn-END DETECTOR (startClaudeTurnEndDetector below):
-// transcript GROWTH that STOPS is read as a turn-end, never as a turn_busy
-// re-arm. This removal is the anti-feedback-loop guarantee for claude: nothing on
-// the claude path re-asserts turn_busy from a derived/observed condition.
+// transcript signal is no longer used to re-arm turn_busy. Instead the transcript
+// is read by the #1 turn-END DETECTOR (startClaudeTurnEndDetector below): its TAIL
+// STRUCTURE (last assistant message yielded to the user vs awaiting a tool) is
+// read as a turn-end, never as a turn_busy re-arm. This removal is the
+// anti-feedback-loop guarantee for claude: nothing on the claude path re-asserts
+// turn_busy from a derived/observed condition.
 //
 // isActive now keys ONLY on an in-flight native controller (codex/pi/hermes),
 // which is process truth (the controller's start() promise is unresolved) — not
@@ -316,27 +317,30 @@ const __stopLivenessHeartbeat = startLivenessHeartbeat({
 // crash, or when its short-timeout curl fails. A missed Stop hook leaves the
 // agent turn_busy=1 with no event to clear it (the sc-claude "stuck at
 // turn_busy=1" symptom), and with STATUS now pure-event (no short status window)
-// that would read `working` until the single long ceiling. This loop watches the
-// transcript directly: when a transcript that WAS growing stops growing for one
-// ~30s tick (a turn was in flight, then no more bytes), it POSTs /turn-end for
-// this agent — an event-driven turn-end independent of the Stop hook, for BOTH
+// that would read `working` until the single long ceiling. This loop reads a
+// STRUCTURAL summary of the transcript TAIL (transcriptTail → { lastRole,
+// lastStopReason, pendingToolUse }) and fires /turn-end ONLY when the last
+// assistant message YIELDED to the user (terminal stop_reason, no pending
+// tool_use) — an event-driven turn-end independent of the Stop hook, for BOTH
 // resident and managed claude (same wrapper). The Stop hook stays the fast-path
-// clear; this is the backstop. ANTI-FEEDBACK-LOOP: keys ONLY on transcript
-// GROWTH (process truth), never on the server's computed status, and only ever
-// POSTs /turn-end (a CLEAR) — it can never re-arm turn_busy. CONSERVATIVE: fires
-// only after a growth phase is followed by a no-growth tick, re-arming on the
-// next growth, so a between-tool-calls pause that still produces growth never
-// false-clears mid-turn.
+// clear; this is the backstop. NOT growth-based: the parent transcript is STATIC
+// during a long blocking tool call, a long generation, or a Task sub-agent
+// dispatch (sub-agents write a SEPARATE subagents/*.jsonl), so a "stopped
+// growing" signal would FALSE-CLEAR turn_busy mid-turn — reading tail STRUCTURE
+// keeps the agent `working` through all of those. ANTI-FEEDBACK-LOOP: keys ONLY
+// on transcript STRUCTURE (process truth), never on the server's computed status,
+// and only ever POSTs /turn-end (a CLEAR) — it can never re-arm turn_busy. A
+// null/unreadable tail is treated as NOT-ended (never false-clear).
 let __stopClaudeTurnEndDetector = () => {};
 if (
   AIFY_AGENT_ID &&
   __runtimeAdapter &&
   __runtimeAdapter.name === "claude-code" &&
-  typeof __runtimeAdapter.transcriptStat === "function"
+  typeof __runtimeAdapter.transcriptTail === "function"
 ) {
   __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
     intervalMs: 30_000,
-    readTranscript: async () => __runtimeAdapter.transcriptStat({ agentId: AIFY_AGENT_ID }),
+    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
     postTurnEnd: async () => {
       if (!AIFY_AGENT_ID || !__serverUrl) return;
       await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
