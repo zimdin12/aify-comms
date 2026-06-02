@@ -23,6 +23,11 @@ WITH_HOOK=false
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
 # detection logic without touching the operator's environment.
 PREBUILD_DRY_RUN=false
+# Test hook (WS1 Task 1.5): --emit-hermes-wrappers <dir> generates ONLY the
+# hermes-aify bash + PowerShell wrappers into <dir> and exits, touching nothing
+# in the operator's environment and launching no npm/hermes/loop. Used by
+# service/tests/test_install_hermes_loop_gate.py to inspect the generated text.
+EMIT_HERMES_WRAPPERS_DIR=""
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
 
 usage() {
@@ -61,6 +66,10 @@ while [ $# -gt 0 ]; do
     --prebuild-dry-run)
       PREBUILD_DRY_RUN=true
       shift
+      ;;
+    --emit-hermes-wrappers)
+      EMIT_HERMES_WRAPPERS_DIR="${2:-}"
+      shift 2
       ;;
     --help|-h)
       usage
@@ -1084,7 +1093,7 @@ NODE
 }
 
 install_hermes_wrapper() {
-  local wrapper_dir="$HOME/.local/bin"
+  local wrapper_dir="${EMIT_HERMES_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
   local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
@@ -1338,6 +1347,11 @@ AIFY_HERMES_CHANNEL_JS="\$AIFY_HERMES_STDIO_DIR/hermes-channel.js"
 # branch brings up the gateway host, starts the delivery loop, and then EXECs a
 # real \`hermes --tui\` into THIS PTY (rendered windowless in the dashboard).
 AIFY_HERMES_MANAGED_HOST_JS="\$AIFY_HERMES_STDIO_DIR/hermes-managed-host.js"
+# Loop ready-marker helper (WS1 Task 1.5). The delivery loop writes
+# \`aify-hermes-loop-ready-<agent>\` into os.tmpdir() once it is a LIVE CLAIMER;
+# the managed branch health-gates on this marker before exec'ing the visible TUI
+# so a TUI that can't receive work never shows (visible-TUI HARD requirement).
+AIFY_HERMES_LOOP_READY_JS="\$AIFY_HERMES_STDIO_DIR/hermes-loop-ready.js"
 # Prebuilt ui-tui bundle dir (baked at install time). When non-empty and it
 # holds dist/entry.js, the managed branch exports it as HERMES_TUI_DIR so
 # \`hermes --tui\` runs the prebuilt bundle and skips the per-launch
@@ -1365,6 +1379,11 @@ aify_hermes_ensure_daemon() {
 # guard, mirrors the intent of the claude/codex wrappers' per-agent ownership).
 aify_hermes_kill_prior() {
   local agent_id="\$1"
+  # WS1 Task 1.5: optional PID of the delivery loop THIS wrapper just spawned.
+  # kill-prior must EXCLUDE it so a concurrent same-agent relaunch can't reap
+  # the loop we just started (the self-reap race). Empty when called before the
+  # spawn (the pre-spawn call has nothing of ours to protect).
+  local exclude_pid="\${2:-}"
   [ -n "\$agent_id" ] || return 0
   # Match the channel sidecar (and daemon-cli) invocation carrying this agentId.
   # pkill -f matches the full command line; the AIFY_AGENT_ID marker is the most
@@ -1374,8 +1393,18 @@ aify_hermes_kill_prior() {
     pkill -f "AIFY_AGENT_ID=\$agent_id.*hermes-channel.js" >/dev/null 2>&1 || true
     # Managed visible-TUI model: reap a prior background delivery loop
     # (\`hermes-managed-host.js run <agent>\`) for this agent. Its SIGTERM
-    # teardown then kills the hidden gateway host it owns.
-    pkill -f "hermes-managed-host.js run \$agent_id" >/dev/null 2>&1 || true
+    # teardown then kills the hidden gateway host it owns. EXCLUDE the
+    # just-spawned loop PID so we never kill our own fresh loop.
+    if [ -n "\$exclude_pid" ] && command -v pgrep >/dev/null 2>&1; then
+      # Enumerate matching loops and kill all EXCEPT the excluded PID.
+      local _pid
+      for _pid in \$(pgrep -f "hermes-managed-host.js run \$agent_id" 2>/dev/null || true); do
+        [ "\$_pid" = "\$exclude_pid" ] && continue
+        kill "\$_pid" >/dev/null 2>&1 || true
+      done
+    else
+      pkill -f "hermes-managed-host.js run \$agent_id" >/dev/null 2>&1 || true
+    fi
     # Best-effort: reap any orphaned gateway host left listening on this agent's
     # dashboard/api port (a prior SIGKILL bypasses the loop's teardown handler).
     if command -v lsof >/dev/null 2>&1; then
@@ -1430,9 +1459,51 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
     # common [a-zA-Z0-9_-] agentId case) if the field is somehow absent.
     AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
   fi
-  # (3) Background delivery loop — detached, survives the exec below.
+  # (3) Background delivery loop — detached, survives the exec below. Capture
+  # its PID so kill-prior can EXCLUDE it (self-reap race) and so we can report
+  # which loop we are health-gating on.
   nohup node "\$AIFY_HERMES_MANAGED_HOST_JS" run "\$HERMES_AIFY_AGENT_ID" >/dev/null 2>&1 &
+  HERMES_LOOP_PID="\$!"
   disown 2>/dev/null || true
+  # Re-run kill-prior EXCLUDING our just-spawned loop, so any racing same-agent
+  # relaunch's loop is cleaned up while ours is protected (the pre-spawn call
+  # above could not yet know this PID).
+  aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID" "\$HERMES_LOOP_PID"
+  # (3a) HEALTH-GATE: do NOT show a TUI until the loop is a LIVE CLAIMER. The
+  # loop writes \`aify-hermes-loop-ready-<agent>\` into os.tmpdir() only after
+  # gateway-ok + heartbeat + a successful /dispatch/claim round-trip. Resolve the
+  # exact marker path via hermes-loop-ready.js (so the wrapper + loop agree on
+  # the temp dir == os.tmpdir()), then convert to a bash-usable path on Git Bash.
+  HERMES_LOOP_READY_FILE="\$(node -e 'import(process.argv[1]).then(m=>process.stdout.write(m.loopReadyFile(process.argv[2])))' "\$AIFY_HERMES_LOOP_READY_JS" "\$HERMES_AIFY_AGENT_ID" 2>/dev/null || true)"
+  if command -v cygpath >/dev/null 2>&1 && [ -n "\$HERMES_LOOP_READY_FILE" ]; then
+    HERMES_LOOP_READY_FILE="\$(cygpath -u "\$HERMES_LOOP_READY_FILE" 2>/dev/null || printf '%s' "\$HERMES_LOOP_READY_FILE")"
+  fi
+  # Bounded poll: ~30s budget at a small interval. The marker basename is
+  # \`aify-hermes-loop-ready-<agent>\` (kept inline so the gate is greppable).
+  HERMES_LOOP_GATE_DEADLINE=30
+  HERMES_LOOP_GATE_WAITED=0
+  HERMES_LOOP_READY=false
+  while [ "\$HERMES_LOOP_GATE_WAITED" -lt "\$HERMES_LOOP_GATE_DEADLINE" ]; do
+    if [ -n "\$HERMES_LOOP_READY_FILE" ] && [ -f "\$HERMES_LOOP_READY_FILE" ]; then
+      HERMES_LOOP_READY=true
+      break
+    fi
+    # If the loop process died outright, stop waiting early — no point polling.
+    if [ -n "\$HERMES_LOOP_PID" ] && ! kill -0 "\$HERMES_LOOP_PID" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    HERMES_LOOP_GATE_WAITED=\$((HERMES_LOOP_GATE_WAITED + 1))
+  done
+  if [ "\$HERMES_LOOP_READY" != true ]; then
+    # LOUD failure: never exec a visible TUI that cannot receive work.
+    echo "[hermes-aify] FATAL: hermes delivery loop for '\$HERMES_AIFY_AGENT_ID' failed to become a live claimer within \${HERMES_LOOP_GATE_DEADLINE}s; not starting TUI." >&2
+    echo "[hermes-aify]   (marker \$HERMES_LOOP_READY_FILE never appeared — the loop could not claim dispatch runs)" >&2
+    # Reap the dead/stuck loop we spawned so it doesn't linger.
+    [ -n "\$HERMES_LOOP_PID" ] && kill "\$HERMES_LOOP_PID" >/dev/null 2>&1 || true
+    exit 1
+  fi
+  echo "[hermes-aify] delivery loop live (pid \$HERMES_LOOP_PID); starting visible TUI." >&2
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
   export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
@@ -1678,6 +1749,10 @@ function Invoke-HermesRuntime {
 # Managed visible-TUI model (Plan 2026-05-31): the per-agent hidden gateway host
 # (ensure-host) + background delivery loop (run) live here.
 \$AifyHermesManagedHostJs = Join-Path \$AifyHermesStdioDir 'hermes-managed-host.js'
+# Loop ready-marker helper (WS1 Task 1.5): the wrapper health-gates on
+# 'aify-hermes-loop-ready-<agent>' before launching the visible TUI so a TUI
+# that can't receive work never shows (visible-TUI HARD requirement).
+\$AifyHermesLoopReadyJs = Join-Path \$AifyHermesStdioDir 'hermes-loop-ready.js'
 # Prebuilt ui-tui bundle dir (baked at install time). When set + dist/entry.js
 # exists, the managed branch exports HERMES_TUI_DIR so 'hermes --tui' runs the
 # prebuilt bundle and skips the per-launch 'npm run build'. Empty → hermes
@@ -1700,7 +1775,11 @@ function Invoke-AifyHermesEnsureDaemon {
 
 # Kill any prior sidecar for THIS agent before launching (proliferation guard).
 function Invoke-AifyHermesKillPrior {
-  param([string]\$AgentId)
+  # WS1 Task 1.5: \$ExcludeLoopPid is the PID of the delivery loop THIS wrapper
+  # just spawned. kill-prior must EXCLUDE it so a concurrent same-agent relaunch
+  # can't reap the loop we just started (the self-reap race). 0 / empty when
+  # called before the spawn (nothing of ours to protect yet).
+  param([string]\$AgentId, [int]\$ExcludeLoopPid = 0)
   if (-not \$AgentId) { return }
   try {
     Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
@@ -1710,10 +1789,11 @@ function Invoke-AifyHermesKillPrior {
   # Managed visible-TUI model: reap a prior background delivery loop
   # ('hermes-managed-host.js run <agent>') for this agent. Its SIGTERM teardown
   # then kills the hidden gateway host it owns. Match the managed-host script +
-  # the agent id on the command line.
+  # the agent id on the command line, but EXCLUDE the just-spawned loop PID.
   try {
     Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
       Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-managed-host\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
+      Where-Object { \$ExcludeLoopPid -le 0 -or \$_.ProcessId -ne \$ExcludeLoopPid } |
       ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
   } catch {}
   # Best-effort: reap any orphaned gateway host left listening on this agent's
@@ -1774,9 +1854,47 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
   } else {
     \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
   }
-  # (3) Background delivery loop — hidden window, survives this script.
-  Start-Process -WindowStyle Hidden -FilePath node \`
-    -ArgumentList @(\$AifyHermesManagedHostJs, 'run', \$HermesAifyAgentId) | Out-Null
+  # (3) Background delivery loop — hidden window, survives this script. Capture
+  # its PID (-PassThru) so kill-prior can EXCLUDE it (self-reap race) and so we
+  # can health-gate on the loop we actually started.
+  \$hermesLoopProc = Start-Process -WindowStyle Hidden -FilePath node \`
+    -ArgumentList @(\$AifyHermesManagedHostJs, 'run', \$HermesAifyAgentId) -PassThru
+  \$hermesLoopPid = if (\$hermesLoopProc) { [int]\$hermesLoopProc.Id } else { 0 }
+  # Re-run kill-prior EXCLUDING our just-spawned loop, so any racing same-agent
+  # relaunch's loop is cleaned up while ours is protected (the pre-spawn call
+  # could not yet know this PID).
+  Invoke-AifyHermesKillPrior \$HermesAifyAgentId \$hermesLoopPid
+  # (3a) HEALTH-GATE: do NOT show a TUI until the loop is a LIVE CLAIMER. The
+  # loop writes 'aify-hermes-loop-ready-<agent>' into os.tmpdir() only after
+  # gateway-ok + heartbeat + a successful /dispatch/claim round-trip. Resolve the
+  # exact marker path via hermes-loop-ready.js so the wrapper + loop agree on the
+  # temp dir (== os.tmpdir()).
+  \$hermesLoopReadyFile = ''
+  try {
+    \$hermesLoopReadyFile = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(m.loopReadyFile(process.argv[2])))' \$AifyHermesLoopReadyJs \$HermesAifyAgentId 2>\$null
+  } catch {}
+  # Bounded poll: ~30s budget at a 1s interval. Marker basename is
+  # 'aify-hermes-loop-ready-<agent>' (kept inline so the gate is greppable).
+  \$hermesLoopReady = \$false
+  \$hermesLoopGateDeadline = 30
+  for (\$i = 0; \$i -lt \$hermesLoopGateDeadline; \$i++) {
+    if (\$hermesLoopReadyFile -and (Test-Path -LiteralPath \$hermesLoopReadyFile)) {
+      \$hermesLoopReady = \$true
+      break
+    }
+    if (\$hermesLoopPid -gt 0 -and -not (Get-Process -Id \$hermesLoopPid -ErrorAction SilentlyContinue)) {
+      break
+    }
+    Start-Sleep -Seconds 1
+  }
+  if (-not \$hermesLoopReady) {
+    # LOUD failure: never launch a visible TUI that cannot receive work.
+    [Console]::Error.WriteLine("[hermes-aify] FATAL: hermes delivery loop for '\$HermesAifyAgentId' failed to become a live claimer within \$hermesLoopGateDeadline s; not starting TUI.")
+    [Console]::Error.WriteLine("[hermes-aify]   (marker \$hermesLoopReadyFile never appeared -- the loop could not claim dispatch runs)")
+    if (\$hermesLoopPid -gt 0) { try { Stop-Process -Id \$hermesLoopPid -Force -ErrorAction SilentlyContinue } catch {} }
+    exit 1
+  }
+  [Console]::Error.WriteLine("[hermes-aify] delivery loop live (pid \$hermesLoopPid); starting visible TUI.")
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
   \$env:HERMES_TUI_RESUME = \$pinnedSession
@@ -3098,6 +3216,14 @@ echo ""
 # --prebuild-dry-run, used by tests to exercise just this branch without
 # mutating the operator's env.
 if [ "$CLIENT" = "hermes" ]; then
+  # Test hook (WS1 Task 1.5): generate ONLY the hermes wrappers into the given
+  # dir and exit. No prebuild, no npm, no MCP registration, no env mutation —
+  # purely so tests can assert on the generated wrapper text.
+  if [ -n "$EMIT_HERMES_WRAPPERS_DIR" ]; then
+    mkdir -p "$EMIT_HERMES_WRAPPERS_DIR"
+    install_hermes_wrapper
+    exit 0
+  fi
   prebuild_hermes_web_dist || true
   if [ "$PREBUILD_DRY_RUN" = true ]; then
     # Dry-run: only the prebuild branch was exercised. Skip wrapper writes,
