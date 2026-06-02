@@ -15,6 +15,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Native client-install location for the host-side MCP bridge runtime. The repo
+# may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
+# the ~3900 node_modules files cold takes ~5s — which blows hermes' hardcoded
+# 0.75s MCP tool-discovery window so its comms_* tools never enter the model's
+# schema). install.sh therefore COPIES the bridge (mcp/stdio + node_modules)
+# into a native dotfolder and bakes THAT path into every wrapper + MCP config —
+# a proper client install (like ~/.claude, ~/.codex, ~/.hermes), self-contained
+# (works with no repo / no local backend), and re-synced on each install so
+# security fixes still flow. Override the base with AIFY_HOME.
+AIFY_NATIVE_BASE="${AIFY_HOME:-$HOME/.aify-comms}"
+AIFY_BRIDGE_DIR="$AIFY_NATIVE_BASE/mcp/stdio"
 CLIENT="claude"
 SERVER_URL=""
 WITH_HOOK=false
@@ -149,6 +160,29 @@ require_hermes_cmd() {
     echo "If hermes' 2026-05-27 release rotated your binary, reinstall hermes upstream so 'hermes' is recreated."
     exit 1
   fi
+}
+
+copy_bridge_to_native_dir() {
+  # Mirror the host-side bridge runtime (server.js + all bridges + node_modules)
+  # from the repo into the native ext4 dotfolder $AIFY_BRIDGE_DIR. Spawns from a
+  # native fs load in ~0.3s vs ~5s over a 9p bind-mount, so hermes' 0.75s
+  # MCP-discovery window is met and its comms_* tools reach the model. Re-synced
+  # every install (exact mirror) so fixes flow; self-contained for repo-less
+  # clients. Skip the copy if the repo IS already the native dir (dev on ext4).
+  local src="$SCRIPT_DIR/mcp/stdio"
+  if [ "$(cd "$src" 2>/dev/null && pwd -P)" = "$(cd "$AIFY_BRIDGE_DIR" 2>/dev/null && pwd -P 2>/dev/null)" ] && [ -d "$AIFY_BRIDGE_DIR" ]; then
+    echo "  Bridge already at native dir ($AIFY_BRIDGE_DIR); skipping copy."
+    return 0
+  fi
+  mkdir -p "$AIFY_NATIVE_BASE/mcp"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$src/" "$AIFY_BRIDGE_DIR/"
+  else
+    rm -rf "$AIFY_BRIDGE_DIR"
+    mkdir -p "$AIFY_BRIDGE_DIR"
+    cp -R "$src/." "$AIFY_BRIDGE_DIR/"
+  fi
+  echo "  Bridge runtime installed to $AIFY_BRIDGE_DIR (native, fast load)."
 }
 
 copy_claude_assets() {
@@ -392,9 +426,9 @@ if [ "\${AIFY_CLAUDE_STRICT_MCP:-0}" = "1" ]; then
   # spawning the MCP server children — they fail to start with the
   # MSYS-style path even though bash itself reads it fine.
   if command -v cygpath >/dev/null 2>&1; then
-    AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$SCRIPT_DIR")"
+    AIFY_SCRIPT_DIR_FWD="\$(cygpath -m "$AIFY_NATIVE_BASE")"
   else
-    AIFY_SCRIPT_DIR_FWD="$SCRIPT_DIR"
+    AIFY_SCRIPT_DIR_FWD="$AIFY_NATIVE_BASE"
   fi
   AIFY_MCP_CONFIG="\$(mktemp -t aify-mcp.XXXXXX.json 2>/dev/null || mktemp -t aify-mcp)"
   cat > "\$AIFY_MCP_CONFIG" <<JSON
@@ -461,7 +495,7 @@ if [ "\$AIFY_SESSION_MODE" = "managed" ] && [ -n "\${CLAUDE_RESUME_ID:-}" ] && [
   # kills THIS agent's prior managed claude (verified via the candidate's parent
   # --aify-agent wrapper), never another agent or a resident operator session
   # that happens to share the same --resume session id (handle collision).
-  node "$SCRIPT_DIR/mcp/stdio/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" "\$CLAUDE_AIFY_AGENT_ID" >/dev/null 2>&1 || true
+  node "$AIFY_BRIDGE_DIR/reap-managed-claude.js" "\$CLAUDE_RESUME_ID" "\$CLAUDE_AIFY_AGENT_ID" >/dev/null 2>&1 || true
 fi
 
 claude --dangerously-load-development-channels server:aify-comms-channel "\${CLAUDE_MCP_FLAGS[@]}" "\${CLAUDE_PERMISSION_FLAGS[@]}" "\${CLAUDE_ARGS[@]}"
@@ -1158,7 +1192,7 @@ install_hermes_wrapper() {
   # Path to the host-side MCP stdio bridges (hermes-daemon-cli.js +
   # hermes-channel.js). path_for_node so Git-Bash node opens it (drive-letter).
   local hermes_stdio_dir
-  hermes_stdio_dir="$(path_for_node "$SCRIPT_DIR/mcp/stdio")"
+  hermes_stdio_dir="$(path_for_node "$AIFY_BRIDGE_DIR")"
   # Prebuilt ui-tui bundle dir (so the managed `hermes --tui` runs the existing
   # dist instead of rebuilding it on every launch — slow + noisy `npm run build`
   # observed on managed launches). `hermes --tui` skips the build entirely when
@@ -1419,6 +1453,28 @@ AIFY_HERMES_LOOP_READY_JS="\$AIFY_HERMES_STDIO_DIR/hermes-loop-ready.js"
 # \`npm run build\`. Empty → hermes builds/locates the TUI as before (no break).
 AIFY_HERMES_TUI_DIR="$hermes_tui_dir"
 
+# MCP tool-exposure pre-warm gate (2026-06-03). Hermes snapshots the agent's MCP
+# tool schema only ~0.75s after the session starts (hardcoded in hermes); if the
+# bridge loads slowly (cold page cache / slow fs), its comms_* tools miss that
+# window and never reach the model — the agent then can't call comms_send /
+# comms_register and resorts to hand-rolling its own MCP client. Warm the bridge
+# ONCE here (bounded; a side-effect-free module import — the entrypoint guard in
+# server.js means NO register/heartbeat/network runs) so the OS page cache is hot
+# before hermes spawns its OWN MCP child; that spawn then loads from cache and
+# lands inside the window. The native install already makes this ~0.3s — this is
+# the belt to that suspenders, so a slow load can never silently drop the tools.
+aify_hermes_warm_bridge() {
+  command -v node >/dev/null 2>&1 || return 0
+  local _probe="\$AIFY_HERMES_STDIO_DIR/server.js"
+  [ -f "\$_probe" ] || return 0
+  local _warm="import('file://\$_probe').then(()=>process.exit(0)).catch(()=>process.exit(0))"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 25 env -u AIFY_AGENT_ID -u AIFY_HERMES_GATEWAY_URL node --input-type=module -e "\$_warm" >/dev/null 2>&1 || true
+  else
+    env -u AIFY_AGENT_ID -u AIFY_HERMES_GATEWAY_URL node --input-type=module -e "\$_warm" >/dev/null 2>&1 || true
+  fi
+}
+
 # Bring up (idempotently) the per-agent api_server daemon for this agent. On
 # failure print the LOUD daemon error and exit non-zero — a silent no-op daemon
 # is exactly the failure mode this design eliminates. Echoes the daemon-cli's
@@ -1503,6 +1559,11 @@ aify_hermes_kill_prior() {
     node "\$AIFY_HERMES_DAEMON_CLI" stop "\$agent_id" >/dev/null 2>&1 || true
   fi
 }
+
+# Pre-warm the bridge before ANY interactive TUI launch (no passthrough args) so
+# hermes' 0.75s MCP discovery sees the comms_* tools. Cheap on the native install
+# (~0.3s, page cache); bounded + best-effort so it never blocks the launch.
+if [ \${#HERMES_ARGS[@]} -eq 0 ]; then aify_hermes_warm_bridge; fi
 
 # GATEWAY-HOST launch (visible-TUI model) — serves BOTH managed and resident
 # agent-id launches (convergence 2026-06-02). A normal \`hermes --tui\` spawns its
@@ -1648,7 +1709,7 @@ install_hermes_windows_tui_shim() {
   # Windows-style path to the repo's host-side MCP stdio bridges, consumed by
   # the native Windows node launched from the .ps1 wrapper.
   local hermes_stdio_dir_win
-  hermes_stdio_dir_win="$(path_for_windows_runtime "$SCRIPT_DIR/mcp/stdio")"
+  hermes_stdio_dir_win="$(path_for_windows_runtime "$AIFY_BRIDGE_DIR")"
   # Prebuilt ui-tui bundle dir (Windows path) so the managed `hermes --tui`
   # skips its per-launch `npm run build` (it runs the prebuilt dist when
   # HERMES_TUI_DIR points at a dir with dist/entry.js). Empty when the dist is
@@ -2096,7 +2157,7 @@ echo "  server: \$AIFY_SERVER_URL"
 echo "  roots:  \$AIFY_CWD_ROOTS"
 echo "  stop:   Ctrl+C"
 cd "\$SAFE_CWD"
-exec node "$SCRIPT_DIR/mcp/stdio/server.js" --environment-bridge
+exec node "$AIFY_BRIDGE_DIR/server.js" --environment-bridge
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "aify-comms" "$wrapper_dir"
@@ -2268,7 +2329,7 @@ EOF
   fi
 
   node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+  node_server_path="$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
 
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
@@ -2327,7 +2388,7 @@ EOF
   fi
 
   node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_node "$SCRIPT_DIR/mcp/stdio/server.js")"
+  node_server_path="$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
 
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
@@ -2386,7 +2447,7 @@ _patch_hermes_config_at() {
   # exits instantly ("Connection closed"), so no in-hermes bridge claims
   # channel dispatches and managed hermes never answers. Mirror of the plugin
   # path guard in install_hermes_wrapper.
-  node_server_path="$SCRIPT_DIR/mcp/stdio/server.js"
+  node_server_path="$AIFY_BRIDGE_DIR/server.js"
   if hermes_runtime_is_native_windows; then
     node_server_path="$(path_for_windows_runtime "$node_server_path")"
   fi
@@ -2702,7 +2763,7 @@ install_codex_hook() {
   enable_codex_hooks_feature
 
   node_hooks_file="$(path_for_node "$hooks_file")"
-  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+  node_notify_script="$(path_for_node "$AIFY_BRIDGE_DIR/notify-check.js")"
   hook_command="$(hook_command_for_node_script "$node_notify_script")"
 
   MSYS_NO_PATHCONV=1 node -e "
@@ -2758,7 +2819,7 @@ install_hermes_hook() {
   local hook_command=""
   mkdir -p "$hook_dir"
   touch "$config_file"
-  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+  node_notify_script="$(path_for_node "$AIFY_BRIDGE_DIR/notify-check.js")"
 
   cat > "$hook_path" <<EOF
 #!/usr/bin/env bash
@@ -3093,7 +3154,7 @@ install_claude_hook() {
   fi
 
   node_settings_file="$(path_for_node "$settings_file")"
-  node_notify_script="$(path_for_node "$SCRIPT_DIR/mcp/stdio/notify-check.js")"
+  node_notify_script="$(path_for_node "$AIFY_BRIDGE_DIR/notify-check.js")"
   hook_command="$(hook_command_for_node_script "$node_notify_script")"
 
   MSYS_NO_PATHCONV=1 node -e "
@@ -3171,17 +3232,17 @@ register_stdio_server() {
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
-      -- node "$SCRIPT_DIR/mcp/stdio/server.js"
+      -- node "$AIFY_BRIDGE_DIR/server.js"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
-      -- node "$SCRIPT_DIR/mcp/stdio/server.js"
+      -- node "$AIFY_BRIDGE_DIR/server.js"
   else
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
-      -- node "$SCRIPT_DIR/mcp/stdio/server.js"
+      -- node "$AIFY_BRIDGE_DIR/server.js"
   fi
 
   # Plan 6 follow-up (2026-05-26): for codex, the `[mcp_servers.X.env]` block
@@ -3283,12 +3344,12 @@ register_claude_channel_server() {
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
-      -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
+      -- node "$AIFY_BRIDGE_DIR/claude-channel.js"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add --scope user "$server_name" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
-      -- node "$SCRIPT_DIR/mcp/stdio/claude-channel.js"
+      -- node "$AIFY_BRIDGE_DIR/claude-channel.js"
   else
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
@@ -3341,6 +3402,10 @@ echo "[1/4] Installing MCP dependencies..."
 cd "$SCRIPT_DIR/mcp/stdio"
 npm install --silent
 cd "$SCRIPT_DIR"
+# Copy the bridge runtime (with node_modules) into the native dotfolder that
+# every wrapper + MCP config points at. Re-synced on every install (mirror with
+# --delete) so security fixes flow; self-contained so a client needs no repo.
+copy_bridge_to_native_dir
 echo "  Done."
 
 echo "[2/4] Installing agent guidance..."
@@ -3440,8 +3505,8 @@ elif [ "$CLIENT" = "hermes" ]; then
   echo "  non-zero (no silent no-op). Both modes share this gateway-host path so"
   echo "  injected messages render in the visible terminal (2026-06-02 convergence)."
   if command -v node >/dev/null 2>&1; then
-    if node --check "$SCRIPT_DIR/mcp/stdio/hermes-daemon-cli.js" >/dev/null 2>&1 \
-      && node --check "$SCRIPT_DIR/mcp/stdio/hermes-channel.js" >/dev/null 2>&1; then
+    if node --check "$AIFY_BRIDGE_DIR/hermes-daemon-cli.js" >/dev/null 2>&1 \
+      && node --check "$AIFY_BRIDGE_DIR/hermes-channel.js" >/dev/null 2>&1; then
       echo "  Bridges verified: hermes-daemon-cli.js + hermes-channel.js parse OK."
     else
       echo "  ERROR: hermes-daemon-cli.js / hermes-channel.js failed node --check — fix before launch." >&2
