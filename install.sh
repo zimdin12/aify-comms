@@ -194,7 +194,12 @@ install_claude_wrapper() {
 set -euo pipefail
 
 CLAUDE_RESUME_ID="\${CLAUDE_SESSION_ID:-}"
-CLAUDE_AUTO=false
+# Bypass permissions by DEFAULT for every *-aify wrapper (2026-06-02 decision):
+# aify agents run unattended, so they must not stall on approval prompts. Each
+# wrapper uses its harness-native bypass flag (claude --dangerously-skip-
+# permissions, codex --dangerously-bypass-approvals-and-sandbox, hermes --yolo,
+# omp --auto-approve). Opt out per-launch with --safe / --no-auto.
+CLAUDE_AUTO=true
 CLAUDE_AIFY_AGENT_ID="\${AIFY_AGENT_ID:-}"
 CLAUDE_AIFY_ROLE="\${AIFY_AGENT_ROLE:-coder}"
 # Explicit session-mode opt-in. --resident is the default for human
@@ -226,8 +231,12 @@ for ARG in "\$@"; do
     PREV_ARG=""
     continue
   fi
-  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ]; then
+  if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
     CLAUDE_AUTO=true
+    continue
+  fi
+  if [ "\$ARG" = "--safe" ] || [ "\$ARG" = "--no-auto" ]; then
+    CLAUDE_AUTO=false
     continue
   fi
   if [ "\$ARG" = "--resident" ]; then
@@ -760,6 +769,10 @@ PI_AIFY_SESSION_MODE="${AIFY_SESSION_MODE:-}"
 PI_SESSION_HANDLE="${PI_SESSION_ID:-${OMP_SESSION_ID:-${AIFY_PI_SESSION_ID:-}}}"
 PI_RUNTIME_COMMAND="${AIFY_PI_COMMAND:-${PI_COMMAND:-omp}}"
 PI_AIFY_STANDALONE=false
+# Bypass approval prompts by DEFAULT (2026-06-02 — every *-aify bypasses so
+# unattended agents never stall). omp's native flag is --auto-approve. Opt out
+# per-launch with --safe / --no-auto.
+PI_AUTO=true
 PI_ARGS=()
 PREV_ARG=""
 for ARG in "$@"; do
@@ -787,6 +800,14 @@ for ARG in "$@"; do
     # the dashboard one. Pass --resume <other-id> alongside if you actually
     # want to attach to a saved session.
     PI_AIFY_STANDALONE=true
+    continue
+  fi
+  if [ "$ARG" = "-auto" ] || [ "$ARG" = "--auto" ] || [ "$ARG" = "--yolo" ]; then
+    PI_AUTO=true
+    continue
+  fi
+  if [ "$ARG" = "--safe" ] || [ "$ARG" = "--no-auto" ]; then
+    PI_AUTO=false
     continue
   fi
   if [ "$ARG" = "--aify-agent" ] || [ "$ARG" = "--agent-id" ] || [ "$ARG" = "--aify-role" ]; then
@@ -915,7 +936,12 @@ EOM
   fi
 fi
 
-exec "$PI_RUNTIME_COMMAND" "${PI_ARGS[@]}"
+PI_PERMISSION_FLAGS=()
+if [ "$PI_AUTO" = true ]; then
+  # omp global flag: auto-approve all tool calls (skip approval prompts).
+  PI_PERMISSION_FLAGS+=(--auto-approve)
+fi
+exec "$PI_RUNTIME_COMMAND" "${PI_PERMISSION_FLAGS[@]}" "${PI_ARGS[@]}"
 EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
   # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
@@ -1166,8 +1192,10 @@ HERMES_RUNTIME_COMMAND="\${AIFY_HERMES_COMMAND:-\${HERMES_COMMAND:-hermes}}"
 # Symmetric with claude-aify (--auto -> --dangerously-skip-permissions) and
 # codex-aify (CODEX_AUTO -> --dangerously-bypass-approvals-and-sandbox). For
 # hermes the bypass is --yolo (HERMES_YOLO_MODE=1, "bypass all dangerous
-# command approval prompts"). Default off; opt in with --auto/-auto/--yolo.
-HERMES_AUTO=false
+# command approval prompts"). Default ON (2026-06-02 — every *-aify bypasses by
+# default so unattended agents never stall on approvals); opt out with
+# --safe / --no-auto.
+HERMES_AUTO=true
 HERMES_ARGS=()
 PREV_ARG=""
 for ARG in "\$@"; do
@@ -1191,6 +1219,10 @@ for ARG in "\$@"; do
   # (e.g. --resume) claims its next token first, consistent with --aify-agent.
   if [ "\$ARG" = "-auto" ] || [ "\$ARG" = "--auto" ] || [ "\$ARG" = "--yolo" ]; then
     HERMES_AUTO=true
+    continue
+  fi
+  if [ "\$ARG" = "--safe" ] || [ "\$ARG" = "--no-auto" ]; then
+    HERMES_AUTO=false
     continue
   fi
   if [ "\$ARG" = "--resident" ]; then
@@ -1678,6 +1710,10 @@ function Resolve-HermesRuntimeCommand {
 }
 \$HermesRuntimeCommand = Resolve-HermesRuntimeCommand
 \$HermesArgs = @()
+# Bypass approval prompts by DEFAULT (2026-06-02 — every *-aify bypasses so
+# unattended agents never stall). hermes' native flag is --yolo. Opt out with
+# --safe / --no-auto. (Parity with the bash hermes-aify wrapper.)
+\$HermesAuto = \$true
 \$PrevArg = ''
 foreach (\$Arg in \$InputArgs) {
   if (\$PrevArg -eq '--aify-agent' -or \$PrevArg -eq '--agent-id') {
@@ -1702,6 +1738,14 @@ foreach (\$Arg in \$InputArgs) {
   }
   if (\$Arg -eq '--managed') {
     \$HermesAifySessionMode = 'managed'
+    continue
+  }
+  if (\$Arg -eq '-auto' -or \$Arg -eq '--auto' -or \$Arg -eq '--yolo') {
+    \$HermesAuto = \$true
+    continue
+  }
+  if (\$Arg -eq '--safe' -or \$Arg -eq '--no-auto') {
+    \$HermesAuto = \$false
     continue
   }
   if (\$Arg -eq '--aify-agent' -or \$Arg -eq '--agent-id' -or \$Arg -eq '--aify-role') {
@@ -1735,6 +1779,10 @@ if (-not \$env:CLAUDE_MCP_SERVER_URL) { \$env:CLAUDE_MCP_SERVER_URL = \$env:AIFY
 if (-not \$env:AIFY_COMMS_URL) { \$env:AIFY_COMMS_URL = \$env:AIFY_SERVER_URL }
 \$env:PYTHONUTF8 = if (\$env:PYTHONUTF8) { \$env:PYTHONUTF8 } else { '1' }
 \$env:PYTHONIOENCODING = if (\$env:PYTHONIOENCODING) { \$env:PYTHONIOENCODING } else { 'utf-8' }
+
+# Harness-native bypass flag, applied to every interactive --tui launch below
+# (NOT to passthrough subcommands like 'hermes-aify model list').
+\$HermesPermissionFlags = if (\$HermesAuto) { @('--yolo') } else { @() }
 
 if (\$HermesAifyAgentId) {
   \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
@@ -1880,7 +1928,7 @@ function Invoke-AifyHermesKillPrior {
 #   4. run 'hermes --tui' IN THIS PTY, attached to the gateway host + resuming the
 #      STABLE session 'aify-<agentId>' — the REAL TUI renders windowless in the
 #      dashboard console. The in-session agent self-replies via comms_send.
-if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$HermesArgs.Count -eq 0) {
+if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   Invoke-AifyHermesKillPrior \$HermesAifyAgentId
   \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
   \$env:AIFY_CHANNELS_ENABLED = '1'
@@ -1943,43 +1991,26 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
   # (main.py env.pop then re-add only when argparse resolved a resume id), so the
   # env var alone is a no-op — the flag is required. ensure-host has already
   # pre-seeded the row so resume resolves on first launch.
-  Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
+  Invoke-HermesRuntime (@('--tui', '--resume', \$pinnedSession) + \$HermesPermissionFlags)
   exit \$script:HermesRuntimeExitCode
 }
 
-# RESIDENT/interactive launch with an agent id: attach an operator TUI to THIS
-# agent's pinned session ('aify-<agentId>') — the SAME stable DB session the
-# managed model drives, so the operator sees one continuous transcript.
-# TODO(managed-hermes visible-TUI, Phase 1 follow-up): migrate this resident path
-# off the api_server 'hermes gateway run' daemon onto the same hidden
-# 'hermes dashboard --tui' gateway-host model the managed branch now uses. For
-# now it keeps using Invoke-AifyHermesEnsureDaemon so resident launch is NOT
-# broken by this change.
-if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
-  Invoke-AifyHermesEnsureDaemon \$HermesAifyAgentId | Out-Null
-  \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-  try {
-    Invoke-HermesRuntime @('--tui', '--resume', \$pinnedSession)
-  } finally {
-    # Daemon teardown leak fix (fix/hermes-leak P3): the resident path starts a
-    # per-agent api_server daemon but historically never stopped it, leaking the
-    # 'hermes gateway run' daemon when the resident TUI exited. Invoke-HermesRuntime
-    # runs-then-returns (not exec), so stop the daemon (killByPort + tracked-pid +
-    # clearGatewayMarkers) in a finally so it runs on every TUI exit path.
-    try { & node \$AifyHermesDaemonCli stop \$HermesAifyAgentId 2>\$null | Out-Null } catch {}
-  }
-  exit \$script:HermesRuntimeExitCode
-}
+# RESIDENT agent-id launch: handled by the unified GATEWAY-HOST branch above
+# (convergence 2026-06-02, parity with the bash wrapper). The former REST
+# api_server-daemon resident path was removed — it rendered nothing in the
+# visible TUI (api_server chat does not emit to tui_gateway WS clients) and
+# started no delivery loop, so injected aify messages never appeared in the
+# operator's terminal.
 
 # Remaining paths: no --aify-agent (plain interactive TUI) or explicit
 # passthrough args (e.g. 'hermes-aify model list'). Go straight to the runtime
 # with no gateway-host wiring.
 if (\$HermesArgs.Count -eq 0) {
   if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
-    Invoke-HermesRuntime @('--tui', '--resume', \$HermesSessionHandle)
+    Invoke-HermesRuntime (@('--tui', '--resume', \$HermesSessionHandle) + \$HermesPermissionFlags)
     exit \$script:HermesRuntimeExitCode
   }
-  Invoke-HermesRuntime @('--tui')
+  Invoke-HermesRuntime (@('--tui') + \$HermesPermissionFlags)
   exit \$script:HermesRuntimeExitCode
 }
 Invoke-HermesRuntime \$HermesArgs
