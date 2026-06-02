@@ -15,6 +15,8 @@ import {
   readDaemonPid,
   writeDaemonPid,
   clearDaemonPid,
+  defaultKillByPort,
+  looksLikeHermesProcess,
 } from "../hermes-daemon.js";
 import { agentEndpoint } from "../hermes-endpoint.js";
 
@@ -466,6 +468,7 @@ test("stopDaemon: kills by port AND by tracked pid, then clears the pid file", a
       killByPort,
       killTree,
       isAlive: (pid) => pid === 7373,
+      getCmdline: () => "hermes gateway run --replace", // confirmed hermes → tracked-pid kill proceeds
     });
     assert.equal(portCalls.length, 1, "killByPort must be called");
     assert.equal(portCalls[0], ep.port, "killByPort gets the agent's port");
@@ -494,6 +497,98 @@ test("stopDaemon: tracked pid not alive → no kill-tree, still clears pid file"
     assert.equal(killTree.calls.length, 0, "dead tracked pid must not be signalled");
     assert.equal(result.stopped, false);
     assert.equal(readDaemonPid("stop-dead", dir), undefined, "pid file cleared regardless");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// --- anti-overkill cmdline cross-checks (port/pid reuse safety) -------------
+
+test("looksLikeHermesProcess: matches a hermes cmdline/image, rejects unrelated/empty", () => {
+  assert.equal(looksLikeHermesProcess("C:\\Python\\Scripts\\hermes.exe gateway run --replace"), true);
+  assert.equal(looksLikeHermesProcess("/usr/bin/hermes gateway run"), true);
+  assert.equal(looksLikeHermesProcess("hermes\tC:\\...\\hermes.exe\thermes.exe"), true, "tab-joined cmdline/path/name form");
+  assert.equal(looksLikeHermesProcess("HERMES dashboard --tui"), true, "case-insensitive");
+  assert.equal(looksLikeHermesProcess("node C:\\proj\\dev-server.js --port 9342"), false, "unrelated dev server");
+  assert.equal(looksLikeHermesProcess("python -m http.server 9342"), false);
+  assert.equal(looksLikeHermesProcess(""), false, "empty/unknown → fail-safe no-match");
+  assert.equal(looksLikeHermesProcess(undefined), false);
+});
+
+test("killByPort: SKIPS a listener whose cmdline is not hermes (port reused by unrelated process)", async () => {
+  const killed = [];
+  const result = await defaultKillByPort(9342, {
+    resolveListenerPids: async () => [55555], // some unrelated process now owns the port
+    getCmdline: () => "node C:\\proj\\dev-server.js --port 9342", // NOT hermes
+    killOnePid: async (pid) => { killed.push(pid); return true; },
+  });
+  assert.equal(killed.length, 0, "must NOT kill an unrelated process that recycled the port");
+  assert.equal(result.killed, false);
+  assert.equal(result.skipped, true);
+});
+
+test("killByPort: KILLS a listener whose cmdline IS hermes", async () => {
+  const killed = [];
+  const result = await defaultKillByPort(9342, {
+    resolveListenerPids: async () => [4242],
+    getCmdline: () => "C:\\Python\\Scripts\\hermes.exe gateway run --replace",
+    killOnePid: async (pid) => { killed.push(pid); return true; },
+  });
+  assert.deepEqual(killed, [4242], "the hermes listener must be killed");
+  assert.equal(result.killed, true);
+  assert.equal(result.pid, 4242);
+});
+
+test("killByPort: no listener on the port → { killed:false }, no kill", async () => {
+  const killed = [];
+  const result = await defaultKillByPort(9342, {
+    resolveListenerPids: async () => [],
+    getCmdline: () => { throw new Error("should not be consulted"); },
+    killOnePid: async (pid) => { killed.push(pid); return true; },
+  });
+  assert.equal(killed.length, 0);
+  assert.equal(result.killed, false);
+});
+
+test("stopDaemon: SKIPS the tracked-pid kill when the pid's cmdline is not hermes (pid reused)", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("reused", 31337, dir);
+    const killByPort = async () => ({ killed: false });
+    const killTree = recordingKillTree();
+    const result = await stopDaemon({
+      agentId: "reused",
+      tempDir: dir,
+      killByPort,
+      killTree,
+      isAlive: () => true, // pid IS alive — but it is NOT hermes
+      getCmdline: () => "node C:\\proj\\dev-server.js", // unrelated operator process reused the pid
+    });
+    assert.equal(killTree.calls.length, 0, "must NOT killTree an unrelated process under pid reuse");
+    assert.equal(result.stopped, false);
+    assert.equal(readDaemonPid("reused", dir), undefined, "stale pid marker is cleared even when skipped");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("stopDaemon: KILLS the tracked pid when its cmdline IS hermes", async () => {
+  const dir = makeTempDir();
+  try {
+    writeDaemonPid("realhermes", 7373, dir);
+    const killByPort = async () => ({ killed: false });
+    const killTree = recordingKillTree();
+    const result = await stopDaemon({
+      agentId: "realhermes",
+      tempDir: dir,
+      killByPort,
+      killTree,
+      isAlive: (pid) => pid === 7373,
+      getCmdline: () => "C:\\Python\\Scripts\\hermes.exe gateway run --replace",
+    });
+    assert.deepEqual(killTree.calls, [7373], "a confirmed-hermes tracked pid must be killed");
+    assert.equal(result.stopped, true);
+    assert.equal(readDaemonPid("realhermes", dir), undefined, "pid file cleared");
   } finally {
     cleanup(dir);
   }

@@ -18,7 +18,7 @@
 // real socket. Contract:
 // docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md.
 
-import { spawn as nodeSpawn, execFile as nodeExecFile } from "node:child_process";
+import { spawn as nodeSpawn, execFile as nodeExecFile, spawnSync as nodeSpawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
@@ -29,6 +29,46 @@ import { terminateProcessTree } from "./runtimes.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFile = promisify(nodeExecFile);
+
+// --- cmdline cross-check (anti-overkill under OS pid/port reuse) ------------
+// SAFETY: a stale `aify-hermes-port-<agent>` / `aify-hermes-daemon-pid-<agent>`
+// marker can outlive the daemon. The OS may then free that port/pid and hand it
+// to an UNRELATED operator process (a dev server, an editor, anything). Killing
+// it by the stale marker alone would take down the operator's own process. Before
+// any port- or tracked-pid kill we therefore confirm the target's image/cmdline
+// actually belongs to a hermes daemon. Mirrors reap-managed-claude.js's
+// parentBelongsToAgent / defaultGetCmdline cmdline verification.
+
+// Get the command line of a pid. Injectable. Returns "" when unknown.
+//   - win32: PowerShell Get-CimInstance Win32_Process (CommandLine).
+//   - posix: `ps -o args= -p <pid>`.
+export function defaultGetCmdline(pid, spawnSync = nodeSpawnSync) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return "";
+  try {
+    if (process.platform === "win32") {
+      const ps =
+        `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${n}" -ErrorAction SilentlyContinue;` +
+        `if ($p) { "$($p.CommandLine)\`t$($p.ExecutablePath)\`t$($p.Name)" }`;
+      const res = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+        encoding: "utf8", windowsHide: true, timeout: 5000,
+      });
+      return String(res.stdout || "").trim();
+    }
+    const res = spawnSync("ps", ["-o", "args=", "-p", String(n)], { encoding: "utf8", timeout: 5000 });
+    return String(res.stdout || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Does this image/path/cmdline string belong to a hermes daemon? Case-insensitive
+// substring match on "hermes" — the listener/tracked-pid must be a hermes process,
+// never an unrelated operator process that recycled the same port/pid. Returns
+// false for empty/unknown input → fail-safe (no confirmation ⇒ no kill).
+export function looksLikeHermesProcess(cmdline) {
+  return /hermes/i.test(String(cmdline || ""));
+}
 
 // --- per-agent daemon pid tracking -----------------------------------------
 // Each hermes agent gets at most ONE `hermes gateway run` daemon. We persist the
@@ -225,54 +265,84 @@ export async function ensureDaemon({
   );
 }
 
-// Default port→PID→kill. Find the process LISTENING on `port` and kill it.
-// Best-effort and platform-aware: Windows uses PowerShell's Get-NetTCPConnection
-// (→ OwningProcess → Stop-Process); POSIX uses lsof (→ PID → kill). NEVER throws
-// — on any failure or no-match it resolves { killed:false }. Injectable so tests
-// never touch a real process.
-export async function defaultKillByPort(port) {
-  if (!port) return { killed: false };
+// Resolve the PID(s) LISTENING on `port`. Platform-aware: Windows uses
+// PowerShell's Get-NetTCPConnection (→ OwningProcess); POSIX uses lsof. Returns
+// an array of pids (possibly empty). Never throws → [] on any failure. Injectable
+// so killByPort's listener resolution is testable without binding a real socket.
+export async function defaultResolveListenerPids(port) {
+  if (!port) return [];
   try {
     if (process.platform === "win32") {
-      // Resolve the owning PID of the listener on this port, then Stop-Process it.
-      // Emit the PID so the caller can report it. -State Listen narrows to the
-      // bound daemon (not transient client sockets).
       const ps =
         `$ErrorActionPreference='SilentlyContinue';` +
         `$c = Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen;` +
         `if (-not $c) { exit 3 };` +
-        `$p = $c | Select-Object -First 1 -ExpandProperty OwningProcess;` +
-        `if (-not $p) { exit 3 };` +
-        `Stop-Process -Id $p -Force;` +
-        `Write-Output $p`;
-      const { stdout } = await execFile("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        ps,
+        `$c | Select-Object -ExpandProperty OwningProcess`;
+      const { stdout } = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps]);
+      return String(stdout).split(/\s+/).map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n) && n > 0);
+    }
+    const { stdout } = await execFile("lsof", ["-ti", `tcp:${Number(port)}`, "-sTCP:LISTEN"]);
+    return String(stdout).split(/\s+/).map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n) && n > 0);
+  } catch {
+    return [];
+  }
+}
+
+// Kill one pid (no tree). Platform-aware: Windows Stop-Process -Force; POSIX
+// SIGTERM. Never throws → false on failure. Injectable.
+export async function defaultKillOnePid(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  try {
+    if (process.platform === "win32") {
+      await execFile("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-Command",
+        `$ErrorActionPreference='SilentlyContinue'; Stop-Process -Id ${n} -Force`,
       ]);
-      const pid = parseInt(String(stdout).trim(), 10);
-      return { killed: Number.isFinite(pid), pid: Number.isFinite(pid) ? pid : undefined };
+      return true;
     }
-    // POSIX: lsof -ti tcp:<port> -sTCP:LISTEN → PID(s), then kill each.
-    const { stdout } = await execFile("lsof", [
-      "-ti",
-      `tcp:${Number(port)}`,
-      "-sTCP:LISTEN",
-    ]);
-    const pids = String(stdout)
-      .split(/\s+/)
-      .map((s) => parseInt(s, 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    if (pids.length === 0) return { killed: false };
+    process.kill(n, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Default port→PID→kill. Find the process LISTENING on `port`, VERIFY it is a
+// hermes daemon, and only then kill it. NEVER throws — on any failure or no-match
+// it resolves { killed:false }. Resolution / cmdline lookup / kill are all
+// injectable so tests never touch a real process or socket.
+//
+// SAFETY (anti-overkill): a stale `aify-hermes-port-<agent>` marker can name a
+// port the OS has since freed and handed to an UNRELATED operator process. Before
+// killing, we resolve the listener's cmdline/image and require it to look like
+// hermes (looksLikeHermesProcess). If it does not, we SKIP and resolve
+// { killed:false, skipped:true } so we never kill the operator's own dev server.
+export async function defaultKillByPort(
+  port,
+  {
+    getCmdline = defaultGetCmdline,
+    resolveListenerPids = defaultResolveListenerPids,
+    killOnePid = defaultKillOnePid,
+  } = {},
+) {
+  if (!port) return { killed: false };
+  try {
+    const pids = await resolveListenerPids(port);
+    if (!Array.isArray(pids) || pids.length === 0) return { killed: false };
+    let killedAny;
+    let skippedAny = false;
     for (const pid of pids) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        /* already gone */
+      // VERIFY: the listener must be a hermes process before we kill it.
+      if (!looksLikeHermesProcess(getCmdline(pid))) {
+        skippedAny = true;
+        try { console.error(`[hermes] killByPort: listener on port ${Number(port)} (pid ${pid}) is not hermes — SKIP (stale port marker, port reused by unrelated process)`); } catch { /* ignore */ }
+        continue;
       }
+      if (await killOnePid(pid) && killedAny === undefined) killedAny = pid;
     }
-    return { killed: true, pid: pids[0] };
+    if (killedAny !== undefined) return { killed: true, pid: killedAny };
+    return { killed: false, skipped: skippedAny || undefined };
   } catch {
     // lsof/powershell missing, no match, or non-zero exit → treat as not-found.
     return { killed: false };
@@ -300,6 +370,9 @@ export async function stopDaemon({
   isAlive = defaultIsAlive,
   readPid = readDaemonPid,
   clearPid = clearDaemonPid,
+  // Injectable cmdline lookup so the tracked-pid cross-check is testable without
+  // touching real processes.
+  getCmdline = defaultGetCmdline,
 } = {}) {
   let stopped = false;
   let pid;
@@ -321,14 +394,22 @@ export async function stopDaemon({
 
     // 2. Tracked-pid kill: covers a daemon whose port has already changed/been
     //    abandoned (so killByPort on the current port would miss the stray). Kill
-    //    the tracked pid's TREE if it is still alive, then clear the pid file.
-    //    Stale-pid-safe: only signal a pid that is alive.
+    //    the tracked pid's TREE if it is still alive AND its cmdline confirms it is
+    //    hermes, then clear the pid file. Stale-pid-safe two ways: (a) only signal
+    //    a pid that is alive; (b) anti-overkill — under OS pid reuse a stale
+    //    daemon-pid marker can name an UNRELATED operator process, so verify the
+    //    pid's cmdline looks like hermes before killTree. If it does not match, we
+    //    SKIP the kill, log it, and still clear the stale marker.
     if (agentId) {
       const trackedPid = readPid(agentId, tempDir);
       if (trackedPid && isAlive(trackedPid)) {
-        killTree(trackedPid);
-        stopped = true;
-        if (pid === undefined) pid = trackedPid;
+        if (looksLikeHermesProcess(getCmdline(trackedPid))) {
+          killTree(trackedPid);
+          stopped = true;
+          if (pid === undefined) pid = trackedPid;
+        } else {
+          try { console.error(`[hermes] stopDaemon: tracked pid ${trackedPid} for agent ${agentId} is not hermes — SKIP (stale daemon-pid marker, pid reused by unrelated process)`); } catch { /* ignore */ }
+        }
       }
       clearPid(agentId, tempDir);
     }

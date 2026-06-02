@@ -66,7 +66,7 @@ import {
   defaultReadMarkers as readManagedMarkers,
   defaultKillTree as killManagedTree,
 } from "./reap-managed-survivors.js";
-import { defaultKillByPort, stopDaemon } from "./hermes-daemon.js";
+import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
 import {
   reportGatewayDead,
   gatewayIndexUrlFromWs,
@@ -1549,7 +1549,18 @@ function runManagedTeardownSync(reason = "bridge exit") {
       try { killManagedTree(l.pid); } catch { /* best effort */ }
     }
     for (const d of found.daemons) {
-      try { killManagedTree(d.pid); } catch { /* best effort */ }
+      // ANTI-OVERKILL: a stale daemon-pid marker can name a pid the OS reused for
+      // an UNRELATED operator process. Verify the pid's cmdline is hermes before
+      // taskkill /t /f; SKIP + log + clear the stale marker otherwise. Mirrors
+      // stopDaemon's tracked-pid cross-check (sync path can't await stopDaemon).
+      try {
+        if (looksLikeHermesProcess(hermesGetCmdline(d.pid))) {
+          killManagedTree(d.pid);
+        } else {
+          console.error(`[aify] managed teardown sync: tracked daemon pid ${d.pid} for agent ${d.agentId} is not hermes — SKIP (stale daemon-pid marker, pid reused)`);
+          try { clearDaemonPid(d.agentId, os.tmpdir()); } catch { /* best effort */ }
+        }
+      } catch { /* best effort */ }
     }
   } catch (error) {
     console.error(`[aify] managed teardown sync (${reason}) failed:`, error?.message || error);
