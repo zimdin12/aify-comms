@@ -221,10 +221,46 @@ export function readGatewayUrlMarker(agentId, { tempDir = os.tmpdir() } = {}) {
   }
 }
 
+// Agent-keyed REAL hermes session id marker. The native-session-id model
+// (2026-06-03): an aify hermes agent lives in a NORMAL hermes session (its own
+// timestamp id), symmetric with claude (UUID) / codex (thread). This marker is
+// the single source of truth binding agentId -> its real session id, so launch
+// (resume the same session), the delivery loop (target it), and the bridge
+// (register it) all agree WITHOUT a round-trip — replacing the synthetic
+// `aify-<agentId>` session name. Written when the agent first binds (launch or
+// comms_register); read on relaunch to resume the SAME session. Agent-keyed
+// (never cwd-keyed), so same-folder agents never collide.
+function sessionIdMarkerPath(agentId, tempDir) {
+  return path.join(tempDir, `aify-hermes-session-${sanitizeAgentId(agentId)}`);
+}
+
+export function writeSessionIdMarker(agentId, sessionId, { tempDir = os.tmpdir() } = {}) {
+  const safe = sanitizeAgentId(agentId);
+  const id = String(sessionId || "").trim();
+  if (!safe || !id) return false;
+  try {
+    fs.writeFileSync(sessionIdMarkerPath(agentId, tempDir), id);
+    return true;
+  } catch {
+    return false; // best-effort
+  }
+}
+
+export function readSessionIdMarker(agentId, { tempDir = os.tmpdir() } = {}) {
+  const safe = sanitizeAgentId(agentId);
+  if (!safe) return "";
+  try {
+    const v = fs.readFileSync(sessionIdMarkerPath(agentId, tempDir), "utf8").trim();
+    return v || "";
+  } catch {
+    return "";
+  }
+}
+
 export function clearGatewayMarkers(agentId, dir = os.tmpdir()) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return;
-  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`]) {
+  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`, `aify-hermes-session-${safe}`]) {
     try {
       fs.rmSync(path.join(dir, name), { force: true });
     } catch {
