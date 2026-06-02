@@ -1513,6 +1513,16 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
   # loop is live. Flow is now: spawn loop (+ kill-prior exclude) → exec TUI.
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
+  # The aify-comms MCP child (server.js) reads AIFY_HERMES_GATEWAY_URL to set
+  # runtime_config.gatewayUrl on register — that is the precondition for
+  # resident-run / wakeMode=hermes-live (runtimes.js: gatewayOk = !!gatewayUrl).
+  # The v0.15 gateway-host rewrite exported only HERMES_TUI_GATEWAY_URL, so the
+  # MCP config '\${AIFY_HERMES_GATEWAY_URL}' interpolated to the literal
+  # placeholder and every resident hermes registered as hermes-missing-handle.
+  # Export it (same gateway WS URL) + its embedded token before the TUI/MCP
+  # child spawn so the bridge registers a real ws:// gatewayUrl.
+  export AIFY_HERMES_GATEWAY_URL="\$HERMES_TUI_WS_URL"
+  export AIFY_HERMES_GATEWAY_TOKEN="\$(printf '%s' "\$HERMES_TUI_WS_URL" | sed -E 's/.*[?&]token=([^&]+).*/\1/;t;s/.*//')"
   export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
   # Use the prebuilt ui-tui bundle when available so the managed TUI does NOT
   # run \`npm run build\` on every launch (slow + noisy in the dashboard
