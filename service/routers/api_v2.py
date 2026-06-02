@@ -299,7 +299,27 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # A bridge-pushed turn_busy=1 is "working" only if refreshed within this
 # window; the bridge re-sends true on every per-agent heartbeat during long
 # turns (keep its cadence well under this).
+#
+# WS5 Task 5.2/5.3 (2026-06-02) — DEMOTED to a BACKSTOP. The PRIMARY off-`working`
+# transition is now a real turn-END EVENT (POST /turn-end): claude's Stop hook,
+# codex turn/completed + pi agent_end (native run terminal), and — newly — managed
+# hermes observing its gateway session go idle (hermes-managed-host.js
+# makeInFlightProbe → clearTurn). The event clears turn_busy=0 the instant a turn
+# ends, so this window now ONLY fires when an end event is DROPPED. It is kept at
+# 120s as the CLAIM-GATE / mid-turn-busy window (the conservative choice: a send is
+# not queued behind a possibly-finished turn longer than 2m). The STATUS staleness
+# window is the longer TURN_BUSY_BACKSTOP_SECONDS so a missed end event self-heals
+# at the single long wall-clock ceiling instead of flapping against the re-pulse
+# cadence (the prior 120s-vs-45s race produced the false-working flap). Never key a
+# re-arm of turn_busy on derived status — only the bridge sets it and only an event
+# (or this backstop) clears it (anti-feedback-loop invariant).
 TURN_BUSY_STALE_SECONDS = 120
+# WS5 Task 5.2/5.3: the LONG wall-clock backstop for a DROPPED turn-END event. It
+# matches the host-side re-pulse hard cap (hermes-turn-repulse.js REPULSE_WINDOW_MS
+# = 15m) so the server and bridge agree on the single ceiling: a turn whose end
+# event never arrives stops showing `working` at ~15m, not 2m. Event-driven
+# turn-end (the normal path) clears turn_busy long before this.
+TURN_BUSY_BACKSTOP_SECONDS = 15 * 60
 # Runtimes with native managed adapters. Codex/Hermes may be promoted to the
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy
@@ -3360,7 +3380,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         if _tb:
             if int(_tb["turn_busy"] or 0) == 1:
                 _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_STALE_SECONDS:
+                # WS5 Task 5.2/5.3: STATUS staleness uses the LONG backstop. The
+                # turn-END event (POST /turn-end) is the primary clear; this window
+                # only catches a DROPPED event, so it sits at the single long
+                # wall-clock ceiling rather than racing the re-pulse cadence.
+                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_BACKSTOP_SECONDS:
                     turn_busy = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
                     turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
@@ -3668,11 +3692,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
     )
     # When `working` is driven by a fresh turn_busy (NOT an active run, which has
-    # its own lifecycle), clamp refresh_after to the turn-busy staleness window so
-    # a lost turn-end self-heals at ~120s instead of waiting out the 5-30min
-    # heartbeat windows. `active_run` working is intentionally left untouched.
+    # its own lifecycle), clamp refresh_after to the turn-busy BACKSTOP window so a
+    # DROPPED turn-end event self-heals at the single long ceiling (~15m) instead of
+    # waiting out the 5-30min heartbeat windows. WS5 Task 5.2/5.3: the normal off-
+    # working transition is the turn-END EVENT (which invalidates the cache
+    # immediately via /turn-end), so this clamp is purely the dropped-event
+    # backstop. `active_run` working is intentionally left untouched.
     if effective_status == "working" and turn_busy and not active_run and turn_updated_at:
-        busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_STALE_SECONDS)
+        busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_BACKSTOP_SECONDS)
         if busy_deadline:
             refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
     return {
