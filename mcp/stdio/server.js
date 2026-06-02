@@ -75,6 +75,7 @@ import {
   makeGatewayReachabilityProbe,
 } from "./hermes-managed-host.js";
 import { transcriptIsGenerating } from "./transcript-activity.js";
+import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -323,6 +324,44 @@ const __stopLivenessHeartbeat = startLivenessHeartbeat({
   },
 });
 
+// Claude hook-independent turn-END detector (pure-event-status change #1,
+// 2026-06-02). The claude Stop hook (install.sh -> POST /turn-end) is NOT a
+// guaranteed turn terminator — it misses on interrupt/ESC, MCP-continuations, a
+// crash, or when its short-timeout curl fails. A missed Stop hook leaves the
+// agent turn_busy=1 with no event to clear it (the sc-claude "stuck at
+// turn_busy=1" symptom), and with STATUS now pure-event (no short status window)
+// that would read `working` until the single long ceiling. This loop watches the
+// transcript directly: when a transcript that WAS growing stops growing for one
+// ~30s tick (a turn was in flight, then no more bytes), it POSTs /turn-end for
+// this agent — an event-driven turn-end independent of the Stop hook, for BOTH
+// resident and managed claude (same wrapper). The Stop hook stays the fast-path
+// clear; this is the backstop. ANTI-FEEDBACK-LOOP: keys ONLY on transcript
+// GROWTH (process truth), never on the server's computed status, and only ever
+// POSTs /turn-end (a CLEAR) — it can never re-arm turn_busy. CONSERVATIVE: fires
+// only after a growth phase is followed by a no-growth tick, re-arming on the
+// next growth, so a between-tool-calls pause that still produces growth never
+// false-clears mid-turn.
+let __stopClaudeTurnEndDetector = () => {};
+if (
+  AIFY_AGENT_ID &&
+  __runtimeAdapter &&
+  __runtimeAdapter.name === "claude-code" &&
+  typeof __runtimeAdapter.transcriptStat === "function"
+) {
+  __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
+    intervalMs: 30_000,
+    readTranscript: async () => __runtimeAdapter.transcriptStat({ agentId: AIFY_AGENT_ID }),
+    postTurnEnd: async () => {
+      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        turnRuntime: "claude-code",
+        source: "bridge-transcript-detector",
+      });
+    },
+  });
+}
+
 // PROACTIVE gateway-liveness probe for RESIDENT hermes (status-liveness,
 // 2026-06-02). A hermes agent shows `available`/`online` whenever its gatewayUrl
 // is PRESENT (runtimes.js `gatewayOk = !!gatewayUrl`; server
@@ -421,6 +460,7 @@ function cleanupOnExit() {
   try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
   try { __stopLivenessHeartbeat(); } catch { /* best effort */ }
   try { __stopGatewayProbe(); } catch { /* best effort */ }
+  try { __stopClaudeTurnEndDetector(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;
