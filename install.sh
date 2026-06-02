@@ -1469,45 +1469,14 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ "\$HERMES_AIFY_SESSION_MODE" = "managed"
   # relaunch's loop is cleaned up while ours is protected (the pre-spawn call
   # above could not yet know this PID).
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID" "\$HERMES_LOOP_PID"
-  # (3a) HEALTH-GATE: do NOT show a TUI until the loop is a LIVE CLAIMER. The
-  # loop writes \`aify-hermes-loop-ready-<agent>\` into os.tmpdir() only after
-  # gateway-ok + heartbeat + a successful /dispatch/claim round-trip. Resolve the
-  # exact marker path via hermes-loop-ready.js (so the wrapper + loop agree on
-  # the temp dir == os.tmpdir()), then convert to a bash-usable path on Git Bash.
-  HERMES_LOOP_READY_FILE="\$(node -e 'import(process.argv[1]).then(m=>process.stdout.write(m.loopReadyFile(process.argv[2])))' "\$AIFY_HERMES_LOOP_READY_JS" "\$HERMES_AIFY_AGENT_ID" 2>/dev/null || true)"
-  if command -v cygpath >/dev/null 2>&1 && [ -n "\$HERMES_LOOP_READY_FILE" ]; then
-    HERMES_LOOP_READY_FILE="\$(cygpath -u "\$HERMES_LOOP_READY_FILE" 2>/dev/null || printf '%s' "\$HERMES_LOOP_READY_FILE")"
-  fi
-  # Bounded poll: ~30s budget at a small interval. The marker basename is
-  # \`aify-hermes-loop-ready-<agent>\` (kept inline so the gate is greppable).
-  HERMES_LOOP_GATE_DEADLINE=30
-  HERMES_LOOP_GATE_WAITED=0
-  HERMES_LOOP_READY=false
-  while [ "\$HERMES_LOOP_GATE_WAITED" -lt "\$HERMES_LOOP_GATE_DEADLINE" ]; do
-    if [ -n "\$HERMES_LOOP_READY_FILE" ] && [ -f "\$HERMES_LOOP_READY_FILE" ]; then
-      HERMES_LOOP_READY=true
-      break
-    fi
-    # If the loop process died outright, stop waiting early — no point polling.
-    if [ -n "\$HERMES_LOOP_PID" ] && ! kill -0 "\$HERMES_LOOP_PID" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 1
-    HERMES_LOOP_GATE_WAITED=\$((HERMES_LOOP_GATE_WAITED + 1))
-  done
-  if [ "\$HERMES_LOOP_READY" != true ]; then
-    # NON-FATAL (2026-06-02 hotfix): a slow/transient loop must NOT take the team
-    # down. The earlier hard FATAL+exit turned any momentary loop hiccup (agent
-    # not yet registered, service mid-restart, gateway warming up) into a dead
-    # agent with no TUI. Instead: WARN, leave the loop running (it keeps retrying
-    # the gateway + /dispatch/claim and will write the marker once it claims), and
-    # start the visible TUI anyway. Deliverability is reflected server-side by the
-    # claimer-lease gate until the loop becomes live — a started TUI that is
-    # briefly not-yet-deliverable beats no TUI at all.
-    echo "[hermes-aify] WARN: hermes delivery loop for '\$HERMES_AIFY_AGENT_ID' not yet a live claimer after \${HERMES_LOOP_GATE_DEADLINE}s; starting TUI anyway (loop keeps retrying in the background)." >&2
-  else
-    echo "[hermes-aify] delivery loop live (pid \$HERMES_LOOP_PID); starting visible TUI." >&2
-  fi
+  # NOTE (2026-06-02 hotfix/restore-hermes-tui): the former "(3a) HEALTH-GATE"
+  # (a bounded 30s poll on the loop-ready marker before launching the TUI) was
+  # REMOVED. Even non-fatal, it injected wrapper log output into the dashboard
+  # PTY ahead of the TUI and could stall the console for up to 30s, so the
+  # managed console showed wrapper chatter instead of the clean TUI. The loop is
+  # spawned detached above and keeps retrying the gateway + /dispatch/claim on
+  # its own; server-side the claimer-lease gate reflects deliverability until the
+  # loop is live. Flow is now: spawn loop (+ kill-prior exclude) → exec TUI.
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   export HERMES_TUI_GATEWAY_URL="\$HERMES_TUI_WS_URL"
   export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
@@ -1868,39 +1837,14 @@ if (\$HermesAifyAgentId -and \$HermesAifySessionMode -eq 'managed' -and \$Hermes
   # relaunch's loop is cleaned up while ours is protected (the pre-spawn call
   # could not yet know this PID).
   Invoke-AifyHermesKillPrior \$HermesAifyAgentId \$hermesLoopPid
-  # (3a) HEALTH-GATE: do NOT show a TUI until the loop is a LIVE CLAIMER. The
-  # loop writes 'aify-hermes-loop-ready-<agent>' into os.tmpdir() only after
-  # gateway-ok + heartbeat + a successful /dispatch/claim round-trip. Resolve the
-  # exact marker path via hermes-loop-ready.js so the wrapper + loop agree on the
-  # temp dir (== os.tmpdir()).
-  \$hermesLoopReadyFile = ''
-  try {
-    \$hermesLoopReadyFile = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(m.loopReadyFile(process.argv[2])))' \$AifyHermesLoopReadyJs \$HermesAifyAgentId 2>\$null
-  } catch {}
-  # Bounded poll: ~30s budget at a 1s interval. Marker basename is
-  # 'aify-hermes-loop-ready-<agent>' (kept inline so the gate is greppable).
-  \$hermesLoopReady = \$false
-  \$hermesLoopGateDeadline = 30
-  for (\$i = 0; \$i -lt \$hermesLoopGateDeadline; \$i++) {
-    if (\$hermesLoopReadyFile -and (Test-Path -LiteralPath \$hermesLoopReadyFile)) {
-      \$hermesLoopReady = \$true
-      break
-    }
-    if (\$hermesLoopPid -gt 0 -and -not (Get-Process -Id \$hermesLoopPid -ErrorAction SilentlyContinue)) {
-      break
-    }
-    Start-Sleep -Seconds 1
-  }
-  if (-not \$hermesLoopReady) {
-    # NON-FATAL (2026-06-02 hotfix): a slow/transient loop must NOT take the team
-    # down. Warn, leave the loop running (it keeps retrying the gateway +
-    # /dispatch/claim and writes the marker once it claims), and start the TUI
-    # anyway. Deliverability is reflected server-side by the claimer-lease gate
-    # until the loop becomes live — a started TUI beats no TUI.
-    [Console]::Error.WriteLine("[hermes-aify] WARN: hermes delivery loop for '\$HermesAifyAgentId' not yet a live claimer after \$hermesLoopGateDeadline s; starting TUI anyway (loop keeps retrying in the background).")
-  } else {
-    [Console]::Error.WriteLine("[hermes-aify] delivery loop live (pid \$hermesLoopPid); starting visible TUI.")
-  }
+  # NOTE (2026-06-02 hotfix/restore-hermes-tui): the former "(3a) HEALTH-GATE"
+  # (a bounded 30s poll on the loop-ready marker before launching the TUI) was
+  # REMOVED. Even non-fatal, it injected wrapper log output into the dashboard
+  # PTY ahead of the TUI and could stall the console for up to 30s, so the
+  # managed console showed wrapper chatter instead of the clean TUI. The loop is
+  # spawned hidden above and keeps retrying the gateway + /dispatch/claim on its
+  # own; server-side the claimer-lease gate reflects deliverability until the
+  # loop is live. Flow is now: spawn loop (+ kill-prior exclude) → Invoke TUI.
   # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
   \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
   \$env:HERMES_TUI_RESUME = \$pinnedSession
