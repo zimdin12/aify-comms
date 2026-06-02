@@ -3521,6 +3521,27 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             agent_row,
             lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150),
         )
+    # fix/resident-hermes-status (2026-06-02): a resident agent whose wake-mode is
+    # a `*-missing-handle` mode has NO usable wake handle (resident hermes with no
+    # usable gatewayUrl; resident codex/opencode/pi with no sessionHandle) — it
+    # cannot be woken at all, so it is NOT `available`. It must read `stale`,
+    # CONSISTENT with the dashboard dot, which already derives a red/unreachable
+    # dot from the non-live-wake wake-mode (operator-reported `available`+red+
+    # "Hermes missing handle" split). NOTE: the resident_bridge_stale gate above
+    # is itself gated on `"resident-run" in _row_capabilities(...)`, and
+    # _row_capabilities STRIPS resident-run for a hermes with no gatewayUrl — so a
+    # missing-handle resident never reaches that gate and would otherwise fall
+    # through to `available`. This flag closes that hole at the same liveness
+    # altitude. A genuinely-live resident (fresh bridge + usable handle →
+    # `*-live`/`-thread-resume`) is unaffected. Excludes `presence-only`
+    # (opencode/pi resident) and inbox/`message-only` agents, which are not
+    # wake-handle-backed targets and have their own taxonomy.
+    resident_missing_handle = False
+    if agent_session_mode == "resident":
+        _wake_mode = _agent_wake_mode(agent_row)
+        if _wake_mode.endswith("-missing-handle"):
+            resident_missing_handle = True
+            resident_bridge_stale = True
     has_live_worker = False
     if live_session:
         worker_row = await (await db.execute(
