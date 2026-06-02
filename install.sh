@@ -1605,7 +1605,8 @@ if [ \${#HERMES_ARGS[@]} -eq 0 ]; then aify_hermes_warm_bridge; fi
 #      claims channel/resident dispatch runs and prompt.submits them into the
 #      visible TUI's session.
 #   4. exec \`hermes --tui\` IN THIS PTY, attached to the gateway host and
-#      resuming the STABLE session \`aify-<agentId>\`. For a managed launch the PTY
+#      resuming the agent's REAL native session id (from the agent-keyed marker),
+#      or a FRESH session on first launch. For a managed launch the PTY
 #      is the dashboard console (windowless); for a resident launch the PTY is the
 #      operator's own terminal (visible). Same exec, same delivery — the only
 #      difference is who owns the PTY. The agent self-replies via comms_send.
@@ -1629,15 +1630,14 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     exit 1
   fi
   echo "[hermes-aify] managed gateway host ready: \$HERMES_HOST_JSON" >&2
-  # The STABLE resume key MUST match the delivery loop's pickSessionForKey key.
-  # ensure-host emits the canonical pinnedSessionId as \`resumeKey\` so we DON'T
-  # reimplement (and risk diverging from) the sanitization in shell.
-  AIFY_HERMES_PINNED_SESSION="\$(printf '%s' "\$HERMES_HOST_JSON" | sed -E 's/.*"resumeKey"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-  if [ -z "\$AIFY_HERMES_PINNED_SESSION" ] || [ "\$AIFY_HERMES_PINNED_SESSION" = "\$HERMES_HOST_JSON" ]; then
-    # Fallback to the local sanitization (matches hermes-session-id.js for the
-    # common [a-zA-Z0-9_-] agentId case) if the field is somehow absent.
-    AIFY_HERMES_PINNED_SESSION="aify-\$(printf '%s' "\$HERMES_AIFY_AGENT_ID" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-  fi
+  # Resolve the agent's REAL native hermes session id from the agent-keyed marker
+  # \`aify-hermes-session-<agentId>\` (written by the bridge on register/bind via
+  # hermes-endpoint.js writeSessionIdMarker). If present we resume that SAME real
+  # session — a continuous transcript, symmetric with claude's UUID / codex's
+  # thread id. If absent (first launch), we start a FRESH session: hermes assigns
+  # a new real id and the bridge captures+stores it on register. The synthetic
+  # \`aify-<agentId>\` resume key is gone (no more pre-seed/rename dance).
+  HERMES_RESUME_REAL_ID="\$(node -e 'import("'"\$AIFY_HERMES_STDIO_DIR"'/hermes-endpoint.js").then(m=>process.stdout.write(m.readSessionIdMarker(process.argv[1])||"")).catch(()=>{})' "\$HERMES_AIFY_AGENT_ID" 2>/dev/null || true)"
   # (3) Background delivery loop — detached, survives the exec below. Capture
   # its PID so kill-prior can EXCLUDE it (self-reap race) and so we can report
   # which loop we are health-gating on.
@@ -1668,7 +1668,6 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   # child spawn so the bridge registers a real ws:// gatewayUrl.
   export AIFY_HERMES_GATEWAY_URL="\$HERMES_TUI_WS_URL"
   export AIFY_HERMES_GATEWAY_TOKEN="\$(printf '%s' "\$HERMES_TUI_WS_URL" | sed -E 's/.*[?&]token=([^&]+).*/\1/;t;s/.*//')"
-  export HERMES_TUI_RESUME="\$AIFY_HERMES_PINNED_SESSION"
   # Use the prebuilt ui-tui bundle when available so the managed TUI does NOT
   # run \`npm run build\` on every launch (slow + noisy in the dashboard
   # console). \`hermes --tui\` skips the build when HERMES_TUI_DIR points at a
@@ -1677,14 +1676,16 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   if [ -n "\$AIFY_HERMES_TUI_DIR" ] && [ -f "\$AIFY_HERMES_TUI_DIR/dist/entry.js" ]; then
     export HERMES_TUI_DIR="\$AIFY_HERMES_TUI_DIR"
   fi
-  # Resume the STABLE session (\`aify-<agentId>\`) so a relaunch reuses the SAME
-  # transcript instead of forging a new session every time (no duplication).
-  # \`hermes --tui\` STRIPS HERMES_TUI_RESUME unless it is passed as
-  # \`--resume <id>\` (main.py: env.pop("HERMES_TUI_RESUME") then re-add only when
-  # argparse resolved a resume id), so the env var alone is a no-op — the flag is
-  # required. ensure-host has already pre-seeded the row so resume resolves on
-  # first launch. \`--resume\` MUST precede the operator's passthrough flags.
-  exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$AIFY_HERMES_PINNED_SESSION" "\${HERMES_PERMISSION_FLAGS[@]}"
+  # Resume the agent's REAL native session id (continuous transcript) when the
+  # marker resolved one; otherwise launch a FRESH session with NO \`--resume\` so
+  # hermes assigns a new real id (the bridge captures+stores it on register).
+  # \`--resume\` MUST precede the operator's passthrough flags.
+  if [ -n "\$HERMES_RESUME_REAL_ID" ]; then
+    echo "[hermes-aify] resuming real hermes session '\$HERMES_RESUME_REAL_ID' for agent '\$HERMES_AIFY_AGENT_ID'." >&2
+    exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_RESUME_REAL_ID" "\${HERMES_PERMISSION_FLAGS[@]}"
+  fi
+  echo "[hermes-aify] no stored session for agent '\$HERMES_AIFY_AGENT_ID' — starting a fresh hermes session (bridge will capture its real id on register)." >&2
+  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
 fi
 
 # RESIDENT agent-id launch: handled by the unified GATEWAY-HOST branch above
