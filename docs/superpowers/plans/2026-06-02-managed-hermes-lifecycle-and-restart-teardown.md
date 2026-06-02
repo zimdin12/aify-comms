@@ -256,6 +256,14 @@ RESEQUENCED 2026-06-02: at send time a live-console/no-claimer managed agent is 
 
 ## WS6 — Docs / skills / harnesses / integrations
 
+### Task 6.0: Channel-wake same-turn-reply hardening (claude completed-without-reply class)
+
+**Files:** `mcp/stdio/claude-channel.js` (`dispatchContent()` ~:191-208, MCP `instructions` block ~:234-239). Test: extend a claude-channel test asserting the wake text for a `require_reply` dispatch contains the same-turn directive.
+
+Root-caused 2026-06-02 (investigation + sc-claude self-report): a managed/channel claude that defers its `comms_send(inReplyTo=...)` reply to a SECOND turn strands it — the session goes idle after turn 1 and is never re-woken, so the reply lands ~20min late when the next dispatch happens to re-wake it. Not an infra/threading/#42148 defect (the reply threads correctly once sent). Durable platform mitigation: for `require_reply` dispatches, the channel wake instruction must explicitly say *"send your reply with comms_send(inReplyTo=…) in THIS turn before ending — a managed session will not be re-woken to finish a deferred reply."* Mirror in the MCP `instructions` block. Instruction-text only; wrapper restart, no container rebuild.
+
+- [ ] Failing test → add directive → green → commit.
+
 ### Task 6.1: install.sh + harness docs
 
 - [ ] Update `install.claude.md` / `install.hermes.md` for the loop health-gate and restart-teardown behavior. Commit.
