@@ -113,6 +113,26 @@ export function buildSessionActiveListFrame({ id, currentSessionId = "" } = {}) 
   };
 }
 
+// Normalize the many session.active_list envelope shapes into a flat row array.
+// Shared by pickSessionForKey / pickSessionById / pickMostRecentSession /
+// pickSessionStatusForKey so every resolver reads the same wire shapes.
+function activeListRows(activeListResponse) {
+  return Array.isArray(activeListResponse)
+    ? activeListResponse
+    : Array.isArray(activeListResponse?.result?.sessions)
+    ? activeListResponse.result.sessions
+    : Array.isArray(activeListResponse?.sessions)
+    ? activeListResponse.sessions
+    : Array.isArray(activeListResponse?.result)
+    ? activeListResponse.result
+    : [];
+}
+
+// The session's REAL id off a row (`id` / `session_id` / `sessionId`).
+function rowRealId(r) {
+  return String(r?.id || r?.session_id || r?.sessionId || "").trim();
+}
+
 // Pick the row for the visible TUI from a session.active_list response. The
 // stable key is `aify-<agentId>`; the live runtime `id` we actually submit
 // against is ephemeral. Match precedence:
@@ -123,18 +143,10 @@ export function buildSessionActiveListFrame({ id, currentSessionId = "" } = {}) 
 // Returns the matched row's runtime id (string) or null when nothing matches.
 export function pickSessionForKey(activeListResponse, key) {
   const wanted = String(key || "").trim();
-  const rows = Array.isArray(activeListResponse)
-    ? activeListResponse
-    : Array.isArray(activeListResponse?.result?.sessions)
-    ? activeListResponse.result.sessions
-    : Array.isArray(activeListResponse?.sessions)
-    ? activeListResponse.sessions
-    : Array.isArray(activeListResponse?.result)
-    ? activeListResponse.result
-    : [];
+  const rows = activeListRows(activeListResponse);
   if (!rows.length) return null;
 
-  const rowId = (r) => String(r?.id || r?.session_id || r?.sessionId || "").trim();
+  const rowId = rowRealId;
 
   if (wanted) {
     // 1. exact session_key match
@@ -179,6 +191,51 @@ export function pickSessionForKey(activeListResponse, key) {
   return best;
 }
 
+// Native-session-id model (2026-06-03): rows in a session.active_list response
+// expose the session's REAL id (the same timestamp id hermes assigns claude-style
+// — `id` / `session_id` / `sessionId`). The native-id delivery loop targets the
+// agent's OWN real session (resumed at launch / captured at register), NOT the
+// synthetic `aify-<agentId>` key, so it must match a row by that real id.
+// Returns the matched row's real id (string) or null when nothing matches.
+export function pickSessionById(activeListResponse, realId) {
+  const wanted = String(realId || "").trim();
+  if (!wanted) return null;
+  const rows = activeListRows(activeListResponse);
+  for (const r of rows) {
+    if (rowRealId(r) === wanted) return wanted;
+  }
+  return null;
+}
+
+// Native-session-id model FALLBACK (2026-06-03): when the agent has not yet bound
+// a real session id (no marker) OR the bound id is not in active_list, deliver to
+// the gateway's MOST-RECENT live session. The active_list is this agent's OWN
+// gateway host, so the freshest row is the visible TUI the operator is looking at.
+// Returns the freshest row's real id (by last_active/started_at/created_at), or
+// the first row with an id, or null when there are no live sessions.
+export function pickMostRecentSession(activeListResponse) {
+  const rows = activeListRows(activeListResponse);
+  if (!rows.length) return null;
+  const stamp = (s) =>
+    Number(
+      Date.parse(
+        s?.last_active || s?.lastActive || s?.started_at || s?.startedAt || s?.created_at || s?.createdAt || 0,
+      ),
+    ) || 0;
+  let best = null;
+  let bestStamp = -1;
+  for (const r of rows) {
+    const id = rowRealId(r);
+    if (!id) continue;
+    const t = stamp(r);
+    if (best === null || t > bestStamp) {
+      best = id;
+      bestStamp = t;
+    }
+  }
+  return best;
+}
+
 // WS5 Task 5.2 (event-driven turn-END): read the matched session's live
 // `status` from a session.active_list response. The gateway tracks
 // session["running"] (True for the whole duration of an agent turn) and surfaces
@@ -192,15 +249,7 @@ export function pickSessionForKey(activeListResponse, key) {
 export function pickSessionStatusForKey(activeListResponse, key) {
   const wanted = String(key || "").trim();
   if (!wanted) return "";
-  const rows = Array.isArray(activeListResponse)
-    ? activeListResponse
-    : Array.isArray(activeListResponse?.result?.sessions)
-    ? activeListResponse.result.sessions
-    : Array.isArray(activeListResponse?.sessions)
-    ? activeListResponse.sessions
-    : Array.isArray(activeListResponse?.result)
-    ? activeListResponse.result
-    : [];
+  const rows = activeListRows(activeListResponse);
   if (!rows.length) return "";
   const statusOf = (r) => String(r?.status || "").trim();
   // 1. exact session_key match
@@ -215,6 +264,21 @@ export function pickSessionStatusForKey(activeListResponse, key) {
     if (title && (title === wanted || title.includes(wanted))) {
       return statusOf(r);
     }
+  }
+  return "";
+}
+
+// Native-session-id model (2026-06-03): read the live `status` for a row matched
+// by its REAL session id (the same id the native-id delivery loop submits to).
+// Used by the managed-host turn-state detector once the agent is bound to its own
+// real session (no longer titled `aify-<agentId>`). Returns the status string, or
+// "" when the id is absent (treated as NOT idle by callers — a safe no-op).
+export function pickSessionStatusById(activeListResponse, realId) {
+  const wanted = String(realId || "").trim();
+  if (!wanted) return "";
+  const rows = activeListRows(activeListResponse);
+  for (const r of rows) {
+    if (rowRealId(r) === wanted) return String(r?.status || "").trim();
   }
   return "";
 }

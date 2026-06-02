@@ -9,7 +9,10 @@ import {
   buildSessionInterruptFrame,
   buildSessionActiveListFrame,
   pickSessionForKey,
+  pickSessionById,
+  pickMostRecentSession,
   pickSessionStatusForKey,
+  pickSessionStatusById,
   isGatewaySessionIdle,
   translateGatewayEvent,
   isSessionBusyError,
@@ -109,6 +112,74 @@ test("pickSessionForKey: returns null for empty/unknown response shapes", () => 
   assert.equal(pickSessionForKey({ result: { sessions: [] } }, "aify-x"), null);
   assert.equal(pickSessionForKey(null, "aify-x"), null);
   assert.equal(pickSessionForKey({}, "aify-x"), null);
+});
+
+// ---------------------------------------------------------------------------
+// Native-session-id resolvers (2026-06-03 Task 3): pickSessionById +
+// pickMostRecentSession. The native-id delivery loop targets the agent's OWN
+// real session id (resumed at launch / captured at register), not aify-<id>.
+// ---------------------------------------------------------------------------
+
+test("pickSessionById: matches a row by its REAL session id (id / session_id / sessionId)", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "20260603_aaa", status: "idle" },
+        { session_id: "20260603_bbb", status: "working" },
+        { sessionId: "20260603_ccc", status: "idle" },
+      ],
+    },
+  };
+  assert.equal(pickSessionById(resp, "20260603_aaa"), "20260603_aaa");
+  assert.equal(pickSessionById(resp, "20260603_bbb"), "20260603_bbb");
+  assert.equal(pickSessionById(resp, "20260603_ccc"), "20260603_ccc");
+});
+
+test("pickSessionById: null when the id is not live / empty / unknown shape", () => {
+  const resp = { result: { sessions: [{ id: "real-1" }] } };
+  assert.equal(pickSessionById(resp, "not-there"), null);
+  assert.equal(pickSessionById(resp, ""), null);
+  assert.equal(pickSessionById(null, "real-1"), null);
+  assert.equal(pickSessionById({ result: { sessions: [] } }, "real-1"), null);
+});
+
+test("pickMostRecentSession: returns the freshest live session's real id (the visible TUI)", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "old", started_at: "2026-06-03T09:00:00Z" },
+        { id: "newest", started_at: "2026-06-03T12:00:00Z" },
+        { id: "mid", started_at: "2026-06-03T10:00:00Z" },
+      ],
+    },
+  };
+  assert.equal(pickMostRecentSession(resp), "newest");
+});
+
+test("pickMostRecentSession: falls back to the first row with an id when no timestamps", () => {
+  const resp = { result: { sessions: [{ id: "first" }, { id: "second" }] } };
+  assert.equal(pickMostRecentSession(resp), "first");
+});
+
+test("pickMostRecentSession: null when there are no live sessions / unknown shape", () => {
+  assert.equal(pickMostRecentSession({ result: { sessions: [] } }), null);
+  assert.equal(pickMostRecentSession(null), null);
+  assert.equal(pickMostRecentSession({}), null);
+});
+
+test("pickSessionStatusById: reads the live status for a row matched by its real id", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "real-1", status: "working" },
+        { id: "real-2", status: "idle" },
+      ],
+    },
+  };
+  assert.equal(pickSessionStatusById(resp, "real-1"), "working");
+  assert.equal(pickSessionStatusById(resp, "real-2"), "idle");
+  assert.equal(pickSessionStatusById(resp, "absent"), "", "absent id → '' (treated as not-idle)");
+  assert.equal(pickSessionStatusById(resp, ""), "");
 });
 
 // ---------------------------------------------------------------------------

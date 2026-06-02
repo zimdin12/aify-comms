@@ -24,6 +24,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   ensureGatewayHost,
   deliverRun,
@@ -43,6 +46,20 @@ import {
   reportGatewayDead,
   makeTeardown,
 } from "../hermes-managed-host.js";
+import { writeSessionIdMarker, readSessionIdMarker } from "../hermes-endpoint.js";
+
+// Isolated temp dir for the native-session-id markers so tests never touch the
+// shared process tmp dir (and so the real-id-match vs most-recent-fallback paths
+// are deterministic). Threaded into deliverRun / runPollCycle / runDeliveryLoop
+// via their `tempDir` / `markerDir` seams.
+const MARKER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "aify-hermes-host-test-"));
+process.on("exit", () => {
+  try {
+    fs.rmSync(MARKER_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort cleanup */
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -130,6 +147,7 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
   });
 
   // active_list was called, then prompt.submit against the RESOLVED ephemeral sid.
@@ -175,6 +193,7 @@ test("deliverRun: on successful submit stamps inFlight {submittedAt, completed:f
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
     inFlight,
     now: () => 123_456,
   });
@@ -197,6 +216,7 @@ test("deliverRun: requeue (TUI never attaches) closes inFlight window {submitted
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
     inFlight,
     attachWaitMs: 10,
     attachPollMs: 1,
@@ -216,7 +236,7 @@ test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", a
     "session.steer": { status: "queued" },
   });
 
-  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws });
+  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws, tempDir: MARKER_DIR });
 
   const steer = ws.sent.find((f) => f.method === "session.steer");
   assert.ok(steer, "expected a session.steer fallback frame on 4009 busy");
@@ -240,8 +260,8 @@ test("deliverRun: never caches the sid — re-runs active_list on every delivery
     "prompt.submit": { status: "streaming" },
   });
 
-  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws });
-  await deliverRun({ run: { ...SAMPLE_RUN, id: "run-2" }, agentId: "sc-hermes", httpCall, wsClient: ws });
+  await deliverRun({ run: SAMPLE_RUN, agentId: "sc-hermes", httpCall, wsClient: ws, tempDir: MARKER_DIR });
+  await deliverRun({ run: { ...SAMPLE_RUN, id: "run-2" }, agentId: "sc-hermes", httpCall, wsClient: ws, tempDir: MARKER_DIR });
 
   const submits = ws.sent.filter((f) => f.method === "prompt.submit");
   assert.equal(submits.length, 2);
@@ -268,6 +288,7 @@ test("deliverRun: COLD START — active_list empty then key appears → waits, t
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
     // Tight timing so the test doesn't actually sleep for the real window.
     attachWaitMs: 10000,
     attachPollMs: 1,
@@ -298,6 +319,7 @@ test("deliverRun: TUI never attaches within window → run REQUEUED (claimable),
       agentId: "sc-hermes",
       httpCall,
       wsClient: ws,
+      tempDir: MARKER_DIR,
       attachWaitMs: 5,
       attachPollMs: 1,
       sleepImpl: async () => {},
@@ -396,6 +418,7 @@ test("deliverRun: gateway connect-refused mid-claim → FAILS run with actionabl
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
     gatewayUrl: "ws://127.0.0.1:9342/api/ws",
   });
 
@@ -422,6 +445,7 @@ test("deliverRun: NON-connect submit error → FAILS run but does NOT self-corre
     agentId: "sc-hermes",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
     gatewayUrl: "ws://127.0.0.1:9342/api/ws",
   });
 
@@ -454,8 +478,93 @@ test("runDeliveryLoop: initial WS connect refused → self-corrects ONCE via res
   assert.equal(lostCalls.length, 1, "gateway-dead self-correct must fire exactly once across repeated failed connects");
 });
 
-test("waitForActiveSession: returns the sid as soon as the key appears", async () => {
-  const lists = [{ result: { sessions: [] } }, ACTIVE_LIST_RESULT];
+// ---------------------------------------------------------------------------
+// waitForActiveSession — native-session-id resolution (2026-06-03 Task 3).
+// PRIMARY: match the agent's bound REAL session id (from the marker) against an
+// active_list row's real id. FALLBACK: when no id is bound OR the bound id isn't
+// live yet, target the gateway's MOST-RECENT live session and persist that real
+// id via the marker. Bounded-wait/poll behavior is preserved.
+// ---------------------------------------------------------------------------
+
+// A two-session active_list whose rows carry distinct REAL ids (NOT aify-<id>
+// titles). real-2 is the freshest (latest started_at) → the most-recent fallback.
+const TWO_REAL_SESSIONS = {
+  result: {
+    sessions: [
+      { id: "real-1", status: "idle", started_at: "2026-06-03T10:00:00Z" },
+      { id: "real-2", status: "working", started_at: "2026-06-03T11:00:00Z" },
+    ],
+  },
+};
+
+test("waitForActiveSession: PRIMARY — targets the agent's bound REAL session id (marker), not aify-<id>", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let id = 1;
+  let wrote = null;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    // The bound real id is the OLDER session, not the most-recent — proves we
+    // match by id, not by recency, when a marker exists.
+    readMarker: () => "real-1",
+    writeMarker: (a, v) => { wrote = { a, v }; },
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "real-1", "must submit to the bound real session id");
+  assert.equal(wrote, null, "no marker rewrite when the bound id already matches a live session");
+});
+
+test("waitForActiveSession: FALLBACK — no marker → most-recent live session, and PERSISTS its real id", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let id = 1;
+  let wrote = null;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "", // no bound id yet
+    writeMarker: (a, v, opts) => { wrote = { a, v, opts }; },
+    tempDir: "/fake/tmp",
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "real-2", "fallback targets the gateway's MOST-RECENT live session");
+  assert.ok(wrote, "fallback must persist the resolved real id");
+  assert.equal(wrote.a, "sc-hermes");
+  assert.equal(wrote.v, "real-2", "persists the most-recent session's real id");
+  assert.equal(wrote.opts?.tempDir, "/fake/tmp", "writes to the injected tempDir");
+});
+
+test("waitForActiveSession: FALLBACK — bound id present but NOT live → most-recent + re-persist", async () => {
+  // The marker holds a stale real id no longer in active_list (e.g. the session
+  // was forged fresh). Delivery must NOT hard-fail — fall back to most-recent and
+  // re-bind so subsequent loops agree.
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let id = 1;
+  let wrote = null;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "real-GONE",
+    writeMarker: (a, v) => { wrote = { a, v }; },
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "real-2", "a stale bound id falls back to most-recent (never hard-fails)");
+  assert.equal(wrote.v, "real-2", "re-persists the freshly-resolved real id");
+});
+
+test("waitForActiveSession: COLD START — empty then a real session appears → waits, then targets it", async () => {
+  const lists = [{ result: { sessions: [] } }, { result: { sessions: [] } }, TWO_REAL_SESSIONS];
   let i = 0;
   const ws = makeFakeWsClient({
     "session.active_list": () => lists[Math.min(i++, lists.length - 1)],
@@ -463,22 +572,27 @@ test("waitForActiveSession: returns the sid as soon as the key appears", async (
   let id = 1;
   const sid = await waitForActiveSession({
     wsClient: ws,
-    key: "aify-sc-hermes",
+    agentId: "sc-hermes",
+    readMarker: () => "real-1",
+    writeMarker: () => {},
     nextId: () => id++,
     deadlineMs: 1000,
     intervalMs: 1,
     sleepImpl: async () => {},
     log: () => {},
   });
-  assert.equal(sid, "live-sid-ab12");
+  assert.equal(sid, "real-1", "resolves once the bound real session attaches");
+  assert.ok(i >= 3, "polled multiple times waiting for the cold-start attach");
 });
 
-test("waitForActiveSession: returns null after the deadline when the key never appears", async () => {
+test("waitForActiveSession: returns null after the deadline when NO session ever attaches (cold-start requeue)", async () => {
   const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
   let id = 1;
   const sid = await waitForActiveSession({
     wsClient: ws,
-    key: "aify-sc-hermes",
+    agentId: "sc-hermes",
+    readMarker: () => "real-1",
+    writeMarker: () => {},
     nextId: () => id++,
     deadlineMs: 5,
     intervalMs: 1,
@@ -486,6 +600,43 @@ test("waitForActiveSession: returns null after the deadline when the key never a
     log: () => {},
   });
   assert.equal(sid, null);
+});
+
+test("waitForActiveSession: best-effort marker write — a throwing writeMarker NEVER breaks delivery", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let id = 1;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "",
+    writeMarker: () => { throw new Error("disk full"); },
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "real-2", "fallback still resolves even when the marker write throws");
+});
+
+test("waitForActiveSession: reads the bound real id from the marker (default readMarker) when wantId omitted", async () => {
+  // Round-trip via the REAL marker file in the isolated MARKER_DIR: write the
+  // agent's real id, then prove waitForActiveSession reads it and targets it.
+  writeSessionIdMarker("marker-agent", "real-1", { tempDir: MARKER_DIR });
+  assert.equal(readSessionIdMarker("marker-agent", { tempDir: MARKER_DIR }), "real-1");
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let id = 1;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "marker-agent",
+    tempDir: MARKER_DIR,
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    log: () => {},
+  });
+  assert.equal(sid, "real-1", "default readMarker resolves the bound real id from the marker file");
 });
 
 // ---------------------------------------------------------------------------
@@ -505,6 +656,7 @@ test("runPollCycle: claims a channel run, delivers it, settles delivered", async
     bridgeId: "b",
     httpCall,
     wsClient: ws,
+    tempDir: MARKER_DIR,
   });
 
   const claim = findCall(calls, "POST", "/dispatch/claim");
@@ -1031,6 +1183,7 @@ test("runDeliveryLoop: delivers a claimed run via the gateway WS", async () => {
     installTeardown: () => {},
     sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800",
+    markerDir: MARKER_DIR,
     maxIterations: 1,
   });
 

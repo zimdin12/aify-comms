@@ -34,7 +34,13 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
-import { resolveGatewayPort, writeGatewayUrlMarker, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
+import {
+  resolveGatewayPort,
+  writeGatewayUrlMarker,
+  clearGatewayMarkers as defaultClearGatewayMarkers,
+  readSessionIdMarker,
+  writeSessionIdMarker,
+} from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
 import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
@@ -51,7 +57,10 @@ import {
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
   pickSessionForKey,
+  pickSessionById,
+  pickMostRecentSession,
   pickSessionStatusForKey,
+  pickSessionStatusById,
   isGatewaySessionIdle,
   isGatewaySessionWorking,
   isSessionBusyError,
@@ -724,22 +733,55 @@ async function markRunRequeued(httpCall, run, reason) {
 // 3. DELIVERY — claim → active_list → prompt.submit (steer on busy) → delivered.
 // ---------------------------------------------------------------------------
 
-// Poll session.active_list until the visible TUI's `aify-<agentId>` session is
-// attached to the gateway (returns its EPHEMERAL runtime sid), or the deadline
-// elapses (returns null). This closes the COLD-START race: the delivery loop
-// can claim before the TUI has finished `--resume aify-<id>`, so we WAIT for the
-// attach instead of failing immediately. `nextId` advances the RPC id across
-// polls. `wsClient`, `sleepImpl`, and the timing are injectable for tests.
+// Native-session-id delivery (2026-06-03): poll session.active_list until the
+// agent's session is attached to the gateway, then return its REAL session id to
+// submit against. Resolution, per poll:
+//   (a) PRIMARY — the agent's bound REAL session id. `wantId` is read from the
+//       agent-keyed marker (`aify-hermes-session-<agentId>`, written at launch /
+//       comms_register). If non-empty AND a live active_list row carries that id,
+//       target it. This is symmetric with claude (UUID) / codex (thread id).
+//   (b) FALLBACK — no bound id yet, OR the bound id isn't (yet) in active_list:
+//       target the gateway's MOST-RECENT live session (this active_list is the
+//       agent's OWN gateway host, so the freshest row is the visible TUI). On a
+//       successful fallback we PERSIST that real id via the marker so the next
+//       launch/loop/bridge all agree on the same session (best-effort write).
+//   (c) keep the bounded-wait/poll loop: if nothing is attached yet, keep polling
+//       within the deadline; return null only when the window elapses (cold-start
+//       requeue, never a hard fail).
+// `nextId` advances the RPC id across polls. `wsClient`, `sleepImpl`, the timing,
+// and the marker read/write are injectable for tests.
 export async function waitForActiveSession({
   wsClient,
+  agentId,
+  // The agent's bound real session id. When omitted it's read from the marker.
+  wantId,
+  // Legacy: the old synthetic `aify-<agentId>` key. No longer the primary match
+  // path; retained only so existing callers/tests that pass `key` don't break and
+  // so a key-titled row can still resolve when no real id is known.
   key,
   nextId,
+  tempDir = TMP_DIR,
   deadlineMs = ATTACH_WAIT_MS,
   intervalMs = ATTACH_POLL_MS,
   sleepImpl = sleep,
   now = Date.now,
+  // Marker read/write seams (best-effort; never throw in the delivery path).
+  readMarker = readSessionIdMarker,
+  writeMarker = writeSessionIdMarker,
   log = (msg) => console.error(msg),
 } = {}) {
+  const id = String(agentId || "").trim();
+  // Resolve the wanted real id once: explicit arg wins, else the marker.
+  let wanted = String(wantId || "").trim();
+  if (!wanted && id) {
+    try {
+      wanted = String(readMarker(id, { tempDir }) || "").trim();
+    } catch {
+      wanted = "";
+    }
+  }
+  const label = wanted || key || id || "(unbound)";
+
   const deadline = now() + deadlineMs;
   let attempts = 0;
   for (;;) {
@@ -757,16 +799,40 @@ export async function waitForActiveSession({
         log(`[hermes-managed-host] session.active_list error while awaiting attach: ${err?.message || String(err)}`);
       }
     }
-    const sessionId = pickSessionForKey(listResp, key);
+
+    // (a) PRIMARY: the agent's bound real session id is live.
+    let sessionId = wanted ? pickSessionById(listResp, wanted) : null;
+
+    // (b) FALLBACK: no bound id, or the bound id isn't live yet → most-recent
+    // live session for this gateway. Persist it so subsequent launches agree.
+    if (!sessionId) {
+      const recent = pickMostRecentSession(listResp);
+      if (recent) {
+        sessionId = recent;
+        if (id && recent !== wanted) {
+          // Capture the real id we fell back to (best-effort; never throws).
+          try {
+            writeMarker(id, recent, { tempDir });
+          } catch {
+            /* best-effort marker write — never break delivery */
+          }
+          wanted = recent; // subsequent polls now treat this as the bound id.
+          log(
+            `[hermes-managed-host] '${id}': bound real session id ${recent} from gateway's most-recent live session (fallback).`,
+          );
+        }
+      }
+    }
+
     if (sessionId) {
       if (attempts > 1) {
-        log(`[hermes-managed-host] visible TUI session '${key}' attached after ${attempts} poll(s); delivering.`);
+        log(`[hermes-managed-host] visible TUI session '${label}' attached after ${attempts} poll(s); delivering.`);
       }
       return sessionId;
     }
     if (now() >= deadline) return null;
     if (attempts === 1) {
-      log(`[hermes-managed-host] visible TUI session '${key}' not attached yet; waiting up to ${deadlineMs}ms for resume…`);
+      log(`[hermes-managed-host] visible TUI session '${label}' not attached yet; waiting up to ${deadlineMs}ms for resume…`);
     }
     await sleepImpl(intervalMs);
   }
@@ -798,16 +864,22 @@ export async function deliverRun({
   // an actionable failure message + drive the self-correct when the connect is
   // refused (dead ephemeral port). Optional; "" → message says "(unknown)".
   gatewayUrl = "",
+  // Temp dir holding the agent's real-session-id marker (native-session-id
+  // model). Defaults to the process temp dir; injectable so tests isolate the
+  // marker read/write from the shared tmp dir.
+  tempDir = TMP_DIR,
 } = {}) {
-  const key = sessionKeyFor(agentId);
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
   let id = typeof rpcId === "number" ? rpcId : Date.now() % 100000;
   try {
-    // Re-discover the visible TUI's EPHEMERAL runtime sid every delivery,
-    // WAITING (bounded) for the cold-start attach to finish.
+    // Re-discover the agent's REAL session id every delivery (native-session-id
+    // model, 2026-06-03), WAITING (bounded) for the cold-start attach to finish.
+    // waitForActiveSession resolves by the bound real id (marker) with a
+    // most-recent-live-session fallback — never the synthetic `aify-<agentId>`.
     const sessionId = await waitForActiveSession({
       wsClient,
-      key,
+      agentId,
+      tempDir,
       nextId: () => id++,
       deadlineMs: attachWaitMs,
       intervalMs: attachPollMs,
@@ -816,12 +888,12 @@ export async function deliverRun({
     if (!sessionId) {
       // Transient: TUI not attached yet → requeue so the next poll delivers.
       console.error(
-        `[hermes-managed-host] run ${run?.id || "?"}: visible TUI '${key}' did not attach within ${attachWaitMs}ms — requeuing (will retry).`,
+        `[hermes-managed-host] run ${run?.id || "?"}: agent '${agentId}' session did not attach within ${attachWaitMs}ms — requeuing (will retry).`,
       );
       await markRunRequeued(
         httpCall,
         run,
-        `visible TUI session '${key}' not attached within ${attachWaitMs}ms`,
+        `agent '${agentId}' session not attached within ${attachWaitMs}ms`,
       ).catch(() => {});
       // No delivery happened — clear the turn_busy pulse so the agent does not
       // falsely show "working" while the run sits requeued, and close the
@@ -1063,6 +1135,9 @@ export async function runPollCycle({
   // Consecutive-404 self-heal counter (owned by the loop; persists across
   // cycles). `{ count }`. Optional — defaults to a fresh per-cycle counter.
   claimErrorCounter = { count: 0 },
+  // Temp dir holding the agent's real-session-id marker (native-session-id
+  // model). Threaded to deliverRun so the loop and tests agree on its location.
+  tempDir = TMP_DIR,
 } = {}) {
   let processed = 0;
   let released = false;
@@ -1111,7 +1186,7 @@ export async function runPollCycle({
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
-      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl });
+      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir });
       processed++;
     }
   } catch (error) {
@@ -1494,6 +1569,13 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // server window to a backstop. Uses the CURRENT wsClient (re-created each tick);
   // best-effort: a missing WS / RPC error returns "" (read as not-idle, so the
   // turn is never ended early on a transient gateway hiccup).
+  // Native-session-id model (2026-06-03): the turn-state detector reads the
+  // gateway session status for the agent's OWN real session (resumed at launch /
+  // captured at register), looked up by its real id. The synthetic `aify-<id>`
+  // key is the LEGACY fallback only — used until the real id binds (a fresh agent
+  // that hasn't been captured yet) so an old key-titled session still reports
+  // status. The real id is re-read each tick because the delivery loop's
+  // most-recent fallback may bind/refresh the marker between ticks.
   const managedSessionKey = sessionKeyFor(id);
   let statusRpcId = 700000;
   const readManagedSessionStatus = async () => {
@@ -1501,6 +1583,18 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     const listResp = await wsClient.request(
       buildSessionActiveListFrame({ id: statusRpcId++, currentSessionId: "" }),
     );
+    let realId = "";
+    try {
+      realId = String(readSessionIdMarker(id, { tempDir: markerDir }) || "").trim();
+    } catch {
+      realId = "";
+    }
+    if (realId) {
+      const byId = pickSessionStatusById(listResp, realId);
+      if (byId) return byId;
+    }
+    // Not bound yet (or the bound session isn't live): fall back to the legacy
+    // synthetic-key title match so a pre-native session still reports status.
     return pickSessionStatusForKey(listResp, managedSessionKey);
   };
   const stopRepulse = startInFlightRepulse({
@@ -1581,6 +1675,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           inFlight,
           gatewayUrl: host.wsUrl,
           claimErrorCounter,
+          tempDir: markerDir,
         });
         totalProcessed += result.processed || 0;
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
