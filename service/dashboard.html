@@ -2861,15 +2861,11 @@ function mountConsoleTerminal(terminalId, output, canInput) {
       if (!copyShortcut || event.type !== 'keydown') return true;
       const selection = term.getSelection?.() || '';
       if (!selection) return true;
-      const copied = navigator.clipboard?.writeText?.(selection);
-      if (copied && typeof copied.then === 'function') {
-        copied.then(
-          () => toast('Console selection copied'),
-          () => toast('Use browser copy/menu for this selection', '#f0b429'),
-        );
-      } else {
-        toast('Use browser copy/menu for this selection', '#f0b429');
-      }
+      // Route through the shared copyText() helper so this works on the
+      // dashboard's usual non-secure http origin (where navigator.clipboard
+      // is undefined) via the execCommand fallback, instead of bailing to a
+      // "use browser menu" toast.
+      copyText(selection, 'Console selection copied');
       return false;
     });
     // Initial buffer paint happens exactly once, here on mount. From now on
@@ -3133,13 +3129,49 @@ document.addEventListener('touchmove', event => {
 function disabledActionButton(label, title, classes = '') {
   return `<button class="btn btn-sm ${esc(classes)}"${titleAttr(title || label)} disabled>${esc(label)}</button>`;
 }
-async function copyText(text, label = 'Copied') {
+// Robust copy that works on the dashboard's typical non-secure origin too.
+// navigator.clipboard is UNDEFINED on plain http://192.168.x (non-localhost),
+// so the async-clipboard path silently fails there. Fall back to a hidden
+// textarea + document.execCommand('copy'), which works in any context.
+function legacyCopyText(text) {
   try {
-    await navigator.clipboard.writeText(text || '');
-    toast(label);
+    const ta = document.createElement('textarea');
+    ta.value = text || '';
+    ta.setAttribute('readonly', '');
+    // Keep it off-screen but still selectable/focusable.
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.left = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
   } catch (e) {
-    toast('Copy failed', '#f85149');
+    return false;
   }
+}
+async function copyText(text, label = 'Copied') {
+  const value = text || '';
+  // Prefer the async Clipboard API (secure contexts: https / localhost).
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast(label);
+      return true;
+    } catch (e) {
+      // Permission denied or non-secure context — fall through to legacy.
+    }
+  }
+  if (legacyCopyText(value)) {
+    toast(label);
+    return true;
+  }
+  toast('Copy failed — select the text and use your browser copy', '#f85149');
+  return false;
 }
 
 function fmtTime(ts) {
@@ -5883,6 +5915,7 @@ function renderConsoleChat(meta) {
     }
   } else {
     actions =
+      `<button class="btn btn-sm" title="Copy the selected text, or the whole console buffer if nothing is selected. Tip: hold Shift and drag to select text even while the TUI captures the mouse." onclick="copySelectedConsole()">Copy</button>` +
       `<button class="btn btn-sm" title="Reload terminal output and events" onclick="refreshSelectedConsole()">Refresh</button>` +
       `<button class="btn btn-sm btn-danger" title="Stop this dashboard-owned console and return the session to managed Messenger ownership" onclick="stopSelectedConsole()">Stop</button>`;
   }
@@ -5925,6 +5958,41 @@ function renderConsoleChat(meta) {
   const outputEl = document.getElementById('chat-console-output');
   if (outputEl && (previousTerminalId !== terminalId || atBottomBeforeRender)) outputEl.scrollTop = outputEl.scrollHeight;
   updateChatScrollButton();
+}
+
+// Copy console text. Uses the live xterm selection if present; otherwise
+// selects + copies the entire scrollback buffer. Routes through copyText()
+// so it works on non-secure http origins via the execCommand fallback.
+function copySelectedConsole() {
+  const el = document.getElementById('chat-console-output');
+  const id = el?.dataset?.xtermTerminalId || '';
+  const state = id && window._consoleTerms ? window._consoleTerms[id] : null;
+  const term = state?.term;
+  if (term) {
+    let selection = term.getSelection?.() || '';
+    let usedSelectAll = false;
+    if (!selection) {
+      // No active selection — grab the whole buffer.
+      try { term.selectAll(); } catch {}
+      selection = term.getSelection?.() || '';
+      usedSelectAll = true;
+    }
+    if (!selection) {
+      toast('Nothing to copy from the console', '#f0b429');
+      return;
+    }
+    copyText(selection, usedSelectAll ? 'Console buffer copied' : 'Console selection copied');
+    // Clear the programmatic select-all so the screen doesn't stay highlighted.
+    if (usedSelectAll) { try { term.clearSelection(); } catch {} }
+    return;
+  }
+  // Non-xterm fallback (plain-text console output).
+  const text = el ? (el.innerText || el.textContent || '') : '';
+  if (!text.trim()) {
+    toast('Nothing to copy from the console', '#f0b429');
+    return;
+  }
+  copyText(text, 'Console buffer copied');
 }
 
 async function refreshSelectedConsole() {
