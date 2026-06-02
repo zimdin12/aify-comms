@@ -2837,6 +2837,90 @@ class ApiV2RegressionTests(unittest.TestCase):
         row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_delivered_evt",))
         self.assertEqual(row["status"], "claimed")
 
+    def _seed_queued_run(self, run_id: str, agent_id: str, *, from_agent: str = "sender-agent", requested_minutes_ago: float = 5.0, require_reply: bool = True):
+        requested_at = (datetime.now(timezone.utc) - timedelta(minutes=requested_minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, None, from_agent, agent_id, "start_if_possible",
+                "channel", "request", "do the thing", "body text", "normal",
+                "queued", 1 if require_reply else 0, requested_at,
+            ),
+        )
+
+    def _run_reap_undeliverable_queued(self, **kwargs):
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._reap_undeliverable_queued_runs(db, **kwargs)
+            finally:
+                await db.commit()
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_undeliverable_queued_run_failed_and_mirrored_to_sender(self):
+        # WS3 Task 3.2: a `queued` run whose target managed hermes has NO live
+        # claimer (no fresh channel-sidecar, no claiming bridge) and is older than
+        # the backstop window is never deliverable — no reaper covers it today, so
+        # it piles up to the buffer cap. The backstop must FAIL it with an
+        # actionable error AND mirror a reply back to the sender.
+        self._register("deaf-hermes", runtime="hermes", sessionMode="managed")
+        self._register("sender-agent", runtime="claude-code", sessionMode="resident")
+        self._seed_queued_run("run_undeliverable", "deaf-hermes", from_agent="sender-agent", requested_minutes_ago=5)
+        self._seed_cached_live_state("deaf-hermes", status="online")
+
+        reaped = self._run_reap_undeliverable_queued()
+        self.assertEqual({r["runId"] for r in reaped}, {"run_undeliverable"}, f"reaped={reaped}")
+
+        row = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id = ?", ("run_undeliverable",))
+        self.assertEqual(row["status"], "failed")
+        self.assertTrue((row["error_text"] or "").strip(), "an actionable error must be recorded")
+        event = self._fetchone(
+            "SELECT body FROM dispatch_events WHERE run_id = ? AND event_type = 'failed'",
+            ("run_undeliverable",),
+        )
+        self.assertIsNotNone(event, "a failed dispatch_event must be appended")
+        # A reply/handoff is mirrored back to the original sender.
+        mirror = self._fetchone(
+            "SELECT type FROM messages WHERE from_agent = ? AND to_agent = ?",
+            ("deaf-hermes", "sender-agent"),
+        )
+        self.assertIsNotNone(mirror, "an undeliverable queued run must mirror a reply to the sender")
+        # Status cache invalidated so the agent stops showing false `online`.
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("deaf-hermes",))
+        self.assertIsNone(live, "reaping must invalidate the target's live_state cache row")
+
+    def test_queued_run_with_live_claimer_not_reaped(self):
+        # GUARD: a queued run whose target has a LIVE channel-sidecar claimer is
+        # genuinely deliverable on the next poll — leave it alone even past the
+        # backstop window.
+        self._register("live-deaf-hermes", runtime="hermes", sessionMode="managed")
+        self._stamp_live_channel_sidecar("live-deaf-hermes", runtime="hermes")
+        self._seed_queued_run("run_live_queued", "live-deaf-hermes", from_agent="sender-agent", requested_minutes_ago=5)
+
+        reaped = self._run_reap_undeliverable_queued()
+        self.assertEqual(reaped, [], f"a queued run with a live claimer must not be reaped; got {reaped}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_live_queued",))
+        self.assertEqual(row["status"], "queued")
+
+    def test_recent_queued_run_not_reaped_within_backstop(self):
+        # GUARD: a queued run within the backstop window is not reaped even with no
+        # live claimer — a cold `available` agent may still lazy-autostart on claim.
+        self._register("cold-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_queued_run("run_recent_queued", "cold-hermes", from_agent="sender-agent", requested_minutes_ago=0.5)
+
+        reaped = self._run_reap_undeliverable_queued(backstop_seconds=180)
+        self.assertEqual(reaped, [], f"a recently-queued run must not be reaped; got {reaped}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_recent_queued",))
+        self.assertEqual(row["status"], "queued")
+
     def test_resident_register_does_not_stop_managed_pty_until_manual_switch(self):
         # Manual ownership rule: launching a *-aify wrapper records resident
         # bridge metadata, but it does not take over a managed agent or kill

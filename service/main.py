@@ -64,6 +64,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_reconcilable_delivered_runs,
         _prune_superseded_bridges,
         _prune_terminal_history,
+        _reap_undeliverable_queued_runs,
         _reconcile_managed_worker_hygiene,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _refresh_expired_agent_live_states,
@@ -107,6 +108,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # MUST run BEFORE _close_orphaned_managed_runs: that reaper would FAIL the
         # same claimed-never-delivered orphan (recovery is preferable to failure).
         requeued_orphaned_claims = await _requeue_orphaned_claimed_runs(db, limit=200)
+        # WS3 Task 3.2 (2026-06-02): backstop for `queued` runs no other reaper
+        # covers — a queued run whose target has NO live claimer past the backstop
+        # window would otherwise pile up to buffer_full. FAIL it + mirror to the
+        # sender. MUST run AFTER requeue (a requeued orphan becomes `queued` and a
+        # live bridge should get a chance to re-claim it first) and BEFORE
+        # _close_orphaned_managed_runs.
+        reaped_queued = await _reap_undeliverable_queued_runs(db, limit=200)
         closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
@@ -133,6 +141,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
+            "undeliverable_queued_runs_failed": len(reaped_queued),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
             "pruned_superseded_bridges": pruned_bridges,
