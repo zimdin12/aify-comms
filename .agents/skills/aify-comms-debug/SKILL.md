@@ -20,7 +20,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Hermes `mcp test` works, but the live turn has no `mcp_aify_comms_*` tools
 - Hermes fails immediately with `'NoneType' object is not iterable`
 - Agent shows `online` but the Console/worker is gone (`online` requires a live claimer)
-- Send to a managed agent fails fast (deaf target — no live claimer)
+- Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 - Restarting aify-comms kills all managed sessions (by design — clean slate)
 - Managed agent finished but its reply never landed (deferred-reply strand)
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
@@ -173,6 +173,29 @@ colliding agents now get distinct ports automatically. Takes effect when a
 hermes agent respawns (relaunch its `hermes-aify`). The old deterministic-pin
 workaround (manually pinning one agent to a free port) is no longer needed.
 
+## Managed hermes TUI shows, then drops with `gateway websocket connection failed`
+
+**Symptom.** A managed hermes agent's visible TUI launches and renders fine in the
+dashboard Console, but moments later (often after a transient hiccup) the TUI's
+WebSocket drops with `gateway websocket connection failed` and the console goes dead,
+even though no port collision is involved (distinct from the collision entry above).
+
+**Cause.** An old bridge build's **delivery loop port-killed the SHARED gateway
+host**. In the managed flow the wrapper's ensure-host spawns the gateway BEFORE the
+loop, so the loop REUSES it; but the loop's teardown had an `else if (gatewayPort)
+killByPort` branch that port-killed that gateway whenever the loop exited (e.g. a
+transient 410). Since the visible TUI shares the same gateway, killing it dropped the
+TUI's WebSocket.
+
+**Fix (2026-06-02, `774fb07`).** Pull and relaunch the agent's `hermes-aify`. The
+loop now kills the gateway **only if it spawned that host itself** (an owned child
+handle) and **never port-kills a reused/shared gateway**; it also no longer clears the
+gateway port/key markers (kill-prior needs the persisted port marker to reap the
+gateway on relaunch). The gateway's lifetime ties to the TUI/console — reaped by
+kill-prior on relaunch and the env-bridge survivor sweep on restart, not by a loop
+exit. A loop still on old code is the one to relaunch; verify the TUI's WebSocket now
+survives a loop restart.
+
 ## Hermes `mcp test` works, but live turn has no aify tools
 
 **Symptom.** Inside `hermes-aify`, `hermes mcp list` shows `aify-comms`
@@ -290,6 +313,15 @@ tree-killed when its console PTY closes, the channel-sidecar self-exits once its
 parent process is gone, and the env bridge reaps console rows whose local
 `process_id` is dead. After updating, restart the affected environment bridge or
 wrapper so a real worker can re-register and recreate the backing terminal.
+
+**Also (2026-06-02, `3ca464a`): a managed agent reads `offline` when its owning
+environment bridge is down**, regardless of any surviving delivery-loop heartbeat —
+a managed agent can only be hosted by its owning env bridge, so its effective status
+is gated on that bridge. The status path resolves the STORED owning environment
+(resolved id → `runtime_config.environmentId` → `machine_id`+runtime match), so even
+after the worker row is gone the gate still fires. So killing `aify-comms` makes its
+managed agents show `offline` immediately, not a stale `available`/`online`. Resident
+agents are excluded (their liveness is the resident bridge, not the env bridge).
 
 ## Status semantics: `working` vs `online · awaiting reply` (2026-05-31)
 
@@ -444,42 +476,40 @@ BACKSTOPS only. Relaunch `hermes-aify` to load it. The residual is the **residen
 the `pre_llm_call` turn-start hook plus the staleness backstop for cleanup — see
 KNOWN_ISSUES.md (#172). No action needed if delivery itself works.
 
-## Send to a managed agent fails fast (deaf target — no live claimer)
+## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 
-**Symptom.** `comms_send` to a managed claude/hermes agent returns immediately with
-`ok: false`, `recipientStatus: available`, and a fix like:
+**Symptom / question.** You send to a managed claude/hermes agent whose delivery
+loop is down or mid-restart. The send **does not fail fast** — it queues a dispatch
+run. If the worker never comes back, that run is later failed by the queued-run
+backstop reaper (`queued_run_backstop_seconds`, default ~180s) and the failure is
+mirrored to the sender.
 
-```
-Agent "<id>" has no live delivery-loop claimer (its lease was released or went
-stale), so a message would never be delivered. Restart its managed worker (respawn
-the delivery loop / console), then resend.
-```
+**Behavior (current — operator-reversed 2026-06-02, `a89a0d2`).** An earlier build
+**failed fast** ("no live delivery-loop claimer ... a message would never be
+delivered", and wrote no `dispatch_runs` row) when a managed agent's claimer lease
+was released/stale. That was **reversed**: in live use it lost messages to an agent
+that was merely mid-restart (lease released, then re-acquired moments later). A send
+to a managed agent now **always queues a run**. The **queued-run backstop reaper is
+the sole safety net** — it fails a queued run only after it has been genuinely
+undeliverable for the backstop window. Lazy-autostart-on-send still works; the lease
+helpers / deaf-detection are retained for status/deliverability reporting only, no
+longer as a send gate.
 
-No `dispatch_runs` row is written.
-
-**Cause (by design, 2026-06-02).** The target is a sidecar-delivery managed runtime
-(claude/hermes) that **recorded a claimer lease at some point but that lease is no
-longer live** (released on clean teardown, or went stale). That's a genuinely DEAF
-worker — the delivery loop/channel-sidecar that would claim the run is gone, so the
-old behavior queued the message against a claimer that never comes, piling up toward
-`buffer_full`. The send now fails fast and surfaces the reason to the sender instead.
-
-**Important — this is NOT cold-start blocking.** An `available` agent that has
-**never recorded a lease** is treated as cold-startable, not deaf, so
-lazy-autostart-on-send still works (the disambiguator is the explicit lease, not mere
-sidecar-row absence). Only a worker that *had* a claimer and lost it fails fast.
-
-**Fix.** Respawn the agent's managed worker (its delivery loop + console — relaunch
+**If you expected immediate delivery and it queued instead.** The target's delivery
+loop is not currently a live claimer. Respawn its managed worker (relaunch
 `hermes-aify`, or restart from dashboard **Sessions**), confirm it comes back
-`online`, then resend. If you expected it to be live, check why its loop exited
-(see the loop's stderr / dashboard Console).
+`online`, and the queued run delivers on the next claim. If it never recovers, the
+backstop reaper closes the run within its window and tells the sender. Check why the
+loop exited (its stderr / dashboard Console).
 
 ## Restarting aify-comms kills all managed sessions (by design — clean slate)
 
 **Symptom / question.** After restarting the `aify-comms` environment bridge, every
 managed agent's Console is gone and its worker processes (gateway hosts, delivery
-loops, daemons, PTYs) are no longer running. Agents read `offline`/`available` until
-re-spawned.
+loops, daemons, PTYs) are no longer running. Agents read `offline` immediately (a
+managed agent's status is gated on its owning env bridge as of `3ca464a`, so a down
+env bridge forces `offline` even if a detached loop is briefly still heartbeating)
+and stay so until re-spawned.
 
 **This is intended (2026-06-02).** Restarting `aify-comms` is a guaranteed **clean
 slate** for managed sessions, so a restart can never leave dead claimers holding busy
@@ -945,8 +975,9 @@ or closed the run.
   delivers it (recovered, not failed; runs BEFORE the orphaned-managed-run reaper).
   And a `queued` run whose target has **no live claimer** past the backstop window
   (~180s) is FAILED with an actionable error and mirrored back to the sender, so a
-  genuinely deaf target no longer piles up an indefinite queue (see "Send to a
-  managed agent fails fast (deaf target)").
+  genuinely deaf target no longer piles up an indefinite queue. Note (2026-06-02):
+  a send to such a target now QUEUES rather than failing fast — this backstop is the
+  sole net (see "Send to a managed agent with no live claimer").
 
 On a pre-fix build, rebuild the service; for an immediate unstick, restart the target
 wrapper (or `aify-comms`) so a live bridge re-claims.

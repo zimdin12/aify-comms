@@ -136,28 +136,37 @@ back to native Hermes controllers (`HermesController` /
 terminal output for operator visibility. That fallback does not provide the
 same live TUI symmetry as wrapper mode.
 
-### Loop health-gate (the wrapper refuses a deaf TUI)
+### Managed launch flow (no loop health-gate; the TUI launches directly)
 
-The delivery loop is the lifecycle owner of the managed-hermes triad: it
-registers its channel-sidecar liveness and becomes a live dispatch claimer
-BEFORE the visible TUI is shown. To enforce that, the `hermes-aify` wrapper
-spawns the delivery loop, then **health-gates on a loop-ready marker
-(`aify-hermes-loop-ready-<agent>` in `os.tmpdir()`) for up to 30s before
-exec'ing `hermes --tui`**. The loop only writes that marker once it has brought
-up the gateway host, started its heartbeat, and completed a first
-`/dispatch/claim` round-trip — i.e. it is genuinely a live claimer.
+The managed-hermes triad is the gateway host, the background delivery loop, and
+the visible TUI. The `hermes-aify` wrapper's managed flow is: **ensure the
+gateway host is up → spawn the background delivery loop (capture its PID, then
+kill-prior excluding that PID — the self-reap-race guard) → exec/Invoke the
+visible `hermes --tui` directly.** The wrapper does NOT block the TUI on the
+loop becoming a live claimer.
 
-If the marker never appears within the window (or the loop process dies), the
-wrapper **fails loud and does NOT start the TUI**:
+There is **no loop health-gate** (removed 2026-06-02). An earlier build inserted
+a "health-gate" between the loop spawn and the TUI launch that polled an
+`aify-hermes-loop-ready-<agent>` marker for up to 30s and could (a) fatal-exit
+and refuse to start the TUI, or (b) even when demoted to non-fatal, dump wrapper
+chatter into the dashboard PTY ahead of the TUI and stall the console for up to
+30s. Both turned a transient loop hiccup (agent not yet registered, service
+mid-restart, gateway warming up) into a dead or wrapper-spammed console, so the
+gate was removed entirely from both generated wrappers (`hermes-aify` and
+`hermes-aify.ps1`).
 
-```
-[hermes-aify] FATAL: hermes delivery loop for '<agent>' failed to become a live claimer within 30s; not starting TUI.
-[hermes-aify]   (marker <path> never appeared — the loop could not claim dispatch runs)
-```
+Nothing is lost by not gating: the loop keeps retrying the gateway and
+`/dispatch/claim` on its own in the background, and **deliverability is reflected
+server-side by the claimer-lease gate** — a managed-hermes agent reads `online`
+only when the loop has actually acquired its claimer lease, and a send while the
+loop is not yet a live claimer simply queues (the queued-run backstop reaper is
+the safety net). The visible TUI therefore launches clean and immediately, while
+status accurately reflects whether the loop is delivering.
 
-It then reaps the stuck loop and exits non-zero. This is the visible-TUI
-invariant in action: a TUI is never shown for an agent that cannot actually
-receive work, so a green Console always means a live claimer is behind it.
+The gateway host is **shared between the loop and the visible TUI**: the
+wrapper's ensure-host spawns it for the TUI, and the loop REUSES it. The loop
+never kills a reused/shared gateway — see "Restarting aify-comms is a clean
+slate" below for how the gateway's lifetime ties to the TUI/console.
 
 ### Restarting aify-comms is a clean slate
 
@@ -179,6 +188,24 @@ restarting `aify-comms` is a guaranteed clean slate for managed sessions — no
 orphaned gateway hosts, no zombie `hermes.exe` proliferation, even after a hard
 crash. Managed sessions are re-spawned fresh by the dashboard/spawn loop, not
 inherited.
+
+The shared gateway's lifetime ties to the TUI/console, NOT to the delivery loop.
+The loop kills the gateway host **only if it spawned that host itself** (an owned
+child handle); it **never port-kills a reused/shared gateway** and never clears
+the gateway port/key markers — those tie to the gateway and kill-prior needs the
+persisted port marker to reap it on relaunch. So the gateway a managed agent
+shares with its visible TUI is reaped by **kill-prior on relaunch** and the
+**env-bridge survivor sweep on restart** (above), not by a transient loop exit.
+This is what fixed the "gateway websocket connection failed" incident where a
+loop exit (e.g. a transient 410) port-killed the gateway out from under the live
+TUI and dropped the TUI's WebSocket.
+
+A managed agent whose **owning environment bridge is offline computes `offline`**
+immediately — regardless of any surviving delivery-loop heartbeat — because a
+managed agent can only be hosted by its owning env bridge. So killing
+`aify-comms` makes its managed agents show `offline` right away, not a stale
+`available`/`online`. (Resident agents are excluded: their liveness is the
+resident wrapper bridge, not the env bridge.)
 
 `hermes-aify` does NOT require the `--strict-mcp-config` + minimal-MCP
 isolation that `claude-aify` needs to work around the Claude Code stdio MCP
