@@ -314,12 +314,17 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # re-arm of turn_busy on derived status — only the bridge sets it and only an event
 # (or this backstop) clears it (anti-feedback-loop invariant).
 TURN_BUSY_STALE_SECONDS = 120
-# WS5 Task 5.2/5.3: the LONG wall-clock backstop for a DROPPED turn-END event. It
-# matches the host-side re-pulse hard cap (hermes-turn-repulse.js REPULSE_WINDOW_MS
-# = 15m) so the server and bridge agree on the single ceiling: a turn whose end
-# event never arrives stops showing `working` at ~15m, not 2m. Event-driven
-# turn-end (the normal path) clears turn_busy long before this.
-TURN_BUSY_BACKSTOP_SECONDS = 15 * 60
+# 2026-06-02 REVERTED from 15*60 back to 120s (== TURN_BUSY_STALE_SECONDS). The
+# 15-min status backstop (WS5 Task 5.3) assumed the turn-END event is RELIABLE so
+# the backstop "rarely fires" — but in live use the resident/managed claude
+# turn-end (Stop hook) and rr=0 channel deliveries do NOT reliably clear turn_busy,
+# so the 15-min window BECAME the effective status window: IDLE agents showed
+# `working` for 15 min and new sends queued behind that phantom-busy, deadlocking
+# the team. Status now self-heals at the same 120s as the claim-gate. The
+# event-driven turn-end still clears instantly when it fires; this is only the
+# dropped-event backstop. (A real >120s turn with no re-pulse can briefly read
+# online — far less harmful than a 15-min false-working deadlock.)
+TURN_BUSY_BACKSTOP_SECONDS = TURN_BUSY_STALE_SECONDS
 # Runtimes with native managed adapters. Codex/Hermes may be promoted to the
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy
