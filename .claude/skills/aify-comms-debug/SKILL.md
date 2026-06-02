@@ -342,7 +342,8 @@ instantly. A delivered+`require_reply` run whose turn has ENDED (agent idle, owe
 the reply) is `online` with an "Idle — awaiting reply" reason, NOT `working` — this
 fixed the old "blink working while idle". Per-runtime turn signals: claude
 `UserPromptSubmit`→`/turn-start` (START) + `Stop`→`/turn-end` (fast-path END), with a
-bridge **transcript turn-END detector** as the hook-independent backstop; codex hooks
+bridge **BIDIRECTIONAL transcript turn-state detector** as the hook-independent backstop
+(it both SETs working on an in-flight tail and CLEARs on an ended tail); codex hooks
 + app-server `turn/completed`; hermes `pre_llm_call`/managed delivery-loop idle event;
 pi `agent_end`.
 
@@ -354,15 +355,23 @@ defeat that event. So claude turn hooks are `UserPromptSubmit` (start) + `Stop` 
 ONLY; the installer also removes any leftover `PostToolUse` `/turn-start` hook. Rerun
 `install.sh --client claude` + restart the session to pick this up. A long
 tool-using or generation turn stays `working` simply because `turn_busy` stays set
-until the end-event. The bridge's transcript turn-END detector (`turn-end-detector.js`
+until the end-event. The bridge's **BIDIRECTIONAL** transcript detector (`turn-end-detector.js`
 + `claude-turn-end-detector.js`, reading `adapters/claude.js` `transcriptTail` →
-`{lastRole, lastStopReason, pendingToolUse}`) covers a missed `Stop` hook: it fires
-`/turn-end` only when the last assistant message yielded to the user (terminal
-`stop_reason` ∈ {`end_turn`, `stop_sequence`, `max_tokens`}, no pending `tool_use`); a
-long blocking tool call or a Task sub-agent dispatch shows a pending `tool_use` (or a
-static parent transcript — sub-agents write a separate `subagents/*.jsonl`) and
-correctly STAYS `working` (the earlier growth-based detector false-cleared on those —
-fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
+`{lastRole, lastStopReason, pendingToolUse}`; runs for resident AND managed claude, gated
+on `AIFY_AGENT_ID` + the `claude-code` adapter + `transcriptTail`) now drives `turn_busy`
+in BOTH directions, edge-triggered + idempotent, keyed ONLY on transcript process truth
+(anti-feedback-loop): an IN-FLIGHT tail (trailing assistant `stop_reason == 'tool_use'` /
+pending `tool_use`, a trailing user/tool_result, or no terminal `stop_reason`) → `/turn-start`
+(SET working), and an ENDED tail (terminal `stop_reason` ∈ {`end_turn`, `stop_sequence`,
+`max_tokens`}, no pending `tool_use`) → `/turn-end` (CLEAR); a null/unreadable tail → no
+change. This both covers a missed `Stop` hook AND fixes the **resident under-report** — a
+channel-woken or scheduled-task turn never fires `UserPromptSubmit`, so before `1d2cff9`
+resident non-typed turns showed idle-while-working; the bidirectional detector is the robust
+replacement for the removed `PostToolUse` re-pulse across ALL turn types (typed, channel,
+scheduled), at ≤ ~30s latency. A long blocking tool call or a Task sub-agent dispatch shows
+a pending `tool_use` (or a static parent transcript — sub-agents write a separate
+`subagents/*.jsonl`) and correctly STAYS `working` (the earlier growth-based detector
+false-cleared on those — fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
 self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`); the claim-gate
 keeps the 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send isn't stranded. Resident
 hermes has no upstream turn-end event and relies on the 30-min ceiling
@@ -523,7 +532,7 @@ gateway. The long in-flight re-pulse (`mcp/stdio/hermes-turn-repulse.js`) and th
 `turn_busy` staleness window are now BACKSTOPS only (the 30-min
 `TURN_BUSY_BACKSTOP_SECONDS` ceiling). Relaunch `hermes-aify` to load it. The residual
 is the **resident** (operator-launched, no managed delivery loop) hermes turn: Hermes
-has no upstream turn-END hook and the bridge's transcript turn-END detector keys on
+has no upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys on
 the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
 off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action
 needed if delivery itself works.
