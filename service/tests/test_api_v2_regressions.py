@@ -2547,6 +2547,57 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(cache_fresh["status"], "working", f"within shared window → working; {cache_fresh}")
         self.assertTrue(self._turn_busy_gate_for("tb-split-claude"), "within shared window → gate closed")
 
+    def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
+        # pure-event-status change #2: a DEAD resident worker stuck with
+        # turn_busy=1 must derive `stale`/offline from its stale bridge lease —
+        # NOT `working`. Before the fix the stale branch was guarded with
+        # `and not turn_busy`, so a stale resident with turn_busy=1 SKIPPED stale
+        # and fell into `elif turn_busy -> working`, i.e. working-forever once the
+        # short status window was gone. Liveness (the 150s resident lease) must
+        # win over turn_busy: a stale bridge is a dead worker regardless of any
+        # lingering turn_busy=1.
+        self._heartbeat_environment()
+        self._register(
+            "stale-resident-busy",
+            runtime="claude-code",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="claude-session-stale-busy",
+            bridgeId="bridge-stale-busy",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+            # resident claude only keeps the `resident-run` cap (the
+            # resident_bridge_stale gate) when channel-enabled — and a
+            # channel-enabled resident is exactly the one that can be stuck
+            # mid-turn with a lingering turn_busy=1 after its bridge dies.
+            runtimeConfig={"channelEnabled": True},
+        )
+        # Age the resident bridge past the 150s lease -> stale (dead worker).
+        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            "UPDATE bridge_instances SET last_seen=? WHERE id=?",
+            (stale_at, "bridge-stale-busy"),
+        )
+        # Fresh turn_busy=1 (a missed turn-end left it set on a now-dead worker).
+        now = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
+            """,
+            ("stale-resident-busy", "run-stale-busy", "bridge-stale-busy", "claude-code", now),
+        )
+        cache = self._async_compute_live_status("stale-resident-busy")
+        self.assertIn(
+            cache["status"], {"stale", "offline"},
+            f"stale resident bridge + turn_busy=1 must be stale/offline (dead worker), not working; {cache}",
+        )
+        self.assertNotEqual(
+            cache["status"], "working",
+            f"a dead resident must never read working off a lingering turn_busy; {cache}",
+        )
+
     def test_turn_end_event_flips_managed_hermes_off_working_immediately(self):
         # WS5 Task 5.2 — Bug A (false-working): a managed hermes that finished its
         # turn must flip OFF `working` the instant a real turn-END event arrives,

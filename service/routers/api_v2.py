@@ -3687,12 +3687,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     ):
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
-    elif resident_bridge_stale and not active_run and not turn_busy:
+    elif resident_bridge_stale and not active_run:
         # A stale resident bridge means a DEAD worker → `stale`, even when the
         # agent owes a channel reply. (Previously `and not channel_pending_reply_run`
         # suppressed this so the channel-pending branch could manufacture `online`
         # for a dead agent — the FIX-3 bug. The channel-pending branch now refuses
         # to upgrade a dead worker, so this stale derivation is the correct landing.)
+        #
+        # pure-event-status change #2 (2026-06-02): liveness wins over turn_busy.
+        # The `and not turn_busy` guard was REMOVED here. With STATUS now pure-event
+        # (the short status window is gone — change #3), a DEAD resident stuck with a
+        # lingering turn_busy=1 (a missed turn-end on a now-dead worker) would have
+        # SKIPPED this stale branch and fallen into `elif turn_busy → working`, i.e.
+        # working-forever. The resident bridge lease (150s, _resident_bridge_is_fresh)
+        # is the liveness signal: a stale bridge is a dead worker regardless of any
+        # turn_busy=1, so it must derive stale BEFORE the turn_busy branch is reached.
         effective_status = "stale"
         reason = "Resident bridge heartbeat is stale or missing."
     # A console terminal reaching an end state returns ownership to managed (the
