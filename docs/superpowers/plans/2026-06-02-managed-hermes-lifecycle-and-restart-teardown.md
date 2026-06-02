@@ -183,14 +183,9 @@ test("enumerate excludes resident sessions and other-env agents", () => {
 - [ ] **Step 3: Implement** `_reap_undeliverable_queued_runs(db)` selecting `status='queued'` past `queued_run_backstop_seconds` (new setting, default e.g. 180) whose target is not deliverable; mark failed, emit event, mirror to sender. Wire into `_run_dispatch_reconcile_once` (after requeue, before close-orphaned).
 - [ ] **Step 4: Run green.** **Step 5: Commit.**
 
-### Task 3.3: Fail-fast on send to a deaf target
+### Task 3.3: Fail-fast on send to a deaf target — **MOVED to WS5 (after Task 5.1)**
 
-**Files:** `service/routers/api_v2.py` (send/dispatch path that creates `queued` runs ~:6610; deliverability check). Test same.
-
-- [ ] **Step 1: Failing test** — `comms_send`(trigger) to a managed agent that is registered+online-by-presence but has NO live claimer returns `ok:false` with a not-delivered reason and writes NO new queued run.
-- [ ] **Step 2: Run red.**
-- [ ] **Step 3: Implement** — before enqueuing to a managed target, check deliverability (live claimer) using the same predicate as Task 3.1; if not deliverable, return the fail-fast not-sent result (mirror the existing resident-stale fail-fast shape) instead of creating a queued run.
-- [ ] **Step 4: Run green.** **Step 5: Commit.**
+RESEQUENCED 2026-06-02: at send time a live-console/no-claimer managed agent is indistinguishable from a healthy wrapper-backed claimer that simply hasn't polled yet (claimers register lazily on first `/dispatch/claim`). Failing fast on channel-sidecar-row-absence breaks the normal lazy-claim delivery contract (7 `test_dispatch_channel_claim.py` tests). The disambiguator is the WS5 Task 5.1 **explicit claimer lease** (a positive "loop is a live claimer" signal). So 3.3 now runs as **Task 5.1b**: gate fail-fast on lease-absence, not sidecar-row-absence. The WS3.2 queued-run backstop already covers the in-flight stranded case after the 180s window (where the lazy-claim ambiguity has resolved).
 
 ### Task 3.4: Reaper covers the hermes triad failure
 
