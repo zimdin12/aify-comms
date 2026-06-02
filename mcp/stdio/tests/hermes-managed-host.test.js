@@ -1125,6 +1125,101 @@ test("makeInFlightProbe: run-status fetch error → treated as non-terminal, kee
   assert.equal(inFlight.completed, false);
 });
 
+// ---------------------------------------------------------------------------
+// WS5 Task 5.2 — event-driven turn-END via the gateway session status.
+// The probe observes session.active_list `status` (the gateway's own
+// session["running"] truth). When it reads "idle" AFTER having seen "working"
+// (a real turn boundary), it latches completion AND fires the authoritative
+// /turn-end (clearTurnImpl) so turn_busy clears IMMEDIATELY — no 120s wait.
+// ---------------------------------------------------------------------------
+
+test("makeInFlightProbe: gateway idle after working → latches + fires /turn-end immediately (Bug A)", async () => {
+  // turn-END signal: the gateway reports the aify-<agent> session 'working' on the
+  // first probe (mid-turn), then 'idle' (turn ended). On idle the probe must stop
+  // the beat AND clear turn_busy authoritatively (the 120s stale window is now a
+  // backstop, not the primary transition).
+  const inFlight = { submittedAt: Date.now() - 60 * 1000, completed: false, runId: "run-1" };
+  const statuses = ["working", "idle"];
+  let i = 0;
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => statuses[Math.min(i++, statuses.length - 1)],
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), true, "first tick: gateway 'working' → keep re-pulsing (mid-turn)");
+  assert.equal(cleared, 0, "no turn-end while working");
+  assert.equal(await probe(), false, "second tick: gateway 'idle' → turn ended, stop the beat");
+  assert.equal(inFlight.completed, true, "idle latches completion");
+  assert.equal(cleared, 1, "idle fires the authoritative /turn-end exactly once");
+  // Latched: a third call short-circuits and does NOT clear again.
+  assert.equal(await probe(), false);
+  assert.equal(cleared, 1, "turn-end fires once, not on every subsequent tick");
+});
+
+test("makeInFlightProbe: a transient 'idle' BEFORE any 'working' does NOT end the turn (submit race guard)", async () => {
+  // prompt.submit returns {streaming} immediately; the gateway flips running=True
+  // in a worker thread a beat later. A probe that catches the session momentarily
+  // 'idle' BEFORE the turn thread starts must NOT treat it as turn-end (that would
+  // under-show working — the #172 trap). Only idle-AFTER-working is a real end.
+  const inFlight = { submittedAt: Date.now() - 1000, completed: false, runId: "run-1" };
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => "idle", // never observed working yet
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), true, "idle before any working → assume turn not started yet → keep re-pulsing");
+  assert.equal(inFlight.completed, false, "no premature completion");
+  assert.equal(cleared, 0, "no premature /turn-end");
+});
+
+test("makeInFlightProbe: gateway status read error → no false turn-end (falls back to run-status path)", async () => {
+  // A gateway hiccup must NOT clear turn_busy. The probe falls through to the
+  // existing run-status latch (still in-flight here) and keeps re-pulsing.
+  const inFlight = { submittedAt: Date.now() - 60 * 1000, completed: false, runId: "run-1" };
+  let cleared = 0;
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "delivered", requireReply: true } }),
+    readGatewayStatus: async () => {
+      throw new Error("gateway WS hiccup");
+    },
+    clearTurnImpl: async () => {
+      cleared++;
+    },
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), true, "gateway read failure → not idle → keep re-pulsing");
+  assert.equal(inFlight.completed, false);
+  assert.equal(cleared, 0, "no /turn-end on a gateway read failure");
+});
+
+test("makeInFlightProbe: backward-compatible — no readGatewayStatus uses the run-status latch only", async () => {
+  // The gateway-status reader is optional; without it the probe behaves exactly as
+  // before (run-status terminal latch), so existing callers/tests are unaffected.
+  const inFlight = { submittedAt: Date.now() - 1000, completed: false, runId: "run-1" };
+  const probe = makeInFlightProbe({
+    inFlight,
+    serverUrl: "http://x",
+    httpCall: async () => ({ run: { status: "completed" } }),
+    maxWindowMs: WIN,
+  });
+  assert.equal(await probe(), false, "run-status terminal latch still works with no gateway reader");
+  assert.equal(inFlight.completed, true);
+});
+
 test("makeInFlightProbe: no serverUrl → false (never beats offline)", async () => {
   const inFlight = { submittedAt: Date.now(), completed: false, runId: "run-1" };
   const probe = makeInFlightProbe({ inFlight, serverUrl: "", httpCall: async () => ({}), maxWindowMs: WIN });

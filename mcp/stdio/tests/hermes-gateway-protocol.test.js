@@ -9,6 +9,8 @@ import {
   buildSessionInterruptFrame,
   buildSessionActiveListFrame,
   pickSessionForKey,
+  pickSessionStatusForKey,
+  isGatewaySessionIdle,
   translateGatewayEvent,
   isSessionBusyError,
 } from "../hermes-gateway-protocol.js";
@@ -107,6 +109,60 @@ test("pickSessionForKey: returns null for empty/unknown response shapes", () => 
   assert.equal(pickSessionForKey({ result: { sessions: [] } }, "aify-x"), null);
   assert.equal(pickSessionForKey(null, "aify-x"), null);
   assert.equal(pickSessionForKey({}, "aify-x"), null);
+});
+
+// ---------------------------------------------------------------------------
+// pickSessionStatusForKey + isGatewaySessionIdle — WS5 Task 5.2 turn-END signal.
+// The gateway tracks session["running"] (True during a turn) and surfaces it as
+// each session.active_list row's `status` (_session_live_status: running→"working",
+// else "idle"; "starting"/"waiting" transitional). The managed-host turn-END
+// signal observes this: status reads "idle" after a turn was submitted → the turn
+// ended → POST /turn-end. This is the gateway's OWN process state, NOT the aify
+// server's derived status (anti-feedback-loop safe).
+// ---------------------------------------------------------------------------
+
+test("pickSessionStatusForKey: returns the matched row's status by session_key", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "ab12", session_key: "aify-sc-hermes", status: "working" },
+        { id: "cd34", session_key: "aify-other", status: "idle" },
+      ],
+    },
+  };
+  assert.equal(pickSessionStatusForKey(resp, "aify-sc-hermes"), "working");
+});
+
+test("pickSessionStatusForKey: matches by title when no session_key match", () => {
+  const resp = {
+    result: { sessions: [{ id: "ab12", title: "aify-sc-hermes", status: "idle" }] },
+  };
+  assert.equal(pickSessionStatusForKey(resp, "aify-sc-hermes"), "idle");
+});
+
+test("pickSessionStatusForKey: returns '' when the key is not present", () => {
+  const resp = { result: { sessions: [{ id: "ab12", session_key: "aify-other", status: "working" }] } };
+  assert.equal(pickSessionStatusForKey(resp, "aify-sc-hermes"), "");
+});
+
+test("pickSessionStatusForKey: returns '' for empty/unknown response shapes", () => {
+  assert.equal(pickSessionStatusForKey({ result: { sessions: [] } }, "aify-x"), "");
+  assert.equal(pickSessionStatusForKey(null, "aify-x"), "");
+  assert.equal(pickSessionStatusForKey({}, "aify-x"), "");
+});
+
+test("isGatewaySessionIdle: true ONLY for the terminal idle status", () => {
+  assert.equal(isGatewaySessionIdle("idle"), true);
+  assert.equal(isGatewaySessionIdle("IDLE"), true);
+});
+
+test("isGatewaySessionIdle: false for working/transitional/unknown (never end a live turn early)", () => {
+  // working = mid-turn; starting/waiting = transitional (agent building / pending
+  // approval) — NOT idle. An unknown/empty status must NOT be read as idle, or a
+  // gateway hiccup would falsely end a live turn (the #172 under-show-working trap).
+  for (const s of ["working", "starting", "waiting", "ready", "", undefined, null]) {
+    assert.equal(isGatewaySessionIdle(s), false, `status ${JSON.stringify(s)} must not be idle`);
+  }
 });
 
 test("translateGatewayEvent maps agent.message.delta to a delta event", () => {

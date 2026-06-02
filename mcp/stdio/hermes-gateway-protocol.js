@@ -179,6 +179,67 @@ export function pickSessionForKey(activeListResponse, key) {
   return best;
 }
 
+// WS5 Task 5.2 (event-driven turn-END): read the matched session's live
+// `status` from a session.active_list response. The gateway tracks
+// session["running"] (True for the whole duration of an agent turn) and surfaces
+// it per row as `status` (tui_gateway/server.py _session_live_status:
+// running→"working", agent-not-ready→"starting", pending→"waiting", else→"idle").
+// This is the gateway's OWN process truth about its turn — the host-observable
+// turn-boundary signal the managed-host loop uses to clear turn_busy the moment a
+// turn ends, instead of waiting out the server's stale window. Match precedence
+// mirrors pickSessionForKey (session_key, then title). Returns the status string,
+// or "" when the key is absent / shape unknown (treated as NOT idle by callers).
+export function pickSessionStatusForKey(activeListResponse, key) {
+  const wanted = String(key || "").trim();
+  if (!wanted) return "";
+  const rows = Array.isArray(activeListResponse)
+    ? activeListResponse
+    : Array.isArray(activeListResponse?.result?.sessions)
+    ? activeListResponse.result.sessions
+    : Array.isArray(activeListResponse?.sessions)
+    ? activeListResponse.sessions
+    : Array.isArray(activeListResponse?.result)
+    ? activeListResponse.result
+    : [];
+  if (!rows.length) return "";
+  const statusOf = (r) => String(r?.status || "").trim();
+  // 1. exact session_key match
+  for (const r of rows) {
+    if (String(r?.session_key || r?.sessionKey || "").trim() === wanted) {
+      return statusOf(r);
+    }
+  }
+  // 2. title match (the TUI titles itself with the resume key)
+  for (const r of rows) {
+    const title = String(r?.title || r?.name || "").trim();
+    if (title && (title === wanted || title.includes(wanted))) {
+      return statusOf(r);
+    }
+  }
+  return "";
+}
+
+// WS5 Task 5.2: is the gateway session status the TERMINAL idle state (the turn
+// ended)? Deliberately TRUE for ONLY "idle". "working" is mid-turn; "starting"
+// (agent building) and "waiting" (pending approval/notice) are TRANSITIONAL — not
+// idle. An unknown/empty status is NOT idle: a gateway hiccup or shape we don't
+// recognize must never be read as "turn ended", or a live long turn would
+// under-show `working` (the #172 regression). Clearing turn_busy on a real idle
+// signal is safe (it only CLEARS, never sets working off the aify server's
+// derived status — the anti-feedback-loop invariant).
+export function isGatewaySessionIdle(status) {
+  return String(status || "").trim().toLowerCase() === "idle";
+}
+
+// WS5 Task 5.2: is the gateway session actively running a turn? TRUE only for the
+// "working" status (session["running"] is True). Used by the managed-host probe to
+// arm the submit-race guard — idle is only read as turn-END after `working` has
+// been observed at least once, so a momentary post-submit idle (before the turn
+// thread flips running=True) cannot end the turn early.
+export function isGatewaySessionWorking(status) {
+  return String(status || "").trim().toLowerCase() === "working";
+}
+
 // Translates an inbound gateway event into a normalized shape the
 // controller can consume. Returns null for events the bridge doesn't
 // care about (e.g. gateway.ready handshake, UI metadata).

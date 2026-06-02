@@ -51,6 +51,9 @@ import {
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
   pickSessionForKey,
+  pickSessionStatusForKey,
+  isGatewaySessionIdle,
+  isGatewaySessionWorking,
   isSessionBusyError,
 } from "./hermes-gateway-protocol.js";
 
@@ -833,6 +836,11 @@ export async function deliverRun({
       // run's status and detect the true turn-end (terminal status) — see
       // runDeliveryLoop's isInFlight probe. (#3)
       inFlight.runId = String(run?.id || "");
+      // WS5 Task 5.2: re-arm the gateway idle-after-working guard for THIS turn.
+      // The probe only reads `idle` as turn-END once it has observed `working`,
+      // so a fresh submit must reset the flag (a stale true from a prior turn
+      // could otherwise end the new turn on a momentary post-submit idle).
+      inFlight.observedWorking = false;
     }
   } catch (error) {
     // Gateway connect-refused (dead ephemeral port): fail the run with an
@@ -883,12 +891,32 @@ export async function deliverRun({
 // is time-driven via setInterval). `serverUrl`, `httpCall`, and `maxWindowMs`
 // are injected; `fetchStatus` defaults to the live run reader and returns
 // `{ status, requireReply }`.
+// WS5 Task 5.2 (event-driven turn-END): in addition to the run-status latch, the
+// probe can observe the GATEWAY's own session status (session.active_list →
+// `status`, i.e. session["running"]) — the host-observable turn boundary. When the
+// gateway reports the agent's `aify-<agent>` session has gone `idle` AFTER it was
+// seen `working` (a real turn end), the probe latches completion AND fires the
+// authoritative /turn-end (`clearTurnImpl`) so turn_busy clears IMMEDIATELY — the
+// 120s TURN_BUSY_STALE_SECONDS window becomes a pure backstop for a DROPPED idle
+// observation, not the primary transition (fixes Bug A: finished-but-stuck-working).
+//
+// SAFETY (anti-feedback-loop, mirrors decideRepulse): this keys on the GATEWAY's
+// process truth (session["running"]), NEVER on the aify server's DERIVED status,
+// and only ever CLEARS turn_busy (never re-arms it). The idle→end transition is
+// gated on having first observed `working` (inFlight.observedWorking) so a
+// momentary post-submit idle (before the turn thread flips running=True) cannot
+// end the turn early (#172 under-show-working guard). A gateway read error is
+// treated as NOT idle (best-effort: keep re-pulsing, fall through to run-status).
+// `readGatewayStatus` and `clearTurnImpl` are optional: omitted → the original
+// run-status-only behaviour, so existing callers are unaffected.
 export function makeInFlightProbe({
   inFlight,
   serverUrl,
   httpCall,
   maxWindowMs = REPULSE_WINDOW_MS,
   fetchStatus = (runId) => fetchRunStatus(httpCall, runId),
+  readGatewayStatus = null,
+  clearTurnImpl = null,
 } = {}) {
   return async function isInFlight() {
     if (!serverUrl || !inFlight) return false;
@@ -901,7 +929,31 @@ export function makeInFlightProbe({
     ) {
       return false;
     }
-    // Window open + not yet flagged completed → check for the real turn-end.
+    // Primary turn-END: observe the gateway's own session["running"] state.
+    if (typeof readGatewayStatus === "function") {
+      let gwStatus = "";
+      try {
+        gwStatus = String((await readGatewayStatus()) || "");
+      } catch {
+        gwStatus = ""; // gateway hiccup → treat as not-idle; fall through.
+      }
+      if (isGatewaySessionWorking(gwStatus)) {
+        inFlight.observedWorking = true;
+      }
+      // idle is the turn-end ONLY after we've seen working (submit-race guard).
+      if (inFlight.observedWorking && isGatewaySessionIdle(gwStatus)) {
+        inFlight.completed = true; // latch: gateway says the turn ended.
+        inFlight.runId = "";
+        inFlight.observedWorking = false;
+        if (typeof clearTurnImpl === "function") {
+          // Authoritative /turn-end: clear turn_busy NOW, not on the 120s window.
+          await clearTurnImpl();
+        }
+        return false;
+      }
+    }
+    // Backstop turn-END: the in-flight run reaching a terminal status (the agent
+    // self-replied, or the run failed/cancelled/stopped) — covers a dropped idle.
     const { status, requireReply } = await fetchStatus(inFlight.runId);
     if (shouldLatchComplete({ status, requireReply })) {
       inFlight.completed = true; // latch: observed turn-end → stop the beat.
@@ -1388,7 +1440,23 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // TURN_BUSY_STALE_SECONDS keeps showing `working`. Anchored on the
   // bridge-owned submit timestamp + hard window cap — NEVER the server's
   // derived status (anti-feedback-loop; mirrors claude decideRepulse).
-  const inFlight = { submittedAt: 0, completed: false, runId: "" };
+  const inFlight = { submittedAt: 0, completed: false, runId: "", observedWorking: false };
+  // WS5 Task 5.2 (event-driven turn-END): read the gateway's OWN session status
+  // (session.active_list → `status`, i.e. session["running"]) for this agent's
+  // `aify-<agent>` session. This is the host-observable turn boundary the re-pulse
+  // probe uses to clear turn_busy the instant a turn ends — demoting the 120s
+  // server window to a backstop. Uses the CURRENT wsClient (re-created each tick);
+  // best-effort: a missing WS / RPC error returns "" (read as not-idle, so the
+  // turn is never ended early on a transient gateway hiccup).
+  const managedSessionKey = sessionKeyFor(id);
+  let statusRpcId = 700000;
+  const readManagedSessionStatus = async () => {
+    if (!wsClient) return "";
+    const listResp = await wsClient.request(
+      buildSessionActiveListFrame({ id: statusRpcId++, currentSessionId: "" }),
+    );
+    return pickSessionStatusForKey(listResp, managedSessionKey);
+  };
   const stopRepulse = startInFlightRepulse({
     intervalMs: REPULSE_MS,
     isInFlight: makeInFlightProbe({
@@ -1396,6 +1464,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       serverUrl,
       httpCall,
       maxWindowMs: REPULSE_WINDOW_MS,
+      // The gateway turn-END observer + the authoritative clear. clearTurn POSTs
+      // /turn-end (turn_busy=0) — only ever CLEARS, keyed on the gateway's process
+      // truth, never the aify server's derived status (anti-feedback-loop safe).
+      readGatewayStatus: readManagedSessionStatus,
+      clearTurnImpl: () => clearTurn(httpCall, id).catch(() => {}),
     }),
     // Thread the in-flight runId so the server heartbeat handler keeps
     // turn_run_id pointing at the open run (it OVERWRITES turn_run_id from the
