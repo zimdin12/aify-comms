@@ -163,6 +163,22 @@ copy_claude_assets() {
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
 }
 
+copy_hermes_assets() {
+  # Install the aify-comms usage + debug skills into the Hermes skills tree so
+  # `/aify` surfaces them (parity with claude/codex — previously hermes got NO
+  # skills from install.sh, only the MCP server/plugin). Hermes discovers skills
+  # under <hermes-home>/skills/<category>/<skill>/SKILL.md; we use the
+  # autonomous-ai-agents category (where the hermes-native aify-comms-teamwork
+  # skill also lives) and only replace our own two dirs — never touch others.
+  local hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+  local cat_dir="$hermes_home/skills/autonomous-ai-agents"
+  mkdir -p "$cat_dir"
+  rm -rf "$cat_dir/aify-comms" "$cat_dir/aify-comms-debug"
+  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$cat_dir/aify-comms"
+  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms-debug" "$cat_dir/aify-comms-debug"
+  echo "  Installed aify-comms + aify-comms-debug skills to $cat_dir"
+}
+
 install_claude_wrapper() {
   local wrapper_dir="$HOME/.local/bin"
   local wrapper_path="$wrapper_dir/claude-aify"
@@ -3307,6 +3323,8 @@ if [ "$CLIENT" = "claude" ]; then
   copy_claude_assets
 elif [ "$CLIENT" = "codex" ]; then
   copy_codex_assets
+elif [ "$CLIENT" = "hermes" ]; then
+  copy_hermes_assets
 fi
 echo "  Done."
 
