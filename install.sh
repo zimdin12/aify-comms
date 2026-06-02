@@ -1420,7 +1420,11 @@ aify_hermes_kill_prior() {
     fi
     # Best-effort: reap any orphaned gateway host left listening on this agent's
     # dashboard/api port (a prior SIGKILL bypasses the loop's teardown handler).
-    if command -v lsof >/dev/null 2>&1; then
+    # GATED to the PRE-spawn call ONLY (exclude_pid empty). The POST-spawn call
+    # runs AFTER ensure-host started the CURRENT gateway on this port, so port-
+    # killing here would kill the live gateway the TUI is about to attach to —
+    # the 2026-06-02 "gateway websocket connection failed" root cause.
+    if [ -z "\$exclude_pid" ] && command -v lsof >/dev/null 2>&1; then
       local host_port
       host_port="\$(node -e 'import("'"\$AIFY_HERMES_STDIO_DIR"'/hermes-endpoint.js").then(m=>process.stdout.write(String(m.agentPort(process.argv[1]))))' "\$agent_id" 2>/dev/null || true)"
       if [ -n "\$host_port" ]; then
@@ -1428,11 +1432,12 @@ aify_hermes_kill_prior() {
       fi
     fi
   fi
-  # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
-  # (SIGKILL — untrappable, so the sidecar's teardown handler never ran) can
-  # leave an orphan \`hermes gateway run\` bound to the agent's api_server port.
-  # stopDaemon resolves that port and kills the listener (best-effort, exits 0).
-  node "\$AIFY_HERMES_DAEMON_CLI" stop "\$agent_id" >/dev/null 2>&1 || true
+  # Also reap the prior per-agent DAEMON for this agentId — PRE-spawn call only
+  # (exclude_pid empty), so the post-spawn call never kills the daemon/gateway the
+  # current launch just brought up.
+  if [ -z "\$exclude_pid" ]; then
+    node "\$AIFY_HERMES_DAEMON_CLI" stop "\$agent_id" >/dev/null 2>&1 || true
+  fi
 }
 
 # MANAGED launch (visible-TUI model, Plan 2026-05-31): \`--aify-agent\` present
@@ -1783,19 +1788,22 @@ function Invoke-AifyHermesKillPrior {
       ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
   } catch {}
   # Best-effort: reap any orphaned gateway host left listening on this agent's
-  # dashboard/api port (a prior force-kill bypasses the loop's teardown handler).
-  try {
-    \$hostPort = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(String(m.agentPort(process.argv[2]))))' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$AgentId 2>\$null
-    if (\$hostPort) {
-      Get-NetTCPConnection -State Listen -LocalPort ([int]\$hostPort) -ErrorAction SilentlyContinue |
-        ForEach-Object { try { Stop-Process -Id \$_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }
-    }
-  } catch {}
-  # Also reap the prior per-agent DAEMON for this agentId. A prior hard-kill
-  # (the sidecar's SIGTERM/SIGINT teardown can be bypassed by a force-kill) can
-  # leave an orphan 'hermes gateway run' bound to the agent's api_server port.
-  # stopDaemon resolves that port and kills the listener (best-effort, exits 0).
-  try { & node \$AifyHermesDaemonCli stop \$AgentId 2>\$null | Out-Null } catch {}
+  # dashboard/api port. GATED to the PRE-spawn call ONLY (\$ExcludeLoopPid -le 0):
+  # the POST-spawn call runs AFTER ensure-host started the CURRENT gateway on this
+  # port, so port-killing here would kill the live gateway the TUI is about to
+  # attach to — the 2026-06-02 "gateway websocket connection failed" root cause.
+  if (\$ExcludeLoopPid -le 0) {
+    try {
+      \$hostPort = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(String(m.agentPort(process.argv[2]))))' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$AgentId 2>\$null
+      if (\$hostPort) {
+        Get-NetTCPConnection -State Listen -LocalPort ([int]\$hostPort) -ErrorAction SilentlyContinue |
+          ForEach-Object { try { Stop-Process -Id \$_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }
+      }
+    } catch {}
+    # Also reap the prior per-agent DAEMON for this agentId (pre-spawn only, so the
+    # post-spawn call never kills the daemon/gateway the current launch brought up).
+    try { & node \$AifyHermesDaemonCli stop \$AgentId 2>\$null | Out-Null } catch {}
+  }
 }
 
 \$script:HermesRuntimeExitCode = 0
