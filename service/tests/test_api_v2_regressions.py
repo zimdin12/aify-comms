@@ -2142,6 +2142,111 @@ class ApiV2RegressionTests(unittest.TestCase):
 
     # --- B2: status rule refinement (status-F1) + orphan-worker detection ---
 
+    def _seed_managed_hermes_with_attached_terminal(self, agent_id: str, terminal_id: str):
+        """WS3 helper: seed a MANAGED hermes agent whose runtime_state points at
+        an `attached` (non-vterm) console PTY terminal_sessions row — the exact
+        shape that, pre-WS3, manufactured `online` from console presence ALONE
+        (no live channel sidecar = no live claimer). Mirrors the claude helper
+        but with runtime='hermes' and a hermes-aify console command."""
+        now = api_v2._now()
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(agent_id, runtime="hermes", sessionMode="managed")
+        self._execute(
+            "UPDATE agents SET session_mode='managed', runtime='hermes', session_handle=?, runtime_state=? WHERE id = ?",
+            (
+                "hermes-managed-handle-1",
+                json.dumps({
+                    "consoleTerminal": {
+                        "terminalId": terminal_id,
+                        "bridgeId": "bridge-current",
+                        "sessionHandle": "hermes-managed-handle-1",
+                        "at": now,
+                    }
+                }),
+                agent_id,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, terminal_id, terminal_status,
+                spawn_spec_id, spawn_request_id, status,
+                started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "hermes",
+                "/workspace/repo",
+                "managed-warm",
+                "managed",
+                terminal_id,
+                "attached",
+                None,
+                None,
+                "running",
+                now,
+                now,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id,
+                f"sess_{agent_id}",
+                agent_id,
+                "linux:test-host:default",
+                "bridge-current",
+                "hermes",
+                "/workspace/repo",
+                "hermes-aify --aify-agent " + agent_id,
+                "",
+                "attached",
+                "dashboard",
+                now,
+                now,
+                None,
+                "",
+            ),
+        )
+
+    def test_managed_hermes_online_requires_live_channel_sidecar(self):
+        # WS3 Task 3.1: a managed hermes is `online` ONLY when BOTH a live
+        # console PTY AND a live channel-sidecar (the actual claimer) exist.
+        # Pre-WS3, a live console PTY ALONE manufactured `online` (the deaf-but-
+        # online bug). With hermes now in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES the
+        # both-required gate applies: live console + STALE sidecar → available;
+        # both live → online.
+        terminal_id = "term_hermes_online_console"
+        self._seed_managed_hermes_with_attached_terminal("online-hermes", terminal_id)
+
+        # Live `attached` console but NO channel-sidecar heartbeat → not a live
+        # claimer → available (NOT online).
+        asyncio.run(self._async_invalidate("online-hermes"))
+        agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
+        self.assertNotEqual(agent["status"], "online", agent)
+        self.assertEqual(agent["status"], "available", agent)
+
+        # Now add a fresh channel-sidecar heartbeat → live claimer → online.
+        self._stamp_live_channel_sidecar("online-hermes", runtime="hermes")
+        asyncio.run(self._async_invalidate("online-hermes"))
+        agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
+        self.assertEqual(agent["status"], "online", agent)
+
     def test_managed_claude_online_requires_live_console(self):
         # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
         # console PTY AND a live channel-sidecar exist. A live sidecar with NO

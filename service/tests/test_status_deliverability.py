@@ -200,6 +200,49 @@ class StatusDeliverabilityTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["agent"]["status"]
 
+    def _insert_hermes_console_pty(self, agent_id: str) -> None:
+        """A live hermes console PTY terminal_session — the visible-TUI console
+        the delivery loop fronts. WS3 (2026-06-02): managed hermes is in
+        _CHANNEL_SIDECAR_DELIVERY_RUNTIMES, so `online` requires BOTH this live
+        console AND a live channel-sidecar claimer (visible-TUI HARD requirement).
+        Mirrors _insert_claude_wrapper_pty for hermes."""
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            session_id = f"sess-{agent_id}"
+            terminal_id = f"term-{agent_id}"
+            now = _iso(datetime.now(timezone.utc))
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode, owner_mode,
+                    terminal_id, terminal_status, status, started_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id, agent_id, "linux:test-host:default", "hermes",
+                    "/workspace", "managed-warm", "managed", terminal_id, "attached",
+                    "running", now, now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime,
+                    workspace, command, status, requested_by, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id, session_id, agent_id, "linux:test-host:default",
+                    "bridge-current", "hermes", "/workspace",
+                    f"hermes-aify --aify-agent {agent_id}", "attached", "dashboard", now, now,
+                ),
+            )
+            conn.commit()
+            conn.execute("PRAGMA foreign_keys = ON")
+        finally:
+            conn.close()
+
     def _insert_managed_session(self, agent_id: str, runtime: str) -> None:
         """A managed agent_sessions row so the claim gate's managed-environment
         carve-out applies (mirrors a real warm managed hermes session). Without
@@ -259,13 +302,19 @@ class StatusDeliverabilityTests(unittest.TestCase):
     # hermes — the new behavior
     # ------------------------------------------------------------------
     def test_managed_hermes_channel_enabled_with_live_sidecar_is_online(self):
+        # WS3 (2026-06-02): UPDATED — hermes joined _CHANNEL_SIDECAR_DELIVERY_
+        # RUNTIMES, so `online` now requires BOTH a live console PTY (visible-TUI
+        # HARD requirement) AND a live channel-sidecar claimer, matching claude's
+        # both-required gate. The prior sidecar-ALONE→online behavior was the
+        # superseded "online but no visible console" path (a headless orphan).
         self._heartbeat_environment("hermes")
         self._register_managed(agent_id="hermes-live", runtime="hermes", channel_enabled=True)
+        self._insert_hermes_console_pty("hermes-live")
         self._stamp_channel_sidecar_bridge("hermes-live", fresh=True)
         self.assertIn(
             self._status("hermes-live"),
             {"online", "ready"},
-            "channel-enabled managed hermes WITH a live sidecar heartbeat must be deliverable (online/ready)",
+            "channel-enabled managed hermes WITH a live console PTY AND a live sidecar heartbeat must be deliverable (online/ready)",
         )
 
     def test_managed_hermes_channel_enabled_without_sidecar_is_available_not_online(self):
@@ -301,6 +350,12 @@ class StatusDeliverabilityTests(unittest.TestCase):
         self._heartbeat_environment("hermes")
         self._register_managed(agent_id="hermes-idle", runtime="hermes", channel_enabled=True)
         self._insert_managed_session("hermes-idle", "hermes")
+        # WS3 (2026-06-02): `online` now requires a live console PTY too (visible-
+        # TUI HARD requirement). The delivery loop fronts this console; this test
+        # is about the SIDECAR-CLAIM-AS-HEARTBEAT mechanism, so seed the console so
+        # the both-required gate's console half is satisfied and the test isolates
+        # the sidecar-liveness behavior under test.
+        self._insert_hermes_console_pty("hermes-idle")
 
         # Before any claim: no sidecar row exists → available.
         self.assertIsNone(self._channel_sidecar_bridge_row("hermes-idle"))
@@ -331,6 +386,9 @@ class StatusDeliverabilityTests(unittest.TestCase):
         self._heartbeat_environment("hermes")
         self._register_managed(agent_id="hermes-poller", runtime="hermes", channel_enabled=True)
         self._insert_managed_session("hermes-poller", "hermes")
+        # WS3 (2026-06-02): seed the live console PTY so the both-required gate's
+        # console half is satisfied — this test isolates sidecar-poll idempotency.
+        self._insert_hermes_console_pty("hermes-poller")
         for _ in range(3):
             self._channel_sidecar_claim("hermes-poller", bridge_id="hermes-channel-linux:test-host")
         conn = sqlite3.connect(str(self._db_path))

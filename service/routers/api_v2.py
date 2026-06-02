@@ -335,15 +335,24 @@ _CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}
 # operator-reported 2026-05-31: managed claude showed online + "Console ready"
 # while its superseded sidecar delivered nothing and runs sat queued).
 #
-# claude-code ONLY: claude-aify's claude-channel.js sidecar is the sole claimer
-# (wrapperChildExecutionModes excludes claude, so the PTY never claims). hermes
-# is intentionally NOT here because managed hermes has TWO delivery models — the
-# visible-TUI sidecar AND a wrapper-child that DOES claim — so a blanket
-# require-sidecar would wrongly downgrade the wrapper-child variant; hermes keeps
-# its existing channelEnabled-flag no-PTY gate below. codex/pi: their
-# wrapper-child / RPC worker IS the claimer, so PTY liveness already equals
-# deliverability.
-_CHANNEL_SIDECAR_DELIVERY_RUNTIMES = {"claude-code"}
+# claude-code: claude-aify's claude-channel.js sidecar is the sole claimer
+# (wrapperChildExecutionModes excludes claude, so the PTY never claims).
+#
+# hermes (added WS3 Task 3.1, 2026-06-02): the managed-hermes lifecycle re-
+# architecture makes the delivery loop (hermes-managed-host.js) the SINGLE
+# claimer + lifecycle owner, registered as a `channel-sidecar` bridge, fronting a
+# visible console PTY. A live console PTY ALONE no longer proves deliverability
+# (the loop/claimer can be dead while the gateway/console still renders — the
+# operator-observed "online but deaf" bug). So managed hermes now goes through
+# the same both-required gate (sidecar_live AND console_live) as claude: `online`
+# REQUIRES a live channel-sidecar claimer. This SUPERSEDES the prior "two delivery
+# models" rationale (the wrapper-child claim variant is retired in favor of the
+# single loop owner); the legacy channelEnabled no-PTY gate below still covers a
+# channel-flag hermes that registers a sidecar but never opens a console.
+#
+# codex/pi: their wrapper-child / RPC worker IS the claimer, so PTY liveness
+# already equals deliverability.
+_CHANNEL_SIDECAR_DELIVERY_RUNTIMES = {"claude-code", "hermes"}
 
 def _managed_terminal_backing_enabled(settings: dict[str, Any]) -> bool:
     return bool(settings.get("managed_terminal_backing_enabled", DEFAULT_SETTINGS["managed_terminal_backing_enabled"]))
@@ -3302,10 +3311,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         agent_session_mode == "managed"
         and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
     ):
-        # status-F1 (refined 2026-06-01, Workstream B): managed claude's worker IS
-        # its wrapper-PTY console; the channel-sidecar only delivers. Visible-TUI is
-        # a HARD requirement, so `online` REQUIRES BOTH a live console PTY AND a live
-        # channel sidecar. A live sidecar with NO console is a headless orphan worker
+        # status-F1 (refined 2026-06-01, Workstream B; extended to hermes WS3
+        # 2026-06-02): a managed claude/hermes worker IS its visible console PTY;
+        # the channel-sidecar (claude-channel.js / the hermes delivery loop) is the
+        # actual claimer that delivers. Visible-TUI is a HARD requirement, so
+        # `online` REQUIRES BOTH a live console PTY AND a live channel sidecar — a
+        # live console with a dead claimer is the operator-observed "online but
+        # deaf" bug. A live sidecar with NO console is a headless orphan worker
         # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
         # falsely-positive `online`. A live console with a dead sidecar is also not
         # deliverable → `available` (the original status-F1 intent, preserved).
