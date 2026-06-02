@@ -651,9 +651,13 @@ async def _managed_target_is_deaf(db, agent_row, *, settings: Optional[dict[str,
     """WS5 Task 5.1b (2026-06-02): True when a managed sidecar-delivery target is
     genuinely DEAF — it HAD a delivery-loop claimer that has RELEASED its lease (or
     let it go stale), so a send would queue against a worker that will never claim
-    it. This is the disambiguator that unblocks the Task 3.3 fail-fast that was
-    BLOCKED at send time (a live-console/no-claimer agent was indistinguishable
-    from a healthy claimer that simply had not polled yet).
+    it.
+
+    DEPRECATED as a SEND GATE (reversed 2026-06-02): this predicate NO LONGER
+    rejects a `comms_send`. The operator reversed the deaf fail-fast because it lost
+    messages to agents that were merely mid-restart; sends now always queue and the
+    `_reap_undeliverable_queued_runs` backstop is the sole safety net. The helper is
+    retained for any status/deliverability classification that wants the signal.
 
     Deaf == ALL of:
       - the runtime is a managed sidecar-delivery runtime (claude-code / hermes:
@@ -5010,27 +5014,17 @@ async def _preflight_live_send_recipients(
             not_started.append(hint)
             continue
 
-        # WS5 Task 5.1b (2026-06-02): fail fast on a send to a genuinely-DEAF
-        # managed sidecar-delivery target (it HAD a delivery-loop claimer that
-        # released/lost its lease) so the run does NOT queue against a worker that
-        # will never claim it (which would pile up to buffer_full). A cold
-        # `available` agent that never recorded a lease is NOT deaf — it falls
-        # through to the cold-start path (lazy-autostart-on-send preserved).
-        if await _managed_target_is_deaf(db, row, settings=settings):
-            hint = _dispatch_fix_hint(
-                recipient_id,
-                row,
-                "managed worker is up-but-deaf (its delivery loop released its claimer lease)",
-            )
-            hint["recipientStatus"] = "available"
-            hint["fix"] = (
-                f'Agent "{recipient_id}" has no live delivery-loop claimer (its lease was '
-                "released or went stale), so a message would never be delivered. Restart its "
-                "managed worker (respawn the delivery loop / console), then resend."
-            )
-            not_started.append(hint)
-            continue
-
+        # WS5 Task 5.1b REVERSED (2026-06-02): the deaf-target fail-fast was
+        # removed. A send to a managed sidecar-delivery target whose delivery loop
+        # released/lost its claimer lease previously failed fast (ok:false, no run)
+        # — but in live use that LOST messages to an agent that was merely
+        # mid-restart (lease released then re-acquired moments later). The operator
+        # reversed the decision: ALWAYS QUEUE here. The
+        # `_reap_undeliverable_queued_runs` backstop reaper is now the sole safety
+        # net — it fails a queued run only after it has been genuinely
+        # undeliverable for the backstop window. `_managed_target_is_deaf` and the
+        # lease helpers remain for status/deliverability use and no longer reject a
+        # send.
         launchable.append((recipient_id, execution_mode))
 
     return launchable, not_started

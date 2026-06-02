@@ -8,10 +8,15 @@ reads it; `_agent_has_live_claimer` PREFERS the lease and only falls back to the
 channel-sidecar / bridge-freshness check when NO lease has EVER been recorded (so
 pre-existing/older loops and lazy claimers still work — the lazy-claim contract).
 
-Task 5.1b: at send time, a managed sidecar-delivery target whose lease is
-RELEASED/stale (genuinely deaf — it HAD a claimer that is now gone) fails fast with
-ok:false and writes NO queued run. A cold `available` agent with NO lease ever
-(spawnable) is NOT deaf — it still queues + lazy-autostarts (unchanged).
+Task 5.1b (REVERSED 2026-06-02): the operator reversed the deaf-target fail-fast.
+At send time, a managed sidecar-delivery target whose lease is RELEASED/stale is no
+longer hard-rejected — a send ALWAYS QUEUES (creating a dispatch run) and relies on
+the `_reap_undeliverable_queued_runs` backstop reaper to fail a run only after it is
+genuinely undeliverable for the backstop window. This avoids LOSING messages to an
+agent that is merely mid-restart (a released-then-reacquired lease). A cold
+`available` agent with NO lease ever (spawnable) still queues + lazy-autostarts
+(unchanged). The lease helpers remain for status/deliverability use; they no longer
+reject a send.
 """
 
 import asyncio
@@ -227,8 +232,11 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         )
 
 
-class DeafTargetFailFastTests(unittest.TestCase):
-    """WS5 Task 5.1b — send to a deaf managed sidecar-delivery target fails fast."""
+class DeafTargetAlwaysQueuesTests(unittest.TestCase):
+    """WS5 Task 5.1b REVERSED (2026-06-02) — a send to a managed sidecar-delivery
+    target with a released/stale lease now ALWAYS QUEUES (does NOT fail fast). The
+    operator reversed the deaf fail-fast because it LOST messages to agents that were
+    merely mid-restart; the queued-run backstop reaper is now the sole safety net."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -314,38 +322,45 @@ class DeafTargetFailFastTests(unittest.TestCase):
 
         return _run(_go())
 
-    def test_send_to_deaf_managed_hermes_fails_fast_no_run(self):
-        # A managed hermes whose loop ACQUIRED then RELEASED its lease is deaf.
+    def test_send_to_released_lease_managed_hermes_queues_a_run(self):
+        # A managed hermes whose loop ACQUIRED then RELEASED its lease used to be
+        # rejected as "deaf". REVERSED: the send must now QUEUE a dispatch run (not
+        # fail fast). The backstop reaper fails the run only if it stays
+        # undeliverable past the backstop window.
         self._heartbeat_hermes_env()
-        self._register_managed_hermes("deaf-hermes")
-        self._post_lease("deaf-hermes", "acquire")
-        self._post_lease("deaf-hermes", "release")
+        self._register_managed_hermes("released-hermes")
+        self._post_lease("released-hermes", "acquire")
+        self._post_lease("released-hermes", "release")
 
         sent = self.client.post(
             "/api/v1/messages/send",
             json={
                 "from_agent": "dashboard",
-                "to": "deaf-hermes",
+                "to": "released-hermes",
                 "type": "request",
                 "subject": "are you there",
-                "body": "hello deaf agent",
+                "body": "hello agent",
                 "trigger": True,
             },
         )
         self.assertEqual(sent.status_code, 200, sent.text)
         body = sent.json()
-        self.assertFalse(body.get("ok"), f"send to a deaf target must fail fast; got {body}")
-        # No dispatch_runs row was written (no silent pileup).
-        self.assertEqual(
-            self._count_dispatch_runs("deaf-hermes"),
-            0,
-            f"deaf fail-fast must write NO queued run; got {body}",
+        # NOT hard-rejected for being "deaf" any more.
+        self.assertNotEqual(
+            body.get("error"),
+            "Message was not sent because one or more recipients cannot start live work now.",
+            f"a released-lease managed target must NOT be hard-rejected; got {body}",
         )
-        # The deaf reason is surfaced.
         not_started = body.get("notStarted") or []
-        self.assertTrue(
+        self.assertFalse(
             any("deaf" in (item.get("reason") or "").lower() for item in not_started),
-            f"expected a deaf reason in notStarted; got {not_started}",
+            f"no deaf rejection expected any more; got {not_started}",
+        )
+        # A dispatch run WAS queued (the message is preserved, not lost).
+        self.assertGreaterEqual(
+            self._count_dispatch_runs("released-hermes"),
+            1,
+            f"a send to a released-lease managed target must queue a dispatch run; got {body}",
         )
 
     def test_send_to_cold_available_hermes_no_lease_still_queues_and_coldstarts(self):
