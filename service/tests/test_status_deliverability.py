@@ -457,5 +457,253 @@ class StatusDeliverabilityTests(FastApiTestCase):
         self.assertEqual(status, "available", f"managed codex no-worker should be available; got {status!r}")
 
 
+class ManagedEnvBridgeGateTests(FastApiTestCase):
+    """FIX B (2026-06-02): a MANAGED agent whose OWNING ENVIRONMENT bridge is
+    offline/stale must compute as `offline` — regardless of any surviving
+    delivery-loop heartbeat/lease/sidecar — because only the env bridge can
+    spawn/host its worker. The operator killed the `aify-comms` env bridge and the
+    managed agents STILL showed `available`/`online` because detached loops kept
+    heartbeating; this gate closes that hole. Resident agents (whose liveness is
+    their resident bridge, not the env bridge) must NOT be forced offline by a down
+    env bridge.
+    """
+
+    LEGACY_SETTINGS = {"managed_via_wrapper": ["codex"]}
+
+    ENV_ID = "linux:test-host:default"
+
+    def _heartbeat_environment(self, runtime: str) -> None:
+        payload = {
+            "id": self.ENV_ID,
+            "label": "Linux on test-host",
+            "machineId": "linux:test-host",
+            "os": "linux",
+            "kind": "linux",
+            "bridgeId": "bridge-current",
+            "cwdRoots": ["/workspace"],
+            "runtimes": [
+                {
+                    "runtime": runtime,
+                    "modes": ["managed-warm"],
+                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                }
+            ],
+            "metadata": {},
+        }
+        res = self.client.post("/api/v1/environments/heartbeat", json=payload)
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def _age_environment(self, *, minutes: int) -> None:
+        """Push the environment's last_seen far enough into the past that
+        _environment_effective_status computes `offline` (env bridge is dead).
+        This models the operator killing the env bridge."""
+        stale = _iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("UPDATE environments SET last_seen = ? WHERE id = ?", (stale, self.ENV_ID))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _register_managed_hermes(self, agent_id: str) -> None:
+        res = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": "hermes",
+                "sessionMode": "managed",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["resume", "interrupt"],
+                "runtimeConfig": {"channelEnabled": True, "environmentId": self.ENV_ID},
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def _register_resident_claude(self, agent_id: str) -> None:
+        res = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "resident",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-current",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+                "runtimeConfig": {"environmentId": self.ENV_ID},
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def _bind_session_and_workers(self, agent_id: str, runtime: str) -> None:
+        """Seed a live managed session + console PTY + fresh channel-sidecar row so
+        the agent would otherwise compute `online` (the surviving-detached-loop
+        scenario). environment_id is bound on the session row."""
+        now = _iso(datetime.now(timezone.utc))
+        session_id = f"sess-{agent_id}"
+        terminal_id = f"term-{agent_id}"
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_sessions (
+                    id, agent_id, environment_id, runtime, workspace, mode, owner_mode,
+                    terminal_id, terminal_status, status, started_at, last_seen
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session_id, agent_id, self.ENV_ID, runtime, "/workspace",
+                    "managed-warm", "managed", terminal_id, "attached", "running", now, now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO terminal_sessions (
+                    id, session_id, agent_id, environment_id, bridge_id, runtime,
+                    workspace, command, status, requested_by, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    terminal_id, session_id, agent_id, self.ENV_ID, "bridge-current",
+                    runtime, "/workspace", f"hermes-aify --aify-agent {agent_id}",
+                    "attached", "dashboard", now, now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode, session_handle,
+                    terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "hermes-channel-linux:test-host", agent_id, "linux:test-host",
+                    "hermes", "managed", "", "", "channel-sidecar",
+                    _iso(datetime.now(timezone.utc) - timedelta(minutes=1)), now, "", None,
+                ),
+            )
+            conn.commit()
+            conn.execute("PRAGMA foreign_keys = ON")
+        finally:
+            conn.close()
+
+    def _heartbeat_agent(self, agent_id: str) -> None:
+        """A surviving detached loop keeps the AGENT heartbeat fresh even though
+        the env bridge is dead — the exact condition that kept it `available`."""
+        res = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": agent_id,
+                "bridgeId": "hermes-channel-linux:test-host",
+                "machineId": "linux:test-host",
+                "bridgeKind": "channel-sidecar",
+                "executionModes": ["channel", "resident"],
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def _status(self, agent_id: str) -> str:
+        res = self.client.get(f"/api/v1/agents/{agent_id}")
+        self.assertEqual(res.status_code, 200, res.text)
+        return res.json()["agent"]["status"]
+
+    # ---- the new gate ----
+    def test_managed_with_live_env_bridge_is_online(self):
+        # Control: a managed agent with a LIVE env bridge + live workers is online.
+        self._heartbeat_environment("hermes")
+        self._register_managed_hermes("env-live-hermes")
+        self._bind_session_and_workers("env-live-hermes", "hermes")
+        self.assertIn(
+            self._status("env-live-hermes"), {"online", "ready"},
+            "managed agent with a live env bridge + live workers must be online",
+        )
+
+    def test_managed_with_dead_env_bridge_is_offline_despite_live_sidecar(self):
+        # FIX B: kill the env bridge (stale last_seen). Even though the surviving
+        # delivery loop keeps a fresh sidecar + console + agent heartbeat (would
+        # otherwise be `online`), the agent must compute `offline` because only the
+        # env bridge can host its worker.
+        self._heartbeat_environment("hermes")
+        self._register_managed_hermes("env-dead-hermes")
+        self._bind_session_and_workers("env-dead-hermes", "hermes")
+        # Sanity: live env → online.
+        self.assertIn(self._status("env-dead-hermes"), {"online", "ready"})
+        # Operator kills the env bridge; a detached loop keeps heartbeating.
+        self._age_environment(minutes=20)
+        self._heartbeat_agent("env-dead-hermes")
+        status = self._status("env-dead-hermes")
+        self.assertEqual(
+            status, "offline",
+            f"a managed agent whose owning env bridge is offline must compute offline "
+            f"even with a fresh sidecar/lease; got {status!r}",
+        )
+
+    def test_managed_dead_env_offline_via_stored_binding_no_session_row(self):
+        # FIX B core hole: the worker died so there is NO live session row binding
+        # environment_id and runtime_state has none either — only the STORED binding
+        # (runtime_config.environmentId / machine_id+runtime) identifies the owning
+        # env. A surviving detached sidecar keeps heartbeating. The OLD env-offline
+        # branch never fired (environment_id resolved empty) so the agent wrongly
+        # stayed `available`; the new resolver must force `offline`.
+        self._heartbeat_environment("hermes")
+        self._register_managed_hermes("env-dead-nosession")
+        # Fresh channel-sidecar bridge only — NO session row, NO console PTY.
+        now = _iso(datetime.now(timezone.utc))
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO bridge_instances (
+                    id, agent_id, machine_id, runtime, session_mode, session_handle,
+                    terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "hermes-channel-linux:test-host", "env-dead-nosession", "linux:test-host",
+                    "hermes", "managed", "", "", "channel-sidecar",
+                    _iso(datetime.now(timezone.utc) - timedelta(minutes=1)), now, "", None,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        # With the env still live this is `available` (no live session/console).
+        self.assertEqual(self._status("env-dead-nosession"), "available")
+        # Kill the env bridge.
+        self._age_environment(minutes=20)
+        status = self._status("env-dead-nosession")
+        self.assertEqual(
+            status, "offline",
+            f"a managed agent whose owning env bridge is offline must compute offline "
+            f"via its stored binding even with no session row; got {status!r}",
+        )
+
+    def test_resident_not_forced_offline_by_dead_env_bridge(self):
+        # Regression: a resident agent's liveness is its resident bridge, NOT the
+        # env bridge. A down env bridge must NOT force a resident agent offline.
+        self._heartbeat_environment("claude-code")
+        self._register_resident_claude("resident-claude")
+        # Resident heartbeat keeps the resident bridge fresh.
+        res = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={
+                "agentId": "resident-claude",
+                "bridgeId": "bridge-current",
+                "machineId": "linux:test-host",
+                "executionModes": ["resident"],
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self._age_environment(minutes=20)
+        status = self._status("resident-claude")
+        self.assertNotEqual(
+            status, "offline",
+            f"a resident agent must NOT be forced offline by a down env bridge; got {status!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

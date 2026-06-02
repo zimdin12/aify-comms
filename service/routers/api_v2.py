@@ -3171,6 +3171,55 @@ def _environment_effective_status(row, *, offline_seconds: int = 90) -> str:
     return status
 
 
+async def _managed_owning_environment_row(db, agent_row, *, resolved_environment_id: str = ""):
+    """FIX B (2026-06-02): resolve the OWNING environment row for a MANAGED agent.
+
+    A managed agent can only be spawned/hosted by its environment bridge, so its
+    effective liveness must be gated on that env bridge — NOT on a surviving
+    delivery-loop heartbeat. The operator killed the env bridge and managed agents
+    stayed `available`/`online` because detached loops kept heartbeating; the hole
+    was that the status compute resolved `environment_id` ONLY from the live session
+    row / runtime_state, both of which are absent once the worker dies.
+
+    Resolution order (the agent's STORED binding):
+      1. the already-resolved id (session row / runtime_state.environmentId), then
+      2. runtime_config.environmentId (the spawn-time binding), then
+      3. the environment on the agent's machine_id that advertises its runtime.
+
+    Returns the environments row, or None if no owning environment can be
+    determined (e.g. an unbound agent with no machine/runtime match) — callers must
+    NOT force offline on None (preserve the unbound `available` fall-through).
+    """
+    # 1. already-resolved id.
+    env_id = str(resolved_environment_id or "").strip()
+    # 2. spawn-time binding stored in runtime_config.
+    if not env_id:
+        try:
+            runtime_config = _json_loads_or(agent_row["runtime_config"], {})
+            env_id = str(runtime_config.get("environmentId") or "").strip()
+        except Exception:
+            env_id = ""
+    if env_id:
+        row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))).fetchone()
+        if row:
+            return row
+    # 3. machine_id + runtime match (the environment that advertises this runtime
+    #    on the agent's machine). Mirrors how spawn picks an environment.
+    machine_id = str(agent_row["machine_id"] or "").strip()
+    runtime = _normalize_runtime(agent_row["runtime"] or "")
+    if not machine_id:
+        return None
+    candidates = await (await db.execute(
+        "SELECT * FROM environments WHERE machine_id = ? ORDER BY last_seen DESC",
+        (machine_id,),
+    )).fetchall()
+    for row in candidates:
+        environment = _environment_record_to_dict(row)
+        if _runtime_capability_for_environment(environment, runtime):
+            return row
+    return None
+
+
 def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, Any]:
     status = _environment_effective_status(row, offline_seconds=offline_seconds)
     runtimes = _json_loads_or(row["runtimes"], [])
@@ -3538,7 +3587,41 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             has_live_worker = True
         else:
             channel_managed_no_sidecar = True
-    if has_live_worker:
+    # FIX B (2026-06-02): a MANAGED agent can only be spawned/hosted by its OWNING
+    # environment bridge. If that env bridge is offline/stale, the agent is
+    # effectively offline — even when a surviving detached delivery loop keeps a
+    # fresh sidecar/lease/heartbeat (which would otherwise compute `online`). The
+    # operator killed the `aify-comms` env bridge and managed agents stayed
+    # `available`/`online` for exactly this reason: the env-bound offline branch
+    # below only fires when `environment_id` resolved from a LIVE session row /
+    # runtime_state, both absent once the worker died. This gate resolves the
+    # STORED owning environment (runtime_config.environmentId / machine_id+runtime
+    # match) and hard-forces offline, short-circuiting the online/available
+    # derivation. Resident agents are EXCLUDED — their liveness is the resident
+    # bridge, not the env bridge — so a down env bridge must not force them offline.
+    managed_env_bridge_offline = False
+    if agent_session_mode == "managed":
+        owning_env_row = await _managed_owning_environment_row(
+            db, agent_row, resolved_environment_id=environment_id
+        )
+        if owning_env_row is not None:
+            owning_env_status = _environment_effective_status(
+                owning_env_row,
+                offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
+            )
+            if owning_env_status not in {"online", "degraded"}:
+                managed_env_bridge_offline = True
+                # Bind environment_id so the reason/offline branch below and the
+                # cache row reflect the resolved owning environment.
+                if not environment_id:
+                    environment_id = str(owning_env_row["id"] or "").strip()
+                    env_status = owning_env_status
+                    env_last_seen = str((owning_env_row["last_seen"] or "")).strip()
+    if managed_env_bridge_offline:
+        # Owning env bridge is down → hard offline regardless of any surviving loop.
+        has_live_worker = False
+        effective_status = "offline"
+    elif has_live_worker:
         # A live worker that is not handling a turn is public `online`.
         # `turn_state_ready` remains useful internally for readiness and cache
         # invalidation, but is not a separate user-facing agent status.
@@ -3570,7 +3653,16 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         and active_run_mode == "terminal"
         and (not terminal_id or terminal_status not in _TERMINAL_ACTIVE_STATUSES)
     )
-    if active_run_terminal_missing:
+    if managed_env_bridge_offline:
+        # FIX B: owning env bridge is down — hard offline takes precedence over the
+        # active-run/terminal derivations below (only the env bridge can host the
+        # worker, so any surviving run is moot).
+        effective_status = "offline"
+        reason = (
+            f'Owning environment "{environment_id}" is {env_status or "offline"}; '
+            "only its bridge can host this managed worker."
+        )
+    elif active_run_terminal_missing:
         effective_status = "blocked"
         reason = f'Managed terminal-backed active run has no live terminal backing. Active run: {active_run["subject"] or active_run["id"]}.'
     elif (
