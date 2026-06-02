@@ -178,10 +178,53 @@ function loadOrCreateKey(agentId, tempDir) {
 // force a needless re-probe (and risk a different port). The marker writers
 // (`resolveGatewayPort` / `loadOrCreateKey`) NEVER delete these today — this is
 // the single owned deletion path (Task 4.1).
+// Agent-keyed gateway-URL marker. The gateway host (`hermes dashboard --tui`)
+// spawns the agent's MCP bridge with AIFY_HERMES_GATEWAY_URL still set to the
+// literal `${AIFY_HERMES_GATEWAY_URL}` placeholder — the host cannot inject its
+// own URL into the MCP child's env at spawn time (chicken-and-egg), so the
+// bridge can't auto-register its gateway from env. ensure-host DOES know the
+// wsUrl, so it writes THIS marker and the bridge reads it by AIFY_AGENT_ID.
+// AGENT-keyed (not cwd-keyed like runtime-markers.js) so two hermes agents in
+// the same folder never read each other's gateway. Overwritten on each
+// ensure-host (the wsUrl/token rotate per launch); cleared on terminal teardown.
+function gatewayUrlMarkerPath(agentId, tempDir) {
+  return path.join(tempDir, `aify-hermes-gateway-${sanitizeAgentId(agentId)}`);
+}
+
+export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "", tempDir = os.tmpdir() } = {}) {
+  const safe = sanitizeAgentId(agentId);
+  const url = String(gatewayUrl || "").trim();
+  if (!safe || !/^wss?:\/\//i.test(url)) return false;
+  try {
+    fs.writeFileSync(
+      gatewayUrlMarkerPath(agentId, tempDir),
+      JSON.stringify({ gatewayUrl: url, gatewayTokenEnv: String(gatewayTokenEnv || "") }),
+    );
+    return true;
+  } catch {
+    return false; // best-effort: never throw
+  }
+}
+
+export function readGatewayUrlMarker(agentId, { tempDir = os.tmpdir() } = {}) {
+  const safe = sanitizeAgentId(agentId);
+  if (!safe) return null;
+  try {
+    const raw = fs.readFileSync(gatewayUrlMarkerPath(agentId, tempDir), "utf8").trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const url = String(parsed?.gatewayUrl || "").trim();
+    if (!/^wss?:\/\//i.test(url)) return null;
+    return { gatewayUrl: url, gatewayTokenEnv: String(parsed?.gatewayTokenEnv || "") };
+  } catch {
+    return null;
+  }
+}
+
 export function clearGatewayMarkers(agentId, dir = os.tmpdir()) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return;
-  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`]) {
+  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`]) {
     try {
       fs.rmSync(path.join(dir, name), { force: true });
     } catch {

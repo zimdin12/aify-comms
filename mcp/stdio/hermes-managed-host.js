@@ -34,7 +34,7 @@ import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { defaultMachineId } from "./runtimes.js";
-import { resolveGatewayPort, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
+import { resolveGatewayPort, writeGatewayUrlMarker, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
 import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
 import { pinnedSessionId } from "./hermes-session-id.js";
@@ -1672,6 +1672,16 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
   const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+  // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
+  // bridge (server.js) can auto-register the gateway even though its env only
+  // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the
+  // gateway host can't inject its own URL into the MCP child's env at spawn
+  // time. Without this, every agent depended on either a cwd-keyed marker
+  // (collides for same-folder agents) or the agent hand-rolling registration.
+  writeGatewayUrlMarker(id, host.wsUrl, {
+    gatewayTokenEnv: process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "",
+    tempDir: TMP_DIR,
+  });
   // The gateway host must OUTLIVE this short-lived CLI process (the delivery
   // loop + the visible TUI attach to it). It was spawned detached+unref'd.
   // `resumeKey` is the canonical pinnedSessionId — the wrapper should set

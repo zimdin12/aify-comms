@@ -71,7 +71,7 @@ import {
   stopControlTriadAgentId,
 } from "./reap-managed-survivors.js";
 import { defaultKillByPort, stopDaemon, defaultGetCmdline as hermesGetCmdline, looksLikeHermesProcess, clearDaemonPid } from "./hermes-daemon.js";
-import { clearGatewayMarkers as hermesClearGatewayMarkers } from "./hermes-endpoint.js";
+import { clearGatewayMarkers as hermesClearGatewayMarkers, readGatewayUrlMarker } from "./hermes-endpoint.js";
 import {
   reportGatewayDead,
   gatewayIndexUrlFromWs,
@@ -236,9 +236,28 @@ if (AIFY_CODEX_APP_SERVER_URL) {
 // operator-reported 2026-05-25: sc-hermes-test-1 had that literal stored
 // as gatewayUrl, capability check failed, ping-pong rejected.
 const _rawHermesGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim();
-const AIFY_HERMES_GATEWAY_URL = /^wss?:\/\//i.test(_rawHermesGatewayUrl) ? _rawHermesGatewayUrl : "";
+let AIFY_HERMES_GATEWAY_URL = /^wss?:\/\//i.test(_rawHermesGatewayUrl) ? _rawHermesGatewayUrl : "";
+let AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER = "";
+if (!AIFY_HERMES_GATEWAY_URL) {
+  // The gateway host (`hermes dashboard --tui`) spawns THIS MCP child with
+  // AIFY_HERMES_GATEWAY_URL still the literal "${AIFY_HERMES_GATEWAY_URL}" — it
+  // can't inject its own URL into the child env at spawn time — so env is
+  // empty/placeholder here on EVERY gateway-host launch. Fall back to the
+  // agent-keyed marker that managed-host.js ensure-host wrote with the real
+  // wsUrl, so auto-registration captures the gateway without the agent having
+  // to hand-roll its own MCP client (the prior failure mode).
+  const _gwAgentId = String(process.env.AIFY_AGENT_ID || "").trim();
+  if (_gwAgentId && !/^\$\{.*\}$/.test(_gwAgentId)) {
+    const _gwMarker = readGatewayUrlMarker(_gwAgentId);
+    if (_gwMarker?.gatewayUrl) {
+      AIFY_HERMES_GATEWAY_URL = _gwMarker.gatewayUrl;
+      AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER = _gwMarker.gatewayTokenEnv || "";
+      console.error(`[aify] resolved hermes gatewayUrl from agent marker for '${_gwAgentId}' (env was ${_rawHermesGatewayUrl ? "an unresolved placeholder" : "unset"})`);
+    }
+  }
+}
 if (_rawHermesGatewayUrl && !AIFY_HERMES_GATEWAY_URL) {
-  console.error(`[aify] ignoring unresolved AIFY_HERMES_GATEWAY_URL placeholder: ${_rawHermesGatewayUrl.slice(0, 60)}. Hermes MCP config interpolation failed — relaunch hermes-aify so the env var is set in hermes's own env before MCP child spawn.`);
+  console.error(`[aify] ignoring unresolved AIFY_HERMES_GATEWAY_URL placeholder: ${_rawHermesGatewayUrl.slice(0, 60)} and no agent gateway marker found. Relaunch hermes-aify so the gateway host writes the marker before MCP child spawn.`);
 }
 
 let __runtimeAdapter = null;
@@ -1025,7 +1044,7 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     if (remoteAuthTokenEnv) runtimeConfig.remoteAuthTokenEnv = remoteAuthTokenEnv;
     else delete runtimeConfig.remoteAuthTokenEnv;
   } else if (normalizedRuntime === "hermes") {
-    const rawGatewayUrl = String(process.env.AIFY_HERMES_GATEWAY_URL || marker?.gatewayUrl || "").trim();
+    const rawGatewayUrl = String(AIFY_HERMES_GATEWAY_URL || process.env.AIFY_HERMES_GATEWAY_URL || marker?.gatewayUrl || "").trim();
     // Reject unresolved hermes YAML interpolation placeholders. Operator-
     // reported 2026-05-25: hermes config.yaml env: AIFY_HERMES_GATEWAY_URL:
     // "${AIFY_HERMES_GATEWAY_URL}" — when hermes's own env doesn't have the
@@ -1034,7 +1053,7 @@ function resolvedRuntimeConfigForRegistration(runtime, previousInfo = null, cwd 
     // placeholder string, which would pass through to runtime_config and
     // make the resident-channel controller fail later.
     const gatewayUrl = /^wss?:\/\//i.test(rawGatewayUrl) ? rawGatewayUrl : "";
-    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
+    const gatewayTokenEnv = String(marker?.gatewayTokenEnv || AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER || process.env.AIFY_HERMES_GATEWAY_TOKEN_ENV || "").trim();
     if (gatewayUrl) runtimeConfig.gatewayUrl = gatewayUrl;
     else delete runtimeConfig.gatewayUrl;
     if (gatewayTokenEnv) runtimeConfig.gatewayTokenEnv = gatewayTokenEnv;
