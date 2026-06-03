@@ -114,7 +114,10 @@ def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
     assert "install_hermes_windows_tui_shim" in text
     assert "hermes-aify.ps1" in text
     assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_ps_path" %*' in text
-    assert "Invoke-HermesRuntime @('--tui', '--resume', \\$HermesSessionHandle)" in text
+    # The PS fallback launches the native Hermes TUI resuming the explicit handle.
+    # The permission-bypass flags are appended via `(@(...) + $HermesPermissionFlags)`,
+    # so match the resume invocation up to the array close.
+    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$HermesSessionHandle) + \\$HermesPermissionFlags)" in text
     assert "exit (Invoke-HermesRuntime" not in text
 
 
@@ -152,21 +155,33 @@ def test_hermes_visible_bind_falls_back_to_single_active_session():
 def test_hermes_wrapper_pins_stable_resume_session():
     """Session continuity is now DETERMINISTIC, not discovered.
 
-    Updated 2026-05-31 (visible-TUI rework): the wrapper no longer exports an
-    active-session FILE for the bridge to discover the visible TUI's ephemeral
-    session id. Instead both the managed and resident hermes-aify branches pin a
-    STABLE per-agent session `aify-<agentId>` and resume it (`HERMES_TUI_RESUME`
-    + `hermes --tui --resume <pinned>`), so the session id is known up-front and
-    survives restarts with no duplication — superseding the active-session-file
-    discovery mechanism. (The plugin's active-session-file writer and the Python
-    adapter's `_read_active_session_file` reader are now orphaned vestiges of the
-    old discovery model; nothing on the live path sets the env var. See the
-    pinned-session export below.)
+    Updated 2026-06-03 (native-session-id model): the synthetic per-agent
+    `aify-<agentId>` pinned key (`AIFY_HERMES_PINNED_SESSION`) was retired on the
+    bash side. The bash wrapper now resumes the agent's REAL native hermes session
+    id resolved up-front — from the agent-keyed marker (`readSessionIdMarker`),
+    converged against the live gateway's `resolve-session` ground truth
+    (`HERMES_RESUME_REAL_ID`) — and passes it as `hermes --tui --resume <id>`, so
+    a relaunch reuses the SAME transcript with no duplication and the session id is
+    known before launch (superseding active-session-file discovery). The PowerShell
+    wrapper still pins the stable `aify-<agentId>` session via
+    `$env:HERMES_TUI_RESUME = $pinnedSession` + `--resume $pinnedSession`. Either
+    way the resume target is deterministic, not discovered, and is honored via an
+    explicit `--resume` flag (the env var alone is stripped).
     """
     text = _read_install_sh()
-    assert "AIFY_HERMES_PINNED_SESSION" in text, "wrapper must compute a stable pinned session"
-    assert 'export HERMES_TUI_RESUME=' in text, "wrapper must export HERMES_TUI_RESUME for the TUI to resume the pinned session"
-    assert "--resume" in text, "wrapper must pass --resume so the pinned session id is honored (HERMES_TUI_RESUME alone is stripped)"
+    # Bash: deterministic real-native-session-id resume, resolved up-front.
+    assert "HERMES_RESUME_REAL_ID" in text, "bash wrapper must resolve a deterministic real session id up-front"
+    assert 'node "\\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session' in text, (
+        "bash wrapper must converge the resume id against the live gateway (resolve-session)"
+    )
+    assert '--tui --resume "\\$HERMES_RESUME_REAL_ID"' in text, (
+        "bash wrapper must resume the resolved real session id via an explicit --resume"
+    )
+    # PowerShell: stable pinned-session resume via HERMES_TUI_RESUME + --resume.
+    assert '\\$env:HERMES_TUI_RESUME = \\$pinnedSession' in text, (
+        "PowerShell wrapper must export HERMES_TUI_RESUME for the TUI to resume the pinned session"
+    )
+    assert "--resume" in text, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
 
 
 def test_hermes_installer_preserves_wrapper_active_session_file():

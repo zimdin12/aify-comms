@@ -521,6 +521,23 @@ async function shutdownWithStatus(code) {
   if (shutdownStarted) process.exit(code);
   shutdownStarted = true;
   await interruptActiveRuns("Bridge shutting down");
+  // Clean-exit resident-lost: best-effort, resident-only, idempotent. Bounded
+  // to ~1.5s so a hung/unreachable server can never delay exit indefinitely.
+  if (!residentLostSent && AIFY_AGENT_ID) {
+    residentLostSent = true;
+    try {
+      await Promise.race([
+        reportResidentLost({
+          httpCall,
+          agentId: AIFY_AGENT_ID,
+          bridgeId: BRIDGE_INSTANCE_ID,
+          sessionMode: process.env.AIFY_SESSION_MODE,
+          runtime: process.env.AIFY_RUNTIME || "generic",
+        }),
+        new Promise((resolve) => setTimeout(resolve, 1500).unref?.()),
+      ]);
+    } catch { /* best effort */ }
+  }
   try { await reportEnvironmentOffline(); } catch { /* best effort */ }
   // R9: await stopAll so each terminal flushes a final stopped/failed POST
   // before we exit. cleanupOnExit() (and the sync process.on('exit') path)
@@ -1515,6 +1532,54 @@ async function reportResidentRuntimeLost(agentId, info = {}, reason = "resident 
     }
   }
 }
+
+// Clean-exit resident-lost signal. When an operator cleanly closes a RESIDENT
+// *-aify session (Ctrl-D / window close / SIGTERM), nothing else POSTs a
+// "resident is leaving" signal, so the agent keeps showing `available` for the
+// full ~150s heartbeat lease until bridge_instances.last_seen ages out. This
+// long-lived bridge IS the resident MCP bridge that owns
+// runtime_state.bridgeInstanceId, so it can self-correct on the way out by
+// POSTing the SAME /agents/{id}/resident-lost signal the reactive paths use
+// (reportResidentRuntimeLost above). It carries bridgeId — unlike the
+// managed-host's bridgeId-less variant — because this bridge id matches the
+// owning runtime_state and passes the server's bridge_not_current guard.
+//
+// STRICTLY gated to RESIDENT sessions only: managed teardown is handled by
+// terminal reaping, and a managed bridge must never flip its own agent off
+// `available`. Pure + dependency-injected so it's unit-testable: it does NOT
+// POST unless (resident AND an agent id is bound). Best-effort: never throws.
+export async function reportResidentLost({
+  httpCall: call,
+  agentId,
+  bridgeId,
+  sessionMode,
+  machineId = MACHINE_ID,
+  runtime = "generic",
+  reason = "Resident *-aify session closed cleanly; self-correcting off 'available' (resident-lost).",
+} = {}) {
+  const id = String(agentId || "").trim();
+  // Resident gate: managed sessions must NOT POST resident-lost.
+  if (normalizeSessionMode(sessionMode) !== "resident") return false;
+  if (!call || !id) return false;
+  try {
+    await call("POST", `/agents/${encodeURIComponent(id)}/resident-lost`, {
+      bridgeId,
+      machineId,
+      runtime: normalizeRuntime(runtime || "generic"),
+      reason,
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      `[aify] clean-exit resident-lost for "${id}" failed (best-effort): ${error?.message || String(error)}`,
+    );
+    return false;
+  }
+}
+
+// Idempotency guard so the clean-exit resident-lost POST can't double-fire
+// across the SIGTERM→shutdownWithStatus and process.on('exit') handlers.
+let residentLostSent = false;
 
 let residentStopInProgress = false;
 function terminateResidentHost(reason = "Resident session stopped from dashboard") {

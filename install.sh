@@ -2203,7 +2203,20 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   # (main.py env.pop then re-add only when argparse resolved a resume id), so the
   # env var alone is a no-op — the flag is required. ensure-host has already
   # pre-seeded the row so resume resolves on first launch.
-  Invoke-HermesRuntime (@('--tui', '--resume', \$pinnedSession) + \$HermesPermissionFlags)
+  # ORPHAN-LIFECYCLE FIX (parity with the bash trap, 2026-06-03): the delivery
+  # loop above is a detached hidden process that survives this script — but if the
+  # TUI exits (or is Ctrl-C'd) and we just \`exit\`, the loop (and the hidden gateway
+  # host it owns) is ORPHANED: the orphan gateway keeps a headless session in
+  # session.active_list, so the agent stays \`online\` and the loop polls the wrong
+  # session. Wrap the TUI in try/finally so closing the TUI ALWAYS reaps the loop;
+  # the loop's own SIGTERM teardown then reaps the gateway host — nothing orphans.
+  try {
+    Invoke-HermesRuntime (@('--tui', '--resume', \$pinnedSession) + \$HermesPermissionFlags)
+  } finally {
+    if (\$hermesLoopPid -gt 0) {
+      try { Stop-Process -Id \$hermesLoopPid -Force -ErrorAction SilentlyContinue } catch {}
+    }
+  }
   exit \$script:HermesRuntimeExitCode
 }
 

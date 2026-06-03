@@ -3,6 +3,12 @@ agents use the gateway path (hermes-live wake-mode); fresh handles
 captured via discoverSessionId."""
 
 import subprocess
+from pathlib import Path
+
+# Repo root derived from this file's location (service/tests/<file>) so the grep
+# runs against the actual checkout regardless of where it's cloned — the old
+# hardcoded "C:/Docker/aify-comms" cwd only existed on one operator's box.
+REPO = Path(__file__).resolve().parents[2]
 
 
 def test_hermes_session_resume_not_returned_as_wake_mode():
@@ -11,7 +17,7 @@ def test_hermes_session_resume_not_returned_as_wake_mode():
     string literal returned as wake mode is not."""
     out = subprocess.run(
         ["grep", "-rn", "hermes-session-resume", "service/routers/api_v2.py"],
-        capture_output=True, text=True, cwd="C:/Docker/aify-comms"
+        capture_output=True, text=True, cwd=str(REPO)
     )
     for line in out.stdout.splitlines():
         # Skip pure-comment lines

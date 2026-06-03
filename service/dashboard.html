@@ -662,7 +662,7 @@ tr:hover{background:#1b1f21}
 .status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.idle,.status-dot.recovering,.status-dot.starting{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .status-dot.offline,.status-dot.stale,.status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
-.status-dot.cli-takeover{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
+.status-dot.cli-takeover{background:#e3a008;box-shadow:0 0 0 4px #e3a00822}
 .mini-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}
 .mini-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border:1px solid #282d30;border-radius:10px;background:#101214}
 .mini-row:hover{background:#1a1e20}
@@ -5315,6 +5315,7 @@ function chatPresenceForAgent(info = {}) {
   }
   if (raw === 'active') return {kind: 'online', label: `online${queued}${awaitSuffix}`};
   if (raw === 'idle') return {kind: 'idle', label: `idle online${queued}${awaitSuffix}`};
+  if (raw === 'available') return {kind: 'available', label: `available${queued}${awaitSuffix}`};
   if (['offline', 'stale', 'stopped'].includes(raw)) return {kind: raw, label: raw};
   if (raw) return {kind: raw.replace(/[^a-z0-9_-]/g, '-') || 'online', label: `${raw}${queued}${awaitSuffix}`};
   return {kind: 'online', label: `online${queued}${awaitSuffix}`};
