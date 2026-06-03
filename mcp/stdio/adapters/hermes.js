@@ -16,10 +16,11 @@ export class HermesAdapter extends RuntimeAdapter {
   // (aify.session.bind_transport) has been retired.
   get supportsResident() { return true; }
   get supportsManaged() { return true; }
-  // No mid-turn steer over the api_server chat path: a chat/stream turn runs to
-  // completion. The /v1/runs/{id}/stop endpoint gives interrupt only. Advertise
-  // steer=false so callers don't promise a capability the transport can't honor.
-  get supportsSteering() { return false; }
+  // Steer IS supported on the gateway delivery path: the delivery loop
+  // (hermes-managed-host.js) injects mid-turn via the tui_gateway `session.steer`
+  // RPC on a 4009-busy. (Matches service/runtimes/hermes.py supports_steering=True;
+  // interrupt also available via the api_server /stop.) 2026-06-03.
+  get supportsSteering() { return true; }
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return true; }
   get preferredDeliveryMode() { return "managed-via-wrapper"; }

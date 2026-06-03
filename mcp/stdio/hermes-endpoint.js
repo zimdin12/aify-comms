@@ -25,6 +25,16 @@ import path from "node:path";
 const PORT_BASE = 8642; // first port in the per-agent range
 const PORT_SPAN = 1000; // range is PORT_BASE .. PORT_BASE + PORT_SPAN - 1 (8642–9641)
 
+// Single tmp-dir resolution shared by EVERY marker reader/writer (the wrapper's
+// `node -e`, server.js register, and hermes-managed-host.js's loop) so they all
+// agree on WHERE the markers live. The loop uses TEMP||TMP||os.tmpdir(); marker
+// helpers must default to the SAME order, else on a host where $TEMP/$TMP differ
+// from os.tmpdir() (Windows Git-Bash) the loop writes one dir and the wrapper
+// reads another → resume silently fails. (Review fix 2026-06-03.)
+function defaultMarkerTmpDir() {
+  return process.env.TEMP || process.env.TMP || os.tmpdir();
+}
+
 // FNV-1a 32-bit string hash — small, deterministic, no dependencies, no
 // randomness. Good enough to spread agentIds across the port span.
 function fnv1a(str) {
@@ -111,7 +121,7 @@ function claimedByOtherAgents(tempDir, selfAgentId) {
 // Persist file mirrors the per-agent key file convention.
 export async function resolveGatewayPort(
   agentId,
-  { tempDir = os.tmpdir(), portFree = isPortFree, probeSpan = 64 } = {},
+  { tempDir = defaultMarkerTmpDir(), portFree = isPortFree, probeSpan = 64 } = {},
 ) {
   const file = path.join(tempDir, `aify-hermes-port-${sanitizeAgentId(agentId)}`);
   const claimed = claimedByOtherAgents(tempDir, agentId);
@@ -191,7 +201,7 @@ function gatewayUrlMarkerPath(agentId, tempDir) {
   return path.join(tempDir, `aify-hermes-gateway-${sanitizeAgentId(agentId)}`);
 }
 
-export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "", tempDir = os.tmpdir() } = {}) {
+export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "", tempDir = defaultMarkerTmpDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   const url = String(gatewayUrl || "").trim();
   if (!safe || !/^wss?:\/\//i.test(url)) return false;
@@ -206,7 +216,7 @@ export function writeGatewayUrlMarker(agentId, gatewayUrl, { gatewayTokenEnv = "
   }
 }
 
-export function readGatewayUrlMarker(agentId, { tempDir = os.tmpdir() } = {}) {
+export function readGatewayUrlMarker(agentId, { tempDir = defaultMarkerTmpDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return null;
   try {
@@ -234,7 +244,7 @@ function sessionIdMarkerPath(agentId, tempDir) {
   return path.join(tempDir, `aify-hermes-session-${sanitizeAgentId(agentId)}`);
 }
 
-export function writeSessionIdMarker(agentId, sessionId, { tempDir = os.tmpdir() } = {}) {
+export function writeSessionIdMarker(agentId, sessionId, { tempDir = defaultMarkerTmpDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   const id = String(sessionId || "").trim();
   if (!safe || !id) return false;
@@ -246,7 +256,7 @@ export function writeSessionIdMarker(agentId, sessionId, { tempDir = os.tmpdir()
   }
 }
 
-export function readSessionIdMarker(agentId, { tempDir = os.tmpdir() } = {}) {
+export function readSessionIdMarker(agentId, { tempDir = defaultMarkerTmpDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return "";
   try {
@@ -257,10 +267,16 @@ export function readSessionIdMarker(agentId, { tempDir = os.tmpdir() } = {}) {
   }
 }
 
-export function clearGatewayMarkers(agentId, dir = os.tmpdir()) {
+// Clears the EPHEMERAL per-launch markers (port/key/gateway). These re-derive on
+// the next launch, so it is safe (and correct) to call this on a relaunch reap
+// (kill-prior -> stopDaemon) as well as terminal teardown. It deliberately does
+// NOT touch the SESSION-id marker: that is the persistent agent->real-session
+// binding the next launch must read to resume the SAME transcript — clearing it
+// here was the 2026-06-03 regression that made every relaunch start fresh.
+export function clearGatewayMarkers(agentId, dir = defaultMarkerTmpDir()) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return;
-  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`, `aify-hermes-session-${safe}`]) {
+  for (const name of [`aify-hermes-port-${safe}`, `aify-hermes-key-${safe}`, `aify-hermes-gateway-${safe}`]) {
     try {
       fs.rmSync(path.join(dir, name), { force: true });
     } catch {
@@ -269,9 +285,22 @@ export function clearGatewayMarkers(agentId, dir = os.tmpdir()) {
   }
 }
 
+// Clears the PERSISTENT session-id binding. Call ONLY on a TERMINAL teardown —
+// the agent was intentionally removed (410 from /dispatch/claim) — NOT on a
+// relaunch reap, or the next launch loses its transcript and starts fresh.
+export function clearSessionMarker(agentId, dir = defaultMarkerTmpDir()) {
+  const safe = sanitizeAgentId(agentId);
+  if (!safe) return;
+  try {
+    fs.rmSync(path.join(dir, `aify-hermes-session-${safe}`), { force: true });
+  } catch {
+    /* best-effort: never throw on teardown */
+  }
+}
+
 // Resolve the per-agent endpoint. tempDir is injectable for tests; defaults to
 // os.tmpdir() in production.
-export function agentEndpoint(agentId, { tempDir = os.tmpdir() } = {}) {
+export function agentEndpoint(agentId, { tempDir = defaultMarkerTmpDir() } = {}) {
   const host = "127.0.0.1";
   const port = agentPort(agentId);
   const key = loadOrCreateKey(agentId, tempDir);

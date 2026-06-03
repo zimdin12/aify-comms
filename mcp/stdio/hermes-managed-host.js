@@ -38,6 +38,7 @@ import {
   resolveGatewayPort,
   writeGatewayUrlMarker,
   clearGatewayMarkers as defaultClearGatewayMarkers,
+  clearSessionMarker as defaultClearSessionMarker,
   readSessionIdMarker,
   writeSessionIdMarker,
 } from "./hermes-endpoint.js";
@@ -166,6 +167,58 @@ const GATEWAY_PROBE_TIMEOUT_MS = Math.max(
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Flatten the many session.active_list envelope shapes into a row array. Mirrors
+// hermes-gateway-protocol.js's internal normalizer (kept local so the freshness
+// guard can read a chosen row's timestamp without an extra protocol export).
+function activeListRowsLocal(activeListResponse) {
+  return Array.isArray(activeListResponse)
+    ? activeListResponse
+    : Array.isArray(activeListResponse?.result?.sessions)
+    ? activeListResponse.result.sessions
+    : Array.isArray(activeListResponse?.sessions)
+    ? activeListResponse.sessions
+    : Array.isArray(activeListResponse?.result)
+    ? activeListResponse.result
+    : [];
+}
+
+// Freshness epoch (ms) of a session.active_list row — the SAME key precedence
+// pickMostRecentSession orders by (last_active → started_at → created_at). 0 when
+// no parseable timestamp is present (a row with no stamp can never clear a floor
+// that is > 0, so it's treated as not-fresh — the safe default for the guard).
+function rowFreshnessStamp(row) {
+  return (
+    Number(
+      Date.parse(
+        row?.last_active ||
+          row?.lastActive ||
+          row?.started_at ||
+          row?.startedAt ||
+          row?.created_at ||
+          row?.createdAt ||
+          0,
+      ),
+    ) || 0
+  );
+}
+
+// The real id off an active_list row (`id` / `session_id` / `sessionId`).
+function rowRealIdLocal(row) {
+  return String(row?.id || row?.session_id || row?.sessionId || "").trim();
+}
+
+// Freshness stamp of the row whose real id is `recentId` within an active_list
+// response (so the fallback can compare the CHOSEN most-recent session against
+// the freshness floor). 0 when the row can't be found / has no stamp.
+function stampForSessionId(activeListResponse, recentId) {
+  const wanted = String(recentId || "").trim();
+  if (!wanted) return 0;
+  for (const r of activeListRowsLocal(activeListResponse)) {
+    if (rowRealIdLocal(r) === wanted) return rowFreshnessStamp(r);
+  }
+  return 0;
 }
 
 // The STABLE resume key the visible TUI attaches under. Its runtime id is
@@ -765,11 +818,27 @@ export async function waitForActiveSession({
   intervalMs = ATTACH_POLL_MS,
   sleepImpl = sleep,
   now = Date.now,
+  // STALE-SESSION BIND-RACE GUARD (2026-06-03): on a RELAUNCH the per-agent
+  // gateway host is REUSED (ensureGatewayHost → child=null), so the loop can poll
+  // `session.active_list` BEFORE the freshly-relaunched `hermes --tui` re-attaches.
+  // The pickMostRecentSession FALLBACK would then bind a STALE prior session (the
+  // one being torn down) and persist it to the marker. To prevent that, the
+  // fallback only accepts a most-recent row whose freshness timestamp
+  // (last_active/started_at/created_at) is >= `since` (the loop/poll start epoch,
+  // captured at entry). A row older than `since` is a pre-attach leftover → keep
+  // WAITING within the deadline instead of binding it. The marker-matched real id
+  // (PRIMARY) is ALWAYS accepted regardless of freshness — it's the intended
+  // session; only the fallback gets the floor. `since` is injectable for tests.
+  since,
   // Marker read/write seams (best-effort; never throw in the delivery path).
   readMarker = readSessionIdMarker,
   writeMarker = writeSessionIdMarker,
   log = (msg) => console.error(msg),
 } = {}) {
+  // Freshness floor for the most-recent fallback. Captured ONCE at entry so it is
+  // the moment this (relaunched) delivery attempt began — any session that
+  // started before this is a stale pre-attach leftover.
+  const freshnessFloor = Number.isFinite(Number(since)) ? Number(since) : now();
   const id = String(agentId || "").trim();
   // Resolve the wanted real id once: explicit arg wins, else the marker.
   let wanted = String(wantId || "").trim();
@@ -805,20 +874,34 @@ export async function waitForActiveSession({
 
     // (b) FALLBACK: no bound id, or the bound id isn't live yet → most-recent
     // live session for this gateway. Persist it so subsequent launches agree.
+    // STALE-SESSION BIND-RACE GUARD: only accept the most-recent row when its
+    // freshness stamp is >= the freshness floor captured at entry. On a relaunch
+    // the reused gateway may still list the PRIOR (being-torn-down) session before
+    // the fresh `hermes --tui` re-attaches; binding+persisting that stale row would
+    // deliver to a dead session. A stale fallback row is SKIPPED → keep waiting
+    // within the deadline for the fresh attach (never hard-fail). The PRIMARY
+    // marker-matched id above bypasses this floor (it's the intended session).
     if (!sessionId) {
       const recent = pickMostRecentSession(listResp);
       if (recent) {
-        sessionId = recent;
-        if (id && recent !== wanted) {
-          // Capture the real id we fell back to (best-effort; never throws).
-          try {
-            writeMarker(id, recent, { tempDir });
-          } catch {
-            /* best-effort marker write — never break delivery */
+        const stamp = stampForSessionId(listResp, recent);
+        if (stamp >= freshnessFloor) {
+          sessionId = recent;
+          if (id && recent !== wanted) {
+            // Capture the real id we fell back to (best-effort; never throws).
+            try {
+              writeMarker(id, recent, { tempDir });
+            } catch {
+              /* best-effort marker write — never break delivery */
+            }
+            wanted = recent; // subsequent polls now treat this as the bound id.
+            log(
+              `[hermes-managed-host] '${id}': bound real session id ${recent} from gateway's most-recent live session (fallback).`,
+            );
           }
-          wanted = recent; // subsequent polls now treat this as the bound id.
+        } else if (attempts === 1) {
           log(
-            `[hermes-managed-host] '${id}': bound real session id ${recent} from gateway's most-recent live session (fallback).`,
+            `[hermes-managed-host] '${id}': most-recent gateway session ${recent} is stale (started before this delivery attempt); waiting for the fresh attach instead of binding it.`,
           );
         }
       }
@@ -871,6 +954,11 @@ export async function deliverRun({
 } = {}) {
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
   let id = typeof rpcId === "number" ? rpcId : Date.now() % 100000;
+  // STALE-SESSION BIND-RACE GUARD: capture WHEN this delivery attempt began so
+  // waitForActiveSession's most-recent fallback only binds a session that started
+  // at/after this point — never a stale pre-relaunch session the reused gateway is
+  // still listing while the fresh `hermes --tui` re-attaches.
+  const deliveryStartedAt = now();
   try {
     // Re-discover the agent's REAL session id every delivery (native-session-id
     // model, 2026-06-03), WAITING (bounded) for the cold-start attach to finish.
@@ -884,6 +972,8 @@ export async function deliverRun({
       deadlineMs: attachWaitMs,
       intervalMs: attachPollMs,
       sleepImpl,
+      now,
+      since: deliveryStartedAt,
     });
     if (!sessionId) {
       // Transient: TUI not attached yet → requeue so the next poll delivers.
@@ -1386,6 +1476,13 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // dead gateway / release / SIGTERM) — NOT a transient gateway retry — so it
     // is correct to drop the agent's stable port + key markers here. Injectable.
     clearGatewayMarkers = defaultClearGatewayMarkers,
+    // PERSISTENT session-id marker clear (2026-06-03). Distinct from
+    // clearGatewayMarkers (which no longer touches the session marker): the
+    // agent→real-session binding must survive a relaunch but be removed on a
+    // TERMINAL agent removal (410) so a deleted agent leaves no stale session
+    // binding behind. Called ONLY in the agent-removed branch below — NEVER on a
+    // released/relaunch teardown. Injectable so tests assert it.
+    clearSessionMarker = defaultClearSessionMarker,
     // Port→PID→kill primitive for a reused (child===null) gateway host (Task
     // 1.2). Injectable so tests assert the port-kill without touching a process.
     killByPort = defaultKillByPort,
@@ -1711,6 +1808,12 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           // `released`/dead-gateway teardown still keeps them for relaunch).
           if (result.terminal === "agent-removed") {
             try { clearGatewayMarkers(id, markerDir); } catch { /* best effort */ }
+            // FIX 3 (2026-06-03): the agent is TERMINALLY removed (tombstoned, no
+            // relaunch), so its persistent agent→real-session binding is now dead
+            // weight — clear it too. This is the ONLY teardown path that drops the
+            // session marker; a released/relaunch teardown deliberately keeps it so
+            // the next launch resumes the SAME transcript.
+            try { clearSessionMarker(id, markerDir); } catch { /* best effort */ }
           }
           console.error(
             `[hermes-managed-host] agent '${id}' ${result.terminal}; gateway torn down, exiting.`,
@@ -1759,10 +1862,13 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   const id = String(agentId || "").trim();
   if (!id) throw new Error("ensure-host requires an agentId");
   const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
-  // Pre-seed the stable `aify-<id>` DB session so the wrapper's
-  // `--resume aify-<id>` resolves on the very first launch (else the gateway
-  // returns 4007 and the TUI lands on "session not found"). Best-effort.
-  if (deps.ensureSession !== false) {
+  // DEAD PRE-SEED (2026-06-03 cleanup): the synthetic `aify-<id>` SessionDB row is
+  // no longer resumed — the native-session-id model resumes the agent's REAL
+  // session id (the marker), so ensureStableSession only littered
+  // `hermes sessions list` with an orphan `aify-<id>` row on EVERY launch. It is
+  // now OFF by default; the `ensureSession === true` seam is retained as an
+  // explicit opt-in (and so the existing `ensureSession:false` test stays green).
+  if (deps.ensureSession === true) {
     ensureStableSession({ agentId: id, spawnSync: deps.spawnSyncImpl });
   }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
@@ -1779,14 +1885,15 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   });
   // The gateway host must OUTLIVE this short-lived CLI process (the delivery
   // loop + the visible TUI attach to it). It was spawned detached+unref'd.
-  // `resumeKey` is the canonical pinnedSessionId — the wrapper should set
-  // HERMES_TUI_RESUME to THIS exact value (not reimplement sanitization in
-  // shell) so the TUI's resumed session matches the loop's pickSessionForKey.
+  // NOTE: the legacy `resumeKey` (synthetic `aify-<id>` name) is no longer
+  // emitted — the native-session-id model resumes the agent's REAL session id, so
+  // the wrapper no longer consumes a synthetic resume key (install.sh guards on
+  // its presence and falls back when absent). Dropped to stop advertising a dead
+  // field (2026-06-03 cleanup).
   const payload = {
     port: host.port,
     token: host.token,
     wsUrl: host.wsUrl,
-    resumeKey: sessionKeyFor(id),
   };
   out(JSON.stringify(payload) + "\n");
   err(`[hermes-managed-host] gateway host ready for '${id}' on port ${host.port}\n`);

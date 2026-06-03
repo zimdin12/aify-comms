@@ -112,10 +112,16 @@ function makeFakeWsClient(behaviors = {}) {
   };
 }
 
+// The agent's CURRENTLY-LIVE session. `started_at` is far-future so it always
+// clears the stale-session freshness floor (FIX 1, 2026-06-03): waitForActiveSession's
+// most-recent fallback only binds a row whose stamp is >= the delivery's start
+// epoch (since), so a fixture standing in for "the fresh, just-attached session"
+// must be dated at/after `since`. A fixed future date keeps the test
+// wall-clock-independent.
 const ACTIVE_LIST_RESULT = {
   result: {
     sessions: [
-      { id: "live-sid-ab12", session_key: "aify-sc-hermes", status: "ready", started_at: "2026-05-31T10:00:00Z" },
+      { id: "live-sid-ab12", session_key: "aify-sc-hermes", status: "ready", started_at: "2099-01-01T00:00:00Z" },
     ],
   },
 };
@@ -249,10 +255,12 @@ test("deliverRun: busy 4009 on prompt.submit → falls back to session.steer", a
 
 test("deliverRun: never caches the sid — re-runs active_list on every delivery", async () => {
   const { httpCall } = makeAifyHttp();
-  // First delivery sees sid A; second sees a DIFFERENT ephemeral sid B.
+  // First delivery sees sid A; second sees a DIFFERENT ephemeral sid B. Both are
+  // far-future-dated so each clears the stale-session freshness floor (FIX 1) —
+  // these are the agent's fresh live sessions, re-discovered per delivery.
   const lists = [
-    { result: { sessions: [{ id: "sid-A", session_key: "aify-sc-hermes" }] } },
-    { result: { sessions: [{ id: "sid-B", session_key: "aify-sc-hermes" }] } },
+    { result: { sessions: [{ id: "sid-A", session_key: "aify-sc-hermes", started_at: "2099-01-01T00:00:00Z" }] } },
+    { result: { sessions: [{ id: "sid-B", session_key: "aify-sc-hermes", started_at: "2099-01-01T00:00:00Z" }] } },
   ];
   let i = 0;
   const ws = makeFakeWsClient({
@@ -532,6 +540,9 @@ test("waitForActiveSession: FALLBACK — no marker → most-recent live session,
     deadlineMs: 1000,
     intervalMs: 1,
     sleepImpl: async () => {},
+    // Floor BEFORE the fixture's started_at so the fresh row clears it (FIX 1);
+    // pinned so the test is wall-clock-independent.
+    since: Date.parse("2026-06-03T00:00:00Z"),
     log: () => {},
   });
   assert.equal(sid, "real-2", "fallback targets the gateway's MOST-RECENT live session");
@@ -557,6 +568,7 @@ test("waitForActiveSession: FALLBACK — bound id present but NOT live → most-
     deadlineMs: 1000,
     intervalMs: 1,
     sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T00:00:00Z"), // floor below the fresh fixture (FIX 1)
     log: () => {},
   });
   assert.equal(sid, "real-2", "a stale bound id falls back to most-recent (never hard-fails)");
@@ -614,6 +626,7 @@ test("waitForActiveSession: best-effort marker write — a throwing writeMarker 
     deadlineMs: 1000,
     intervalMs: 1,
     sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T00:00:00Z"), // floor below the fresh fixture (FIX 1)
     log: () => {},
   });
   assert.equal(sid, "real-2", "fallback still resolves even when the marker write throws");
@@ -637,6 +650,124 @@ test("waitForActiveSession: reads the bound real id from the marker (default rea
     log: () => {},
   });
   assert.equal(sid, "real-1", "default readMarker resolves the bound real id from the marker file");
+});
+
+// ---------------------------------------------------------------------------
+// waitForActiveSession — STALE-SESSION BIND-RACE freshness floor (FIX 1, 2026-06-03).
+// On a RELAUNCH the per-agent gateway host is REUSED, so the loop can poll
+// session.active_list BEFORE the freshly-relaunched `hermes --tui` re-attaches.
+// The most-recent FALLBACK must NOT bind a STALE prior session (started before
+// this delivery attempt). Only a row whose freshness stamp is >= `since` is bound;
+// a stale row keeps WAITING within the deadline. A marker-matched real id (PRIMARY)
+// bypasses the floor (it's the intended session).
+// ---------------------------------------------------------------------------
+
+// One live session, STALE (started before the delivery attempt's `since`).
+const STALE_ONLY_SESSIONS = {
+  result: {
+    sessions: [
+      { id: "stale-real", status: "idle", started_at: "2026-06-03T09:00:00Z" },
+    ],
+  },
+};
+
+test("waitForActiveSession: FALLBACK freshness floor — a STALE most-recent row is NOT bound (keeps waiting → null at deadline)", async () => {
+  // The only live row started at 09:00, but this delivery attempt's floor is 10:00
+  // (a relaunch in progress). The stale pre-attach session must be SKIPPED — never
+  // bound, never persisted — and the wait runs out → null (requeue), not a stale bind.
+  const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
+  let id = 1;
+  let wrote = null;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "", // no bound id → fallback path
+    writeMarker: (a, v) => { wrote = { a, v }; },
+    nextId: () => id++,
+    deadlineMs: 10,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T10:00:00Z"), // floor AFTER the stale row's start
+    log: () => {},
+  });
+  assert.equal(sid, null, "a stale pre-attach session must NOT be bound (wait out the deadline instead)");
+  assert.equal(wrote, null, "a stale fallback row must NOT be persisted to the marker");
+});
+
+test("waitForActiveSession: FALLBACK freshness floor — a FRESH most-recent row (>= since) IS bound + persisted", async () => {
+  // Same shape, but now the row started at 11:00 which is >= the 10:00 floor — a
+  // genuinely fresh post-relaunch attach → bind it and persist its real id.
+  const FRESH = {
+    result: { sessions: [{ id: "fresh-real", status: "working", started_at: "2026-06-03T11:00:00Z" }] },
+  };
+  const ws = makeFakeWsClient({ "session.active_list": FRESH });
+  let id = 1;
+  let wrote = null;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "",
+    writeMarker: (a, v) => { wrote = { a, v }; },
+    nextId: () => id++,
+    deadlineMs: 1000,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T10:00:00Z"), // floor BEFORE the fresh row's start
+    log: () => {},
+  });
+  assert.equal(sid, "fresh-real", "a fresh (>= since) most-recent row is bound");
+  assert.ok(wrote && wrote.v === "fresh-real", "the fresh fallback row is persisted to the marker");
+});
+
+test("waitForActiveSession: freshness floor applies ONLY to the fallback — a marker-matched real id is bound even if STALE", async () => {
+  // The bound real id (PRIMARY) is the agent's INTENDED session; it must be
+  // delivered to regardless of its freshness stamp — the floor guards ONLY the
+  // most-recent fallback (the relaunch bind-race), never the explicit binding.
+  const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
+  let id = 1;
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "stale-real", // the marker points at the (stale-stamped) live row
+    writeMarker: () => {},
+    nextId: () => id++,
+    deadlineMs: 10,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T10:00:00Z"), // floor AFTER the row's start — irrelevant to PRIMARY
+    log: () => {},
+  });
+  assert.equal(sid, "stale-real", "a marker-matched real id bypasses the freshness floor (intended session)");
+});
+
+test("waitForActiveSession: freshness floor defaults to entry-time `now` when no `since` is passed", async () => {
+  // With no explicit `since`, the floor is `now()` at ENTRY. A row dated BEFORE
+  // that entry-now is stale → not bound (null at deadline). Proves the default
+  // wiring. `now` is captured ONCE for the floor but ADVANCES on subsequent calls
+  // so the deadline check still fires (a constant clock would never reach the
+  // deadline and spin forever).
+  const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
+  let id = 1;
+  // Entry-now sits AFTER the 2026-06-03T09:00 fixture so the default floor rejects
+  // it; each later call advances 5ms so deadline (entry+10ms) is reached quickly.
+  let clock = Date.parse("2026-06-03T10:00:00Z");
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "",
+    writeMarker: () => {},
+    nextId: () => id++,
+    deadlineMs: 10,
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    now: () => {
+      const t = clock;
+      clock += 5;
+      return t;
+    },
+    log: () => {},
+  });
+  assert.equal(sid, null, "default since=now() rejects a row that started before entry");
 });
 
 // ---------------------------------------------------------------------------
@@ -884,9 +1015,10 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
   assert.ok(typeof parsed.port === "number" && parsed.port >= 8642 && parsed.port <= 9641);
   assert.equal(parsed.wsUrl, `ws://127.0.0.1:${parsed.port}/api/ws?token=tok-abc123`);
   assert.deepEqual(payload, parsed);
-  // resumeKey is the canonical pinnedSessionId == the key the delivery loop
-  // matches in pickSessionForKey (`aify-<agentId>`).
-  assert.equal(parsed.resumeKey, "aify-sc-hermes");
+  // FIX 2 (2026-06-03): the legacy synthetic `resumeKey` (`aify-<id>`) is no
+  // longer emitted — the native-session-id model resumes the agent's REAL session
+  // id, so the dead field is dropped from the payload.
+  assert.ok(!("resumeKey" in parsed), "resumeKey must NOT be emitted (dead synthetic resume key)");
   // Loud-ish stderr breadcrumb, never on stdout.
   assert.ok(stderr.includes("sc-hermes"));
 });
@@ -1054,6 +1186,7 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
   const clearedGateway = [];
+  const clearedSession = [];
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
@@ -1066,6 +1199,7 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
     writeReady: () => {},
     clearReady: () => {},
     clearGatewayMarkers: (id) => clearedGateway.push(id),
+    clearSessionMarker: (id) => clearedSession.push(id),
     killByPort: () => {},
     procExit: () => {},
     maxIterations: 5,
@@ -1074,6 +1208,12 @@ test("runDeliveryLoop: clears gateway port/key markers on agent-removed (410) te
   assert.ok(
     clearedGateway.includes("sc-hermes"),
     "agent-removed (410) teardown must clear the gateway port/key markers (no relaunch coming)",
+  );
+  // FIX 3 (2026-06-03): a TERMINAL agent-removal must ALSO clear the persistent
+  // session-id marker so the deleted agent leaves no stale agent→session binding.
+  assert.ok(
+    clearedSession.includes("sc-hermes"),
+    "agent-removed (410) teardown must clear the session-id marker (terminal cleanup)",
   );
 });
 
@@ -1094,6 +1234,7 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
   };
   const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
   const clearedGateway = [];
+  const clearedSession = [];
 
   await runDeliveryLoop("sc-hermes", {
     httpCall,
@@ -1106,6 +1247,7 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
     writeReady: () => {},
     clearReady: () => {},
     clearGatewayMarkers: (id) => clearedGateway.push(id),
+    clearSessionMarker: (id) => clearedSession.push(id),
     killByPort: () => {},
     procExit: () => {},
     maxIterations: 3,
@@ -1115,6 +1257,14 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
     clearedGateway.length,
     0,
     "a non-removed (released) teardown must preserve gateway markers for kill-prior",
+  );
+  // FIX 3 (2026-06-03): a relaunch-capable (released) teardown must PRESERVE the
+  // session-id marker so the next launch resumes the SAME transcript — only a
+  // TERMINAL agent-removal clears it.
+  assert.equal(
+    clearedSession.length,
+    0,
+    "a released (relaunch-capable) teardown must NOT clear the session-id marker",
   );
 });
 
@@ -1665,4 +1815,38 @@ test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async ()
     err: () => {},
   });
   assert.equal(preseedCalled, false);
+});
+
+test("runEnsureHostCli: DEFAULT (no ensureSession) skips the dead aify-<id> pre-seed (FIX 2)", async () => {
+  // FIX 2 (2026-06-03): pre-seeding the synthetic `aify-<id>` SessionDB row is dead
+  // (the native-session-id model resumes the REAL session id), and it littered
+  // `hermes sessions list` with an orphan row on EVERY launch. It is now OFF by
+  // default — only an explicit `ensureSession: true` opt-in still runs it.
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  let preseedCalled = false;
+  await runEnsureHostCli("sc-hermes", {
+    spawnImpl: spawn,
+    fetchImpl,
+    // No ensureSession key → must NOT pre-seed (the new default).
+    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(preseedCalled, false, "default ensure-host must NOT pre-seed the orphan aify-<id> row");
+});
+
+test("runEnsureHostCli: ensureSession:true still runs the pre-seed (explicit opt-in seam)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  let preseedCalled = false;
+  await runEnsureHostCli("sc-hermes", {
+    spawnImpl: spawn,
+    fetchImpl,
+    ensureSession: true,
+    spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(preseedCalled, true, "explicit ensureSession:true opt-in still pre-seeds");
 });

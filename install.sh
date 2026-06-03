@@ -1333,7 +1333,7 @@ if [ -z "\$HERMES_AIFY_AGENT_ID" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
       ;;
   esac
   if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
-    echo "[hermes-aify] resolved aify agent '\$HERMES_AIFY_AGENT_ID' from --resume '\$HERMES_SESSION_HANDLE' — engaging gateway-host model (resuming aify-\$HERMES_AIFY_AGENT_ID)." >&2
+    echo "[hermes-aify] resolved aify agent '\$HERMES_AIFY_AGENT_ID' from --resume '\$HERMES_SESSION_HANDLE' — engaging gateway-host model (resuming the agent's real hermes session id)." >&2
   fi
 fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
@@ -1617,6 +1617,19 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_CHANNELS_ENABLED=1
+  # Per-agent TUI active-session file: the visible hermes session writes its REAL
+  # native session id here, and the in-session MCP bridge (adapters/hermes.js
+  # discoverSessionId) reads it to register a real handle on FIRST launch — instead
+  # of an EMPTY handle that only gets bound later by the delivery loop's fallback.
+  # The plugin (patches.py:_launch_tui) gates the redirect on
+  # HERMES_TUI_ACTIVE_SESSION_FILE; the bridge prefers AIFY_HERMES_ACTIVE_SESSION_FILE
+  # then falls back to HERMES_TUI_ACTIVE_SESSION_FILE — point BOTH at the SAME path so
+  # the writer (TUI/gateway host) and the reader (bridge) agree. Use the marker tmp dir
+  # (TEMP||TMP||os.tmpdir(), == \${TMPDIR:-/tmp} here). Exported BEFORE ensure-host and
+  # the TUI exec so the gateway host, the exec'd TUI, and the MCP child all inherit it.
+  HERMES_AIFY_ACTIVE_SESSION_FILE="\${TMPDIR:-/tmp}/aify-hermes-active-\$HERMES_AIFY_AGENT_ID.json"
+  export HERMES_TUI_ACTIVE_SESSION_FILE="\$HERMES_AIFY_ACTIVE_SESSION_FILE"
+  export AIFY_HERMES_ACTIVE_SESSION_FILE="\$HERMES_AIFY_ACTIVE_SESSION_FILE"
   # (2) Hidden gateway host → capture {port,token,wsUrl} as ONE JSON line.
   if ! HERMES_HOST_JSON="\$(node "\$AIFY_HERMES_MANAGED_HOST_JS" ensure-host "\$HERMES_AIFY_AGENT_ID")"; then
     echo "[hermes-aify] FATAL: managed gateway host for '\$HERMES_AIFY_AGENT_ID' did not come up." >&2
@@ -1676,10 +1689,15 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   if [ -n "\$AIFY_HERMES_TUI_DIR" ] && [ -f "\$AIFY_HERMES_TUI_DIR/dist/entry.js" ]; then
     export HERMES_TUI_DIR="\$AIFY_HERMES_TUI_DIR"
   fi
-  # Resume the agent's REAL native session id (continuous transcript) when the
-  # marker resolved one; otherwise launch a FRESH session with NO \`--resume\` so
-  # hermes assigns a new real id (the bridge captures+stores it on register).
-  # \`--resume\` MUST precede the operator's passthrough flags.
+  # Resume target precedence: (a) an EXPLICIT operator \`--resume <id>\` handle wins
+  # (the operator asked for that specific session); (b) else the agent's REAL native
+  # session id from the marker (continuous transcript); (c) else a FRESH session with
+  # NO \`--resume\` so hermes assigns a new real id (the bridge captures+stores it on
+  # register). \`--resume\` MUST precede the operator's passthrough flags.
+  if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
+    echo "[hermes-aify] resuming explicit hermes session '\$HERMES_SESSION_HANDLE' for agent '\$HERMES_AIFY_AGENT_ID'." >&2
+    exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE" "\${HERMES_PERMISSION_FLAGS[@]}"
+  fi
   if [ -n "\$HERMES_RESUME_REAL_ID" ]; then
     echo "[hermes-aify] resuming real hermes session '\$HERMES_RESUME_REAL_ID' for agent '\$HERMES_AIFY_AGENT_ID'." >&2
     exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_RESUME_REAL_ID" "\${HERMES_PERMISSION_FLAGS[@]}"
