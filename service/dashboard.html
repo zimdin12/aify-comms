@@ -1278,7 +1278,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
                 <span>Open only</span>
               </label>
-              <label class="chat-toggle" title="Hide agents that aren't live — offline, stale, stopped, or registered with no live session. Starred chats and chats with unread messages stay visible.">
+              <label class="chat-toggle" title="Show only agents with a live session (hide agents not in the Sessions list). Starred + unread stay visible.">
                 <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
                 <span>Hide offline</span>
               </label>
@@ -3308,6 +3308,22 @@ function sessionsForAgent(agentId) {
     .sort((a, b) => String(b.lastSeen || b.createdAt || '').localeCompare(String(a.lastSeen || a.createdAt || '')));
 }
 
+// Mirrors the server's live-session gate (_agent_has_live_session in
+// api_v2.py): an agent counts as having a LIVE session when it owns an
+// agent_sessions row (window._sessions) whose status is in the live set.
+// These are exactly the rows the Sessions view renders (non-quiet), so this
+// is the canonical "appears in the Sessions list" test used by the chat
+// "Hide offline" toggle — independent of the computed presence dot, which can
+// read `stale` for a resident agent that still has a live session.
+const LIVE_SESSION_STATUSES = new Set(['starting', 'running', 'recovering', 'restarting', 'attached', 'active', 'idle', 'claimed', 'cli-takeover']);
+function agentHasLiveSession(agentId) {
+  if (!agentId) return false;
+  return (window._sessions || []).some(session =>
+    session.agentId === agentId
+    && LIVE_SESSION_STATUSES.has(String(session.status || '').toLowerCase())
+    && !String(session.id || '').startsWith('vterm_'));
+}
+
 function primarySessionForAgent(agentId) {
   const agentInfo = (window._allAgents || []).find(([id]) => id === agentId)?.[1] || {};
   const sessions = sessionsForAgent(agentId);
@@ -3335,7 +3351,14 @@ function environmentSupportsConsoleForSession(environment, session) {
 function sessionPriorityScore(session, agentInfo = {}) {
   const state = agentInfo.runtimeState || {};
   const status = String(session.status || '').toLowerCase();
-  const terminal = ['failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled'].includes(status);
+  // `retired`/`terminated` are terminal too — a resident->managed (or
+  // managed->resident) switch RETIRES the superseded session. If retired didn't
+  // score 0 here it would still win as primarySessionForAgent(), so the chat row
+  // kept showing the OLD resident session/mode ("resident · console") right
+  // after a switch even though agents.sessionMode already flipped to managed
+  // (the lag the operator saw switching mp-senior-dev resident->managed,
+  // 2026-06-03). Scoring it 0 lets the new managed session (or none) win.
+  const terminal = ['failed', 'lost', 'stopped', 'ended', 'completed', 'cancelled', 'retired', 'terminated'].includes(status);
   let score = terminal ? 0 : 1000;
   if (session.spawnRequestId && session.spawnRequestId === state.spawnRequestId) score += 5000;
   if (session.environmentId && session.environmentId === state.environmentId) score += 800;
@@ -5216,9 +5239,9 @@ function updateChatToolPanels() {
 
 function isOnlineChatAgent(info) {
   // NOTE: no longer drives the "Hide offline" chat toggle — that filter now keys
-  // off the canonical computed presence dot kind (chatPresenceForAgent) via
-  // NON_LIVE_PRESENCE in chatConversations(), so stale/stopped/dead-session
-  // agents are hidden too. Kept as a raw-status helper for any other callers.
+  // off live-session state (agentHasLiveSession) in chatConversations(), so an
+  // agent is hidden when it has no session in the Sessions list regardless of
+  // its raw status. Kept as a raw-status helper for any other callers.
   const raw = String(info?.statusRaw || info?.status || '').toLowerCase();
   return !['offline', 'stale', 'stopped', 'unreachable'].includes(raw);
 }
@@ -5332,13 +5355,12 @@ function chatConversations() {
     if (liveChatAgentIds.has(id)) return false;
     return !isRosterPresent(id);
   };
-  // Non-live presence dot kinds — the same set the CSS greys out
-  // (.chat-status-dot.offline,.stale,.stopped) plus `unreachable`, which is the
-  // dot kind chatPresenceForAgent() returns for a registered-but-no-live-session
-  // agent (liveIssueForAgent fired but raw status isn't offline/stale/stopped).
-  // "Hide offline" must hide ALL of these, not just env-offline, so stale/stopped
-  // and dead-session agents stop cluttering the chat rail.
-  const NON_LIVE_PRESENCE = new Set(['offline', 'stale', 'stopped', 'unreachable']);
+  // "Hide offline" now keys off LIVE-SESSION state, not the presence dot. The
+  // dot is unreliable for this: several resident agents that DO have a live
+  // session compute as `stale` (so a presence-based filter wrongly hid them),
+  // while session-less agents can read `available`/`online` and slip through.
+  // The operator's intent is "show only agents that appear in the Sessions
+  // list", so we test agentHasLiveSession(id) directly (see its definition).
   const dmItems = sortItems([...agentIds].map(id => {
     const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
     const deleted = isRailDeleted(id);
@@ -5353,11 +5375,12 @@ function chatConversations() {
       : chatPresenceForAgent(info);
     const unread = unreadForAgentConversation(id, identity);
     const favorited = !!info.favorited;
-    // "Hide offline": drop any agent whose computed chat presence is non-live
-    // (offline/stale/stopped/unreachable), matching the greyed-out dots. Always
-    // keep starred chats and chats with unread messages visible regardless, so
-    // the operator never loses a pinned or unanswered conversation.
-    if (onlineOnly && !deleted && NON_LIVE_PRESENCE.has(presence?.kind) && !favorited && unread <= 0) return null;
+    // "Hide offline": drop any DM agent that has NO live session (i.e. does not
+    // appear in the Sessions list). Agents WITH a live session stay regardless
+    // of stale/available/online dot. Always keep starred chats and chats with
+    // unread messages visible, so the operator never loses a pinned or
+    // unanswered conversation.
+    if (onlineOnly && !deleted && !agentHasLiveSession(id) && !favorited && unread <= 0) return null;
     return {
       key: `dm:${id}`,
       kind: 'dm',
@@ -6185,11 +6208,20 @@ function sessionPresenceForSession(session = {}, agentInfo = {}) {
 }
 
 function sessionModeSummary(session = {}, agentInfo = {}) {
-  const ownerMode = String(session.ownerMode || agentInfo.sessionMode || '').toLowerCase();
+  // The agent record's sessionMode is the authoritative current ownership (it's
+  // what the switch endpoint updates and what the Actions menu reads). When it's
+  // known it WINS over the session row's ownerMode/mode — otherwise a retired
+  // resident session left in window._sessions right after a resident->managed
+  // switch would render the row as "resident" while sessionMode already says
+  // managed (the post-switch display lag). Fall back to the session fields only
+  // when the agent record has no sessionMode.
+  const agentMode = String(agentInfo.sessionMode || '').toLowerCase();
+  const ownerMode = String(session.ownerMode || '').toLowerCase();
   const mode = String(session.mode || '').toLowerCase();
   const caps = session.capabilities || {};
   const parts = [];
-  if (ownerMode === 'resident' || mode === 'resident' || String(agentInfo.sessionMode || '').toLowerCase() === 'resident') {
+  const effectiveMode = agentMode || ownerMode || mode;
+  if (effectiveMode === 'resident') {
     parts.push('resident');
   } else {
     parts.push('managed');
