@@ -6,6 +6,17 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 (correctness gate) and [DASHBOARD_8801_UX.md](DASHBOARD_8801_UX.md)
 (UX direction).
 
+> **Current-model note (2026-06-03):** this is a target/design reference and a
+> few specifics have since moved on. Hermes delivery is now the visible-TUI
+> gateway-host model with a native-session-id scheme (see
+> [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)): managed and resident both run
+> a hidden per-agent gateway host plus a `hermes-managed-host.js` delivery loop
+> that submits into the visible TUI's real session — it is not raw wrapper-PTY
+> injection. Status is event-driven (turn-start → `working`, turn-end → idle)
+> with liveness heartbeats. The RuntimeAdapter / per-runtime controller split
+> below shipped and is accurate; the line-count figures in "Remaining gaps" are
+> point-in-time and have drifted.
+
 **Implementation status (post Plans 1+2+3):**
 - **All runtimes go through a unified `RuntimeAdapter` abstraction.** JS
   adapters at `mcp/stdio/adapters/`, Python mirror at `service/runtimes/`.
@@ -45,9 +56,10 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 - **Console** = operator attach/control/view into the agent's backing
   runtime terminal. Hidden consoles don't need to render; the backend
   still tracks output/state.
-- **Message delivery** goes through the runtime backing process: `claude-aify`,
-  `codex-aify`, and `hermes-aify` wrapper PTYs for the runtimes with
-  multi-client injection, or the persistent OMP RPC virtual terminal for Pi.
+- **Message delivery** goes through the runtime backing process: the
+  `claude-aify` wrapper PTY (Claude), the Codex app-server via the `codex-aify`
+  wrapper child bridge, the per-agent Hermes gateway host + `hermes-managed-host.js`
+  delivery loop (Hermes), or the persistent OMP RPC virtual terminal (Pi).
   **Not** ad-hoc service injection into a human console pane.
 - **Status** is reported by the `*-aify` wrapper where possible: turn
   start/end, blocked/awaiting-input, idle prompt, fatal/error, session
@@ -62,12 +74,12 @@ Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md)
 Most of the original mismatches are closed by the RuntimeAdapter
 refactor. Surviving items:
 
-1. **runtimes.js still ~2110 lines** — the per-runtime controllers
+1. **runtimes.js still ~2200 lines** — the per-runtime controllers
    extracted out, but helper functions (codex-config, codex-live-discovery,
    executable-resolution, RPC clients) still live in the monolith. Plan 3
-   follow-up tracked: split into four per-concern modules so runtimes.js
+   follow-up tracked: split into per-concern modules so runtimes.js
    reaches the ≤500 target.
-2. **`service/routers/api_v2.py` is ~13000 lines** — egregious 500-line
+2. **`service/routers/api_v2.py` is ~18800 lines** — egregious 500-line
    rule violation. Separate plan (Plan 5 territory). Plans 1+2+3 deliberately
    did NOT add to its bulk; new code went into the runtimes/ adapter package
    and the pi-flip helpers stayed surgical.

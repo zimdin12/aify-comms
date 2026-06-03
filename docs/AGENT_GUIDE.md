@@ -21,7 +21,8 @@ This guide is for coding agents working on `aify-comms`.
 | Data model | `service/models.py`, `service/db.py` | Persistent SQLite schema and migrations |
 | Dashboard | `service/dashboard.html` | Single-page app for control, chat, agents, analytics, environments, sessions, runs, artifacts, help, settings |
 | Stdio bridge | `mcp/stdio/server.js` | MCP tools, resident wake, environment-backed managed sessions, environment heartbeat/control loops |
-| Runtime adapters | `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt behavior |
+| Runtime adapters | `mcp/stdio/adapters/<rt>.js` | Per-runtime capability flags, session-id discovery, resume command |
+| Runtime controllers | `mcp/stdio/controllers/<rt>-*.js`, `mcp/stdio/runtimes.js` | Runtime-specific launch/resume/interrupt/delivery behavior |
 | Skills | `.agents/skills`, `.claude/skills` | Agent-facing instructions for Codex and Claude Code |
 | Install docs | `install.codex.md`, `install.claude.md`, `install.hermes.md`, `install.opencode.md`, `install.pi.md` | Runtime-specific setup |
 

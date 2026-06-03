@@ -314,7 +314,7 @@ The prebuild is idempotent — re-running `install.sh --client hermes` after web
 
 When `hermes-aify` cannot start the dashboard gateway (port allocation failure, dashboard probe timeout, missing web_dist, token capture failure) or when `AIFY_HERMES_SKIP_GATEWAY=1` is set, it now prints a multi-line WARNING block before exec-ing plain `hermes`:
 
-```
+```text
 [hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.
 [hermes-aify]   Reason: <one of port_alloc_failed / dashboard_unreachable / token_capture_failed / gateway_disabled>
 [hermes-aify]   Log:    ~/.local/state/aify-comms/hermes-aify-dashboard-<port>.log
@@ -368,11 +368,13 @@ wrapper-backed delivery is disabled or unavailable.
 - OR delete the `aify-comms:` block entirely and rerun `bash install.sh --client hermes` to regenerate it
 
 Current managed Hermes defaults to wrapper-backed `hermes-aify` PTY delivery
-(`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY,
-the wrapper starts the local dashboard gateway, and the child bridge delivers
-through `aify.session.bind_transport` plus `prompt.submit` / `session.steer`.
-The rest of this section describes the native controller fallback used only
-when wrapper-backed delivery is disabled or unavailable.
+(`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY, the
+wrapper starts the local dashboard gateway, and the delivery loop delivers into
+the agent's real session via gateway-WS `prompt.submit` / `session.steer` (see
+the "Delivery path" section above — the old `aify.session.bind_transport`
+negotiation is retired). The rest of this section describes the native
+controller fallback used only when wrapper-backed delivery is disabled or
+unavailable.
 
 On the fallback path, the bridge spawns a single `hermes acp --accept-hooks`
 per agentId on first dispatch, runs the ACP handshake (`initialize` →

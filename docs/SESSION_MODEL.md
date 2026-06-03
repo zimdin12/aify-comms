@@ -145,7 +145,7 @@ Runtime model defaults and overrides:
 - managed Claude Code and Codex both default to `high` effort/reasoning effort
 - managed Oh My Pi uses its runtime defaults unless model/thinking are supplied through Dashboard Runtime settings or runtime config; blank or `default` model means no explicit `--model` override, and Pi effort maps to OMP `--thinking`
 - managed Oh My Pi supports active-run steering by sending OMP's native RPC `steer` command; explicit queueing remains available with `queueIfBusy=true`
-- managed Hermes uses the terminal-capable PTY path; resumable IDs can be stored when known, but an active managed PTY is the primary warm backing while it is alive
+- managed Hermes uses the wrapper-backed visible-TUI gateway path; the agent's real Hermes session id is captured and stored (native-session-id model), and an active wrapper PTY attached to the per-agent gateway host is the primary warm backing while it is alive
 - dashboard settings define operator defaults; normal dashboard spawn/agent edit flows do not tune model/effort per agent
 - Bridge-spawned `claude-aify` receives model/effort through managed wrapper env and passes them to Claude as `--model` / `--effort` at wrapper launch; existing running PTYs need restart after a policy change
 - Codex uses the managed `CODEX_HOME` plus explicit turn effort values, and only sends thread/turn model values when the global model override is set
@@ -211,7 +211,7 @@ Examples:
 - Claude managed-warm uses a bridge-owned interactive `claude-aify` PTY backing. It may not show up in the `claude-aify` resume picker, but the same session can be opened by ID with `claude-aify --resume <session-id>` when the backing has recorded a resume ID.
 - To match managed Claude's unattended permission behavior in a resumed CLI, use `claude-aify --dangerously-skip-permissions --resume <session-id>`. `--permanently-skip-permissions` is not a Claude Code CLI option.
 - Codex managed-warm stores threads in the managed Codex home used by the bridge. To open one in a CLI, use the dashboard-generated resume command so `CODEX_HOME` points at that managed store before `codex resume --include-non-interactive <thread-id>`.
-- Hermes managed-warm uses the same PTY delivery path; open a visible resident terminal with `hermes-aify --aify-agent <agent-id> --resume <session-id>` when a real Hermes session ID is known.
+- Hermes managed-warm delivers through the wrapper-backed visible-TUI gateway; open a visible resident terminal with `hermes-aify --aify-agent <agent-id> --resume <session-id>` when a real Hermes session ID is known.
 - Pi managed-warm should stay managed for triggerable dashboard delivery. `omp-aify --resume <session-id>` or `pi-aify --resume <session-id>` is a presence/standalone takeover command; do not run it against the same session id while the bridge owns the managed RPC child.
 
 Dashboard rule:

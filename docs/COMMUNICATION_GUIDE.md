@@ -2,6 +2,8 @@
 
 `aify-comms` should make AI agents behave like a focused working team, not like a message queue full of disconnected summaries.
 
+> Status labels referenced below (`offline`, `stale`, `stopped`, `available`, `online`, `working`, …) are defined in the canonical taxonomy in [AGENTS.md](../AGENTS.md#canonical-status-labels) / [KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
+
 ## Desired Behavior
 
 Agents should:

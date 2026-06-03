@@ -1,9 +1,10 @@
 # Clean Uninstall
 
-This project installs three separate things:
+This project installs four separate things:
 
 - the Docker service/dashboard and its data volume
-- host-side bridge/wrapper scripts such as `aify-comms`, `codex-aify`, `claude-aify`, `hermes-aify`, `omp-aify`, and `pi-aify`
+- host-side bridge/wrapper scripts such as `aify-comms`, `codex-aify`, `claude-aify`, `hermes-aify`, `omp-aify`, and `pi-aify` (under `~/.local/bin`)
+- the native bridge runtime that `install.sh` copies to `~/.aify-comms` (override base: `AIFY_HOME`)
 - MCP client config and skills for Claude Code, Codex, Hermes, OpenCode, or Oh My Pi
 
 Remove only the parts you actually want gone.
@@ -26,6 +27,16 @@ Get-CimInstance Win32_Process |
 ```
 
 If you started a bridge in a dedicated terminal, closing that terminal is also enough.
+
+## Remove The Native Bridge Runtime
+
+`install.sh` copies the host-side bridge (`mcp/stdio` + `node_modules`) into a
+native dotfolder that every wrapper and MCP config points at. Remove it once all
+clients are uninstalled:
+
+```bash
+rm -rf "${AIFY_HOME:-$HOME/.aify-comms}"
+```
 
 ## Stop Or Remove The Docker Service
 
@@ -116,7 +127,10 @@ rm -rf "$HOME/.local/state/aify-comms"
 
 ## Remove Hermes Integration
 
-Hermes config is YAML. Remove the `mcp_servers.aify-comms` entry from:
+Hermes config is YAML. Remove the `mcp_servers.aify-comms` entry from the
+active Hermes config file. On native Windows this is often
+`%LOCALAPPDATA%\hermes\config.yaml` rather than `~/.hermes/config.yaml`; run
+`hermes config path` to confirm the exact location:
 
 ```text
 ~/.hermes/config.yaml
