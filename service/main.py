@@ -68,6 +68,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
+        _reconcile_duplicate_resident_sessions,
         _reconcile_managed_worker_hygiene,
         _reroute_orphaned_managed_channel_runs,
         _reconcile_stale_managed_terminals_for_resident_agents,
@@ -152,6 +153,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # claude is either online-with-console or fully down — never a headless
         # background worker (visible-TUI hard requirement).
         managed_hygiene = await _reconcile_managed_worker_hygiene(db)
+        # Collapse duplicate/stale resident sessions to one-per-agent so the
+        # dashboard stops showing 2+ resident_* rows the operator can't tell apart
+        # (2026-06-03). Keeps the freshest; retires the rest.
+        deduped_resident_sessions = await _reconcile_duplicate_resident_sessions(db)
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
@@ -172,6 +177,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "rerouted_channel_runs": rerouted_channel_runs,
+            "deduped_resident_sessions": deduped_resident_sessions,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),

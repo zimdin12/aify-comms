@@ -594,6 +594,43 @@ async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
         return False
 
 
+async def _has_live_managed_wrapper_child(db, agent_id: str) -> bool:
+    """FIX SET B2 (2026-06-03): True when a live `managed-wrapper-child` bridge
+    (the visible TUI's in-session aify-comms MCP, registered by a wrapper-backed
+    managed worker — codex/hermes) is currently heartbeating for this agent.
+
+    This is the deliverability signal a wrapper-backed managed 'channel' run needs:
+    the run is rejected `managed_wrapper_child_required` until such a bridge claims
+    it, so the send-path autostart must NOT treat a leftover RESIDENT-mode terminal
+    as satisfying the managed coldstart. Returns False when no row exists, the row
+    is superseded, or its heartbeat is older than ACTIVE_RUN_BRIDGE_STALE_SECONDS
+    (mirrors _has_live_channel_sidecar's cutoff construction exactly)."""
+    if db is None:
+        return False
+    try:
+        cursor = await db.execute(
+            """
+            SELECT last_seen FROM bridge_instances
+            WHERE agent_id = ?
+              AND bridge_kind = 'managed-wrapper-child'
+              AND COALESCE(superseded_by, '') = ''
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (agent_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        last_seen = _iso_to_epoch(str(row["last_seen"] or ""))
+        if not last_seen:
+            return False
+        age = datetime.now(timezone.utc).timestamp() - last_seen
+        return age <= ACTIVE_RUN_BRIDGE_STALE_SECONDS
+    except Exception:
+        return False
+
+
 async def _claimer_lease_row(db, agent_id: str):
     """WS5 Task 5.1: fetch the agent's single claimer-lease row (or None when no
     lease has EVER been recorded). Returns the raw row so callers can distinguish
@@ -12609,18 +12646,50 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         side_effects: dict[str, Any] = {}
         try:
             if new_mode == "managed":
-                terminal = await _ensure_managed_pty_for_dispatch(
-                    db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
-                )
-                if terminal is not None:
-                    # `_ensure_managed_pty_for_dispatch` returns either a sqlite
-                    # Row (existing active terminal) or a dict (newly spawned).
-                    try:
-                        side_effects["managedTerminalId"] = terminal["id"] if "id" in terminal.keys() else terminal.get("id")
-                    except Exception:
-                        side_effects["managedTerminalId"] = None
+                # FIX SET B1 (2026-06-03): wrapper-backed managed runtimes
+                # (codex/hermes) must NOT eager-start via
+                # _ensure_managed_pty_for_dispatch — that re-attaches a PTY to the
+                # leftover RESIDENT agent_sessions row (a resident `*-aify --resume`,
+                # NOT a managed-warm worker), so no `managed-wrapper-child` bridge
+                # registers and the next 'channel' run is rejected
+                # `managed_wrapper_child_required` → queued forever (the lc-coder
+                # resident→managed strand). Instead: RETIRE the leftover non-terminal
+                # resident agent_sessions row(s) and cold-start a managed-warm
+                # spawn_request so a bridge spawns a real managed worker whose
+                # in-session MCP registers the wrapper-child claimer.
+                if _managed_via_wrapper_for_runtime(settings, runtime):
+                    await db.execute(
+                        """
+                        UPDATE agent_sessions
+                        SET status = 'retired', last_seen = ?
+                        WHERE agent_id = ?
+                          AND COALESCE(status, '') NOT IN ('retired', 'stopped', 'terminated', 'failed')
+                        """,
+                        (now, agent_id),
+                    )
+                    coldstarted = await _coldstart_spawn_request_for_dispatch(
+                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
+                    )
+                    if coldstarted:
+                        side_effects["managedSpawnRequested"] = True
+                    else:
+                        side_effects["error"] = (
+                            "No online environment can host managed "
+                            f"{runtime} for this agent; start an environment bridge that advertises {runtime}."
+                        )
                 else:
-                    side_effects["error"] = "No managed session/backing was available for eager PTY start."
+                    terminal = await _ensure_managed_pty_for_dispatch(
+                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
+                    )
+                    if terminal is not None:
+                        # `_ensure_managed_pty_for_dispatch` returns either a sqlite
+                        # Row (existing active terminal) or a dict (newly spawned).
+                        try:
+                            side_effects["managedTerminalId"] = terminal["id"] if "id" in terminal.keys() else terminal.get("id")
+                        except Exception:
+                            side_effects["managedTerminalId"] = None
+                    else:
+                        side_effects["error"] = "No managed session/backing was available for eager PTY start."
             else:
                 # managed -> resident: best-effort stop of any active managed PTY.
                 active = await _active_terminal_for_agent(db, agent_id, settings=settings)
@@ -13157,6 +13226,20 @@ async def send_message(req: MessageSend, request: Request):
                         and _managed_via_wrapper_for_runtime(settings, runtime)
                     ):
                         console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        # FIX SET B2 (2026-06-03): for a wrapper-backed runtime a
+                        # leftover RESIDENT-mode terminal_session must NOT short-
+                        # circuit the managed coldstart. _active_terminal_for_agent /
+                        # _ensure_managed_pty_for_dispatch would re-attach a PTY to
+                        # that stale resident row (a resident `--resume`, NOT a
+                        # managed-warm worker), so no `managed-wrapper-child` bridge
+                        # ever registers and the 'channel' run is rejected
+                        # `managed_wrapper_child_required` → queued forever (the
+                        # lc-coder strand). Only a LIVE managed-wrapper-child proves a
+                        # managed worker is actually backing this agent; absent it,
+                        # drop the leftover terminal so the coldstart branch below
+                        # fires and a managed-warm worker is spawned.
+                        if console_terminal and not await _has_live_managed_wrapper_child(db, recipient_id):
+                            console_terminal = None
                         if not console_terminal:
                             console_terminal = await _ensure_managed_pty_for_dispatch(
                                 db,
@@ -13165,6 +13248,11 @@ async def send_message(req: MessageSend, request: Request):
                                 settings=settings,
                                 requested_by=req.from_agent,
                             )
+                            # The PTY re-attach above can still resolve a leftover
+                            # resident row; re-gate on the live wrapper-child so a
+                            # non-managed terminal never suppresses the coldstart.
+                            if console_terminal and not await _has_live_managed_wrapper_child(db, recipient_id):
+                                console_terminal = None
                         if not console_terminal:
                             # Phase 2 lazy-autostart: no live wrapper PTY to
                             # back this agent (it was only registered, never
@@ -13784,11 +13872,25 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     now=now,
                 )
             else:
+                # FIX SET B3 (2026-06-03): the 30s liveness beat from the host-side
+                # bridge (server.js) posts bridgeKind="resident", but the SAME agent
+                # may have a wrapper-child / channel-sidecar bridge row that registered
+                # the authoritative managed kind. A plain COALESCE(NULLIF(?,''),...)
+                # let that generic "resident" beat DEMOTE a 'managed-wrapper-child'
+                # (or 'channel-sidecar') back to 'resident' — after which
+                # _has_live_managed_wrapper_child / _has_live_channel_sidecar stop
+                # matching and the managed agent loses its claimer (the lc-coder /
+                # codex-managed strand). Guard: an incoming '' or 'resident' can NEVER
+                # overwrite an existing 'managed-wrapper-child' or 'channel-sidecar';
+                # any other incoming kind still COALESCE-wins as before.
                 updated = await db.execute(
                     "UPDATE bridge_instances SET last_seen = ?, "
-                    "bridge_kind = COALESCE(NULLIF(?, ''), bridge_kind) "
+                    "bridge_kind = CASE "
+                    "WHEN COALESCE(bridge_kind, '') IN ('managed-wrapper-child', 'channel-sidecar') "
+                    "AND COALESCE(?, '') IN ('', 'resident') THEN bridge_kind "
+                    "ELSE COALESCE(NULLIF(?, ''), bridge_kind) END "
                     "WHERE id = ? AND agent_id = ?",
-                    (now, bridge_kind, bridge_id, agent_id),
+                    (now, bridge_kind, bridge_kind, bridge_id, agent_id),
                 )
                 if not getattr(updated, "rowcount", 0):
                     await db.execute(
@@ -15286,6 +15388,53 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
             await _invalidate_agent_live_state(db, target_agent)
         closed.append({"runId": run_id, "agentId": target_agent})
     return closed
+
+
+async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int:
+    """Reconcile (2026-06-03): a resident agent should have exactly ONE live
+    resident session, but the resident session id is a hash of session_handle, so
+    each relaunch with a new native handle minted a NEW resident_* row while older
+    ones stayed 'running' — the dashboard showed duplicate/stale resident sessions
+    the operator could not tell apart ("no way of knowing what to delete"). The
+    register-time dedup only retires siblings on a FRESH register; this collapses
+    the EXISTING duplicates: keep the most-recently-seen resident session per
+    agent, retire the rest. Returns rows retired."""
+    live_states = ("running", "attached", "active", "idle", "starting", "recovering")
+    state_ph = ",".join("?" for _ in live_states)
+    rows = await (
+        await db.execute(
+            f"""
+            SELECT id, agent_id
+            FROM agent_sessions
+            WHERE mode = 'resident' AND status IN ({state_ph})
+            ORDER BY agent_id ASC, last_seen DESC, rowid DESC
+            """,
+            list(live_states),
+        )
+    ).fetchall()
+    seen: set[str] = set()
+    retire: list[str] = []
+    for row in rows:
+        agent_id = str(row["agent_id"] or "")
+        if agent_id not in seen:
+            seen.add(agent_id)  # freshest row for this agent — keep it
+        else:
+            retire.append(str(row["id"]))
+    retire = retire[:limit]
+    if not retire:
+        return 0
+    now = _now()
+    id_ph = ",".join("?" for _ in retire)
+    await db.execute(
+        f"""
+        UPDATE agent_sessions
+        SET status = 'stopped', ended_at = ?
+        WHERE id IN ({id_ph}) AND status IN ({state_ph})
+        """,
+        [now, *retire, *live_states],
+    )
+    await db.commit()
+    return len(retire)
 
 
 async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dict[str, str]]:

@@ -1695,6 +1695,20 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   # relaunch's loop is cleaned up while ours is protected (the pre-spawn call
   # above could not yet know this PID).
   aify_hermes_kill_prior "\$HERMES_AIFY_AGENT_ID" "\$HERMES_LOOP_PID"
+  # ORPHAN-LIFECYCLE FIX (FIX SET A1, 2026-06-03): the delivery loop above is
+  # detached (nohup … & disown) so it survives the TUI exec — but if we \`exec\`
+  # the visible TUI, closing the terminal ORPHANS the loop (and the gateway host
+  # it owns) to init: the orphan gateway keeps its own headless session in
+  # session.active_list, so the agent stays \`online\` and the loop polls the wrong
+  # session (split / no live render). Instead of \`exec\`, run the TUI as a CHILD
+  # of this wrapper with an EXIT/INT/TERM trap that SIGTERMs the loop when the TUI
+  # ends. Closing the TUI reaps the loop, whose own SIGTERM teardown
+  # (installTeardown in hermes-managed-host.js) reaps the gateway host it owns —
+  # so the agent flips resident-lost and nothing orphans. This reaps correctly for
+  # BOTH the managed (windowless dashboard PTY) and resident (operator terminal)
+  # launches: the managed reap was already correct, this keeps it correct.
+  _aify_hermes_on_exit() { kill "\$HERMES_LOOP_PID" >/dev/null 2>&1 || true; }
+  trap _aify_hermes_on_exit EXIT INT TERM
   # NOTE (2026-06-02 hotfix/restore-hermes-tui): the former "(3a) HEALTH-GATE"
   # (a bounded 30s poll on the loop-ready marker before launching the TUI) was
   # REMOVED. Even non-fatal, it injected wrapper log output into the dashboard
@@ -1760,14 +1774,26 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     # AIFY_SESSION_HANDLE=<id> as a belt-and-suspenders fallback.)
     node "\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session "\$HERMES_AIFY_AGENT_ID" --explicit "\$HERMES_SESSION_HANDLE" >/dev/null 2>&1 || true
     echo "[hermes-aify] resuming explicit hermes session '\$HERMES_SESSION_HANDLE' for agent '\$HERMES_AIFY_AGENT_ID' (seeded active-session file + marker — authoritative handle)." >&2
-    exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE" "\${HERMES_PERMISSION_FLAGS[@]}"
+    # FIX SET A1: run as a CHILD (not exec) so the EXIT/INT/TERM trap reaps the
+    # delivery loop (and its gateway host) when the TUI closes.
+    "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE" "\${HERMES_PERMISSION_FLAGS[@]}"
+    _aify_hermes_on_exit
+    exit \$?
   fi
   if [ -n "\$HERMES_RESUME_REAL_ID" ]; then
     echo "[hermes-aify] resuming real hermes session '\$HERMES_RESUME_REAL_ID' for agent '\$HERMES_AIFY_AGENT_ID'." >&2
-    exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_RESUME_REAL_ID" "\${HERMES_PERMISSION_FLAGS[@]}"
+    # FIX SET A1: run as a CHILD (not exec) so the EXIT/INT/TERM trap reaps the
+    # delivery loop (and its gateway host) when the TUI closes.
+    "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_RESUME_REAL_ID" "\${HERMES_PERMISSION_FLAGS[@]}"
+    _aify_hermes_on_exit
+    exit \$?
   fi
   echo "[hermes-aify] no stored session for agent '\$HERMES_AIFY_AGENT_ID' — starting a fresh hermes session (bridge will capture its real id on register)." >&2
-  exec "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
+  # FIX SET A1: run as a CHILD (not exec) so the EXIT/INT/TERM trap reaps the
+  # delivery loop (and its gateway host) when the TUI closes.
+  "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
+  _aify_hermes_on_exit
+  exit \$?
 fi
 
 # RESIDENT agent-id launch: handled by the unified GATEWAY-HOST branch above

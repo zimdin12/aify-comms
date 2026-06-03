@@ -191,6 +191,23 @@ const GATEWAY_PROBE_THRESHOLD = Math.max(
   1,
   Number(process.env.AIFY_HERMES_GATEWAY_PROBE_THRESHOLD || 3),
 );
+// NO-TUI TEARDOWN BACKSTOP (FIX SET A2, 2026-06-03). A1 makes the wrapper SIGTERM
+// the delivery loop when the visible TUI closes (trap on EXIT/INT/TERM), and the
+// loop's installTeardown reaps the gateway host it owns. But a SIGKILL'd terminal
+// (or a hard `kill -9` of the wrapper) BYPASSES that trap, so the loop must
+// self-detect "no visible TUI is attached anymore" and tear itself down. The
+// gateway-liveness probe above only catches an UNREACHABLE gateway host — here the
+// gateway host is still reachable (often because the orphaned host is keeping its
+// OWN headless session alive) but session.active_list shows ZERO attached sessions
+// (no visible TUI / no non-loop WS client). After this many CONSECUTIVE poll
+// cycles with zero attached sessions, report resident-lost + teardown so the agent
+// flips offline and the orphaned gateway host is reaped. Default ~10 cycles
+// (≈10×POLL_MS ≈ 30s) so a brief relaunch gap (TUI detaching then re-attaching)
+// never trips it; configurable.
+const NO_TUI_TEARDOWN_CYCLES = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_NO_TUI_TEARDOWN_CYCLES || 10),
+);
 // Per-probe HTTP timeout — short so a slow probe still completes within the
 // interval and counts as ONE failure (not a hang). Debounced by the threshold.
 const GATEWAY_PROBE_TIMEOUT_MS = Math.max(
@@ -1621,6 +1638,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // beat is registered BEFORE the gateway bring-up; production uses the real
     // unconditional beat from liveness-heartbeat.js.
     startLivenessHeartbeat: startLivenessHeartbeatImpl = startLivenessHeartbeat,
+    // NO-TUI TEARDOWN BACKSTOP threshold (FIX SET A2). Defaults to the env-overridable
+    // module constant; injectable so tests can drive the backstop deterministically
+    // without depending on the frozen-at-load env value (mirrors emptyAttachFailThreshold).
+    noTuiTeardownCycles = NO_TUI_TEARDOWN_CYCLES,
   } = deps;
   const id = String(agentId || "").trim();
   if (!id) {
@@ -1825,6 +1846,29 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // synthetic-key title match so a pre-native session still reports status.
     return pickSessionStatusForKey(listResp, managedSessionKey);
   };
+  // NO-TUI TEARDOWN BACKSTOP (FIX SET A2). Count the gateway host's ATTACHED
+  // sessions via session.active_list. A visible TUI (or any non-loop WS client)
+  // attaching to the gateway puts at least one row in active_list; ZERO rows means
+  // no TUI is attached (the SIGKILL'd-terminal orphan case the A1 trap can't catch).
+  // Returns the row count, or -1 on any RPC/parse error so a transient gateway
+  // hiccup is NOT counted as "empty" (never tear down on a flaky read). Reuses the
+  // SAME active_list machinery as readManagedSessionStatus.
+  let attachRpcId = 750000;
+  const countAttachedSessions = async () => {
+    if (!wsClient) return -1;
+    try {
+      const listResp = await wsClient.request(
+        buildSessionActiveListFrame({ id: attachRpcId++, currentSessionId: "" }),
+      );
+      return activeListRowsLocal(listResp).length;
+    } catch {
+      return -1;
+    }
+  };
+  // Consecutive poll cycles observed with ZERO attached sessions. Promoted to a
+  // LOOP-LEVEL resident-lost signal (independent of any pending run) so a hard
+  // terminal kill that bypasses the A1 trap still self-tears-down.
+  let noTuiCycles = 0;
   const stopRepulse = startInFlightRepulse({
     intervalMs: REPULSE_MS,
     isInFlight: makeInFlightProbe({
@@ -1912,6 +1956,37 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           emptyAttachCounter,
         });
         totalProcessed += result.processed || 0;
+        // NO-TUI TEARDOWN BACKSTOP (FIX SET A2). After a successful poll cycle the
+        // gateway WS is live, so a TRUSTWORTHY active_list read is available. Count
+        // attached sessions: zero means no visible TUI (the SIGKILL'd-terminal orphan
+        // the A1 trap can't reach — the gateway host survived but nothing is viewing
+        // it). Accumulate consecutive empties; a single empty (or any attached
+        // session) resets the counter so a brief relaunch detach never trips it. On a
+        // read error (-1) leave the counter unchanged (treat a flaky read as neither
+        // empty nor attached). After NO_TUI_TEARDOWN_CYCLES sustained empties, promote
+        // to resident-lost: reportGatewayDeadOnce flips the agent off `available` and
+        // teardown reaps the gateway host this loop owns, then self-exit so the
+        // orphaned-but-reachable gateway can no longer keep the agent looking online.
+        const attachedCount = await countAttachedSessions();
+        if (attachedCount === 0) {
+          noTuiCycles += 1;
+          if (noTuiCycles >= noTuiTeardownCycles) {
+            await reportGatewayDeadOnce(
+              `Hermes gateway at ${host.wsUrl} has had NO attached session (no visible TUI / ` +
+                `non-loop WS client) across ${noTuiCycles} consecutive poll cycles; the operator's ` +
+                `terminal was likely closed/killed. Self-correcting off 'available' (resident-lost) ` +
+                `and reaping the orphaned gateway host.`,
+            );
+            stopLiveness();
+            stopRepulse();
+            stopGatewayTurnDetector();
+            stopGatewayProbe();
+            await teardown();
+            return { released: false, processed: totalProcessed, residentLost: true };
+          }
+        } else if (attachedCount > 0) {
+          noTuiCycles = 0;
+        }
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
         // started (above) + a successful /dispatch/claim round-trip (even with 0
         // runs). Write/refresh the ready marker the wrapper health-gates on so a

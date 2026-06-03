@@ -1385,6 +1385,120 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
   assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child");
 });
 
+// NO-TUI TEARDOWN BACKSTOP (FIX SET A2, 2026-06-03): a SIGKILL'd terminal bypasses
+// the wrapper's A1 trap, so the loop must self-detect "no visible TUI attached"
+// (session.active_list shows ZERO attached sessions) across a bounded number of
+// poll cycles and tear itself down (resident-lost + reap the orphaned gateway).
+const EMPTY_ACTIVE_LIST = { result: { sessions: [] } };
+
+test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) → resident-lost + teardown", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  // claim returns { run: null } every cycle (claimOk, never terminal/release), so
+  // the loop keeps polling — the no-TUI backstop is what must stop it.
+  const { httpCall, calls } = makeAifyHttp();
+  const ws = makeFakeWsClient({ "session.active_list": EMPTY_ACTIVE_LIST });
+  let toreDown = false;
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => { toreDown = true; },
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles: 3,
+    // More iterations than the override threshold so the backstop trips first.
+    maxIterations: 20,
+  });
+
+  assert.equal(result.residentLost, true, "sustained no-TUI must flip the loop resident-lost");
+  // The resident-lost self-correct was POSTed (reportGatewayDead → /resident-lost).
+  const residentLost = calls.find(
+    (c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost",
+  );
+  assert.ok(residentLost, "expected a /resident-lost POST when no TUI stays attached");
+  assert.ok(toreDown, "teardown (clearReady) must run so the orphaned gateway is reaped");
+});
+
+test("runDeliveryLoop: an attached session keeps the loop alive (no premature no-TUI teardown)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp();
+  // ACTIVE_LIST_RESULT carries one attached session on EVERY poll, so the no-TUI
+  // counter must reset every cycle and never reach the threshold.
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles: 3,
+    maxIterations: 10,
+  });
+
+  assert.notEqual(result.residentLost, true, "an attached session must NOT trigger no-TUI teardown");
+  assert.ok(
+    !calls.find((c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost"),
+    "no resident-lost POST while a session stays attached",
+  );
+});
+
+test("runDeliveryLoop: a SINGLE empty active_list does not tear down (brief relaunch gap tolerated)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp();
+  // Only the VERY FIRST active_list read is empty (TUI mid-relaunch); every read
+  // after is attached. The per-cycle counter sees at most one empty then resets,
+  // so it can never reach the threshold (3). Keyed on call ordinal (not per-cycle)
+  // so it's robust to however many active_list reads each cycle performs.
+  let firstRead = true;
+  const ws = makeFakeWsClient({
+    "session.active_list": () => {
+      if (firstRead) {
+        firstRead = false;
+        return EMPTY_ACTIVE_LIST;
+      }
+      return ACTIVE_LIST_RESULT;
+    },
+  });
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles: 3,
+    maxIterations: 6,
+  });
+
+  assert.notEqual(result.residentLost, true, "a single empty poll must not trip the no-TUI backstop");
+  assert.ok(
+    !calls.find((c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost"),
+    "no resident-lost POST after a single empty poll",
+  );
+});
+
 test("runDeliveryLoop: writes the loop-ready marker after the first successful claim round-trip (Task 1.4)", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
