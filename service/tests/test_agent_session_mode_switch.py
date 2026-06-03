@@ -401,7 +401,11 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(body.get("previousMode"), "resident")
         self.assertTrue(body.get("changed"))
         self.assertEqual(self._read_agent_mode("codex-noenv"), "managed")
-        self.assertIn("error", body.get("sideEffects") or {})
+        # 2026-06-03: resident->managed for a wrapper-backed runtime (codex/hermes)
+        # now COLDSTARTS a managed-warm spawn_request at switch time (the lazy
+        # next-dispatch autostart became an at-switch coldstart), so the side effect
+        # reports managedSpawnRequested rather than a missing-backing error.
+        self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"))
 
     def test_switch_resident_to_managed_force_reports_missing_backing(self):
         self._heartbeat_environment("codex")
@@ -413,7 +417,7 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
         self.assertEqual(body.get("mode"), "managed")
-        self.assertIn("error", body.get("sideEffects") or {})
+        self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"))
 
 
 if __name__ == "__main__":

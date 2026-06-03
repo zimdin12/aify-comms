@@ -6925,12 +6925,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         old_session_id = running.json()["spawnRequest"]["sessionId"]
 
+        # Lifecycle cleanup (2026-06-03): `recover` was a byte-identical alias of
+        # `restart`; the alias was dropped, so this flow now uses `restart`.
         recover = self.client.post(
             f"/api/v1/sessions/{old_session_id}/control",
-            json={"action": "recover", "from_agent": "dashboard", "subject": "recover worker"},
+            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
         )
         self.assertEqual(recover.status_code, 200, recover.text)
-        self.assertEqual(recover.json()["session"]["status"], "recovering")
+        self.assertEqual(recover.json()["session"]["status"], "restarting")
         recover_spawn_id = recover.json()["spawnRequest"]["id"]
         claim_recover = self.client.post(
             "/api/v1/spawn-requests/claim",
@@ -6979,16 +6981,17 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         session_id = running.json()["spawnRequest"]["sessionId"]
 
+        # Lifecycle cleanup (2026-06-03): `recover` alias dropped -> use `restart`.
         first_recover = self.client.post(
             f"/api/v1/sessions/{session_id}/control",
-            json={"action": "recover", "from_agent": "dashboard", "subject": "recover worker"},
+            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
         )
         self.assertEqual(first_recover.status_code, 200, first_recover.text)
         pending_spawn_id = first_recover.json()["spawnRequest"]["id"]
 
         duplicate_recover = self.client.post(
             f"/api/v1/sessions/{session_id}/control",
-            json={"action": "recover", "from_agent": "dashboard", "subject": "recover worker again"},
+            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker again"},
         )
         self.assertEqual(duplicate_recover.status_code, 409, duplicate_recover.text)
         self.assertIn(pending_spawn_id, duplicate_recover.json()["detail"])
@@ -8228,9 +8231,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(running.status_code, 200, running.text)
         session_id = running.json()["spawnRequest"]["sessionId"]
 
+        # Lifecycle cleanup (2026-06-03): `recover` alias dropped -> use `restart`.
         recover = self.client.post(
             f"/api/v1/sessions/{session_id}/control",
-            json={"action": "recover", "from_agent": "dashboard", "subject": "recover worker"},
+            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
         )
         self.assertEqual(recover.status_code, 200, recover.text)
         pending_spawn_id = recover.json()["spawnRequest"]["id"]
@@ -13880,6 +13884,119 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(self._dead_session_status("sess_resident_nobridge"), "stopped")
         # False-positive guard: the live resident with a fresh bridge stays running.
         self.assertEqual(self._dead_session_status("sess_resident_fresh"), "running")
+
+    # ── Phase 1 G1: coldstart carries the agent's native session handle ──────
+    def _online_codex_env_for_coldstart(self, env_id="env_g1"):
+        self.client.put(
+            "/api/v1/settings",
+            json={
+                "insert_messages_via_console": False,
+                "managed_via_wrapper": ["codex", "hermes"],
+                "managed_terminal_backing_enabled": True,
+            },
+        )
+        self._heartbeat_environment(
+            id=env_id,
+            bridgeId="bridge-g1",
+            machineId="linux:g1",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"nativeResume": True, "interrupt": True}}],
+            terminal=True,
+            pty=True,
+            terminalRuntimes=["codex"],
+        )
+
+    def _run_coldstart(self, agent_id):
+        async def _run():
+            db = await get_db()
+            try:
+                settings = await api_v2._load_settings(db)
+                created = await api_v2._coldstart_spawn_request_for_dispatch(
+                    db, agent_id, runtime="codex", settings=settings, requested_by="test",
+                )
+                await db.commit()
+                return created
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_coldstart_spawn_request_carries_stored_session_handle(self):
+        # G1 (2026-06-03): the resident->managed cold-start must RESUME the
+        # agent's existing native session, not start fresh. The inserted
+        # spawn_request must carry the agent's stored session_handle so the
+        # managed worker resumes the codex thread / claude transcript / hermes
+        # session instead of losing it.
+        self._online_codex_env_for_coldstart()
+        self._register("g1-coder", runtime="codex", sessionMode="managed")
+        self._execute(
+            "UPDATE agents SET session_handle = ? WHERE id = ?",
+            ("codex-thread-g1", "g1-coder"),
+        )
+
+        created = self._run_coldstart("g1-coder")
+        self.assertTrue(created, "a coldstart spawn_request must be created when an online env hosts the runtime")
+
+        row = self._fetchone(
+            "SELECT session_handle, resume_policy FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
+            ("g1-coder",),
+        )
+        self.assertIsNotNone(row, "expected a queued coldstart spawn_request")
+        self.assertEqual(
+            row["session_handle"], "codex-thread-g1",
+            "coldstart spawn_request must carry the agent's stored native session handle",
+        )
+        self.assertEqual(row["resume_policy"], "native_first")
+
+    def test_coldstart_spawn_request_empty_handle_when_agent_has_none(self):
+        # G1 boundary: an agent with NO stored session handle yields a coldstart
+        # spawn_request with an empty handle (the worker starts a fresh session,
+        # which is correct — there is nothing to resume).
+        self._online_codex_env_for_coldstart(env_id="env_g1b")
+        self._register("g1-fresh", runtime="codex", sessionMode="managed")
+
+        created = self._run_coldstart("g1-fresh")
+        self.assertTrue(created)
+
+        row = self._fetchone(
+            "SELECT session_handle FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
+            ("g1-fresh",),
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual((row["session_handle"] or ""), "", "no stored handle -> empty handle on the coldstart spawn_request")
+
+    # ── Phase 1 G2: managed->resident blocked for managed-only runtimes ──────
+    def test_switch_pi_managed_to_resident_is_rejected_without_force(self):
+        # G2 (2026-06-03): pi (and opencode) do not support a resident bridge.
+        # Flipping a managed pi agent to resident yields a presence-only agent
+        # whose every dispatch is rejected — an undeliverable footgun. The
+        # server must reject the switch with an actionable 409 unless force=true.
+        self._register("g2-pi", runtime="pi", sessionMode="managed")
+
+        rejected = self.client.patch(
+            "/api/v1/agents/g2-pi/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertIn("not supported", rejected.json().get("detail", "").lower())
+
+        # Still managed — the rejected switch must not have changed the mode.
+        agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("g2-pi",))
+        self.assertEqual(api_v2._normalize_session_mode(agent["session_mode"] or ""), "managed")
+
+    def test_switch_pi_managed_to_resident_with_force_warns_but_proceeds(self):
+        # G2: force=true overrides the guard (operator metadata-only flip) but
+        # the response carries a clear warning that the agent is now
+        # presence-only and undeliverable.
+        self._register("g2-pi-forced", runtime="pi", sessionMode="managed")
+
+        forced = self.client.patch(
+            "/api/v1/agents/g2-pi-forced/session-mode",
+            json={"mode": "resident", "force": True},
+        )
+        self.assertEqual(forced.status_code, 200, forced.text)
+        body = forced.json()
+        self.assertEqual(body.get("mode"), "resident")
+        self.assertIn("not supported", str(body.get("warning", "")).lower())
 
 
 class TerminalSessionMigrationTests(unittest.TestCase):

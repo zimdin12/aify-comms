@@ -166,8 +166,13 @@ tr:hover{background:#19212a}
 .btn:hover{background:var(--accent-softer);border-color:var(--accent-border)}.btn-primary{background:var(--accent);border-color:color-mix(in srgb,var(--accent) 75%,#fff);color:var(--accent-contrast)}
 .btn-primary:hover{background:var(--accent-hover);border-color:color-mix(in srgb,var(--accent-hover) 75%,#fff);color:var(--accent-contrast)}.btn-danger{background:#a93432;border-color:#bd403c;color:#fff}
 .btn-danger:hover{background:#d14b46}
+/* Danger tiering: btn-reset = context-destroying (Reset/fresh-context), amber, distinct from the red identity-destroying btn-danger (Remove) and the neutral reversible Stop. */
+.btn-reset{background:#7a4a16;border-color:#9a5e1c;color:#fff}
+.btn-reset:hover{background:#995c1d}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 .btn[disabled]:hover{background:#21262d}
+.btn-disabled{opacity:.45;cursor:not-allowed}
+.btn-disabled:hover{background:var(--panel-3);border-color:var(--line)}
 .btn-sm{padding:3px 8px;font-size:.78em}
 .btn-row{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap;min-width:0}
 .home-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
@@ -467,7 +472,9 @@ a{color:var(--accent-text)}
 .chat-status-dot.available{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
 .chat-status-dot.offline,.chat-status-dot.stale,.chat-status-dot.stopped{background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
 .chat-status-dot.unreachable{background:var(--state-error);box-shadow:0 0 0 4px #f2706b20}
-.chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering,.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
+.chat-status-dot.starting,.chat-status-dot.idle{background:var(--state-info);box-shadow:0 0 0 4px #74b7ff20}
+/* cli-takeover/recovering/paused are a transient "control is elsewhere / being restored" tier — amber, distinct from the blue idle/starting dot. */
+.chat-status-dot.cli-takeover,.chat-status-dot.paused,.chat-status-dot.recovering{background:#e3a008;box-shadow:0 0 0 4px #e3a00822}
 @keyframes terminalActivityPulse{0%,100%{background:var(--state-working);box-shadow:0 0 0 4px #dfb15622}45%{background:#ff8a2a;box-shadow:0 0 0 6px #ff8a2a36}}
 .chat-item-meta{color:var(--muted);font-size:.75em;margin-top:2px;min-width:0}
 .chat-await-badge{flex:0 0 auto;font-size:.85em;opacity:.9;filter:saturate(1.4)}
@@ -1637,14 +1644,14 @@ codex-aify --aify-agent coder --aify-role coder</pre>
           </ol>
         </div>
       </div>
-      <p>Adoption creates managed backing for future dashboard work. Ownership changes are manual: resident registrations record bridge metadata, but they do not silently take over managed delivery, and stale resident bridges do not silently switch back to managed. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Recreate</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
+      <p>Adoption creates managed backing for future dashboard work. Ownership changes are manual: resident registrations record bridge metadata, but they do not silently take over managed delivery, and stale resident bridges do not silently switch back to managed. <b>Set handle</b> repairs a known saved Claude session ID, Codex thread ID, OpenCode session ID, or Pi handle without creating a fresh context. <b>Reset (fresh context)</b> is the explicit reset that leaves the old native session behind and starts a fresh Claude session ID or Codex thread ID; use it only when you accept losing native chat context.</p>
       <p>Codex CLI note: for resident live wakeups, start Codex through <code>codex-aify</code>. The wrapper exposes its app-server to the MCP bridge and can auto-register with <code>--aify-agent</code>.</p>
       <p>Pi CLI note: triggerable Pi delivery is managed through the environment bridge's persistent <code>omp --mode rpc</code> child. Legacy <code>omp-aify</code>/<code>pi-aify</code> presence wrappers are not installed by default because OMP is single-client.</p>
       <p>Claude CLI note: resident wakeups require <code>claude-aify</code>. The resume command may include <code>--dangerously-skip-permissions</code>; <code>--permanently-skip-permissions</code> is not a Claude Code option.</p>
 
       <h3>Compact</h3>
       <p>Open <b>Sessions</b> and use <b>Compact</b>. <b>Handoff</b> is the reliable path today: it opens an editable continuation form with agent ID, role, environment, runtime, workspace, and a generated packet. It defaults to the same agent ID and queues a fresh managed-warm backing. The packet includes the last selected number of direct messages involving the source agent plus channel posts authored by it. <b>Internal</b> is reserved for native runtime compaction when an adapter exposes a verified API; current managed adapters do not.</p>
-      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Set handle</b> is for operator repair when you know the correct native ID. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Recreate</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. Dashboard work may start a managed PTY for terminal-capable runtimes; Claude Code uses that PTY as its <code>claude-aify</code> backing, submits dashboard turns into the interactive prompt, and no longer uses managed <code>claude -p</code> dispatch.</p>
+      <p><b>Restart</b> restores dashboard control with the saved spawn spec and saved native handle. If the handle is locked or cannot be resumed, the run fails loudly instead of pretending context was retained. <b>Set handle</b> is for operator repair when you know the correct native ID. <b>Pause for CLI</b> is an explicit dashboard-delivery pause for cases where you want terminal ownership to win. <b>Reset (fresh context)</b> is the explicit reset: it leaves the old native session behind and starts fresh. The bridge should not silently clear native memory or invent blank replacement sessions on lock errors. Dashboard work may start a managed PTY for terminal-capable runtimes; Claude Code uses that PTY as its <code>claude-aify</code> backing, submits dashboard turns into the interactive prompt, and no longer uses managed <code>claude -p</code> dispatch.</p>
           </section>
 
           <section class="instruction-panel" data-instruction-panel="daily">
@@ -1654,7 +1661,7 @@ codex-aify --aify-agent coder --aify-role coder</pre>
       <p><b>Work Loop:</b> requests, reviews, and errors are tracked reply contracts by default. Routine info messages are notes unless they explicitly require a reply. Reminder messages are nudges, not new obligations; by default they repeat until the original work is answered or operator-closed. Use <b>Close</b> or <b>Close Selected</b> when an operator has reviewed stale/audit-only contracts.</p>
       <p><b>Console vs messaging (current model):</b> the Console is a live interactive PTY attach/control/view surface. Click into it to drive the CLI directly with normal terminal keys and paste. To copy, use the <b>Copy</b> button on the Console toolbar (copies the selection, or the whole scrollback if nothing is selected) or <b>Ctrl+Shift+C</b>; hold <b>Shift</b> and drag to select text even while an attached TUI captures the mouse. Copy works on plain http origins via a clipboard fallback. Messaging an agent stays in <b>Messenger</b> mode and creates tracked run/message contracts. Managed runtimes use bridge-owned terminal backing by default when available; native Codex/OpenCode/Pi adapters remain fallback paths when terminal backing is disabled or unavailable. Blocked console input is never silently swallowed.</p>
       <p><b>Status semantics:</b> <b>working</b> means a genuinely active run/turn — either a claimed/running dispatch run or the bridge reporting it is mid-turn (turn-busy heartbeat). Managed terminal-backed turns stay working until the reply closes the run; if a runtime visibly returns to an idle prompt after output without sending an explicit chat reply, reconcile closes that turn as completed-without-reply so it becomes Work Loop audit debt, not live work. If the active terminal output clearly asks for operator input or a decision, the agent becomes <b>blocked</b> instead of working. An attached but quiet console, delivered resident-channel marker, or merely-queued work is <b>active</b> (reachable, idle), not working. While a working agent's terminal is receiving output, its yellow dot briefly pulses orange as a live-output hint. A best-effort <b>⌛</b> badge flags an agent/console whose output looks like it is waiting for input (heuristic, not guaranteed). For managed Claude, <b>online</b> requires BOTH a visible console PTY AND a live channel-sidecar (<code>claude-channel.js</code>) — a live console with no sidecar, or a live sidecar with no console (a "headless orphan", which is also reaped to enforce the visible-TUI rule), reads <b>available</b>, not online. Idle-but-alive agents stay <b>online</b> via an unconditional 30s liveness heartbeat from each long-lived bridge. Status is server-authoritative: the live-state cache self-heals on a 60s reconcile loop (no longer dependent on a browser timer) and pushes live <code>agent_status</code> updates over WebSocket on operator-driven transitions. The per-message chat run-note (the collapsible delivery detail) now appears only for noteworthy runs — failed, cancelled, steered, queued-behind-active, or reply-present — not routine deliveries.</p>
-      <p><b>Stopping a managed agent:</b> stop it from its <b>Actions</b> menu <b>Stop</b> button (or <b>Sessions</b> page → <b>Stop</b> / <b>Recreate</b>). Stop disables wake/dispatch until you resume or re-register.</p>
+      <p><b>Stopping a managed agent:</b> stop it from its <b>Actions</b> menu <b>Stop</b> button (or <b>Sessions</b> page → <b>Stop</b> / <b>Reset (fresh context)</b>). Stop disables wake/dispatch until you resume or re-register.</p>
       <p><b>Hermes turn detection:</b> managed hermes now shows <b>working</b> during long in-flight turns, but hermes work that is NOT driven by an aify dispatch or its turn-start hook (autonomous or direct TUI/gateway input) may still show <b>online</b> while actually working — see KNOWN_ISSUES.md.</p>
       <p><b>Images:</b> paste (Ctrl+V) an image into the Messenger composer — it uploads as a shared artifact and a viewable dashboard link is added to your message; the agent opens it via that link or fetches the artifact.</p>
       <p><b>Spawn/respawn:</b> spawning starts a <b>fresh</b> session — prior context is not resumed. Re-spawning an existing agent replaces its backing (no native handle until its first run completes). To preserve an agent's context use <b>Compact</b>/<b>Continue</b>, not re-spawn.</p>
@@ -1697,7 +1704,7 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <li><code>GET/POST /api/v1/spawn-requests</code> — Dashboard spawn queue</li>
         <li><code>POST /api/v1/spawn-requests/claim</code> — Bridge claim next spawn for an environment</li>
         <li><code>GET /api/v1/sessions</code> — Runtime session records</li>
-        <li><code>POST /api/v1/sessions/{id}/control</code> — Stop, restart, recreate, or resume a managed session</li>
+        <li><code>POST /api/v1/sessions/{id}/control</code> — Stop, restart, reset (fresh context), or pause a managed session</li>
         <li><code>PATCH /api/v1/agents/{id}</code> — Update status + note</li>
         <li><code>GET /api/v1/agents/{id}/last-read</code> — Last message agent read</li>
         <li><code>POST /api/v1/agents/{id}/heartbeat</code> — Alive signal</li>
@@ -3688,8 +3695,8 @@ function managedAgentsTableHtml(workers) {
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed identity', () => prefillWorkerMessage(id, 'request')),
       actionButtonFn('Assign env', 'Open identity editor to retarget this agent and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
-      (!['stopped', 'offline'].includes((info.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop this managed agent's worker (console/TUI + session). Identity, history, and saved spawn spec are kept — a later message or Recreate brings it back.", () => stopManagedAgent(id), 'btn-danger') : '',
-      actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => recreateAgent(id), 'btn-danger'),
+      (!['stopped', 'offline'].includes((info.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop this managed agent's worker (console/TUI + session). Identity, history, and saved spawn spec are kept — a later message or Reset (fresh context) brings it back.", () => stopManagedAgent(id), 'btn-danger') : '',
+      actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context; messages and identity remain.', () => recreateAgent(id), 'btn-reset'),
       actionButtonFn('Remove', 'Unregister this managed identity and cancel queued work', () => deleteAgent(id), 'btn-danger'),
     ];
     html += `<tr><td><b>${esc(id)}</b></td>` +
@@ -3777,7 +3784,7 @@ function openAgentEditor(agentId) {
       <div class="btn-row">
         ${actionButtonFn('Save', 'Save identity and environment changes', () => saveAgentEditor(agentId), 'btn-primary')}
         ${actionButtonFn('Assign task', 'Open chat composer as a request', () => { closeModal(); prefillWorkerMessage(agentId, 'request'); })}
-        ${actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing', () => recreateAgent(agentId), 'btn-danger')}
+        ${actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context.', () => recreateAgent(agentId), 'btn-reset')}
         ${actionButtonFn('Remove', 'Unregister this identity and cancel queued work', () => { closeModal(); deleteAgent(agentId); }, 'btn-danger')}
       </div>
     </div>`);
@@ -3957,7 +3964,7 @@ function renderHomeInsights(stats, agents, environments, sessions, spawnRequests
   if (failedOrLostSessions) attention.push({
     title: 'Sessions need attention',
     body: `${failedOrLostSessions} session(s) are failed or lost. Restart them when you still need that agent.`,
-    action: actionButton('Open Sessions', 'Restart, recreate, or stop session records', "showPage('sessions')")
+    action: actionButton('Open Sessions', 'Restart, reset (fresh context), or stop session records', "showPage('sessions')")
   });
   if (handoffPending) attention.push({
     title: 'Pending handoffs',
@@ -4776,11 +4783,29 @@ async function setAgentSessionHandle(agentId, currentHandle = '') {
   }
 }
 
+// Runtimes that support a resident bridge. Mirrors the server-side adapter
+// `supports_resident` flag (claude/codex/hermes = true; pi/opencode = false).
+// Switching a managed pi/opencode agent to resident yields a presence-only
+// agent whose every dispatch is rejected, so the dashboard does not offer it.
+const RESIDENT_CAPABLE_RUNTIMES = new Set(['claude-code', 'claude', 'codex', 'hermes']);
+
 function agentModeSwitchAction(agentId, agentInfo = {}) {
   if (window._dashboardSettings?.manual_session_mode === false) return '';
   const current = String(agentInfo?.sessionMode || '').toLowerCase();
   if (!agentId || (current !== 'resident' && current !== 'managed')) return '';
   const target = current === 'resident' ? 'managed' : 'resident';
+  // G2: do not offer "Switch to resident" for managed-only runtimes (pi/opencode).
+  if (target === 'resident') {
+    const runtime = String(agentInfo?.runtime || '').toLowerCase();
+    if (runtime && !RESIDENT_CAPABLE_RUNTIMES.has(runtime)) {
+      return actionButtonFn(
+        'Switch to resident',
+        `Resident mode is not supported for ${runtime} (managed-only); this agent stays managed.`,
+        () => toast(`Resident mode is not supported for ${runtime} — it is managed-only.`, '#f0b429'),
+        'btn-disabled',
+      );
+    }
+  }
   return actionButtonFn(
     `Switch to ${target}`,
     `Manually switch ${agentId} from ${current} to ${target} ownership`,
@@ -4791,7 +4816,7 @@ function agentModeSwitchAction(agentId, agentInfo = {}) {
 async function switchAgentSessionMode(agentId, targetMode, force = false) {
   if (!agentId || !targetMode) return;
   const current = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {}).sessionMode || '';
-  if (!confirm(`Switch ${agentId} from ${current || 'current'} to ${targetMode} mode?\n\nThis is manual ownership control. Dashboard will not automatically switch back.`)) return;
+  if (!force && !confirm(`Switch ${agentId} from ${current || 'current'} to ${targetMode} mode?\n\nThis is manual ownership control. Dashboard will not automatically switch back.`)) return;
   try {
     const response = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/session-mode`, {
       method: 'PATCH',
@@ -4799,9 +4824,23 @@ async function switchAgentSessionMode(agentId, targetMode, force = false) {
       body: JSON.stringify({mode: targetMode, force, requestedBy: chatIdentity()}),
     });
     const res = await response.json();
-    if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Mode switch failed');
+    if (!response.ok || res.ok === false) {
+      const detail = res.detail || res.error || 'Mode switch failed';
+      // G4: a 409 caused by an in-flight dispatch run is recoverable — offer to
+      // retry with force=true after the operator confirms interrupting the run.
+      // (A 409 for an unsupported-resident runtime is NOT offered a force retry
+      //  here — that footgun stays blocked from the dashboard.)
+      if (response.status === 409 && !force && /active dispatch run/i.test(String(detail))) {
+        if (confirm(`${detail}\n\nForce the switch now? This interrupts the active run.`)) {
+          return switchAgentSessionMode(agentId, targetMode, true);
+        }
+        return;
+      }
+      throw new Error(detail);
+    }
     const effect = res.sideEffects?.managedTerminalId ? ` Terminal ${res.sideEffects.managedTerminalId}` : (res.sideEffects?.stoppedTerminalId ? ` Stopped ${res.sideEffects.stoppedTerminalId}` : '');
     toast(`Switched ${agentId} to ${res.mode || targetMode}.${effect}`);
+    if (res.warning) toast(res.warning, '#f0b429');
     await refreshDashboard();
     if ((res.mode || targetMode) === 'resident') {
       const agentInfo = ((window._allAgents || []).find(([id]) => id === agentId)?.[1] || {});
@@ -7185,7 +7224,7 @@ function renderSessions(sessions) {
         activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
         spawnControl,
         resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
-        actionButtonFn('Recreate', 'Leave the old native session behind and queue a fresh managed backing. Messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-danger'),
+        actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context; messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-reset'),
         actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)),
         actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
         actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(session.agentId)),
@@ -7503,8 +7542,8 @@ async function controlSession(sessionId, action) {
     if (!confirm(`Stop session ${sessionId}?`)) return;
     body = 'Stop this session from the dashboard.';
   } else if (action === 'recreate') {
-    if (!confirm(`Recreate ${session.agentId || sessionId}?\n\nThis leaves the old native session/thread behind and starts a fresh managed backing. Use Restart instead if you want to preserve context.`)) return;
-    body = prompt(`Recreate ${session.agentId || sessionId} with optional fresh-start instructions:`, '');
+    if (!confirm(`Reset ${session.agentId || sessionId} to a fresh context?\n\nThis leaves the old native session/thread behind and starts a fresh managed backing. Use Restart instead if you want to preserve context.`)) return;
+    body = prompt(`Reset ${session.agentId || sessionId} (fresh context) with optional fresh-start instructions:`, '');
     if (body === null) return;
   } else {
     body = prompt(`Restart ${session.agentId || sessionId} with optional instructions:`, '');
@@ -7518,7 +7557,8 @@ async function controlSession(sessionId, action) {
     }).then(r => r.json());
     if (res.ok) {
       const queued = res.spawnRequest ? ` Spawn queued: ${res.spawnRequest.id}` : '';
-      toast(`${action === 'recreate' ? 'Recreate' : action} requested.${queued}`);
+      toast(`${action === 'recreate' ? 'Reset' : action} requested.${queued}`);
+      if (Array.isArray(res.warnings)) res.warnings.forEach(w => toast(w, '#f0b429'));
       refreshDashboard();
     } else {
       toast(res.detail || `${action} failed`, '#f85149');
@@ -7973,10 +8013,10 @@ async function deleteAgent(id) {
 }
 
 async function controlResidentAgent(id, action) {
-  const label = action === 'resume' ? 'Resume' : 'Stop';
+  const label = action === 'resume' ? 'Resume wake' : 'Stop wake';
   const detail = action === 'resume'
-    ? `Resume resident agent "${id}" for wake/dispatch?`
-    : `Stop resident agent "${id}"? This interrupts active work when possible, cancels queued work, and disables wake/dispatch until resumed.`;
+    ? `Resume wake for resident agent "${id}" so it can receive wake/dispatch again?`
+    : `Stop wake for resident agent "${id}"? This interrupts active work when possible, cancels queued work, and disables wake/dispatch until resumed.`;
   if (!confirm(detail)) return;
   try {
     const res = await apiFetch(API + `/agents/${encodeURIComponent(id)}/control`, {

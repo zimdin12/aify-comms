@@ -6130,6 +6130,7 @@ async def _coldstart_spawn_request_for_dispatch(
     runtime: str,
     settings: dict[str, Any],
     requested_by: str,
+    warnings: Optional[list[str]] = None,
 ) -> bool:
     """Cold-start a managed worker on the send path.
 
@@ -6142,6 +6143,14 @@ async def _coldstart_spawn_request_for_dispatch(
     Idempotent: returns False (creating nothing) when a claimable spawn_request
     (queued/claimed) already exists for the agent, or when no environment/runtime can be
     resolved. Returns True when a new spawn_request was inserted.
+
+    G1 (2026-06-03): the inserted spawn_request now carries the agent's current
+    native session_handle so the managed worker RESUMES the existing native session
+    rather than starting fresh (resident->managed no longer loses the thread).
+
+    G3 (2026-06-03): when `warnings` is provided and the bound handle is already
+    owned by a DIFFERENT live agent, an advisory (non-blocking) warning string is
+    appended for the caller to surface.
     """
     normalized_runtime = _normalize_runtime(runtime or "")
     if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
@@ -6227,6 +6236,40 @@ async def _coldstart_spawn_request_for_dispatch(
 
     workspace, workspace_root = _workspace_for_environment(environment, None, fallback_workspace)
 
+    # G1 (2026-06-03): carry the agent's CURRENT native session handle into the
+    # cold-start spawn_request so the managed worker RESUMES the existing native
+    # session (codex thread / hermes gateway session / claude transcript) instead
+    # of starting a fresh one. Without this the resident->managed switch (which
+    # cold-starts via this helper) silently loses the live native session — the
+    # dedicated restart path already carries session["session_handle"] for the
+    # same reason. Sourced from the agents row (the durable pinned handle), with a
+    # fallback to the prior session row's handle when the agent row has none.
+    agent_row = await (await db.execute(
+        "SELECT session_handle FROM agents WHERE id = ?", (agent_id,)
+    )).fetchone()
+    coldstart_session_handle = str(
+        (agent_row["session_handle"] if agent_row else "")
+        or (session["session_handle"] if session else "")
+        or ""
+    ).strip()
+
+    # G3 (2026-06-03): warn (do NOT block) when the handle we're about to bind is
+    # already owned by a DIFFERENT live agent — two live agents must not share one
+    # native session id (e.g. lc-coder + lc-tech-lead on one codex thread). The
+    # caller surfaces this via the returned warning; cold-start still proceeds.
+    if coldstart_session_handle:
+        _settings_g3 = settings if isinstance(settings, dict) else await _load_settings(db)
+        _owner_g3 = await _session_handle_live_owner(
+            db, coldstart_session_handle, exclude_agent_id=agent_id,
+            lease_seconds=_settings_g3.get("resident_lease_seconds", 150),
+        )
+        if _owner_g3 and warnings is not None:
+            warnings.append(
+                f"session id '{coldstart_session_handle}' is already owned by live agent "
+                f"'{_owner_g3['agentId']}' ({_owner_g3['sessionMode']}); two live agents "
+                "should not share one native session."
+            )
+
     now = _now()
     spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -6264,8 +6307,8 @@ async def _coldstart_spawn_request_for_dispatch(
         INSERT INTO spawn_requests (
             id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
             workspace, workspace_root, initial_message, priority, subject, mode,
-            resume_policy, status, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            resume_policy, status, session_handle, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             request_id,
@@ -6284,6 +6327,7 @@ async def _coldstart_spawn_request_for_dispatch(
             "managed-warm",
             "native_first",
             "queued",
+            coldstart_session_handle,
             now,
             now,
         ),
@@ -10398,7 +10442,10 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
     action = str(req.action or "").strip().lower()
-    if action not in {"stop", "restart", "recover", "resume", "recreate", "cli_takeover"}:
+    # Lifecycle cleanup (2026-06-03): `recover` + `resume` were byte-identical
+    # aliases of `restart` with NO dashboard caller — dropped. (Resident
+    # wake-resume lives on POST /agents/{id}/control, a different endpoint.)
+    if action not in {"stop", "restart", "recreate", "cli_takeover"}:
         raise HTTPException(400, f'Unsupported session control action "{req.action}"')
 
     db = await get_db()
@@ -10424,7 +10471,8 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         spawn_request_row = None
         spawn_spec_row = None
         cancelled_spawns = 0
-        if action in {"restart", "recover", "resume", "recreate"}:
+        coldstart_warnings: list[str] = []
+        if action in {"restart", "recreate"}:
             pending_cursor = await db.execute(
                 """
                 SELECT *
@@ -10443,7 +10491,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     f'Agent "{agent_id}" already has pending spawn request "{pending_spawn["id"]}" ({pending_spawn["status"]}).',
                 )
 
-        if action in {"restart", "recover", "resume", "recreate"}:
+        if action in {"restart", "recreate"}:
             spec_id = str(session["spawn_spec_id"] or "").strip()
             if not spec_id:
                 # FIX 5 (2026-06-03): a resident-origin session has a NULL spawn_spec,
@@ -10459,6 +10507,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     runtime=str(session["runtime"] or ""),
                     settings=settings,
                     requested_by=req.from_agent or "dashboard",
+                    warnings=coldstart_warnings,
                 )
                 if not coldstarted and not await _has_claimable_spawn_request(db, agent_id):
                     raise HTTPException(
@@ -10547,8 +10596,6 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         next_status = {
             "stop": "stopped",
             "restart": "restarting",
-            "recover": "recovering",
-            "resume": "recovering",
             "recreate": "ended",
             "cli_takeover": "cli-takeover",
         }[action]
@@ -10600,7 +10647,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     WHERE id = ?
                     """,
                     (
-                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Recover/Restart to return control to the dashboard.",
+                        "Paused for direct CLI takeover. Close the CLI session and use Sessions -> Restart to return control to the dashboard.",
                         now,
                         agent_id,
                     ),
@@ -10646,6 +10693,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             "session": _agent_session_to_dict(updated),
             "interruptControlId": control_id,
             "cancelledSpawns": cancelled_spawns,
+            "warnings": coldstart_warnings,
             "spawnRequest": _spawn_request_to_dict(spawn_request_row, _spawn_spec_to_dict(spawn_spec_row) if spawn_spec_row else None) if spawn_request_row else None,
         }
     finally:
@@ -12268,6 +12316,26 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         runtime_state = _runtime_state_replacing_handle(runtime, row["runtime_state"], session_handle)
         capabilities = _default_capabilities_for(runtime, session_mode, session_handle, runtime_config)
         registered_handle = _runtime_state_with_handle(runtime, {}, session_handle)
+
+        # G3 (2026-06-03): advisory (non-blocking) warning when the handle being
+        # bound is already owned by a DIFFERENT live agent. The strict cross-agent
+        # collision guard above already HARD-BLOCKS the `handle != persisted` live
+        # case; this warning covers the remaining binds (e.g. re-pinning the same
+        # handle another live agent already shares) so the operator sees that two
+        # live agents are pointing at one native session id.
+        handle_share_warning = ""
+        if session_handle:
+            _settings_g3 = await _load_settings(db)
+            _owner_g3 = await _session_handle_live_owner(
+                db, session_handle, exclude_agent_id=agent_id,
+                lease_seconds=_settings_g3.get("resident_lease_seconds", 150),
+            )
+            if _owner_g3:
+                handle_share_warning = (
+                    f"session id '{session_handle}' is also owned by live agent "
+                    f"'{_owner_g3['agentId']}' ({_owner_g3['sessionMode']}); two live agents "
+                    "should not share one native session."
+                )
         await db.execute(
             """
             UPDATE agents
@@ -12332,12 +12400,15 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("agent_session_handle_updated", {"agentId": agent_id, "sessionHandle": session_handle})
-        return {
+        handle_response = {
             "ok": True,
             "agentId": agent_id,
             "sessionHandle": session_handle,
             "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
         }
+        if handle_share_warning:
+            handle_response["warning"] = handle_share_warning
+        return handle_response
     finally:
         await db.close()
 
@@ -12573,6 +12644,36 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 "changed": False,
             }
 
+        # G2 (2026-06-03): block managed->resident for runtimes that don't
+        # support a resident bridge (pi, opencode). Without this guard the flip
+        # produces a `presence-only` agent whose every dispatch is rejected as
+        # undeliverable — a silent footgun. Source resident support from the
+        # runtime adapter (claude/codex/hermes = True; pi/opencode = False).
+        # `force=true` may override (operator-initiated metadata-only flip), but
+        # we still attach a clear warning to the response so the limbo is visible.
+        forced_resident_warning = ""
+        if new_mode == "resident":
+            try:
+                from service.runtimes import adapter_for
+                _resident_supported = bool(adapter_for(effective_runtime).supports_resident)
+            except Exception:
+                _resident_supported = False
+            if not _resident_supported:
+                if not req.force:
+                    raise HTTPException(
+                        409,
+                        (
+                            f"resident mode is not supported for {effective_runtime}; "
+                            "it is managed-only. Keep this agent managed, or pass "
+                            "force=true to change metadata only (it will be undeliverable)."
+                        ),
+                    )
+                forced_resident_warning = (
+                    f"resident mode is not supported for {effective_runtime} (managed-only); "
+                    "forced switch leaves this agent presence-only and every dispatch will be "
+                    "rejected until it is switched back to managed."
+                )
+
         if not req.force:
             blocking = await _get_blocking_active_run(db, agent_id)
             if blocking:
@@ -12740,9 +12841,13 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                         """,
                         (now, agent_id),
                     )
+                    _switch_coldstart_warnings: list[str] = []
                     coldstarted = await _coldstart_spawn_request_for_dispatch(
-                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by
+                        db, agent_id, runtime=runtime, settings=settings, requested_by=requested_by,
+                        warnings=_switch_coldstart_warnings,
                     )
+                    if _switch_coldstart_warnings:
+                        side_effects["handleCollisionWarnings"] = _switch_coldstart_warnings
                     if coldstarted:
                         side_effects["managedSpawnRequested"] = True
                     else:
@@ -12796,7 +12901,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 "agent_session_mode_updated",
                 {"agentId": agent_id, "mode": new_mode, "previousMode": current_mode},
             )
-        return {
+        response_payload = {
             "ok": True,
             "agentId": agent_id,
             "mode": new_mode,
@@ -12805,6 +12910,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "resumeCommand": resume_command,
             "sideEffects": side_effects,
         }
+        if forced_resident_warning:
+            response_payload["warning"] = forced_resident_warning
+        return response_payload
     finally:
         await db.close()
 
