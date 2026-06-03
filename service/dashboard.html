@@ -1278,7 +1278,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
                 <input type="checkbox" id="chat-open-only" onchange="setChatOpenOnly(this.checked)">
                 <span>Open only</span>
               </label>
-              <label class="chat-toggle" title="Hide agents whose environment/heartbeat is offline">
+              <label class="chat-toggle" title="Hide agents that aren't live — offline, stale, stopped, or registered with no live session. Starred chats and chats with unread messages stay visible.">
                 <input type="checkbox" id="chat-online-only" onchange="setChatOnlineOnly(this.checked)">
                 <span>Hide offline</span>
               </label>
@@ -5107,7 +5107,9 @@ function setChatOpenOnly(value) {
 }
 
 function chatOnlineOnly() {
-  return localStorage.getItem('aifyChatOnlineOnly') === '1';
+  // Default ON (2026-06-03): a clean chat shows only live agents; stale/stopped/
+  // no-session agents are hidden unless the operator explicitly toggles it off.
+  return localStorage.getItem('aifyChatOnlineOnly') !== '0';
 }
 
 function setChatOnlineOnly(value) {
@@ -5213,13 +5215,12 @@ function updateChatToolPanels() {
 }
 
 function isOnlineChatAgent(info) {
-  // Operator-renamed semantic 2026-05-22: "Online only" toggle now means
-  // "exclude offline" — show every agent whose status engine doesn't
-  // explicitly report unreachable. Previously this was a stricter
-  // "live-wake capable AND no live-issue" check which excluded
-  // available/idle agents that were still legitimate chat targets.
+  // NOTE: no longer drives the "Hide offline" chat toggle — that filter now keys
+  // off the canonical computed presence dot kind (chatPresenceForAgent) via
+  // NON_LIVE_PRESENCE in chatConversations(), so stale/stopped/dead-session
+  // agents are hidden too. Kept as a raw-status helper for any other callers.
   const raw = String(info?.statusRaw || info?.status || '').toLowerCase();
-  return !['offline', 'stale', 'unreachable'].includes(raw);
+  return !['offline', 'stale', 'stopped', 'unreachable'].includes(raw);
 }
 
 function chatPresenceForAgent(info = {}) {
@@ -5331,6 +5332,13 @@ function chatConversations() {
     if (liveChatAgentIds.has(id)) return false;
     return !isRosterPresent(id);
   };
+  // Non-live presence dot kinds — the same set the CSS greys out
+  // (.chat-status-dot.offline,.stale,.stopped) plus `unreachable`, which is the
+  // dot kind chatPresenceForAgent() returns for a registered-but-no-live-session
+  // agent (liveIssueForAgent fired but raw status isn't offline/stale/stopped).
+  // "Hide offline" must hide ALL of these, not just env-offline, so stale/stopped
+  // and dead-session agents stop cluttering the chat rail.
+  const NON_LIVE_PRESENCE = new Set(['offline', 'stale', 'stopped', 'unreachable']);
   const dmItems = sortItems([...agentIds].map(id => {
     const info = (window._allAgents || []).find(([agentId]) => agentId === id)?.[1] || {};
     const deleted = isRailDeleted(id);
@@ -5338,12 +5346,18 @@ function chatConversations() {
     if (deleted && !showDeleted) return null;
     const last = conversationPreviewForAgent(id, identity);
     if (openOnly && !last) return null;
-    if (onlineOnly && !deleted && !isOnlineChatAgent(info)) return null;
     // A deleted agent has no live status — show a 'deleted' presence, never a
     // stale running/online badge, and never an actionable work rank.
     const presence = deleted
       ? {kind: 'deleted', label: 'Deleted', tone: 'muted', dotKind: 'offline'}
       : chatPresenceForAgent(info);
+    const unread = unreadForAgentConversation(id, identity);
+    const favorited = !!info.favorited;
+    // "Hide offline": drop any agent whose computed chat presence is non-live
+    // (offline/stale/stopped/unreachable), matching the greyed-out dots. Always
+    // keep starred chats and chats with unread messages visible regardless, so
+    // the operator never loses a pinned or unanswered conversation.
+    if (onlineOnly && !deleted && NON_LIVE_PRESENCE.has(presence?.kind) && !favorited && unread <= 0) return null;
     return {
       key: `dm:${id}`,
       kind: 'dm',
@@ -5356,12 +5370,12 @@ function chatConversations() {
       presence,
       runtime: info.runtime || '',
       workRank: ({blocked: 3, working: 3, recovering: 2, starting: 2, 'cli-takeover': 2}[presence?.kind || ''] || 0) + (Number(info.dispatchState?.queuedRuns || 0) > 0 ? 1 : 0),
-      unread: unreadForAgentConversation(id, identity),
+      unread,
       ts: timeValue(last?.timestamp) || timeValue(info.lastSeen),
       // Server-managed star (PATCH /agents/{id}/favorite). Used by
       // the favorite-sort hoist below so starred chats float to top
       // regardless of the operator's sort selection.
-      favorited: !!info.favorited,
+      favorited,
     };
   }).filter(Boolean));
   // Favorites always sort to the top, preserving the chosen sort
