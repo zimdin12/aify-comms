@@ -11,6 +11,9 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 
 ## Contents
 
+- Status labels: online vs available vs idle vs working vs stale vs offline vs stopped
+- Codex resident keeps prompting despite bypass (per-tool `approval_mode`)
+- `available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast
 - Lifecycle verbs: what is Spawn/Stop/Restart/Reset/Resume-wake (and where did `recover` go)
 - resident↔managed switch is now safe (handle carries; pi/opencode managed-only)
 - Session status is derived now — no more "Stopped/Stale but running"
@@ -30,6 +33,73 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
 - General escalation
+
+## Status labels: online vs available vs idle vs working vs stale vs offline vs stopped
+
+**Question.** Operator confusion — "is `idle` the same as `stale`? is `available` the same
+as `online`?" They are distinct signals. Canonical reference:
+
+| Label | Meaning |
+|-------|---------|
+| `online` | Live worker, idle (no active turn). |
+| `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
+| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
+| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
+| `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
+| `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+
+Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
+adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close. Key
+distinctions: `available` ≠ `online` (no live worker yet — it boots one on send); `idle` is
+NOT a separate down-state, it's an `online` worker just gone quiet; `stale` is resident-only
+and means a LIVE-but-expired bridge lease, not an old label that "stuck".
+
+## Codex resident keeps prompting for approval despite the bypass flag
+
+**Symptom.** A resident `codex-aify` launched no-prompt (the default
+`--dangerously-bypass-approvals-and-sandbox`) still raises an interactive approval prompt
+on certain MCP tool calls and strands the dispatch.
+
+**Cause (operator config, NOT repo code).** A per-tool gate
+`[mcp_servers.X.tools.Y] approval_mode = "approve"` in the operator's `~/.codex/config.toml`
+is evaluated INDEPENDENTLY of codex's global bypass flag, so the global bypass does not
+suppress it.
+
+**Fix.** Set those per-tool gates to `approval_mode = "auto"` — the docs-correct per-tool
+"no prompt" value. Note `never` is a valid GLOBAL `approvalPolicy` but is NOT a valid
+per-tool `approval_mode`, so don't use it there. **Managed codex is unaffected** — it runs
+under a clean generated CODEX_HOME that never inherits the operator's per-tool overrides;
+only resident/operator-config codex hits this. (Context: every `*-aify` wrapper already
+launches its harness no-prompt by default — claude `--dangerously-skip-permissions`, codex
+`--dangerously-bypass-approvals-and-sandbox`, hermes `--yolo`, pi/opencode `--auto-approve`,
+managed-codex `approvalPolicy:never` — all behind a uniform `--safe`/`--no-auto` opt-out.)
+
+## `available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast
+
+**Question / symptom.** "An agent's `available→online` flip looks spontaneous/laggy — is
+auto-close doing it?" Or: "a resident I just closed still shows `online` for a while."
+
+**`available→online` is now prompt (2026-06-03, `5070c84`).** The agent live-status cache is
+invalidated the moment a channel sidecar's bridge row is FIRST inserted (the worker came
+alive), so the transition surfaces on the next read instead of waiting out
+`agent_live_state.refresh_after` (which is keyed on heartbeat freshness, not worker
+presence). **This is NORMAL and is UNRELATED to auto-close** — auto-close only drives the
+opposite edge (online→available) and only when enabled. If the flip still looks laggy,
+you're on pre-`5070c84` code; rebuild/restart the service.
+
+**Resident clean-exit drops `online` within ~1.5s (2026-06-03, `5070c84`).** The resident MCP
+bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit
+(best-effort, resident-only, idempotent, bounded ~1.5s); the server handler sets
+`status=stopped` (or auto-returns to managed if a managed backing exists). So a cleanly-closed
+resident no longer lingers `online` for the full ~150s heartbeat lease. A **crash**-closed
+resident never runs that exit path, so it still self-heals at the lease — and a crash-closed
+**presence-only** (opencode/pi) or channel-stripped resident can read `online` until the lease
+ages out (deferred by design: a live `agent_session` ⇒ `online` per the persistent-worker
+taxonomy; see KNOWN_ISSUES.md / DECISIONS.md 2026-06-03 round 2). On Windows, the resident/
+managed hermes PS branch now reaps its detached delivery loop on TUI exit (try/finally
+`Stop-Process`), so a closed Windows resident hermes no longer stays falsely `online` via an
+orphaned loop + gateway host — relaunch from a reinstalled `install.sh` to pick this up.
 
 ## Lifecycle verbs: what is Spawn / Stop / Restart / Reset / Resume-wake
 

@@ -4,6 +4,20 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 ## Status / liveness / worker-hygiene
 
+### Canonical status labels (operator reference)
+
+| Label | Meaning |
+|-------|---------|
+| `online` | Live worker, idle (no active turn). |
+| `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
+| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
+| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
+| `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
+| `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+
+Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
+
 ### Open limitations (not cleanly fixable yet)
 
 - **Resident hermes has no upstream turn-end event → relies on the 30-min ceiling (#172 residual, resident-only).** STATUS is pure event-driven as of 2026-06-02 (see "Resolved 2026-06-02 (pure-event + leak)"): a turn-START event sets `working`, a turn-END event clears it, and no seconds-window decides `working`. The hermes turn-START signal is the `pre_llm_call` turn-start hook (plus, for **managed** hermes, the delivery loop's continuous bidirectional gateway-status detector — see "Resolved 2026-06-02 (managed-hermes continuous gateway turn detector, #172)"). The residual gap is **resident** (operator-launched `hermes-aify`) hermes: it is **non-managed, has no delivery loop and therefore no gateway turn detector**, Hermes exposes no upstream turn-END hook for shell hooks, and the bridge's transcript turn-END detector keys on the *claude* transcript only — so resident hermes has no turn-end EVENT at all and self-heals off `working` only at the single LONG status ceiling (`TURN_BUSY_BACKSTOP_SECONDS`, ~30m) for a dropped end-event. The short 120s claim-gate (`TURN_BUSY_STALE_SECONDS`) still keeps a queued send from being stranded behind it. Closing it would need an upstream resident turn-end hook or a resident-side gateway idle watcher. Tracked in task #172 / #171.
@@ -19,6 +33,17 @@ Living list of known limitations, deferred work, and things to watch. Complement
 ### Watch (revisit only if the symptom recurs)
 
 - **Managed-claude console churn / sidecar self-exit guard misfire.** The channel-sidecar self-exit guard reads `process.ppid` (`ORIGINAL_PPID`) to detect a dead controlling parent (`mcp/stdio/claude-channel.js`). In the managed-claude process tree (`cmd → bash → claude.exe → node`), the immediate parent can be a transient `cmd`/`bash` that exits while `claude.exe` lives — which could make the guard skip liveness beats or self-exit a healthy worker, producing ghost-console reaps + console re-spawn churn. Observed once on sc-claude (2026-06-01), healthy afterward. Do NOT harden preemptively; if console drops become frequent, walk to the real `claude.exe` ancestor (or use a more robust parent signal than the immediate ppid). Tracked in task #173.
+
+## Resolved 2026-06-03 (round 2: codex auto-approve, prompt available→online, resident clean-exit teardown, PS loop reap)
+
+Commit `5070c84` (`fix(autonomy,status,lifecycle)`). Four operator-facing autonomy/liveness fixes:
+
+- **Codex per-tool approval gate prompted a resident `codex-aify` even in bypass mode (config, not repo code).** Every `*-aify` wrapper already launches its harness no-prompt by default (claude `--dangerously-skip-permissions`, codex `--dangerously-bypass-approvals-and-sandbox`, hermes `--yolo`, pi/opencode `--auto-approve`, managed-codex `approvalPolicy:never`), all behind a uniform `--safe`/`--no-auto` opt-out. BUT per-tool `[mcp_servers.X.tools.Y] approval_mode = "approve"` gates in `~/.codex/config.toml` fire INDEPENDENTLY of codex's global bypass flag and still prompt. **Fix is config-side:** set those to `approval_mode = "auto"` (the docs-correct "no prompt" per-tool value — `never` is NOT valid per-tool). Managed codex is unaffected (it uses a clean generated CODEX_HOME without the operator's per-tool overrides).
+- **`available→online` is now PROMPT (no more "spontaneous" flip).** The agent live-status cache is invalidated the moment a channel sidecar's bridge row is first inserted (worker just came alive), so the `available→online` transition surfaces on the next read instead of waiting out `agent_live_state.refresh_after` (keyed on heartbeat freshness, not worker presence). Confirmed UNRELATED to auto-close (auto-close only does the opposite, online→available, and only when enabled).
+- **Resident clean-exit teardown.** The resident MCP bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit (best-effort, resident-only, idempotent, bounded ~1.5s). The server's resident-lost handler sets the agent `status=stopped` (or auto-returns to managed if a managed backing exists), so a cleanly-closed resident drops off `online` within ~1.5s instead of lingering the full ~150s heartbeat lease. (Crash-closed residents still rely on the lease aging out.)
+- **install.sh PowerShell loop-reap regression.** The PS resident/managed hermes branch captured the detached delivery-loop PID but never reaped it on TUI exit (bare `exit`), orphaning the loop + the hidden gateway host it owns → a Windows resident hermes stayed falsely `online`. Now wrapped in try/finally `Stop-Process`, parity with the bash EXIT/INT/TERM trap. (Bash branch was already correct.)
+
+**RESIDUAL (deferred design decision, not a bug):** a CRASH-closed presence-only (opencode/pi) or channel-stripped resident can still read `online` until its lease ages out. Forcing it `stale`/offline strictly conflicts with the deliberate persistent-worker taxonomy (a live `agent_session` ⇒ `online`), so it is left as-is. Clean closes are covered by the resident-lost teardown above; crash closes self-heal at the lease.
 
 ## Resolved 2026-06-03 (lifecycle verbs + switch safety + derived session status)
 

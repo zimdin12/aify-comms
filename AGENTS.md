@@ -129,6 +129,26 @@ The dead `recover`/`resume` aliases on `POST /sessions/{id}/control` (byte-ident
   `LIVE_SESSION_STATUSES`, one `_agent_liveness` predicate. See DECISIONS.md / KNOWN_ISSUES.md
   (2026-06-03).
 
+### Canonical status labels
+
+Operator-facing agent status (distinct from session display status above):
+
+| Label | Meaning |
+|-------|---------|
+| `online` | Live worker, idle (no active turn). |
+| `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
+| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
+| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired, NOT an old/sticky label). |
+| `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
+| `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+
+Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
+adds `stale` when its bridge lease lapses, and (2026-06-03, `5070c84`) `stopped` on clean
+close — the resident bridge POSTs `/agents/{id}/resident-lost` on clean exit so it drops off
+`online` in ~1.5s instead of waiting out the ~150s lease (crash closes still self-heal at the
+lease). See KNOWN_ISSUES.md / DECISIONS.md (2026-06-03 round 2).
+
 ### Adding a new harness
 
 Implement the triad (adapter + controller/delivery + runtime class), advertise honest
