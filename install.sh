@@ -1190,7 +1190,7 @@ install_hermes_wrapper() {
     hermes_plugin_path="$(path_for_windows_runtime "$hermes_plugin_path")"
   fi
   # Path to the host-side MCP stdio bridges (hermes-daemon-cli.js +
-  # hermes-channel.js). path_for_node so Git-Bash node opens it (drive-letter).
+  # hermes-managed-host.js). path_for_node so Git-Bash node opens it (drive-letter).
   local hermes_stdio_dir
   hermes_stdio_dir="$(path_for_node "$AIFY_BRIDGE_DIR")"
   # Prebuilt ui-tui bundle dir (so the managed `hermes --tui` runs the existing
@@ -1494,7 +1494,6 @@ fi
 # session gets security fixes automatically).
 AIFY_HERMES_STDIO_DIR="$hermes_stdio_dir"
 AIFY_HERMES_DAEMON_CLI="\$AIFY_HERMES_STDIO_DIR/hermes-daemon-cli.js"
-AIFY_HERMES_CHANNEL_JS="\$AIFY_HERMES_STDIO_DIR/hermes-channel.js"
 # Managed visible-TUI model (Plan "managed-hermes visible-TUI", 2026-05-31): the
 # per-agent hidden gateway host + background delivery loop live here. The managed
 # branch brings up the gateway host, starts the delivery loop, and then EXECs a
@@ -1533,21 +1532,11 @@ aify_hermes_warm_bridge() {
   fi
 }
 
-# Bring up (idempotently) the per-agent api_server daemon for this agent. On
-# failure print the LOUD daemon error and exit non-zero — a silent no-op daemon
-# is exactly the failure mode this design eliminates. Echoes the daemon-cli's
-# one-line JSON endpoint to stderr for operator visibility.
-aify_hermes_ensure_daemon() {
-  local agent_id="\$1"
-  local out=""
-  if ! out="\$(node "\$AIFY_HERMES_DAEMON_CLI" "\$agent_id")"; then
-    echo "[hermes-aify] FATAL: per-agent api_server daemon for '\$agent_id' did not come up." >&2
-    echo "[hermes-aify]   (node \$AIFY_HERMES_DAEMON_CLI \$agent_id exited non-zero — see the error above)" >&2
-    exit 1
-  fi
-  AIFY_HERMES_DAEMON_ENDPOINT="\$out"
-  echo "[hermes-aify] api_server daemon ready: \$out" >&2
-}
+# (The retired \`aify_hermes_ensure_daemon\` helper — which brought up the old
+# per-agent api_server daemon — was removed in the native-session-id + gateway
+# cleanup. Managed/resident hermes now delivers via the hidden gateway host +
+# \`hermes-managed-host.js run <agent>\` delivery loop; there is no api_server
+# daemon to ensure. \`AIFY_HERMES_DAEMON_CLI\` remains for kill-prior's \`stop\`.)
 
 # Kill any prior sidecar/daemon-cli for THIS agent before launching, so a
 # relaunch never leaves two sidecars claiming the same agent (proliferation
@@ -1560,12 +1549,12 @@ aify_hermes_kill_prior() {
   # spawn (the pre-spawn call has nothing of ours to protect).
   local exclude_pid="\${2:-}"
   [ -n "\$agent_id" ] || return 0
-  # Match the channel sidecar (and daemon-cli) invocation carrying this agentId.
-  # pkill -f matches the full command line; the AIFY_AGENT_ID marker is the most
-  # specific token. Best-effort: no pkill / nothing matched is fine.
+  # Reap a prior delivery loop carrying this agentId. pkill -f matches the full
+  # command line; the AIFY_AGENT_ID marker is the most specific token.
+  # Best-effort: no pkill / nothing matched is fine. (The retired
+  # hermes-channel.js api_server sidecar is no longer spawned, so it is no longer
+  # matched here — the live delivery process is the gateway loop below.)
   if command -v pkill >/dev/null 2>&1; then
-    pkill -f "hermes-channel.js.*\$agent_id" >/dev/null 2>&1 || true
-    pkill -f "AIFY_AGENT_ID=\$agent_id.*hermes-channel.js" >/dev/null 2>&1 || true
     # Managed visible-TUI model: reap a prior background delivery loop
     # (\`hermes-managed-host.js run <agent>\`) for this agent. Its SIGTERM
     # teardown then kills the hidden gateway host it owns. EXCLUDE the
@@ -2038,7 +2027,6 @@ function Invoke-HermesRuntime {
 # repo (never copied — security fixes flow automatically).
 \$AifyHermesStdioDir = '$hermes_stdio_dir_win'
 \$AifyHermesDaemonCli = Join-Path \$AifyHermesStdioDir 'hermes-daemon-cli.js'
-\$AifyHermesChannelJs = Join-Path \$AifyHermesStdioDir 'hermes-channel.js'
 # Managed visible-TUI model (Plan 2026-05-31): the per-agent hidden gateway host
 # (ensure-host) + background delivery loop (run) live here.
 \$AifyHermesManagedHostJs = Join-Path \$AifyHermesStdioDir 'hermes-managed-host.js'
@@ -2052,19 +2040,11 @@ function Invoke-HermesRuntime {
 # builds/locates the TUI as before (no break).
 \$AifyHermesTuiDir = '$hermes_tui_dir_win'
 
-# Bring up (idempotently) the per-agent api_server daemon. On failure print the
-# LOUD daemon error and exit non-zero. Returns the daemon-cli's one-line JSON.
-function Invoke-AifyHermesEnsureDaemon {
-  param([string]\$AgentId)
-  \$out = & node \$AifyHermesDaemonCli \$AgentId
-  if (\$LASTEXITCODE -ne 0) {
-    [Console]::Error.WriteLine("[hermes-aify] FATAL: per-agent api_server daemon for '\$AgentId' did not come up.")
-    [Console]::Error.WriteLine("[hermes-aify]   (node \$AifyHermesDaemonCli \$AgentId exited \$LASTEXITCODE -- see the error above)")
-    exit 1
-  }
-  [Console]::Error.WriteLine("[hermes-aify] api_server daemon ready: \$out")
-  return \$out
-}
+# (The retired Invoke-AifyHermesEnsureDaemon helper — the PowerShell mirror of the
+# removed bash aify_hermes_ensure_daemon — was removed in the native-session-id +
+# gateway cleanup. Managed/resident hermes now delivers via the hidden gateway host
+# + hermes-managed-host.js delivery loop; there is no api_server daemon to ensure.
+# \$AifyHermesDaemonCli remains for kill-prior's \`stop\`.)
 
 # Kill any prior sidecar for THIS agent before launching (proliferation guard).
 function Invoke-AifyHermesKillPrior {
@@ -3615,9 +3595,10 @@ elif [ "$CLIENT" = "codex" ]; then
 elif [ "$CLIENT" = "hermes" ]; then
   # Plan 1.4 (2026-05-30): the dead `patch_hermes_gateway_visible_bind` source
   # patch (and its TUI active-session-file companion) is REMOVED. Managed/
-  # resident hermes delivery now flows through the per-agent api_server daemon
-  # + the hermes-channel.js sidecar (no WS visible-session bind), so the old
-  # tui_gateway/server.py patch is dead. The Codex stream NoneType SDK-bug
+  # resident hermes delivery now flows through the per-agent hidden gateway host
+  # + the `hermes-managed-host.js run <agent>` delivery loop (no WS visible-
+  # session bind), so the old tui_gateway/server.py patch is dead. The Codex
+  # stream NoneType SDK-bug
   # fallback is unrelated to delivery and still useful, so keep it under the
   # legacy gate (off by default).
   if [ "${AIFY_HERMES_LEGACY_SOURCE_PATCH:-0}" = "1" ]; then
@@ -3652,10 +3633,10 @@ elif [ "$CLIENT" = "hermes" ]; then
   echo "  injected messages render in the visible terminal (2026-06-02 convergence)."
   if command -v node >/dev/null 2>&1; then
     if node --check "$AIFY_BRIDGE_DIR/hermes-daemon-cli.js" >/dev/null 2>&1 \
-      && node --check "$AIFY_BRIDGE_DIR/hermes-channel.js" >/dev/null 2>&1; then
-      echo "  Bridges verified: hermes-daemon-cli.js + hermes-channel.js parse OK."
+      && node --check "$AIFY_BRIDGE_DIR/hermes-managed-host.js" >/dev/null 2>&1; then
+      echo "  Bridges verified: hermes-daemon-cli.js + hermes-managed-host.js parse OK."
     else
-      echo "  ERROR: hermes-daemon-cli.js / hermes-channel.js failed node --check — fix before launch." >&2
+      echo "  ERROR: hermes-daemon-cli.js / hermes-managed-host.js failed node --check — fix before launch." >&2
     fi
   fi
 elif [ "$CLIENT" = "pi" ]; then

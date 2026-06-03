@@ -1391,7 +1391,7 @@ test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway 
 // poll cycles and tear itself down (resident-lost + reap the orphaned gateway).
 const EMPTY_ACTIVE_LIST = { result: { sessions: [] } };
 
-test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) → resident-lost + teardown", async () => {
+test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the cold-start grace → resident-lost + teardown", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
   // claim returns { run: null } every cycle (claimOk, never terminal/release), so
@@ -1399,7 +1399,11 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) → residen
   const { httpCall, calls } = makeAifyHttp();
   const ws = makeFakeWsClient({ "session.active_list": EMPTY_ACTIVE_LIST });
   let toreDown = false;
-
+  // COLD-START GRACE (FIX, 2026-06-03): an empty active_list only counts toward
+  // teardown once the TUI has been seen OR the grace elapsed. The TUI NEVER attaches
+  // here (genuinely dead launch), so we drive the injected clock PAST the grace so the
+  // empties start counting and the backstop still fires after the threshold.
+  let clock = 0;
   const result = await runDeliveryLoop("sc-hermes", {
     httpCall,
     spawnImpl: spawn,
@@ -1413,17 +1417,76 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) → residen
     killByPort: () => {},
     procExit: () => {},
     noTuiTeardownCycles: 3,
+    noTuiGraceMs: 100,
+    // First call (loopStartedAt) = 0; every later call jumps +1000ms so the grace
+    // (100ms) is already elapsed by the first poll → empties count immediately.
+    now: () => {
+      const t = clock;
+      clock += 1000;
+      return t;
+    },
     // More iterations than the override threshold so the backstop trips first.
     maxIterations: 20,
   });
 
-  assert.equal(result.residentLost, true, "sustained no-TUI must flip the loop resident-lost");
+  assert.equal(result.residentLost, true, "sustained no-TUI past the grace must flip the loop resident-lost");
   // The resident-lost self-correct was POSTed (reportGatewayDead → /resident-lost).
   const residentLost = calls.find(
     (c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost",
   );
   assert.ok(residentLost, "expected a /resident-lost POST when no TUI stays attached");
   assert.ok(toreDown, "teardown (clearReady) must run so the orphaned gateway is reaped");
+});
+
+test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TUI attaches → NO teardown (slow cold start)", async () => {
+  // THE FIX: the delivery loop is spawned BEFORE the visible `hermes --tui` attaches.
+  // A slow first-launch TUI build can leave active_list empty for many poll cycles;
+  // the old code (no grace, no latch) tore the agent down right after launch. Here the
+  // first K reads are empty (within the grace) and then the TUI attaches — the loop must
+  // NOT have torn down.
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const { httpCall, calls } = makeAifyHttp();
+  let reads = 0;
+  const ws = makeFakeWsClient({
+    "session.active_list": () => {
+      reads += 1;
+      // The first several active_list reads are empty (TUI still cold-starting),
+      // then it attaches for the rest of the loop.
+      return reads <= 4 ? EMPTY_ACTIVE_LIST : ACTIVE_LIST_RESULT;
+    },
+  });
+
+  // Clock stays WITHIN the grace for the empty cold-start window (so empties don't
+  // count), then the TUI attaches before the grace elapses.
+  let clock = 0;
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles: 3,
+    noTuiGraceMs: 1_000_000, // generous grace: stays in-grace for the whole empty window
+    now: () => {
+      const t = clock;
+      clock += 1; // tiny advance, never approaches the huge grace
+      return t;
+    },
+    maxIterations: 8,
+  });
+
+  assert.notEqual(result.residentLost, true, "a slow cold-start (empty within grace, then attach) must NOT tear down");
+  assert.ok(
+    !calls.find((c) => c.method === "POST" && c.endpoint === "/agents/sc-hermes/resident-lost"),
+    "no resident-lost POST when the TUI attaches within the cold-start grace",
+  );
 });
 
 test("runDeliveryLoop: an attached session keeps the loop alive (no premature no-TUI teardown)", async () => {

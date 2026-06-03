@@ -113,9 +113,12 @@ export class HermesController extends BaseController {
       return new DelegatedManagedController(opts);
     }
 
-    // channel/resident dispatches are delivered by the hermes-channel.js
-    // sidecar (api_server model), not by this controller. Return a delegated
-    // no-op so nothing forks a hidden session here.
+    // channel/resident dispatches for managed/resident hermes are delivered by
+    // the `hermes-managed-host.js run <agent>` gateway delivery loop (the
+    // channel-sidecar that submits into the visible TUI's gateway session), NOT
+    // by this controller. This path is therefore unreachable in the live flow —
+    // ChannelDelegatedController is only a defensive no-op so nothing forks a
+    // hidden session here if it is ever reached.
     if (executionMode === "channel" || executionMode === "resident") {
       return new ChannelDelegatedController(opts);
     }

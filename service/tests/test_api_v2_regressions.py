@@ -13346,6 +13346,267 @@ class ApiV2RegressionTests(FastApiTestCase):
         finally:
             await db.close()
 
+    # ------------------------------------------------------------------
+    # HAZARD 2 (2026-06-03): _reconcile_duplicate_resident_sessions must NOT
+    # retire a LIVE resident session. A resident agent_sessions.last_seen is
+    # frozen at register time, so ranking siblings by last_seen DESC can keep a
+    # dead-but-newer row and retire a live one. The fix consults bridge_instances:
+    # a non-survivor sibling is retired ONLY when its owner_bridge_id has no fresh,
+    # non-superseded bridge row.
+    # ------------------------------------------------------------------
+
+    def _seed_resident_session(self, *, session_id, agent_id, owner_bridge_id, last_seen):
+        """Insert a resident agent_sessions row (FKs satisfied by a registered
+        agent + the linux:test-host:default env)."""
+        now = api_v2._now()
+        # spawn_spec_id/spawn_request_id passed as NULL (not the '' default) so
+        # their FKs don't fire — same shape the production insert uses.
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, spawn_spec_id, spawn_request_id,
+                status, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                session_id, agent_id, "linux:test-host:default", "hermes",
+                "/workspace/repo", "resident", "resident", owner_bridge_id,
+                None, None, "running", now, last_seen,
+            ),
+        )
+
+    def _seed_bridge(self, *, bridge_id, agent_id, last_seen, superseded_by=""):
+        self._execute(
+            """
+            INSERT INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode,
+                bridge_kind, registered_at, last_seen, superseded_by
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                bridge_id, agent_id, "linux:test-host", "hermes", "resident",
+                "resident", "2020-01-01T00:00:00Z", last_seen, superseded_by,
+            ),
+        )
+
+    def _run_reconcile_duplicate_resident_sessions(self):
+        from service.routers.api_v2 import _reconcile_duplicate_resident_sessions
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await _reconcile_duplicate_resident_sessions(db)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_reconcile_duplicate_resident_keeps_live_older_retires_dead_newer(self):
+        # Two resident sessions for one agent. The OLDER session has a FRESH bridge
+        # (it's the live one); the NEWER session's bridge is DEAD. Ranking by
+        # last_seen DESC would keep the newer/dead one — the fix must instead KEEP
+        # the older/live session and retire the dead newer one.
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("dup-res", runtime="hermes", sessionMode="resident")
+        now = api_v2._now()
+        # Older session (smaller last_seen) but a FRESH owning bridge → LIVE.
+        self._seed_bridge(bridge_id="bridge-live", agent_id="dup-res", last_seen=now)
+        self._seed_resident_session(
+            session_id="sess-old-live", agent_id="dup-res",
+            owner_bridge_id="bridge-live", last_seen="2026-06-03T10:00:00Z",
+        )
+        # Newer session (larger last_seen) but a DEAD owning bridge.
+        self._seed_bridge(bridge_id="bridge-dead", agent_id="dup-res", last_seen="2020-01-01T00:00:00Z")
+        self._seed_resident_session(
+            session_id="sess-new-dead", agent_id="dup-res",
+            owner_bridge_id="bridge-dead", last_seen="2026-06-03T11:00:00Z",
+        )
+
+        retired = self._run_reconcile_duplicate_resident_sessions()
+        self.assertEqual(retired, 1, "exactly the dead newer sibling must be retired")
+
+        live = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess-old-live",))
+        dead = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess-new-dead",))
+        # The newer row is the survivor by last_seen ranking, BUT it is dead, so it
+        # is retired; the older live one is the non-survivor sibling whose bridge is
+        # fresh, so it is LEFT ALONE (a live session is never retired).
+        self.assertEqual(live["status"], "running", "the live (fresh-bridge) session must be KEPT")
+        self.assertEqual(dead["status"], "stopped", "the dead (stale-bridge) session must be retired")
+
+    def test_reconcile_duplicate_resident_all_stale_keeps_freshest_retires_rest(self):
+        # All siblings have dead/absent bridges → no live-session guard applies, so
+        # the classic behaviour holds: keep the freshest (by last_seen), retire the rest.
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("dup-stale", runtime="hermes", sessionMode="resident")
+        # Both bridges dead.
+        self._seed_bridge(bridge_id="b-stale-1", agent_id="dup-stale", last_seen="2020-01-01T00:00:00Z")
+        self._seed_bridge(bridge_id="b-stale-2", agent_id="dup-stale", last_seen="2020-01-01T00:00:00Z")
+        self._seed_resident_session(
+            session_id="sess-fresh", agent_id="dup-stale",
+            owner_bridge_id="b-stale-1", last_seen="2026-06-03T12:00:00Z",
+        )
+        self._seed_resident_session(
+            session_id="sess-older", agent_id="dup-stale",
+            owner_bridge_id="b-stale-2", last_seen="2026-06-03T09:00:00Z",
+        )
+
+        retired = self._run_reconcile_duplicate_resident_sessions()
+        self.assertEqual(retired, 1, "only the older stale sibling is retired")
+        fresh = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess-fresh",))
+        older = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess-older",))
+        self.assertEqual(fresh["status"], "running", "the freshest survivor is kept")
+        self.assertEqual(older["status"], "stopped", "the older stale sibling is retired")
+
+    def test_reconcile_duplicate_resident_single_session_is_noop(self):
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("dup-single", runtime="hermes", sessionMode="resident")
+        self._seed_bridge(bridge_id="b-single", agent_id="dup-single", last_seen="2020-01-01T00:00:00Z")
+        self._seed_resident_session(
+            session_id="sess-only", agent_id="dup-single",
+            owner_bridge_id="b-single", last_seen="2026-06-03T10:00:00Z",
+        )
+
+        retired = self._run_reconcile_duplicate_resident_sessions()
+        self.assertEqual(retired, 0, "a single session is a no-op")
+        only = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", ("sess-only",))
+        self.assertEqual(only["status"], "running", "the sole session is untouched")
+
+    # ------------------------------------------------------------------
+    # Coverage gap (review): _reroute_orphaned_managed_channel_runs and
+    # _has_live_managed_wrapper_child.
+    # ------------------------------------------------------------------
+
+    def _seed_queued_managed_run(self, *, run_id, target_agent, runtime):
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, runtime, message_type, subject, body, priority,
+                status, require_reply, requested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                run_id, None, "manager", target_agent, "start_if_possible",
+                "managed", runtime, "request", "work", "body", "normal",
+                "queued", 1, api_v2._now(),
+            ),
+        )
+
+    def _run_reroute_orphaned_managed_channel_runs(self):
+        from service.routers.api_v2 import _reroute_orphaned_managed_channel_runs
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await _reroute_orphaned_managed_channel_runs(db)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_reroute_orphaned_managed_run_with_live_sidecar_is_rerouted_to_channel(self):
+        # A queued execution_mode='managed' run for a managed hermes agent with a
+        # LIVE channel-sidecar must be re-routed to 'channel' (the authoritative
+        # delivery path). Idempotent on a second pass.
+        # The suite opts into legacy via-console (insert_messages_via_console=True),
+        # under which reroute is a deliberate no-op. Flip to the channel-route
+        # default for this test so the reroute path is exercised.
+        self.client.put("/api/v1/settings", json={"insert_messages_via_console": False})
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("reroute-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_queued_managed_run(run_id="rr-1", target_agent="reroute-hermes", runtime="hermes")
+        # A FRESH channel-sidecar bridge → _has_live_channel_sidecar True.
+        self._seed_bridge(bridge_id="rr-sidecar", agent_id="reroute-hermes", last_seen=api_v2._now())
+        self._execute(
+            "UPDATE bridge_instances SET bridge_kind = 'channel-sidecar' WHERE id = ?",
+            ("rr-sidecar",),
+        )
+
+        n = self._run_reroute_orphaned_managed_channel_runs()
+        self.assertEqual(n, 1, "the orphaned managed run must be rerouted")
+        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", ("rr-1",))
+        self.assertEqual(run["execution_mode"], "channel")
+        # Idempotent: a second pass finds nothing already-channel to reroute.
+        n2 = self._run_reroute_orphaned_managed_channel_runs()
+        self.assertEqual(n2, 0, "re-running must be a no-op once rerouted")
+
+    def test_reroute_does_not_touch_non_channel_runtime(self):
+        # A pi run (not in _CHANNEL_MANAGED_RUNTIMES | _CHANNEL_FLAG_GATED_RUNTIMES)
+        # must NOT be rerouted even with a live sidecar bridge present.
+        self.client.put("/api/v1/settings", json={"insert_messages_via_console": False})
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
+        )
+        self._register("reroute-pi", runtime="pi", sessionMode="managed")
+        self._seed_queued_managed_run(run_id="rr-pi", target_agent="reroute-pi", runtime="pi")
+        self._seed_bridge(bridge_id="rr-pi-sidecar", agent_id="reroute-pi", last_seen=api_v2._now())
+        self._execute(
+            "UPDATE bridge_instances SET bridge_kind = 'channel-sidecar' WHERE id = ?",
+            ("rr-pi-sidecar",),
+        )
+
+        n = self._run_reroute_orphaned_managed_channel_runs()
+        self.assertEqual(n, 0, "a pi run must NOT be rerouted (not a channel runtime)")
+        run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", ("rr-pi",))
+        self.assertEqual(run["execution_mode"], "managed", "the pi run stays managed")
+
+    def _run_has_live_managed_wrapper_child(self, agent_id):
+        from service.routers.api_v2 import _has_live_managed_wrapper_child
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await _has_live_managed_wrapper_child(db, agent_id)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_has_live_managed_wrapper_child_true_for_fresh_bridge(self):
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("mwc-fresh", runtime="hermes", sessionMode="managed")
+        self._seed_bridge(bridge_id="mwc-1", agent_id="mwc-fresh", last_seen=api_v2._now())
+        self._execute(
+            "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
+            ("mwc-1",),
+        )
+        self.assertTrue(self._run_has_live_managed_wrapper_child("mwc-fresh"))
+
+    def test_has_live_managed_wrapper_child_false_for_stale_superseded_or_none(self):
+        self._heartbeat_environment(
+            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
+        )
+        self._register("mwc-stale", runtime="hermes", sessionMode="managed")
+        self._register("mwc-super", runtime="hermes", sessionMode="managed")
+        self._register("mwc-none", runtime="hermes", sessionMode="managed")
+        # Stale heartbeat.
+        self._seed_bridge(bridge_id="mwc-s", agent_id="mwc-stale", last_seen="2020-01-01T00:00:00Z")
+        self._execute(
+            "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
+            ("mwc-s",),
+        )
+        # Fresh but superseded.
+        self._seed_bridge(bridge_id="mwc-sup", agent_id="mwc-super", last_seen=api_v2._now(), superseded_by="newer")
+        self._execute(
+            "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
+            ("mwc-sup",),
+        )
+        # mwc-none: no managed-wrapper-child bridge at all.
+        self.assertFalse(self._run_has_live_managed_wrapper_child("mwc-stale"), "stale heartbeat → False")
+        self.assertFalse(self._run_has_live_managed_wrapper_child("mwc-super"), "superseded → False")
+        self.assertFalse(self._run_has_live_managed_wrapper_child("mwc-none"), "no bridge → False")
+
 
 class TerminalSessionMigrationTests(unittest.TestCase):
     """Part 1 migration: an existing DB whose terminal_sessions table predates

@@ -8,18 +8,21 @@ export class HermesAdapter extends RuntimeAdapter {
   get displayName() { return "Hermes"; }
   get sessionEnvVars() { return ["HERMES_SESSION_ID", "HERMES_SESSION"]; }
 
-  // Capability matrix — api_server delivery model (2026-05-30
-  // hermes-apiserver-delivery plan). Managed hermes delivers like claude-aify:
-  // the per-agent hermes-channel.js sidecar claims dispatch runs over HTTP and
-  // drives the agent's pinned api_server session (POST /api/sessions/{id}/
-  // chat/stream). This is the "channel" model — the dead tui_gateway WS bind
-  // (aify.session.bind_transport) has been retired.
+  // Capability matrix — gateway-host delivery model (native-session-id,
+  // 2026-06-03). Managed/resident hermes delivers like claude-aify, but via a
+  // hidden gateway: the per-agent `hermes-managed-host.js run <agent>` loop is
+  // the channel-sidecar — it claims dispatch runs over HTTP, opens its own WS to
+  // the agent's hidden `hermes dashboard --tui` gateway host, resolves the agent's
+  // captured REAL session id via session.active_list, and submits with
+  // prompt.submit (session.steer on 4009-busy). The retired api_server /
+  // hermes-channel.js sidecar and the dead tui_gateway WS bind
+  // (aify.session.bind_transport) are no longer in any live path.
   get supportsResident() { return true; }
   get supportsManaged() { return true; }
   // Steer IS supported on the gateway delivery path: the delivery loop
-  // (hermes-managed-host.js) injects mid-turn via the tui_gateway `session.steer`
-  // RPC on a 4009-busy. (Matches service/runtimes/hermes.py supports_steering=True;
-  // interrupt also available via the api_server /stop.) 2026-06-03.
+  // (hermes-managed-host.js) injects mid-turn via the gateway `session.steer`
+  // RPC on a 4009-busy, and interrupt routes through the same gateway. Matches
+  // service/runtimes/hermes.py supports_steering=True. 2026-06-03.
   get supportsSteering() { return true; }
   get supportsInterrupt() { return true; }
   get supportsMultiClient() { return true; }

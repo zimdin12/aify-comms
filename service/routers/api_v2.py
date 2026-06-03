@@ -364,8 +364,9 @@ _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 # .channelEnabled, exported by the *-aify wrapper as AIFY_CHANNELS_ENABLED=1 —
 # the SAME mechanism claude uses; see autoRegisterConfiguredAgent in
 # mcp/stdio/server.js). This is the symmetric-with-claude delivery path: an
-# in-session sidecar (hermes-channel.js, mirror of claude-channel.js) claims
-# the channel run and delivers the wake; the agent self-replies via comms_send.
+# channel-sidecar (for hermes: the `hermes-managed-host.js run <agent>` gateway
+# delivery loop, the analogue of claude-channel.js) claims the channel run and
+# delivers the wake; the agent self-replies via comms_send.
 # ASYMMETRY(hermes): claude is in _CHANNEL_MANAGED_RUNTIMES and routes to
 # channel UNCONDITIONALLY (claude has no headless managed-run API). hermes DOES
 # have a native managed path, so it routes to channel only when the wrapper
@@ -373,7 +374,7 @@ _CHANNEL_MANAGED_RUNTIMES = {"claude-code"}
 # (no false channel-deliverability claim). Membership here intentionally does
 # NOT pull hermes into the claude-specific PTY-backing carve-outs keyed on
 # _CHANNEL_MANAGED_RUNTIMES (those assume claude-aify hosts the sidecar); the
-# hermes sidecar is a standalone per-agent process (Task 1.1/1.2).
+# hermes gateway delivery loop is a standalone per-agent process (Task 1.1/1.2).
 _CHANNEL_FLAG_GATED_RUNTIMES = {"hermes"}
 # Claim-side whitelist for execution_mode='channel' runs. Claude channel
 # claims can come from the claude-aify channel bridge. Wrapper-backed managed
@@ -551,17 +552,17 @@ MANAGED_ORPHAN_GRACE_SECONDS = 90
 
 async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
     """Task 1.6 (2026-05-30): True when a standalone channel sidecar
-    (hermes-channel.js / claude-channel.js) is currently heartbeating for this
-    agent.
+    (claude-channel.js for claude; the `hermes-managed-host.js run <agent>`
+    gateway delivery loop for hermes) is currently heartbeating for this agent.
 
     This is the deliverability/liveness signal for runtimes whose managed wake
     is delivered by a standalone channel sidecar that owns NO wrapper PTY
-    (hermes via its pinned api_server daemon). It is the runtime-agnostic
-    equivalent of claude's `_has_live_terminal_session` gate: claude's sidecar
-    runs INSIDE the claude-aify wrapper PTY (so a live PTY terminal_session is
-    its liveness proof), whereas hermes's sidecar is a separate process whose
-    proof is its own `bridge_kind='channel-sidecar'` bridge_instances row with a
-    fresh last_seen (kept fresh by the claim poll loop).
+    (hermes via its hidden `hermes dashboard --tui` gateway host). It is the
+    runtime-agnostic equivalent of claude's `_has_live_terminal_session` gate:
+    claude's sidecar runs INSIDE the claude-aify wrapper PTY (so a live PTY
+    terminal_session is its liveness proof), whereas hermes's gateway loop is a
+    separate process whose proof is its own `bridge_kind='channel-sidecar'`
+    bridge_instances row with a fresh last_seen (kept fresh by the claim poll loop).
 
     Returns False when no such row exists (no sidecar ever ran), the row is
     superseded, or its heartbeat is older than CHANNEL_SIDECAR_STALE_SECONDS
@@ -15398,13 +15399,26 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
     the operator could not tell apart ("no way of knowing what to delete"). The
     register-time dedup only retires siblings on a FRESH register; this collapses
     the EXISTING duplicates: keep the most-recently-seen resident session per
-    agent, retire the rest. Returns rows retired."""
+    agent, retire the rest. Returns rows retired.
+
+    LIVE-SESSION GUARD (HAZARD 2 fix, 2026-06-03): a resident agent_sessions row's
+    last_seen is FROZEN at register time — the 30s heartbeat updates agents /
+    bridge_instances, NOT agent_sessions — so ranking siblings by `last_seen DESC`
+    can keep a dead-but-newer row and retire a LIVE one. We therefore NEVER retire a
+    non-survivor sibling whose owning bridge (owner_bridge_id) is still FRESH: a
+    fresh, non-superseded bridge_instances row (last_seen within
+    resident_lease_seconds) proves that session is still live. The freshest session
+    per agent is still the survivor, but among the rest we retire ONLY those whose
+    owning bridge is stale/gone — a sibling with a fresh bridge is LEFT ALONE (a
+    transient duplicate is safer than retiring a live session)."""
+    settings = await _load_settings(db)
+    lease_seconds = int(settings.get("resident_lease_seconds", 150) or 150)
     live_states = ("running", "attached", "active", "idle", "starting", "recovering")
     state_ph = ",".join("?" for _ in live_states)
     rows = await (
         await db.execute(
             f"""
-            SELECT id, agent_id
+            SELECT id, agent_id, owner_bridge_id
             FROM agent_sessions
             WHERE mode = 'resident' AND status IN ({state_ph})
             ORDER BY agent_id ASC, last_seen DESC, rowid DESC
@@ -15412,14 +15426,64 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
             list(live_states),
         )
     ).fetchall()
-    seen: set[str] = set()
-    retire: list[str] = []
+
+    async def _owner_bridge_is_fresh(owner_bridge_id: str, agent_id: str) -> bool:
+        """True when the session's owning bridge has a fresh, non-superseded
+        bridge_instances row (last_seen within the resident lease) — i.e. the
+        session is still live and must NOT be retired as a duplicate."""
+        bid = str(owner_bridge_id or "").strip()
+        if not bid:
+            return False
+        try:
+            cur = await db.execute(
+                """
+                SELECT 1 FROM bridge_instances
+                WHERE id = ? AND agent_id = ?
+                  AND COALESCE(superseded_by, '') = ''
+                  AND datetime(last_seen) > datetime('now', ?)
+                LIMIT 1
+                """,
+                (bid, agent_id, f"-{int(lease_seconds)} seconds"),
+            )
+            return (await cur.fetchone()) is not None
+        except Exception:
+            return False
+
+    # Group each agent's live resident sessions (rows arrive freshest-first by the
+    # ORDER BY). Annotate each with whether its owning bridge is still fresh.
+    per_agent: dict[str, list[dict]] = {}
     for row in rows:
         agent_id = str(row["agent_id"] or "")
-        if agent_id not in seen:
-            seen.add(agent_id)  # freshest row for this agent — keep it
-        else:
-            retire.append(str(row["id"]))
+        keys = row.keys()
+        owner_bridge_id = str(row["owner_bridge_id"] if "owner_bridge_id" in keys else "")
+        per_agent.setdefault(agent_id, []).append(
+            {
+                "id": str(row["id"]),
+                "owner_bridge_id": owner_bridge_id,
+                "bridge_fresh": await _owner_bridge_is_fresh(owner_bridge_id, agent_id),
+            }
+        )
+
+    retire: list[str] = []
+    for agent_id, sessions in per_agent.items():
+        if len(sessions) < 2:
+            continue  # single session → no-op
+        # Survivor selection: prefer a session whose owning bridge is still FRESH
+        # (a LIVE session must always win over a dead-but-newer sibling — the
+        # resident last_seen is frozen at register time and can rank a dead row
+        # newest). Among equal liveness the SQL last_seen order already put the
+        # freshest first, so the first live session (or the first row overall when
+        # none are live) is the survivor.
+        survivor = next((s for s in sessions if s["bridge_fresh"]), sessions[0])
+        for s in sessions:
+            if s["id"] == survivor["id"]:
+                continue
+            # Retire a non-survivor ONLY when its owning bridge is stale/gone — a
+            # still-fresh bridge means it's a LIVE session, left alone (a transient
+            # duplicate is safer than retiring a live session).
+            if s["bridge_fresh"]:
+                continue
+            retire.append(s["id"])
     retire = retire[:limit]
     if not retire:
         return 0

@@ -10,21 +10,25 @@
 //      REQUIRED or `/api/ws` closes 4403. Auth token is scraped from the
 //      dashboard index HTML (`__HERMES_SESSION_TOKEN__`).
 //   2. (the VISIBLE Ink TUI in the bridge node-pty is started by the wrapper —
-//      NOT here; that is install.sh's job in a separate task.)
-//   3. DELIVERY: aify opens its OWN WS to the same gateway, discovers the
-//      visible TUI's EPHEMERAL runtime sid via `session.active_list`
-//      (pickSessionForKey on the STABLE key `aify-<agentId>`), then
-//      `prompt.submit {session_id, text}` (fallback `session.steer` on 4009
-//      busy). Events route to the TUI's transport (owner) so the TUI renders;
-//      aify's submit does NOT displace it.
+//      NOT here; that is install.sh's job. It attaches to THIS gateway host via
+//      HERMES_TUI_GATEWAY_URL.)
+//   3. DELIVERY: aify opens its OWN WS to the same gateway and resolves the
+//      agent's session via `session.active_list` — NATIVE-SESSION-ID model
+//      (2026-06-03): target the agent's bound REAL session id (the marker
+//      written at launch/register), with a most-recent-live-session fallback
+//      (symmetric with claude UUID / codex thread id). NOT the retired synthetic
+//      `aify-<agentId>` key. Then `prompt.submit {session_id, text}` (fallback
+//      `session.steer` on 4009 busy). Events route to the TUI's transport
+//      (owner) so the TUI renders; aify's submit does NOT displace it.
 //
-// WAKE-ONLY (symmetric with claude-channel.js / hermes-channel.js): this helper
-// authors NO reply. The in-session hermes agent has the aify-comms comms_*
-// tools loaded and self-replies via comms_send + inReplyTo, which closes the
-// require_reply run. After a successful submit the run is left `delivered`.
+// WAKE-ONLY (symmetric with claude-channel.js): this helper authors NO reply.
+// The in-session hermes agent has the aify-comms comms_* tools loaded and
+// self-replies via comms_send + inReplyTo, which closes the require_reply run.
+// After a successful submit the run is left `delivered`.
 //
-// The runtime sid is EPHEMERAL (`uuid4().hex[:8]` per attach). It is NEVER
-// cached — every delivery re-runs `session.active_list`.
+// The real session id is re-discovered every delivery (the most-recent fallback
+// may rebind it), so it is NEVER cached — every delivery re-runs
+// `session.active_list`.
 
 import os from "os";
 import path from "path";
@@ -57,7 +61,6 @@ import {
   buildSessionActiveListFrame,
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
-  pickSessionForKey,
   pickSessionById,
   pickMostRecentSession,
   pickSessionStatusForKey,
@@ -106,8 +109,8 @@ const READY_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_GATEWAY_R
 const RPC_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_RPC_TIMEOUT_MS || 60000));
 // COLD-START DELIVERY RACE (2026-05-31): on the first dispatch after a cold
 // (re)launch, the delivery loop can claim + try to deliver BEFORE the visible
-// TUI has finished resuming `aify-<agentId>` into the gateway, so
-// session.active_list returns no matching key yet. Wait (bounded) for the
+// TUI has finished resuming its real session into the gateway, so
+// session.active_list returns no matching session yet. Wait (bounded) for the
 // session to attach before submitting; if it never attaches in time, REQUEUE
 // the run (leave it claimable) rather than failing it permanently.
 const ATTACH_WAIT_MS = Math.max(2000, Number(process.env.AIFY_HERMES_ATTACH_WAIT_MS || 25000));
@@ -207,6 +210,20 @@ const GATEWAY_PROBE_THRESHOLD = Math.max(
 const NO_TUI_TEARDOWN_CYCLES = Math.max(
   1,
   Number(process.env.AIFY_HERMES_NO_TUI_TEARDOWN_CYCLES || 10),
+);
+// NO-TUI COLD-START GRACE (FIX, 2026-06-03). The delivery loop is spawned BEFORE
+// the visible `hermes --tui` attaches to the gateway, so the no-TUI teardown
+// backstop above (NO_TUI_TEARDOWN_CYCLES empties) could false-fire during a slow
+// cold start — a first-launch TUI build on a loaded WSL2 host can take >30s
+// (10 cycles × ~3s POLL_MS) to attach, and the loop would tear itself down right
+// after launch before the TUI ever showed up. The grace + a "have I ever seen
+// the TUI" latch (hasSeenAttachedTui) fix this: an empty active_list only counts
+// toward teardown ONCE the TUI has attached at least once OR the cold-start grace
+// has elapsed. After a genuine attach-then-leave, the latch keeps the backstop
+// firing after N empties as before. Default 90s; configurable.
+const NO_TUI_GRACE_MS = Math.max(
+  0,
+  Number(process.env.AIFY_HERMES_NO_TUI_GRACE_MS || 90000),
 );
 // Per-probe HTTP timeout — short so a slow probe still completes within the
 // interval and counts as ONE failure (not a hang). Debounced by the threshold.
@@ -849,8 +866,8 @@ export function makeGatewayReachabilityProbe({
   };
 }
 
-// COLD-START requeue: the visible TUI has not (yet) attached its `aify-<id>`
-// session to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
+// COLD-START requeue: the visible TUI has not (yet) attached its real session
+// to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
 // permanent failure. Put the run back to `queued` (claimable) so the very next
 // poll delivers once the TUI finishes resuming. Never markRunFailed for this.
 async function markRunRequeued(httpCall, run, reason) {
@@ -1642,8 +1659,21 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // module constant; injectable so tests can drive the backstop deterministically
     // without depending on the frozen-at-load env value (mirrors emptyAttachFailThreshold).
     noTuiTeardownCycles = NO_TUI_TEARDOWN_CYCLES,
+    // NO-TUI COLD-START GRACE (FIX, 2026-06-03). Grace window during which an empty
+    // active_list does NOT count toward the no-TUI teardown if the TUI has never yet
+    // attached (the loop is spawned before the visible `hermes --tui` attaches). Once
+    // the TUI is first seen attached, the latch (hasSeenAttachedTui) makes empties
+    // count immediately regardless of grace. Injectable like noTuiTeardownCycles.
+    noTuiGraceMs = NO_TUI_GRACE_MS,
+    // Clock seam for the cold-start grace (loopStartedAt is captured from this).
+    // Injectable so tests can drive the grace window deterministically.
+    now = Date.now,
   } = deps;
   const id = String(agentId || "").trim();
+  // Cold-start grace anchor: the moment the delivery loop began. An empty
+  // active_list before (now() - loopStartedAt) > noTuiGraceMs — and before the TUI
+  // has EVER attached — is the expected cold-start window, not a dead launch.
+  const loopStartedAt = now();
   if (!id) {
     console.error("[hermes-managed-host] run: no bound agentId; nothing to drive.");
     return { released: false, processed: 0 };
@@ -1869,6 +1899,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // LOOP-LEVEL resident-lost signal (independent of any pending run) so a hard
   // terminal kill that bypasses the A1 trap still self-tears-down.
   let noTuiCycles = 0;
+  // COLD-START LATCH (FIX, 2026-06-03): have we EVER seen the TUI attached? Until we
+  // have (and before the cold-start grace elapses), an empty active_list is the
+  // expected pre-attach window — NOT a dead launch — so it must not count toward the
+  // no-TUI teardown. Set true the first time countAttachedSessions() > 0.
+  let hasSeenAttachedTui = false;
   const stopRepulse = startInFlightRepulse({
     intervalMs: REPULSE_MS,
     isInFlight: makeInFlightProbe({
@@ -1968,7 +2003,13 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         // teardown reaps the gateway host this loop owns, then self-exit so the
         // orphaned-but-reachable gateway can no longer keep the agent looking online.
         const attachedCount = await countAttachedSessions();
-        if (attachedCount === 0) {
+        // COLD-START GRACE (FIX, 2026-06-03): an empty active_list counts toward the
+        // no-TUI teardown ONLY once the TUI has attached at least once (latch) OR the
+        // cold-start grace window has elapsed. Before then it's the expected pre-attach
+        // window (the loop is spawned before the visible `hermes --tui` attaches), so a
+        // slow first-launch TUI build on a loaded host is never torn down prematurely.
+        const coldStartGraceElapsed = now() - loopStartedAt > noTuiGraceMs;
+        if (attachedCount === 0 && (hasSeenAttachedTui || coldStartGraceElapsed)) {
           noTuiCycles += 1;
           if (noTuiCycles >= noTuiTeardownCycles) {
             await reportGatewayDeadOnce(
@@ -1985,8 +2026,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
             return { released: false, processed: totalProcessed, residentLost: true };
           }
         } else if (attachedCount > 0) {
+          // The TUI is attached: latch it (so future empties count immediately) and
+          // reset the empty streak (a brief relaunch detach never trips teardown).
+          hasSeenAttachedTui = true;
           noTuiCycles = 0;
         }
+        // attachedCount === -1 (read error) and the in-grace empty case both leave
+        // noTuiCycles unchanged — a flaky read or a cold-start pre-attach empty is
+        // neither a confirmed attach nor a teardown-worthy empty.
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
         // started (above) + a successful /dispatch/claim round-trip (even with 0
         // runs). Write/refresh the ready marker the wrapper health-gates on so a
