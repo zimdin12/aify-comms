@@ -5,15 +5,7 @@ Capability values per Plan 2 spec; everything else inherited from the base.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
 from .base import RuntimeAdapter
-
-_UUID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-    re.IGNORECASE,
-)
 
 
 class ClaudeAdapter(RuntimeAdapter):
@@ -51,44 +43,10 @@ class ClaudeAdapter(RuntimeAdapter):
         return runtime_config.get("channelEnabled") is True
 
     async def discover_session_id(self) -> str | None:
-        """Plan 4 (2026-05-25): claude stores transcripts at
-        ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl. Returns newest .jsonl's
-        uuid across all project subdirs.
-        """
-        root = Path.home() / ".claude" / "projects"
-        try:
-            projects = list(root.iterdir())
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            return None
-        if not projects:
-            return None
-
-        newest: tuple[Path, float] | None = None
-        for proj in projects:
-            if not proj.is_dir():
-                continue
-            try:
-                for f in proj.iterdir():
-                    if not f.is_file() or f.suffix != ".jsonl":
-                        continue
-                    try:
-                        mtime = f.stat().st_mtime
-                    except OSError:
-                        continue
-                    if newest is None or mtime > newest[1]:
-                        newest = (f, mtime)
-            except (FileNotFoundError, NotADirectoryError, PermissionError):
-                continue
-
-        if newest is None:
-            return None
-
-        f = newest[0]
-        m = _UUID_RE.search(f.name)
-        if m:
-            return m.group(0)
-        # Fallback: strip extension
-        base = f.stem
-        if 0 < len(base) < 128:
-            return base
+        # Session discovery for claude is bridge-side ONLY (the JS adapter,
+        # mcp/stdio/adapters/claude.js, which scopes discovery to the agent's
+        # own cwd). This Python path is never invoked in service/ flow; it
+        # deliberately returns None rather than re-implementing a machine-global
+        # transcript scan that would cross-agent-contaminate — exactly what the
+        # JS adapter was rewritten to forbid.
         return None

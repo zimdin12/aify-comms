@@ -25,7 +25,11 @@ export class CodexAdapter extends RuntimeAdapter {
   // codex session ids come from a prior rollout that aify RESUMES by handing
   // the id back to the CLI — internally the codex-aify wrapper runs
   // `codex resume --include-non-interactive <id>` (see install.sh codex
-  // branch). The operator takeover command is the wrapper form.
+  // branch). The load-bearing part is the POSITIONAL <id>: that is what
+  // resumes the rollout. `--include-non-interactive` is a no-op when an
+  // explicit id is given (it only matters for id-less resume), kept only for
+  // parity with the interactive path. The operator takeover command is the
+  // wrapper form.
   // ASYMMETRY(codex): the wrapper rewrites `--resume <id>` into the codex
   // `resume` subcommand; the operator-facing command stays the symmetric
   // `<wrapper> --resume <id>` form.
@@ -50,6 +54,10 @@ export class CodexAdapter extends RuntimeAdapter {
   // — with a sibling `quarantine-oversized/` flat-file dir. We walk up to 4
   // levels deep, find newest .jsonl by mtime, extract uuid from filename, and
   // fall back to first-line JSON metadata for forward compatibility.
+  // NOTE: in the normal codex-aify wrapper path this filesystem-walk branch is
+  // SHADOWED — the app-server early-return below (AIFY_CODEX_APP_SERVER_URL set)
+  // takes over, and the live thread id is resolved by discoverCodexLiveThreadId
+  // in server.js. The walk only runs when no app-server URL is configured.
   async discoverSessionId() {
     const appServerUrl = String(process.env.AIFY_CODEX_APP_SERVER_URL || "").trim();
     if (appServerUrl) {

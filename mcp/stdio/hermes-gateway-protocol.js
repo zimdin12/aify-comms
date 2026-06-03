@@ -26,6 +26,30 @@ export function buildSessionSteerFrame({ id, sessionId, text }) {
   };
 }
 
+// #3 COMPLEMENT (2026-06-03): draw the INBOUND dispatch message as a boxed
+// notice into the VISIBLE session's transport BEFORE the turn runs. The
+// aify-hermes-plugin registers `aify.session.render_notice` on the gateway
+// (integrations/hermes-aify-plugin/aify_hermes_plugin/patches.py): it resolves
+// the visible session and writes a review.summary event (the `notice` body) and
+// an optional status.update (the `status` chip) to that session's transport —
+// so the operator sees "agent X says: ..." in their `hermes --tui` even though
+// prompt.submit is fire-and-forget. This is a COMPLEMENT to the prompt.submit
+// transport-tee fix (which renders the agent's streamed reply); the box makes
+// the incoming message itself visible. A gateway without the plugin returns
+// `unknown method` — the loop swallows that so delivery never regresses.
+export function buildRenderNoticeFrame({ id, sessionId, notice, status = "" }) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "aify.session.render_notice",
+    params: {
+      session_id: String(sessionId || ""),
+      notice: String(notice || ""),
+      status: String(status || ""),
+    },
+  };
+}
+
 export function buildSessionMostRecentFrame({ id }) {
   return {
     jsonrpc: "2.0",
@@ -63,12 +87,14 @@ export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
 }
 
 // NOTE (2026-05-30 hermes-apiserver-delivery): the aify.session.bind_transport
-// and aify.session.render_notice frame builders were removed with the retired
-// tui_gateway WS-bind path. They were used ONLY by the deleted
-// HermesResidentController. Managed/resident hermes now delivers via the
-// hermes-channel.js api_server sidecar. The frames below remain because
-// hermes-managed-gateway-session.js (AIFY_HERMES_MANAGED_USE_GATEWAY=1) still
-// uses prompt.submit / session.steer / session.most_recent over the gateway WS.
+// frame builder was removed with the retired tui_gateway WS-bind path (it was
+// used ONLY by the deleted HermesResidentController). The aify.session.render_notice
+// builder was RE-ADDED above (2026-06-03, #3) — the visible-TUI managed-host loop
+// uses it to draw the inbound message box; the prompt.submit transport-tee in the
+// hermes-aify-plugin renders the agent's streamed reply. The frames below remain
+// because hermes-managed-gateway-session.js (AIFY_HERMES_MANAGED_USE_GATEWAY=1)
+// and the managed-host loop use prompt.submit / session.steer / session.most_recent
+// over the gateway WS.
 
 // Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
 // because the persisted key has been GC'd (or never existed), session.create

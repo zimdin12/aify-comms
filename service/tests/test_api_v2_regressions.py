@@ -128,6 +128,22 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         asyncio.run(_run())
 
+    def _executemany(self, query: str, seq_params):
+        """Batch-insert helper: one connection for a whole loop of rows.
+
+        Functionally identical to calling ``_execute`` per row, but avoids
+        opening/closing a fresh sqlite connection per row in seed loops.
+        """
+        async def _run():
+            db = await get_db()
+            try:
+                await db.executemany(query, list(seq_params))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
     def test_dispatch_run_events_are_bounded_and_cursor_paginated(self):
         run_id = "run_events_page"
         self._execute(
@@ -153,11 +169,13 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "2026-05-20T00:00:00Z",
             ),
         )
-        for index in range(75):
-            self._execute(
-                "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-                (run_id, f"event_{index:02d}", f"body {index}", f"2026-05-20T00:{index:02d}:00Z"),
-            )
+        self._executemany(
+            "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
+            (
+                (run_id, f"event_{index:02d}", f"body {index}", f"2026-05-20T00:{index:02d}:00Z")
+                for index in range(75)
+            ),
+        )
 
         first = self.client.get(f"/api/v1/dispatch/runs/{run_id}/events?limit=500")
         self.assertEqual(first.status_code, 200, first.text)
@@ -7253,6 +7271,84 @@ class ApiV2RegressionTests(FastApiTestCase):
             prior["superseded_by"],
             "bridge-fresh-resident",
             f"stale same-handle resident bridge must be superseded by fresh re-register; got {dict(prior)}",
+        )
+
+    def test_resident_reregister_with_new_handle_upserts_one_session_row(self):
+        # FIX 1 (2026-06-03): the resident agent_sessions id must be STABLE across
+        # relaunches so a relaunch UPSERTs the SAME row instead of minting a new
+        # resident_* every launch. Pre-fix the id keyed on session_handle (which
+        # rotates per launch), so two registers with DIFFERENT handles produced TWO
+        # rows. Key on (agent_id, runtime, machine) → exactly one row survives.
+        self._heartbeat_environment()
+        self._register_live_codex_resident(
+            "resident-upsert",
+            session_handle="codex-handle-1",
+            bridge_id="bridge-resident-1",
+            port=45111,
+        )
+        rows_after_first = self._fetchall(
+            "SELECT id FROM agent_sessions WHERE agent_id = ? AND mode = 'resident'",
+            ("resident-upsert",),
+        )
+        self.assertEqual(
+            len(rows_after_first), 1,
+            f"first resident register must create exactly one session row; got {[dict(r) for r in rows_after_first]}",
+        )
+        first_id = rows_after_first[0]["id"]
+
+        # Relaunch: SAME agent + runtime + machine, but a DIFFERENT session_handle.
+        # force=true so the re-register takes over the still-live prior bridge
+        # (a real relaunch supersedes the previous instance).
+        self._register(
+            "resident-upsert",
+            runtime="codex",
+            sessionMode="resident",
+            sessionHandle="codex-handle-2-different",
+            machineId="linux:test-host",
+            bridgeId="bridge-resident-2",
+            capabilities=["resident-run", "resume", "interrupt", "steer"],
+            runtimeConfig={"appServerUrl": "ws://127.0.0.1:45222"},
+            force=True,
+        )
+        rows_after_second = self._fetchall(
+            "SELECT id, session_handle, status FROM agent_sessions WHERE agent_id = ? AND mode = 'resident'",
+            ("resident-upsert",),
+        )
+        live_rows = [r for r in rows_after_second if str(r["status"]) not in ("stopped", "failed", "exited")]
+        # Exactly ONE row total (the relaunch UPSERTed the same id, not a new row),
+        # and the live one carries the refreshed handle.
+        self.assertEqual(
+            len(rows_after_second), 1,
+            f"relaunch with a new handle must UPSERT one row, not mint a second; got {[dict(r) for r in rows_after_second]}",
+        )
+        self.assertEqual(rows_after_second[0]["id"], first_id, "the upserted row must keep the stable id")
+        self.assertEqual(rows_after_second[0]["session_handle"], "codex-handle-2-different")
+        self.assertEqual(len(live_rows), 1)
+
+    def test_tombstone_blocks_autoregister_under_different_casing(self):
+        # FIX 4 (2026-06-03): tombstone lookup is case-insensitive, so deleting
+        # `foo` then auto-registering `Foo` (autoRegister, no restoreDeleted) is
+        # still BLOCKED with 410. Pre-fix the case-sensitive WHERE let a different
+        # casing bypass a deliberate deletion.
+        self._heartbeat_environment()
+        self._register("foo", runtime="codex", sessionMode="resident", machineId="linux:test-host")
+        deleted = self.client.delete("/api/v1/agents/foo")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+
+        blocked = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "Foo",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "machineId": "linux:test-host",
+                "autoRegister": True,
+            },
+        )
+        self.assertEqual(
+            blocked.status_code, 410,
+            f"auto re-register under different casing must hit the tombstone (410); got {blocked.status_code}: {blocked.text}",
         )
 
     def test_managed_same_logical_owner_reregister_supersedes_old_bridge(self):

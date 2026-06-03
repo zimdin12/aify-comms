@@ -61,6 +61,7 @@ import {
   buildSessionActiveListFrame,
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
+  buildRenderNoticeFrame,
   pickSessionById,
   pickMostRecentSession,
   pickSessionStatusForKey,
@@ -1159,6 +1160,38 @@ export async function deliverRun({
     if (run?.id) emptyAttachCounter.delete(String(run.id));
 
     const text = dispatchContent(agentId, run || {});
+
+    // #3 COMPLEMENT: draw the INBOUND message as a boxed notice in the operator's
+    // visible TUI BEFORE submitting the turn. prompt.submit is fire-and-forget,
+    // so without this the operator never sees WHAT arrived — only the agent's
+    // eventual reply (rendered via the plugin's prompt.submit transport-tee). The
+    // plugin registers aify.session.render_notice on the gateway; a gateway
+    // WITHOUT the plugin answers `unknown method`, so this is best-effort — any
+    // failure is swallowed so delivery never regresses on the notice.
+    try {
+      const sender = String(run?.from || "").trim();
+      const subject = String(run?.subject || "").trim();
+      const notice = [
+        sender ? `Incoming from ${sender}` : "Incoming aify-comms message",
+        subject ? `Re: ${subject}` : "",
+        "",
+        text,
+      ]
+        .filter((line, idx, arr) => line !== "" || (idx > 0 && arr[idx - 1] !== ""))
+        .join("\n")
+        .trim();
+      await wsClient.request(
+        buildRenderNoticeFrame({
+          id: id++,
+          sessionId,
+          notice,
+          status: sender ? `aify-comms · ${sender}` : "aify-comms",
+        }),
+      );
+    } catch {
+      /* plugin-less gateway or transient render failure — never block delivery */
+    }
+
     try {
       await wsClient.request(buildPromptSubmitFrame({ id: id++, sessionId, text }));
     } catch (err) {

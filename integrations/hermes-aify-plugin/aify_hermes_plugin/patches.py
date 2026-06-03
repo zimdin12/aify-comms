@@ -49,6 +49,81 @@ def patch_gateway_server(module: ModuleType) -> None:
         make_agent_with_mcp_discovery._aify_plugin_patch = True  # type: ignore[attr-defined]
         setattr(module, "_make_agent", make_agent_with_mcp_discovery)
 
+    # ── ROOT FIX (#3, 2026-06-03): keep a sidecar prompt.submit from STEALING
+    # the visible TUI's streaming transport ──────────────────────────────────
+    #
+    # The gateway's prompt.submit handler unconditionally does
+    #     if (t := current_transport()) is not None:
+    #         session["transport"] = t
+    # to re-bind streaming to the active request socket (server.py ~3879). When
+    # the aify managed/resident delivery LOOP submits a turn for a RESIDENT
+    # agent, `current_transport()` is the LOOP's WS socket — so the whole turn
+    # (inbound echo, message.start, deltas, the agent's reply) streams to the
+    # loop and is discarded, and the operator's visible `hermes --tui`, attached
+    # to the SAME session, renders nothing (the headline bug).
+    #
+    # write_json() routes event frames by `session["transport"]` (server.py
+    # ~382), and the agent runs in a background thread that the handler spawns
+    # AFTER the rebind. So the fix is: wrap the registered prompt.submit method,
+    # and immediately AFTER the inner handler returns (synchronously, before the
+    # turn thread emits anything that matters), re-assert
+    #     session["transport"] = TeeTransport(primary=visible_TUI, secondary=caller)
+    # whenever the caller is a NON-TUI sidecar and the session already had a
+    # live primary transport that the handler just replaced. The TUI keeps its
+    # stream (the tee primary) AND the loop still receives its copy (the
+    # secondary) — delivery is not regressed.
+    #
+    # Idempotent: tagged with _aify_prompt_submit_tee so a re-import doesn't
+    # double-wrap, and a no-op when there is no distinct prior primary (e.g. the
+    # operator's OWN TUI submitting its own prompt, where caller IS the primary).
+    original_prompt_submit = methods.get("prompt.submit")
+    if callable(original_prompt_submit) and not getattr(
+        original_prompt_submit, "_aify_prompt_submit_tee", False
+    ):
+
+        def prompt_submit_tee_transport(rid, params: dict):  # type: ignore[no-untyped-def]
+            sid = str(params.get("session_id") or "")
+            sessions = getattr(module, "_sessions", None)
+            session = sessions.get(sid) if isinstance(sessions, dict) else None
+
+            # The transport the visible TUI is streaming on, captured BEFORE the
+            # handler rebinds it to the caller. None for an unknown session.
+            primary = session.get("transport") if isinstance(session, dict) else None
+
+            current_transport = getattr(module, "current_transport", None)
+            caller = current_transport() if callable(current_transport) else None
+
+            result = original_prompt_submit(rid, params)
+
+            # Re-assert the tee only when a sidecar caller (the delivery loop)
+            # just stole a DISTINCT live primary. If the handler errored early
+            # (busy/not-found) it leaves session["transport"] alone, so honor
+            # whatever it set: only act when it is now exactly the caller.
+            try:
+                if (
+                    isinstance(session, dict)
+                    and primary is not None
+                    and caller is not None
+                    and primary is not caller
+                    and session.get("transport") is caller
+                ):
+                    tee_transport = getattr(module, "TeeTransport", None)
+                    if tee_transport is None:
+                        from tui_gateway.transport import (
+                            TeeTransport as tee_transport,
+                        )
+                    session["transport"] = tee_transport(primary, caller)
+            except Exception as exc:
+                logger = getattr(module, "logger", None)
+                if logger is not None:
+                    logger.debug("aify prompt.submit tee re-assert failed: %s", exc)
+
+            return result
+
+        prompt_submit_tee_transport._aify_prompt_submit_tee = True  # type: ignore[attr-defined]
+        prompt_submit_tee_transport._aify_plugin_patch = True  # type: ignore[attr-defined]
+        methods["prompt.submit"] = prompt_submit_tee_transport
+
     def resolve_visible_session(target: str):  # type: ignore[no-untyped-def]
         try:
             snapshot = list(module._sessions.items())

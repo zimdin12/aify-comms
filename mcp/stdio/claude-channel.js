@@ -123,22 +123,21 @@ function readBoundAgentId() {
   // server.js on comms_register. The file is keyed by ppid because both
   // server.js and this process are children of the same Claude Code
   // process — they share the same ppid.
-  const candidates = [
-    path.join(TMP_DIR, `aify-agent-${process.ppid || process.pid}`),
-  ];
-  for (const candidate of candidates) {
-    try {
-      const binding = readAgentBindingFile({ pid: process.ppid || process.pid, dir: TMP_DIR });
-      if (binding.agentId) return binding.agentId;
-    } catch {
-      // keep looking
-    }
+  try {
+    const binding = readAgentBindingFile({ pid: process.ppid || process.pid, dir: TMP_DIR });
+    if (binding.agentId) return binding.agentId;
+  } catch {
+    // no binding file yet
   }
   return "";
 }
 
 async function httpCall(method, endpoint, body = null) {
-  if (!SERVER_URL) return null;
+  // Gate on the resolved URL set (ACTIVE_SERVER_URL / SERVER_URLS), not the raw
+  // primary SERVER_URL — a config with only *_FALLBACK_URLS leaves SERVER_URL
+  // empty but still yields a usable ACTIVE_SERVER_URL, and httpCall iterates the
+  // full SERVER_URLS list below.
+  if (!ACTIVE_SERVER_URL) return null;
   const options = { method, headers: {} };
   if (API_KEY) options.headers["X-API-Key"] = API_KEY;
   if (body) {
@@ -435,7 +434,7 @@ async function pollLoop() {
   const stopLiveness = startLivenessHeartbeat({
     intervalMs: 30_000,
     beat: async () => {
-      if (!SERVER_URL) return;
+      if (!ACTIVE_SERVER_URL) return;
       const id = readBoundAgentId();
       if (!id) return;
       // Orphan-sidecar liveness gate: if our controlling claude.exe is gone,
@@ -483,7 +482,7 @@ async function pollLoop() {
   try {
   while (true) {
     try {
-      if (!SERVER_URL) {
+      if (!ACTIVE_SERVER_URL) {
         await sleep(POLL_MS);
         continue;
       }

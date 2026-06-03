@@ -2,10 +2,12 @@
 // as part of Plan 3 Task 9.
 //
 // Claude Code's heavy delivery work lives in claude-channel.js (a sidecar
-// inside claude-aify). This controller is intentionally thin: the bridge's
-// main dispatch loop now drops 'managed' from supportedExecutionModes for
-// claude-code (managed-via-wrapper preferred), and resident/channel mode
-// claude delivery is handled by the channel bridge, not by launchRuntimeRun.
+// inside claude-aify). This controller is intentionally thin: ALL managed
+// claude delivery is owned by that claude-channel.js CHANNEL-SIDECAR, not by
+// a wrapper-PTY child (the wrapper-child is replies-only, and
+// _managed_via_wrapper_for_runtime() returns False for claude-code). Both
+// resident and managed claude work is delivered by the channel bridge, not
+// by launchRuntimeRun.
 //
 // Therefore launchRuntimeRun's claude-code branch is a "safety belt": if
 // some code path still routes a claude-code run here, start() rejects with
@@ -36,10 +38,10 @@ export class ClaudeController extends BaseController {
       this._started = true;
       this._capabilities = controlCapabilitiesForRuntime("claude-code");
       // Plan 4 ready: claude-aify is "ready" by virtue of being launched —
-      // resident delivery flows through the claude-channel.js sidecar, and
-      // managed-via-wrapper rides the wrapper PTY's child bridge. Mark ready
-      // immediately so operators see the same status surface as other
-      // runtimes. See DECISIONS.md.
+      // BOTH resident and managed claude delivery flow through the
+      // claude-channel.js channel-sidecar (claude is NOT managed-via-wrapper).
+      // Mark ready immediately so operators see the same status surface as
+      // other runtimes. See DECISIONS.md.
       this.markReady();
     }
     return {
@@ -53,14 +55,15 @@ export class ClaudeController extends BaseController {
   }
 
   async injectMessage(_opts) {
-    // claude managed-via-wrapper delivers via the wrapper PTY's child bridge;
-    // resident/channel delivery goes through claude-channel.js sidecar.
+    // All managed/resident claude delivery goes through the claude-channel.js
+    // channel-sidecar — claude is NOT managed-via-wrapper, so nothing should
+    // route an inject here.
     throw new Error(CLAUDE_DISPATCH_DISABLED_MESSAGE);
   }
 
   async interrupt(_opts) {
     // No active turn owned by this controller - interrupts are routed
-    // through the channel bridge or wrapper-PTY child bridge.
+    // through the claude-channel.js channel-sidecar.
   }
 
   async steer(_opts) {

@@ -1578,7 +1578,12 @@ async def _delete_messages_where(db, where_clause: str, params: tuple[Any, ...] 
 
 
 async def _agent_tombstone(db, agent_id: str):
-    cursor = await db.execute("SELECT * FROM agent_tombstones WHERE agent_id = ?", (agent_id,))
+    # FIX 4 (2026-06-03): match case-insensitively so deleting `hermes-test` then
+    # re-registering `Hermes-test` still hits the tombstone (the old case-sensitive
+    # lookup let a different-casing re-register bypass the deletion).
+    cursor = await db.execute(
+        "SELECT * FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE", (agent_id,)
+    )
     return await cursor.fetchone()
 
 
@@ -10414,68 +10419,103 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         if action in {"restart", "recover", "resume", "recreate"}:
             spec_id = str(session["spawn_spec_id"] or "").strip()
             if not spec_id:
-                raise HTTPException(409, f'Session "{session_id}" has no stored spawn spec to resume')
-            spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))
-            spawn_spec_row = await spec_cursor.fetchone()
-            if not spawn_spec_row:
-                raise HTTPException(409, f'Session "{session_id}" references missing spawn spec "{spec_id}"')
-            env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (spawn_spec_row["environment_id"],))
-            env_row = await env_cursor.fetchone()
-            if not env_row:
-                raise HTTPException(409, f'Environment "{spawn_spec_row["environment_id"]}" is not available')
-
-            agent_cursor = await db.execute("SELECT role, name FROM agents WHERE id = ?", (agent_id,))
-            agent_row = await agent_cursor.fetchone()
-            environment = _environment_record_to_dict(env_row)
-            if str(environment.get("status") or "").lower() != "online":
-                raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}; assign a live environment before {action}.')
-            workspace = _normalize_workspace_for_environment(environment, spawn_spec_row["workspace"] or session["workspace"] or "")
-            workspace_root = _workspace_root_for(environment, workspace)
-            request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-            resume_policy = "fresh_context" if action == "recreate" else "native_first"
-            request_session_handle = "" if action == "recreate" else (session["session_handle"] or "")
-            await db.execute(
-                """
-                INSERT INTO spawn_requests (
-                    id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
-                    workspace, workspace_root, initial_message, priority, subject, mode,
-                    resume_policy, status, session_handle, created_at, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    request_id,
-                    spec_id,
-                    req.from_agent or "dashboard",
-                    spawn_spec_row["environment_id"],
+                # FIX 5 (2026-06-03): a resident-origin session has a NULL spawn_spec,
+                # yet the SEND path already auto-starts it via the cold-start helper.
+                # Mirror that here instead of hard-erroring: cold-start a managed worker
+                # (creates a queued spawn_request a bridge can claim), then continue to
+                # the status-update tail with that queued/claimed spawn_request row. Only
+                # raise when nothing can host it (no cold-start AND no claimable request).
+                settings = await _load_settings(db)
+                coldstarted = await _coldstart_spawn_request_for_dispatch(
+                    db,
                     agent_id,
-                    (agent_row["role"] if agent_row else "") or "coder",
-                    (agent_row["name"] if agent_row else "") or agent_id,
-                    spawn_spec_row["runtime"],
-                    workspace,
-                    workspace_root,
-                    req.body or "",
-                    req.priority or "normal",
-                    req.subject or f"{action.title()} {agent_id}",
-                    spawn_spec_row["mode"] or session["mode"] or "managed-warm",
-                    resume_policy,
-                    "queued",
-                    request_session_handle,
-                    now,
-                    now,
-                ),
-            )
-            spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
-            if action == "recreate":
+                    runtime=str(session["runtime"] or ""),
+                    settings=settings,
+                    requested_by=req.from_agent or "dashboard",
+                )
+                if not coldstarted and not await _has_claimable_spawn_request(db, agent_id):
+                    raise HTTPException(
+                        409,
+                        (
+                            f'Session "{session_id}" has no stored spawn spec and no online '
+                            f'environment can host managed {session["runtime"] or "runtime"}.'
+                        ),
+                    )
+                spawn_request_row = await (await db.execute(
+                    """
+                    SELECT *
+                    FROM spawn_requests
+                    WHERE agent_id = ?
+                      AND status IN ('queued', 'claimed')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (agent_id,),
+                )).fetchone()
+                # Fall through to the shared status-update tail below.
+                spawn_spec_row = None
+            else:
+                spec_cursor = await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))
+                spawn_spec_row = await spec_cursor.fetchone()
+                if not spawn_spec_row:
+                    raise HTTPException(409, f'Session "{session_id}" references missing spawn spec "{spec_id}"')
+                env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (spawn_spec_row["environment_id"],))
+                env_row = await env_cursor.fetchone()
+                if not env_row:
+                    raise HTTPException(409, f'Environment "{spawn_spec_row["environment_id"]}" is not available')
+
+                agent_cursor = await db.execute("SELECT role, name FROM agents WHERE id = ?", (agent_id,))
+                agent_row = await agent_cursor.fetchone()
+                environment = _environment_record_to_dict(env_row)
+                if str(environment.get("status") or "").lower() != "online":
+                    raise HTTPException(409, f'Environment "{environment.get("id")}" is {environment.get("status") or "unknown"}; assign a live environment before {action}.')
+                workspace = _normalize_workspace_for_environment(environment, spawn_spec_row["workspace"] or session["workspace"] or "")
+                workspace_root = _workspace_root_for(environment, workspace)
+                request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+                resume_policy = "fresh_context" if action == "recreate" else "native_first"
+                request_session_handle = "" if action == "recreate" else (session["session_handle"] or "")
                 await db.execute(
                     """
-                    UPDATE agents
-                    SET session_handle = '',
-                        runtime_state = '{}',
-                        last_seen = ?
-                    WHERE id = ?
+                    INSERT INTO spawn_requests (
+                        id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
+                        workspace, workspace_root, initial_message, priority, subject, mode,
+                        resume_policy, status, session_handle, created_at, updated_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    (now, agent_id),
+                    (
+                        request_id,
+                        spec_id,
+                        req.from_agent or "dashboard",
+                        spawn_spec_row["environment_id"],
+                        agent_id,
+                        (agent_row["role"] if agent_row else "") or "coder",
+                        (agent_row["name"] if agent_row else "") or agent_id,
+                        spawn_spec_row["runtime"],
+                        workspace,
+                        workspace_root,
+                        req.body or "",
+                        req.priority or "normal",
+                        req.subject or f"{action.title()} {agent_id}",
+                        spawn_spec_row["mode"] or session["mode"] or "managed-warm",
+                        resume_policy,
+                        "queued",
+                        request_session_handle,
+                        now,
+                        now,
+                    ),
                 )
+                spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
+                if action == "recreate":
+                    await db.execute(
+                        """
+                        UPDATE agents
+                        SET session_handle = '',
+                            runtime_state = '{}',
+                            last_seen = ?
+                        WHERE id = ?
+                        """,
+                        (now, agent_id),
+                    )
 
         next_status = {
             "stop": "stopped",
@@ -10726,7 +10766,12 @@ async def register_agent(req: AgentRegister, request: Request):
                         "resurrect it. Relaunch the agent to restore."
                     ),
                 )
-            await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
+            # FIX 4 (2026-06-03): COLLATE NOCASE so the explicit-restore clear path
+            # matches the same row the case-insensitive lookup above found.
+            await db.execute(
+                "DELETE FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE",
+                (req.agentId,),
+            )
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
         bridge_id = (req.bridgeId or "").strip()
@@ -13002,7 +13047,12 @@ async def _upsert_resident_agent_session(
     if not env_row:
         return ""
 
-    key_material = session_handle or str(config.get("gatewayUrl") or "") or bridge_id or agent_id
+    # FIX 1 (2026-06-03): the resident session id must be STABLE across relaunches
+    # so a relaunch UPSERTs the SAME row instead of minting a new resident_* every
+    # launch. session_handle / gatewayUrl / bridge_id all ROTATE per launch, so the
+    # ON CONFLICT(id) DO UPDATE could never match and duplicate rows accumulated.
+    # Key on (machine or env id or agent) — stable per (agent_id, runtime, machine).
+    key_material = machine or str(env_row["id"]) or agent_id
     session_id = f"resident_{uuid.uuid5(uuid.NAMESPACE_URL, f'aify-comms:{agent_id}:{runtime}:{key_material}').hex[:16]}"
     app_server_url = str(config.get("appServerUrl") or "").strip()
     telemetry = {

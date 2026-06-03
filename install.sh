@@ -39,6 +39,12 @@ PREBUILD_DRY_RUN=false
 # in the operator's environment and launching no npm/hermes/loop. Used by
 # service/tests/test_install_hermes_loop_gate.py to inspect the generated text.
 EMIT_HERMES_WRAPPERS_DIR=""
+# Test hook (FIX 7, 2026-06-03): --emit-codex-wrappers <dir> mirrors the hermes
+# emit hook — generates ONLY the codex-aify wrapper into <dir> and exits, so the
+# codex bypass flag (CODEX_AUTO / --dangerously-bypass-approvals-and-sandbox) can
+# be asserted deterministically and can't silently drop. Used by
+# mcp/stdio/tests/codex-wrapper-determinism.test.js.
+EMIT_CODEX_WRAPPERS_DIR=""
 DEFAULT_AIFY_SERVER_URL="${AIFY_DEFAULT_SERVER_URL:-http://192.168.100.10:8800}"
 
 usage() {
@@ -80,6 +86,10 @@ while [ $# -gt 0 ]; do
       ;;
     --emit-hermes-wrappers)
       EMIT_HERMES_WRAPPERS_DIR="${2:-}"
+      shift 2
+      ;;
+    --emit-codex-wrappers)
+      EMIT_CODEX_WRAPPERS_DIR="${2:-}"
       shift 2
       ;;
     --help|-h)
@@ -514,7 +524,9 @@ remove_claude_wrapper() {
 }
 
 install_codex_wrapper() {
-  local wrapper_dir="$HOME/.local/bin"
+  # FIX 7 (2026-06-03): honor EMIT_CODEX_WRAPPERS_DIR so the determinism test can
+  # render the wrapper into a tmp dir (mirrors install_hermes_wrapper's emit dir).
+  local wrapper_dir="${EMIT_CODEX_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/codex-aify"
   mkdir -p "$wrapper_dir"
   cat > "$wrapper_path" <<'EOF'
@@ -649,8 +661,11 @@ for ARG in "$@"; do
   # CODEX_RESUME_HANDLE. The dashboard Console now passes the stored
   # codex session id this way (Task 11). We consume the token rather
   # than forwarding it because codex itself takes the handle as a
-  # subcommand argument (`codex resume --include-non-interactive <id>`),
-  # not as a flag on the top-level `codex --remote` invocation.
+  # POSITIONAL argument to its `resume` subcommand (`codex resume <id>`),
+  # not as a flag on the top-level `codex --remote` invocation. The
+  # positional <id> is what actually resumes the rollout; the
+  # --include-non-interactive flag we pass alongside it (below) is a no-op
+  # when an explicit id is given and only matters for id-less resume.
   if [ "$PREV_ARG" = "--resume" ] || [ "$PREV_ARG" = "--session-id" ]; then
     CODEX_RESUME_HANDLE="$ARG"
     PREV_ARG=""
@@ -785,6 +800,12 @@ EOF
   # wrapper hardcoded 127.0.0.1:8800 regardless of `--client codex <url>`.
   sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" && rm -f "$wrapper_path.bak"
   chmod +x "$wrapper_path"
+  # FIX 7 (2026-06-03): in emit mode, stop after writing the wrapper text — skip
+  # the Windows shim / MCP-config / launch so the test can inspect the wrapper in
+  # isolation without touching the operator's environment.
+  if [ -n "$EMIT_CODEX_WRAPPERS_DIR" ]; then
+    return 0
+  fi
   install_windows_cmd_shim "codex-aify" "$wrapper_dir"
 }
 
@@ -1373,6 +1394,10 @@ fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
   export AIFY_AGENT_ID="\$HERMES_AIFY_AGENT_ID"
   export AIFY_AGENT_ROLE="\$HERMES_AIFY_ROLE"
+  # FIX 2 (2026-06-03): export the wrapper's cwd so hermes' \${AIFY_AGENT_CWD}
+  # interpolation in the config.yaml MCP env block resolves to a real path
+  # (the wrapper runs in the agent's working directory).
+  export AIFY_AGENT_CWD="\${AIFY_AGENT_CWD:-\$PWD}"
 fi
 if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
   export HERMES_SESSION_ID="\$HERMES_SESSION_HANDLE"
@@ -3512,6 +3537,16 @@ if [ "$CLIENT" = "hermes" ]; then
     # operator's environment or invoke npm/hermes.
     exit 0
   fi
+fi
+
+# FIX 7 (2026-06-03): codex emit hook — mirror the hermes one. Generate ONLY the
+# codex-aify wrapper into the given dir and exit. No npm, no MCP registration, no
+# env mutation, no codex-presence check — purely so the determinism test can
+# assert on the rendered wrapper text (CODEX_AUTO / bypass flag).
+if [ "$CLIENT" = "codex" ] && [ -n "$EMIT_CODEX_WRAPPERS_DIR" ]; then
+  mkdir -p "$EMIT_CODEX_WRAPPERS_DIR"
+  install_codex_wrapper
+  exit 0
 fi
 
 require_cmd node

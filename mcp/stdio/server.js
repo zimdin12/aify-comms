@@ -1098,7 +1098,12 @@ async function autoRegisterConfiguredAgent() {
     return;
   }
   const runtime = detectRuntime(process.env.AIFY_RUNTIME || "");
-  const cwd = normalizeRegistrationCwd(runtime, process.env.AIFY_AGENT_CWD || DEFAULT_CWD);
+  // FIX 2 (2026-06-03): an UNEXPANDED literal like "${AIFY_AGENT_CWD}" (when the
+  // wrapper didn't export it) is truthy and would bypass DEFAULT_CWD. Treat any
+  // value still containing a ${...} placeholder as empty so DEFAULT_CWD applies.
+  const rawAgentCwd = process.env.AIFY_AGENT_CWD || "";
+  const agentCwd = /\$\{.*\}/.test(rawAgentCwd) ? "" : rawAgentCwd;
+  const cwd = normalizeRegistrationCwd(runtime, agentCwd || DEFAULT_CWD);
   let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
   const envHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
   // Plan 6 A2: discover authoritative, env fallback. See computeInitialSessionHandle above.
@@ -2275,6 +2280,9 @@ async function runTerminalControlLoop() {
             runtime,
             sessionHandle,
             agentId: terminal.agentId || "",
+            // FIX 6 (2026-06-03): tag the PTY's session mode so an env-bridge
+            // stopAll never reaps an operator-launched resident console.
+            sessionMode: normalizeSessionMode(agentInfo.sessionMode || agentInfo.session_mode),
           });
           await updateTerminalControl(control.id, {
             status: "completed",

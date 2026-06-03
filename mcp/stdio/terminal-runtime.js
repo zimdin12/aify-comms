@@ -178,20 +178,20 @@ export class TerminalProcessManager {
   }
 
 
-  async start({ id, command, cwd = process.cwd(), env = process.env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
+  async start({ id, command, cwd = process.cwd(), env = process.env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
     if (!id) throw new Error("Terminal id is required");
     if (!command) throw new Error("Terminal command is required");
     if (this.terminals.has(id)) {
       await this.stop(id, "restarting terminal");
     }
-    const spec = { id, command, cwd, env, cols, rows, runtime: normalizeRuntime(runtime), sessionHandle, healAttempted, agentId };
+    const spec = { id, command, cwd, env, cols, rows, runtime: normalizeRuntime(runtime), sessionHandle, healAttempted, agentId, sessionMode };
     if (pty) {
       return this.startPty(spec);
     }
     return this.startPipeProcess(spec);
   }
 
-  async startPty({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
+  async startPty({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
     const windows = process.platform === "win32";
     const shell = windows
       ? (process.env.COMSPEC || "cmd.exe")
@@ -246,6 +246,8 @@ export class TerminalProcessManager {
       sessionHandle: String(sessionHandle || "").trim(),
       healAttempted: !!healAttempted,
       agentId: String(agentId || "").trim(),
+      // FIX 6 (2026-06-03): store sessionMode so stopAll can skip resident consoles.
+      sessionMode: String(sessionMode || "").trim(),
       term,
       status: "attached",
       kind: "pty",
@@ -265,7 +267,7 @@ export class TerminalProcessManager {
     return { pid: term.pid, status: "attached", pty: true };
   }
 
-  async startPipeProcess({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "" }) {
+  async startPipeProcess({ id, command, cwd, env, cols = 100, rows = 28, runtime = "", sessionHandle = "", healAttempted = false, agentId = "", sessionMode = "" }) {
     const resolvedCwd = expandUserHome(cwd) || process.cwd();
     const proc = spawn(command, {
       cwd: resolvedCwd,
@@ -293,6 +295,8 @@ export class TerminalProcessManager {
       sessionHandle: String(sessionHandle || "").trim(),
       healAttempted: !!healAttempted,
       agentId: String(agentId || "").trim(),
+      // FIX 6 (2026-06-03): store sessionMode so stopAll can skip resident consoles.
+      sessionMode: String(sessionMode || "").trim(),
       proc,
       status: "attached",
       kind: "pipe",
@@ -562,6 +566,12 @@ export class TerminalProcessManager {
   async stopAll(reason = "terminal manager shutdown") {
     const ids = Array.from(this.terminals.keys());
     for (const id of ids) {
+      // FIX 6 (2026-06-03): never reap an operator-launched RESIDENT console on
+      // an env-bridge shutdown. A bridge exit (e.g. env-bridge restart) calls
+      // stopAll, which previously SIGTERMed every owned PTY — killing resident
+      // codex consoles the operator started. Skip resident-mode terminals.
+      const st = this.terminals.get(id);
+      if (st && String(st.sessionMode).toLowerCase() === "resident") continue;
       await this.stop(id, reason);
     }
   }

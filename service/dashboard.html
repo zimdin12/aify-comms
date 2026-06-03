@@ -6864,7 +6864,10 @@ function spawnRequestStatusLabel(req) {
   return {label: req.status || 'queued', title: ''};
 }
 
-const QUIET_SESSION_STATUSES = new Set(['ended', 'completed', 'cancelled']);
+// FIX 3 (2026-06-03): include 'stopped' so retired/stopped duplicate resident
+// sessions are hidden by default. Still revealed by the "Show ended" toggle
+// (renderSessions / env-session filter gate this set on showEndedSessions()).
+const QUIET_SESSION_STATUSES = new Set(['ended', 'completed', 'cancelled', 'stopped']);
 const DELETABLE_SESSION_STATUSES = new Set(['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled']);
 
 function showEndedSessions() {

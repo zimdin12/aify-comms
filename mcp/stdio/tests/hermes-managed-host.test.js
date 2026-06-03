@@ -188,6 +188,59 @@ test("deliverRun: active_list resolves the live TUI sid, prompt.submit targets i
   );
 });
 
+test("deliverRun: renders the inbound notice box (#3) BEFORE prompt.submit, same sid, carries sender + body", async () => {
+  const { httpCall } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "aify.session.render_notice": { rendered: true },
+    "prompt.submit": { status: "streaming" },
+  });
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+  });
+
+  const noticeIdx = ws.sent.findIndex((f) => f.method === "aify.session.render_notice");
+  const submitIdx = ws.sent.findIndex((f) => f.method === "prompt.submit");
+  assert.ok(noticeIdx >= 0, "expected an aify.session.render_notice frame");
+  assert.ok(submitIdx >= 0, "expected a prompt.submit frame");
+  assert.ok(noticeIdx < submitIdx, "the inbound notice must render BEFORE the turn submit");
+
+  const notice = ws.sent[noticeIdx];
+  assert.equal(notice.params.session_id, "live-sid-ab12", "notice targets the visible TUI sid");
+  assert.ok(notice.params.notice.includes("sc-manager"), "notice names the sender");
+  assert.ok(notice.params.notice.includes("build status"), "notice carries the message body");
+});
+
+test("deliverRun: a gateway WITHOUT the plugin (render_notice → error) still delivers the turn (#3)", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    // Plugin-less gateway: unknown method. deliverRun must swallow this.
+    "aify.session.render_notice": Object.assign(new Error("unknown method: aify.session.render_notice"), {
+      code: -32601,
+    }),
+    "prompt.submit": { status: "streaming" },
+  });
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+  });
+
+  // The notice failed, but the turn was still submitted and the run delivered.
+  assert.ok(ws.sent.find((f) => f.method === "prompt.submit"), "must still submit the turn");
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "delivered", "render-notice failure must NOT regress delivery");
+});
+
 test("deliverRun: on successful submit stamps inFlight {submittedAt, completed:false, runId} (opens re-pulse window) (#3)", async () => {
   const { httpCall } = makeAifyHttp();
   const ws = makeFakeWsClient({

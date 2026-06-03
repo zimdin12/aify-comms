@@ -24,6 +24,7 @@ This is a drop-in: a subclass keeps its existing test bodies unchanged and
 uses ``self.client`` / ``self.ws`` / ``self._db_path`` exactly as before.
 """
 import asyncio
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,6 +35,51 @@ from fastapi.testclient import TestClient
 
 from service.db import init_db
 from service.routers.api_v2 import router
+
+
+# --- schema template cache (mirrors conftest.py for the unittest runner) ---
+# ``python -m unittest`` does NOT load conftest.py's pytest fixtures, so under
+# the unittest runner every test paid the full ``init_db`` schema build
+# (~24ms × hundreds of tests). Build the schema ONCE per process into a
+# template file and ``shutil.copy`` it per test. The copy is byte-for-byte the
+# output of the real ``init_db`` (WAL checkpointed on the ``async with`` close),
+# so there is zero behavior change and per-test isolation is preserved.
+_SCHEMA_TEMPLATE: Path = None
+
+
+def _schema_template() -> Path:
+    global _SCHEMA_TEMPLATE
+    if _SCHEMA_TEMPLATE is not None and _SCHEMA_TEMPLATE.exists():
+        return _SCHEMA_TEMPLATE
+    tmpdir = tempfile.mkdtemp(prefix="aify-base-schema-template-")
+    template = Path(tmpdir) / "schema-template.db"
+    # ``init_db`` may have been monkeypatched (e.g. by conftest's own fast
+    # copy) — reach for the genuine implementation if one was stashed.
+    import service.db as _db
+    real = getattr(_db, "_real_init_db", None) or init_db
+    asyncio.run(real(template))
+    for sidecar in (template.with_name(template.name + "-wal"),
+                    template.with_name(template.name + "-shm")):
+        if sidecar.exists():  # pragma: no cover - defensive
+            raise RuntimeError(
+                f"schema template left a {sidecar.name} sidecar; template "
+                "copy would be incomplete. init_db must checkpoint on close."
+            )
+    _SCHEMA_TEMPLATE = template
+    return template
+
+
+def _fast_init_db(db_path: Path) -> None:
+    """Materialize a fresh per-test DB from the cached schema template.
+
+    Keeps ``service.db._db_path`` in sync with ``init_db``'s global-path
+    contract so request handlers resolve the right file.
+    """
+    import service.db as _db
+    target = Path(db_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(_schema_template(), target)
+    _db._db_path = target
 
 
 class DummyWS:
@@ -82,7 +128,7 @@ class FastApiTestCase(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self._db_path = Path(self._tmpdir.name) / self.DB_NAME
-        asyncio.run(init_db(self._db_path))
+        _fast_init_db(self._db_path)
 
         self.ws = DummyWS()
         # Re-point shared app.state at THIS test's collaborators. The router

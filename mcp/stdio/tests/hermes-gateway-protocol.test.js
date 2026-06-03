@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
+  buildRenderNoticeFrame,
   buildSessionMostRecentFrame,
   buildSessionListFrame,
   buildSessionInterruptFrame,
@@ -35,6 +36,28 @@ test("buildSessionSteerFrame is a JSON-RPC 2.0 session.steer", () => {
   const frame = buildSessionSteerFrame({ id: 8, sessionId: "sess-1", text: "mid-run nudge" });
   assert.equal(frame.method, "session.steer");
   assert.deepEqual(frame.params, { session_id: "sess-1", text: "mid-run nudge" });
+});
+
+test("buildRenderNoticeFrame is a JSON-RPC 2.0 aify.session.render_notice", () => {
+  const frame = buildRenderNoticeFrame({
+    id: 9,
+    sessionId: "sess-1",
+    notice: "Incoming from bob\n\nhello",
+    status: "aify-comms · bob",
+  });
+  assert.equal(frame.jsonrpc, "2.0");
+  assert.equal(frame.id, 9);
+  assert.equal(frame.method, "aify.session.render_notice");
+  assert.deepEqual(frame.params, {
+    session_id: "sess-1",
+    notice: "Incoming from bob\n\nhello",
+    status: "aify-comms · bob",
+  });
+});
+
+test("buildRenderNoticeFrame coerces missing fields to empty strings", () => {
+  const frame = buildRenderNoticeFrame({ id: 1, sessionId: "s" });
+  assert.deepEqual(frame.params, { session_id: "s", notice: "", status: "" });
 });
 
 test("buildSessionMostRecentFrame is parameter-less", () => {
