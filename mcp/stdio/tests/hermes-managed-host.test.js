@@ -504,28 +504,23 @@ test("runPollCycle: threads the shared emptyAttachCounter into deliverRun (persi
   const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
   const emptyAttachCounter = new Map();
 
-  // Tight attach timing via env so the poll-cycle deliverRun doesn't really wait.
-  const prevWait = process.env.AIFY_HERMES_ATTACH_WAIT_MS;
-  const prevPoll = process.env.AIFY_HERMES_ATTACH_POLL_MS;
-  process.env.AIFY_HERMES_ATTACH_WAIT_MS = "5";
-  process.env.AIFY_HERMES_ATTACH_POLL_MS = "1";
-  try {
-    await runPollCycle({
-      agentId: "sc-hermes",
-      httpCall,
-      wsClient: ws,
-      gatewayUrl: "ws://127.0.0.1:9136/api/ws?token=x",
-      tempDir: MARKER_DIR,
-      emptyAttachCounter,
-      // The poll-cycle's deliverRun uses module ATTACH_* env (read at import), so we
-      // also pass a small threshold via the counter pre-seed isn't possible here;
-      // instead rely on the default threshold but assert the counter incremented,
-      // proving the shared map is threaded through (persistence across cycles).
-    });
-  } finally {
-    if (prevWait === undefined) delete process.env.AIFY_HERMES_ATTACH_WAIT_MS; else process.env.AIFY_HERMES_ATTACH_WAIT_MS = prevWait;
-    if (prevPoll === undefined) delete process.env.AIFY_HERMES_ATTACH_POLL_MS; else process.env.AIFY_HERMES_ATTACH_POLL_MS = prevPoll;
-  }
+  // Tight attach timing via the injectable seam so the poll-cycle's deliverRun
+  // doesn't actually wait the full 25s attach window. runPollCycle forwards
+  // attachWaitMs/attachPollMs/sleepImpl straight to deliverRun; a no-op sleep
+  // makes the bounded poll loop resolve immediately.
+  await runPollCycle({
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    gatewayUrl: "ws://127.0.0.1:9136/api/ws?token=x",
+    tempDir: MARKER_DIR,
+    emptyAttachCounter,
+    attachWaitMs: 5,
+    attachPollMs: 1,
+    sleepImpl: async () => {},
+    // rely on the default threshold but assert the counter incremented,
+    // proving the shared map is threaded through (persistence across cycles).
+  });
 
   // The shared counter saw this run (proves runPollCycle threads it to deliverRun).
   assert.equal(emptyAttachCounter.get("run-1"), 1, "runPollCycle must thread the shared emptyAttachCounter into deliverRun");

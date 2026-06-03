@@ -2234,6 +2234,85 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
         self.assertEqual(agent["status"], "online", agent)
 
+    def test_managed_codex_online_from_fresh_wrapper_child_bridge(self):
+        # FIX B3 (2026-06-03): a managed CODEX whose console terminal row has been
+        # failed (the B1/B2 transient-close scenario, where the terminal-liveness
+        # check no longer proves has_live_worker) must STILL read deliverable, not
+        # `available`, when a fresh non-superseded `managed-wrapper-child` bridge is
+        # heartbeating — that wrapper-child IS the live console's in-session
+        # aify-comms claimer. Mirrors the hermes channel-sidecar gate.
+        agent_id = "online-codex"
+        terminal_id = "term_codex_failed_console"
+        now = api_v2._now()
+        self._heartbeat_environment(
+            id="linux:test-host:default",
+            bridgeId="bridge-current",
+            machineId="linux:test-host",
+            runtimes=[{"runtime": "codex", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register(agent_id, runtime="codex", sessionMode="managed")
+        self._execute(
+            "UPDATE agents SET session_mode='managed', runtime='codex', session_handle=? WHERE id = ?",
+            ("codex-managed-handle-1", agent_id),
+        )
+        # agent_sessions row bound to a console terminal that has since FAILED —
+        # the post-transient-close state where the terminal-liveness check yields
+        # no live worker.
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, terminal_id, terminal_status,
+                spawn_spec_id, spawn_request_id, status,
+                started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"sess_{agent_id}", agent_id, "linux:test-host:default", "codex",
+                "/workspace/repo", "managed-warm", "managed", terminal_id, "failed",
+                None, None, "running", now, now,
+            ),
+        )
+        self._execute(
+            """
+            INSERT INTO terminal_sessions (
+                id, session_id, agent_id, environment_id, bridge_id, runtime,
+                workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                terminal_id, f"sess_{agent_id}", agent_id, "linux:test-host:default",
+                "bridge-current", "codex", "/workspace/repo",
+                "codex-aify --aify-agent " + agent_id, "", "failed", "dashboard",
+                now, now, now, "transient app-server close",
+            ),
+        )
+
+        # No managed-wrapper-child bridge yet → no live claimer → available.
+        asyncio.run(self._async_invalidate(agent_id))
+        agent = self.client.get(f"/api/v1/agents/{agent_id}").json()["agent"]
+        self.assertEqual(agent["status"], "available", agent)
+
+        # Fresh non-superseded managed-wrapper-child heartbeat → live claimer → online.
+        self._execute(
+            """
+            INSERT OR REPLACE INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                f"mwc-{agent_id}", agent_id, "linux:test-host", "codex", "managed",
+                "codex-managed-handle-1", terminal_id, "managed-wrapper-child",
+                now, now, "", None,
+            ),
+        )
+        asyncio.run(self._async_invalidate(agent_id))
+        agent = self.client.get(f"/api/v1/agents/{agent_id}").json()["agent"]
+        self.assertNotEqual(agent["status"], "available", agent)
+        self.assertEqual(agent["status"], "online", agent)
+
     def test_managed_hygiene_reaps_hermes_ghost_console_row(self):
         # WS3 Task 3.4: now that hermes is in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
         # _reconcile_managed_worker_hygiene must cover the hermes triad: a managed

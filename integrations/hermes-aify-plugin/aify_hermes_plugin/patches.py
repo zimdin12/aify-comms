@@ -113,6 +113,25 @@ def patch_gateway_server(module: ModuleType) -> None:
                             TeeTransport as tee_transport,
                         )
                     session["transport"] = tee_transport(primary, caller)
+
+                    # The gateway worker thread for a warm/resident agent can
+                    # emit the FIRST `message.start` BEFORE this tee re-assert
+                    # runs — that event then routes only to the loop's socket,
+                    # so the visible TUI never sets `ui.busy` (no spinner/verb,
+                    # tab stays "ready") even though deltas + message.complete
+                    # arrive after the tee and render the reply. Re-emit ONE
+                    # `message.start` now that the transport is the tee, so the
+                    # TUI primary gets it (the loop sees a harmless duplicate).
+                    # Gate on an ACCEPTED NEW streaming turn so the 4009/steer-
+                    # busy path can't reset an in-flight turn's busy state.
+                    accepted_new_turn = (
+                        isinstance(result, dict)
+                        and isinstance(result.get("result"), dict)
+                        and result["result"].get("status") == "streaming"
+                    )
+                    emit = getattr(module, "_emit", None)
+                    if accepted_new_turn and callable(emit):
+                        emit("message.start", sid)
             except Exception as exc:
                 logger = getattr(module, "logger", None)
                 if logger is not None:

@@ -204,13 +204,19 @@ export class HermesSession {
 
     const timeout = startupTimeoutFor(this.agentInfo);
     const deferred = this._startupDeferred;
+    // Hold the handshake-timeout timer so it can be cleared once the race
+    // settles. Without this clear the abandoned timer keeps the Node event loop
+    // alive for the full `timeout` (default 45s) after a SUCCESSFUL handshake —
+    // a dangling-handle leak (its only effect was to reject an already-settled
+    // race, which is swallowed). Clearing it is behaviour-neutral.
+    let handshakeTimer = null;
     try {
       await Promise.race([
         this._handshake(cwd),
-        new Promise((_, rej) => setTimeout(
+        new Promise((_, rej) => { handshakeTimer = setTimeout(
           () => rej(new Error(`hermes acp handshake timeout (${timeout}ms). stderr tail: ${this._stderrTail.slice(-200)}`)),
           timeout,
-        )),
+        ); }),
       ]);
       this._state = "ready";
       this._armIdleTimer();
@@ -223,6 +229,8 @@ export class HermesSession {
       this._startupDeferred = null;
       deferred.reject(error);
       throw error;
+    } finally {
+      if (handshakeTimer) { clearTimeout(handshakeTimer); handshakeTimer = null; }
     }
   }
 

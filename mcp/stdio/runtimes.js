@@ -631,10 +631,15 @@ export function isAifyCommsMcpToolItem(label) {
 
 export function isFatalCodexRuntimeLog(line) {
   const text = String(line || "");
+  // A bare websocket-close line (e.g. a transient 1006/1000/1001) is NOT
+  // fatal on its own — classifying it fatal here tore down the shared
+  // app-server and failed the turn on every transient disconnect. Let the
+  // existing recover/resume path handle a plain close; only genuinely
+  // unrecoverable signals (worker fatal / transport channel torn down)
+  // remain instant-fatal.
   return (
     /worker quit with fatal/i.test(text) ||
-    /Transport channel closed/i.test(text) ||
-    /Codex WebSocket app-server connection closed/i.test(text)
+    /Transport channel closed/i.test(text)
   );
 }
 

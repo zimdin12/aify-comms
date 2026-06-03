@@ -3767,6 +3767,22 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             has_live_worker = True
         else:
             channel_managed_no_sidecar = True
+    elif (
+        not has_live_worker
+        and agent_session_mode == "managed"
+        and runtime_for_delivery == "codex"
+    ):
+        # FIX B3 (2026-06-03): a managed CODEX run hosted by a wrapper-backed
+        # worker proves liveness with a fresh, non-superseded
+        # `managed-wrapper-child` bridge heartbeat (the visible console's
+        # in-session aify-comms MCP) — mirroring the hermes channel-sidecar gate
+        # above. Without this, a transient app-server close (now no longer
+        # instant-fatal per FIX B1) could fail the terminal rows → has_live_worker
+        # stays False → the agent flips to `available` mid-work even while its
+        # console is live and heartbeating. The wrapper-child heartbeat is the
+        # real deliverability proof, so honor it here.
+        if await _has_live_managed_wrapper_child(db, agent_row["id"]):
+            has_live_worker = True
     # FIX B (2026-06-02): a MANAGED agent can only be spawned/hosted by its OWNING
     # environment bridge. If that env bridge is offline/stale, the agent is
     # effectively offline — even when a surviving detached delivery loop keeps a
@@ -5986,7 +6002,18 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         return None
 
     settings = settings or await _load_settings(db)
-    stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+    # FIX B3 (2026-06-03): raise the Console-owner staleness-release floor to align
+    # with resident_lease_seconds (~150s). The 90s environment_offline_seconds
+    # default reaped an idle-but-live managed console between turns — a codex
+    # worker that finished a turn and is waiting for the next dispatch can sit
+    # quiet for >90s, get its terminal released here, and then read `available`
+    # mid-work. Floor at resident_lease_seconds so an alive-but-quiet console
+    # survives the inter-turn gap.
+    stale_after = max(
+        30,
+        int(settings.get("environment_offline_seconds", 90) or 90),
+        int(settings.get("resident_lease_seconds", 150) or 150),
+    )
     updated_at = _iso_to_epoch(row["updated_at"] or "")
     if updated_at and (time.time() - updated_at) > stale_after:
         await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")

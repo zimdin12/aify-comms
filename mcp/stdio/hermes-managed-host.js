@@ -1426,6 +1426,14 @@ export async function runPollCycle({
   // BOUNDED NO-ATTACH FAIL counter (Task 2.3), owned by runDeliveryLoop so it
   // persists across poll cycles. Threaded straight through to deliverRun.
   emptyAttachCounter = new Map(),
+  // Attach-window timing + sleep seam, forwarded verbatim to deliverRun. The
+  // production loop passes none of these, so they default to the module
+  // ATTACH_* constants and the real sleep — behaviour is unchanged. Tests inject
+  // a no-op sleep / tiny deadline so the poll-cycle path doesn't wait the full
+  // 25s attach window.
+  attachWaitMs = ATTACH_WAIT_MS,
+  attachPollMs = ATTACH_POLL_MS,
+  sleepImpl = sleep,
 } = {}) {
   let processed = 0;
   let released = false;
@@ -1474,7 +1482,7 @@ export async function runPollCycle({
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
-      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir, emptyAttachCounter });
+      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir, emptyAttachCounter, attachWaitMs, attachPollMs, sleepImpl });
       processed++;
     }
   } catch (error) {

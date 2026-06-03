@@ -69,16 +69,19 @@ def _schema_template() -> Path:
     return template
 
 
-def _fast_init_db(db_path: Path) -> None:
-    """Materialize a fresh per-test DB from the cached schema template.
+def _fast_init_db(db_path: Path, source: Path = None) -> None:
+    """Materialize a fresh per-test DB from a cached template.
 
+    ``source`` defaults to the bare schema template; a class may pass a
+    pre-seeded template (e.g. with LEGACY_SETTINGS already applied) so every
+    test starts from that exact state without re-running the seed per test.
     Keeps ``service.db._db_path`` in sync with ``init_db``'s global-path
     contract so request handlers resolve the right file.
     """
     import service.db as _db
     target = Path(db_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(_schema_template(), target)
+    shutil.copy(source or _schema_template(), target)
     _db._db_path = target
 
 
@@ -119,16 +122,63 @@ class FastApiTestCase(unittest.TestCase):
         cls._app.state.testing = True
         cls._app.include_router(router, prefix="/api/v1")
         cls._client = TestClient(cls._app)
+        cls._base_template = None
+        cls._base_tmpdir = None
+        # If a suite opts into LEGACY_SETTINGS, apply that PUT ONCE into a
+        # per-class template DB instead of paying the ~18ms HTTP round-trip in
+        # every test's setUp. Each test then copies this pre-seeded template, so
+        # it starts from the exact same settings state — behaviour-identical to
+        # the per-test PUT, just hoisted out of the hot path.
+        if cls.LEGACY_SETTINGS is not None:
+            import service.db as _db
+            cls._base_tmpdir = tempfile.TemporaryDirectory()
+            seed = Path(cls._base_tmpdir.name) / "legacy-template.db"
+            _fast_init_db(seed)
+            cls._app.state.ws_manager = DummyWS()
+            cls._app.state.config = SimpleNamespace(data_dir=cls._base_tmpdir.name)
+            resp = cls._client.put("/api/v1/settings", json=cls.LEGACY_SETTINGS)
+            assert resp.status_code == 200, resp.text
+            # The PUT writes via a WAL connection; fold the -wal sidecar back into
+            # the main file so the per-test copy is self-contained (otherwise the
+            # settings could live only in a sidecar that never gets copied).
+            import sqlite3
+            conn = sqlite3.connect(str(seed))
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.commit()
+            finally:
+                conn.close()
+            for sidecar in (seed.with_name(seed.name + "-wal"),
+                            seed.with_name(seed.name + "-shm")):
+                if sidecar.exists():
+                    sidecar.unlink()
+            # Sanity: the seeded settings must actually be in the copied file.
+            check = sqlite3.connect(str(seed))
+            try:
+                rows = dict(check.execute("SELECT key, value FROM settings").fetchall())
+            finally:
+                check.close()
+            for k in cls.LEGACY_SETTINGS:
+                assert k in rows, (
+                    f"LEGACY_SETTINGS key {k!r} missing from seeded template — "
+                    "WAL checkpoint did not fold the PUT into the main db file."
+                )
+            cls._base_template = seed
 
     @classmethod
     def tearDownClass(cls):
         cls._client.close()
+        if cls._base_tmpdir is not None:
+            cls._base_tmpdir.cleanup()
+            cls._base_tmpdir = None
 
     # ---- per test: fresh DB + fresh app.state, cheap ----
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self._db_path = Path(self._tmpdir.name) / self.DB_NAME
-        _fast_init_db(self._db_path)
+        # When the class pre-seeded a LEGACY_SETTINGS template, copy that so the
+        # per-test settings PUT is hoisted to setUpClass (run once, not per test).
+        _fast_init_db(self._db_path, source=self._base_template)
 
         self.ws = DummyWS()
         # Re-point shared app.state at THIS test's collaborators. The router
@@ -137,7 +187,7 @@ class FastApiTestCase(unittest.TestCase):
         self._app.state.config = SimpleNamespace(data_dir=self._tmpdir.name)
         self.client = self._client
 
-        if self.LEGACY_SETTINGS is not None:
+        if self.LEGACY_SETTINGS is not None and self._base_template is None:
             resp = self.client.put("/api/v1/settings", json=self.LEGACY_SETTINGS)
             assert resp.status_code == 200, resp.text
 

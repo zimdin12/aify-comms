@@ -66,7 +66,7 @@ export class CodexLegacyController extends BaseController {
     const timeoutMs = Number(config.timeoutMs || 12 * 60 * 60 * 1000);
     const configuredQuietTimeout = Number(config.quietTimeoutMs ?? config.silenceTimeoutMs ?? 30 * 60 * 1000);
     const quietTimeoutMs = configuredQuietTimeout <= 0 ? 0 : Math.max(10 * 60 * 1000, configuredQuietTimeout);
-    const configuredAifyMcpToolTimeout = Number(config.mcpToolTimeoutMs ?? config.commsToolTimeoutMs ?? 90 * 1000);
+    const configuredAifyMcpToolTimeout = Number(config.mcpToolTimeoutMs ?? config.commsToolTimeoutMs ?? 300 * 1000);
     const aifyMcpToolTimeoutMs = configuredAifyMcpToolTimeout <= 0 ? 0 : Math.max(10 * 1000, configuredAifyMcpToolTimeout);
     const hostCwd = agentInfo.cwd || process.cwd();
     const model = String(agentInfo.model || config.model || "").trim();
