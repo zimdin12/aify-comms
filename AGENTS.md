@@ -91,6 +91,44 @@ principles. Full rationale + per-runtime detail:
 Shrink the asymmetry column over time. What remains for hermes (per-agent daemon;
 sidecar-delivered wake) is intrinsic to its architecture and documented above.
 
+### Session lifecycle verbs (minimal, non-duplicate)
+
+The dashboard session lifecycle is a minimal verb set (cleaned 2026-06-03; `13d3821`).
+The dead `recover`/`resume` aliases on `POST /sessions/{id}/control` (byte-identical to
+`restart`) were removed — only `restart`/`recreate`/`stop`/`cli_takeover` remain there.
+
+| Verb | Meaning |
+|------|---------|
+| Spawn | Create a fresh managed backing (no resume). |
+| Stop | Halt the running backing; keep spec/handle/identity. Reversible via Restart. |
+| Restart | Re-spawn and RESUME native context (`resume_policy=native_first`; carries `session_handle`). |
+| Reset (fresh context) | Re-spawn discarding native handle/state (`resume_policy=fresh_context`; was "Recreate"). |
+| Resume wake | Re-enable wake/dispatch for a stopped RESIDENT agent — `POST /agents/{id}/control` action=`resume` (no spawn; kept separate from session-control). |
+| Pause for CLI | Hand session ownership to the terminal; return via Restart. |
+| Switch managed/resident | Ownership flip (see matrix below). |
+| Set handle | Operator repair of the native resume target. |
+| Interrupt / Steer | Run-level control. |
+| Remove | Tombstone the identity. |
+| Kill bridge / Forget | Environment-level. |
+
+### resident↔managed switch matrix + state model
+
+- **Full-duplex (both modes):** claude-code, codex, hermes. **Managed-only** (resident =
+  presence/debug metadata, NOT live-wakeable): pi, opencode — `managed→resident` is
+  **rejected** for them (`switch_agent_session_mode` guards on the adapter's
+  `supports_resident`; the dashboard hides their "Switch to resident" button). Same
+  asymmetry as the runtime-shape note in DECISIONS.md.
+- **`resident→managed` carries the native `session_handle`** into the coldstart spawn, so the
+  managed worker resumes the same codex thread / hermes gateway / claude transcript instead
+  of starting fresh. Per-agent chat always carries over (keyed per agent). Advisory warning
+  when binding a handle another live agent already owns.
+- **Session display status is DERIVED from live truth** (`_compute_session_display_status`),
+  exactly like the agent dot — managed keys on the live `terminal_sessions` row, resident on a
+  fresh non-superseded bridge. The denormalized `agent_sessions.status`/`terminal_status` is a
+  cache, never the display source; this kills "Stopped/Stale but running". One canonical
+  `LIVE_SESSION_STATUSES`, one `_agent_liveness` predicate. See DECISIONS.md / KNOWN_ISSUES.md
+  (2026-06-03).
+
 ### Adding a new harness
 
 Implement the triad (adapter + controller/delivery + runtime class), advertise honest

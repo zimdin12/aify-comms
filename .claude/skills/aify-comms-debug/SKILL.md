@@ -11,6 +11,9 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 
 ## Contents
 
+- Lifecycle verbs: what is Spawn/Stop/Restart/Reset/Resume-wake (and where did `recover` go)
+- resident↔managed switch is now safe (handle carries; pi/opencode managed-only)
+- Session status is derived now — no more "Stopped/Stale but running"
 - Codex `AbsolutePathBuf` / `thread/resume` failures, hard reset
 - Claude wake-mode and `Session ID already in use`
 - Oh My Pi / OMP: `(no output)`, wrong-provider API key, auth fail-fast, dead-handle heal
@@ -27,6 +30,69 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Environment presence, re-register semantics, install.sh on Windows
 - Dashboard console-mode: DB lock storm, console flicker, broken statuses, parsing error, env-not-found, open-terminal (see "Dashboard console-mode" section)
 - General escalation
+
+## Lifecycle verbs: what is Spawn / Stop / Restart / Reset / Resume-wake
+
+**Question.** "What's the difference between restart, recover, recreate, resume?" — or
+a script calling `recover`/`resume` on `POST /sessions/{id}/control` now 400s.
+
+**Answer (cleaned 2026-06-03, `13d3821`).** The dead `recover` and `resume` actions on
+`POST /sessions/{id}/control` were **byte-identical to `restart`** and are GONE — only
+`restart`/`recreate`/`stop`/`cli_takeover` remain on that endpoint. Use `restart` instead.
+The canonical verbs:
+
+| Verb | Meaning |
+|------|---------|
+| Spawn | Create a fresh managed backing (no resume). |
+| Stop | Halt the running backing; keep spec/handle/identity. Reversible via Restart. |
+| Restart | Re-spawn and RESUME native context (`resume_policy=native_first`; carries `session_handle`). |
+| Reset (fresh context) | Re-spawn discarding native handle/state (`resume_policy=fresh_context`; was labeled "Recreate"). |
+| Resume wake | Re-enable wake/dispatch for a stopped RESIDENT agent — `POST /agents/{id}/control` action=`resume` (no spawn; separate endpoint, deliberately kept). |
+| Pause for CLI | Hand session ownership to the terminal; return via Restart. |
+| Switch managed/resident | Ownership flip (see next entry). |
+| Set handle | Operator repair of the native resume target. |
+| Interrupt / Steer | Run-level control. |
+| Remove | Tombstone the identity. |
+| Kill bridge / Forget | Environment-level. |
+
+Old dashboards/scripts that said "Recreate" or called the removed `recover`/`resume`
+session actions should map to **Reset (fresh context)** or **Restart** respectively.
+
+## resident↔managed switch is now safe (handle carries; pi/opencode managed-only)
+
+**Symptom (old footgun).** Switching a pi/opencode agent to resident left it
+`presence-only` and every dispatch rejected; or switching a codex/hermes/claude agent
+resident→managed lost its native chat memory (the worker started a fresh thread/transcript).
+
+**Fix (2026-06-03, `13d3821`).** Pull/rebuild + restart the service.
+- **Full-duplex (both modes):** claude-code, codex, hermes. **Managed-only** (resident is
+  presence/debug metadata, NOT live-wakeable): pi, opencode. `managed→resident` is now
+  **rejected** for pi/opencode (actionable 409; the dashboard hides their "Switch to
+  resident" button) instead of silently creating an undeliverable presence-only agent.
+- **`resident→managed` now carries the native `session_handle`** into the managed-warm
+  coldstart spawn, so the managed worker RESUMES the same codex thread / hermes gateway /
+  claude transcript instead of starting fresh. (Per-agent chat carries over regardless — it's
+  keyed per agent, not per session.)
+- An **advisory warning** fires when you bind a native handle another LIVE agent already owns
+  (e.g. two agents sharing one codex thread); the dashboard offers a confirm→`force` retry on
+  the active-run 409.
+
+## Session status is derived now — no more "Stopped/Stale but running"
+
+**Symptom (old).** The Sessions table showed a session badge `Stopped`/`Stale` while the
+agent dot was clearly `online`/`working` (or vice-versa) — the two disagreed.
+
+**Fix (2026-06-03, `9896d5a`).** `GET /sessions` now DERIVES each session's status from live
+truth (`_compute_session_display_status` / `_agent_session_dict_live`) — managed keys on the
+live `terminal_sessions` row, resident on a fresh non-superseded bridge — exactly like the
+agent dot. The stored `agent_sessions.status`/`terminal_status` is a cache, **never** the
+display source, so the badge can't drift from reality anymore. One canonical
+`LIVE_SESSION_STATUSES` (server + dashboard aligned) and one `_agent_liveness` predicate feed
+both derivers; `_reconcile_dead_session_status` case (a) now JOINs live `terminal_sessions`
+(it was reading the frozen `terminal_status` denorm the hygiene reaper left stale at
+`attached`), and session mutators invalidate the live-state cache so the dot refreshes
+same-pass. If you still see a contradiction, the service is running pre-fix code — rebuild
+and restart it.
 
 ## Resident send rejected: `resident bridge is stale`
 
