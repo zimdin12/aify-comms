@@ -1644,6 +1644,22 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         </div>
       </div>
 
+      <h3>Agent Statuses &amp; Filters</h3>
+      <div class="guide-grid">
+        <div class="guide-card">
+          <h4>What the statuses mean</h4>
+          <p><b>working</b> — running a turn. <b>online</b> — live worker, idle. <b>idle</b> — online but quiet a while. <b>available</b> — no live worker right now, lazy-starts on the next message. <b>blocked</b> — console looks like it needs input. <b>stale</b> — a resident bridge heartbeat went missing. <b>offline</b> — stopped/disabled, or the owning environment is unreachable. <b>stopped</b> — explicitly stopped.</p>
+        </div>
+        <div class="guide-card">
+          <h4>Managed vs resident status</h4>
+          <p>A <b>managed</b> agent is <b>offline</b> only when you stop/disable it or its environment bridge is down; otherwise it rests at <b>available</b> (and lazy-starts on send) or shows <b>online</b>/<b>working</b>. A <b>resident</b> agent is <b>online</b> while its CLI session is live, otherwise <b>offline</b>.</p>
+        </div>
+        <div class="guide-card">
+          <h4>Statuses filter</h4>
+          <p>Both <b>Chat</b> (behind <b>Filters</b>) and <b>Sessions</b> have a <b>Statuses &#9662;</b> dropdown to show/hide each status, with All / None / Live-only presets. Chat defaults to live statuses; Sessions shows every status except Deleted, so offline and available agents stay visible. The <b>Sessions</b> page is one row per agent — its live status plus its current session, or "no active session".</p>
+        </div>
+      </div>
+
       <h3>Move Between Dashboard And CLI</h3>
       <div class="guide-flow">Managed dashboard control
   -> Switch to resident
@@ -7183,17 +7199,21 @@ function sessionDisplayOrder(sessions) {
   });
 }
 
-function renderSessionStats(sessions, visibleSessions = sessions) {
-  const running = sessions.filter(session => session.status === 'running').length;
-  const starting = sessions.filter(session => session.status === 'starting').length;
-  const failed = sessions.filter(session => session.status === 'failed' || session.status === 'lost').length;
-  const hidden = Math.max(0, sessions.length - visibleSessions.length);
-  const runtimes = new Set(sessions.map(session => session.runtime).filter(Boolean));
+// Agent-centric stats for the Sessions page. `rows` are the visible agent rows
+// (post status-filter); `totalAgents` is every non-deleted registered agent, so
+// "hidden" reflects how many the Statuses filter is hiding — not raw session rows.
+function renderSessionStats(rows, totalAgents = rows.length) {
+  const liveBuckets = ['working', 'online', 'idle', 'available', 'blocked'];
+  const working = rows.filter(row => row.bucket === 'working').length;
+  const live = rows.filter(row => liveBuckets.includes(row.bucket)).length;
+  const attention = rows.filter(row => ['stale', 'offline'].includes(row.bucket)).length;
+  const hidden = Math.max(0, totalAgents - rows.length);
+  const runtimes = new Set(rows.map(row => row.runtime).filter(Boolean));
   document.getElementById('session-stats').innerHTML =
-    `<div class="sc"><div class="n">${visibleSessions.length}</div><div class="l">Visible</div>${hidden ? `<div class="s">${hidden} hidden</div>` : ''}</div>` +
-    `<div class="sc"><div class="n">${running}</div><div class="l">Running</div></div>` +
-    `<div class="sc"><div class="n">${starting}</div><div class="l">Starting</div></div>` +
-    `<div class="sc${failed ? ' warn' : ''}"><div class="n">${failed}</div><div class="l">Needs Attention</div></div>` +
+    `<div class="sc"><div class="n">${rows.length}</div><div class="l">Agents</div>${hidden ? `<div class="s">${hidden} hidden by filter</div>` : ''}</div>` +
+    `<div class="sc"><div class="n">${working}</div><div class="l">Working</div></div>` +
+    `<div class="sc"><div class="n">${live}</div><div class="l">Live</div></div>` +
+    `<div class="sc${attention ? ' warn' : ''}"><div class="n">${attention}</div><div class="l">Needs Attention</div></div>` +
     `<div class="sc"><div class="n">${runtimes.size}</div><div class="l">Runtimes</div></div>`;
 }
 
@@ -7372,9 +7392,9 @@ function renderSessions(sessions) {
   pruneSelectedSessions(sessions);
   renderSessionsStatusFilter();
   const rows = sessionsAgentRows();
-  // Keep the stats card meaningful: count over the sessions backing visible rows.
   const visibleSessions = rows.map(row => row.session).filter(Boolean);
-  renderSessionStats(sessions, visibleSessions);
+  const totalAgents = (window._allAgents || []).filter(([id]) => id && id !== 'dashboard').length;
+  renderSessionStats(rows, totalAgents);
   if (!(window._allAgents || []).length) {
     container.innerHTML = '<p class="em">No agents registered yet. Spawn an agent from Environments or register one via the MCP tools.</p>';
     return;
