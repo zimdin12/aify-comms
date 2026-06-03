@@ -1563,11 +1563,16 @@ aify_hermes_warm_bridge() {
   local _probe="\$AIFY_HERMES_STDIO_DIR/server.js"
   [ -f "\$_probe" ] || return 0
   local _warm="import('file://\$_probe').then(()=>process.exit(0)).catch(()=>process.exit(0))"
+  # Bound the warm import when a timeout tool exists. Stock macOS has neither;
+  # coreutils installs GNU timeout as \`gtimeout\`. With neither, run unbounded
+  # (the import is side-effect-free and self-exits, so this is safe).
+  local _warm_to=""
   if command -v timeout >/dev/null 2>&1; then
-    timeout 25 env -u AIFY_AGENT_ID -u AIFY_HERMES_GATEWAY_URL node --input-type=module -e "\$_warm" >/dev/null 2>&1 || true
-  else
-    env -u AIFY_AGENT_ID -u AIFY_HERMES_GATEWAY_URL node --input-type=module -e "\$_warm" >/dev/null 2>&1 || true
+    _warm_to="timeout 25"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    _warm_to="gtimeout 25"
   fi
+  \$_warm_to env -u AIFY_AGENT_ID -u AIFY_HERMES_GATEWAY_URL node --input-type=module -e "\$_warm" >/dev/null 2>&1 || true
 }
 
 # (The retired \`aify_hermes_ensure_daemon\` helper — which brought up the old
@@ -1617,7 +1622,7 @@ aify_hermes_kill_prior() {
       local host_port
       host_port="\$(node -e 'import("'"\$AIFY_HERMES_STDIO_DIR"'/hermes-endpoint.js").then(m=>process.stdout.write(String(m.agentPort(process.argv[1]))))' "\$agent_id" 2>/dev/null || true)"
       if [ -n "\$host_port" ]; then
-        lsof -ti tcp:"\$host_port" 2>/dev/null | xargs -r kill >/dev/null 2>&1 || true
+        lsof -ti tcp:"\$host_port" 2>/dev/null | xargs kill >/dev/null 2>&1 || true
       fi
     fi
     # Managed visible-TUI leak fix (fix/hermes-leak P1): reap a prior
