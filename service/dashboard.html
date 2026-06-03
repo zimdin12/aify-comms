@@ -3315,14 +3315,15 @@ function sessionsForAgent(agentId) {
     .sort((a, b) => String(b.lastSeen || b.createdAt || '').localeCompare(String(a.lastSeen || a.createdAt || '')));
 }
 
-// Mirrors the server's live-session gate (_agent_has_live_session in
-// api_v2.py): an agent counts as having a LIVE session when it owns an
-// agent_sessions row (window._sessions) whose status is in the live set.
-// These are exactly the rows the Sessions view renders (non-quiet), so this
-// is the canonical "appears in the Sessions list" test used by the chat
-// "Hide offline" toggle — independent of the computed presence dot, which can
-// read `stale` for a resident agent that still has a live session.
-const LIVE_SESSION_STATUSES = new Set(['starting', 'running', 'recovering', 'restarting', 'attached', 'active', 'idle', 'claimed', 'cli-takeover']);
+// Phase 3 item 4 (2026-06-03): this MUST equal the server's ONE canonical
+// LIVE_SESSION_STATUSES set (api_v2.py module-level constant — running/attached/
+// active/idle/starting/recovering). The server now DERIVES session.status from
+// live truth before serving GET /sessions, so it only ever emits one of these
+// live values OR a terminal status; the dashboard set must match the server set
+// exactly (no wider members) or the "Hide offline" / Sessions-list membership
+// would disagree with the derived badge. Keep in sync with api_v2.py
+// LIVE_SESSION_STATUSES.
+const LIVE_SESSION_STATUSES = new Set(['running', 'attached', 'active', 'idle', 'starting', 'recovering']);
 function agentHasLiveSession(agentId) {
   if (!agentId) return false;
   return (window._sessions || []).some(session =>

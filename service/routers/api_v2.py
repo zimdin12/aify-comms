@@ -294,6 +294,34 @@ _TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "comp
 # instance id rotated (same rationale as a running session surviving a bridge
 # restart); genuine staleness is still caught by env-offline/heartbeat checks.
 _LIVE_SESSION_STATUSES = {"starting", "running", "recovering", "restarting", "cli-takeover"}
+# Phase 3 (2026-06-03) — ONE canonical `agent_sessions.status` live set.
+# This is the FULL set of agent_sessions.status values that count as a live
+# (not-yet-terminal) session row, used by the session reconcilers
+# (_reconcile_dead_session_status / _reconcile_duplicate_resident_sessions),
+# the new on-read deriver (_compute_session_display_status), and embedded into
+# the dashboard bootstrap config so dashboard.html reads the SAME set instead
+# of its own wider hardcode. It is a SUPERSET of _LIVE_SESSION_STATUSES above:
+# _LIVE_SESSION_STATUSES is the narrower "live agent-status engine" gate used by
+# _compute_live_status_cache (which treats attached/active/idle as worker-detail
+# rather than session-live), whereas this set is the session-row liveness set the
+# reconcilers historically used as their inline `live_states` tuple. Keep these
+# two distinct on purpose — collapsing them would change the agent-status engine.
+# Members are EXACTLY the inline `live_states` tuple the two session reconcilers
+# historically used, so adopting the constant is behavior-preserving for them.
+LIVE_SESSION_STATUSES = {
+    "running",
+    "attached",
+    "active",
+    "idle",
+    "starting",
+    "recovering",
+}
+# Terminal-session (terminal_sessions.status) end states: a managed session's
+# backing console/worker is DEAD when its owning terminal row is in this set (or
+# the terminal row is absent). Used by the new deriver + the dead-session
+# reconcile case (a) to join the LIVE terminal truth instead of the frozen
+# agent_sessions.terminal_status denorm.
+TERMINAL_DEAD_STATUSES = {"failed", "stopped", "exited", "lost", "ended", "cancelled"}
 # Terminal reached an end state (distinct from the transient "stopping").
 _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 # A bridge-pushed turn_busy=1 is "working" only if refreshed within this
@@ -2114,6 +2142,170 @@ async def _resident_bridge_is_fresh(db, row, *, lease_seconds: int) -> bool:
     return False
 
 
+async def _agent_has_live_terminal(db, agent_id: str) -> bool:
+    """True when the agent owns a LIVE terminal_sessions row (the real console/
+    worker truth), keyed on the terminal's OWN status — not the frozen
+    agent_sessions.terminal_status denorm.
+
+    A managed session's backing console is alive when SOME terminal_sessions row
+    for the agent is in a live state (and is not a deprecated synth `vterm_*`
+    row). Mirrors the live-truth join the dashboard agent-dot already trusts; the
+    session deriver uses it so the badge stops reading the stale denorm.
+    """
+    if db is None:
+        return False
+    live_ph = ",".join("?" for _ in LIVE_SESSION_STATUSES)
+    try:
+        cur = await db.execute(
+            f"""
+            SELECT 1 FROM terminal_sessions
+            WHERE agent_id = ?
+              AND LOWER(COALESCE(status, '')) IN ({live_ph})
+              AND id NOT LIKE 'vterm_%'
+            LIMIT 1
+            """,
+            (agent_id, *[s.lower() for s in LIVE_SESSION_STATUSES]),
+        )
+        return (await cur.fetchone()) is not None
+    except Exception:
+        return False
+
+
+# TODO consolidate existing *_is_fresh helpers (_resident_bridge_is_fresh,
+# _owner_bridge_is_fresh, _agent_has_fresh_bridge, _has_live_channel_sidecar,
+# _has_live_managed_wrapper_child, _has_live_terminal_session) into
+# _agent_liveness — deferred this pass (their many callers make ripping them out a
+# separate, risky migration). For now _agent_liveness is the SINGLE predicate the
+# new session deriver uses; the legacy helpers stay for their existing callers.
+async def _agent_liveness(db, agent_id: str, *, agent_row=None) -> dict[str, bool]:
+    """ONE liveness predicate computed from terminal_sessions + bridge_instances.
+
+    Returns {worker_live, console_live, resident_bridge_fresh, sidecar_live}
+    using the EXACT lease/window the existing helpers use (resident_lease_seconds
+    default 150; the channel-sidecar stale window). Used by
+    _compute_session_display_status so the derived session badge reads the same
+    live truth as the agent dot.
+    """
+    agent_id = str(agent_id or "").strip()
+    out = {
+        "worker_live": False,
+        "console_live": False,
+        "resident_bridge_fresh": False,
+        "sidecar_live": False,
+    }
+    if db is None or not agent_id:
+        return out
+    if agent_row is None:
+        try:
+            agent_row = await (
+                await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+            ).fetchone()
+        except Exception:
+            agent_row = None
+    # console/worker truth: a live, non-synth terminal_sessions row.
+    out["console_live"] = await _agent_has_live_terminal(db, agent_id)
+    out["worker_live"] = out["console_live"]
+    # channel-sidecar deliverability (claude-channel.js / hermes delivery loop).
+    out["sidecar_live"] = await _has_live_channel_sidecar(db, agent_id)
+    # resident bridge freshness — only meaningful for a resident agent. Reuse the
+    # exact helper + lease the status engine uses.
+    if agent_row is not None:
+        try:
+            settings = await _load_settings(db)
+            lease = int(settings.get("resident_lease_seconds", 150) or 150)
+        except Exception:
+            lease = 150
+        try:
+            out["resident_bridge_fresh"] = await _resident_bridge_is_fresh(
+                db, agent_row, lease_seconds=lease
+            )
+        except Exception:
+            out["resident_bridge_fresh"] = False
+    return out
+
+
+async def _compute_session_display_status(db, session_row, agent_row=None) -> str:
+    """Phase 3 (2026-06-03) — DERIVE the EFFECTIVE session status from LIVE truth.
+
+    GET /sessions historically served `agent_sessions.status` RAW (a denorm that
+    drifts and is only corrected lazily by the reconcilers), so the session badge
+    and the agent dot disagreed ("Stopped/Stale but running"). This deriver makes
+    the stored status a CACHE: the displayed status is computed from the same live
+    truth the agent dot derives from.
+
+    Rules (only ever DOWNGRADES a live-looking stored status to 'stopped'; never
+    promotes a terminal stored status):
+      - stored status not in LIVE_SESSION_STATUSES → return it unchanged
+        (genuinely-terminal rows pass through).
+      - owning agent.status == 'stopped' → 'stopped'.
+      - managed/managed-warm session: live iff a live terminal_sessions row backs
+        it (the agent has a live, non-synth terminal) OR a live channel sidecar /
+        managed-wrapper-child proves deliverability; otherwise 'stopped'.
+      - resident session: live iff the resident bridge is fresh (or a live
+        sidecar); otherwise 'stopped'.
+    The stored row is NOT mutated here — only the returned display value changes.
+    """
+    stored = str((session_row["status"] if session_row is not None else "") or "").strip()
+    if stored.lower() not in {s.lower() for s in LIVE_SESSION_STATUSES}:
+        return stored  # already terminal — display as-is.
+    agent_id = str((session_row["agent_id"] if session_row is not None else "") or "").strip()
+    if not agent_id:
+        return stored
+    if agent_row is None:
+        try:
+            agent_row = await (
+                await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+            ).fetchone()
+        except Exception:
+            agent_row = None
+    # Honor a manually-stopped agent: its sessions are not live regardless of any
+    # lingering terminal/bridge row.
+    if agent_row is not None and str(agent_row["status"] or "").strip().lower() == "stopped":
+        return "stopped"
+
+    keys = session_row.keys()
+    raw_owner_mode = str((session_row["owner_mode"] if "owner_mode" in keys else "") or "").strip().lower()
+    session_mode = str((session_row["mode"] if "mode" in keys else "") or "").strip().lower()
+    is_resident = raw_owner_mode == "resident" or session_mode == "resident"
+
+    liveness = await _agent_liveness(db, agent_id, agent_row=agent_row)
+    if is_resident:
+        # Resident liveness == a fresh, non-superseded owning bridge within the
+        # lease (or a live channel sidecar, which the freshness helper already
+        # folds in). This is the SAME signal the agent dot derives a live resident
+        # from, so the badge and the dot agree.
+        if liveness["resident_bridge_fresh"]:
+            return stored
+        return "stopped"
+    # Managed / managed-warm: liveness is the LIVE CONSOLE/WORKER truth — a live,
+    # non-synth terminal_sessions row. This is the live-truth join case (a) of
+    # _reconcile_dead_session_status uses, so the on-read badge and the lazy
+    # reconciler AGREE: a managed session with all-dead terminals derives 'stopped'
+    # (killing "Stopped/Stale but running"). We deliberately do NOT treat a bare
+    # channel-sidecar / managed-wrapper-child heartbeat as session-live here: for
+    # the sidecar-delivery runtimes a live sidecar WITHOUT a live console is a
+    # headless orphan the agent dot itself reports `available` (not online), so
+    # honoring it would re-introduce the badge/dot divergence this fix removes.
+    if liveness["console_live"] or liveness["worker_live"]:
+        return stored
+    return "stopped"
+
+
+async def _agent_session_dict_live(db, row, *, agent_row=None) -> dict[str, Any]:
+    """Build the session dict (identical shape/keys to _agent_session_to_dict) but
+    with the `status` value DERIVED from live truth via
+    _compute_session_display_status. The stored row is never mutated; only the
+    served `status` becomes derived so GET /sessions matches GET /agents."""
+    data = _agent_session_to_dict(row)
+    try:
+        data["status"] = await _compute_session_display_status(db, row, agent_row=agent_row)
+    except Exception:
+        # Defensive: never fail a session list because the deriver hit an edge —
+        # fall back to the stored status (the prior behavior).
+        pass
+    return data
+
+
 async def _turn_busy_state(db, agent_id: str) -> tuple[bool, str]:
     """Return (fresh, turn_run_id) for the agent's agent_turn_state row.
 
@@ -3431,6 +3623,13 @@ def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, idle_minu
 
 
 async def _current_agent_session_row(db, agent_id: str):
+    # Phase 3 item 4 (2026-06-03): the canonical live-session membership set is
+    # the module-level LIVE_SESSION_STATUSES (running/attached/active/idle/
+    # starting/recovering). This picker filters out the TERMINAL statuses
+    # (the complement) and uses the CASE only as a PRIORITY tiebreak (prefer a
+    # fresh actively-running row over a merely-attached one), not as a membership
+    # test — so its narrower CASE list is intentionally a priority hint, kept
+    # stable to avoid reordering which session a relaunch picks.
     cursor = await db.execute(
         """
         SELECT *
@@ -9192,7 +9391,22 @@ async def list_sessions(request: Request, agentId: Optional[str] = None, environ
             f"SELECT * FROM agent_sessions {where_sql} ORDER BY last_seen DESC LIMIT ?",
             (*params, limit),
         )
-        return {"ok": True, "sessions": [_agent_session_to_dict(row) for row in await cursor.fetchall()]}
+        rows = await cursor.fetchall()
+        # Phase 3 (2026-06-03): DERIVE the served session status from live truth
+        # (terminal_sessions / bridge_instances) so GET /sessions matches GET
+        # /agents — the stored agent_sessions.status is a cache, never the display
+        # source. Cache the agent row per agent so a multi-session list resolves
+        # each agent's liveness once.
+        agent_cache: dict[str, Any] = {}
+        sessions: list[dict[str, Any]] = []
+        for row in rows:
+            aid = str(row["agent_id"] or "")
+            if aid and aid not in agent_cache:
+                agent_cache[aid] = await (
+                    await db.execute("SELECT * FROM agents WHERE id = ?", (aid,))
+                ).fetchone()
+            sessions.append(await _agent_session_dict_live(db, row, agent_row=agent_cache.get(aid)))
+        return {"ok": True, "sessions": sessions}
     finally:
         await db.close()
 
@@ -15598,7 +15812,9 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
     transient duplicate is safer than retiring a live session)."""
     settings = await _load_settings(db)
     lease_seconds = int(settings.get("resident_lease_seconds", 150) or 150)
-    live_states = ("running", "attached", "active", "idle", "starting", "recovering")
+    # Phase 3 item 4 (2026-06-03): use the ONE canonical LIVE_SESSION_STATUSES set
+    # (module-level) instead of an inline tuple — lowercased for the IN(...) match.
+    live_states = tuple(sorted(s.lower() for s in LIVE_SESSION_STATUSES))
     state_ph = ",".join("?" for _ in live_states)
     rows = await (
         await db.execute(
@@ -15650,6 +15866,7 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
         )
 
     retire: list[str] = []
+    retire_agents: dict[str, str] = {}
     for agent_id, sessions in per_agent.items():
         if len(sessions) < 2:
             continue  # single session → no-op
@@ -15669,6 +15886,7 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
             if s["bridge_fresh"]:
                 continue
             retire.append(s["id"])
+            retire_agents[s["id"]] = agent_id
     retire = retire[:limit]
     if not retire:
         return 0
@@ -15682,6 +15900,14 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
         """,
         [now, *retire, *live_states],
     )
+    # Phase 3 item 5 (2026-06-03): invalidate the live-state cache for every agent
+    # whose duplicate session we just retired, so the derived dot refreshes in the
+    # SAME reconcile pass. Best-effort.
+    for aid in {v for v in retire_agents.values() if v}:
+        try:
+            await _invalidate_agent_live_state(db, aid)
+        except Exception:
+            pass
     await db.commit()
     return len(retire)
 
@@ -15701,46 +15927,111 @@ async def _reconcile_dead_session_status(db, *, limit: int = 500) -> int:
     console and its owning resident bridge is stale/gone).
 
     Marks a live-status row 'stopped' (+ ended_at) for three dead-backing cases:
-      a. MANAGED/managed-warm session whose LOWER(terminal_status) IN
-         ('failed','stopped','exited','lost') — the console/worker is dead.
+      a. MANAGED/managed-warm session whose OWNING/current live terminal truth is
+         dead — i.e. the session HAS terminal_sessions rows but NONE is live (all
+         stopped/failed/exited/lost). Phase 3 fix (2026-06-03): this now JOINS the
+         live terminal_sessions table instead of reading the FROZEN
+         agent_sessions.terminal_status denorm. The worker-hygiene reaper only
+         updates that denorm for terminals that are STILL active, so a terminal
+         that went stopped/failed on its OWN left the denorm frozen at 'attached'
+         and case (a) MISSED it (cms-manager/lc-coder/lc-tech-lead live showed
+         status='running' + terminal_status='attached'/'' while their actual
+         terminal_sessions row was stopped/failed). Joining the live table catches
+         them.
       b. ANY session whose owning agent is stopped (agents.status='stopped').
       c. RESIDENT session whose OWNING bridge is gone — owner_bridge_id is empty,
          OR has no non-superseded bridge_instances heartbeat within
          resident_lease_seconds (default 150).
 
     FALSE-POSITIVE GUARD: never stops a genuinely-live session. A managed session
-    with a healthy terminal stays. A resident session whose owning bridge IS fresh
-    stays — case (c) is keyed ONLY on the bridge heartbeat (mirroring
-    _owner_bridge_is_fresh in _reconcile_duplicate_resident_sessions), never on the
-    live-state engine's derived 'stale' (ci-manager/ci-senior-dev read 'stale' there
-    but HAVE a fresh bridge + live session and must NOT be stopped). Returns rows
-    changed."""
+    with a healthy terminal stays. A managed session with NO terminal rows AT ALL
+    is left alone (a just-starting session before its console attaches — case (a)
+    requires that the session HAS terminals and ALL are dead). A resident session
+    whose owning bridge IS fresh stays — case (c) is keyed ONLY on the bridge
+    heartbeat (mirroring _owner_bridge_is_fresh in
+    _reconcile_duplicate_resident_sessions), never on the live-state engine's
+    derived 'stale' (ci-manager/ci-senior-dev read 'stale' there but HAVE a fresh
+    bridge + live session and must NOT be stopped). Returns rows changed."""
     settings = await _load_settings(db)
     lease_seconds = int(settings.get("resident_lease_seconds", 150) or 150)
-    live_states = ("running", "attached", "active", "idle", "starting", "recovering")
+    # Phase 3 item 4 (2026-06-03): ONE canonical LIVE_SESSION_STATUSES set.
+    live_states = tuple(sorted(s.lower() for s in LIVE_SESSION_STATUSES))
     state_ph = ",".join("?" for _ in live_states)
     now = _now()
     changed = 0
+    mutated_agents: set[str] = set()
 
-    # Cases (a) + (b): a single set-based UPDATE. Both are unambiguous DB truths
-    # (terminal row dead / agent stopped) with no heartbeat-freshness subtlety, so a
-    # NOT-EXISTS-free direct UPDATE is safe.
-    dead_terminal_states = ("failed", "stopped", "exited", "lost")
-    dt_ph = ",".join("?" for _ in dead_terminal_states)
+    # Case (a): managed session whose LIVE terminal truth is dead. JOIN the
+    # terminal_sessions table (the real console/worker state) instead of the
+    # frozen agent_sessions.terminal_status denorm. A managed session is dead when
+    # it HAS at least one (non-synth) terminal row but NONE is live. The HAVING
+    # check on the live-count, gated by an EXISTS on any terminal row, encodes
+    # "has terminals AND all dead" without falsely stopping a session that simply
+    # hasn't spawned a console yet (no terminal rows → not matched). Computed in
+    # Python so we can also invalidate each mutated agent's live-state cache.
+    dead_terminal_rows = await (
+        await db.execute(
+            f"""
+            SELECT s.id AS id, s.agent_id AS agent_id
+            FROM agent_sessions s
+            WHERE s.owner_mode = 'managed'
+              AND s.status IN ({state_ph})
+              AND EXISTS (
+                SELECT 1 FROM terminal_sessions t
+                WHERE t.session_id = s.id AND t.id NOT LIKE 'vterm_%'
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM terminal_sessions t
+                WHERE t.session_id = s.id
+                  AND t.id NOT LIKE 'vterm_%'
+                  AND LOWER(COALESCE(t.status, '')) IN ({state_ph})
+              )
+            """,
+            [*live_states, *[s.lower() for s in live_states]],
+        )
+    ).fetchall()
+    dead_a_ids = [str(r["id"]) for r in (dead_terminal_rows or [])]
+    for r in (dead_terminal_rows or []):
+        aid = str(r["agent_id"] or "")
+        if aid:
+            mutated_agents.add(aid)
+    if dead_a_ids:
+        id_ph = ",".join("?" for _ in dead_a_ids)
+        cur_a = await db.execute(
+            f"""
+            UPDATE agent_sessions
+            SET status = 'stopped', ended_at = ?
+            WHERE id IN ({id_ph}) AND status IN ({state_ph})
+            """,
+            [now, *dead_a_ids, *live_states],
+        )
+        changed += int(cur_a.rowcount or 0)
+
+    # Case (b): ANY live-status session whose owning agent is stopped. Unambiguous
+    # DB truth — a direct set-based UPDATE. Collect the affected agents first so we
+    # can invalidate their live-state caches too.
+    stopped_agent_rows = await (
+        await db.execute(
+            f"""
+            SELECT DISTINCT agent_id FROM agent_sessions
+            WHERE status IN ({state_ph})
+              AND agent_id IN (SELECT id FROM agents WHERE status = 'stopped')
+            """,
+            list(live_states),
+        )
+    ).fetchall()
+    for r in (stopped_agent_rows or []):
+        aid = str(r["agent_id"] or "")
+        if aid:
+            mutated_agents.add(aid)
     cur = await db.execute(
         f"""
         UPDATE agent_sessions
         SET status = 'stopped', ended_at = ?
         WHERE status IN ({state_ph})
-          AND (
-            (
-              owner_mode = 'managed'
-              AND LOWER(COALESCE(terminal_status, '')) IN ({dt_ph})
-            )
-            OR agent_id IN (SELECT id FROM agents WHERE status = 'stopped')
-          )
+          AND agent_id IN (SELECT id FROM agents WHERE status = 'stopped')
         """,
-        [now, *live_states, *dead_terminal_states],
+        [now, *live_states],
     )
     changed += int(cur.rowcount or 0)
 
@@ -15788,6 +16079,7 @@ async def _reconcile_dead_session_status(db, *, limit: int = 500) -> int:
             return False
 
     stop_ids: list[str] = []
+    stop_agents: list[str] = []
     for row in (resident_rows or []):
         keys = row.keys()
         sid = str(row["id"])
@@ -15797,7 +16089,9 @@ async def _reconcile_dead_session_status(db, *, limit: int = 500) -> int:
         # if the session's recorded owner_bridge_id is a stale post-relaunch id.
         if not await _agent_has_fresh_bridge(agent_id):
             stop_ids.append(sid)
+            stop_agents.append(agent_id)
     stop_ids = stop_ids[: max(0, int(limit or 500))]
+    stop_agents = stop_agents[: len(stop_ids)]
     if stop_ids:
         id_ph = ",".join("?" for _ in stop_ids)
         cur2 = await db.execute(
@@ -15809,6 +16103,20 @@ async def _reconcile_dead_session_status(db, *, limit: int = 500) -> int:
             [now, *stop_ids, *live_states],
         )
         changed += int(cur2.rowcount or 0)
+        for aid in stop_agents:
+            if aid:
+                mutated_agents.add(aid)
+
+    # Phase 3 item 5 (2026-06-03): invalidate the live-state cache for every agent
+    # whose session we just mutated, so the derived agent dot refreshes in the SAME
+    # reconcile pass (the closing _refresh_expired_agent_live_states only recomputes
+    # rows already past refresh_after). Best-effort — never let a cache invalidate
+    # fail the reconcile.
+    for aid in mutated_agents:
+        try:
+            await _invalidate_agent_live_state(db, aid)
+        except Exception:
+            pass
 
     await db.commit()
     return changed

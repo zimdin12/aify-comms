@@ -8197,6 +8197,20 @@ class ApiV2RegressionTests(FastApiTestCase):
                 None,
             ),
         )
+        # Phase 3 (2026-06-03): GET /sessions now DERIVES the session status from
+        # live terminal truth, so the newer row needs a LIVE backing terminal to
+        # display 'running' (this test's intent is the superseded-recovering repair,
+        # not liveness — give it a genuinely-live console).
+        self._seed_terminal_for_session(
+            tid="term_newer_running", sid="sess_newer_running",
+            agent_id="repair-recover-coder", status="attached", runtime="codex",
+        )
+        # Bind the session to its console terminal (the production shape) so the
+        # GET-path orphan-terminal repair does not stop an unreferenced terminal.
+        self._execute(
+            "UPDATE agent_sessions SET terminal_id = ?, terminal_status = ? WHERE id = ?",
+            ("term_newer_running", "attached", "sess_newer_running"),
+        )
 
         listed = self.client.get("/api/v1/sessions?agentId=repair-recover-coder")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -13809,16 +13823,33 @@ class ApiV2RegressionTests(FastApiTestCase):
             (agent_id, "coder", agent_id, status, now, now),
         )
 
-    def _seed_owner_bridge(self, bridge_id, agent_id, *, last_seen_delta_seconds):
+    def _seed_owner_bridge(self, bridge_id, agent_id, *, last_seen_delta_seconds, session_mode="resident", bridge_kind=""):
         ls = (datetime.now(timezone.utc) + timedelta(seconds=last_seen_delta_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
         reg = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._execute(
             """
             INSERT INTO bridge_instances
-                (id, agent_id, session_mode, registered_at, last_seen, superseded_by)
-            VALUES (?,?,?,?,?,'')
+                (id, agent_id, session_mode, bridge_kind, registered_at, last_seen, superseded_by)
+            VALUES (?,?,?,?,?,?,'')
             """,
-            (bridge_id, agent_id, "resident", reg, ls),
+            (bridge_id, agent_id, session_mode, bridge_kind, reg, ls),
+        )
+
+    def _seed_terminal_for_session(self, *, tid, sid, agent_id, status, runtime="claude-code", command=""):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO terminal_sessions
+                (id, session_id, agent_id, environment_id, bridge_id, runtime,
+                 workspace, command, output, status, requested_by,
+                 created_at, updated_at, stopped_at, error)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                tid, sid, agent_id, "linux:test-host:default", "bridge-current", runtime,
+                "/workspace", command or (runtime + "-aify --aify-agent " + agent_id), "",
+                status, "dashboard", now, now, None, "",
+            ),
         )
 
     def _run_dead_session_reconcile(self):
@@ -13837,12 +13868,32 @@ class ApiV2RegressionTests(FastApiTestCase):
     def test_reconcile_dead_session_status_marks_dead_backings_stopped(self):
         # agent_sessions FK-references environments(environment_id); seed it.
         self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
-        # (a) managed session whose terminal is failed -> session stopped.
-        self._seed_agent_row("mp-senior-dev", "stopped")
+        # (a) Phase 3 (2026-06-03): managed session with a STALE 'attached' denorm
+        # but a LIVE terminal_sessions row that went 'failed' -> session stopped.
+        # This is the live-reproduced cms-manager/lc-coder/lc-tech-lead shape:
+        # agent_sessions.terminal_status frozen at 'attached' while the real
+        # terminal is dead. case (a) must JOIN the live terminal table to catch it.
+        self._seed_agent_row("mp-senior-dev", "active")
         self._seed_dead_session(
             sid="sess_managed_failed_term", agent_id="mp-senior-dev",
             mode="managed-warm", owner_mode="managed", status="running",
-            terminal_status="failed",
+            terminal_status="attached",
+        )
+        self._seed_terminal_for_session(
+            tid="term_managed_failed", sid="sess_managed_failed_term",
+            agent_id="mp-senior-dev", status="failed",
+        )
+        # (a-live) managed session whose terminal is genuinely LIVE -> stays running
+        # (false-positive guard: the live-truth join must not stop a healthy console).
+        self._seed_agent_row("live-managed", "active")
+        self._seed_dead_session(
+            sid="sess_managed_live_term", agent_id="live-managed",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",
+        )
+        self._seed_terminal_for_session(
+            tid="term_managed_live", sid="sess_managed_live_term",
+            agent_id="live-managed", status="attached",
         )
         # (b) session whose agent is stopped (otherwise-attached terminal).
         self._seed_agent_row("stopped-agent", "stopped")
@@ -13884,6 +13935,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(self._dead_session_status("sess_resident_nobridge"), "stopped")
         # False-positive guard: the live resident with a fresh bridge stays running.
         self.assertEqual(self._dead_session_status("sess_resident_fresh"), "running")
+        # False-positive guard: a managed session with a LIVE terminal stays running.
+        self.assertEqual(self._dead_session_status("sess_managed_live_term"), "running")
 
     # ── Phase 1 G1: coldstart carries the agent's native session handle ──────
     def _online_codex_env_for_coldstart(self, env_id="env_g1"):
@@ -13997,6 +14050,172 @@ class ApiV2RegressionTests(FastApiTestCase):
         body = forced.json()
         self.assertEqual(body.get("mode"), "resident")
         self.assertIn("not supported", str(body.get("warning", "")).lower())
+
+    # ── Phase 3 item 1: case (a) joins LIVE terminal_sessions, not the denorm ──
+    def test_dead_session_reconcile_catches_stale_denorm_with_failed_terminal(self):
+        # The live-reproduced cms-manager/lc-coder/lc-tech-lead bug: a managed
+        # session with agent_sessions.terminal_status='attached' (stale denorm) but
+        # the live terminal_sessions row is 'failed'. The OLD case (a) read the
+        # frozen denorm and MISSED it; the fixed case (a) joins the live terminal
+        # table and reconciles it to 'stopped'.
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("lc-coder-x", "active")
+        self._seed_dead_session(
+            sid="sess_stale_denorm", agent_id="lc-coder-x",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",  # STALE denorm
+        )
+        self._seed_terminal_for_session(
+            tid="term_live_failed", sid="sess_stale_denorm",
+            agent_id="lc-coder-x", status="failed",  # LIVE truth: dead
+        )
+        # Sanity: the denorm alone (old logic) would NOT have flagged it.
+        self.assertEqual(
+            self._fetchone(
+                "SELECT terminal_status FROM agent_sessions WHERE id = ?",
+                ("sess_stale_denorm",),
+            )["terminal_status"],
+            "attached",
+        )
+        self._run_dead_session_reconcile()
+        self.assertEqual(self._dead_session_status("sess_stale_denorm"), "stopped")
+
+    def test_dead_session_reconcile_leaves_managed_session_without_terminals_alone(self):
+        # A just-starting managed session that has NO terminal rows yet must NOT be
+        # stopped (case (a) requires HAS-terminals AND all-dead).
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("starting-mgr", "active")
+        self._seed_dead_session(
+            sid="sess_no_terminals", agent_id="starting-mgr",
+            mode="managed-warm", owner_mode="managed", status="starting",
+            terminal_status="",
+        )
+        self._run_dead_session_reconcile()
+        self.assertEqual(self._dead_session_status("sess_no_terminals"), "starting")
+
+    # ── Phase 3 item 2: GET /sessions DERIVES status from live truth ──────────
+    def _derived_session_status(self, sid):
+        async def _run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (sid,))).fetchone()
+                return await api_v2._compute_session_display_status(db, row)
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_derived_session_status_live_managed_terminal_attached_is_running(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-live-mgr", "active")
+        self._seed_dead_session(
+            sid="sess_dv_live_mgr", agent_id="dv-live-mgr",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",
+        )
+        self._seed_terminal_for_session(
+            tid="term_dv_live", sid="sess_dv_live_mgr",
+            agent_id="dv-live-mgr", status="attached",
+        )
+        self.assertEqual(self._derived_session_status("sess_dv_live_mgr"), "running")
+
+    def test_derived_session_status_dead_managed_terminal_failed_is_stopped(self):
+        # The structural fix: even though the STORED status is still 'running' and
+        # the denorm says 'attached', the DERIVED display status is 'stopped'
+        # because the live terminal is failed — killing "Stopped/Stale but running".
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-dead-mgr", "active")
+        self._seed_dead_session(
+            sid="sess_dv_dead_mgr", agent_id="dv-dead-mgr",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",
+        )
+        self._seed_terminal_for_session(
+            tid="term_dv_dead", sid="sess_dv_dead_mgr",
+            agent_id="dv-dead-mgr", status="failed",
+        )
+        # Stored row still says running (deriver must NOT mutate it).
+        self.assertEqual(self._dead_session_status("sess_dv_dead_mgr"), "running")
+        self.assertEqual(self._derived_session_status("sess_dv_dead_mgr"), "stopped")
+
+    def test_derived_session_status_live_resident_fresh_bridge_is_running(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-live-res", "active")
+        # A fresh resident MCP bridge: _resident_bridge_is_fresh reads the session's
+        # runtime_state.bridgeInstanceId; a live channel-sidecar is the simpler proof
+        # path used here.
+        self._seed_owner_bridge(
+            "dv-res-sidecar", "dv-live-res", last_seen_delta_seconds=-5,
+            session_mode="resident", bridge_kind="channel-sidecar",
+        )
+        self._seed_dead_session(
+            sid="sess_dv_live_res", agent_id="dv-live-res",
+            mode="resident", owner_mode="resident", status="running",
+            owner_bridge_id="dv-res-sidecar",
+        )
+        self.assertEqual(self._derived_session_status("sess_dv_live_res"), "running")
+
+    def test_derived_session_status_dead_resident_no_fresh_bridge_is_stopped(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-dead-res", "active")
+        self._seed_owner_bridge(
+            "dv-res-stale", "dv-dead-res", last_seen_delta_seconds=-3600,
+            session_mode="resident", bridge_kind="channel-sidecar",
+        )
+        self._seed_dead_session(
+            sid="sess_dv_dead_res", agent_id="dv-dead-res",
+            mode="resident", owner_mode="resident", status="running",
+            owner_bridge_id="dv-res-stale",
+        )
+        self.assertEqual(self._derived_session_status("sess_dv_dead_res"), "stopped")
+
+    def test_derived_session_status_stopped_agent_is_stopped(self):
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-stopped-agent", "stopped")
+        self._seed_dead_session(
+            sid="sess_dv_stopped", agent_id="dv-stopped-agent",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",
+        )
+        # Even with a (hypothetically) attached terminal, a stopped agent forces stopped.
+        self._seed_terminal_for_session(
+            tid="term_dv_stopped", sid="sess_dv_stopped",
+            agent_id="dv-stopped-agent", status="attached",
+        )
+        self.assertEqual(self._derived_session_status("sess_dv_stopped"), "stopped")
+
+    def test_derived_session_status_terminal_stored_status_passes_through(self):
+        # A genuinely-terminal stored status is displayed as-is (deriver only ever
+        # downgrades a live-looking status, never promotes a terminal one).
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("dv-ended", "active")
+        self._seed_dead_session(
+            sid="sess_dv_ended", agent_id="dv-ended",
+            mode="managed-warm", owner_mode="managed", status="ended",
+        )
+        self.assertEqual(self._derived_session_status("sess_dv_ended"), "ended")
+
+    def test_get_sessions_serves_derived_status_for_dead_managed_terminal(self):
+        # End-to-end: GET /sessions returns the DERIVED status, so the dashboard
+        # badge can no longer show 'running' for a session whose live terminal died.
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        self._seed_agent_row("e2e-dead-mgr", "active")
+        self._seed_dead_session(
+            sid="sess_e2e_dead", agent_id="e2e-dead-mgr",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="attached",
+        )
+        self._seed_terminal_for_session(
+            tid="term_e2e_dead", sid="sess_e2e_dead",
+            agent_id="e2e-dead-mgr", status="failed",
+        )
+        resp = self.client.get("/api/v1/sessions", params={"agentId": "e2e-dead-mgr"})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        sessions = resp.json()["sessions"]
+        target = next(s for s in sessions if s["id"] == "sess_e2e_dead")
+        self.assertEqual(target["status"], "stopped")
+        # Dict shape is preserved — the stored row is untouched.
+        self.assertEqual(target["ownerMode"], "managed")
+        self.assertEqual(self._dead_session_status("sess_e2e_dead"), "running")
 
 
 class TerminalSessionMigrationTests(unittest.TestCase):
