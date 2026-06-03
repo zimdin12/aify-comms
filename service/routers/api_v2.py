@@ -15578,6 +15578,134 @@ async def _reconcile_duplicate_resident_sessions(db, *, limit: int = 500) -> int
     return len(retire)
 
 
+async def _reconcile_dead_session_status(db, *, limit: int = 500) -> int:
+    """Downgrade a live-status `agent_sessions` row to 'stopped' once its BACKING
+    is dead (2026-06-03).
+
+    PROBLEM: a session row keeps a live status (running/attached/…) after the thing
+    that backs it died, so the dashboard renders a contradictory row like
+    "Stopped … running" / "Stale … running". The ghost-console / managed-worker
+    hygiene reconcile marks the TERMINAL dead but never updates the SESSION row, and
+    a resident session is never downgraded when its OWNING bridge dies. Verified
+    live: mp-senior-dev (managed-warm session 'running' but terminal 'failed',
+    error='reconciled_managed_ghost_console_dead_worker', agent 'stopped', no live
+    worker) and lc-manager (resident session 'running' but the operator closed the
+    console and its owning resident bridge is stale/gone).
+
+    Marks a live-status row 'stopped' (+ ended_at) for three dead-backing cases:
+      a. MANAGED/managed-warm session whose LOWER(terminal_status) IN
+         ('failed','stopped','exited','lost') — the console/worker is dead.
+      b. ANY session whose owning agent is stopped (agents.status='stopped').
+      c. RESIDENT session whose OWNING bridge is gone — owner_bridge_id is empty,
+         OR has no non-superseded bridge_instances heartbeat within
+         resident_lease_seconds (default 150).
+
+    FALSE-POSITIVE GUARD: never stops a genuinely-live session. A managed session
+    with a healthy terminal stays. A resident session whose owning bridge IS fresh
+    stays — case (c) is keyed ONLY on the bridge heartbeat (mirroring
+    _owner_bridge_is_fresh in _reconcile_duplicate_resident_sessions), never on the
+    live-state engine's derived 'stale' (ci-manager/ci-senior-dev read 'stale' there
+    but HAVE a fresh bridge + live session and must NOT be stopped). Returns rows
+    changed."""
+    settings = await _load_settings(db)
+    lease_seconds = int(settings.get("resident_lease_seconds", 150) or 150)
+    live_states = ("running", "attached", "active", "idle", "starting", "recovering")
+    state_ph = ",".join("?" for _ in live_states)
+    now = _now()
+    changed = 0
+
+    # Cases (a) + (b): a single set-based UPDATE. Both are unambiguous DB truths
+    # (terminal row dead / agent stopped) with no heartbeat-freshness subtlety, so a
+    # NOT-EXISTS-free direct UPDATE is safe.
+    dead_terminal_states = ("failed", "stopped", "exited", "lost")
+    dt_ph = ",".join("?" for _ in dead_terminal_states)
+    cur = await db.execute(
+        f"""
+        UPDATE agent_sessions
+        SET status = 'stopped', ended_at = ?
+        WHERE status IN ({state_ph})
+          AND (
+            (
+              owner_mode = 'managed'
+              AND LOWER(COALESCE(terminal_status, '')) IN ({dt_ph})
+            )
+            OR agent_id IN (SELECT id FROM agents WHERE status = 'stopped')
+          )
+        """,
+        [now, *live_states, *dead_terminal_states],
+    )
+    changed += int(cur.rowcount or 0)
+
+    # Case (c): resident session whose owning bridge is stale/gone. Done in Python
+    # (fetch live resident rows + owner_bridge_id, test heartbeat freshness, batch
+    # the UPDATE) to avoid a fragile correlated subquery and to mirror
+    # _owner_bridge_is_fresh's exact cutoff construction (non-superseded
+    # bridge_instances row with last_seen within the lease).
+    resident_rows = await (
+        await db.execute(
+            f"""
+            SELECT id, agent_id, owner_bridge_id
+            FROM agent_sessions
+            WHERE mode = 'resident' AND status IN ({state_ph})
+            """,
+            list(live_states),
+        )
+    ).fetchall()
+
+    async def _agent_has_fresh_bridge(agent_id: str) -> bool:
+        # AGENT-LEVEL liveness (NOT the session's recorded owner_bridge_id): a
+        # relaunch leaves the session row pointing at the OLD (now superseded)
+        # bridge while the agent registers a NEW fresh one — so keying on the
+        # specific owner_bridge_id FALSE-POSITIVED live agents (ci-manager/
+        # mp-manager have a fresh channel-sidecar / managed-wrapper-child but a
+        # stale owner_bridge_id on the session). The session is live iff the AGENT
+        # has ANY fresh, non-superseded bridge, regardless of which bridge the row
+        # recorded.
+        aid = str(agent_id or "").strip()
+        if not aid:
+            return False
+        try:
+            c = await db.execute(
+                """
+                SELECT 1 FROM bridge_instances
+                WHERE agent_id = ?
+                  AND COALESCE(superseded_by, '') = ''
+                  AND datetime(last_seen) > datetime('now', ?)
+                LIMIT 1
+                """,
+                (aid, f"-{int(lease_seconds)} seconds"),
+            )
+            return (await c.fetchone()) is not None
+        except Exception:
+            return False
+
+    stop_ids: list[str] = []
+    for row in (resident_rows or []):
+        keys = row.keys()
+        sid = str(row["id"])
+        agent_id = str(row["agent_id"] or "")
+        # Stop ONLY when the AGENT has no fresh bridge at all. A fresh bridge
+        # (any kind) proves the agent is live, so its session is left alone — even
+        # if the session's recorded owner_bridge_id is a stale post-relaunch id.
+        if not await _agent_has_fresh_bridge(agent_id):
+            stop_ids.append(sid)
+    stop_ids = stop_ids[: max(0, int(limit or 500))]
+    if stop_ids:
+        id_ph = ",".join("?" for _ in stop_ids)
+        cur2 = await db.execute(
+            f"""
+            UPDATE agent_sessions
+            SET status = 'stopped', ended_at = ?
+            WHERE id IN ({id_ph}) AND status IN ({state_ph})
+            """,
+            [now, *stop_ids, *live_states],
+        )
+        changed += int(cur2.rowcount or 0)
+
+    await db.commit()
+    return changed
+
+
 async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dict[str, str]]:
     """Clear a stuck turn_busy=1 whose owning bridge (turn_bridge_id) is dead.
 

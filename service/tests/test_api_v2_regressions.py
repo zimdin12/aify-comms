@@ -13783,6 +13783,105 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(self._run_has_live_managed_wrapper_child("mwc-none"), "no bridge → False")
 
 
+    def _seed_dead_session(self, *, sid, agent_id, mode, status, owner_mode="managed",
+                           terminal_status="", owner_bridge_id="", runtime="claude"):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO agent_sessions
+                (id, agent_id, environment_id, runtime, mode, owner_mode,
+                 owner_bridge_id, terminal_status, spawn_spec_id, spawn_request_id,
+                 status, started_at, last_seen)
+            VALUES (?,?,?,?,?,?,?,?,NULL,NULL,?,?,?)
+            """,
+            (sid, agent_id, "linux:test-host:default", runtime, mode, owner_mode,
+             owner_bridge_id, terminal_status, status, now, now),
+        )
+
+    def _seed_agent_row(self, agent_id, status):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            "INSERT INTO agents (id, role, name, status, registered_at, last_seen) VALUES (?,?,?,?,?,?)",
+            (agent_id, "coder", agent_id, status, now, now),
+        )
+
+    def _seed_owner_bridge(self, bridge_id, agent_id, *, last_seen_delta_seconds):
+        ls = (datetime.now(timezone.utc) + timedelta(seconds=last_seen_delta_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        reg = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO bridge_instances
+                (id, agent_id, session_mode, registered_at, last_seen, superseded_by)
+            VALUES (?,?,?,?,?,'')
+            """,
+            (bridge_id, agent_id, "resident", reg, ls),
+        )
+
+    def _run_dead_session_reconcile(self):
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._reconcile_dead_session_status(db)
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def _dead_session_status(self, sid):
+        row = self._fetchone("SELECT status FROM agent_sessions WHERE id = ?", (sid,))
+        return row["status"] if row else None
+
+    def test_reconcile_dead_session_status_marks_dead_backings_stopped(self):
+        # agent_sessions FK-references environments(environment_id); seed it.
+        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        # (a) managed session whose terminal is failed -> session stopped.
+        self._seed_agent_row("mp-senior-dev", "stopped")
+        self._seed_dead_session(
+            sid="sess_managed_failed_term", agent_id="mp-senior-dev",
+            mode="managed-warm", owner_mode="managed", status="running",
+            terminal_status="failed",
+        )
+        # (b) session whose agent is stopped (otherwise-attached terminal).
+        self._seed_agent_row("stopped-agent", "stopped")
+        self._seed_dead_session(
+            sid="sess_stopped_agent", agent_id="stopped-agent",
+            mode="managed-warm", owner_mode="managed", status="active",
+            terminal_status="attached",
+        )
+        # (c-fresh) resident session with a FRESH owning bridge -> NOT stopped.
+        self._seed_agent_row("ci-manager", "active")
+        self._seed_owner_bridge("bridge-fresh", "ci-manager", last_seen_delta_seconds=-10)
+        self._seed_dead_session(
+            sid="sess_resident_fresh", agent_id="ci-manager",
+            mode="resident", owner_mode="resident", status="running",
+            owner_bridge_id="bridge-fresh",
+        )
+        # (c-stale) resident session with a stale owning bridge -> stopped.
+        self._seed_agent_row("lc-manager", "active")
+        self._seed_owner_bridge("bridge-stale", "lc-manager", last_seen_delta_seconds=-3600)
+        self._seed_dead_session(
+            sid="sess_resident_stale", agent_id="lc-manager",
+            mode="resident", owner_mode="resident", status="running",
+            owner_bridge_id="bridge-stale",
+        )
+        # (c-absent) resident session with NO owning bridge id -> stopped.
+        self._seed_agent_row("no-bridge-mgr", "active")
+        self._seed_dead_session(
+            sid="sess_resident_nobridge", agent_id="no-bridge-mgr",
+            mode="resident", owner_mode="resident", status="running",
+            owner_bridge_id="",
+        )
+
+        changed = self._run_dead_session_reconcile()
+        self.assertGreaterEqual(changed, 4)
+
+        self.assertEqual(self._dead_session_status("sess_managed_failed_term"), "stopped")
+        self.assertEqual(self._dead_session_status("sess_stopped_agent"), "stopped")
+        self.assertEqual(self._dead_session_status("sess_resident_stale"), "stopped")
+        self.assertEqual(self._dead_session_status("sess_resident_nobridge"), "stopped")
+        # False-positive guard: the live resident with a fresh bridge stays running.
+        self.assertEqual(self._dead_session_status("sess_resident_fresh"), "running")
+
+
 class TerminalSessionMigrationTests(unittest.TestCase):
     """Part 1 migration: an existing DB whose terminal_sessions table predates
     the process_id column gets it added by init_db (idempotently)."""

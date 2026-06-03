@@ -68,6 +68,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_superseded_bridges,
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
+        _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
         _reconcile_managed_worker_hygiene,
         _reroute_orphaned_managed_channel_runs,
@@ -153,6 +154,16 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # claude is either online-with-console or fully down — never a headless
         # background worker (visible-TUI hard requirement).
         managed_hygiene = await _reconcile_managed_worker_hygiene(db)
+        # Downgrade a live-status agent_sessions row to 'stopped' once its backing is
+        # dead (2026-06-03): a managed session whose terminal is failed/stopped/
+        # exited/lost, a session whose agent is stopped, or a resident session whose
+        # owning bridge is stale/gone. Without this the dashboard shows a
+        # contradictory "Stopped … running" / "Stale … running" row. MUST run AFTER
+        # _reconcile_managed_worker_hygiene so the terminal-failed signal is already
+        # set when case (a) reads terminal_status. Keyed only on bridge heartbeat for
+        # the resident case — never on the derived 'stale' — so a live resident with
+        # a fresh bridge is never stopped.
+        dead_sessions_stopped = await _reconcile_dead_session_status(db, limit=500)
         # Collapse duplicate/stale resident sessions to one-per-agent so the
         # dashboard stops showing 2+ resident_* rows the operator can't tell apart
         # (2026-06-03). Keeps the freshest; retires the rest.
@@ -178,6 +189,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "rerouted_channel_runs": rerouted_channel_runs,
             "deduped_resident_sessions": deduped_resident_sessions,
+            "dead_sessions_stopped": dead_sessions_stopped,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
