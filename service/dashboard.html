@@ -1446,12 +1446,21 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
         <button class="btn" title="Open on-demand identity directory for roles, resident bindings, and cleanup" onclick="openIdentityDirectory()">Identity Directory</button>
       </div>
     </div>
-    <p class="worker-note">Sessions are grouped by Environment because each session is a concrete runtime/process backing on a specific host bridge. Identity = mailbox/role. Session = runtime backing. Environment = host bridge.</p>
+    <p class="worker-note">One row per registered agent, grouped by Environment. Identity = mailbox/role. Session = runtime backing. Environment = host bridge. Use the Statuses filter to choose which live states appear.</p>
     <div class="fb">
-      <label class="switch-row" title="Show ended, completed, and cancelled session history. Keep this off for normal work; turn it on while debugging lifecycle issues.">
-        <input type="checkbox" id="show-ended-sessions" onchange="setShowEndedSessions(this.checked)">
-        <span>Show ended/debug sessions</span>
-      </label>
+      <div class="chat-status-filter" id="sessions-status-filter">
+        <button type="button" class="chat-toggle chat-status-btn" id="sessions-status-btn" title="Choose which agent live statuses appear on the Sessions page. Defaults to every status except Deleted." onclick="toggleSessionsStatusMenu(event)">
+          <span id="sessions-status-btn-label">Statuses</span><span class="caret">▾</span>
+        </button>
+        <div class="chat-status-menu" id="sessions-status-menu" hidden>
+          <div class="chat-status-presets">
+            <button type="button" onclick="sessionsStatusPreset('all')">All</button>
+            <button type="button" onclick="sessionsStatusPreset('none')">None</button>
+            <button type="button" onclick="sessionsStatusPreset('live')">Live only</button>
+          </div>
+          <div class="chat-status-options" id="sessions-status-options"></div>
+        </div>
+      </div>
     </div>
     <div class="stats" id="session-stats"></div>
     <div id="sessions-table"></div>
@@ -5284,6 +5293,71 @@ function renderChatStatusFilter() {
   }
 }
 
+// --- Per-status Sessions filter (2026-06-04): mirrors the chat status dropdown
+// but with SEPARATE state. The Sessions page is now agent-centric (one row per
+// registered agent) and this dropdown chooses which live-status buckets appear.
+// Reuses CHAT_STATUS_ORDER/CHAT_STATUS_LABELS/CHAT_LIVE_STATUSES and
+// statusBucketForPresence so the two filters stay conceptually identical.
+function sessionsStatusFilter() {
+  const raw = localStorage.getItem('aifySessionsStatusFilter');
+  if (raw) {
+    try { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a.filter(s => CHAT_STATUS_ORDER.includes(s))); } catch (_e) {}
+  }
+  // Default: every bucket EXCEPT 'deleted' (so offline/available/stopped agents
+  // all show — operator priority is seeing every agent by status).
+  return new Set(CHAT_STATUS_ORDER.filter(s => s !== 'deleted'));
+}
+
+function setSessionsStatusFilter(set) {
+  localStorage.setItem('aifySessionsStatusFilter', JSON.stringify([...set]));
+  renderSessions(window._sessions || []);
+}
+
+function toggleSessionsStatus(name) {
+  const set = sessionsStatusFilter();
+  if (set.has(name)) set.delete(name); else set.add(name);
+  setSessionsStatusFilter(set);
+}
+
+function sessionsStatusPreset(which) {
+  let set;
+  if (which === 'all') set = new Set(CHAT_STATUS_ORDER);
+  else if (which === 'none') set = new Set();
+  else set = new Set(CHAT_LIVE_STATUSES);
+  setSessionsStatusFilter(set);
+}
+
+function toggleSessionsStatusMenu(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById('sessions-status-menu');
+  if (!menu) return;
+  menu.hidden = !menu.hidden;
+  if (!menu.hidden) {
+    renderSessionsStatusFilter();
+    setTimeout(() => document.addEventListener('click', closeSessionsStatusMenuOnOutside), 0);
+  }
+}
+
+function closeSessionsStatusMenuOnOutside(ev) {
+  const wrap = document.getElementById('sessions-status-filter');
+  if (wrap && wrap.contains(ev.target)) return;
+  const menu = document.getElementById('sessions-status-menu');
+  if (menu) menu.hidden = true;
+  document.removeEventListener('click', closeSessionsStatusMenuOnOutside);
+}
+
+function renderSessionsStatusFilter() {
+  const set = sessionsStatusFilter();
+  const label = document.getElementById('sessions-status-btn-label');
+  if (label) label.textContent = set.size >= CHAT_STATUS_ORDER.length ? 'Statuses' : `Statuses · ${set.size}`;
+  const opts = document.getElementById('sessions-status-options');
+  if (opts) {
+    opts.innerHTML = CHAT_STATUS_ORDER.map(name =>
+      `<label><input type="checkbox" ${set.has(name) ? 'checked' : ''} onchange="toggleSessionsStatus('${name}')"><span class="chat-status-dot ${name}"></span>${CHAT_STATUS_LABELS[name]}</label>`
+    ).join('');
+  }
+}
+
 function chatUnreadUp() {
   return localStorage.getItem('aifyChatUnreadUp') === '1';
 }
@@ -7053,8 +7127,9 @@ function spawnRequestStatusLabel(req) {
 }
 
 // FIX 3 (2026-06-03): include 'stopped' so retired/stopped duplicate resident
-// sessions are hidden by default. Still revealed by the "Show ended" toggle
-// (renderSessions / env-session filter gate this set on showEndedSessions()).
+// sessions are hidden by default in the Environments env-session list (the only
+// remaining consumer of isQuietSession after the Sessions page went
+// agent-centric on 2026-06-04 and now gates visibility on the status dropdown).
 // 'retired' is the status the resident->managed (and managed->resident) switch
 // sets on the superseded session — it must be quiet too, else a mode switch
 // leaves the old session visible next to the new one (the duplicate the operator
@@ -7062,6 +7137,10 @@ function spawnRequestStatusLabel(req) {
 const QUIET_SESSION_STATUSES = new Set(['ended', 'completed', 'cancelled', 'stopped', 'retired']);
 const DELETABLE_SESSION_STATUSES = new Set(['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled', 'retired']);
 
+// Retained for backward-compat with any stored preference, but no longer wired
+// to a DOM control: the Sessions page replaced the binary "Show ended/debug"
+// toggle with the per-status dropdown (2026-06-04). Safe to remove once nothing
+// references aifyShowEndedSessions.
 function showEndedSessions() {
   return localStorage.getItem('aifyShowEndedSessions') === '1';
 }
@@ -7161,9 +7240,43 @@ function pruneSelectedSessions(sessions) {
   if (changed) persistSelectedSessions();
 }
 
+// Agent-centric Sessions view (2026-06-04): build one row per registered agent.
+// Each row is backed by the agent's primary session (may be null) and is
+// filtered by the live-status bucket dropdown. Returns an ordered array of
+// {agentId, info, session, presence, bucket, deleted, environmentId, runtime}.
+function sessionsAgentRows() {
+  const filter = sessionsStatusFilter();
+  const rows = [];
+  for (const [agentId, info] of (window._allAgents || [])) {
+    if (!agentId || agentId === 'dashboard') continue;
+    const deleted = chatAgentIsDeleted(agentId);
+    const session = primarySessionForAgent(agentId);
+    const presence = deleted
+      ? {kind: 'offline', label: 'Deleted'}
+      : (session ? sessionPresenceForSession(session, info) : chatPresenceForAgent(info));
+    const bucket = deleted ? 'deleted' : statusBucketForPresence(presence.kind);
+    if (!filter.has(bucket)) continue;
+    const environmentId = (session && session.environmentId) || info.runtimeState?.environmentId || 'unassigned';
+    const runtime = (session && session.runtime) || info.runtime || info.runtimeState?.runtime || '';
+    rows.push({agentId, info, session, presence, bucket, deleted, environmentId, runtime});
+  }
+  // Stable ordering: environment grouping is applied later; within the flat list
+  // sort by status rank (working first) then agent id.
+  const bucketRank = {};
+  CHAT_STATUS_ORDER.forEach((name, idx) => { bucketRank[name] = idx; });
+  rows.sort((a, b) => {
+    const ar = bucketRank[a.bucket] ?? 99;
+    const br = bucketRank[b.bucket] ?? 99;
+    if (ar !== br) return ar - br;
+    return String(a.agentId || '').localeCompare(String(b.agentId || ''));
+  });
+  return rows;
+}
+
+// Sessions backing the currently-visible agent rows (used by the batch toolbar
+// and group/select helpers, which still operate on concrete session ids).
 function currentVisibleSessions() {
-  const sessions = window._sessions || [];
-  return sessionDisplayOrder(showEndedSessions() ? sessions : sessions.filter(session => !isQuietSession(session)));
+  return sessionsAgentRows().map(row => row.session).filter(Boolean);
 }
 
 function visibleSelectedSessions(sessions = currentVisibleSessions()) {
@@ -7248,31 +7361,36 @@ function sessionBatchToolbar(visibleSessions) {
   `</div>`;
 }
 
+// Agent-centric Sessions render (2026-06-04). One row per registered agent,
+// grouped by environment, filtered by the per-status dropdown. Each row is
+// backed by the agent's primary session (may be null — offline/available agents
+// still appear). Session-scoped actions operate on that primary session and are
+// omitted when there is no session.
 function renderSessions(sessions) {
   const container = document.getElementById('sessions-table');
   if (!container) return;
   pruneSelectedSessions(sessions);
-  const showEnded = showEndedSessions();
-  const toggle = document.getElementById('show-ended-sessions');
-  if (toggle) toggle.checked = showEnded;
-  const visibleSessions = sessionDisplayOrder(showEnded ? sessions : sessions.filter(session => !isQuietSession(session)));
+  renderSessionsStatusFilter();
+  const rows = sessionsAgentRows();
+  // Keep the stats card meaningful: count over the sessions backing visible rows.
+  const visibleSessions = rows.map(row => row.session).filter(Boolean);
   renderSessionStats(sessions, visibleSessions);
-  if (!sessions.length) {
-    container.innerHTML = '<p class="em">No runtime sessions yet. Spawn an agent from Environments.</p>';
+  if (!(window._allAgents || []).length) {
+    container.innerHTML = '<p class="em">No agents registered yet. Spawn an agent from Environments or register one via the MCP tools.</p>';
     return;
   }
-  if (!visibleSessions.length) {
-    container.innerHTML = '<p class="em">Only ended/debug sessions are recorded. Turn on "Show ended/debug sessions" to inspect them.</p>';
+  if (!rows.length) {
+    container.innerHTML = '<p class="em">No agents match the selected statuses. Adjust the Statuses filter above.</p>';
     return;
   }
   const envMap = new Map((window._environments || []).map(env => [env.id, env]));
   const grouped = new Map();
-  for (const session of visibleSessions) {
-    const key = session.environmentId || 'unassigned';
+  for (const row of rows) {
+    const key = row.environmentId || 'unassigned';
     if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(session);
+    grouped.get(key).push(row);
   }
-  const orderedGroups = [...grouped.entries()].sort(([a, aSessions], [b, bSessions]) => {
+  const orderedGroups = [...grouped.entries()].sort(([a, aRows], [b, bRows]) => {
     const aEnv = envMap.get(a) || {};
     const bEnv = envMap.get(b) || {};
     const statusRank = {online: 0, degraded: 1, unknown: 2, offline: 3, disabled: 4};
@@ -7281,70 +7399,79 @@ function renderSessions(sessions) {
     if (ar !== br) return ar - br;
     const labelCmp = String(aEnv.label || a).localeCompare(String(bEnv.label || b));
     if (labelCmp) return labelCmp;
-    return bSessions.length - aSessions.length;
+    return bRows.length - aRows.length;
   });
   let html = sessionBatchToolbar(visibleSessions);
-  for (const [environmentId, groupSessions] of orderedGroups) {
+  for (const [environmentId, groupRows] of orderedGroups) {
     const env = envMap.get(environmentId) || {};
     const envStatus = env.status || (environmentId === 'unassigned' ? 'unassigned' : 'unknown');
-    const runningCount = groupSessions.filter(session => ['running', 'claimed', 'starting', 'recovering'].includes(String(session.status || '').toLowerCase())).length;
-    const issueCount = groupSessions.filter(session => ['failed', 'lost', 'stopped'].includes(String(session.status || '').toLowerCase())).length;
+    const liveBuckets = ['working', 'online', 'idle', 'available', 'blocked'];
+    const runningCount = groupRows.filter(row => liveBuckets.includes(row.bucket)).length;
+    const issueCount = groupRows.filter(row => ['stale', 'offline', 'stopped'].includes(row.bucket)).length;
+    const groupSessions = groupRows.map(row => row.session).filter(Boolean);
     const groupSelected = groupSessions.length > 0 && groupSessions.every(session => selectedSessionSet().has(session.id));
     html += `<section class="session-group">` +
       `<div class="session-group-head"><div class="session-group-title"><b class="clip-1"${titleAttr(env.label || environmentId)}>${esc(env.label || environmentId)}</b><span class="clip-1"${titleAttr(environmentId)}>${esc(environmentId)}</span></div>` +
-      `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupSessions.length} session${groupSessions.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}</div></div>` +
+      `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupRows.length} agent${groupRows.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}</div></div>` +
       `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th class="session-select-col"><input type="checkbox" ${groupSelected ? 'checked' : ''} onchange="toggleSessionGroupSelection(${jsArg(environmentId)}, this.checked)"></th><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
-    for (const session of groupSessions) {
-      const caps = session.capabilities || {};
+    for (const row of groupRows) {
+      const {agentId, info: agentInfo, session, presence} = row;
+      const caps = (session && session.capabilities) || {};
       const allCapLabels = ['nativeResume','bridgeResume','cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
       const visibleCapLabels = ['cliAttach','interrupt','streaming'].filter(key => caps[key]).map(humanCapabilityLabel).join(', ');
-      const agentInfo = (window._allAgents || []).find(([id]) => id === session.agentId)?.[1] || {};
-      const presence = sessionPresenceForSession(session, agentInfo);
-      const presenceClass = `${presence.kind || 'unknown'}${terminalActivityClassForAgent(session.agentId)}`;
+      const presenceClass = `${presence.kind || 'unknown'}${terminalActivityClassForAgent(agentId)}`;
       const presenceText = presence.kind === 'cli-takeover'
         ? (presence.label || 'paused for CLI')
-        : humanStatusLabel(presence.kind || session.status || 'unknown');
-      const modeLabel = sessionModeSummary(session, agentInfo);
-      const modeTitle = [
+        : humanStatusLabel(presence.kind || (session && session.status) || agentInfo.statusRaw || 'unknown');
+      const modeLabel = session ? sessionModeSummary(session, agentInfo) : '';
+      const modeTitle = session ? [
         `session mode: ${session.mode || 'unknown'}`,
         `owner: ${session.ownerMode || 'unknown'}`,
         session.terminalStatus ? `terminal: ${session.terminalStatus}` : '',
-      ].filter(Boolean).join(' · ');
-      const resumeCommand = sessionResumeCommand(session, agentInfo);
-      const activeRun = (window._allRuns || []).find(run => run.targetAgentId === session.agentId && (run.status === 'claimed' || run.status === 'running'));
-      const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === session.agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
-      const sessionStatus = String(session.status || '').toLowerCase();
-      const canStopSession = sessionCanStop(session);
-      const canDeleteSession = sessionCanDelete(session);
-      const runtimeHandle = sessionRuntimeHandle(session, agentInfo);
+      ].filter(Boolean).join(' · ') : '';
+      const resumeCommand = session ? sessionResumeCommand(session, agentInfo) : '';
+      const activeRun = (window._allRuns || []).find(run => run.targetAgentId === agentId && (run.status === 'claimed' || run.status === 'running'));
+      const pendingSpawn = (window._spawnRequests || []).find(req => req.agentId === agentId && ['queued', 'claimed', 'starting'].includes(String(req.status || '').toLowerCase()));
+      const canStopSession = session && sessionCanStop(session);
+      const canDeleteSession = session && sessionCanDelete(session);
+      const runtimeHandle = session ? sessionRuntimeHandle(session, agentInfo) : '';
       const spawnControl = pendingSpawn
         ? disabledActionButton('Spawn pending', `Pending ${pendingSpawn.status} spawn request ${pendingSpawn.id}. Stop the session to cancel it, or wait for the bridge to finish.`)
-        : actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart'));
+        : (session ? actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle', () => controlSession(session.id, 'restart')) : '');
       const sessionActions = [
-        actionButtonFn('Edit agent', 'Edit the agent identity backed by this session', () => openAgentEditor(session.agentId)),
-        agentModeSwitchAction(session.agentId, agentInfo),
-        actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(session.agentId, runtimeHandle)),
-        activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this session to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
+        actionButtonFn('Edit agent', 'Edit the agent identity', () => openAgentEditor(agentId)),
+        agentModeSwitchAction(agentId, agentInfo),
+        session ? actionButtonFn('Set handle', 'Set or clear the saved native resume handle for this identity', () => setAgentSessionHandle(agentId, runtimeHandle)) : '',
+        activeRun ? actionButtonFn('Interrupt', 'Ask the active run for this agent to stop', () => interruptRun(activeRun.id), 'btn-danger') : '',
         spawnControl,
-        resumeCommand ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
-        actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context; messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-reset'),
-        actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)),
-        actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)),
-        actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(session.agentId)),
+        (session && resumeCommand) ? actionButtonFn('Pause for CLI', 'Pause dashboard delivery for this session and copy the native CLI resume command', () => takeOverSessionInCli(session.id)) : '',
+        session ? actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context; messages and identity remain.', () => controlSession(session.id, 'recreate'), 'btn-reset') : '',
+        session ? actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)) : '',
+        session ? actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)) : '',
+        actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(agentId)),
         canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
         canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
       ];
+      const sessionCell = session
+        ? `<span class="t clip-1"${titleAttr(`${session.id} · ${session.status || 'unknown'}`)}>${esc(session.id)} · ${esc(session.status || 'unknown')}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}`
+        : `<span class="t em">no active session</span>`;
+      const runtimeCell = `${esc(row.runtime || '')}${modeLabel ? `<br><span class="t"${titleAttr(`${runtimeAttachNote(session)} ${modeTitle}`.trim())}>${esc(modeLabel)}</span>` : `<br><span class="t">${esc(agentInfo.role || 'agent')}</span>`}`;
+      const workspace = (session && session.workspace) || '';
+      const lastSeen = (session && session.lastSeen) || agentInfo.lastSeen || '';
+      const statusDetailTitle = session
+        ? `session: ${session.status || 'unknown'}${session.terminalStatus ? ` · terminal: ${session.terminalStatus}` : ''}`
+        : 'no managed runtime backing';
       html += `<tr>` +
-        `<td class="session-select-col"><input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''}></td>` +
-        `<td><b>${esc(session.agentId)}</b><br><span class="t clip-1"${titleAttr(session.id)}>${esc(session.id)}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}</td>` +
-        `<td>${esc(session.runtime || '')}<br><span class="t"${titleAttr(`${runtimeAttachNote(session)} ${modeTitle}`.trim())}>${esc(modeLabel)}</span></td>` +
-        `<td class="t"${titleAttr(session.workspace || '')}><span class="clip-1">${esc(session.workspace || '')}</span></td>` +
-        `<td><span class="status-dot ${esc(presenceClass)}"${titleAttr(presence.label)}></span>${esc(presenceText)}<br><span class="t"${titleAttr(`session: ${session.status || 'unknown'}${session.terminalStatus ? ` · terminal: ${session.terminalStatus}` : ''}`)}>${esc(session.status || 'unknown')}</span></td>` +
+        `<td class="session-select-col">${session ? `<input type="checkbox" data-session-select="${esc(session.id)}" ${selectedSessionSet().has(session.id) ? 'checked' : ''}>` : ''}</td>` +
+        `<td><b>${esc(agentId)}</b><br>${sessionCell}</td>` +
+        `<td>${runtimeCell}</td>` +
+        `<td class="t"${titleAttr(workspace)}><span class="clip-1">${esc(workspace)}</span></td>` +
+        `<td><span class="status-dot ${esc(presenceClass)}"${titleAttr(presence.label)}></span>${esc(presenceText)}<br><span class="t"${titleAttr(statusDetailTitle)}>${esc(session ? (session.status || 'unknown') : 'no session')}</span></td>` +
         `<td class="t"${titleAttr(allCapLabels || 'No recorded capabilities')}><span class="clip-2">${esc(visibleCapLabels || 'none')}</span></td>` +
-        `<td class="t">${esc(session.lastSeen || '')}</td>` +
+        `<td class="t">${esc(lastSeen)}</td>` +
         `<td><div class="run-controls">` +
-        actionButtonFn('Chat', 'Open chat with the agent backed by this session', () => openAgentChat(session.agentId)) +
-        actionsMenu(sessionActions, 'Actions', `session:${session.id}`) +
+        actionButtonFn('Chat', 'Open chat with this agent', () => openAgentChat(agentId)) +
+        actionsMenu(sessionActions, 'Actions', `session:${session ? session.id : agentId}`) +
         `</div></td>` +
         `</tr>`;
     }
