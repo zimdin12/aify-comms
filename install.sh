@@ -2008,6 +2008,10 @@ Remove-Item Env:\\AIFY_HERMES_GATEWAY_TOKEN -ErrorAction SilentlyContinue
 if (\$HermesAifyAgentId) {
   \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
   \$env:AIFY_AGENT_ROLE = \$HermesAifyRole
+  # FIX 2 (2026-06-03): export the wrapper's cwd so hermes' \${AIFY_AGENT_CWD}
+  # interpolation in the config.yaml MCP env block resolves to a real path
+  # (the wrapper runs in the agent's working directory).
+  if (-not \$env:AIFY_AGENT_CWD) { \$env:AIFY_AGENT_CWD = (Get-Location).Path }
 }
 if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
   \$env:HERMES_SESSION_ID = \$HermesSessionHandle
@@ -2138,12 +2142,30 @@ function Invoke-AifyHermesKillPrior {
 #   3. start the background delivery loop (hidden window, survives this script):
 #      it claims dispatch runs and prompt.submits them into the TUI's session.
 #   4. run 'hermes --tui' IN THIS PTY, attached to the gateway host + resuming the
-#      STABLE session 'aify-<agentId>' — the REAL TUI renders windowless in the
-#      dashboard console. The in-session agent self-replies via comms_send.
+#      agent's REAL native hermes session id (native-session-id model, 2026-06-03):
+#      explicit operator --resume wins, else the resolved/live gateway session
+#      (resolve-session ground truth) or the agent-keyed marker, else a FRESH
+#      session — the REAL TUI renders windowless in the dashboard console. The
+#      in-session agent self-replies via comms_send.
 if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   Invoke-AifyHermesKillPrior \$HermesAifyAgentId
   \$env:AIFY_AGENT_ID = \$HermesAifyAgentId
   \$env:AIFY_CHANNELS_ENABLED = '1'
+  # Per-agent active-session file (parity with bash, 2026-06-03). The plugin
+  # (patches.py:_launch_tui) gates the redirect on HERMES_TUI_ACTIVE_SESSION_FILE;
+  # the bridge prefers AIFY_HERMES_ACTIVE_SESSION_FILE then falls back to
+  # HERMES_TUI_ACTIVE_SESSION_FILE — point BOTH at the SAME path so the writer
+  # (TUI/gateway host) and the reader (bridge) agree. Use the marker tmp dir
+  # (TEMP||TMP||GetTempPath, == \${TMPDIR:-/tmp} on the bash side). Exported BEFORE
+  # ensure-host and the TUI launch so the gateway host, the TUI, and the MCP child
+  # all inherit it. PS 5.1-safe (no ?? operator — the .cmd shim runs Windows
+  # PowerShell).
+  \$hermesActiveTmpDir = \$env:TEMP
+  if ([string]::IsNullOrEmpty(\$hermesActiveTmpDir)) { \$hermesActiveTmpDir = \$env:TMP }
+  if ([string]::IsNullOrEmpty(\$hermesActiveTmpDir)) { \$hermesActiveTmpDir = [System.IO.Path]::GetTempPath() }
+  \$hermesActiveFile = Join-Path \$hermesActiveTmpDir ("aify-hermes-active-" + \$HermesAifyAgentId + ".json")
+  \$env:HERMES_TUI_ACTIVE_SESSION_FILE = \$hermesActiveFile
+  \$env:AIFY_HERMES_ACTIVE_SESSION_FILE = \$hermesActiveFile
   # (2) Hidden gateway host → capture {port,token,wsUrl} as ONE JSON line.
   \$hermesHostJson = & node \$AifyHermesManagedHostJs ensure-host \$HermesAifyAgentId
   if (\$LASTEXITCODE -ne 0 -or -not \$hermesHostJson) {
@@ -2162,14 +2184,18 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
     exit 1
   }
   [Console]::Error.WriteLine("[hermes-aify] managed gateway host ready: \$hermesHostJson")
-  # The STABLE resume key MUST match the delivery loop's pickSessionForKey key.
-  # ensure-host emits the canonical pinnedSessionId as 'resumeKey' so we DON'T
-  # reimplement (and risk diverging from) the sanitization in PowerShell.
-  if (\$hermesHost.resumeKey) {
-    \$pinnedSession = \$hermesHost.resumeKey
-  } else {
-    \$pinnedSession = 'aify-' + ((\$HermesAifyAgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-  }
+  # Resolve the agent's REAL native hermes session id from the agent-keyed marker
+  # \`aify-hermes-session-<agentId>\` (written by the bridge on register/bind via
+  # hermes-endpoint.js writeSessionIdMarker). If present we resume that SAME real
+  # session — a continuous transcript, symmetric with claude's UUID / codex's
+  # thread id. If absent (first launch), we start a FRESH session: hermes assigns
+  # a new real id and the bridge captures+stores it on register. The synthetic
+  # \`aify-<agentId>\` resume key is gone (no more pre-seed/rename dance).
+  # NOTE: a Windows backslash absolute path is NOT a valid ESM import specifier
+  # (the default loader requires a file:// URL), so convert with pathToFileURL —
+  # otherwise the import always throws and the marker read silently yields empty.
+  \$hermesResumeRealId = & node -e 'import(require("url").pathToFileURL(process.argv[1]).href).then(m=>process.stdout.write(m.readSessionIdMarker(process.argv[2])||"")).catch(()=>{})' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$HermesAifyAgentId 2>\$null
+  if (\$null -ne \$hermesResumeRealId) { \$hermesResumeRealId = ("\$hermesResumeRealId").Trim() }
   # (3) Background delivery loop — hidden window, survives this script. Capture
   # its PID (-PassThru) so kill-prior can EXCLUDE it (self-reap race) and so we
   # can health-gate on the loop we actually started.
@@ -2188,21 +2214,44 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   # spawned hidden above and keeps retrying the gateway + /dispatch/claim on its
   # own; server-side the claimer-lease gate reflects deliverability until the
   # loop is live. Flow is now: spawn loop (+ kill-prior exclude) → Invoke TUI.
-  # (4) The VISIBLE TUI in this PTY, attached to the gateway host + stable session.
+  # (4) The VISIBLE TUI in this PTY, attached to the gateway host + real session.
   \$env:HERMES_TUI_GATEWAY_URL = \$hermesHost.wsUrl
-  \$env:HERMES_TUI_RESUME = \$pinnedSession
+  # The aify-comms MCP child (server.js) reads AIFY_HERMES_GATEWAY_URL to set
+  # runtime_config.gatewayUrl on register — the precondition for resident-run /
+  # wakeMode=hermes-live (runtimes.js: gatewayOk = !!gatewayUrl). Export it (same
+  # gateway WS URL) + its embedded token so the bridge registers a real ws://
+  # gatewayUrl instead of the literal '\${AIFY_HERMES_GATEWAY_URL}' placeholder.
+  \$env:AIFY_HERMES_GATEWAY_URL = \$hermesHost.wsUrl
+  if (\$hermesHost.wsUrl -match '[?&]token=([^&]+)') { \$env:AIFY_HERMES_GATEWAY_TOKEN = \$Matches[1] }
   # Use the prebuilt ui-tui bundle when present so the managed TUI does NOT run
   # 'npm run build' on every launch. Guard at runtime in case the dist was
   # removed after install — never break the TUI launch.
   if (\$AifyHermesTuiDir -and (Test-Path (Join-Path \$AifyHermesTuiDir 'dist/entry.js'))) {
     \$env:HERMES_TUI_DIR = \$AifyHermesTuiDir
   }
-  # Resume the STABLE session ('aify-<agentId>') so a relaunch reuses the SAME
-  # transcript instead of forging a new session each time (no duplication).
-  # 'hermes --tui' STRIPS HERMES_TUI_RESUME unless passed as '--resume <id>'
-  # (main.py env.pop then re-add only when argparse resolved a resume id), so the
-  # env var alone is a no-op — the flag is required. ensure-host has already
-  # pre-seeded the row so resume resolves on first launch.
+  # SESSION CONVERGENCE (FIX C, 2026-06-03): the agent-keyed marker can be DAYS
+  # stale, so resuming it blindly makes the VISIBLE TUI view a dead/old session
+  # while the agent's real work lands in a gateway-host session the TUI never views.
+  # Now that the gateway is up + its URL exported, ask the gateway for GROUND TRUTH
+  # (session.active_list): prefer the marker id IF it is a live row, else the
+  # gateway's most-recent live session. resolve-session PERSISTS the resolved id to
+  # the marker AND seeds the per-agent active-session file, so visible-TUI resume ==
+  # delivery-loop target == marker == active-session file. Only runs when the
+  # operator did NOT pass an explicit --resume (that wins). Best-effort + bounded;
+  # an empty result falls through to the marker / fresh-session paths below.
+  if (-not (\$HermesExplicitSessionHandle -and \$HermesSessionHandle)) {
+    \$hermesResolvedSessionId = & node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId 2>\$null | Select-Object -First 1
+    if (\$null -ne \$hermesResolvedSessionId) { \$hermesResolvedSessionId = ("\$hermesResolvedSessionId").Trim() }
+    if (-not [string]::IsNullOrEmpty(\$hermesResolvedSessionId)) {
+      \$hermesResumeRealId = \$hermesResolvedSessionId
+      [Console]::Error.WriteLine("[hermes-aify] session convergence: agent '\$HermesAifyAgentId' resumes live gateway session '\$hermesResumeRealId' (active_list ground truth).")
+    }
+  }
+  # Resume target precedence: (a) an EXPLICIT operator --resume <id> handle wins;
+  # (b) else the agent's REAL native session id resolved above — the live gateway
+  # session when one exists (FIX C), else the marker (continuous transcript);
+  # (c) else a FRESH session with NO --resume so hermes assigns a new real id (the
+  # bridge captures+stores it on register).
   # ORPHAN-LIFECYCLE FIX (parity with the bash trap, 2026-06-03): the delivery
   # loop above is a detached hidden process that survives this script — but if the
   # TUI exits (or is Ctrl-C'd) and we just \`exit\`, the loop (and the hidden gateway
@@ -2211,7 +2260,23 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   # session. Wrap the TUI in try/finally so closing the TUI ALWAYS reaps the loop;
   # the loop's own SIGTERM teardown then reaps the gateway host — nothing orphans.
   try {
-    Invoke-HermesRuntime (@('--tui', '--resume', \$pinnedSession) + \$HermesPermissionFlags)
+    if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
+      # EXPLICIT-RESUME AUTHORITY: the operator passed --resume <id> — <id> is
+      # AUTHORITATIVE for the REGISTERED handle. PROACTIVELY SEED the per-agent
+      # active-session file AND the session marker with <id> BEFORE launching, so
+      # the in-session bridge's discoverSessionId reads <id> and a stale marker can
+      # never override it. resolve-session --explicit short-circuits the gateway
+      # query and just seeds both. Best-effort; never blocks the launch.
+      & node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId --explicit \$HermesSessionHandle 2>\$null | Out-Null
+      [Console]::Error.WriteLine("[hermes-aify] resuming explicit hermes session '\$HermesSessionHandle' for agent '\$HermesAifyAgentId' (seeded active-session file + marker -- authoritative handle).")
+      Invoke-HermesRuntime (@('--tui', '--resume', \$HermesSessionHandle) + \$HermesPermissionFlags)
+    } elseif (-not [string]::IsNullOrEmpty(\$hermesResumeRealId)) {
+      [Console]::Error.WriteLine("[hermes-aify] resuming real hermes session '\$hermesResumeRealId' for agent '\$HermesAifyAgentId'.")
+      Invoke-HermesRuntime (@('--tui', '--resume', \$hermesResumeRealId) + \$HermesPermissionFlags)
+    } else {
+      [Console]::Error.WriteLine("[hermes-aify] no stored session for agent '\$HermesAifyAgentId' -- starting a fresh hermes session (bridge will capture its real id on register).")
+      Invoke-HermesRuntime (@('--tui') + \$HermesPermissionFlags)
+    }
   } finally {
     if (\$hermesLoopPid -gt 0) {
       try { Stop-Process -Id \$hermesLoopPid -Force -ErrorAction SilentlyContinue } catch {}

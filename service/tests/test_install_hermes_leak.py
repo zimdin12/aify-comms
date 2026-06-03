@@ -135,8 +135,10 @@ def test_powershell_resident_branch_tears_down_daemon_on_tui_exit():
     text = _read_install_sh()
     idx = text.find("if (\\$HermesAifyAgentId -and \\$HermesArgs.Count -eq 0) {")
     assert idx > 0, "PowerShell gateway-host (resident/managed) branch not found"
-    branch = text[idx : idx + 5600]
-    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$pinnedSession) + \\$HermesPermissionFlags)" in branch
+    branch = text[idx : idx + 12000]
+    # Native-session-id model (2026-06-03): resume the resolved real session id,
+    # not the retired synthetic `aify-<agentId>` pin.
+    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$hermesResumeRealId) + \\$HermesPermissionFlags)" in branch
     # The TUI Invoke must be wrapped so its exit always reaps the loop.
     assert "} finally {" in branch, (
         "resident branch must wrap the TUI Invoke in try/finally so exit reaps the loop"

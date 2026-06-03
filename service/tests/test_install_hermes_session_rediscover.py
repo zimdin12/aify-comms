@@ -163,8 +163,12 @@ def test_hermes_wrapper_pins_stable_resume_session():
     (`HERMES_RESUME_REAL_ID`) — and passes it as `hermes --tui --resume <id>`, so
     a relaunch reuses the SAME transcript with no duplication and the session id is
     known before launch (superseding active-session-file discovery). The PowerShell
-    wrapper still pins the stable `aify-<agentId>` session via
-    `$env:HERMES_TUI_RESUME = $pinnedSession` + `--resume $pinnedSession`. Either
+    wrapper was brought to PARITY on 2026-06-03: the synthetic `aify-<agentId>`
+    pin (`$env:HERMES_TUI_RESUME = $pinnedSession` + `--resume $pinnedSession`) was
+    retired. The PS1 managed branch now reads the agent's real native id from the
+    marker (`readSessionIdMarker`), converges it against the gateway's
+    `resolve-session` ground truth (`$hermesResumeRealId`), and resumes that real
+    id (explicit operator `--resume` still wins, fresh session otherwise). Either
     way the resume target is deterministic, not discovered, and is honored via an
     explicit `--resume` flag (the env var alone is stripped).
     """
@@ -177,9 +181,24 @@ def test_hermes_wrapper_pins_stable_resume_session():
     assert '--tui --resume "\\$HERMES_RESUME_REAL_ID"' in text, (
         "bash wrapper must resume the resolved real session id via an explicit --resume"
     )
-    # PowerShell: stable pinned-session resume via HERMES_TUI_RESUME + --resume.
-    assert '\\$env:HERMES_TUI_RESUME = \\$pinnedSession' in text, (
-        "PowerShell wrapper must export HERMES_TUI_RESUME for the TUI to resume the pinned session"
+    # PowerShell: native-session-id model parity (2026-06-03). The synthetic
+    # pinned-session pin is GONE; the managed branch resumes the resolved real id.
+    assert '\\$env:HERMES_TUI_RESUME = \\$pinnedSession' not in text, (
+        "PowerShell wrapper must NOT pin a synthetic HERMES_TUI_RESUME session anymore"
+    )
+    assert "\\$pinnedSession = 'aify-' +" not in text, (
+        "PowerShell wrapper must NOT build a synthetic 'aify-<agentId>' resume handle anymore"
+    )
+    assert "node \\$AifyHermesManagedHostJs resolve-session \\$HermesAifyAgentId" in text, (
+        "PowerShell wrapper must converge the resume id against the live gateway (resolve-session)"
+    )
+    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$hermesResumeRealId) + \\$HermesPermissionFlags)" in text, (
+        "PowerShell wrapper must resume the resolved real session id via an explicit --resume"
+    )
+    # PowerShell: re-export the gateway URL so the MCP child registers a real
+    # ws:// gatewayUrl (parity with bash AIFY_HERMES_GATEWAY_URL fix).
+    assert "\\$env:AIFY_HERMES_GATEWAY_URL = \\$hermesHost.wsUrl" in text, (
+        "PowerShell wrapper must re-export AIFY_HERMES_GATEWAY_URL for resident-run registration"
     )
     assert "--resume" in text, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
 
