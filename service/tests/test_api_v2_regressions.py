@@ -2567,6 +2567,46 @@ class ApiV2RegressionTests(FastApiTestCase):
                 await db.close()
         return asyncio.run(_run())
 
+    def test_managed_with_reachable_env_and_orphaned_session_stays_available(self):
+        # STATUS POLICY (2026-06-04, sc-coder regression): a MANAGED agent whose
+        # previous worker died — leaving an orphaned, NON-live session row owned by
+        # an OLD bridge that differs from the current env bridge — must rest at
+        # `available` when its owning environment is ONLINE (it is lazy-autostartable).
+        # It must NOT be demoted to `offline`: managed `offline` is reserved for
+        # disabled/stopped OR an unreachable environment. Before the fix the
+        # "env bridge no longer owns the active session" branch (not gated by
+        # session_mode) flipped this managed agent offline.
+        # ONLINE owning environment whose CURRENT bridge ("env-bridge-current")
+        # differs from the orphaned session's owner bridge below.
+        self._heartbeat_environment(
+            id="windows:test:default", machineId="win32:test", os="windows", kind="windows",
+            bridgeId="env-bridge-current",
+            runtimes=[{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+        )
+        self._register("mgr-orphan-avail", runtime="hermes", sessionMode="managed")
+        now = api_v2._now()
+        # Orphaned, NON-live session row owned by an OLD (now-dead) worker bridge,
+        # bound to the SAME environment whose CURRENT bridge is "env-bridge-current".
+        self._execute(
+            """
+            INSERT INTO agent_sessions (
+                id, agent_id, environment_id, runtime, workspace, mode,
+                owner_mode, owner_bridge_id, spawn_spec_id, spawn_request_id,
+                status, started_at, last_seen
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "sess-orphan-avail", "mgr-orphan-avail", "windows:test:default", "hermes",
+                "/workspace/repo", "managed-warm", "managed", "worker-bridge-OLD",
+                None, None, "stopped", now, now,
+            ),
+        )
+        cache = self._async_compute_live_status("mgr-orphan-avail")
+        self.assertEqual(
+            cache["status"], "available",
+            f"managed agent with reachable env + orphaned session must be available, not offline: {cache}",
+        )
+
     def test_working_via_turnbusy_has_short_refresh_after(self):
         # FIX 2: when `working` is derived from a fresh turn_busy (NOT an active
         # run), refresh_after is clamped to the turn-busy self-heal window so a

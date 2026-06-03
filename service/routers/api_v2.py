@@ -4079,12 +4079,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "offline"
         reason = f'Environment "{environment_id}" is {env_status}.'
     elif (
-        session_bridge_id
+        agent_session_mode != "managed"
+        and session_bridge_id
         and env_bridge_id
         and session_bridge_id != env_bridge_id
         and not live_session
         and not active_run
     ):
+        # STATUS POLICY (2026-06-04): a MANAGED agent is `offline` ONLY when it is
+        # disabled/stopped OR its owning environment is unreachable (both handled
+        # above: managed_env_bridge_offline + the env-unreachable branches). An
+        # orphaned session row whose owning bridge != the current env bridge just
+        # means the previous WORKER died — with a reachable env the agent is still
+        # lazy-autostartable, so it must rest at `available` (the base derivation at
+        # ~L4041), NOT be demoted to offline here. Excluding managed keeps this
+        # branch for resident-style sessions, whose liveness is their own bridge.
         effective_status = "offline"
         reason = "Current environment bridge no longer owns the active session."
     elif resident_bridge_stale and not active_run:
