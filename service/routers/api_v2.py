@@ -921,6 +921,62 @@ async def _apply_channel_routing_to_claude_runs(db, runs, settings: dict[str, An
                 live_sidecar_run_ids,
             )
 
+
+async def _reroute_orphaned_managed_channel_runs(db, *, limit: int = 200) -> int:
+    """Reconcile (2026-06-03): a managed_via_wrapper agent's QUEUED run can be
+    stuck at execution_mode='managed' when it was created BEFORE the agent's
+    channel-sidecar/flag came up — the SPAWN-INITIAL message is the common case
+    (the spawn creates the run, THEN the agent registers; _apply_channel_routing
+    runs only at create-time and never re-runs for that run). The generic managed
+    worker never claims it — managed claude/hermes delivery is owned by the
+    channel-sidecar loop, which claims only channel/resident — so it sits queued
+    forever (the live test confirmed: a fresh send routed to 'channel' and the
+    agent replied 'ALIVE', but the spawn-initial run stayed 'managed' + unclaimed).
+    This re-applies channel routing to ANY queued 'managed' run whose target now
+    has a LIVE channel-sidecar (the authoritative delivery mechanism). Idempotent;
+    skips when insert_messages_via_console is enabled. Returns rows re-routed."""
+    settings = await _load_settings(db)
+    if _insert_messages_via_console(settings):
+        return 0
+    channel_runtimes = sorted(_CHANNEL_MANAGED_RUNTIMES | _CHANNEL_FLAG_GATED_RUNTIMES)
+    if not channel_runtimes:
+        return 0
+    rt_ph = ",".join("?" for _ in channel_runtimes)
+    rows = await (
+        await db.execute(
+            f"""
+            SELECT dr.id AS run_id, dr.target_agent AS target_agent
+            FROM dispatch_runs dr
+            JOIN agents a ON a.id = dr.target_agent
+            WHERE dr.status = 'queued'
+              AND dr.execution_mode = 'managed'
+              AND LOWER(COALESCE(a.runtime, '')) IN ({rt_ph})
+              AND a.session_mode = 'managed'
+            LIMIT ?
+            """,
+            [*channel_runtimes, limit],
+        )
+    ).fetchall()
+    reroute_ids: list[str] = []
+    sidecar_cache: dict[str, bool] = {}
+    for row in rows:
+        target = str(row["target_agent"] or "")
+        if target not in sidecar_cache:
+            sidecar_cache[target] = await _has_live_channel_sidecar(db, target)
+        if sidecar_cache[target]:
+            reroute_ids.append(str(row["run_id"]))
+    if not reroute_ids:
+        return 0
+    ph = ",".join("?" for _ in reroute_ids)
+    await db.execute(
+        f"UPDATE dispatch_runs SET execution_mode = 'channel' "
+        f"WHERE id IN ({ph}) AND execution_mode != 'channel'",
+        reroute_ids,
+    )
+    await db.commit()
+    return len(reroute_ids)
+
+
 _SPAWN_MODES = {"managed-warm"}
 ACTIVE_RUN_BRIDGE_STALE_SECONDS = 120
 CLAUDE_RESIDENT_DELIVERY_SUMMARY_PREFIX = "Delivered to Claude resident session"
@@ -2308,7 +2364,15 @@ async def _bridge_claim_block_reason(
         )
         session_row = await session_cursor.fetchone()
         managed_environment_id = str((session_row["environment_id"] if session_row else "") or "").strip()
-    if (session_mode != "managed" or not managed_environment_id) and current_bridge_id and current_bridge_id != bridge_id:
+    # RC1 (2026-06-03): a declared channel-sidecar (hermes-managed-host.js loop /
+    # claude-channel.js) is a LEGITIMATELY distinct bridge id from the agent's
+    # in-session MCP bridge (runtime_state.bridgeInstanceId). For RESIDENT hermes,
+    # delivery is owned by that sidecar (the resident MAIN bridge no longer claims
+    # resident hermes — see mcp/stdio/dispatch-execution.js). Without this carve-out
+    # the one-current-bridge guard rejects the sidecar's claim with bridge_not_current
+    # and the run sits queued forever with no valid claimer. The managed path already
+    # exempts the sidecar (below, lines ~2336/2395); the resident path must too.
+    if (session_mode != "managed" or not managed_environment_id) and current_bridge_id and current_bridge_id != bridge_id and not is_channel_sidecar_claim:
         return {
             "reason": "bridge_not_current",
             "bridgeId": bridge_id,
@@ -10598,6 +10662,32 @@ async def register_agent(req: AgentRegister, request: Request):
                 ),
             )
         if tombstone and req.restoreDeleted:
+            # Tombstone-resurrection guard (2026-06-03). The bridge sets
+            # restoreDeleted=true UNCONDITIONALLY on every auto/comms_register, so
+            # a still-running bridge that predates the deletion would otherwise
+            # clear the tombstone and resurrect a deliberately-removed agent
+            # (it reappears in /api/v1/agents and the dashboard DM rail). Mirror
+            # the environment forget-tombstone freshness check: only a GENUINE
+            # fresh relaunch — a bridge whose bridgeStartedAt is NEWER than the
+            # tombstone's removed_at — may restore. A passive auto re-register
+            # from a bridge that launched BEFORE the deletion (or with no/older
+            # bridgeStartedAt) keeps the agent deleted (410, tombstone untouched).
+            #
+            # An explicit, operator-initiated restore (restoreDeleted=true with
+            # autoRegister=false — not a passive bridge beat) is preserved: a
+            # deliberate operator bring-back still clears the tombstone.
+            removed_at = _timestamp_sort_key(tombstone["removed_at"] if "removed_at" in tombstone.keys() else "")
+            incoming_started = _timestamp_sort_key(req.bridgeStartedAt)
+            relaunched = bool(incoming_started) and (not removed_at or incoming_started > removed_at)
+            if req.autoRegister and not relaunched:
+                raise HTTPException(
+                    410,
+                    (
+                        f"Agent '{req.agentId}' was intentionally removed at "
+                        f"{tombstone['removed_at']}; a lingering bridge cannot "
+                        "resurrect it. Relaunch the agent to restore."
+                    ),
+                )
             await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ?", (req.agentId,))
         existing = await db.execute("SELECT * FROM agents WHERE id = ?", (req.agentId,))
         row = await existing.fetchone()
@@ -12900,6 +12990,22 @@ async def _upsert_resident_agent_session(
             None,
         ),
     )
+    # RC3 (2026-06-03): collapse duplicate resident sessions. The resident session
+    # id is a hash of the session_handle (line ~12879), so a relaunch with a new
+    # native handle mints a NEW resident_* row while the prior one stays 'running'
+    # — the dashboard then shows two live resident sessions for one agent. Retire
+    # every OTHER resident session for this agent so exactly one stays live.
+    await db.execute(
+        """
+        UPDATE agent_sessions
+        SET status = 'stopped', ended_at = ?
+        WHERE agent_id = ?
+          AND mode = 'resident'
+          AND id != ?
+          AND status NOT IN ('stopped', 'failed', 'exited')
+        """,
+        (now, agent_id, session_id),
+    )
     return session_id
 
 
@@ -15180,6 +15286,81 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
             await _invalidate_agent_live_state(db, target_agent)
         closed.append({"runId": run_id, "agentId": target_agent})
     return closed
+
+
+async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dict[str, str]]:
+    """Clear a stuck turn_busy=1 whose owning bridge (turn_bridge_id) is dead.
+
+    BUG 1 (2026-06-03): a managed delivery loop / resident channel-sidecar that
+    sets turn_busy=1 on submit (hermes-managed-host.js / claude-channel.js) clears
+    it on a turn-END EVENT (gateway idle, /turn-end). When that loop process DIES
+    (terminal closed, crash) it fires NO turn-end event, so turn_busy sticks until
+    the long TURN_BUSY_BACKSTOP_SECONDS ceiling (~30 min) and the agent falsely
+    shows `working` the whole time. (Confirmed live: ci-senior-dev stuck `working`,
+    turn_bridge_id `hermes-managed-host-wsl:laputa-ci-senior-dev`, turn_updated_at
+    ~174s ago, that loop process gone.)
+
+    This is the DEAD-CLAIMER complement to the pure-event turn model — NOT a
+    staleness window on normal `working`. It clears turn_busy ONLY when the bridge
+    that SET it is no longer live, using the SAME staleness definition as the
+    orphaned-claim requeue (ACTIVE_RUN_BRIDGE_STALE_SECONDS heartbeat window):
+
+      1. turn_busy = 1 (the agent is marked mid-turn), AND
+      2. turn_bridge_id is non-empty (an identifiable owning bridge — an empty
+         owner is a harness/Stop-hook turn, left to the existing 30-min ceiling so
+         a genuinely-working resident is never cut off), AND
+      3. that turn_bridge_id is NOT a fresh bridge_instances row — either no such
+         row exists (superseded-away / never-registered) OR its last_seen is past
+         the stale window (the loop stopped heartbeating ⇒ dead).
+
+    A bridge whose last_seen is fresh is genuinely mid-delivery — left untouched
+    (the running turn keeps `working`). For each match: zero turn_busy via the
+    SAME write the /turn-end endpoint uses and invalidate the agent's live-state
+    cache so the false `working` clears immediately. ANTI-FEEDBACK-LOOP safe: this
+    only ever CLEARS, keyed on the bridge's heartbeat truth, never on the server's
+    derived status.
+    """
+    stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
+    cursor = await db.execute(
+        """
+        SELECT ats.agent_id, ats.turn_bridge_id
+        FROM agent_turn_state ats
+        WHERE ats.turn_busy = 1
+          AND COALESCE(ats.turn_bridge_id, '') != ''
+          AND NOT EXISTS (
+            SELECT 1 FROM bridge_instances bi
+            WHERE bi.id = ats.turn_bridge_id
+              AND COALESCE(bi.agent_id, '') = ats.agent_id
+              AND datetime(bi.last_seen) > datetime('now', ?)
+          )
+        ORDER BY ats.turn_updated_at ASC
+        LIMIT ?
+        """,
+        (stale_param, max(1, int(limit or 200))),
+    )
+    rows = await cursor.fetchall()
+    cleared: list[dict[str, str]] = []
+    now = _now()
+    for row in rows:
+        agent_id = str(row["agent_id"] or "").strip()
+        dead_bridge = str(row["turn_bridge_id"] or "").strip() or "(none)"
+        if not agent_id:
+            continue
+        await db.execute(
+            """
+            UPDATE agent_turn_state
+            SET turn_busy = 0,
+                turn_run_id = '',
+                turn_bridge_id = '',
+                turn_runtime = '',
+                turn_updated_at = ?
+            WHERE agent_id = ?
+            """,
+            (now, agent_id),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        cleared.append({"agentId": agent_id, "deadBridgeId": dead_bridge})
+    return cleared
 
 
 async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: int = 200) -> list[dict[str, str]]:

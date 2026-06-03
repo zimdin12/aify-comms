@@ -303,5 +303,124 @@ class EnvironmentForgetTombstoneTests(FastApiTestCase):
         self.assertIn(self.ENV_ID, [e["id"] for e in listed])
 
 
+class AgentDeleteTombstoneTests(FastApiTestCase):
+    """Deleting an agent must STICK against a lingering bridge re-register.
+
+    Regression (2026-06-03): the bridge sets restoreDeleted=true on EVERY
+    auto/comms_register, so the unconditional tombstone DELETE in register_agent
+    let a still-running bridge resurrect a deliberately-removed agent — it
+    reappeared in /api/v1/agents and the dashboard DM rail despite having no
+    live session. Fix mirrors the env forget-tombstone freshness check: only a
+    bridge whose bridgeStartedAt is NEWER than the tombstone's removed_at may
+    restore.
+    """
+
+    AGENT_ID = "ghost-agent"
+
+    def _register(self, *, bridge_started_at=None, auto_register=True,
+                  restore_deleted=True, **extra):
+        payload = {
+            "agentId": self.AGENT_ID,
+            "role": "coder",
+            "runtime": "generic",
+            "machineId": "linux:test-host",
+            "bridgeId": "bridge-current",
+            "autoRegister": auto_register,
+            "restoreDeleted": restore_deleted,
+        }
+        if bridge_started_at is not None:
+            payload["bridgeStartedAt"] = bridge_started_at
+        payload.update(extra)
+        return self.client.post("/api/v1/agents", json=payload)
+
+    def _delete(self):
+        response = self.client.delete(f"/api/v1/agents/{self.AGENT_ID}")
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def _heartbeat(self, **body):
+        body.setdefault("bridgeId", "bridge-current")
+        return self.client.post(
+            f"/api/v1/agents/{self.AGENT_ID}/heartbeat", json=body
+        )
+
+    def _tombstone_row(self):
+        return self._fetchone(
+            "SELECT * FROM agent_tombstones WHERE agent_id = ?", (self.AGENT_ID,)
+        )
+
+    def _fetchone(self, query: str, params=()):
+        async def _run():
+            db = await get_db()
+            try:
+                cur = await db.execute(query, params)
+                return await cur.fetchone()
+            finally:
+                await db.close()
+        return asyncio.run(_run())
+
+    def _roster_has_agent(self):
+        listed = self.client.get("/api/v1/agents").json()["agents"]
+        return self.AGENT_ID in listed
+
+    def test_passive_reregister_does_not_resurrect_deleted_agent(self):
+        # Bridge launched BEFORE the delete, then keeps auto re-registering.
+        launch = _iso(datetime.now(timezone.utc) - timedelta(minutes=5))
+        self.assertEqual(self._register(bridge_started_at=launch).status_code, 200)
+        self._delete()
+        self.assertIsNotNone(self._tombstone_row())
+        self.assertFalse(self._roster_has_agent())
+
+        # Lingering auto re-register from the SAME pre-delete bridge launch.
+        res = self._register(bridge_started_at=launch)
+        self.assertEqual(res.status_code, 410, res.text)
+        self.assertIsNotNone(self._tombstone_row())  # tombstone untouched
+        self.assertFalse(self._roster_has_agent())
+
+    def test_reregister_without_started_at_does_not_resurrect(self):
+        self.assertEqual(self._register(bridge_started_at="2026-06-01T00:00:00Z").status_code, 200)
+        self._delete()
+        # No bridgeStartedAt at all (old bridge) must not clear the tombstone.
+        res = self._register()
+        self.assertEqual(res.status_code, 410, res.text)
+        self.assertIsNotNone(self._tombstone_row())
+        self.assertFalse(self._roster_has_agent())
+
+    def test_fresh_relaunch_restores_deleted_agent(self):
+        old_launch = _iso(datetime.now(timezone.utc) - timedelta(minutes=5))
+        self.assertEqual(self._register(bridge_started_at=old_launch).status_code, 200)
+        self._delete()
+        self.assertIsNotNone(self._tombstone_row())
+
+        # Operator relaunches the wrapper: a NEWER bridgeStartedAt re-registers.
+        new_launch = _iso(datetime.now(timezone.utc) + timedelta(seconds=5))
+        res = self._register(bridge_started_at=new_launch, bridgeId="bridge-relaunched")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertIsNone(self._tombstone_row())  # tombstone cleared
+        self.assertTrue(self._roster_has_agent())
+
+    def test_explicit_operator_restore_still_works(self):
+        # An explicit, non-auto restore (autoRegister=false, restoreDeleted=true)
+        # is a deliberate operator bring-back and clears the tombstone even
+        # without a fresh bridgeStartedAt.
+        self.assertEqual(self._register(bridge_started_at="2026-06-01T00:00:00Z").status_code, 200)
+        self._delete()
+        res = self._register(auto_register=False, bridge_started_at=None)
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertIsNone(self._tombstone_row())
+        self.assertTrue(self._roster_has_agent())
+
+    def test_heartbeat_from_lingering_bridge_does_not_resurrect(self):
+        self.assertEqual(self._register(bridge_started_at="2026-06-01T00:00:00Z").status_code, 200)
+        self._delete()
+        # The agent row is gone and the tombstone short-circuits the heartbeat.
+        res = self._heartbeat(liveness=True)
+        self.assertEqual(res.status_code, 410, res.text)
+        self.assertIsNotNone(self._tombstone_row())
+        self.assertFalse(self._roster_has_agent())
+        # No phantom row was recreated in the agents table.
+        self.assertIsNone(self._fetchone("SELECT id FROM agents WHERE id = ?", (self.AGENT_ID,)))
+
+
 if __name__ == "__main__":
     unittest.main()

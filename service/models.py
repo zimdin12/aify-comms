@@ -50,6 +50,14 @@ class AgentRegister(_MachineIdNormalizingModel):
     managedWrapperChild: Optional[bool] = False
     autoRegister: Optional[bool] = False
     restoreDeleted: Optional[bool] = False
+    # Tombstone-resurrection guard (2026-06-03). The bridge stamps its own launch
+    # time here (BRIDGE_STARTED_AT, ISO-8601 Z). A tombstoned agent is only
+    # resurrected by a GENUINE fresh relaunch — a bridge whose bridgeStartedAt is
+    # NEWER than the tombstone's removed_at. A passive auto re-register / heartbeat
+    # from a bridge that launched BEFORE the deletion must NOT clear the tombstone.
+    # Mirrors the environment forget-tombstone freshness check (forgottenAt vs
+    # bridgeStartedAt) in environment_heartbeat.
+    bridgeStartedAt: Optional[str] = None
     # Phase 4 race guard (2026-05-31): a fresh same-mode resident re-register
     # by a DIFFERENT bridge is hard-rejected (409) to prevent two live wrappers
     # silently racing one identity. Set force=true to take over deliberately

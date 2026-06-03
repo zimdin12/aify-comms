@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.db import get_db as _get_db
     from service.routers.api_v2 import (
+        _clear_turn_busy_for_dead_bridges,
         _close_idle_virtual_rpc_workers,
         _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
@@ -68,6 +69,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _prune_terminal_history,
         _reap_undeliverable_queued_runs,
         _reconcile_managed_worker_hygiene,
+        _reroute_orphaned_managed_channel_runs,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
@@ -120,6 +122,22 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # MUST run BEFORE _close_orphaned_managed_runs: that reaper would FAIL the
         # same claimed-never-delivered orphan (recovery is preferable to failure).
         requeued_orphaned_claims = await _requeue_orphaned_claimed_runs(db, limit=200)
+        # Spawn-initial channel-routing fix (2026-06-03): re-route a queued
+        # 'managed' run to 'channel' when its target has a live channel-sidecar.
+        # The spawn-initial message is created before the agent's sidecar/flag is
+        # up, so it stays 'managed' and the channel-sidecar (which claims only
+        # channel/resident) never picks it up — "managed agents can't talk on the
+        # first message". MUST run BEFORE _reap_undeliverable_queued_runs so the
+        # re-routed run is claimed, not failed.
+        rerouted_channel_runs = await _reroute_orphaned_managed_channel_runs(db, limit=200)
+        # BUG 1 (2026-06-03): clear a stuck turn_busy=1 whose owning bridge
+        # (agent_turn_state.turn_bridge_id) is dead/stale. A managed delivery loop
+        # or resident channel-sidecar that set turn_busy on submit fires NO
+        # turn-end event when its process dies (terminal closed / crash), so the
+        # agent falsely shows `working` until the ~30-min ceiling. This is the
+        # dead-claimer complement to the pure-event turn model — keyed on the
+        # bridge's heartbeat, never the derived status, and only ever CLEARS.
+        cleared_dead_turn_busy = await _clear_turn_busy_for_dead_bridges(db, limit=200)
         # WS3 Task 3.2 (2026-06-02): backstop for `queued` runs no other reaper
         # covers — a queued run whose target has NO live claimer past the backstop
         # window would otherwise pile up to buffer_full. FAIL it + mirror to the
@@ -153,6 +171,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "idle_workers_closed": len(closed_idle_workers),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
+            "rerouted_channel_runs": rerouted_channel_runs,
+            "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),

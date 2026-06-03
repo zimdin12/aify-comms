@@ -1151,6 +1151,12 @@ async function autoRegisterConfiguredAgent() {
     managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1",
     restoreDeleted: true,
     autoRegister: true,
+    // Tombstone-resurrection guard (2026-06-03): the service only clears an
+    // agent tombstone for a GENUINE fresh relaunch — a bridge whose
+    // bridgeStartedAt is newer than the tombstone's removed_at. Sending this
+    // stops a still-running bridge from resurrecting a deliberately-removed
+    // agent on its next passive auto re-register.
+    bridgeStartedAt: BRIDGE_STARTED_AT,
     // Phase 4 race guard escape hatch (2026-05-31): when a same-mode resident
     // bridge is still LIVE, the service hard-rejects (409) a different bridge
     // re-registering this identity. Set AIFY_FORCE_REGISTER=1 to deliberately
@@ -1434,6 +1440,10 @@ async function reregisterAgentFromState(agentId, state) {
     terminalId: cleanEnvPlaceholder(process.env.AIFY_TERMINAL_ID || info.terminalId || ""),
     managedWrapperChild: String(process.env.AIFY_MANAGED_VIA_WRAPPER || "").trim() === "1" || !!info.managedWrapperChild,
     autoRegister: true,
+    // Tombstone-resurrection guard (2026-06-03): see autoRegisterConfiguredAgent.
+    // A 404 auto-re-register from a lingering bridge must not resurrect a
+    // deliberately-removed agent unless this bridge launched after the deletion.
+    bridgeStartedAt: BRIDGE_STARTED_AT,
   };
   try {
     await httpCall("POST", "/agents", payload);
@@ -1965,10 +1975,28 @@ function effectiveEnvironmentPayload() {
 }
 
 function workspaceWithinRoots(workspace, roots = []) {
-  const value = String(workspace || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  const normalizedRoots = (roots || [])
-    .map((root) => String(root || "").trim().replace(/\\/g, "/").replace(/\/+$/, ""))
-    .filter(Boolean);
+  // 2026-06-03: two latent bugs made spawns into the common ['/', '~'] roots
+  // (the bridge's default advertised cwdRoots) reject EVERY absolute workspace:
+  //   1. The root "/" (meaning "anywhere") had its trailing slash stripped to ""
+  //      and was then filter(Boolean)'d OUT, so a "/"-rooted env matched nothing.
+  //   2. The root "~" was never expanded to $HOME, so an absolute workspace under
+  //      the home dir never matched "~".
+  // Result: managed spawns failed with "outside this bridge's advertised roots"
+  // for any normal env. Fix: treat "/" as match-all, and expand "~"/"~/..".
+  const home = String(process.env.HOME || process.env.USERPROFILE || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const expand = (p) => {
+    let s = String(p || "").trim().replace(/\\/g, "/");
+    if (s === "~") s = home;
+    else if (s.startsWith("~/")) s = `${home}/${s.slice(2)}`;
+    return s.replace(/\/+$/, "");
+  };
+  const rawRoots = (roots || []).map((r) => String(r || "").trim()).filter(Boolean);
+  // "/" is the match-all root.
+  if (rawRoots.some((r) => r === "/")) return true;
+  const value = expand(workspace);
+  const normalizedRoots = rawRoots.map(expand).filter(Boolean);
   if (!value || !normalizedRoots.length) return true;
   return normalizedRoots.some((root) => value === root || value.startsWith(`${root}/`));
 }
@@ -3208,6 +3236,10 @@ server.tool(
       capabilities,
       runtimeConfig,
       restoreDeleted: true,
+      // Tombstone-resurrection guard (2026-06-03): carry this bridge's launch
+      // time so the service can distinguish a genuine fresh relaunch from a
+      // lingering bridge re-registering a deliberately-removed agent.
+      bridgeStartedAt: BRIDGE_STARTED_AT,
     };
 
     // Write agent ID to a session-specific temp file keyed by PID so the

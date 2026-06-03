@@ -80,6 +80,82 @@ test("discoverSessionId falls back to the per-agent session-id marker", async ()
   }
 });
 
+test("discoverSessionId: explicit operator --resume id WINS over a stale marker (BUG 2)", async () => {
+  const adapter = new HermesAdapter();
+  const prevSid = process.env.HERMES_SESSION_ID;
+  const prevSess = process.env.HERMES_SESSION;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    // The marker holds a STALE id (the live symptom: registered handle was the
+    // stale marker, not the operator-resumed session).
+    writeSessionIdMarker("explicit-agent", "20260603_034413_8480e3");
+    // The wrapper exports AIFY_EXPLICIT_SESSION_HANDLE=true + AIFY_SESSION_HANDLE
+    // = the operator's --resume id. That MUST win over the marker.
+    const id = await adapter.discoverSessionId({
+      agentId: "explicit-agent",
+      env: {
+        AIFY_EXPLICIT_SESSION_HANDLE: "true",
+        AIFY_SESSION_HANDLE: "20260529_071302_ea65af",
+      },
+    });
+    assert.equal(id, "20260529_071302_ea65af", "explicit operator resume id is authoritative over the stale marker");
+  } finally {
+    clearGatewayMarkers("explicit-agent");
+    if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prevSid;
+    if (prevSess === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = prevSess;
+  }
+});
+
+test("discoverSessionId: a SEEDED active-session file still leads over the explicit env (BUG 2)", async () => {
+  const adapter = new HermesAdapter();
+  const dir = mkdtempSync(path.join(os.tmpdir(), "hermes-explicit-active-"));
+  const file = path.join(dir, "active.json");
+  try {
+    // The wrapper's resolve-session --explicit seeds BOTH the active file and the
+    // marker with the operator id. The active-file is primary and matches the env.
+    writeFileSync(file, JSON.stringify({ session_id: "20260529_071302_ea65af" }));
+    const id = await adapter.discoverSessionId({
+      agentId: "explicit-agent2",
+      env: {
+        AIFY_HERMES_ACTIVE_SESSION_FILE: file,
+        AIFY_EXPLICIT_SESSION_HANDLE: "true",
+        AIFY_SESSION_HANDLE: "20260529_071302_ea65af",
+      },
+    });
+    assert.equal(id, "20260529_071302_ea65af", "seeded active file resolves the explicit id (primary)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("discoverSessionId: NO explicit flag → stale marker still used (no regression)", async () => {
+  const adapter = new HermesAdapter();
+  const prevSid = process.env.HERMES_SESSION_ID;
+  const prevSess = process.env.HERMES_SESSION;
+  try {
+    delete process.env.HERMES_SESSION_ID;
+    delete process.env.HERMES_SESSION;
+    writeSessionIdMarker("noexplicit-agent", "20260603_marker_bound");
+    // AIFY_SESSION_HANDLE present but the explicit flag is NOT "true" → the
+    // handle must NOT pre-empt the marker (it's just an inherited handle, not an
+    // operator --resume). Marker continues to win as before.
+    const id = await adapter.discoverSessionId({
+      agentId: "noexplicit-agent",
+      env: { AIFY_SESSION_HANDLE: "should-not-win" },
+    });
+    assert.equal(id, "20260603_marker_bound", "without the explicit flag the marker is still the fallback");
+  } finally {
+    clearGatewayMarkers("noexplicit-agent");
+    if (prevSid === undefined) delete process.env.HERMES_SESSION_ID;
+    else process.env.HERMES_SESSION_ID = prevSid;
+    if (prevSess === undefined) delete process.env.HERMES_SESSION;
+    else process.env.HERMES_SESSION = prevSess;
+  }
+});
+
 test("discoverSessionId never returns a synthetic aify-<id> name", async () => {
   const adapter = new HermesAdapter();
   const prevSid = process.env.HERMES_SESSION_ID;

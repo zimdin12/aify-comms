@@ -49,4 +49,22 @@ assert.deepEqual(
   "resident OpenCode must not be claimable until a real multi-client resident surface exists",
 );
 
+// 2026-06-03 fabricated-reply fix: resident CODEX is claimed by its main bridge
+// (its in-process bridge is the delivery surface), but resident HERMES must NOT
+// be — its channel-sidecar delivery loop (hermes-managed-host.js) is the sole
+// claimer. A resident hermes main bridge claiming the run would route it through
+// ChannelDelegatedController and auto-mirror the "channel/resident dispatch
+// delegated…" summary as a fabricated reply (no real turn, nothing in the TUI).
+assert.deepEqual(
+  supportedExecutionModes({ sessionMode: "resident", runtime: "codex", capabilities: ["resident-run"] }),
+  ["resident"],
+  "resident Codex IS claimable by its main bridge (in-process delivery surface)",
+);
+
+assert.deepEqual(
+  supportedExecutionModes({ sessionMode: "resident", runtime: "hermes", capabilities: ["resident-run"] }),
+  [],
+  "resident Hermes must NOT be claimed by the main bridge — its channel-sidecar loop owns delivery (prevents the ChannelDelegatedController fabricated reply)",
+);
+
 console.log("dispatch-execution.test.js: all assertions passed");

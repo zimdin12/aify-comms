@@ -3434,6 +3434,88 @@ class ApiV2RegressionTests(FastApiTestCase):
         row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_delivered_evt",))
         self.assertEqual(row["status"], "claimed")
 
+    def _seed_turn_busy(self, agent_id: str, *, turn_bridge_id: str, updated_seconds_ago: float, run_id: str = "run_x", runtime: str = "hermes"):
+        updated_at = (datetime.now(timezone.utc) - timedelta(seconds=updated_seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT OR REPLACE INTO agent_turn_state
+                (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            """,
+            (agent_id, run_id, turn_bridge_id, runtime, updated_at),
+        )
+
+    def _run_clear_turn_busy_dead_bridges(self, **kwargs):
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._clear_turn_busy_for_dead_bridges(db, **kwargs)
+            finally:
+                await db.commit()
+                await db.close()
+        return asyncio.run(_run())
+
+    def test_turn_busy_cleared_when_owning_bridge_is_dead(self):
+        # BUG 1 (confirmed live): a managed hermes delivery loop set turn_busy=1 on
+        # submit, then its process died (terminal closed) without firing a turn-end
+        # event. agent_turn_state.turn_busy stayed 1 with turn_bridge_id pointing at
+        # the now-dead loop's channel-sidecar bridge — agent shows `working` until
+        # the ~30-min ceiling. The reconcile must clear turn_busy when that bridge
+        # has no fresh bridge_instances heartbeat.
+        self._register("ci-senior-dev", runtime="hermes", sessionMode="managed")
+        # turn_bridge_id has NO bridge_instances row at all → dead claimer.
+        self._seed_turn_busy(
+            "ci-senior-dev",
+            turn_bridge_id="hermes-managed-host-wsl:laputa-ci-senior-dev",
+            updated_seconds_ago=174,
+        )
+        self._seed_cached_live_state("ci-senior-dev", status="working")
+
+        cleared = self._run_clear_turn_busy_dead_bridges()
+        self.assertEqual({c["agentId"] for c in cleared}, {"ci-senior-dev"}, f"cleared={cleared}")
+
+        row = self._fetchone(
+            "SELECT turn_busy, turn_run_id, turn_bridge_id FROM agent_turn_state WHERE agent_id = ?",
+            ("ci-senior-dev",),
+        )
+        self.assertEqual(int(row["turn_busy"]), 0, "turn_busy must be cleared")
+        self.assertEqual(row["turn_bridge_id"] or "", "")
+        self.assertEqual(row["turn_run_id"] or "", "")
+        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("ci-senior-dev",))
+        self.assertIsNone(live, "clearing a stuck turn_busy must invalidate the false-working live_state cache row")
+
+    def test_turn_busy_NOT_cleared_when_owning_bridge_is_fresh(self):
+        # GUARD: turn_bridge_id IS a fresh, heartbeating bridge — the loop is
+        # genuinely mid-delivery. turn_busy must NOT be cleared (no early turn-end).
+        self._register("live-turn-hermes", runtime="hermes", sessionMode="managed")
+        live_seen = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("live-turn-bridge", "live-turn-hermes", "test-machine", "hermes", "managed", live_seen, live_seen),
+        )
+        self._seed_turn_busy("live-turn-hermes", turn_bridge_id="live-turn-bridge", updated_seconds_ago=174)
+
+        cleared = self._run_clear_turn_busy_dead_bridges()
+        self.assertEqual(cleared, [], f"a fresh bridge's turn_busy must not be cleared; got {cleared}")
+        row = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("live-turn-hermes",))
+        self.assertEqual(int(row["turn_busy"]), 1, "turn_busy stays set while the owning bridge heartbeats")
+
+    def test_turn_busy_NOT_cleared_when_no_owning_bridge_recorded(self):
+        # GUARD: an empty turn_bridge_id is a harness/Stop-hook turn (e.g. a resident
+        # claude on its own turn) — NOT a dead-claimer case. Leave it to the existing
+        # ~30-min ceiling so a genuinely-working agent is never cut off.
+        self._register("harness-turn-claude", runtime="claude-code", sessionMode="resident")
+        self._seed_turn_busy("harness-turn-claude", turn_bridge_id="", updated_seconds_ago=600, runtime="claude-code")
+
+        cleared = self._run_clear_turn_busy_dead_bridges()
+        self.assertEqual(cleared, [], f"an empty-owner turn_busy must not be cleared; got {cleared}")
+        row = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("harness-turn-claude",))
+        self.assertEqual(int(row["turn_busy"]), 1, "a harness turn (no bridge owner) is left to the long ceiling")
+
     def _seed_queued_run(self, run_id: str, agent_id: str, *, from_agent: str = "sender-agent", requested_minutes_ago: float = 5.0, require_reply: bool = True):
         requested_at = (datetime.now(timezone.utc) - timedelta(minutes=requested_minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._execute(

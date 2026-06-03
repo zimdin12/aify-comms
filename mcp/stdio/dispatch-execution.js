@@ -41,7 +41,24 @@ export function supportedExecutionModes(info = {}, options = {}) {
   // races the child bridge and can drive stale runtimeConfig instead of the
   // visible wrapper session.
   if (sessionMode === "resident" && capabilities.includes("resident-run")) {
-    if (runtime === "codex" || runtime === "hermes") {
+    // CODEX resident: the resident wrapper's in-process bridge IS the delivery
+    // surface, so this main bridge claims 'resident' directly.
+    //
+    // HERMES resident is NOT claimed here (2026-06-03 fabricated-reply fix):
+    // resident hermes delivery is owned by the per-agent
+    // `hermes-managed-host.js run <agent>` loop (bridgeKind="channel-sidecar"),
+    // exactly like managed hermes. If the resident MAIN bridge (bridge_kind=
+    // 'resident') claimed the run, it would route through launchRuntimeRun ->
+    // HermesController -> ChannelDelegatedController (a leftover no-op that
+    // resolves status:"delegated" with the summary "channel/resident dispatch
+    // delegated to hermes-managed-host.js delivery loop"); server.js then marks
+    // the run completed and the auto-mirror path posts THAT summary as the
+    // agent's reply — a fabricated reply, no real turn, nothing in the TUI.
+    // The wrapper-child exclusion (wrapperChildExecutionModes) only covered the
+    // AIFY_MANAGED_VIA_WRAPPER=1 child, never this resident main bridge. So
+    // hermes is excluded here too; its channel-sidecar loop is the sole claimer
+    // of channel/resident hermes runs and delivers via the real gateway submit.
+    if (runtime === "codex") {
       modes.push("resident");
     }
   }

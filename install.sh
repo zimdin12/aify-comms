@@ -1208,7 +1208,11 @@ install_hermes_wrapper() {
     hermes_tui_dir="$_hermes_root_for_tui/ui-tui"
   fi
   mkdir -p "$wrapper_dir"
-  cat > "$wrapper_path" <<EOF
+  # Write atomically via a temp file + mv so reinstalling while a hermes-aify
+  # session is running doesn't fail with ETXTBSY ("Text file busy") — rename
+  # replaces the dir entry; any running process keeps its old inode.
+  local wrapper_tmp="$wrapper_path.tmp.$$"
+  cat > "$wrapper_tmp" <<EOF
 #!/bin/bash
 set -euo pipefail
 
@@ -1312,28 +1316,58 @@ export AIFY_COMMS_URL="\${AIFY_COMMS_URL:-\$AIFY_SERVER_URL}"
 # crashes in subprocess reader threads, so force UTF-8 for this process tree.
 export PYTHONUTF8="\${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="\${PYTHONIOENCODING:-utf-8}"
-# Recover the aify agent id from a --resume handle when --aify-agent wasn't given
+# GATEWAY-ATTACH DETERMINISM (Task 2.1, 2026-06-03). The Hermes Ink TUI's
+# gatewayClient.ts resolveGatewayAttachUrl() reads \$HERMES_TUI_GATEWAY_URL: when
+# it is set the TUI ATTACHES to that gateway HOST as a WS client (startAttachedGateway);
+# when it is EMPTY/UNSET the TUI spawns its OWN tui_gateway (startSpawnedGateway).
+# An operator shell very often still carries a STALE HERMES_TUI_GATEWAY_URL /
+# AIFY_HERMES_GATEWAY_URL from a PRIOR hermes session (pointing at a now-dead port).
+# If such a stale value leaks into a launch path that does NOT re-export a fresh one
+# (the plain/passthrough fallback below, or a path that fell out of the gateway
+# branch), the visible TUI either attaches to a DEAD gateway or — after that WS
+# fails — runs its OWN tui_gateway, so the delivery loop's gateway host shows
+# session.active_list = 0 and every message strands (the ci-9136 incident). CLEAR
+# any inherited value up front; the GATEWAY-HOST branch below re-exports the CORRECT
+# fresh URL right before its exec, and the fallback paths then correctly run a
+# self-spawned-gateway TUI (no managed delivery there anyway). This is the single
+# determinism guarantee that the TUI never attaches to a stale/foreign gateway.
+unset HERMES_TUI_GATEWAY_URL AIFY_HERMES_GATEWAY_URL AIFY_HERMES_GATEWAY_TOKEN 2>/dev/null || true
+# Recover the aify agent id from a session handle when --aify-agent wasn't given
 # (2026-06-03). After closing + reopening, hermes' OWN resume picker offers
-# `--resume <session>`, not `--aify-agent`, so an operator naturally resumes by
+# \`--resume <session>\`, not \`--aify-agent\`, so an operator naturally resumes by
 # session — and would otherwise land in a plain TUI with NO gateway (send-only,
-# not deliverable). Map the resumed session back to its agent so the gateway-host
-# model still engages:
-#   1. the stable session is named `aify-<agentId>` → the id is the suffix (exact,
+# not deliverable). RESIDENT-LAUNCH FIX (FIX B, 2026-06-03): an interactive
+# \`hermes-aify\` relaunch with NO \`--resume\` (just an INHERITED AIFY_SESSION_HANDLE
+# in the operator's shell) skipped this recovery entirely (it only consulted the
+# EXPLICIT handle), so HERMES_AIFY_AGENT_ID stayed empty and the launch fell through
+# to the PLAIN TUI path — which exports NONE of the gateway/agent/active-session env
+# the managed path does, so the resident TUI never attached to its gateway host and
+# nothing was deliverable. This is the live "resident TUI has only AIFY_HERMES_PLUGIN
+# / AIFY_SESSION_MODE / AIFY_SESSION_HANDLE, missing the five+ gateway vars" symptom.
+# Consider the inherited handle too (HERMES_RECOVER_HANDLE = explicit OR inherited)
+# so resident relaunches resolve their agent and engage the SAME gateway-host branch
+# as managed (the launch mechanism is unified; this just makes resident REACH it).
+# Map the handle back to its agent:
+#   1. the stable session is named \`aify-<agentId>\` → the id is the suffix (exact,
 #      offline-robust — this is what hermes' picker shows for an aify agent).
 #   2. otherwise ask the aify service which hermes agent owns this session handle.
 # Best-effort; never blocks the launch. (Same idea is wired into claude/codex.)
-if [ -z "\$HERMES_AIFY_AGENT_ID" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-  case "\$HERMES_SESSION_HANDLE" in
-    aify-*) HERMES_AIFY_AGENT_ID="\${HERMES_SESSION_HANDLE#aify-}" ;;
+HERMES_RECOVER_HANDLE="\$HERMES_SESSION_HANDLE"
+if [ -z "\$HERMES_RECOVER_HANDLE" ]; then
+  HERMES_RECOVER_HANDLE="\$HERMES_INHERITED_SESSION_HANDLE"
+fi
+if [ -z "\$HERMES_AIFY_AGENT_ID" ] && [ -n "\$HERMES_RECOVER_HANDLE" ]; then
+  case "\$HERMES_RECOVER_HANDLE" in
+    aify-*) HERMES_AIFY_AGENT_ID="\${HERMES_RECOVER_HANDLE#aify-}" ;;
     *)
       if command -v node >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-        _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_SERVER_URL%/}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="hermes"){process.stdout.write(k);break;}}}catch{}})' "\$HERMES_SESSION_HANDLE" 2>/dev/null)"
+        _aify_rec="\$(curl -sS --max-time 2 "\${AIFY_SERVER_URL%/}/api/v1/agents" 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const a=(JSON.parse(d).agents)||{};const h=process.argv[1];for(const k in a){const v=a[k]||{};const sh=String(v.sessionHandle||v.session_handle||"");if(sh&&sh===h&&String(v.runtime||"")==="hermes"){process.stdout.write(k);break;}}}catch{}})' "\$HERMES_RECOVER_HANDLE" 2>/dev/null)"
         [ -n "\$_aify_rec" ] && HERMES_AIFY_AGENT_ID="\$_aify_rec"
       fi
       ;;
   esac
   if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
-    echo "[hermes-aify] resolved aify agent '\$HERMES_AIFY_AGENT_ID' from --resume '\$HERMES_SESSION_HANDLE' — engaging gateway-host model (resuming the agent's real hermes session id)." >&2
+    echo "[hermes-aify] resolved aify agent '\$HERMES_AIFY_AGENT_ID' from session handle '\$HERMES_RECOVER_HANDLE' — engaging gateway-host model (resuming the agent's real hermes session id)." >&2
   fi
 fi
 if [ -n "\$HERMES_AIFY_AGENT_ID" ]; then
@@ -1689,13 +1723,43 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
   if [ -n "\$AIFY_HERMES_TUI_DIR" ] && [ -f "\$AIFY_HERMES_TUI_DIR/dist/entry.js" ]; then
     export HERMES_TUI_DIR="\$AIFY_HERMES_TUI_DIR"
   fi
+  # SESSION CONVERGENCE (FIX C, 2026-06-03): the agent-keyed marker can be DAYS
+  # stale, so resuming it blindly makes the VISIBLE TUI view a dead/old session
+  # while the agent's real work lands in a gateway-host session the TUI never views
+  # (the three-id desync: marker != active-session-file != live gateway session).
+  # Now that the gateway is up + its URL exported, ask the gateway for GROUND TRUTH
+  # (\`session.active_list\`): prefer the marker id IF it is a live row, else the
+  # gateway's most-recent live session. resolve-session PERSISTS the resolved id to
+  # the marker AND seeds the per-agent active-session file, so:
+  #   visible-TUI resume == delivery-loop target == marker == active-session file.
+  # Only runs when the operator did NOT pass an explicit \`--resume\` (that wins).
+  # Best-effort + bounded; an empty result (no live session yet) falls through to
+  # the marker / fresh-session paths below exactly as before — never blocks launch.
+  if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" != "true" ]; then
+    HERMES_RESOLVED_SESSION_ID="\$(node "\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session "\$HERMES_AIFY_AGENT_ID" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    if [ -n "\$HERMES_RESOLVED_SESSION_ID" ]; then
+      HERMES_RESUME_REAL_ID="\$HERMES_RESOLVED_SESSION_ID"
+      echo "[hermes-aify] session convergence: agent '\$HERMES_AIFY_AGENT_ID' resumes live gateway session '\$HERMES_RESUME_REAL_ID' (active_list ground truth)." >&2
+    fi
+  fi
   # Resume target precedence: (a) an EXPLICIT operator \`--resume <id>\` handle wins
   # (the operator asked for that specific session); (b) else the agent's REAL native
-  # session id from the marker (continuous transcript); (c) else a FRESH session with
-  # NO \`--resume\` so hermes assigns a new real id (the bridge captures+stores it on
+  # session id resolved above — the live gateway session when one exists (FIX C),
+  # else the marker (continuous transcript); (c) else a FRESH session with NO
+  # \`--resume\` so hermes assigns a new real id (the bridge captures+stores it on
   # register). \`--resume\` MUST precede the operator's passthrough flags.
   if [ "\$HERMES_EXPLICIT_SESSION_HANDLE" = "true" ] && [ -n "\$HERMES_SESSION_HANDLE" ]; then
-    echo "[hermes-aify] resuming explicit hermes session '\$HERMES_SESSION_HANDLE' for agent '\$HERMES_AIFY_AGENT_ID'." >&2
+    # EXPLICIT-RESUME AUTHORITY (BUG 2, 2026-06-03): the operator passed
+    # \`--resume <id>\` — <id> is AUTHORITATIVE for the REGISTERED handle, not just
+    # the visible TUI. PROACTIVELY SEED the per-agent active-session file AND the
+    # session marker (\`aify-hermes-session-<agent>\`) with <id> BEFORE launching the
+    # TUI, so the in-session bridge's discoverSessionId reads <id> (active-file
+    # primary) and a stale marker can NEVER override it. resolve-session --explicit
+    # short-circuits the gateway query and just seeds both. Best-effort; never
+    # blocks the launch. (The bridge ALSO sees AIFY_EXPLICIT_SESSION_HANDLE=true +
+    # AIFY_SESSION_HANDLE=<id> as a belt-and-suspenders fallback.)
+    node "\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session "\$HERMES_AIFY_AGENT_ID" --explicit "\$HERMES_SESSION_HANDLE" >/dev/null 2>&1 || true
+    echo "[hermes-aify] resuming explicit hermes session '\$HERMES_SESSION_HANDLE' for agent '\$HERMES_AIFY_AGENT_ID' (seeded active-session file + marker — authoritative handle)." >&2
     exec "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE" "\${HERMES_PERMISSION_FLAGS[@]}"
   fi
   if [ -n "\$HERMES_RESUME_REAL_ID" ]; then
@@ -1739,8 +1803,10 @@ EOF
   # Same placeholder-substitute pattern as codex-aify above. Without
   # this the watchdog probe POSTs to 127.0.0.1:8800 regardless of the
   # operator's install-time URL.
-  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_path" 2>/dev/null && rm -f "$wrapper_path.bak" || true
-  chmod +x "$wrapper_path"
+  sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_tmp" 2>/dev/null && rm -f "$wrapper_tmp.bak" || true
+  chmod +x "$wrapper_tmp"
+  # Atomic swap over any running wrapper (avoids ETXTBSY on in-place rewrite).
+  mv -f "$wrapper_tmp" "$wrapper_path"
   install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
   install_hermes_windows_tui_shim "$wrapper_dir" "$default_server" "$hermes_plugin_path"
 }
@@ -1883,6 +1949,17 @@ if (-not \$env:CLAUDE_MCP_SERVER_URL) { \$env:CLAUDE_MCP_SERVER_URL = \$env:AIFY
 if (-not \$env:AIFY_COMMS_URL) { \$env:AIFY_COMMS_URL = \$env:AIFY_SERVER_URL }
 \$env:PYTHONUTF8 = if (\$env:PYTHONUTF8) { \$env:PYTHONUTF8 } else { '1' }
 \$env:PYTHONIOENCODING = if (\$env:PYTHONIOENCODING) { \$env:PYTHONIOENCODING } else { 'utf-8' }
+
+# GATEWAY-ATTACH DETERMINISM (Task 2.1, parity with the bash wrapper). The Ink
+# TUI attaches to HERMES_TUI_GATEWAY_URL when set, else spawns its OWN tui_gateway.
+# A stale inherited value (from a prior hermes session, dead port) on a path that
+# doesn't re-export a fresh one makes the TUI attach to a dead gateway or run its
+# own — so the delivery loop's gateway host shows active_list=0 and messages strand.
+# Clear any inherited value up front; the GATEWAY-HOST branch below re-exports the
+# correct fresh URL right before its launch.
+Remove-Item Env:\\HERMES_TUI_GATEWAY_URL -ErrorAction SilentlyContinue
+Remove-Item Env:\\AIFY_HERMES_GATEWAY_URL -ErrorAction SilentlyContinue
+Remove-Item Env:\\AIFY_HERMES_GATEWAY_TOKEN -ErrorAction SilentlyContinue
 
 # Harness-native bypass flag, applied to every interactive --tui launch below
 # (NOT to passthrough subcommands like 'hermes-aify model list').

@@ -112,6 +112,39 @@ const RPC_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_RPC_TIMEOUT
 // the run (leave it claimable) rather than failing it permanently.
 const ATTACH_WAIT_MS = Math.max(2000, Number(process.env.AIFY_HERMES_ATTACH_WAIT_MS || 25000));
 const ATTACH_POLL_MS = Math.max(100, Number(process.env.AIFY_HERMES_ATTACH_POLL_MS || 750));
+// BOUNDED NO-ATTACH FAIL (Task 2.3, 2026-06-03). The cold-start requeue (above) is
+// correct for a genuine cold start — the visible `hermes --tui` is still resuming
+// its session into the gateway, so a poll or two finds active_list empty and the
+// run is requeued (claimable) so the NEXT poll delivers. But when the visible TUI
+// NEVER attaches to THIS loop's gateway host (it ran its OWN tui_gateway instead,
+// or no TUI is running at all), active_list stays empty FOREVER and the old code
+// requeued the SAME run on every poll silently — the operator's message stranded
+// with no signal (the ci-senior-dev gateway-9136 active_list=0 incident). After
+// N CONSECUTIVE empty-active_list requeues for the SAME run, FAIL it with an
+// actionable "no visible TUI attached to gateway <url>; relaunch hermes-aify"
+// message (mirrored to the sender) instead of requeuing forever. A successful
+// attach (delivery) resets the per-run counter, so a slow-but-eventual cold start
+// is never penalized. Configurable; default 5 (≈5×POLL_MS ≈ 15s of no-TUI).
+const EMPTY_ATTACH_FAIL_THRESHOLD = Math.max(
+  1,
+  Number(process.env.AIFY_HERMES_EMPTY_ATTACH_FAIL_THRESHOLD || 5),
+);
+// STALE-SESSION BIND-RACE GRACE (FIX A, 2026-06-03). The freshness floor used to
+// PERMANENTLY reject any fallback session that started before the delivery attempt
+// — which meant an IDLE, already-attached session (the exact one ready to receive
+// work) was skipped on EVERY poll, the loop hit its deadline, and the run requeued
+// FOREVER (the operator only ever saw the placeholder). The floor's real purpose is
+// only to win the RELAUNCH race (don't bind a being-torn-down prior session before
+// the fresh `hermes --tui` re-attaches). That race resolves in a couple of seconds,
+// so the floor only needs to hold for an INITIAL grace window, not forever. After
+// the grace elapses, an attached (present-in-active_list) session is accepted even
+// if its stamp predates delivery. Default: 45% of the attach deadline (configurable),
+// clamped to a sane floor/ceiling.
+const ATTACH_FRESH_GRACE_FRACTION = (() => {
+  const raw = Number(process.env.AIFY_HERMES_ATTACH_FRESH_GRACE_FRACTION);
+  if (Number.isFinite(raw) && raw >= 0 && raw <= 1) return raw;
+  return 0.45;
+})();
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const RUNTIME = "hermes";
 // In-flight re-pulse cadence + bounded window (#172). prompt.submit is
@@ -207,6 +240,19 @@ function rowFreshnessStamp(row) {
 // The real id off an active_list row (`id` / `session_id` / `sessionId`).
 function rowRealIdLocal(row) {
   return String(row?.id || row?.session_id || row?.sessionId || "").trim();
+}
+
+// Seed the per-agent active-session file (FIX C) in the SAME shape hermes' TUI
+// writes (useSessionLifecycle.ts writeActiveSessionFile → {"session_id": "..."}),
+// and that hermes' Python wrapper reads (_read_tui_active_session_file → .session_id).
+// Byte-compatible so the in-session bridge reads a real handle at launch instead of
+// the stale launch-time id. Best-effort; the caller swallows throws.
+function defaultWriteActiveSessionFile(filePath, sessionId) {
+  const p = String(filePath || "").trim();
+  const sid = String(sessionId || "").trim();
+  if (!p || !sid) return;
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ session_id: sid }), { mode: 0o600 });
 }
 
 // Freshness stamp of the row whose real id is `recentId` within an active_list
@@ -675,6 +721,25 @@ export function gatewayUnreachableMessage(gatewayUrl) {
   );
 }
 
+// Build the actionable run-failure message for the BOUNDED no-attach case (Task
+// 2.3): the gateway host is REACHABLE (we polled session.active_list) but NO
+// visible hermes TUI ever attached to it — active_list stayed empty across the
+// bounded requeue budget. This is distinct from gatewayUnreachableMessage (a dead
+// PORT): here the host is alive but no TUI is a WS client of it (it spun up its own
+// tui_gateway, or no `hermes --tui` is running), so injected prompts have nowhere
+// to render. The fix is to relaunch hermes-aify so the visible TUI attaches to THIS
+// gateway via HERMES_TUI_GATEWAY_URL. `attempts` is the consecutive empty-poll count.
+export function noTuiAttachedMessage(gatewayUrl, attempts) {
+  const url = String(gatewayUrl || "").trim() || "(unknown)";
+  const n = Number(attempts) || 0;
+  return (
+    `No visible hermes TUI attached to gateway ${url} ` +
+    `(session.active_list empty across ${n} consecutive delivery attempts). ` +
+    `The visible TUI is not a client of this gateway — relaunch this agent's ` +
+    `hermes-aify session so the TUI attaches (HERMES_TUI_GATEWAY_URL) and can render messages.`
+  );
+}
+
 // Self-correct off `available` via the EXISTING resident-lost signal (the same
 // host→server path server.js uses when a resident Codex app-server is
 // unreachable). The server transitions the agent resident→managed (or stopped),
@@ -818,18 +883,25 @@ export async function waitForActiveSession({
   intervalMs = ATTACH_POLL_MS,
   sleepImpl = sleep,
   now = Date.now,
-  // STALE-SESSION BIND-RACE GUARD (2026-06-03): on a RELAUNCH the per-agent
+  // STALE-SESSION BIND-RACE GRACE (FIX A, 2026-06-03): on a RELAUNCH the per-agent
   // gateway host is REUSED (ensureGatewayHost → child=null), so the loop can poll
   // `session.active_list` BEFORE the freshly-relaunched `hermes --tui` re-attaches.
   // The pickMostRecentSession FALLBACK would then bind a STALE prior session (the
-  // one being torn down) and persist it to the marker. To prevent that, the
-  // fallback only accepts a most-recent row whose freshness timestamp
-  // (last_active/started_at/created_at) is >= `since` (the loop/poll start epoch,
-  // captured at entry). A row older than `since` is a pre-attach leftover → keep
-  // WAITING within the deadline instead of binding it. The marker-matched real id
-  // (PRIMARY) is ALWAYS accepted regardless of freshness — it's the intended
-  // session; only the fallback gets the floor. `since` is injectable for tests.
+  // one being torn down) and persist it to the marker. The freshness floor (`since`,
+  // the loop/poll start epoch captured at entry) protects against that — BUT as a
+  // BOUNDED GRACE, not a permanent rejection. For the INITIAL grace window we prefer
+  // a fresh row (stamp >= floor) and keep WAITING when only stale rows are present
+  // (winning the relaunch race). ONCE the grace elapses we ACCEPT the most-recent
+  // attached row even if its stamp predates delivery — presence in active_list means
+  // the session is live/attached (a torn-down session leaves the list), so an idle
+  // attached session must be delivered to, never requeued forever. The marker-matched
+  // real id (PRIMARY) is ALWAYS accepted regardless of freshness/grace — it's the
+  // intended session. `since` and `graceMs` are injectable for tests.
   since,
+  // Bounded grace window (ms) during which a stale-stamped fallback row is still
+  // skipped (relaunch race). Default: a fraction of the attach deadline. After this
+  // elapses, a stale-but-attached fallback row is accepted. Injectable for tests.
+  graceMs,
   // Marker read/write seams (best-effort; never throw in the delivery path).
   readMarker = readSessionIdMarker,
   writeMarker = writeSessionIdMarker,
@@ -839,6 +911,13 @@ export async function waitForActiveSession({
   // the moment this (relaunched) delivery attempt began — any session that
   // started before this is a stale pre-attach leftover.
   const freshnessFloor = Number.isFinite(Number(since)) ? Number(since) : now();
+  // The grace window is bounded: prefer-fresh-and-wait until `graceUntil`, then
+  // accept the most-recent attached row even if stale. Default to a fraction of the
+  // deadline so the relaunch race has a window but delivery is never blocked forever.
+  const resolvedGraceMs = Number.isFinite(Number(graceMs))
+    ? Math.max(0, Number(graceMs))
+    : Math.max(0, Math.round(deadlineMs * ATTACH_FRESH_GRACE_FRACTION));
+  const graceUntil = freshnessFloor + resolvedGraceMs;
   const id = String(agentId || "").trim();
   // Resolve the wanted real id once: explicit arg wins, else the marker.
   let wanted = String(wantId || "").trim();
@@ -874,18 +953,21 @@ export async function waitForActiveSession({
 
     // (b) FALLBACK: no bound id, or the bound id isn't live yet → most-recent
     // live session for this gateway. Persist it so subsequent launches agree.
-    // STALE-SESSION BIND-RACE GUARD: only accept the most-recent row when its
-    // freshness stamp is >= the freshness floor captured at entry. On a relaunch
-    // the reused gateway may still list the PRIOR (being-torn-down) session before
-    // the fresh `hermes --tui` re-attaches; binding+persisting that stale row would
-    // deliver to a dead session. A stale fallback row is SKIPPED → keep waiting
-    // within the deadline for the fresh attach (never hard-fail). The PRIMARY
-    // marker-matched id above bypasses this floor (it's the intended session).
+    // STALE-SESSION BIND-RACE GRACE (FIX A): a fresh row (stamp >= floor) is bound
+    // immediately. A STALE row (stamp < floor) is only SKIPPED during the initial
+    // grace window — that buys time for a freshly-relaunched `hermes --tui` to
+    // re-attach so we don't bind the being-torn-down prior session. ONCE the grace
+    // has elapsed, an attached row is the live session that's ready for work (a
+    // torn-down session would have left active_list), so we ACCEPT it even though
+    // its stamp predates delivery — otherwise an idle attached session requeues
+    // forever. The PRIMARY marker-matched id above bypasses this entirely.
     if (!sessionId) {
       const recent = pickMostRecentSession(listResp);
       if (recent) {
         const stamp = stampForSessionId(listResp, recent);
-        if (stamp >= freshnessFloor) {
+        const fresh = stamp >= freshnessFloor;
+        const graceElapsed = now() >= graceUntil;
+        if (fresh || graceElapsed) {
           sessionId = recent;
           if (id && recent !== wanted) {
             // Capture the real id we fell back to (best-effort; never throws).
@@ -896,12 +978,14 @@ export async function waitForActiveSession({
             }
             wanted = recent; // subsequent polls now treat this as the bound id.
             log(
-              `[hermes-managed-host] '${id}': bound real session id ${recent} from gateway's most-recent live session (fallback).`,
+              fresh
+                ? `[hermes-managed-host] '${id}': bound real session id ${recent} from gateway's most-recent live session (fallback).`
+                : `[hermes-managed-host] '${id}': relaunch grace elapsed; binding most-recent ATTACHED session ${recent} despite stale stamp (idle-session delivery).`,
             );
           }
         } else if (attempts === 1) {
           log(
-            `[hermes-managed-host] '${id}': most-recent gateway session ${recent} is stale (started before this delivery attempt); waiting for the fresh attach instead of binding it.`,
+            `[hermes-managed-host] '${id}': most-recent gateway session ${recent} is stale (started before this delivery attempt); waiting up to ${resolvedGraceMs}ms (relaunch grace) for a fresh attach before binding it.`,
           );
         }
       }
@@ -951,6 +1035,17 @@ export async function deliverRun({
   // model). Defaults to the process temp dir; injectable so tests isolate the
   // marker read/write from the shared tmp dir.
   tempDir = TMP_DIR,
+  // BOUNDED NO-ATTACH FAIL (Task 2.3). A mutable per-LOOP map { runId -> count }
+  // of CONSECUTIVE empty-active_list requeues for the same run, owned by
+  // runDeliveryLoop so it persists across poll cycles (the same run is re-claimed
+  // each cycle after a requeue). When a run's count reaches `emptyAttachFailThreshold`
+  // we markRunFailed with noTuiAttachedMessage (the visible TUI never attached to
+  // this gateway) INSTEAD of requeuing forever. A successful attach/delivery deletes
+  // the run's entry (resets the streak), so a slow-but-eventual cold start is never
+  // failed. Optional — defaults to a throwaway map (single-shot callers/tests keep
+  // the legacy infinite-requeue cold-start behaviour until the threshold trips).
+  emptyAttachCounter = new Map(),
+  emptyAttachFailThreshold = EMPTY_ATTACH_FAIL_THRESHOLD,
 } = {}) {
   await reportTurnBusy(httpCall, agentId, { busy: true, runId: run?.id || "" }).catch(() => {});
   let id = typeof rpcId === "number" ? rpcId : Date.now() % 100000;
@@ -976,14 +1071,43 @@ export async function deliverRun({
       since: deliveryStartedAt,
     });
     if (!sessionId) {
-      // Transient: TUI not attached yet → requeue so the next poll delivers.
+      // No visible TUI session attached this attempt. Count CONSECUTIVE empties
+      // for this run (the per-loop map persists across poll cycles, since the same
+      // run is re-claimed each cycle after a requeue). Below the bounded threshold
+      // this is a genuine cold-start → REQUEUE (claimable) so the next poll delivers
+      // once the TUI finishes resuming. At/above the threshold the visible TUI is
+      // NOT a client of this gateway (it never attached) → FAIL with an actionable
+      // message mirrored to the sender, instead of silently requeuing forever
+      // (Task 2.3 / the ci-9136 active_list=0 strand).
+      const runKey = String(run?.id || "");
+      const prior = runKey ? Number(emptyAttachCounter.get(runKey) || 0) : 0;
+      const attempts = prior + 1;
+      if (runKey) emptyAttachCounter.set(runKey, attempts);
+
+      if (attempts >= emptyAttachFailThreshold) {
+        const message = noTuiAttachedMessage(gatewayUrl, attempts);
+        console.error(
+          `[hermes-managed-host] run ${run?.id || "?"}: ${message} — FAILING (bounded no-attach after ${attempts} attempts).`,
+        );
+        await markRunFailed(httpCall, run, new Error(message)).catch(() => {});
+        if (runKey) emptyAttachCounter.delete(runKey);
+        if (inFlight) {
+          inFlight.submittedAt = 0;
+          inFlight.runId = "";
+        }
+        await clearTurn(httpCall, agentId).catch(() => {});
+        return;
+      }
+
+      // Transient (cold start): TUI not attached yet → requeue so the next poll
+      // delivers once it finishes resuming.
       console.error(
-        `[hermes-managed-host] run ${run?.id || "?"}: agent '${agentId}' session did not attach within ${attachWaitMs}ms — requeuing (will retry).`,
+        `[hermes-managed-host] run ${run?.id || "?"}: agent '${agentId}' session did not attach within ${attachWaitMs}ms — requeuing (attempt ${attempts}/${emptyAttachFailThreshold}, will retry).`,
       );
       await markRunRequeued(
         httpCall,
         run,
-        `agent '${agentId}' session not attached within ${attachWaitMs}ms`,
+        `agent '${agentId}' session not attached within ${attachWaitMs}ms (attempt ${attempts}/${emptyAttachFailThreshold})`,
       ).catch(() => {});
       // No delivery happened — clear the turn_busy pulse so the agent does not
       // falsely show "working" while the run sits requeued, and close the
@@ -995,6 +1119,10 @@ export async function deliverRun({
       await clearTurn(httpCall, agentId).catch(() => {});
       return;
     }
+    // The visible TUI session DID attach — reset this run's no-attach streak so a
+    // future transient empty starts the bounded budget fresh (never inherits a
+    // stale count from a prior cold start that ultimately delivered).
+    if (run?.id) emptyAttachCounter.delete(String(run.id));
 
     const text = dispatchContent(agentId, run || {});
     try {
@@ -1228,6 +1356,9 @@ export async function runPollCycle({
   // Temp dir holding the agent's real-session-id marker (native-session-id
   // model). Threaded to deliverRun so the loop and tests agree on its location.
   tempDir = TMP_DIR,
+  // BOUNDED NO-ATTACH FAIL counter (Task 2.3), owned by runDeliveryLoop so it
+  // persists across poll cycles. Threaded straight through to deliverRun.
+  emptyAttachCounter = new Map(),
 } = {}) {
   let processed = 0;
   let released = false;
@@ -1276,7 +1407,7 @@ export async function runPollCycle({
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
       if (!run || !["channel", "resident"].includes(mode)) break;
-      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir });
+      await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir, emptyAttachCounter });
       processed++;
     }
   } catch (error) {
@@ -1741,6 +1872,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // Consecutive-404 self-heal counter (Task 1.3) — persists across poll cycles
   // so a 404 that survives the grace window terminates the loop.
   const claimErrorCounter = { count: 0 };
+  // BOUNDED NO-ATTACH FAIL counter (Task 2.3) — persists across poll cycles so a
+  // run that the visible TUI never attaches for is FAILED after the bounded budget
+  // instead of requeued forever. Owned here (one map per loop lifetime), threaded
+  // through runPollCycle → deliverRun. Cleared per-run on a successful attach.
+  const emptyAttachCounter = new Map();
   try {
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
@@ -1773,6 +1909,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           gatewayUrl: host.wsUrl,
           claimErrorCounter,
           tempDir: markerDir,
+          emptyAttachCounter,
         });
         totalProcessed += result.processed || 0;
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
@@ -1901,11 +2038,146 @@ export async function runEnsureHostCli(agentId, deps = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// `resolve-session` CLI mode — LAUNCH-SIDE session convergence (FIX C, 2026-06-03).
+// ---------------------------------------------------------------------------
+//
+// The three-id desync bug: at launch the wrapper resumed `--resume <marker>` but
+// the agent-keyed marker could be DAYS stale, so the visible TUI viewed a dead/old
+// session while the agent's real work landed in a gateway-host session the TUI
+// never viewed. The delivery loop already self-heals the marker from the active_list
+// fallback — but the VISIBLE TUI is exec'd ONCE at launch and never re-resolved, so
+// it stays pointed at the stale id.
+//
+// This verb makes LAUNCH agree with the loop by querying the gateway's GROUND TRUTH
+// (`session.active_list`) and resolving the freshest live session, so the visible
+// TUI resumes the SAME session the loop will target. Resolution:
+//   (a) the marker id, IF it is still a live row in active_list (continuous
+//       transcript — prefer the bound session when it's actually attached);
+//   (b) else the gateway's MOST-RECENT live session (the freshest real id);
+//   (c) else "" (no live session yet — first launch / cold gateway → the wrapper
+//       starts a FRESH session and the bridge captures its real id on register).
+// On (a)/(b) it PERSISTS the resolved id to the marker (best-effort) and seeds the
+// per-agent active-session file so the in-session bridge reads a real handle even
+// before the TUI writes its own. Prints the resolved id (or empty) as ONE line.
+//
+// ASYMMETRY(hermes): a hermes TUI can still CREATE or SWITCH sessions AFTER launch
+// (e.g. the operator starts a new chat). That post-launch switch is tracked by the
+// TUI's own writeActiveSessionFile() into HERMES_TUI_ACTIVE_SESSION_FILE (the plugin
+// pins that env at the stable per-agent path and prevents its deletion), and the
+// delivery loop re-resolves the freshest live session on EVERY delivery — so the
+// loop converges on the new session even though the launch-time resume id is now
+// historical. Launch resolves the BEST id known at launch; runtime convergence is
+// owned by the loop + the TUI's active-file writes, not by re-exec'ing the TUI.
+export async function runResolveSessionCli(agentId, deps = {}) {
+  const {
+    out = (s) => process.stdout.write(s),
+    err = (s) => process.stderr.write(s),
+    // Injectable seams for tests.
+    openClient,
+    readMarker = readSessionIdMarker,
+    writeMarker = writeSessionIdMarker,
+    writeActiveSessionFile = defaultWriteActiveSessionFile,
+    tempDir = TMP_DIR,
+    activeSessionFile = String(process.env.AIFY_HERMES_ACTIVE_SESSION_FILE || "").trim(),
+    // EXPLICIT-RESUME mode (BUG 2, 2026-06-03): when the operator passes
+    // `hermes-aify --resume <id>`, <id> is AUTHORITATIVE. We SKIP the gateway
+    // active_list query entirely and just SEED the per-agent active-session file
+    // + overwrite the session marker with <id>, so the in-session bridge's
+    // discoverSessionId reads <id> (primary: active-file) and the stale marker
+    // can never override it. This guarantees the registered handle == the visible
+    // TUI's resumed session, instead of falling through to a stale marker.
+    explicitId = "",
+  } = deps;
+  const id = String(agentId || "").trim();
+  if (!id) throw new Error("resolve-session requires an agentId");
+
+  // EXPLICIT-RESUME short-circuit: an operator-supplied id wins unconditionally.
+  // Seed the active-session file + marker and print it; no gateway round-trip.
+  const explicit = String(explicitId || "").trim();
+  if (explicit) {
+    try { writeMarker(id, explicit, { tempDir }); } catch { /* best-effort */ }
+    if (activeSessionFile) {
+      try { writeActiveSessionFile(activeSessionFile, explicit); } catch { /* best-effort */ }
+    }
+    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${explicit} (explicit-resume; seeded marker + active file).\n`);
+    out(explicit + "\n");
+    return { agentId: id, resolved: explicit, source: "explicit-resume" };
+  }
+
+  // Read the gateway URL the wrapper already resolved + exported (ensure-host ran
+  // first). Without a gateway we cannot query ground truth → emit empty (the
+  // wrapper then resumes the bare marker / starts fresh, same as before).
+  const wsUrl = String(
+    deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL || "",
+  ).trim();
+  const marker = (() => {
+    try {
+      return String(readMarker(id, { tempDir }) || "").trim();
+    } catch {
+      return "";
+    }
+  })();
+
+  if (!wsUrl) {
+    // No gateway to consult — fall back to the marker as-is (best we know).
+    out((marker || "") + "\n");
+    return { agentId: id, resolved: marker || "", source: marker ? "marker(no-gateway)" : "none" };
+  }
+
+  let client = null;
+  let resolved = "";
+  let source = "none";
+  try {
+    client = openClient
+      ? await openClient(wsUrl)
+      : await openGatewayWsClient(wsUrl);
+    let rid = 1;
+    const listResp = await client.request(
+      buildSessionActiveListFrame({ id: rid++, currentSessionId: "" }),
+    );
+    // (a) prefer the marker id when it is a LIVE row (continuous transcript).
+    if (marker && pickSessionById(listResp, marker)) {
+      resolved = marker;
+      source = "marker(live)";
+    } else {
+      // (b) most-recent live session — the gateway's freshest real id.
+      const recent = pickMostRecentSession(listResp);
+      if (recent) {
+        resolved = recent;
+        source = "active_list(most-recent)";
+      }
+    }
+  } catch (e) {
+    err(`[hermes-managed-host] resolve-session: active_list query failed (${e?.message || e}); falling back to marker.\n`);
+    resolved = marker || "";
+    source = marker ? "marker(query-failed)" : "none";
+  } finally {
+    try { client?.close?.(); } catch { /* ignore */ }
+  }
+
+  if (resolved) {
+    // Converge launch == loop == marker == active-session file. Best-effort.
+    if (resolved !== marker) {
+      try { writeMarker(id, resolved, { tempDir }); } catch { /* best-effort */ }
+    }
+    if (activeSessionFile) {
+      try { writeActiveSessionFile(activeSessionFile, resolved); } catch { /* best-effort */ }
+    }
+    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${resolved} (${source}).\n`);
+  } else {
+    err(`[hermes-managed-host] resolve-session: agent '${id}' has no live gateway session yet (will start fresh).\n`);
+  }
+  out((resolved || "") + "\n");
+  return { agentId: id, resolved: resolved || "", source };
+}
+
+// ---------------------------------------------------------------------------
 // argv dispatch.
 // ---------------------------------------------------------------------------
 
 // Dispatch on argv. Modes:
 //   ensure-host <agentId> → runEnsureHostCli (prints JSON line, exits 0)
+//   resolve-session <id>  → runResolveSessionCli (prints the freshest live id)
 //   run <agentId>         → runDeliveryLoop (claim/deliver loop + teardown)
 //   (none)                → legacy resident-driven loop using the bound agent.
 // `deps` is injectable for tests.
@@ -1915,6 +2187,25 @@ export async function runCli(argv, deps = {}) {
     const agentId = String(argv[1] || "").trim() || readBoundAgentId();
     await runEnsureHostCli(agentId, deps);
     return { mode: "ensure-host", agentId };
+  }
+  if (mode === "resolve-session") {
+    const agentId = String(argv[1] || "").trim() || readBoundAgentId();
+    // Optional `--explicit <id>` (BUG 2): an operator `--resume <id>` is
+    // AUTHORITATIVE — seed the active-file + marker with <id>, skip the gateway
+    // query. Parsed from argv so the wrapper's explicit-resume branch can call
+    // `resolve-session <agentId> --explicit <id>`.
+    let explicitId = "";
+    for (let i = 2; i < argv.length; i++) {
+      const a = String(argv[i] || "");
+      if (a === "--explicit") {
+        explicitId = String(argv[i + 1] || "").trim();
+        i++;
+      } else if (a.startsWith("--explicit=")) {
+        explicitId = a.slice("--explicit=".length).trim();
+      }
+    }
+    await runResolveSessionCli(agentId, { ...deps, explicitId: deps.explicitId ?? explicitId });
+    return { mode: "resolve-session", agentId };
   }
   if (mode === "run") {
     const agentId = String(argv[1] || "").trim() || readBoundAgentId();

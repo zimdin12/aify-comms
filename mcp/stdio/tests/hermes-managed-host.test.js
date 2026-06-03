@@ -35,6 +35,7 @@ import {
   teardownGatewayHost,
   installShutdownTeardown,
   runEnsureHostCli,
+  runResolveSessionCli,
   runDeliveryLoop,
   runCli,
   ensureStableSession,
@@ -43,6 +44,7 @@ import {
   makeInFlightPulse,
   isGatewayConnectRefused,
   gatewayUnreachableMessage,
+  noTuiAttachedMessage,
   reportGatewayDead,
   makeTeardown,
 } from "../hermes-managed-host.js";
@@ -345,6 +347,138 @@ test("deliverRun: TUI never attaches within window → run REQUEUED (claimable),
     findCall(calls, "POST", (e) => e.endsWith("/turn-end")),
     "requeue (no delivery) must clear the turn_busy pulse",
   );
+});
+
+// ---------------------------------------------------------------------------
+// BOUNDED NO-ATTACH FAIL (Task 2.3): after N consecutive empty-active_list
+// requeues for the SAME run, the run is FAILED with an actionable "no visible TUI
+// attached to gateway <url>" message instead of requeued forever (the ci-9136
+// active_list=0 strand). A successful attach resets the per-run streak.
+// ---------------------------------------------------------------------------
+
+test("noTuiAttachedMessage: actionable — names the gateway URL, the empty-poll count, and says relaunch hermes-aify", () => {
+  const msg = noTuiAttachedMessage("ws://127.0.0.1:9136/api/ws?token=x", 5);
+  assert.match(msg, /no visible hermes tui attached/i);
+  assert.match(msg, /ws:\/\/127\.0\.0\.1:9136/);
+  assert.match(msg, /5 consecutive/i);
+  assert.match(msg, /hermes-aify/i);
+  assert.match(msg, /HERMES_TUI_GATEWAY_URL/);
+});
+
+test("deliverRun: below threshold → REQUEUE (cold start); the per-run empty-attach counter increments", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  const emptyAttachCounter = new Map();
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    attachWaitMs: 5,
+    attachPollMs: 1,
+    sleepImpl: async () => {},
+    emptyAttachCounter,
+    emptyAttachFailThreshold: 3,
+  });
+
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "queued", "first empty attach (below threshold) must requeue, not fail");
+  assert.equal(emptyAttachCounter.get("run-1"), 1, "the per-run empty-attach streak must increment");
+});
+
+test("deliverRun: at threshold → FAIL with actionable no-TUI-attached message (mirrored to sender), NOT another requeue", async () => {
+  const { httpCall, calls } = makeAifyHttp();
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  // Pre-seed the streak so this delivery is the Nth consecutive empty attach.
+  const emptyAttachCounter = new Map([["run-1", 2]]);
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    attachWaitMs: 5,
+    attachPollMs: 1,
+    sleepImpl: async () => {},
+    gatewayUrl: "ws://127.0.0.1:9136/api/ws?token=x",
+    emptyAttachCounter,
+    emptyAttachFailThreshold: 3,
+  });
+
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "failed", "at the threshold the run must FAIL, not requeue forever");
+  const detail = String(patch.body.error || patch.body.summary || "");
+  assert.match(detail, /no visible hermes tui attached/i, "the failure must say no visible TUI attached");
+  assert.match(detail, /ws:\/\/127\.0\.0\.1:9136/, "the failure must name the gateway URL");
+  assert.match(detail, /hermes-aify/i, "the failure must tell the operator to relaunch hermes-aify");
+  // No submit attempted (there was never a session), and the streak is cleared so
+  // a later re-claim of a (different) run starts fresh.
+  assert.ok(!ws.sent.find((f) => f.method === "prompt.submit"), "no submit when no session attached");
+  assert.equal(emptyAttachCounter.has("run-1"), false, "the failed run's streak entry must be cleared");
+  // The turn_busy pulse is cleared (the run is terminal, not 'working').
+  assert.ok(findCall(calls, "POST", (e) => e.endsWith("/turn-end")), "a bounded-fail must clear the turn_busy pulse");
+});
+
+test("deliverRun: a successful attach RESETS the run's no-attach streak (slow cold start never penalized)", async () => {
+  const { httpCall } = makeAifyHttp();
+  const ws = makeFakeWsClient({
+    "session.active_list": ACTIVE_LIST_RESULT,
+    "prompt.submit": { status: "streaming" },
+  });
+  // The run had accumulated empties on prior cold polls; this delivery attaches.
+  const emptyAttachCounter = new Map([["run-1", 4]]);
+
+  await deliverRun({
+    run: SAMPLE_RUN,
+    agentId: "sc-hermes",
+    httpCall,
+    wsClient: ws,
+    tempDir: MARKER_DIR,
+    emptyAttachCounter,
+    emptyAttachFailThreshold: 3,
+  });
+
+  assert.equal(emptyAttachCounter.has("run-1"), false, "a successful attach must clear the streak so it's never failed retroactively");
+});
+
+test("runPollCycle: threads the shared emptyAttachCounter into deliverRun (persists across cycles)", async () => {
+  // One claim of an UNATTACHABLE run, threshold 1 → the single empty attach
+  // immediately trips the bounded fail through the poll-cycle path.
+  const { httpCall, calls } = makeAifyHttp({ claims: [SAMPLE_RUN] });
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  const emptyAttachCounter = new Map();
+
+  // Tight attach timing via env so the poll-cycle deliverRun doesn't really wait.
+  const prevWait = process.env.AIFY_HERMES_ATTACH_WAIT_MS;
+  const prevPoll = process.env.AIFY_HERMES_ATTACH_POLL_MS;
+  process.env.AIFY_HERMES_ATTACH_WAIT_MS = "5";
+  process.env.AIFY_HERMES_ATTACH_POLL_MS = "1";
+  try {
+    await runPollCycle({
+      agentId: "sc-hermes",
+      httpCall,
+      wsClient: ws,
+      gatewayUrl: "ws://127.0.0.1:9136/api/ws?token=x",
+      tempDir: MARKER_DIR,
+      emptyAttachCounter,
+      // The poll-cycle's deliverRun uses module ATTACH_* env (read at import), so we
+      // also pass a small threshold via the counter pre-seed isn't possible here;
+      // instead rely on the default threshold but assert the counter incremented,
+      // proving the shared map is threaded through (persistence across cycles).
+    });
+  } finally {
+    if (prevWait === undefined) delete process.env.AIFY_HERMES_ATTACH_WAIT_MS; else process.env.AIFY_HERMES_ATTACH_WAIT_MS = prevWait;
+    if (prevPoll === undefined) delete process.env.AIFY_HERMES_ATTACH_POLL_MS; else process.env.AIFY_HERMES_ATTACH_POLL_MS = prevPoll;
+  }
+
+  // The shared counter saw this run (proves runPollCycle threads it to deliverRun).
+  assert.equal(emptyAttachCounter.get("run-1"), 1, "runPollCycle must thread the shared emptyAttachCounter into deliverRun");
+  // And below the default threshold it requeued (cold-start behaviour preserved).
+  const patch = findCall(calls, "PATCH", (e) => e.startsWith("/dispatch/runs/"));
+  assert.equal(String(patch.body.status), "queued");
 });
 
 // ---------------------------------------------------------------------------
@@ -671,13 +805,19 @@ const STALE_ONLY_SESSIONS = {
   },
 };
 
-test("waitForActiveSession: FALLBACK freshness floor — a STALE most-recent row is NOT bound (keeps waiting → null at deadline)", async () => {
+test("waitForActiveSession: FALLBACK freshness floor — DURING the relaunch grace a STALE most-recent row is NOT bound", async () => {
   // The only live row started at 09:00, but this delivery attempt's floor is 10:00
-  // (a relaunch in progress). The stale pre-attach session must be SKIPPED — never
-  // bound, never persisted — and the wait runs out → null (requeue), not a stale bind.
+  // (a relaunch in progress). DURING the grace window the stale pre-attach session
+  // must be SKIPPED — never bound, never persisted. We use a synthetic clock that
+  // never reaches graceUntil within the deadline so we exercise the in-grace path:
+  // the wait runs out → null (requeue), not a stale bind. (FIX A: the grace is
+  // bounded; the "after grace" acceptance is covered by the next test.)
   const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
   let id = 1;
   let wrote = null;
+  // Clock advances 1ms/call from the floor. With graceMs=1000 the grace never
+  // elapses before the 10ms deadline, so we stay in the in-grace (skip-stale) path.
+  let clock = Date.parse("2026-06-03T10:00:00Z");
   const sid = await waitForActiveSession({
     wsClient: ws,
     agentId: "sc-hermes",
@@ -688,10 +828,48 @@ test("waitForActiveSession: FALLBACK freshness floor — a STALE most-recent row
     intervalMs: 1,
     sleepImpl: async () => {},
     since: Date.parse("2026-06-03T10:00:00Z"), // floor AFTER the stale row's start
+    graceMs: 1000, // grace longer than the deadline → always in-grace
+    now: () => {
+      const t = clock;
+      clock += 1;
+      return t;
+    },
     log: () => {},
   });
-  assert.equal(sid, null, "a stale pre-attach session must NOT be bound (wait out the deadline instead)");
-  assert.equal(wrote, null, "a stale fallback row must NOT be persisted to the marker");
+  assert.equal(sid, null, "a stale pre-attach session must NOT be bound during the relaunch grace");
+  assert.equal(wrote, null, "a stale fallback row must NOT be persisted during grace");
+});
+
+test("waitForActiveSession: FALLBACK — AFTER the relaunch grace, an idle ATTACHED session (stale stamp) IS delivered to (FIX A regression)", async () => {
+  // THE BUG: an idle attached session whose stamp predates delivery was skipped on
+  // EVERY poll, so the run requeued forever and the operator only saw the placeholder.
+  // Presence in active_list means it's live/attached → once the grace elapses it MUST
+  // be bound + persisted, never requeued indefinitely.
+  const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
+  let id = 1;
+  let wrote = null;
+  // Clock starts at the floor and jumps past graceUntil quickly so the grace elapses.
+  let clock = Date.parse("2026-06-03T10:00:00Z");
+  const sid = await waitForActiveSession({
+    wsClient: ws,
+    agentId: "sc-hermes",
+    readMarker: () => "", // no bound id → fallback path
+    writeMarker: (a, v) => { wrote = { a, v }; },
+    nextId: () => id++,
+    deadlineMs: 100000, // generous: we want to prove it BINDS, not that it times out
+    intervalMs: 1,
+    sleepImpl: async () => {},
+    since: Date.parse("2026-06-03T10:00:00Z"),
+    graceMs: 50, // short grace
+    now: () => {
+      const t = clock;
+      clock += 100; // each call jumps 100ms → grace (50ms) elapses by the 2nd poll
+      return t;
+    },
+    log: () => {},
+  });
+  assert.equal(sid, "stale-real", "after grace, the idle attached session is bound despite its stale stamp");
+  assert.ok(wrote && wrote.v === "stale-real", "the bound idle session is persisted to the marker");
 });
 
 test("waitForActiveSession: FALLBACK freshness floor — a FRESH most-recent row (>= since) IS bound + persisted", async () => {
@@ -740,12 +918,13 @@ test("waitForActiveSession: freshness floor applies ONLY to the fallback — a m
   assert.equal(sid, "stale-real", "a marker-matched real id bypasses the freshness floor (intended session)");
 });
 
-test("waitForActiveSession: freshness floor defaults to entry-time `now` when no `since` is passed", async () => {
+test("waitForActiveSession: freshness floor defaults to entry-time `now` when no `since` is passed (in-grace)", async () => {
   // With no explicit `since`, the floor is `now()` at ENTRY. A row dated BEFORE
-  // that entry-now is stale → not bound (null at deadline). Proves the default
-  // wiring. `now` is captured ONCE for the floor but ADVANCES on subsequent calls
-  // so the deadline check still fires (a constant clock would never reach the
-  // deadline and spin forever).
+  // that entry-now is stale → not bound DURING the grace window (null at deadline).
+  // Proves the default wiring. `now` is captured ONCE for the floor but ADVANCES on
+  // subsequent calls so the deadline check still fires. graceMs is pinned LONGER than
+  // the deadline so we stay in the in-grace (skip-stale) path (FIX A: after-grace
+  // acceptance is covered by the dedicated regression test above).
   const ws = makeFakeWsClient({ "session.active_list": STALE_ONLY_SESSIONS });
   let id = 1;
   // Entry-now sits AFTER the 2026-06-03T09:00 fixture so the default floor rejects
@@ -760,6 +939,7 @@ test("waitForActiveSession: freshness floor defaults to entry-time `now` when no
     deadlineMs: 10,
     intervalMs: 1,
     sleepImpl: async () => {},
+    graceMs: 1000, // grace longer than the deadline → stay in the skip-stale path
     now: () => {
       const t = clock;
       clock += 5;
@@ -767,7 +947,7 @@ test("waitForActiveSession: freshness floor defaults to entry-time `now` when no
     },
     log: () => {},
   });
-  assert.equal(sid, null, "default since=now() rejects a row that started before entry");
+  assert.equal(sid, null, "default since=now() rejects a row that started before entry (during grace)");
 });
 
 // ---------------------------------------------------------------------------
@@ -1025,6 +1205,157 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
 
 test("runEnsureHostCli: no agentId → throws (non-zero exit at the CLI boundary)", async () => {
   await assert.rejects(() => runEnsureHostCli("", { spawnImpl: makeFakeSpawn().spawn, fetchImpl: makeFakeFetch() }));
+});
+
+// ---------------------------------------------------------------------------
+// runResolveSessionCli — LAUNCH-SIDE session convergence (FIX C, 2026-06-03).
+// Resolves the gateway's ground-truth session so the visible TUI resumes the SAME
+// session the delivery loop will target: marker-if-live, else most-recent live,
+// else empty. Persists the resolved id to the marker + seeds the active-session
+// file so visible-TUI == loop == marker == active-session file.
+// ---------------------------------------------------------------------------
+
+test("runResolveSessionCli: marker id is LIVE in active_list → resumes it, no rewrite, seeds active file", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "real-1", // bound id IS a live row
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "real-1", "prefers the marker id when it is a live row");
+  assert.equal(stdout.trim(), "real-1", "prints the resolved id on stdout");
+  assert.equal(wroteMarker, null, "no marker rewrite when the marker already matches a live row");
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "real-1" }, "seeds the active-session file");
+});
+
+test("runResolveSessionCli: marker STALE (not live) → most-recent live session, persists marker + active file", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": TWO_REAL_SESSIONS });
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "real-GONE", // stale marker, not in active_list
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "real-2", "falls back to the gateway's most-recent live session");
+  assert.equal(stdout.trim(), "real-2");
+  assert.deepEqual(wroteMarker, { a: "sc-hermes", v: "real-2" }, "persists the resolved id to the marker");
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "real-2" }, "seeds the active-session file");
+});
+
+test("runResolveSessionCli: NO live session yet → empty result (wrapper resumes marker / starts fresh)", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  let stdout = "";
+  let wroteActive = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "", // no marker either
+    writeMarker: () => {},
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "", "no live session → empty (never invents one)");
+  assert.equal(stdout.trim(), "", "prints an empty line");
+  assert.equal(wroteActive, null, "does not seed the active file when nothing resolved");
+});
+
+test("runResolveSessionCli: NO gateway url → falls back to the marker as-is (best known), never throws", async () => {
+  let stdout = "";
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "", // no gateway to consult
+    openClient: async () => { throw new Error("should not be called"); },
+    readMarker: () => "real-marker",
+    writeMarker: () => {},
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "real-marker", "no gateway → emit the marker as the best known id");
+  assert.equal(stdout.trim(), "real-marker");
+});
+
+test("runResolveSessionCli: active_list query throws → falls back to the marker (never blocks launch)", async () => {
+  let stdout = "";
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => { throw new Error("connect refused"); },
+    readMarker: () => "real-marker",
+    writeMarker: () => {},
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "real-marker", "query failure degrades to the marker, not a hard fail");
+  assert.equal(stdout.trim(), "real-marker");
+});
+
+test("runResolveSessionCli: no agentId → throws (CLI boundary)", async () => {
+  await assert.rejects(() => runResolveSessionCli("", {}));
+});
+
+// EXPLICIT-RESUME mode (BUG 2, 2026-06-03): `hermes-aify --resume <id>` makes <id>
+// AUTHORITATIVE — resolve-session --explicit <id> SEEDS the active-session file +
+// marker with <id>, SKIPS the gateway active_list query entirely, and prints <id>.
+test("runResolveSessionCli --explicit: seeds marker + active file with the operator id, no gateway query", async () => {
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = null;
+  const res = await runResolveSessionCli("ci-senior-dev", {
+    explicitId: "20260529_071302_ea65af",
+    // Even WITH a gateway, the explicit short-circuit must not consult it.
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => { throw new Error("gateway must NOT be queried on explicit resume"); },
+    readMarker: () => "20260603_034413_8480e3", // STALE marker (the live symptom)
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260529_071302_ea65af", "explicit id is authoritative");
+  assert.equal(res.source, "explicit-resume");
+  assert.equal(stdout.trim(), "20260529_071302_ea65af", "prints the explicit id");
+  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" }, "overwrites the stale marker with the explicit id");
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260529_071302_ea65af" }, "seeds the active-session file with the explicit id");
+});
+
+test("runResolveSessionCli --explicit: works even with NO gateway and NO active-file path (marker-only seed)", async () => {
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = false;
+  const res = await runResolveSessionCli("ci-senior-dev", {
+    explicitId: "20260529_071302_ea65af",
+    gatewayUrl: "",
+    readMarker: () => "",
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: () => { wroteActive = true; },
+    activeSessionFile: "", // no active-file env → only the marker is seeded
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260529_071302_ea65af");
+  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" });
+  assert.equal(wroteActive, false, "no active-file path → does not attempt to seed it");
+  assert.equal(stdout.trim(), "20260529_071302_ea65af");
 });
 
 test("runDeliveryLoop: starts the claim/deliver loop and tears down the gateway host on release", async () => {

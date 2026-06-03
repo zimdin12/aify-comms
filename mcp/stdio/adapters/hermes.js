@@ -70,8 +70,25 @@ export class HermesAdapter extends RuntimeAdapter {
   async discoverSessionId(opts = {}) {
     const { env = process.env, agentId } = opts;
 
+    // (a) PRIMARY — the TUI active-session file (the live visible session). On an
+    // explicit `--resume <id>` the wrapper seeds this with <id> (resolve-session
+    // --explicit), so it's already authoritative here.
     const active = this._readActiveSessionFile(env);
     if (active) return active;
+
+    // EXPLICIT OPERATOR RESUME (BUG 2, 2026-06-03): when the operator passed
+    // `hermes-aify --resume <id>` the wrapper exports
+    // AIFY_EXPLICIT_SESSION_HANDLE=true + AIFY_SESSION_HANDLE=<id>. That <id> is
+    // AUTHORITATIVE for the registered handle — it MUST win over the (possibly
+    // stale) per-agent session marker, so the agent registers the very session the
+    // visible TUI resumed, never a stale `aify-hermes-session-<agent>` value. We
+    // place it ABOVE the env-session/marker fallbacks but BELOW the active-file so
+    // a live active-file (seeded with the same id) still leads.
+    const explicitResume = String(env.AIFY_EXPLICIT_SESSION_HANDLE || "").trim().toLowerCase();
+    if (explicitResume === "true" || explicitResume === "1") {
+      const explicitId = String(env.AIFY_SESSION_HANDLE || "").trim();
+      if (explicitId) return explicitId;
+    }
 
     const envSession = this.getCurrentSessionId();
     if (envSession) return envSession;
