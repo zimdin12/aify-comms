@@ -2061,6 +2061,13 @@ if (\$env:AIFY_HERMES_DISABLE_PLUGIN -eq '1') {
 
 function Invoke-HermesRuntime {
   param([string[]]\$RunArgs)
+  # The interactive hermes TUI writes to stderr during a normal session; under the
+  # script-level \$ErrorActionPreference='Stop', PowerShell 5.1 escalates native
+  # stderr to a TERMINATING NativeCommandError, which would kill the wrapper (and
+  # reap the delivery loop) mid-session. Relax to 'Continue' here — preference vars
+  # are function-scoped, so this reverts automatically on return and does not affect
+  # the rest of the script's fail-fast behavior.
+  \$ErrorActionPreference = 'Continue'
   & \$HermesRuntimeCommand @RunArgs
   if (\$null -eq \$global:LASTEXITCODE) {
     \$script:HermesRuntimeExitCode = 0
@@ -2202,18 +2209,18 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
     exit 1
   }
   [Console]::Error.WriteLine("[hermes-aify] managed gateway host ready: \$hermesHostJson")
-  # Resolve the agent's REAL native hermes session id from the agent-keyed marker
-  # \`aify-hermes-session-<agentId>\` (written by the bridge on register/bind via
-  # hermes-endpoint.js writeSessionIdMarker). If present we resume that SAME real
-  # session — a continuous transcript, symmetric with claude's UUID / codex's
-  # thread id. If absent (first launch), we start a FRESH session: hermes assigns
-  # a new real id and the bridge captures+stores it on register. The synthetic
-  # \`aify-<agentId>\` resume key is gone (no more pre-seed/rename dance).
-  # NOTE: a Windows backslash absolute path is NOT a valid ESM import specifier
-  # (the default loader requires a file:// URL), so convert with pathToFileURL —
-  # otherwise the import always throws and the marker read silently yields empty.
-  \$hermesResumeRealId = & node -e 'import(require("url").pathToFileURL(process.argv[1]).href).then(m=>process.stdout.write(m.readSessionIdMarker(process.argv[2])||"")).catch(()=>{})' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$HermesAifyAgentId 2>\$null
-  if (\$null -ne \$hermesResumeRealId) { \$hermesResumeRealId = ("\$hermesResumeRealId").Trim() }
+  # Resolve target for the agent's REAL native hermes session id. Populated by the
+  # \`resolve-session\` convergence call below (after the gateway is up): it returns
+  # the live gateway session when one exists, else FALLS BACK to the agent-keyed
+  # marker (\`aify-hermes-session-<agentId>\`, written by the bridge on register), so
+  # a separate marker read here is redundant. (We deliberately do NOT read the
+  # marker via an inline \`node -e\` here: PowerShell 5.1's native-argument passing
+  # mangles a -e script that contains embedded double-quotes — e.g. require("url"),
+  # ||"" — handing node a malformed script that fails with [eval]:1 and kills the
+  # wrapper. \`resolve-session\` is invoked with simple args, so it is PS-safe.)
+  # If neither a live session nor a marker exists (first launch), this stays empty
+  # and we start a FRESH session; the bridge captures+stores its real id on register.
+  \$hermesResumeRealId = ""
   # (3) Background delivery loop — hidden window, survives this script. Capture
   # its PID (-PassThru) so kill-prior can EXCLUDE it (self-reap race) and so we
   # can health-gate on the loop we actually started.
@@ -2258,7 +2265,14 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   # operator did NOT pass an explicit --resume (that wins). Best-effort + bounded;
   # an empty result falls through to the marker / fresh-session paths below.
   if (-not (\$HermesExplicitSessionHandle -and \$HermesSessionHandle)) {
+    # PowerShell 5.1 escalates a native command's stderr to a TERMINATING
+    # NativeCommandError under \$ErrorActionPreference='Stop' (even with 2>\$null).
+    # resolve-session logs progress to stderr, so relax EAP to 'Continue' for just
+    # this best-effort call: stderr is dropped, stdout (the resolved id) is captured,
+    # and a normal stderr log can no longer kill the wrapper.
+    \$eapPrev = \$ErrorActionPreference; \$ErrorActionPreference = 'Continue'
     \$hermesResolvedSessionId = & node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId 2>\$null | Select-Object -First 1
+    \$ErrorActionPreference = \$eapPrev
     if (\$null -ne \$hermesResolvedSessionId) { \$hermesResolvedSessionId = ("\$hermesResolvedSessionId").Trim() }
     if (-not [string]::IsNullOrEmpty(\$hermesResolvedSessionId)) {
       \$hermesResumeRealId = \$hermesResolvedSessionId
@@ -2285,7 +2299,10 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
       # the in-session bridge's discoverSessionId reads <id> and a stale marker can
       # never override it. resolve-session --explicit short-circuits the gateway
       # query and just seeds both. Best-effort; never blocks the launch.
+      # (EAP relaxed: PS 5.1 turns native stderr into a terminating error under 'Stop'.)
+      \$eapPrev = \$ErrorActionPreference; \$ErrorActionPreference = 'Continue'
       & node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId --explicit \$HermesSessionHandle 2>\$null | Out-Null
+      \$ErrorActionPreference = \$eapPrev
       [Console]::Error.WriteLine("[hermes-aify] resuming explicit hermes session '\$HermesSessionHandle' for agent '\$HermesAifyAgentId' (seeded active-session file + marker -- authoritative handle).")
       Invoke-HermesRuntime (@('--tui', '--resume', \$HermesSessionHandle) + \$HermesPermissionFlags)
     } elseif (-not [string]::IsNullOrEmpty(\$hermesResumeRealId)) {
