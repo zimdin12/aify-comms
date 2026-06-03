@@ -186,11 +186,24 @@ copy_bridge_to_native_dir() {
   fi
   mkdir -p "$AIFY_NATIVE_BASE/mcp"
   if command -v rsync >/dev/null 2>&1; then
+    # Linux / WSL / macOS: rsync -a preserves symlinks (node_modules/.bin shims)
+    # natively. This is the path WSL+Mac take.
     rsync -a --delete "$src/" "$AIFY_BRIDGE_DIR/"
   else
+    # Windows Git-Bash / MSYS (no rsync): `cp` cannot recreate POSIX symlinks
+    # without symlink privilege (git core.symlinks=false, no winsymlinks), so a
+    # plain `cp -R` of node_modules ABORTS the whole install under `set -e`.
+    # Additionally an orphaned npm atomic-install temp symlink (e.g. a dangling
+    # .bin/.pkg-XXXXXX) makes even `cp -L` fail because its target is gone.
+    # Make the fallback cross-platform-robust: (1) prune ONLY dangling symlinks
+    # (broken cruft — the real file beside them remains), then (2) DEREFERENCE
+    # with -L so symlink targets are copied as plain files and no symlink is ever
+    # created. node_modules/.bin shims are the only symlinks and the bridge runtime
+    # never uses them, so copying their targets as files is functionally identical.
     rm -rf "$AIFY_BRIDGE_DIR"
     mkdir -p "$AIFY_BRIDGE_DIR"
-    cp -R "$src/." "$AIFY_BRIDGE_DIR/"
+    find "$src" -type l ! -exec test -e {} \; -exec rm -f {} \; 2>/dev/null || true
+    cp -RL "$src/." "$AIFY_BRIDGE_DIR/"
   fi
   echo "  Bridge runtime installed to $AIFY_BRIDGE_DIR (native, fast load)."
 }
