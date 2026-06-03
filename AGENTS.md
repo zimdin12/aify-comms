@@ -81,12 +81,12 @@ principles. Full rationale + per-runtime detail:
 
 | Concern | claude | hermes | codex | pi |
 |--------|--------|--------|-------|-----|
-| Session id source | `captured` (SessionStart hook) | `pinned` (`aify-<agentId>`) | `resume` | `resume` |
-| Delivery shape | sidecar-channel | sidecar-channel | controller (PTY/native) | controller (PTY) |
+| Session id source | `captured` (SessionStart hook) | `captured` (native session id via active-session file, stored as the handle) | `resume` | `resume` |
+| Delivery shape | sidecar-channel | gateway-host (WS tui_gateway) | controller (PTY/native) | controller (PTY) |
 | Reply author | agent self (`comms_send` + `inReplyTo`) | agent self (`comms_send`) | agent self | agent self |
-| Owns its own process | process per agent | `ASYMMETRY(hermes)`: hidden `hermes dashboard --tui` gateway host + a visible `hermes --tui --resume aify-<agentId>` PTY (rendered in the dashboard console); its equivalent of one-process-per-agent | process per agent | process per agent |
-| Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: `hermes-managed-host.js` channel-sidecar discovers the TUI session and delivers via WS `prompt.submit` / `session.steer` into the pinned `aify-<agentId>` session; agent then self-replies | controller inject | controller inject |
-| Can be force-pinned | `ASYMMETRY(claude)`: mints its own id → `captured` not `pinned`; we capture+resume+guard | yes (`aify-<agentId>` on its daemon) | partial (resume id) | partial |
+| Owns its own process | process per agent | `ASYMMETRY(hermes)`: hidden `hermes dashboard --tui` gateway host + a visible `hermes --tui` PTY resuming the agent's REAL native session (rendered in the dashboard console); its equivalent of one-process-per-agent | process per agent | process per agent |
+| Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: `hermes-managed-host.js` channel-sidecar finds the agent's real session in `session.active_list` (by the stored id / `aify-hermes-session-<agentId>` marker, most-recent fallback) and delivers via WS `prompt.submit` / `session.steer`; agent then self-replies | controller inject | controller inject |
+| Can be force-pinned | `ASYMMETRY(claude)`: mints its own id → `captured` not `pinned`; we capture+resume+guard | no — `captured` like claude: hermes uses its OWN native session id (no synthetic `aify-<id>`) | partial (resume id) | partial |
 
 Shrink the asymmetry column over time. What remains for hermes (per-agent daemon;
 sidecar-delivered wake) is intrinsic to its architecture and documented above.

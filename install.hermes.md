@@ -114,24 +114,28 @@ might be wrong for your shell context.
 
 Managed hermes uses the visible-TUI model: a hidden `hermes dashboard --tui
 --port <P>` gateway host plus a `hermes-managed-host.js run <agent>` delivery
-loop (runs as a `channel-sidecar` bridge; discovers the TUI's session via WS
-`session.active_list` + `pickSessionForKey('aify-<agentId>')` and delivers via
-WS `prompt.submit` / `session.steer`), plus a VISIBLE `hermes --tui --resume
-aify-<agentId>` rendered in the dashboard Console via xterm.js. The agent
-self-replies via `comms_send`. Session continuity is the deterministic stable
-pinned id `aify-<agentId>`.
+loop (runs as a `channel-sidecar` bridge; discovers the TUI's live session by
+the agent's stored **real session id** via WS `session.active_list`, and
+delivers via WS `prompt.submit` / `session.steer`), plus a VISIBLE
+`hermes --tui --resume <real-session-id>` rendered in the dashboard Console via
+xterm.js. The agent self-replies via `comms_send`. Session continuity uses the
+agent's **native hermes session id** — a normal timestamp id, symmetric with
+claude (UUID) / codex (thread). There is no synthetic `aify-<agentId>` session.
 
 Resident and managed now share one delivery model: the RESIDENT branch uses the
 SAME hidden `hermes dashboard --tui` gateway host + background delivery loop as
 managed (injected messages render in the visible TUI via gateway-WS
 `prompt.submit` / `session.steer`). The old per-agent `hermes gateway run`
 api_server daemon resident path was DELETED — resident no longer starts or tears
-down any api_server daemon. Both branches resume the stable pinned
-`aify-<agentId>` session, so continuity is consistent regardless. The retired
-managed-delivery pieces (the per-agent `hermes gateway run` api_server daemon
-AS the delivery path, `aify.session.bind_transport` / `HermesResidentController`,
-api_server `chat` wake, and active-session-FILE discovery) should not be
-treated as live.
+down any api_server daemon. Both branches resume the agent's stored real session
+id, so continuity is consistent regardless. The retired managed-delivery pieces
+(the per-agent `hermes gateway run` api_server daemon AS the delivery path,
+`aify.session.bind_transport` / `HermesResidentController`, and api_server `chat`
+wake) should not be treated as live. The agent→real-session binding is the
+per-agent marker `aify-hermes-session-<agentId>`; the bridge reads the visible
+session's real id from the active-session file (env
+`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`), which is
+now the PRIMARY id source.
 
 If wrapper-backed delivery is disabled or unavailable, the bridge can fall
 back to native Hermes controllers (`HermesController` /
@@ -237,12 +241,12 @@ race bug.
 
 ### Resident dispatch delivery (operator-launched `hermes-aify`)
 
-`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Session continuity is deterministic: the wrapper pins a stable session id `aify-<agentId>` (exported as `HERMES_TUI_RESUME`) and launches `hermes --tui --resume aify-<agentId>`, so the same session is reused across dispatches instead of being discovered from gateway state. The aify-comms bridge attaches to the same `/api/ws` gateway, discovers the TUI's live session (WS `session.active_list` + `pickSessionForKey('aify-<agentId>')`), and delivers via WS `prompt.submit` (idle) / `session.steer` (mid-run). MCP discovery still runs before the TUI gateway builds its `AIAgent`; this matters because `hermes mcp test aify-comms` runs in a separate CLI process and can succeed while the already-running TUI gateway still has no `mcp_aify_comms_*` tools.
+`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Session continuity uses the agent's **native hermes session id** (a normal timestamp id), stored as the `sessionHandle` — symmetric with claude (UUID) / codex (thread). `hermes-aify --aify-agent <id>` brings up the gateway-host and resumes the agent's stored real session (or starts fresh the first time); `hermes-aify --resume <real-session-id>` recovers the agent from the stored handle and resumes that real session. There is no synthetic `aify-<agentId>` session — the operator never types one, and `HERMES_TUI_RESUME` is no longer pinned to a derived name. The aify-comms bridge attaches to the same `/api/ws` gateway, reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and discovers it via WS `session.active_list`, then delivers via WS `prompt.submit` (idle) / `session.steer` (mid-run). MCP discovery still runs before the TUI gateway builds its `AIAgent`; this matters because `hermes mcp test aify-comms` runs in a separate CLI process and can succeed while the already-running TUI gateway still has no `mcp_aify_comms_*` tools.
 
 1. The wrapper spawns `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child. This sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher.
 2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (`web_server.py:3688`).
-3. It exports `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<P>/api/ws?token=<T>` and `HERMES_TUI_RESUME=aify-<agentId>` in the env passed to `hermes --tui`. The Ink TUI's `gatewayClient.ts:startAttachedGateway` opens a WebSocket to that URL instead of spawning its own stdio sidecar — operator sees their normal terminal TUI experience, resumed on the stable pinned `aify-<agentId>` session. On native Windows, `hermes-aify.cmd` runs a generated PowerShell shim instead of Git Bash so the final `hermes.exe --tui` process keeps the real console TTY.
-4. The aify-comms bridge (loaded inside `hermes chat` as an MCP server) ALSO opens a WebSocket to the same `/api/ws` (it reads `AIFY_HERMES_GATEWAY_URL` from env, written into the hermes runtime marker by `server.js`). For inbound aify-comms messages the bridge discovers the live TUI session via WS `session.active_list` + `pickSessionForKey('aify-<agentId>')`, then issues JSON-RPC `prompt.submit` (idle session) or `session.steer` (mid-run insertion, when `prompt.submit` returns code 4009 "session busy") against that session. Because the session id is the deterministic pinned `aify-<agentId>`, no `bind_transport` / `session.most_recent` negotiation is needed. Hermes emits real gateway events as `event` frames such as `message.delta`, `message.complete`, `tool.start`, and `tool.complete`; aify-comms translates those into run output and chat replies.
+3. It exports `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<P>/api/ws?token=<T>` in the env passed to `hermes --tui`, and resumes the agent's stored real session id (`--resume <real-session-id>`) when one exists, else starts fresh. The Ink TUI's `gatewayClient.ts:startAttachedGateway` opens a WebSocket to that URL instead of spawning its own stdio sidecar — operator sees their normal terminal TUI experience, resumed on the agent's native session. On native Windows, `hermes-aify.cmd` runs a generated PowerShell shim instead of Git Bash so the final `hermes.exe --tui` process keeps the real console TTY.
+4. The aify-comms bridge (loaded inside `hermes chat` as an MCP server) ALSO opens a WebSocket to the same `/api/ws` (it reads `AIFY_HERMES_GATEWAY_URL` from env, written into the hermes runtime marker by `server.js`). For inbound aify-comms messages the bridge reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and confirms it via WS `session.active_list`, then issues JSON-RPC `prompt.submit` (idle session) or `session.steer` (mid-run insertion, when `prompt.submit` returns code 4009 "session busy") against that session. The session id is the agent's native real id (bound by the `aify-hermes-session-<agentId>` marker), so no `bind_transport` / `session.most_recent` negotiation is needed. Hermes emits real gateway events as `event` frames such as `message.delta`, `message.complete`, `tool.start`, and `tool.complete`; aify-comms translates those into run output and chat replies.
 
 This is the Hermes equivalent to Claude Code channel delivery for the harness-console feature: the prompt and reply should render in the open `hermes-aify` terminal, while the same streamed events complete the aify-comms run/chat accounting.
 
@@ -321,23 +325,27 @@ When `hermes-aify` cannot start the dashboard gateway (port allocation failure, 
 
 Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work. Current fallback still preserves an explicit `hermes-aify --resume <session-id>` by launching plain `hermes --tui --resume <session-id>` when the gateway path cannot start.
 
-### Session continuity (stable pinned id)
+### Session continuity (native session id)
 
-Session continuity is deterministic, not discovered. The wrapper pins a stable
-session id `aify-<agentId>` and launches `hermes --tui --resume aify-<agentId>`
-(exported as `HERMES_TUI_RESUME`). Every dispatch resumes that same id, so the
-agent's chat history is stable across wakes without negotiating which session
-is "current." The old active-session-FILE discovery
-(`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`) and the
-`session.most_recent` binding path are retired — they reported historical
-Hermes DB state and could bind to a session that could not visibly receive
-delivery. The aify-comms bridge now finds the live session via WS
-`session.active_list` + `pickSessionForKey('aify-<agentId>')`.
+Session continuity uses the agent's **native hermes session id** — a normal
+timestamp id stored as the `sessionHandle`, symmetric with claude (UUID) /
+codex (thread). There is no synthetic `aify-<agentId>` session. `hermes-aify
+--aify-agent <id>` resumes the agent's stored real session (or starts fresh the
+first time); `hermes-aify --resume <real-session-id>` resumes that specific
+session. The agent→real-session binding is the per-agent marker
+`aify-hermes-session-<agentId>`, and the bridge reads the visible session's real
+id from the active-session file (`HERMES_TUI_ACTIVE_SESSION_FILE` /
+`AIFY_HERMES_ACTIVE_SESSION_FILE`) — this active-session-file discovery is now
+the PRIMARY id source. The `session.most_recent` binding path is not used: it
+reported historical Hermes DB state and could bind to a session that could not
+visibly receive delivery. The aify-comms bridge confirms the live session via
+WS `session.active_list`.
 
 If dispatch says `visible session not found`, the open terminal was started
 with an old wrapper, with `AIFY_HERMES_DISABLE_PLUGIN=1`, or before the visible
-TUI attached on the pinned id. Re-run `install.sh --client hermes`, restart that
-`hermes-aify` terminal, and re-register from inside the same visible session.
+TUI attached to its real session. Re-run `install.sh --client hermes`, restart
+that `hermes-aify` terminal, and re-register from inside the same visible
+session.
 
 ## What This Installs
 

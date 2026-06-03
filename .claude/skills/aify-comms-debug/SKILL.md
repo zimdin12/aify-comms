@@ -412,11 +412,12 @@ relaunches.
 
 **Relaunch also reaps the prior visible resume-TUI (2026-06-02, `99563af`).**
 kill-prior used to reap the prior delivery loop, gateway host, and daemon but NOT
-the prior `hermes --tui --resume aify-<agent>` visible TUI, so each silent relaunch
-leaked a duplicate resume-TUI. kill-prior now reaps that prior resume-TUI too,
-matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a broad
-`hermes --tui`, gated **pre-spawn only** so the post-spawn self-reap-race call can't
-kill the gateway/daemon/TUI the current launch just started.
+the prior `hermes --tui --resume <real-session-id>` visible TUI, so each silent
+relaunch leaked a duplicate resume-TUI. kill-prior now reaps that prior resume-TUI
+too, matched to the agent's stored native session id (from the
+`aify-hermes-session-<agentId>` marker), never a broad `hermes --tui`, gated
+**pre-spawn only** so the post-spawn self-reap-race call can't kill the
+gateway/daemon/TUI the current launch just started.
 
 **STOP reaps the whole triad; restart reaps the pile (2026-06-02, `f0bdaef`).** You
 no longer hand-kill stray `hermes.exe`. A dashboard **Stop** on a managed-hermes
@@ -1484,7 +1485,7 @@ own visible TUI.
 
 2. Get the runtime's actual current session id, per runtime:
 
-   - **hermes**: do **not** use gateway `session.most_recent` as the current visible session — it can be historical DB state. The managed visible-TUI uses a DETERMINISTIC stable session key `aify-<agentId>` resumed via `HERMES_TUI_RESUME`/`--resume` (the wrapper exports `HERMES_TUI_RESUME`; the per-agent active-session-file mechanism is RETIRED). To find the live runtime sid, ask the gateway `session.active_list` and match `pickSessionForKey('aify-<agentId>')`, or just use `comms_agent_info`:
+   - **hermes**: do **not** use gateway `session.most_recent` as the current visible session — it can be historical DB state. The visible-TUI runs on the agent's **native hermes session id** (a normal timestamp id stored as the `sessionHandle`, symmetric with claude/codex) — there is no synthetic `aify-<agentId>` session. The PRIMARY id source is the per-agent active-session file (`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`), bound to the agent by the `aify-hermes-session-<agentId>` marker. To find the live runtime sid, read that file (or ask the gateway `session.active_list` for the agent's stored real id), or just use `comms_agent_info`:
      ```bash
      curl -s http://localhost:8800/api/v1/agents/YOUR-AGENT-ID | python -m json.tool | grep -E '"sessionHandle"|"sessionId"'
      ```
