@@ -46,6 +46,7 @@ import {
   clearSessionMarker as defaultClearSessionMarker,
   readSessionIdMarker,
   writeSessionIdMarker,
+  isUsableSessionId,
 } from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
 import { writeLoopReady, clearLoopReady } from "./hermes-loop-ready.js";
@@ -2361,8 +2362,11 @@ export async function runResolveSessionCli(agentId, deps = {}) {
 
   // EXPLICIT-RESUME short-circuit: an operator-supplied id wins unconditionally.
   // Seed the active-session file + marker and print it; no gateway round-trip.
+  // Guard against an UNEXPANDED placeholder (e.g. `--resume "${HERMES_SESSION_ID}"`
+  // when the var is unset) — treat it as "no explicit" and fall through to
+  // active_list resolution, never seed a poison id (2026-06-04).
   const explicit = String(explicitId || "").trim();
-  if (explicit) {
+  if (explicit && isUsableSessionId(explicit)) {
     try { writeMarker(id, explicit, { tempDir }); } catch { /* best-effort */ }
     if (activeSessionFile) {
       try { writeActiveSessionFile(activeSessionFile, explicit); } catch { /* best-effort */ }

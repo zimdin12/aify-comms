@@ -1122,7 +1122,13 @@ async function autoRegisterConfiguredAgent() {
   const agentCwd = /\$\{.*\}/.test(rawAgentCwd) ? "" : rawAgentCwd;
   const cwd = normalizeRegistrationCwd(runtime, agentCwd || DEFAULT_CWD);
   let runtimeConfig = resolvedRuntimeConfigForRegistration(runtime, null, cwd);
-  const envHandle = String(process.env.AIFY_SESSION_HANDLE || defaultSessionHandleForRuntime(runtime) || "").trim();
+  // Same ${...}-placeholder guard as AIFY_AGENT_CWD above (FIX 2): an unexpanded
+  // `AIFY_SESSION_HANDLE="${HERMES_SESSION_ID}"` (wrapper/config var unset) must NOT
+  // become the registered handle — it poisons the agent→session binding. Strip it so
+  // the runtime default / discover path applies instead (2026-06-04).
+  const rawSessionHandle = String(process.env.AIFY_SESSION_HANDLE || "");
+  const cleanSessionHandle = /\$\{.*\}/.test(rawSessionHandle) ? "" : rawSessionHandle;
+  const envHandle = String(cleanSessionHandle || defaultSessionHandleForRuntime(runtime) || "").trim();
   // Plan 6 A2: discover authoritative, env fallback. See computeInitialSessionHandle above.
   const initialHandle = await computeInitialSessionHandle({ adapter: __runtimeAdapter, envHandle });
   let codexLiveBinding = null;

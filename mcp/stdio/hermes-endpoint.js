@@ -244,10 +244,24 @@ function sessionIdMarkerPath(agentId, tempDir) {
   return path.join(tempDir, `aify-hermes-session-${sanitizeAgentId(agentId)}`);
 }
 
+// A USABLE hermes session id is alphanumeric + `_` / `-` (e.g.
+// `20260604_050351_21531a`, the synthetic `aify-<agentId>`, or a short hex id).
+// Reject empty AND — critically — unexpanded shell/template placeholders like
+// `${HERMES_SESSION_ID}` or `${AIFY_SESSION_HANDLE}`. Those leak in when a
+// config.yaml MCP-env template (`HERMES_SESSION_ID: "${HERMES_SESSION_ID}"`) or a
+// wrapper var is UNSET, and if written they POISON the agent→session binding so the
+// next launch resumes a nonexistent id and silently starts fresh (the 2026-06-04
+// sc-tester incident). Guarding the marker read+write boundary makes a poison value
+// a no-op regardless of which caller produced it (defense-in-depth).
+export function isUsableSessionId(value) {
+  const v = String(value || "").trim();
+  return v.length > 0 && /^[A-Za-z0-9_-]+$/.test(v);
+}
+
 export function writeSessionIdMarker(agentId, sessionId, { tempDir = defaultMarkerTmpDir() } = {}) {
   const safe = sanitizeAgentId(agentId);
   const id = String(sessionId || "").trim();
-  if (!safe || !id) return false;
+  if (!safe || !isUsableSessionId(id)) return false; // never persist a placeholder/garbage id
   try {
     fs.writeFileSync(sessionIdMarkerPath(agentId, tempDir), id);
     return true;
@@ -261,7 +275,10 @@ export function readSessionIdMarker(agentId, { tempDir = defaultMarkerTmpDir() }
   if (!safe) return "";
   try {
     const v = fs.readFileSync(sessionIdMarkerPath(agentId, tempDir), "utf8").trim();
-    return v || "";
+    // Treat a poisoned/placeholder marker (e.g. a pre-fix `${HERMES_SESSION_ID}`
+    // written before the write-guard) as ABSENT, so the next launch falls through
+    // to active_list resolution / fresh-start instead of resuming garbage.
+    return isUsableSessionId(v) ? v : "";
   } catch {
     return "";
   }
