@@ -5355,6 +5355,26 @@ async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db
     if status in _MANUAL_STATUSES:
         return status
     if db is not None:
+        # Phase E1 (the CPU fix): under status_engine=new the cached
+        # agent_live_state row is kept fresh by push events (status-event ingest
+        # invalidates it) + the reconcile backstop, so a hot read serves the
+        # cached status directly instead of recomputing the legacy matrix +
+        # engine on EVERY call (claim deliverability / write endpoints / send
+        # preflight all funnel through here). Only recompute when the cache row
+        # is missing or expired (refresh_after passed). Gated on the flag so the
+        # default `old` path recomputes exactly as before.
+        settings = await _load_settings(db)
+        if str(settings.get("status_engine", "old")).lower() == "new":
+            cached = await (await db.execute(
+                "SELECT status, refresh_after FROM agent_live_state WHERE agent_id = ?",
+                (row["id"],),
+            )).fetchone()
+            refresh_after = str((cached["refresh_after"] if cached else "") or "").strip()
+            if cached and refresh_after and refresh_after > _now():
+                return cached["status"]
+            cache = await _refresh_agent_live_state(db, row["id"], settings=settings)
+            if cache:
+                return cache["status"]
         cache = await _refresh_agent_live_state(db, row["id"])
         if cache:
             return cache["status"]

@@ -85,6 +85,49 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(evt["agentId"], "d1")
         self.assertEqual(evt["status"], "working")
 
+    def test_hot_read_serves_cached_status_under_new_flag(self):
+        # Phase E1 (the CPU fix): under status_engine=new, a hot read
+        # (_compute_agent_status) must serve the ALREADY-CACHED
+        # agent_live_state.status when the cache row is still fresh, instead of
+        # recomputing the legacy matrix / engine per call. Seed a fresh cache row
+        # with a sentinel status and assert the hot read returns it verbatim.
+        import asyncio, json
+        from service.db import get_db
+        from service.routers import api_v2
+        self._register("e1", mode="resident")
+        self.client.post("/api/v1/agents/e1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self._set("status_engine", "new")
+        # Seed a cache row whose status would NEVER be derived (sentinel) and a
+        # refresh_after far in the future so it is unambiguously "fresh".
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                """
+                INSERT INTO agent_live_state (agent_id, status, reason, environment_id,
+                    session_id, terminal_id, active_run_id, refresh_after, updated_at)
+                VALUES (?, 'idle', 'sentinel', '', '', '', '', '9999-12-31T23:59:59Z', '2026-06-04T00:00:00Z')
+                ON CONFLICT(agent_id) DO UPDATE SET status='idle', reason='sentinel',
+                    refresh_after='9999-12-31T23:59:59Z'
+                """,
+                ("e1",),
+            )
+            c.commit()
+        finally:
+            c.close()
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='e1'")).fetchone()
+                return await api_v2._compute_agent_status(row, 5, 30, db)
+            finally:
+                await db.close()
+
+        # If the hot path recomputed, a fresh resident with no turn would derive
+        # `online`; serving the cache must yield the sentinel `idle` instead.
+        self.assertEqual(asyncio.run(run()), "idle",
+                         "hot read under flag=new must serve the fresh cached status, not recompute")
+
     def test_turn_start_event_no_push_under_old_flag(self):
         # Safety: with the default `old` flag the status-event ingest does NOT
         # broadcast engine-derived agent_status (old path is unchanged).
