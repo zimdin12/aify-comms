@@ -44,3 +44,20 @@ class StatusEventIngestTests(FastApiTestCase):
             finally:
                 await db.close()
         self.assertEqual(asyncio.run(run()), "working")
+
+    def _set(self, key, val):
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            import json
+            c.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (key, json.dumps(val))); c.commit()
+        finally: c.close()
+
+    def test_flag_new_serves_engine_status(self):
+        self._register("a3", mode="resident")
+        self.client.post("/api/v1/agents/a3/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.client.post("/api/v1/agents/a3/status-event", json={"kind": "turn_start", "runId": "r1"})
+        self._set("status_engine", "new")
+        r = self.client.get("/api/v1/agents")
+        a = r.json()["agents"]["a3"]
+        self.assertEqual(a["status"], "working")

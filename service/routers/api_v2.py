@@ -4355,7 +4355,31 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if not row:
         return None
+    settings = settings or await _load_settings(db)
     cache = await _compute_live_status_cache(db, row, settings=settings, now=now)
+    # status v2 flag-branch (2026-06-04). The served status is the cache `status`.
+    # Under `status_engine=new` the event-driven engine becomes authoritative for
+    # the served value; under `old` (default) the legacy derivation is unchanged.
+    # Disagreements are always logged so the new engine can be validated before
+    # the flip. Manual statuses (stop/disable) short-circuit the engine too — they
+    # are operator overrides that both paths must honor identically.
+    old_status = cache["status"]
+    if (
+        str(settings.get("status_engine", "old")).lower() == "new"
+        and old_status not in _MANUAL_STATUSES
+    ):
+        try:
+            new_status = await engine_status(db, row, settings=settings)
+            if old_status != new_status:
+                logger.info(
+                    "status-disagreement agent=%s old=%s new=%s",
+                    agent_id, old_status, new_status,
+                )
+            cache["status"] = new_status
+        except Exception:
+            # Never let the engine path break a live-state refresh — fall back to
+            # the legacy derivation (the `old` behavior).
+            logger.exception("engine_status failed for agent=%s; serving legacy status", agent_id)
     await db.execute(
         """
         INSERT INTO agent_live_state (
