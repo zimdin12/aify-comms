@@ -1094,13 +1094,17 @@ test("ensureGatewayHost: spawns hermes dashboard (NO --tui; rejected on the subc
     fetchImpl,
     probeFirst: false,
     readyIntervalMs: 1,
+    openWsImpl: async () => ({ close() {} }), // /api/ws opens OK
   });
 
   assert.equal(spawns.length, 1, "must spawn exactly one gateway host");
   const { cmd, args, opts } = spawns[0];
   assert.equal(cmd, "hermes");
   assert.ok(args.includes("dashboard"));
-  assert.ok(!args.includes("--tui"), "hermes 0.15.1 REJECTS --tui on the dashboard subcommand (it moved to a top-level flag); plain `dashboard` serves a working /api/ws");
+  assert.ok(!args.includes("--tui"), "hermes 0.15.1 REJECTS --tui on the dashboard subcommand; /api/ws is enabled via the HERMES_DASHBOARD_TUI=1 env instead");
+  // The embedded-chat env that gates /api/ws must be set on the spawn (else the
+  // socket closes 4403 → the 2026-06-04 gateway-WS incident).
+  assert.equal(opts.env.HERMES_DASHBOARD_TUI, "1", "HERMES_DASHBOARD_TUI=1 must be set so /api/ws opens");
   assert.ok(args.includes("--no-open"));
   assert.ok(args.includes("--skip-build"));
   // CRITICAL: no popup window.
@@ -1122,6 +1126,7 @@ test("ensureGatewayHost: waits for the dashboard to bind (retries on connection 
     spawn,
     fetchImpl,
     readyIntervalMs: 1,
+    openWsImpl: async () => ({ close() {} }),
   });
   assert.equal(out.token, "tok-abc123");
   assert.equal(spawns.length, 1);
@@ -1139,9 +1144,48 @@ test("ensureGatewayHost: idempotent — when the host already responds, does NOT
     fetchImpl,
     probeFirst: true,
     readyIntervalMs: 1,
+    openWsImpl: async () => ({ close() {} }),
   });
   assert.equal(spawns.length, 0, "must NOT spawn when a host is already serving the index");
   assert.equal(out.token, "tok-abc123");
+});
+
+test("ensureGatewayHost: a dead /api/ws (4403) FAILS readiness instead of returning a fake-ready host (2026-06-04 incident net)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  // The index serves a token, but the /api/ws socket closes (embedded-chat off) —
+  // openWsImpl rejects, mirroring the real 4403/1006 close. ensureGatewayHost MUST
+  // throw, so the caller fails fast instead of producing a headless orphan.
+  let threw = null;
+  try {
+    await ensureGatewayHost({
+      agentId: "sc-hermes",
+      port: 8766,
+      spawn,
+      fetchImpl,
+      probeFirst: false,
+      readyIntervalMs: 1,
+      openWsImpl: async () => { throw new Error("hermes gateway WS closed"); },
+    });
+  } catch (e) { threw = e; }
+  assert.ok(threw, "must throw when /api/ws does not open");
+  assert.match(String(threw.message), /api\/ws/, "error must name the /api/ws readiness failure");
+});
+
+test("ensureGatewayHost: verifyWs=false skips the WS probe (escape hatch)", async () => {
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const out = await ensureGatewayHost({
+    agentId: "sc-hermes",
+    port: 8767,
+    spawn,
+    fetchImpl,
+    probeFirst: false,
+    readyIntervalMs: 1,
+    verifyWs: false,
+    openWsImpl: async () => { throw new Error("should not be called"); },
+  });
+  assert.equal(out.token, "tok-abc123", "with verifyWs=false the WS probe is skipped and readiness is index-only");
 });
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1272,7 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
   const payload = await runEnsureHostCli("sc-hermes", {
     spawnImpl: spawn,
     fetchImpl,
+    openWsImpl: async () => ({ close() {} }), // /api/ws readiness probe opens OK
     // Fake the python pre-seed so the test never touches the real SessionDB.
     spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
     out: (s) => (stdout += s),
@@ -1970,6 +2015,7 @@ test("runCli: 'ensure-host <id>' routes to runEnsureHostCli and prints JSON", as
   const res = await runCli(["ensure-host", "sc-hermes"], {
     spawnImpl: spawn,
     fetchImpl,
+    openWsImpl: async () => ({ close() {} }),
     spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
     out: (s) => (stdout += s),
     err: () => {},
@@ -2430,6 +2476,7 @@ test("runEnsureHostCli: ensureSession:false skips the python pre-seed", async ()
   await runEnsureHostCli("sc-hermes", {
     spawnImpl: spawn,
     fetchImpl,
+    openWsImpl: async () => ({ close() {} }),
     ensureSession: false,
     spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
     out: () => {},
@@ -2449,6 +2496,7 @@ test("runEnsureHostCli: DEFAULT (no ensureSession) skips the dead aify-<id> pre-
   await runEnsureHostCli("sc-hermes", {
     spawnImpl: spawn,
     fetchImpl,
+    openWsImpl: async () => ({ close() {} }),
     // No ensureSession key → must NOT pre-seed (the new default).
     spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
     out: () => {},
@@ -2464,6 +2512,7 @@ test("runEnsureHostCli: ensureSession:true still runs the pre-seed (explicit opt
   await runEnsureHostCli("sc-hermes", {
     spawnImpl: spawn,
     fetchImpl,
+    openWsImpl: async () => ({ close() {} }),
     ensureSession: true,
     spawnSyncImpl: () => { preseedCalled = true; return { status: 0 }; },
     out: () => {},

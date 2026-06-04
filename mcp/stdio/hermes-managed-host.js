@@ -406,19 +406,54 @@ export async function ensureGatewayHost({
   probeFirst = true,
   readyTimeoutMs = READY_TIMEOUT_MS,
   readyIntervalMs = 250,
+  // Readiness WS-verify (2026-06-04, hardening from the gateway-WS incident).
+  verifyWs = String(process.env.AIFY_HERMES_VERIFY_WS || "1").trim() !== "0",
+  openWsImpl = openGatewayWsClient,
+  wsVerifyTimeoutMs = 5000,
 } = {}) {
   if (!spawn) throw new Error("ensureGatewayHost requires an injected spawn");
   if (!fetchImpl) throw new Error("ensureGatewayHost requires a fetch implementation");
   const indexUrl = `http://127.0.0.1:${port}/`;
   const wsUrlFor = (token) => `ws://127.0.0.1:${port}/api/ws?token=${token}`;
 
-  // Idempotent probe: a host already serving the index → reuse it, no spawn.
-  if (probeFirst) {
+  // Readiness is NOT just the index token. The `/api/ws` WebSocket the bridge +
+  // visible TUI attach to is gated SEPARATELY by the dashboard embedded-chat
+  // feature (HERMES_DASHBOARD_TUI / `--tui`). A host can serve the index while
+  // `/api/ws` closes 4403 — the 2026-06-04 fleet incident, where the index-only
+  // readiness check declared the gateway "ready" and the dead socket surfaced
+  // only later as a headless orphan. Verify the socket actually OPENs before
+  // declaring ready, so a dead WS fails FAST here with an actionable error
+  // instead of limping. Injectable + timeout-bounded; the transient probe client
+  // is closed immediately so it never lingers as an "attached session".
+  const verifyWsOpen = async (token) => {
+    if (!verifyWs) return;
+    let probe = null;
     try {
-      const token = await scrapeToken(indexUrl, fetchImpl);
-      return { port, token, wsUrl: wsUrlFor(token), child: null, reused: true };
+      probe = await openWsImpl(wsUrlFor(token), { timeoutMs: wsVerifyTimeoutMs });
+    } catch (err) {
+      throw new Error(
+        `hermes gateway /api/ws on port ${port} did not accept a WebSocket ` +
+        `(embedded-chat/HERMES_DASHBOARD_TUI likely disabled — index served but ` +
+        `/api/ws closed): ${err?.message || String(err)}`,
+      );
+    } finally {
+      try { probe?.close?.(); } catch { /* ignore */ }
+    }
+  };
+
+  // Idempotent probe: a host already serving the index → reuse it, no spawn.
+  // Verify its /api/ws too — a stale pre-fix host serves the index but its socket
+  // is dead, and silently reusing it reproduces the incident.
+  if (probeFirst) {
+    let reuseToken = null;
+    try {
+      reuseToken = await scrapeToken(indexUrl, fetchImpl);
     } catch {
-      /* not up yet → spawn below */
+      reuseToken = null; /* not up yet → spawn below */
+    }
+    if (reuseToken) {
+      await verifyWsOpen(reuseToken);
+      return { port, token: reuseToken, wsUrl: wsUrlFor(reuseToken), child: null, reused: true };
     }
   }
 
@@ -490,6 +525,8 @@ export async function ensureGatewayHost({
     deadlineMs: readyTimeoutMs,
     intervalMs: readyIntervalMs,
   });
+  // Index served — now confirm the /api/ws socket actually opens (see verifyWsOpen).
+  await verifyWsOpen(token);
   return { port, token, wsUrl: wsUrlFor(token), child, reused: false };
 }
 
@@ -1864,7 +1901,13 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   let host = null;
   for (let attempt = 0; maxIterations === undefined || attempt < maxIterations; attempt++) {
     try {
-      host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+      // verifyWs:false here — the delivery loop opens `/api/ws` itself right below
+      // (`openWs(host.wsUrl)`) with its own connect-refused self-correct, so a
+      // readiness probe in ensureGatewayHost would double-open the socket and
+      // pre-empt that path. The primary `/api/ws` readiness guard lives in the
+      // CLI `ensure-host` path (runEnsureHostCli), which is what declares the
+      // gateway ready for the wrapper before the TUI attaches.
+      host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, verifyWs: false });
       break;
     } catch (error) {
       console.error(
@@ -2217,6 +2260,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   const {
     spawnImpl,
     fetchImpl,
+    openWsImpl = openGatewayWsClient,
     out = (s) => process.stdout.write(s),
     err = (s) => process.stderr.write(s),
   } = deps;
@@ -2233,7 +2277,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
     ensureStableSession({ agentId: id, spawnSync: deps.spawnSyncImpl });
   }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
-  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl });
+  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });
   // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
   // bridge (server.js) can auto-register the gateway even though its env only
   // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the
