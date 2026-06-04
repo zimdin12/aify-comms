@@ -1493,6 +1493,22 @@ export async function runPollCycle({
         console.error("[hermes-managed-host] poll cycle claim error:", claimErr?.message || String(claimErr));
         break;
       }
+      // Phase H1 (status v2): the agent was explicitly DISABLED (server returns
+      // a terminal `stopped` body on a SUCCESSFUL claim). Treat it like
+      // agent-removed (TERMINAL → teardown + procExit(0) in runDeliveryLoop) so
+      // the orphan worker + gateway reap themselves. UNLIKE agent-removed,
+      // `stopped` is REVERSIBLE: the terminal handler skips the
+      // agent-removed-only marker/session-binding clears (gated on
+      // reason === "agent-removed"), so a re-enable + relaunch resumes the same
+      // session. This is a success-body signal, NOT a claim error, so it is
+      // handled here on the success path — not in classifyClaimError.
+      if (claim?.stopped) {
+        console.error(
+          `[hermes-managed-host] agent '${agentId}' is stopped (disabled); helper tearing down + exiting.`,
+        );
+        terminal = "agent-stopped";
+        break;
+      }
       // Mode FSM release: operator switched this agent to resident — stop driving.
       if (claim?.release) {
         console.error(

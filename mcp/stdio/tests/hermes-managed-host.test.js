@@ -1824,6 +1824,71 @@ test("runDeliveryLoop: does NOT clear gateway markers on a non-removed (released
   );
 });
 
+test("runDeliveryLoop: stopped:true from /dispatch/claim tears down + self-exits(0), PRESERVES session binding (Phase H1)", async () => {
+  // Phase H1 (status v2): an explicitly DISABLED agent (claim returns a terminal
+  // `stopped` body) must tear down the gateway host it owns + self-exit(0) so the
+  // orphan worker reaps itself — but stopped is REVERSIBLE, so it must NOT clear
+  // the agent's gateway/session markers (a re-enable + relaunch resumes the same
+  // session). Mirrors the agent-removed (410) terminal path but asserts the
+  // OPPOSITE about the binding clears.
+  const { spawn } = makeFakeSpawn();
+  const fetchImpl = makeFakeFetch();
+  const calls = [];
+  const httpCall = async (method, endpoint, body = null) => {
+    calls.push({ method, endpoint, body });
+    if (method === "POST" && endpoint === "/dispatch/claim") {
+      return { ok: true, run: null, stopped: true };
+    }
+    return { ok: true };
+  };
+  const ws = makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+  let teardownChild;
+  let exitCode;
+  const clearedGateway = [];
+  const clearedSession = [];
+
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl,
+    openWs: async () => ws,
+    // capture the child the loop wants torn down (gateway-host kill on teardown)
+    installTeardown: ({ getChild }) => {
+      teardownChild = getChild;
+    },
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    clearGatewayMarkers: (id) => clearedGateway.push(id),
+    clearSessionMarker: (id) => clearedSession.push(id),
+    killByPort: () => {},
+    procExit: (code) => {
+      exitCode = code;
+    },
+    maxIterations: 5,
+  });
+
+  assert.equal(exitCode, 0, "terminal stopped must self-exit(0)");
+  assert.equal(result.terminal, "agent-stopped", "loop reports the agent-stopped terminal reason");
+  assert.equal(typeof teardownChild, "function", "teardown was wired to the gateway-host child (kills it on exit)");
+  // REVERSIBLE: the binding must survive so a re-enable + relaunch resumes the
+  // same session — the OPPOSITE of the agent-removed (410) terminal path.
+  assert.equal(
+    clearedSession.length,
+    0,
+    "stopped (reversible) teardown must NOT clear the session-id marker",
+  );
+  assert.equal(
+    clearedGateway.length,
+    0,
+    "stopped (reversible) teardown must NOT clear the gateway port/key markers",
+  );
+  // It did NOT keep polling indefinitely (broke on the first terminal claim).
+  const claimCalls = calls.filter((c) => c.method === "POST" && c.endpoint === "/dispatch/claim");
+  assert.equal(claimCalls.length, 1, "stopped is terminal on the first claim — must not keep polling");
+});
+
 test("runDeliveryLoop: 410 from /dispatch/claim self-exits(0) WITHOUT killing the shared gateway, does not keep polling", async () => {
   const { spawn } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
