@@ -508,6 +508,20 @@ async function pollLoop() {
           bridgeKind: "channel-sidecar",
           executionModes: ["channel", "resident"],
         });
+        // Phase H1 (status v2): the agent was explicitly DISABLED (server returns
+        // a terminal `stopped` body on a SUCCESSFUL claim). A stopped agent's
+        // sidecar must STOP polling — this is the CPU/orphan win. Unlike `release`
+        // (which `return`s to let a resident TUI take over the session), `stopped`
+        // is a HARD terminal stop → process.exit(0). stopped is REVERSIBLE, so we
+        // do NOT clear the agent's session binding; we also do NOT kill the parent
+        // claude.exe worker (that is the sidecar's PARENT — reaped by the
+        // server-side reaper + the B3 parent-guard). Self-exit is the goal.
+        if (claim?.stopped) {
+          console.error(
+            `[claude-channel] agent '${agentId}' is stopped (disabled) — sidecar self-exiting`,
+          );
+          process.exit(0);
+        }
         // Mode FSM release signal (Task 4.1): the operator switched this agent
         // to resident, so this managed sidecar is no longer the driver. Stop
         // driving and exit the poll loop gracefully — the resident TUI/CLI now
