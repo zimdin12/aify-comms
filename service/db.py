@@ -401,6 +401,22 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 
+-- Status engine v2 (2026-06-04): one row per agent holding the event-driven
+-- turn sub-state that feeds status_engine.derive(). Placed after agent_turn_state
+-- so the FK target `agents` already exists. Liveness / worker_present /
+-- env_reachable are NOT stored here; they are gathered live at derive() time.
+CREATE TABLE IF NOT EXISTS agent_status_state (
+    agent_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'offline',
+    in_turn INTEGER NOT NULL DEFAULT 0,
+    awaiting_input INTEGER NOT NULL DEFAULT 0,
+    turn_run_id TEXT NOT NULL DEFAULT '',
+    last_event TEXT NOT NULL DEFAULT '',
+    last_event_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+
 -- WS5 Task 5.1 (2026-06-02): explicit delivery-loop claimer lease. A managed
 -- sidecar-delivery loop (hermes-managed-host.js / claude-channel.js) POSTs
 -- `claimer-acquire` when it becomes a live claimer (gateway ok + heartbeat +
