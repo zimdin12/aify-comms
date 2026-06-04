@@ -2843,7 +2843,8 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     result = {"managed_ghost_rows_reaped": 0, "orphan_workers_reaped": 0}
     cursor = await db.execute(
         """
-        SELECT t.id AS terminal_id, t.agent_id AS agent_id, a.runtime AS runtime
+        SELECT t.id AS terminal_id, t.agent_id AS agent_id, a.runtime AS runtime,
+               t.updated_at AS updated_at
         FROM terminal_sessions t
         JOIN agents a ON a.id = t.agent_id
         WHERE a.session_mode = 'managed'
@@ -2865,6 +2866,31 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
         if sidecar_live:
             # Worker alive — a live-but-idle console stays. The orphan-worker
             # half below handles "live sidecar + no live console".
+            continue
+        # DETERMINISTIC BOOT-RACE GUARD (2026-06-04): the claimer bridges
+        # (claude-channel.js sidecar / managed-wrapper-child MCP) only register
+        # AFTER claude finishes init — which includes SessionStart hooks that can
+        # run for MINUTES (observed: a 1m28s one-time plugin dep-install). During
+        # that boot the PTY is alive and STREAMING (the hook progress spinner),
+        # but no claimer bridge exists yet, so the sidecar check alone cannot tell
+        # "booting" from "dead" and would reap a live worker mid-boot (→ launches-
+        # then-dies, agent stuck `available`). Gate the reap on PROCESS-liveness
+        # signals instead of the lagging claimer — both EVENT-driven, not a fixed
+        # boot timer:
+        #   (a) a live managed-wrapper-child (the in-session aify MCP), or
+        #   (b) fresh terminal output activity — `updated_at` is bumped by every
+        #       bridge output frame (see _append_terminal_output), so a streaming
+        #       PTY (booting or running) is provably alive.
+        # Only when BOTH are absent (no claimer, no wrapper-child, no recent
+        # output) is the worker genuinely dead and the console a ghost.
+        if await _has_live_managed_wrapper_child(db, agent_id):
+            continue
+        term_updated = _iso_to_epoch(str(row["updated_at"] or "")) if "updated_at" in row.keys() else 0
+        if term_updated and (
+            datetime.now(timezone.utc).timestamp() - term_updated
+        ) <= MANAGED_ORPHAN_GRACE_SECONDS:
+            # The bridge is still streaming this PTY (e.g. booting through a long
+            # SessionStart hook) → alive, not a ghost. Leave it.
             continue
         # Worker dead → this active terminal row is a ghost. Reap it.
         await db.execute(

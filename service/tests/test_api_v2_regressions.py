@@ -2077,6 +2077,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_id = "term_ghost_console"
         self._seed_managed_claude_with_attached_terminal("ghost-claude", terminal_id)
         # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+        # Dead worker → the bridge stopped streaming output, so updated_at is STALE
+        # (a fresh updated_at means a live/booting worker — boot-race guard).
+        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
 
         result = self._run_managed_worker_hygiene()
 
@@ -2129,6 +2132,28 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
         term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(term["status"], "attached", "live-but-idle console must NOT be reaped")
+
+    def test_managed_hygiene_keeps_booting_worker_with_fresh_output(self):
+        # DETERMINISTIC BOOT-RACE GUARD (2026-06-04): a managed claude worker whose
+        # claimer (claude-channel.js sidecar) has NOT registered yet — because it
+        # is still booting through a long SessionStart hook — has NO live sidecar,
+        # but its PTY is alive and STREAMING the hook progress spinner, so the
+        # bridge keeps bumping updated_at. The reaper must NOT mistake "no claimer
+        # yet" for "dead worker" and reap it (the launches-then-dies-stuck-available
+        # bug). The seed helper leaves a FRESH updated_at, simulating that stream.
+        terminal_id = "term_booting_console"
+        self._seed_managed_claude_with_attached_terminal("booting-claude", terminal_id)
+        # No channel-sidecar / managed-wrapper-child bridge → no live claimer YET,
+        # but fresh updated_at proves the PTY is alive (booting).
+
+        result = self._run_managed_worker_hygiene()
+
+        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
+        self.assertEqual(
+            term["status"], "attached",
+            "a booting worker (fresh PTY output, no claimer registered yet) must NOT be reaped",
+        )
 
     # --- B2: status rule refinement (status-F1) + orphan-worker detection ---
 
@@ -2325,6 +2350,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_id = "term_hermes_ghost_console"
         self._seed_managed_hermes_with_attached_terminal("ghost-hermes", terminal_id)
         # No channel-sidecar bridge row → no live claimer → dead worker.
+        # Dead worker → bridge stopped streaming, so updated_at is STALE (boot-race guard).
+        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
 
         result = self._run_managed_worker_hygiene()
 
@@ -10617,6 +10644,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_id = "term_periodic_ghost"
         self._seed_managed_claude_with_attached_terminal("periodic-ghost-claude", terminal_id)
         # No channel-sidecar bridge_instances row is inserted → no live sidecar.
+        # Dead worker → bridge stopped streaming, so updated_at is STALE (boot-race guard).
+        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
 
         result = asyncio.run(service_main._run_dispatch_reconcile_once())
 
