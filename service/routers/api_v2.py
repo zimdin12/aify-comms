@@ -24,7 +24,9 @@ from fastapi.exceptions import RequestValidationError
 # Per-agent wake-up events for comms_listen
 _listen_events: dict[str, asyncio.Event] = {}
 
+from pydantic import BaseModel
 from service.db import get_db
+from service.status_engine import apply_event, derive, StatusInputs
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
@@ -14560,6 +14562,48 @@ async def stop_agent_worker(agent_id: str, request: Request):
             "virtualTerminalId": virtual_terminal_id,
             "terminal": terminal_payload,
         }
+    finally:
+        await db.close()
+
+
+class AgentStatusEventRequest(BaseModel):
+    kind: str
+    runId: str | None = None
+    bridgeId: str | None = None
+    detail: str | None = None
+
+async def _apply_status_event(db, agent_id: str, event: dict) -> dict:
+    now = _now()
+    row = await (await db.execute(
+        "SELECT in_turn, awaiting_input, turn_run_id FROM agent_status_state WHERE agent_id = ?",
+        (agent_id,))).fetchone()
+    cur = {"in_turn": (row["in_turn"] if row else 0),
+           "awaiting_input": (row["awaiting_input"] if row else 0),
+           "turn_run_id": (row["turn_run_id"] if row else "")}
+    new = apply_event(cur, event)
+    await db.execute("""
+        INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, turn_run_id,
+                                        last_event, last_event_at, updated_at)
+        VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(agent_id) DO UPDATE SET
+            in_turn=excluded.in_turn, awaiting_input=excluded.awaiting_input,
+            turn_run_id=excluded.turn_run_id, last_event=excluded.last_event,
+            last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
+    """, (agent_id, new["in_turn"], new["awaiting_input"], new["turn_run_id"],
+          str(event.get("kind") or ""), now, now))
+    await db.commit()
+    return new
+
+@router.post("/agents/{agent_id}/status-event")
+async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request: Request):
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        await _apply_status_event(db, agent_id, req.model_dump())
+        await _invalidate_agent_live_state(db, agent_id)  # existing cache invalidator
+        return {"ok": True, "agentId": agent_id, "kind": req.kind}
     finally:
         await db.close()
 
