@@ -62,3 +62,21 @@ def test_resident_live_session_is_online():
 
 def test_disabled_always_stopped():
     assert derive(_inp(disabled=True, in_turn=True)) == "stopped"
+
+
+from service.status_engine import apply_event, EVENT_KINDS
+
+def test_turn_start_sets_in_turn_then_turn_end_clears():
+    s = {"in_turn": 0, "awaiting_input": 0, "turn_run_id": ""}
+    s = apply_event(s, {"kind": "turn_start", "runId": "r1"})
+    assert s["in_turn"] == 1 and s["turn_run_id"] == "r1"
+    s = apply_event(s, {"kind": "turn_end", "runId": "r1"})
+    assert s["in_turn"] == 0
+
+def test_blocked_event_sets_awaiting_input():
+    s = apply_event({"in_turn": 1, "awaiting_input": 0, "turn_run_id": ""}, {"kind": "blocked"})
+    assert s["awaiting_input"] == 1
+
+def test_unknown_event_is_noop():
+    s = {"in_turn": 1, "awaiting_input": 0, "turn_run_id": ""}
+    assert apply_event(dict(s), {"kind": "nonsense"}) == s

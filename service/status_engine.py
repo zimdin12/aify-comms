@@ -53,3 +53,28 @@ def derive(i: StatusInputs) -> str:
     if i.bridge_stale:
         return "stale"
     return "offline"
+
+
+EVENT_KINDS = ("turn_start", "turn_end", "blocked", "unblocked")
+
+def apply_event(state: dict, event: dict) -> dict:
+    """Fold an event into the per-agent turn sub-state (dict copy returned).
+    Liveness / worker_present / env_reachable are NOT stored here — they are
+    gathered live (heartbeat lease, bridge rows) at derive() time. This only
+    tracks turn flags driven by push events.
+    """
+    s = dict(state)
+    kind = str(event.get("kind") or "")
+    if kind == "turn_start":
+        s["in_turn"] = 1
+        s["turn_run_id"] = str(event.get("runId") or "")
+        s["awaiting_input"] = 0
+    elif kind == "turn_end":
+        s["in_turn"] = 0
+        s["turn_run_id"] = ""
+        s["awaiting_input"] = 0
+    elif kind == "blocked":
+        s["awaiting_input"] = 1
+    elif kind == "unblocked":
+        s["awaiting_input"] = 0
+    return s
