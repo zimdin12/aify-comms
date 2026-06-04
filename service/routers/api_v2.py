@@ -4828,6 +4828,73 @@ async def _managed_environment_status(db, row) -> tuple[str, str, str]:
     return environment_id, env_status, env_bridge
 
 
+SPAWN_ORPHAN_GRACE_SECONDS = 180  # matches the dispatch queued-run backstop window
+
+
+async def _fail_orphaned_running_spawn_requests(db) -> int:
+    """Fail spawn_requests stuck in 'running' whose claiming environment bridge is
+    no longer the current live env bridge.
+
+    These orphan when an env bridge restarts / is superseded (e.g. `aify-comms`
+    restarted) BEFORE the worker it was spawning finished coming up: the claiming
+    bridge is gone, so nothing will ever PATCH the spawn to completed/failed, and
+    it lingers 'running' forever (clutters state, masks real spawn activity, and
+    accumulates across restarts). Complements
+    `_repair_spawn_requests_from_initial_dispatch_failures`, which only covers the
+    case where the initial-brief dispatch itself failed.
+
+    SAFETY — this ONLY touches the stale DB record, never any process:
+    - Targets ONLY status='running' with empty finished_at.
+    - NEVER fails a spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
+      environment bridge — a worker actively (even slowly) booting on the live
+      bridge is left alone regardless of how long it has been booting, because
+      its claiming bridge stays in the live set.
+    - Requires a DETERMINABLE claim/create age > SPAWN_ORPHAN_GRACE_SECONDS, so a
+      just-claimed spawn whose env heartbeat may briefly lag gets grace; unknown
+      age → left alone (conservative).
+    - The coldstart idempotency gate only inspects queued/claimed spawns, so
+      failing a 'running' orphan never blocks a future autostart — it frees state.
+      A live worker (if one exists) keeps delivering via its own sidecar bridge.
+    """
+    live_rows = await (await db.execute(
+        "SELECT bridge_id FROM environments WHERE status = 'online' AND COALESCE(bridge_id, '') != ''"
+    )).fetchall()
+    live_bridge_ids = {str(r["bridge_id"]).strip() for r in (live_rows or [])}
+
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    now = _now()
+    cursor = await db.execute(
+        """
+        SELECT id, claimed_by_bridge_id, claimed_at, created_at
+        FROM spawn_requests
+        WHERE status = 'running' AND COALESCE(finished_at, '') = ''
+        """
+    )
+    failed = 0
+    for row in await cursor.fetchall():
+        bid = str(row["claimed_by_bridge_id"] or "").strip()
+        if bid and bid in live_bridge_ids:
+            continue  # claiming bridge is live → genuinely in progress, leave it
+        age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
+        if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
+            continue  # too fresh, or age undeterminable → leave it (conservative)
+        await db.execute(
+            """
+            UPDATE spawn_requests
+            SET status = 'failed',
+                error = COALESCE(NULLIF(error, ''), 'Orphaned: claiming environment bridge is no longer live (env bridge restart/supersede); failed by reconcile.'),
+                finished_at = COALESCE(finished_at, ?),
+                updated_at = ?
+            WHERE id = ? AND status = 'running'
+            """,
+            (now, now, row["id"]),
+        )
+        failed += 1
+    if failed:
+        await db.commit()
+    return failed
+
+
 async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
     cursor = await db.execute(
         """
@@ -8962,6 +9029,7 @@ async def list_spawn_requests(
     db = await get_db()
     try:
         await _repair_spawn_requests_from_initial_dispatch_failures(db)
+        await _fail_orphaned_running_spawn_requests(db)
         where = []
         params: list[Any] = []
         if status:

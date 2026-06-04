@@ -2069,6 +2069,66 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         return _asyncio.new_event_loop().run_until_complete(_run())
 
+    def _run_orphan_spawn_reconcile(self):
+        import asyncio as _asyncio
+        from service.db import get_db as _get_db
+
+        async def _run():
+            db = await _get_db()
+            try:
+                return await api_v2._fail_orphaned_running_spawn_requests(db)
+            finally:
+                await db.close()
+
+        return _asyncio.new_event_loop().run_until_complete(_run())
+
+    def test_orphan_spawn_reconcile_fails_only_dead_bridge_old_spawns(self):
+        # SAFETY TEST for _fail_orphaned_running_spawn_requests. Three running
+        # spawns; only the orphan (dead bridge + old) may be failed:
+        #   (a) running, claimed by a DEAD bridge, old      → FAILED (orphan)
+        #   (b) running, claimed by the LIVE env bridge, old → LEFT (in progress)
+        #   (c) running, claimed by a dead bridge, but FRESH → LEFT (grace window)
+        self._heartbeat_environment(
+            id="orphan-test-env", bridgeId="live-env-bridge-1",
+            machineId="linux:orphan-test",
+            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"]}],
+        )
+        old = "2020-01-01T00:00:00Z"
+        fresh = api_v2._now()
+        # Minimal spawn_spec to satisfy the spawn_requests.spawn_spec_id FK.
+        self._execute(
+            """INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, created_at, updated_at)
+               VALUES (?,?,?,?,?,?)""",
+            ("orphan-test-spec", "orphan-agent", "orphan-test-env", "claude-code", old, old),
+        )
+
+        def _ins(sid, bridge, claimed_at):
+            self._execute(
+                """INSERT INTO spawn_requests
+                   (id, spawn_spec_id, agent_id, environment_id, runtime, mode, status,
+                    claimed_by_bridge_id, claimed_at, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (sid, "orphan-test-spec", sid + "-agent", "orphan-test-env", "claude-code",
+                 "managed-warm", "running", bridge, claimed_at, claimed_at, claimed_at),
+            )
+
+        _ins("sp-orphan-dead-old", "dead-bridge-xyz", old)
+        _ins("sp-live-old", "live-env-bridge-1", old)
+        _ins("sp-orphan-dead-fresh", "dead-bridge-xyz", fresh)
+
+        failed = self._run_orphan_spawn_reconcile()
+
+        self.assertEqual(failed, 1, "exactly one orphan (dead bridge + old) should be failed")
+        self.assertEqual(
+            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-old",))["status"],
+            "failed", "orphan (dead claiming bridge, old) must be failed")
+        self.assertEqual(
+            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-old",))["status"],
+            "running", "a spawn on the LIVE env bridge must NOT be failed (still in progress)")
+        self.assertEqual(
+            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-fresh",))["status"],
+            "running", "a freshly-claimed spawn must get the grace window (not failed)")
+
     def test_managed_hygiene_reaps_ghost_console_row(self):
         # MANAGED claude with a dead worker (NO channel-sidecar bridge row at
         # all → _has_live_channel_sidecar False) but a stale `attached`
