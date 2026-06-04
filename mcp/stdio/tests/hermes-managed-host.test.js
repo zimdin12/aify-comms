@@ -1350,6 +1350,71 @@ test("runResolveSessionCli: marker STALE (not live) → most-recent live session
   assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "real-2" }, "seeds the active-session file");
 });
 
+test("runResolveSessionCli: marker in the DB (session.list) but NOT in active_list (post-restart) → RESUMES it, never clears (session-stability fix 2026-06-04)", async () => {
+  // THE restart bug: after a gateway/aify-comms restart active_list is EMPTY, but
+  // the session lives in the SessionDB and resumes via `--resume`. Must resume it
+  // (db-resumable), NOT go fresh + clear the marker.
+  const ws = makeFakeWsClient({
+    "session.active_list": { result: { sessions: [] } }, // nothing live after restart
+    "session.list": { result: { sessions: [
+      { id: "ephem-xx", session_key: "20260603_114935_8f7b7a", started_at: "2026-06-03T11:49:35Z" },
+    ] } },
+  });
+  let cleared = null;
+  const res = await runResolveSessionCli("sc-coder", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "20260603_114935_8f7b7a", // the durable session_key
+    writeMarker: () => {},
+    clearMarker: (a) => { cleared = a; },
+    writeActiveSessionFile: () => {},
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260603_114935_8f7b7a", "resumes the DB-resumable marker even though active_list is empty");
+  assert.equal(res.source, "marker(db-resumable)");
+  assert.equal(cleared, null, "must NOT clear a marker that is still resumable from the DB");
+});
+
+test("runResolveSessionCli: marker GONE from the DB → clears it + fresh (only when DB confirms it's dead)", async () => {
+  const ws = makeFakeWsClient({
+    "session.active_list": { result: { sessions: [] } },
+    "session.list": { result: { sessions: [ { id: "other", session_key: "20260101_000000_aaaaaa" } ] } }, // marker absent
+  });
+  let cleared = null;
+  const res = await runResolveSessionCli("sc-coder", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "20260603_114935_8f7b7a", // not in DB
+    writeMarker: () => {},
+    clearMarker: (a) => { cleared = a; },
+    writeActiveSessionFile: () => {},
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(res.resolved, "", "no resumable session → fresh");
+  assert.equal(cleared, "sc-coder", "clears the marker only when the DB positively confirms it's gone");
+});
+
+test("runResolveSessionCli: session.list UNAVAILABLE → does NOT clear the marker (can't prove it's dead)", async () => {
+  const ws = makeFakeWsClient({
+    "session.active_list": { result: { sessions: [] } },
+    "session.list": new Error("rpc failed"),
+  });
+  let cleared = null;
+  await runResolveSessionCli("sc-coder", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "20260603_114935_8f7b7a",
+    writeMarker: () => {},
+    clearMarker: (a) => { cleared = a; },
+    writeActiveSessionFile: () => {},
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(cleared, null, "never clear when the SessionDB couldn't be consulted (transient session.list failure)");
+});
+
 test("runResolveSessionCli: NO live session yet → empty result (wrapper resumes marker / starts fresh)", async () => {
   const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
   let stdout = "";

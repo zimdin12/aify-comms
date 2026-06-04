@@ -61,6 +61,7 @@ import {
 } from "./hermes-turn-repulse.js";
 import {
   buildSessionActiveListFrame,
+  buildSessionListFrame,
   buildPromptSubmitFrame,
   buildSessionSteerFrame,
   buildRenderNoticeFrame,
@@ -2406,6 +2407,7 @@ export async function runResolveSessionCli(agentId, deps = {}) {
   let client = null;
   let resolved = "";
   let source = "none";
+  let dbConsulted = false; // true only after a successful session.list query
   try {
     client = openClient
       ? await openClient(wsUrl)
@@ -2414,6 +2416,19 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     const listResp = await client.request(
       buildSessionActiveListFrame({ id: rid++, currentSessionId: "" }),
     );
+    // SESSION-STABILITY fix (2026-06-04, the "fresh session on every restart" bug):
+    // a session is RESUMABLE if it exists in the gateway SessionDB (`session.list`)
+    // -- `hermes --tui --resume <key>` LOADS it from the DB. `active_list` only holds
+    // CURRENTLY-LIVE sessions, which is EMPTY after any gateway/aify-comms restart, so
+    // resolving the marker against active_list found "no live session" every restart
+    // -> fresh + cleared marker -> the agent abandoned its history and minted a new
+    // session each launch (verified: fresh gateway active_list=0, session.list=69
+    // incl. the real session). Consult the DB so a marker survives restarts.
+    let dbResp = null;
+    try {
+      dbResp = await client.request(buildSessionListFrame({ id: rid++ }));
+      dbConsulted = true;
+    } catch { dbResp = null; dbConsulted = false; /* DB list unavailable -> fall back to active_list, do NOT clear the marker */ }
     // RESUME resolution (session_key fix, 2026-06-04): the marker / visible-TUI
     // resume id MUST be the DURABLE `session_key`, not the ephemeral runtime sid
     // (`--resume` / session.resume require the durable key; the ephemeral is dead
@@ -2422,13 +2437,16 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     // stale ephemeral id that still matches a live row, we persist that row's
     // durable key. (Delivery — prompt.submit/steer — stays on the ephemeral sid;
     // that split lives in the loop's waitForActiveSession, untouched here.)
-    // (a) prefer the marker when it matches a LIVE row (continuous transcript).
-    const markerRow = marker ? pickSessionRowById(listResp, marker) : null;
+    // (a) PREFER the marker when it is RESUMABLE FROM THE DB (stable across
+    //     restarts) -- match session.list first, then the live active_list.
+    const markerDbRow = marker && dbResp ? pickSessionRowById(dbResp, marker) : null;
+    const markerRow = markerDbRow || (marker ? pickSessionRowById(listResp, marker) : null);
     if (markerRow) {
       resolved = rowResumeKey(markerRow);
-      source = "marker(live)";
+      source = markerDbRow ? "marker(db-resumable)" : "marker(live)";
     } else {
-      // (b) most-recent live session — the gateway's freshest durable key.
+      // (b) no marker / marker gone from the DB -> most-recent LIVE session (the
+      //     running-gateway case; never resurrects an arbitrary historical row).
       const recentRow = pickMostRecentSessionRow(listResp);
       const recentKey = recentRow ? rowResumeKey(recentRow) : "";
       if (recentKey) {
@@ -2462,12 +2480,20 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     // when a resumable id WAS found above. Best-effort; never blocks launch.
     // (Skip the clear on a query failure, where `marker` was kept as the
     // best-known fallback rather than resolving to nothing.)
-    if (source !== "marker(query-failed)") {
+    //
+    // CRITICAL (session-stability): only clear when we POSITIVELY confirmed the
+    // marker is gone from the DB (`dbConsulted` — session.list succeeded and did
+    // NOT contain it). If session.list was unavailable we CANNOT prove the marker
+    // is dead, so we must NOT clear it — clearing a still-resumable marker is the
+    // very "lost history on restart" bug this fix exists to prevent.
+    if (source !== "marker(query-failed)" && marker && dbConsulted) {
       // clearSessionMarker takes a BARE dir (not the { tempDir } options shape
       // that read/writeSessionIdMarker use). Pass the dir directly.
       try { clearMarker(id, tempDir); } catch { /* best-effort */ }
+      err(`[hermes-managed-host] resolve-session: agent '${id}' marker not in SessionDB (cleared stale marker; will start fresh).\n`);
+    } else {
+      err(`[hermes-managed-host] resolve-session: agent '${id}' has no resumable session yet (will start fresh; marker kept${marker ? "" : " (none)"}).\n`);
     }
-    err(`[hermes-managed-host] resolve-session: agent '${id}' has no live gateway session yet (cleared stale marker; will start fresh).\n`);
   }
   out((resolved || "") + "\n");
   return { agentId: id, resolved: resolved || "", source };
