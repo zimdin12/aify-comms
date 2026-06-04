@@ -14722,6 +14722,41 @@ async def _apply_status_event(db, agent_id: str, event: dict) -> dict:
     await db.commit()
     return new
 
+async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> None:
+    """status v2 (Phase D1): push the EVENT-ENGINE status for one agent over WS
+    so the dashboard reflects a turn start/end the instant the event lands — not
+    on its next poll. Best-effort: never raise into the caller. Only meaningful
+    under `status_engine=new`; callers gate on the flag so the legacy `old` path
+    stays push-identical to before (it uses `_broadcast_agent_status`).
+    """
+    if ws is None:
+        return
+    try:
+        agent_id = str(agent_id or "").strip()
+        if not agent_id:
+            return
+        row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            return
+        settings = settings or await _load_settings(db)
+        # Manual statuses (stop/disable) are operator overrides both paths honor
+        # identically — surface the persisted status, not an engine derivation.
+        manual = str(row["status"] or "").strip().lower()
+        if manual in _MANUAL_STATUSES:
+            status = manual
+            note = _row_status_note(row)
+        else:
+            status = await engine_status(db, row, settings=settings)
+            note = ""
+        await ws.broadcast("agent_status", {
+            "agentId": agent_id,
+            "status": status or "",
+            "statusNote": note or "",
+        })
+    except Exception:
+        pass
+
+
 @router.post("/agents/{agent_id}/status-event")
 async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request: Request):
     db = await get_db()
@@ -14731,6 +14766,13 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         await _apply_status_event(db, agent_id, req.model_dump())
         await _invalidate_agent_live_state(db, agent_id)  # existing cache invalidator
+        # Phase D1: under the event engine, push the transition immediately so the
+        # dashboard updates the instant a turn starts/ends. Gated on the flag so
+        # the default `old` path is byte-for-byte unchanged (no engine broadcast).
+        settings = await _load_settings(db)
+        if str(settings.get("status_engine", "old")).lower() == "new":
+            ws = await _get_ws(request)
+            await _broadcast_engine_status(ws, db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id, "kind": req.kind}
     finally:
         await db.close()

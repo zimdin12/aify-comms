@@ -61,3 +61,37 @@ class StatusEventIngestTests(FastApiTestCase):
         r = self.client.get("/api/v1/agents")
         a = r.json()["agents"]["a3"]
         self.assertEqual(a["status"], "working")
+
+    def _agent_status_events(self):
+        return [
+            args[1]
+            for args, _kwargs in self.ws.broadcasts
+            if args and args[0] == "agent_status"
+        ]
+
+    def test_turn_start_event_pushes_agent_status_working(self):
+        # Phase D1: under status_engine=new, a turn_start event must IMMEDIATELY
+        # push an agent_status WS broadcast carrying status=working — the dashboard
+        # updates the instant a turn starts, not on its poll.
+        self._register("d1", mode="resident")
+        self.client.post("/api/v1/agents/d1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self._set("status_engine", "new")
+        self.ws.broadcasts.clear()
+        r = self.client.post("/api/v1/agents/d1/status-event", json={"kind": "turn_start", "runId": "r1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        events = self._agent_status_events()
+        self.assertTrue(events, "turn_start (flag=new) must push an agent_status event")
+        evt = events[-1]
+        self.assertEqual(evt["agentId"], "d1")
+        self.assertEqual(evt["status"], "working")
+
+    def test_turn_start_event_no_push_under_old_flag(self):
+        # Safety: with the default `old` flag the status-event ingest does NOT
+        # broadcast engine-derived agent_status (old path is unchanged).
+        self._register("d2", mode="resident")
+        self.client.post("/api/v1/agents/d2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.ws.broadcasts.clear()
+        r = self.client.post("/api/v1/agents/d2/status-event", json={"kind": "turn_start", "runId": "r1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._agent_status_events(), [],
+                         "old flag must not push engine agent_status from status-event")
