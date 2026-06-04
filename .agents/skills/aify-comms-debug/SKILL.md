@@ -707,15 +707,23 @@ and died instantly → `ensure-host` 60s readiness timeout → wrapper `exit 1` 
 channel-sidecar claimer ever registers → the run is reaped as "no live claimer". The child's
 stderr was `stdio:"ignore"`, which silently hid the arg error.
 
-**Fix (`a363822`).** Dropped `--tui` from the gateway-host args. On 0.15.1, plain
-`hermes dashboard --port … --host 127.0.0.1 --no-open --skip-build` serves BOTH the index token
-AND a working `/api/ws` WebSocket — the old "`--tui` required or `/api/ws` closes 4403" constraint
-no longer holds. The gateway child's stderr now logs to
-`~/.local/state/aify-comms/hermes-gateway-host-<port>.log` (was silently discarded), so a future
-gateway-launch failure is visible there. **Deploy:** `git pull`, `./install.sh --client hermes`,
-relaunch the agent's `hermes-aify` (or just re-send — the env bridge invokes the fixed
-managed-host.js fresh per spawn). NOTE: the visible `hermes --tui` TUI flag is unchanged and
-correct — only the hidden gateway-host launch dropped `--tui`.
+**Fix (`a363822` + correction `34bca11`/`b591a28`).** Dropped the rejected `--tui` flag from the
+gateway-host args. ⚠ The `a363822` claim that plain `hermes dashboard` *"serves a working
+`/api/ws`"* was WRONG — it only verified the index TOKEN, not the socket. `--tui` ALSO enabled the
+dashboard EMBEDDED-CHAT feature that gates `/api/ws`: `web_server.py` closes `/api/ws` with code
+**4403** when `_DASHBOARD_EMBEDDED_CHAT_ENABLED` is false, and that flag is set ONLY by `--tui` OR
+the `HERMES_DASHBOARD_TUI=1` env. So after the `--tui` drop the gateway served the index (readiness
+probe passed) but its `/api/ws` CLOSED → **"gateway websocket connection failed"** across ALL
+managed hermes agents → TUI never attached → headless orphans (operator incident 2026-06-04).
+**Real fix:** set `HERMES_DASHBOARD_TUI=1` in the gateway-host spawn env (crash-safe env equivalent
+of the rejected flag — verified: `/api/ws` OPENs with it, CLOSEs without). **Hardening (`b591a28`):**
+`ensureGatewayHost` now opens `/api/ws` (not just the index) before declaring ready on the CLI
+`ensure-host` path, so a regression of this class fails FAST at spawn instead of becoming a headless
+orphan (env-gated `AIFY_HERMES_VERIFY_WS`, default on). The gateway child's stderr logs to
+`~/.local/state/aify-comms/hermes-gateway-host-<port>.log`. **Deploy:** `git pull`,
+`./install.sh --client hermes`, relaunch the agent's `hermes-aify` (or re-send — the env bridge
+invokes the fixed managed-host.js fresh per spawn). NOTE: the visible `hermes --tui` TUI flag is
+unchanged — only the hidden gateway-host launch dropped `--tui` and gained the env.
 
 ## Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook
 
