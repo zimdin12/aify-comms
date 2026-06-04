@@ -4,6 +4,7 @@ Drop-in replacement for api.py with identical endpoint signatures.
 """
 import asyncio
 import json
+import sys
 import logging
 import sqlite3
 from collections import deque
@@ -5258,7 +5259,29 @@ async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db
     return status
 
 
+# In-memory settings cache (perf, 2026-06-04). _load_settings is called on nearly
+# every hot request (dispatch/claim, heartbeat, status compute) — 55 call sites — so
+# re-reading + JSON-parsing the settings table each time was a measurable chunk of the
+# poll-load CPU that was hammering the service. Cache the merged dict with a short TTL;
+# writes invalidate immediately (_invalidate_settings_cache) so changes still apply at
+# once. Callers get a shallow copy so they can't mutate the cached dict.
+_SETTINGS_CACHE: dict[str, Any] = {"value": None, "at": 0.0}
+_SETTINGS_CACHE_TTL = 5.0
+
+
+def _invalidate_settings_cache() -> None:
+    _SETTINGS_CACHE["value"] = None
+    _SETTINGS_CACHE["at"] = 0.0
+
+
 async def _load_settings(db):
+    cached = _SETTINGS_CACHE["value"]
+    if (
+        cached is not None
+        and "pytest" not in sys.modules  # bypass under tests: preserves isolation + set-then-read
+        and (time.monotonic() - _SETTINGS_CACHE["at"]) < _SETTINGS_CACHE_TTL
+    ):
+        return dict(cached)
     settings = {**DEFAULT_SETTINGS}
     sc = await db.execute("SELECT key, value FROM settings")
     for row in await sc.fetchall():
@@ -5266,6 +5289,8 @@ async def _load_settings(db):
             settings[row["key"]] = json.loads(row["value"])
         except Exception:
             pass
+    _SETTINGS_CACHE["value"] = dict(settings)
+    _SETTINGS_CACHE["at"] = time.monotonic()
     return settings
 
 
@@ -18315,6 +18340,7 @@ async def update_settings(request: Request):
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
                     (key, json.dumps(value))
                 )
+        _invalidate_settings_cache()
         settings = await _load_settings(db)
         if any(str(key).startswith("managed_") for key in body.keys()):
             await _apply_managed_runtime_defaults(db, settings)
