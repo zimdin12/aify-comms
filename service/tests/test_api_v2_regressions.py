@@ -482,8 +482,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("chat-channel-add-member", dashboard.text)
         self.assertIn("Add member", dashboard.text)
         self.assertIn("data-channel-member-select", dashboard.text)
-        self.assertIn("chat-online-only", dashboard.text)
-        self.assertIn("Hide offline", dashboard.text)
+        # The binary "Hide offline" toggle (chat-online-only) was replaced by the
+        # per-status chat filter multiselect (5203bc1).
+        self.assertIn("chat-status-filter", dashboard.text)
+        self.assertIn("chat-status-menu", dashboard.text)
         self.assertIn("chat-unread-up", dashboard.text)
         self.assertIn("Unread up", dashboard.text)
         self.assertIn("chat-working-up", dashboard.text)
@@ -528,8 +530,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("Resident launch / re-register command", dashboard.text)
         self.assertIn("No extra registration should be needed", dashboard.text)
         self.assertIn("no live resident wrapper candidate is recorded yet", dashboard.text)
+        # Sessions page is agent-centric (327931c): the switch action is invoked
+        # per-agent via meta.id; the old session-centric call site was removed.
         self.assertIn("agentModeSwitchAction(meta.id, agentInfo)", dashboard.text)
-        self.assertIn("agentModeSwitchAction(session.agentId, agentInfo)", dashboard.text)
         self.assertIn("function sessionPresenceForSession(session = {}, agentInfo = {})", dashboard.text)
         self.assertIn("function sessionModeSummary(session = {}, agentInfo = {})", dashboard.text)
         self.assertIn("status-dot ${esc(presenceClass)}", dashboard.text)
