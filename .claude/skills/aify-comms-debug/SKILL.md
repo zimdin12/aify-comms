@@ -26,6 +26,8 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Hermes `mcp test` works, but the live turn has no `mcp_aify_comms_*` tools
 - Hermes fails immediately with `'NoneType' object is not iterable`
 - Agent shows `online` but the Console/worker is gone (`online` requires a live claimer)
+- EVERY managed-hermes dispatch fails "Queued >180s … up-but-deaf" / gateway host died (`hermes dashboard --tui` rejected on hermes 0.15.1)
+- Managed worker "launches then dies", stuck `available`, reaped mid-boot (`reconciled_managed_ghost_console_dead_worker`)
 - Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 - Restarting aify-comms kills all managed sessions (by design — clean slate)
 - Managed agent finished but its reply never landed (deferred-reply strand)
@@ -347,8 +349,10 @@ enabled and `hermes mcp test aify-comms` discovers `comms_register`,
 `mcp_aify_comms_comms_agent_info`.
 
 **Cause.** `hermes mcp test` is a fresh CLI process. The visible
-`hermes-aify` terminal is driven by a separate `hermes dashboard --tui`
-gateway process, and older wrapper/plugin builds did not run
+`hermes-aify` terminal is driven by a separate `hermes dashboard`
+gateway process (pre-0.15.1 this was `hermes dashboard --tui`; `--tui`
+moved to a top-level flag in 0.15.1 and the `dashboard` subcommand now
+rejects it — see the gateway-host entry below), and older wrapper/plugin builds did not run
 `discover_mcp_tools()` before that gateway built the TUI `AIAgent`. The gateway
 could therefore have only built-in tools even though the standalone MCP test
 passed.
@@ -686,6 +690,60 @@ off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No acti
 if delivery itself works. (Separately, as of `4611588` a resident hermes with no usable
 wake handle — wake-mode `*-missing-handle` — reads `stale`, not `available`, so this
 residual is now ONLY the missing turn-state detector, not a false-`available`.)
+
+## EVERY managed-hermes dispatch fails "Queued >180s … up-but-deaf" (gateway host died — hermes 0.15.1 `--tui`)
+
+**Symptom.** Every dispatch to a managed hermes agent fails with `Queued for >180s with
+no live claimer … up-but-deaf or never started a worker`. The agent shows `available`;
+the dashboard Console briefly flashes `[terminal attached pid=…]` then closes; the env-bridge
+terminal logs only `[aify] spawned managed agent …` and nothing more; the terminal row ends
+`reconciled_managed_ghost_console_dead_worker`.
+
+**Cause (hermes 0.15.1, 2026.5.29).** Hermes 0.15.1 moved `--tui` to a **top-level** flag, so
+the `dashboard` subcommand now **rejects** it (`error: unrecognized arguments: --tui`). The
+bridge's `ensureGatewayHost` (`mcp/stdio/hermes-managed-host.js`) launched the gateway host as
+`hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build`, which arg-errored
+and died instantly → `ensure-host` 60s readiness timeout → wrapper `exit 1` → PTY closes → no
+channel-sidecar claimer ever registers → the run is reaped as "no live claimer". The child's
+stderr was `stdio:"ignore"`, which silently hid the arg error.
+
+**Fix (`a363822`).** Dropped `--tui` from the gateway-host args. On 0.15.1, plain
+`hermes dashboard --port … --host 127.0.0.1 --no-open --skip-build` serves BOTH the index token
+AND a working `/api/ws` WebSocket — the old "`--tui` required or `/api/ws` closes 4403" constraint
+no longer holds. The gateway child's stderr now logs to
+`~/.local/state/aify-comms/hermes-gateway-host-<port>.log` (was silently discarded), so a future
+gateway-launch failure is visible there. **Deploy:** `git pull`, `./install.sh --client hermes`,
+relaunch the agent's `hermes-aify` (or just re-send — the env bridge invokes the fixed
+managed-host.js fresh per spawn). NOTE: the visible `hermes --tui` TUI flag is unchanged and
+correct — only the hidden gateway-host launch dropped `--tui`.
+
+## Managed worker "launches then dies", stuck `available` — reaped mid-boot during a slow SessionStart hook
+
+**Symptom.** A managed claude (or hermes) worker "launches then dies": it ends up `available`
+with no visible terminal, the terminal row error is `reconciled_managed_ghost_console_dead_worker`,
+and the dashboard Console's last visible line is `Running SessionStart hooks…… (Nm Ns)`. Often
+intermittent — "now it stays up" after a while.
+
+**Cause.** The ghost-console reaper (`_reconcile_managed_worker_hygiene`, B1) declared a managed
+worker dead purely from `_has_live_channel_sidecar` being false. But the claimer bridges
+(`claude-channel.js` sidecar / managed-wrapper-child MCP) register only AFTER claude finishes init,
+which includes SessionStart hooks that can run for MINUTES (observed: a 1m28s one-time operator-plugin
+dep install, e.g. an `observability` plugin's `install-deps.js`). During that boot the PTY is alive
+and STREAMING the hook spinner, but no claimer exists yet — so the sidecar check could not tell
+"booting" from "dead" and reaped the live worker mid-boot. Rapid operator restarts compounded it (each
+restart's kill-prior reaped the prior still-booting attempt). Once the one-time setup completes,
+SessionStart hooks drop to ~3s and the worker stays up — hence the "now it stayed up" intermittency.
+
+**Fix (`6664022`, deterministic — NOT a timer).** The reaper now declares a worker dead only when ALL
+real process-liveness signals are absent: no live channel-sidecar AND no live managed-wrapper-child AND
+no fresh terminal output activity (`terminal_sessions.updated_at`, bumped by every bridge output frame
+via `_append_terminal_output`). A booting/streaming PTY is provably alive → never reaped; a genuinely
+dead worker (output stopped) still is. Reuses `MANAGED_ORPHAN_GRACE_SECONDS`.
+
+**Operator notes.** (a) A managed worker's FIRST launch can be slow if an operator plugin runs a
+one-time SessionStart setup (dep install) — that is now tolerated, just wait it out. (b) Don't
+rapid-restart a fresh managed worker — give it ~30–60s to finish SessionStart hooks before it becomes a
+claimer. (c) Episodic-memory SessionStart hooks remain the WSL-crash risk and should stay disabled.
 
 ## Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 
@@ -1535,7 +1593,7 @@ cat ~/.local/state/aify-comms/hermes-aify-dashboard-*.log | head -5
 # Expect: "✗ --skip-build was passed but no web dist found at: .../hermes_cli/web_dist"
 ```
 
-If the log shows that line, the wrapper's `hermes dashboard --tui --skip-build` probe died immediately, `wait_for_http` timed out, and the wrapper falls back to plain Hermes without exporting the gateway URL. The MCP child then registers with no gateway env.
+If the log shows that line, the wrapper's `hermes dashboard --skip-build` probe died immediately (since hermes 0.15.1 this is plain `hermes dashboard` — `--tui` is no longer passed to the subcommand), `wait_for_http` timed out, and the wrapper falls back to plain Hermes without exporting the gateway URL. The MCP child then registers with no gateway env.
 
 **Fix.** Re-run `./install.sh --client hermes` — current installs prebuild `hermes_cli/web_dist` once (commit `5057383`). Then restart the wrapper. Current wrappers print a visible WARNING when this fallback path triggers and preserve an explicit `hermes-aify --resume <id>` by falling back to `hermes --tui --resume <id>`.
 
