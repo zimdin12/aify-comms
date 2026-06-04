@@ -142,8 +142,10 @@ export class HermesManagedGatewaySession {
       this._port = await pickPort();
       const hermesCommand = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
       const args = [
+        // NOTE: `--tui` is NOT passed — hermes 0.15.1's `dashboard` subcommand rejects
+        // it. The embedded-chat/`/api/ws` feature it used to enable is now turned on
+        // via the HERMES_DASHBOARD_TUI=1 env below (mirrors ensureGatewayHost).
         "dashboard",
-        "--tui",
         "--port", String(this._port),
         "--host", "127.0.0.1",
         "--no-open",
@@ -154,9 +156,11 @@ export class HermesManagedGatewaySession {
         stdio: ["ignore", "pipe", "pipe"],
         // Managed agents run unattended — the gateway host that runs the dispatch
         // turn must carry YOLO (hermes freezes it from HERMES_YOLO_MODE at import,
-        // tools/approval.py) so it never blocks on tool-approval prompts. Mirrors
-        // the active hermes-managed-host.js ensureGatewayHost spawn.
-        env: { ...process.env, HERMES_YOLO_MODE: "1" },
+        // tools/approval.py) so it never blocks on tool-approval prompts.
+        // HERMES_DASHBOARD_TUI=1 enables the embedded-chat feature that gates the
+        // `/api/ws` WebSocket (else it closes 4403 → "gateway websocket connection
+        // failed"). Mirrors the active hermes-managed-host.js ensureGatewayHost spawn.
+        env: { ...process.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },
         // HARD no-popup requirement (operator): hide the window even though this
         // opt-in gateway-session path (AIFY_HERMES_MANAGED_USE_GATEWAY=1, off by
         // default and slated for removal) is not the live managed path.

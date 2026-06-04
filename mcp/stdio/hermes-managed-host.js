@@ -425,10 +425,19 @@ export async function ensureGatewayHost({
   // hermes 0.15.1 (2026.5.29) moved `--tui` to a TOP-LEVEL flag; the `dashboard`
   // subcommand now REJECTS it ("unrecognized arguments: --tui"), which killed the
   // gateway host at spawn → ensure-host's 60s readiness timeout → every managed
-  // hermes dispatch reaped as "no live claimer". Plain `hermes dashboard` serves
-  // the same index token AND a working `/api/ws` on 0.15.1 (verified), so `--tui`
-  // is dropped. (Pre-0.15 the dashboard needed `--tui` or `/api/ws` closed 4403;
-  // that is no longer true.)
+  // hermes dispatch reaped as "no live claimer". So the `--tui` CLI flag is dropped.
+  //
+  // BUT (2026-06-04, root-caused from the operator's "gateway websocket connection
+  // failed" incident): `--tui` did MORE than the index — it enabled the dashboard's
+  // EMBEDDED-CHAT feature, which gates the `/api/ws` JSON-RPC WebSocket the bridge +
+  // visible TUI attach to (`web_server.py`: `if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
+  // ws.close(code=4403)` on `/api/ws`). Plain `hermes dashboard` serves the index
+  // TOKEN but its `/api/ws` CLOSES (empirically: code=1006/4403) — so the earlier
+  // "plain dashboard serves /api/ws (verified)" claim was WRONG; it only verified the
+  // index, not the socket. `_DASHBOARD_EMBEDDED_CHAT_ENABLED` is set by `--tui` OR the
+  // `HERMES_DASHBOARD_TUI=1` env (hermes_cli/web_server.start_server). Since the flag
+  // is rejected on the subcommand, we set the ENV instead (verified: `/api/ws` -> OPEN
+  // with it, CLOSE without). This is the crash-safe equivalent of the old `--tui`.
   const args = [
     "dashboard",
     "--port",
@@ -461,7 +470,14 @@ export async function ensureGatewayHost({
     // visible TUI *client*, which does NOT govern the gateway-hosted turn's approvals.
     // `hermes dashboard` REJECTS a `--yolo` flag (unrecognized arg, like the 0.15.1
     // `--tui` rejection), so the env var is the correct, crash-safe lever.
-    env: { ...process.env, HERMES_YOLO_MODE: "1" },
+    //
+    // HERMES_DASHBOARD_TUI=1 enables the dashboard EMBEDDED-CHAT feature that gates
+    // the `/api/ws` WebSocket the bridge + visible TUI attach to (see the args comment
+    // above). Without it `/api/ws` closes 4403 → "gateway websocket connection failed"
+    // across all managed hermes agents → headless orphans. It is the crash-safe env
+    // equivalent of the `--tui` flag the dashboard subcommand rejects (verified:
+    // `/api/ws` OPENs with it, CLOSEs without).
+    env: { ...process.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },
   });
   if (typeof gwErrFd === "number") {
     try { fs.closeSync(gwErrFd); } catch {}
