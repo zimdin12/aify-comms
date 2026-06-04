@@ -4,11 +4,12 @@
 // VERIFIED BLUEPRINT (docs/superpowers/plans/2026-05-31-managed-hermes-visible-tui-and-governance.md):
 // per managed hermes agent there are TWO hidden processes + aify's own WS client.
 // This module is the per-agent helper that owns #1 and #3:
-//   1. GATEWAY HOST: a HIDDEN `hermes dashboard --tui --port <P> --host
-//      127.0.0.1 --no-open --skip-build` child (windowsHide:true — no popup
-//      window). It is the ONLY server of the JSON-RPC WS `/api/ws`. `--tui` is
-//      REQUIRED or `/api/ws` closes 4403. Auth token is scraped from the
-//      dashboard index HTML (`__HERMES_SESSION_TOKEN__`).
+//   1. GATEWAY HOST: a HIDDEN `hermes dashboard --port <P> --host 127.0.0.1
+//      --no-open --skip-build` child (windowsHide:true — no popup window). It is
+//      the ONLY server of the JSON-RPC WS `/api/ws`. (hermes 0.15.1 dropped the
+//      `dashboard --tui` form — `--tui` is now a rejected arg on the subcommand;
+//      see ensureGatewayHost.) Auth token is scraped from the dashboard index
+//      HTML (`__HERMES_SESSION_TOKEN__`).
 //   2. (the VISIBLE Ink TUI in the bridge node-pty is started by the wrapper —
 //      NOT here; that is install.sh's job. It attaches to THIS gateway host via
 //      HERMES_TUI_GATEWAY_URL.)
@@ -392,7 +393,7 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs }
 
 // Spawn (idempotently) the hidden gateway host and return its coordinates.
 //   { port, token, wsUrl, child }
-// - `hermes dashboard --tui --port <port> --host 127.0.0.1 --no-open --skip-build`
+// - `hermes dashboard --port <port> --host 127.0.0.1 --no-open --skip-build`
 // - detached:true, windowsHide:true (CRITICAL — no popup OS window).
 // - When probeFirst is set we probe the index first; if a host is already
 //   serving (token scrape succeeds) we DON'T spawn (idempotent re-attach).
@@ -421,9 +422,15 @@ export async function ensureGatewayHost({
     }
   }
 
+  // hermes 0.15.1 (2026.5.29) moved `--tui` to a TOP-LEVEL flag; the `dashboard`
+  // subcommand now REJECTS it ("unrecognized arguments: --tui"), which killed the
+  // gateway host at spawn → ensure-host's 60s readiness timeout → every managed
+  // hermes dispatch reaped as "no live claimer". Plain `hermes dashboard` serves
+  // the same index token AND a working `/api/ws` on 0.15.1 (verified), so `--tui`
+  // is dropped. (Pre-0.15 the dashboard needed `--tui` or `/api/ws` closed 4403;
+  // that is no longer true.)
   const args = [
     "dashboard",
-    "--tui",
     "--port",
     String(port),
     "--host",
@@ -431,12 +438,27 @@ export async function ensureGatewayHost({
     "--no-open",
     "--skip-build",
   ];
+  // Capture the gateway host's stderr (was `stdio:"ignore"`, which SILENTLY hid
+  // spawn/arg errors — the 0.15.1 `--tui` rejection took a full manual repro to
+  // surface). stdin/stdout stay ignored; stderr → a per-port log so the next
+  // gateway failure is one `tail` away.
+  let gwErrFd = "ignore";
+  try {
+    const logDir = path.join(os.homedir(), ".local", "state", "aify-comms");
+    fs.mkdirSync(logDir, { recursive: true });
+    gwErrFd = fs.openSync(path.join(logDir, `hermes-gateway-host-${port}.log`), "a");
+  } catch {
+    gwErrFd = "ignore";
+  }
   const child = spawn(hermesCmd, args, {
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", gwErrFd],
     detached: true,
     windowsHide: true, // CRITICAL: no popup window on Windows (ConPTY-less child).
     env: { ...process.env },
   });
+  if (typeof gwErrFd === "number") {
+    try { fs.closeSync(gwErrFd); } catch {}
+  }
   // Don't let the gateway host keep the helper alive on its own; we manage its
   // lifecycle explicitly via teardown.
   if (typeof child.unref === "function") child.unref();

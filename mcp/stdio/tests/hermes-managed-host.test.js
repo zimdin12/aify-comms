@@ -1082,7 +1082,7 @@ function makeFakeFetch({ failTimes = 0, html = FAKE_INDEX_HTML } = {}) {
   };
 }
 
-test("ensureGatewayHost: spawns hermes dashboard --tui with windowsHide:true and scrapes the token", async () => {
+test("ensureGatewayHost: spawns hermes dashboard (NO --tui; rejected on the subcommand in 0.15.1) with windowsHide:true and scrapes the token", async () => {
   const { spawn, spawns } = makeFakeSpawn();
   const fetchImpl = makeFakeFetch();
 
@@ -1100,7 +1100,7 @@ test("ensureGatewayHost: spawns hermes dashboard --tui with windowsHide:true and
   const { cmd, args, opts } = spawns[0];
   assert.equal(cmd, "hermes");
   assert.ok(args.includes("dashboard"));
-  assert.ok(args.includes("--tui"), "--tui is REQUIRED (else /api/ws closes 4403)");
+  assert.ok(!args.includes("--tui"), "hermes 0.15.1 REJECTS --tui on the dashboard subcommand (it moved to a top-level flag); plain `dashboard` serves a working /api/ws");
   assert.ok(args.includes("--no-open"));
   assert.ok(args.includes("--skip-build"));
   // CRITICAL: no popup window.
