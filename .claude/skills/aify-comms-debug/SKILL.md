@@ -12,6 +12,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 ## Contents
 
 - Status labels: online vs available vs idle vs working vs stale vs offline vs stopped
+- `status_engine=new` is live — managed/channel `working` is FIXED (4d52571)
 - Codex resident keeps prompting despite bypass (per-tool `approval_mode`)
 - `available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast
 - Lifecycle verbs: what is Spawn/Stop/Restart/Reset/Resume-wake (and where did `recover` go)
@@ -56,6 +57,37 @@ adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean c
 distinctions: `available` ≠ `online` (no live worker yet — it boots one on send); `idle` is
 NOT a separate down-state, it's an `online` worker just gone quiet; `stale` is resident-only
 and means a LIVE-but-expired bridge lease, not an old label that "stuck".
+
+## `status_engine=new` is the live event engine — managed/channel `working` is FIXED (4d52571)
+
+**Context.** aify-comms has TWO status derivations behind the `status_engine` setting. The
+`old` (per-request, `agent_turn_state`/`turn_busy` window) engine is the DEFAULT_SETTINGS
+value (`api_v2.py` `status_engine="old"`), but the live DB has `status_engine=new` SET — the
+event-driven engine (`service/status_engine.py` `derive()` over `agent_status_state`) is what
+is actually authoritative on this deployment. The 8-status table above is UNCHANGED across
+engines; what differs is HOW `working` is decided (a pure `in_turn` flag vs the old timed
+`turn_busy` window). Most of the old-engine turn-detector prose below (claude transcript
+detector, hermes gateway-status detector, the 120s/30-min constants) still describes the
+BRIDGE-side signals that feed BOTH engines.
+
+**The fix (`4d52571`, 2026-06-05).** Under `new`, two gaps in the event engine are closed:
+- **Fix A — managed + claude channel-woken turns now show `working`.** The bridge `/heartbeat`
+  `turnBusy` field is the DOMINANT turn signal for managed runtimes (hermes/codex/pi/opencode)
+  and claude channel-woken turns, but it previously only wrote `agent_turn_state` (OLD engine)
+  and never `agent_status_state`, so the `new` engine showed `online`/`idle` mid-turn. The
+  `/heartbeat` handler now also feeds `turn_start` (on `turnBusy:true`) and `turn_end` (on
+  `turnBusy:false`, inside the SAME ownership guard that gates the `turn_busy=0` write, so a
+  stale/non-owning bridge can't wipe a live turn) into `_apply_status_event`, which sets
+  `agent_status_state.in_turn`. Flag-agnostic write; no-op for `old`. **So "managed/channel
+  agent shows online not working under the new engine" is FIXED.**
+- **Fix B — `in_turn` staleness backstop.** The `new` engine had NO ceiling on `in_turn`, so a
+  dropped/absent turn-END (e.g. resident hermes — start hook, no end hook) latched `working`
+  forever. `_gather_status_inputs` now treats `in_turn` as ended once the row's `last_event_at`
+  is older than `TURN_BUSY_BACKSTOP_SECONDS` (the SAME 30-min ceiling the old engine uses).
+
+**Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy is sent
+by the wrappers' delivery loops, so relaunch the affected wrapper). If a managed/channel agent
+still reads `online`/`idle` mid-turn while `status_engine=new`, the service is pre-`4d52571`.
 
 ## Codex resident keeps prompting for approval despite the bypass flag
 

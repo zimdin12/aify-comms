@@ -25,6 +25,14 @@ agent spawn, browser Console, and environment control.
 > native Windows Hermes or vice versa), **re-run `install.sh --client hermes`**
 > so the wrapper and config paths match the new runtime.
 
+> **Re-run `./install.sh --client hermes` after EVERY Hermes update.** A Hermes
+> upgrade wipes the prebuilt `hermes_cli/web_dist` UI bundle, and the managed
+> gateway host runs `hermes dashboard --skip-build`, which then dies with
+> `FileNotFoundError: .../web_dist/index.html` (operator-visible as the gateway
+> "installs deps then closes"). The installer's web_dist prebuild (see "web_dist
+> prebuild" below) restores the bundle, so reinstalling after each Hermes update
+> is required to keep managed/resident hermes dispatch working.
+
 ## Copy-Paste Install
 
 Install Hermes first:
@@ -102,6 +110,13 @@ approval prompts. This mirrors `claude-aify`
 by the wrapper and applied only to the default chat/TUI launch, not to explicit
 passthrough subcommands like `hermes-aify model list`.
 
+Note: the wrapper's `--yolo` reaches only the visible TUI *client*. For MANAGED
+agents the turn actually runs on the hidden gateway HOST, which does NOT inherit
+the client flag — so the gateway host is spawned with `HERMES_YOLO_MODE=1` in its
+env (hermes freezes YOLO at import from that var via `tools/approval.py`). That
+env is what lets an unattended managed dispatch run without prompting, since no
+operator is at the wheel to answer a tool-approval prompt.
+
 ## Session-mode flag
 
 `hermes-aify` accepts `--resident` and `--managed`. Precedence: inherited
@@ -112,8 +127,11 @@ might be wrong for your shell context.
 
 ## Delivery path
 
-Managed hermes uses the visible-TUI model: a hidden `hermes dashboard --tui
---port <P>` gateway host plus a `hermes-managed-host.js run <agent>` delivery
+Managed hermes uses the visible-TUI model: a hidden `hermes dashboard --port
+<P>` gateway host (spawned with `HERMES_DASHBOARD_TUI=1` + `HERMES_YOLO_MODE=1`
+in its env — hermes 0.15.1 REJECTS `--tui` and `--yolo` on the `dashboard`
+subcommand, so the embedded-chat `/api/ws` socket and no-prompt YOLO are enabled
+via env instead) plus a `hermes-managed-host.js run <agent>` delivery
 loop (runs as a `channel-sidecar` bridge; discovers the TUI's live session by
 the agent's stored **real session id** via WS `session.active_list`, and
 delivers via WS `prompt.submit` / `session.steer`), plus a VISIBLE
@@ -123,8 +141,9 @@ agent's **native hermes session id** — a normal timestamp id, symmetric with
 claude (UUID) / codex (thread). There is no synthetic `aify-<agentId>` session.
 
 Resident and managed now share one delivery model: the RESIDENT branch uses the
-SAME hidden `hermes dashboard --tui` gateway host + background delivery loop as
-managed (injected messages render in the visible TUI via gateway-WS
+SAME hidden `hermes dashboard` gateway host (spawned with `HERMES_DASHBOARD_TUI=1`)
++ background delivery loop as managed (injected messages render in the visible TUI
+via gateway-WS
 `prompt.submit` / `session.steer`). The old per-agent `hermes gateway run`
 api_server daemon resident path was DELETED — resident no longer starts or tears
 down any api_server daemon. Both branches resume the agent's stored real session
@@ -243,7 +262,7 @@ race bug.
 
 `hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Session continuity uses the agent's **native hermes session id** (a normal timestamp id), stored as the `sessionHandle` — symmetric with claude (UUID) / codex (thread). `hermes-aify --aify-agent <id>` brings up the gateway-host and resumes the agent's stored real session (or starts fresh the first time); `hermes-aify --resume <real-session-id>` recovers the agent from the stored handle and resumes that real session. There is no synthetic `aify-<agentId>` session — the operator never types one, and `HERMES_TUI_RESUME` is no longer pinned to a derived name. The aify-comms bridge attaches to the same `/api/ws` gateway, reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and discovers it via WS `session.active_list`, then delivers via WS `prompt.submit` (idle) / `session.steer` (mid-run). MCP discovery still runs before the TUI gateway builds its `AIAgent`; this matters because `hermes mcp test aify-comms` runs in a separate CLI process and can succeed while the already-running TUI gateway still has no `mcp_aify_comms_*` tools.
 
-1. The wrapper spawns `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child. This sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher.
+1. The wrapper's `ensure-host` (in `hermes-managed-host.js`) spawns `hermes dashboard --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child, with `HERMES_DASHBOARD_TUI=1` (and `HERMES_YOLO_MODE=1`) in its env. The env sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher. (hermes 0.15.1 moved `--tui` to a top-level flag and the `dashboard` subcommand now rejects it — `HERMES_DASHBOARD_TUI=1` is the crash-safe equivalent; `ensure-host` additionally WS-verifies `/api/ws` actually OPENs before declaring the host ready.)
 2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (`web_server.py:3688`).
 3. It exports `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<P>/api/ws?token=<T>` in the env passed to `hermes --tui`, and resumes the agent's stored real session id (`--resume <real-session-id>`) when one exists, else starts fresh. The Ink TUI's `gatewayClient.ts:startAttachedGateway` opens a WebSocket to that URL instead of spawning its own stdio sidecar — operator sees their normal terminal TUI experience, resumed on the agent's native session. On native Windows, `hermes-aify.cmd` runs a generated PowerShell shim instead of Git Bash so the final `hermes.exe --tui` process keeps the real console TTY.
 4. The aify-comms bridge (loaded inside `hermes chat` as an MCP server) ALSO opens a WebSocket to the same `/api/ws` (it reads `AIFY_HERMES_GATEWAY_URL` from env, written into the hermes runtime marker by `server.js`). For inbound aify-comms messages the bridge reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and confirms it via WS `session.active_list`, then issues JSON-RPC `prompt.submit` (idle session) or `session.steer` (mid-run insertion, when `prompt.submit` returns code 4009 "session busy") against that session. The session id is the agent's native real id (bound by the `aify-hermes-session-<agentId>` marker), so no `bind_transport` / `session.most_recent` negotiation is needed. Hermes emits real gateway events as `event` frames such as `message.delta`, `message.complete`, `tool.start`, and `tool.complete`; aify-comms translates those into run output and chat replies.
@@ -308,7 +327,7 @@ Detection order for the hermes install root:
 2. `hermes config path` parsed up to `/hermes_cli/...` (the canonical Windows path is `~/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml`, so the install root is `~/AppData/Local/hermes/hermes-agent`)
 3. Skip with a log line if neither resolves
 
-The prebuild is idempotent — re-running `install.sh --client hermes` after web_dist exists logs `hermes web_dist already present at ...` and skips. Re-run is required only when hermes itself is upgraded.
+The prebuild is idempotent — re-running `install.sh --client hermes` after web_dist exists logs `hermes web_dist already present at ...` and skips. **Re-run is required after every Hermes upgrade**, because the upgrade wipes `web_dist` and the gateway host then crashes with `FileNotFoundError: .../web_dist/index.html` ("installs deps then closes") until the prebuild restores it.
 
 ### Fallback warning (added 2026-05-25)
 
@@ -332,7 +351,15 @@ timestamp id stored as the `sessionHandle`, symmetric with claude (UUID) /
 codex (thread). There is no synthetic `aify-<agentId>` session. `hermes-aify
 --aify-agent <id>` resumes the agent's stored real session (or starts fresh the
 first time); `hermes-aify --resume <real-session-id>` resumes that specific
-session. The agent→real-session binding is the per-agent marker
+session. The launch-side `resolve-session` step (in `hermes-managed-host.js`,
+run by the wrapper before the visible TUI launches) resolves which session to
+`--resume`: as of the 2026-06-04 `session_key` fix the resumed id is the
+**durable `session_key`** (looked up against the SessionDB / `session.list`, so
+it survives gateway and bridge restarts), NOT the ephemeral runtime sid — the
+ephemeral id is dead on the next attach and would fail gateway 4007 "session not
+found". (Delivery itself — `prompt.submit` / `session.steer` — still targets the
+ephemeral live sid the loop discovers via `session.active_list`; only the resume
+key is the durable one.) The agent→real-session binding is the per-agent marker
 `aify-hermes-session-<agentId>`, and the bridge reads the visible session's real
 id from the active-session file (`HERMES_TUI_ACTIVE_SESSION_FILE` /
 `AIFY_HERMES_ACTIVE_SESSION_FILE`) — this active-session-file discovery is now
@@ -363,9 +390,7 @@ wrapper-backed delivery is disabled or unavailable.
 
 ## Native fallback ACP session (managed dispatches)
 
-**Re-running `install.sh --client hermes` does NOT update an existing `aify-comms` block in `config.yaml`.** The installer's idempotency check (`install_hermes_config` in install.sh) exits early if the `aify-comms:` entry already exists under `mcp_servers:`. After upgrading aify-comms (e.g. to pick up new env-var propagation entries like `AIFY_HERMES_GATEWAY_URL`), you need to either:
-- Manually edit `~/.hermes/config.yaml` (or `%LOCALAPPDATA%\hermes\config.yaml`) and add the new `env:` entries under the existing `aify-comms:` block
-- OR delete the `aify-comms:` block entirely and rerun `bash install.sh --client hermes` to regenerate it
+**Re-running `install.sh --client hermes` REPLACES the existing `aify-comms` block in `config.yaml` in place.** The config patcher (`_patch_hermes_config_at` in install.sh) locates the existing `aify-comms:` entry under `mcp_servers:`, splices it out, and re-inserts the freshly generated block — so new `env:` entries (e.g. env-var propagation like `AIFY_HERMES_GATEWAY_URL`) flow on reinstall, no manual edit needed. (This is a change from older builds, which exited early and left a stale block.) If the block is ever hand-corrupted you can still delete it entirely and rerun `bash install.sh --client hermes` to regenerate it.
 
 Current managed Hermes defaults to wrapper-backed `hermes-aify` PTY delivery
 (`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY, the

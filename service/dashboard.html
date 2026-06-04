@@ -1648,11 +1648,11 @@ codex-aify --aify-agent coder --aify-role coder</pre>
       <div class="guide-grid">
         <div class="guide-card">
           <h4>What the statuses mean</h4>
-          <p><b>working</b> — running a turn. <b>online</b> — live worker, idle. <b>idle</b> — online but quiet a while. <b>available</b> — no live worker right now, lazy-starts on the next message. <b>blocked</b> — console looks like it needs input. <b>stale</b> — a resident bridge heartbeat went missing. <b>offline</b> — stopped/disabled, or the owning environment is unreachable. <b>stopped</b> — explicitly stopped.</p>
+          <p><b>working</b> — running a turn (appears within ~1-2s of a turn starting). <b>online</b> — live worker, idle. <b>idle</b> — online but quiet for over 5 minutes. <b>available</b> — no live worker right now, lazy-starts on the next message. <b>blocked</b> — in a turn, awaiting operator input. <b>stale</b> — a resident-only agent whose bridge heartbeat lapsed. <b>offline</b> — the owning environment bridge is down or its heartbeat is past ~30 minutes. <b>stopped</b> — explicitly stopped/disabled by an operator.</p>
         </div>
         <div class="guide-card">
           <h4>Managed vs resident status</h4>
-          <p>A <b>managed</b> agent is <b>offline</b> only when you stop/disable it or its environment bridge is down; otherwise it rests at <b>available</b> (and lazy-starts on send) or shows <b>online</b>/<b>working</b>. A <b>resident</b> agent is <b>online</b> while its CLI session is live, otherwise <b>offline</b>.</p>
+          <p>A <b>managed</b> agent shows <b>stopped</b> when you stop/disable it and <b>offline</b> when its owning environment bridge is down; otherwise it rests at <b>available</b> (and lazy-starts on send) or shows <b>online</b>/<b>working</b>. A <b>resident</b> agent is <b>online</b> while its CLI session is live, <b>stale</b> when its bridge heartbeat lapses, otherwise <b>offline</b>.</p>
         </div>
         <div class="guide-card">
           <h4>Statuses filter</h4>

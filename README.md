@@ -128,6 +128,8 @@ bash install.sh --client hermes http://192.168.100.10:8800 --with-hook
 
 After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills. As a convenience after `git pull`, run `./redeploy.sh` — it auto-detects every `*-aify` wrapper installed at `~/.local/bin/` and re-runs `install.sh --client X` for each, so you don't have to remember which clients are installed on the host.
 
+After updating **Hermes itself**, rerun `bash install.sh --client hermes …` — a hermes update wipes the prebuilt `hermes_cli/web_dist`, and `hermes-aify` cannot serve the gateway/console without it. The installer's one-time `web_dist` prebuild is idempotent (a noop when `web_dist/index.html` already exists), so reinstalling after a hermes upgrade rebuilds the missing bundle.
+
 ## Connect Environments
 
 Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine.

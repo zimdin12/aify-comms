@@ -84,7 +84,7 @@ principles. Full rationale + per-runtime detail:
 | Session id source | `captured` (SessionStart hook) | `captured` (native session id via active-session file, stored as the handle) | `resume` | `resume` |
 | Delivery shape | sidecar-channel | gateway-host (WS tui_gateway) | controller (PTY/native) | controller (PTY) |
 | Reply author | agent self (`comms_send` + `inReplyTo`) | agent self (`comms_send`) | agent self | agent self |
-| Owns its own process | process per agent | `ASYMMETRY(hermes)`: hidden `hermes dashboard` gateway host (no `--tui` — rejected by the subcommand since hermes 0.15.1) + a visible `hermes --tui` PTY resuming the agent's REAL native session (rendered in the dashboard console); its equivalent of one-process-per-agent | process per agent | process per agent |
+| Owns its own process | process per agent | `ASYMMETRY(hermes)`: hidden `hermes dashboard` gateway host (no `--tui` — rejected by the subcommand since hermes 0.15.1; embedded-chat/`/api/ws` enabled via the `HERMES_DASHBOARD_TUI=1` env instead, + `HERMES_YOLO_MODE=1` so gateway-hosted turns never prompt) + a visible `hermes --tui` PTY resuming the agent's REAL native session (rendered in the dashboard console); its equivalent of one-process-per-agent | process per agent | process per agent |
 | Wake mechanism | in-process MCP server-push | `ASYMMETRY(hermes)`: `hermes-managed-host.js` channel-sidecar finds the agent's real session in `session.active_list` (by the stored id / `aify-hermes-session-<agentId>` marker, most-recent fallback) and delivers via WS `prompt.submit` / `session.steer`; agent then self-replies | controller inject | controller inject |
 | Can be force-pinned | `ASYMMETRY(claude)`: mints its own id → `captured` not `pinned`; we capture+resume+guard | no — `captured` like claude: hermes uses its OWN native session id (no synthetic `aify-<id>`) | partial (resume id) | partial |
 
@@ -131,17 +131,29 @@ The dead `recover`/`resume` aliases on `POST /sessions/{id}/control` (byte-ident
 
 ### Canonical status labels
 
-Operator-facing agent status (distinct from session display status above):
+Operator-facing agent status (distinct from session display status above). The 8-status
+vocabulary (`VALID_STATUSES` in `service/status_engine.py`) is unchanged by the v2 engine:
 
 | Label | Meaning |
 |-------|---------|
 | `online` | Live worker, idle (no active turn). |
 | `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
 | `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
-| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `working` | Executing a turn (`in_turn` / a claimed-running run). |
+| `blocked` | Mid-turn AND awaiting operator input/decision (`in_turn` + `awaiting_input`). |
 | `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired, NOT an old/sticky label). |
 | `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
 | `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+
+The real-time, event-driven status engine v2 (`service/status_engine.py`, gated behind the
+`status_engine` setting — CODE default `old`, live DB set to `new`) decides `working`/`blocked`
+from turn EVENTS folded into `agent_status_state.in_turn` / `awaiting_input`, not from a
+staleness timer. `working` is now fed for ALL runtimes: the dispatch `/heartbeat turnBusy`
+field also drives a `turn_start`/`turn_end` status event (managed hermes/codex/pi + claude
+channel turns), with a 30-min `in_turn` staleness backstop for a dropped turn-END. `derive()`
+is a PURE function of `StatusInputs`; the served-status flag-branch derives from the
+`StatusInputs` byproduct `_compute_live_status_cache` already assembled (no double-gather).
+See DECISIONS.md (2026-06-04 / 06-05).
 
 Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
 adds `stale` when its bridge lease lapses, and (2026-06-03, `5070c84`) `stopped` on clean
