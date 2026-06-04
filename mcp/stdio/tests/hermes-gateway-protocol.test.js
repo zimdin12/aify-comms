@@ -12,6 +12,9 @@ import {
   pickSessionForKey,
   pickSessionById,
   pickMostRecentSession,
+  pickSessionRowById,
+  pickMostRecentSessionRow,
+  rowResumeKey,
   pickSessionStatusForKey,
   pickSessionStatusById,
   isGatewaySessionIdle,
@@ -188,6 +191,62 @@ test("pickMostRecentSession: null when there are no live sessions / unknown shap
   assert.equal(pickMostRecentSession({ result: { sessions: [] } }), null);
   assert.equal(pickMostRecentSession(null), null);
   assert.equal(pickMostRecentSession({}), null);
+});
+
+// ---------------------------------------------------------------------------
+// rowResumeKey + row-returning resolvers (2026-06-04 session_key fix). The
+// resume/marker path must persist the DURABLE `session_key`, not the ephemeral
+// runtime `id`, or the next launch resumes a dead sid → gateway 4007.
+// ---------------------------------------------------------------------------
+
+test("rowResumeKey: returns the durable session_key over the ephemeral id", () => {
+  assert.equal(
+    rowResumeKey({ id: "8b821120", session_key: "20260604_215845_395891" }),
+    "20260604_215845_395891",
+    "prefers the durable session_key",
+  );
+  assert.equal(
+    rowResumeKey({ id: "8b821120", sessionKey: "20260604_215845_395891" }),
+    "20260604_215845_395891",
+    "accepts the camelCase sessionKey too",
+  );
+});
+
+test("rowResumeKey: falls back to the ephemeral id when no session_key is present", () => {
+  assert.equal(rowResumeKey({ id: "8b821120" }), "8b821120", "graceful degradation");
+  assert.equal(rowResumeKey({ session_id: "abc" }), "abc");
+  assert.equal(rowResumeKey({}), "");
+  assert.equal(rowResumeKey(null), "");
+});
+
+test("pickSessionRowById: matches by ephemeral id OR durable session_key, returns the row", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "8b821120", session_key: "20260604_215845_395891", status: "idle" },
+        { id: "other", session_key: "20260604_000000_000000", status: "idle" },
+      ],
+    },
+  };
+  // marker holds the ephemeral id → resolves the row whose durable key differs
+  assert.equal(rowResumeKey(pickSessionRowById(resp, "8b821120")), "20260604_215845_395891");
+  // marker holds the durable key directly → still resolves the row
+  assert.equal(rowResumeKey(pickSessionRowById(resp, "20260604_215845_395891")), "20260604_215845_395891");
+  assert.equal(pickSessionRowById(resp, "not-there"), null);
+  assert.equal(pickSessionRowById(null, "x"), null);
+});
+
+test("pickMostRecentSessionRow: returns the freshest row so the caller can take its session_key", () => {
+  const resp = {
+    result: {
+      sessions: [
+        { id: "old-sid", session_key: "20260603_090000_old", started_at: "2026-06-03T09:00:00Z" },
+        { id: "new-sid", session_key: "20260603_120000_new", started_at: "2026-06-03T12:00:00Z" },
+      ],
+    },
+  };
+  assert.equal(rowResumeKey(pickMostRecentSessionRow(resp)), "20260603_120000_new");
+  assert.equal(pickMostRecentSessionRow({ result: { sessions: [] } }), null);
 });
 
 test("pickSessionStatusById: reads the live status for a row matched by its real id", () => {

@@ -154,9 +154,26 @@ function activeListRows(activeListResponse) {
     : [];
 }
 
-// The session's REAL id off a row (`id` / `session_id` / `sessionId`).
+// The session's EPHEMERAL runtime id off a row (`id` / `session_id` / `sessionId`).
+// This is the gateway's in-memory `_sessions` dict key — REGENERATED on every
+// gateway (re)attach/restart. Use it for DELIVERY (prompt.submit / session.steer
+// target this ephemeral sid), NEVER for resume/marker persistence.
 function rowRealId(r) {
   return String(r?.id || r?.session_id || r?.sessionId || "").trim();
+}
+
+// The session's DURABLE resume key off a row (`session_key` / `sessionKey`).
+// "session not found" on resume root cause (2026-06-04): hermes has TWO ids per
+// session — the durable `session_key` (timestamp form, persisted in hermes
+// SessionDB, what `--resume` / `session.resume` REQUIRE) and the ephemeral `sid`
+// (the in-memory dict key, regenerated on every attach). active_list rows carry
+// BOTH: row `id` = ephemeral sid, `session_key` = durable. Persisting the
+// ephemeral as the agent→session binding meant the next launch resumed a dead
+// ephemeral id → gateway 4007 "session not found". Use THIS for the
+// marker/visible-TUI resume id; falls back to the ephemeral id ONLY when no
+// session_key is present (graceful degradation for older gateway shapes).
+export function rowResumeKey(r) {
+  return String(r?.session_key || r?.sessionKey || rowRealId(r) || "").trim();
 }
 
 // Pick the row for the visible TUI from a session.active_list response. The
@@ -233,6 +250,27 @@ export function pickSessionById(activeListResponse, realId) {
   return null;
 }
 
+// Row-returning variant of pickSessionById (2026-06-04, session_key fix). The
+// resume/marker resolver needs the matched row so it can extract the DURABLE
+// `rowResumeKey` rather than the ephemeral id. Matches a row whose EPHEMERAL id
+// OR durable session_key equals `wanted` — a marker may hold either form (the
+// delivery loop persists the ephemeral; an older launch persisted the durable).
+// Returns the matched row object, or null. Delivery callers keep the string
+// pickSessionById above (they target the ephemeral sid).
+export function pickSessionRowById(activeListResponse, realId) {
+  const wanted = String(realId || "").trim();
+  if (!wanted) return null;
+  const rows = activeListRows(activeListResponse);
+  for (const r of rows) {
+    if (rowRealId(r) === wanted) return r;
+  }
+  // Also accept a marker that holds the durable session_key directly.
+  for (const r of rows) {
+    if (String(r?.session_key || r?.sessionKey || "").trim() === wanted) return r;
+  }
+  return null;
+}
+
 // Native-session-id model FALLBACK (2026-06-03): when the agent has not yet bound
 // a real session id (no marker) OR the bound id is not in active_list, deliver to
 // the gateway's MOST-RECENT live session. The active_list is this agent's OWN
@@ -240,6 +278,17 @@ export function pickSessionById(activeListResponse, realId) {
 // Returns the freshest row's real id (by last_active/started_at/created_at), or
 // the first row with an id, or null when there are no live sessions.
 export function pickMostRecentSession(activeListResponse) {
+  const row = pickMostRecentSessionRow(activeListResponse);
+  return row ? rowRealId(row) : null;
+}
+
+// Row-returning variant of pickMostRecentSession (2026-06-04, session_key fix).
+// The resume/marker resolver uses this so it can persist the DURABLE
+// `rowResumeKey` of the freshest live session rather than its ephemeral id.
+// Returns the freshest row object (by last_active/started_at/created_at), the
+// first row with an ephemeral id when no timestamps, or null. Delivery callers
+// keep the string pickMostRecentSession above (they target the ephemeral sid).
+export function pickMostRecentSessionRow(activeListResponse) {
   const rows = activeListRows(activeListResponse);
   if (!rows.length) return null;
   const stamp = (s) =>
@@ -255,7 +304,7 @@ export function pickMostRecentSession(activeListResponse) {
     if (!id) continue;
     const t = stamp(r);
     if (best === null || t > bestStamp) {
-      best = id;
+      best = r;
       bestStamp = t;
     }
   }

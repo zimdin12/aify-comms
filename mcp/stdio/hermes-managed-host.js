@@ -66,6 +66,9 @@ import {
   buildRenderNoticeFrame,
   pickSessionById,
   pickMostRecentSession,
+  pickSessionRowById,
+  pickMostRecentSessionRow,
+  rowResumeKey,
   pickSessionStatusForKey,
   pickSessionStatusById,
   isGatewaySessionIdle,
@@ -2345,6 +2348,10 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     openClient,
     readMarker = readSessionIdMarker,
     writeMarker = writeSessionIdMarker,
+    // DEAD-MARKER CLEAR (session_key fix, 2026-06-04): when no resumable session
+    // is found we return "" (start fresh) AND clear the stale marker so the dead
+    // id stops recurring on the next send-driven spawn. Injectable for tests.
+    clearMarker = defaultClearSessionMarker,
     writeActiveSessionFile = defaultWriteActiveSessionFile,
     tempDir = TMP_DIR,
     activeSessionFile = String(process.env.AIFY_HERMES_ACTIVE_SESSION_FILE || "").trim(),
@@ -2407,15 +2414,25 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     const listResp = await client.request(
       buildSessionActiveListFrame({ id: rid++, currentSessionId: "" }),
     );
-    // (a) prefer the marker id when it is a LIVE row (continuous transcript).
-    if (marker && pickSessionById(listResp, marker)) {
-      resolved = marker;
+    // RESUME resolution (session_key fix, 2026-06-04): the marker / visible-TUI
+    // resume id MUST be the DURABLE `session_key`, not the ephemeral runtime sid
+    // (`--resume` / session.resume require the durable key; the ephemeral is dead
+    // on the next attach → gateway 4007 "session not found"). We resolve the
+    // matched ROW and extract `rowResumeKey`, so even when the marker holds a
+    // stale ephemeral id that still matches a live row, we persist that row's
+    // durable key. (Delivery — prompt.submit/steer — stays on the ephemeral sid;
+    // that split lives in the loop's waitForActiveSession, untouched here.)
+    // (a) prefer the marker when it matches a LIVE row (continuous transcript).
+    const markerRow = marker ? pickSessionRowById(listResp, marker) : null;
+    if (markerRow) {
+      resolved = rowResumeKey(markerRow);
       source = "marker(live)";
     } else {
-      // (b) most-recent live session — the gateway's freshest real id.
-      const recent = pickMostRecentSession(listResp);
-      if (recent) {
-        resolved = recent;
+      // (b) most-recent live session — the gateway's freshest durable key.
+      const recentRow = pickMostRecentSessionRow(listResp);
+      const recentKey = recentRow ? rowResumeKey(recentRow) : "";
+      if (recentKey) {
+        resolved = recentKey;
         source = "active_list(most-recent)";
       }
     }
@@ -2437,7 +2454,20 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     }
     err(`[hermes-managed-host] resolve-session: agent '${id}' → ${resolved} (${source}).\n`);
   } else {
-    err(`[hermes-managed-host] resolve-session: agent '${id}' has no live gateway session yet (will start fresh).\n`);
+    // FRESH-FALLBACK + DEAD-MARKER CLEAR (session_key fix, 2026-06-04): no live
+    // row yielded a usable resume key. The wrapper treats "" as "start fresh".
+    // Clear the stale marker so the dead id stops recurring on the next
+    // send-driven spawn (a spawn that resumed a dead ephemeral id is exactly the
+    // 4007 "session not found" loop this fix breaks). Only clear here — never
+    // when a resumable id WAS found above. Best-effort; never blocks launch.
+    // (Skip the clear on a query failure, where `marker` was kept as the
+    // best-known fallback rather than resolving to nothing.)
+    if (source !== "marker(query-failed)") {
+      // clearSessionMarker takes a BARE dir (not the { tempDir } options shape
+      // that read/writeSessionIdMarker use). Pass the dir directly.
+      try { clearMarker(id, tempDir); } catch { /* best-effort */ }
+    }
+    err(`[hermes-managed-host] resolve-session: agent '${id}' has no live gateway session yet (cleared stale marker; will start fresh).\n`);
   }
   out((resolved || "") + "\n");
   return { agentId: id, resolved: resolved || "", source };

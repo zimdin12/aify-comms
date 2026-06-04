@@ -1369,6 +1369,98 @@ test("runResolveSessionCli: NO live session yet → empty result (wrapper resume
   assert.equal(wroteActive, null, "does not seed the active file when nothing resolved");
 });
 
+// ---------------------------------------------------------------------------
+// runResolveSessionCli — DURABLE session_key resolution + dead-marker clear
+// (session_key fix, 2026-06-04). The resume id MUST be the durable `session_key`,
+// not the ephemeral runtime `id`, or the next launch resumes a dead sid → 4007.
+// ---------------------------------------------------------------------------
+
+// active_list rows carrying BOTH ids: ephemeral `id` (8b821120) + durable
+// `session_key` (timestamp form). The bug was persisting the ephemeral.
+const SESSION_WITH_DURABLE_KEY = {
+  result: {
+    sessions: [
+      { id: "8b821120", session_key: "20260604_215845_395891", status: "idle", started_at: "2026-06-04T21:58:45Z" },
+    ],
+  },
+};
+
+test("runResolveSessionCli: marker holds the EPHEMERAL id matching a live row → resolves the DURABLE session_key", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": SESSION_WITH_DURABLE_KEY });
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "8b821120", // the EPHEMERAL sid (the bug's stored binding)
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260604_215845_395891", "resolves the DURABLE session_key, not the ephemeral sid");
+  assert.equal(stdout.trim(), "20260604_215845_395891");
+  assert.deepEqual(wroteMarker, { a: "sc-hermes", v: "20260604_215845_395891" }, "persists the durable key to the marker");
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260604_215845_395891" }, "seeds the active file with the durable key");
+});
+
+test("runResolveSessionCli: most-recent fallback resolves the DURABLE session_key of the freshest live row", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": SESSION_WITH_DURABLE_KEY });
+  let stdout = "";
+  let wroteMarker = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "real-GONE", // stale marker, not in active_list
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260604_215845_395891", "most-recent fallback yields the durable key");
+  assert.deepEqual(wroteMarker, { a: "sc-hermes", v: "20260604_215845_395891" });
+});
+
+test("runResolveSessionCli: NO resumable row → returns '' AND clears the dead marker (fresh-fallback)", async () => {
+  const ws = makeFakeWsClient({ "session.active_list": { result: { sessions: [] } } });
+  let stdout = "";
+  let cleared = null;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ws,
+    readMarker: () => "20260603_034413_8480e3", // stale dead id (the recurring symptom)
+    writeMarker: () => {},
+    clearMarker: (id) => { cleared = id; },
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "", "no resumable session → empty (wrapper starts fresh)");
+  assert.equal(stdout.trim(), "", "prints an empty line");
+  assert.equal(cleared, "sc-hermes", "clears the dead marker so the stale id stops recurring");
+});
+
+test("runResolveSessionCli: query failure keeps the marker fallback and does NOT clear it", async () => {
+  let cleared = false;
+  const res = await runResolveSessionCli("sc-hermes", {
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => { throw new Error("connect refused"); },
+    readMarker: () => "real-marker",
+    writeMarker: () => {},
+    clearMarker: () => { cleared = true; },
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "",
+    out: () => {},
+    err: () => {},
+  });
+  assert.equal(res.resolved, "real-marker", "query failure degrades to the marker");
+  assert.equal(cleared, false, "must NOT clear the marker when it is being used as the fallback");
+});
+
 test("runResolveSessionCli: NO gateway url → falls back to the marker as-is (best known), never throws", async () => {
   let stdout = "";
   const res = await runResolveSessionCli("sc-hermes", {
