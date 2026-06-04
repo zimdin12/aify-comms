@@ -4096,13 +4096,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # stopped, session row stale-running, agent should be `available`
     # not `online`).
     agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
-    resident_bridge_stale = False
-    if agent_session_mode == "resident" and "resident-run" in _row_capabilities(agent_row):
-        resident_bridge_stale = not await _resident_bridge_is_fresh(
+    # status v2 (2026-06-04): capture the raw resident bridge-freshness ONCE so the
+    # StatusInputs byproduct assembled below can reuse it without a second
+    # _resident_bridge_is_fresh call. Mirrors _gather_status_inputs, which calls it
+    # UNGATED for residents; the legacy resident_bridge_stale below stays gated on
+    # the resident-run capability exactly as before (behavior-preserving).
+    resident_bridge_fresh: Optional[bool] = None
+    if agent_session_mode == "resident":
+        resident_bridge_fresh = await _resident_bridge_is_fresh(
             db,
             agent_row,
             lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150),
         )
+    resident_bridge_stale = False
+    if agent_session_mode == "resident" and "resident-run" in _row_capabilities(agent_row):
+        resident_bridge_stale = not resident_bridge_fresh
     # fix/resident-hermes-status (2026-06-02): a resident agent whose wake-mode is
     # a `*-missing-handle` mode has NO usable wake handle (resident hermes with no
     # usable gatewayUrl; resident codex/opencode/pi with no sessionHandle) — it
@@ -4364,6 +4372,53 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_BACKSTOP_SECONDS)
         if busy_deadline:
             refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
+    # status v2 (2026-06-04): assemble the engine's StatusInputs from the raw
+    # signals THIS function already computed, so _refresh_agent_live_state can
+    # derive the `new` status with a PURE derive() call instead of re-running the
+    # full _gather_status_inputs double-gather (the 10x idle-CPU regression). This
+    # MUST produce the same StatusInputs _gather_status_inputs does — the field
+    # semantics below mirror it exactly (see _gather_status_inputs).
+    #   - mode/disabled: same source rows.
+    #   - in_turn/awaiting_input: one cheap indexed agent_status_state lookup (the
+    #     SAME table _gather_status_inputs reads; the legacy derivation above uses
+    #     agent_turn_state.turn_busy instead, so this single query is required).
+    #   - worker_present (managed): the already-computed `has_live_worker` local —
+    #     the SHARED _worker_liveness_for result, identical to _has_live_worker_for,
+    #     so the expensive worker re-scan is eliminated.
+    #   - env_reachable (managed): resolved exactly as _gather_status_inputs (owning
+    #     env row with resolved_environment_id="" -> effective status in online/
+    #     degraded). A cheap indexed env lookup, NOT the expensive worker re-scan.
+    #   - resident liveness: the `resident_bridge_fresh` local captured above (the
+    #     SAME _resident_bridge_is_fresh call _gather_status_inputs makes, computed
+    #     once and reused).
+    #   - idle_too_long: False for both modes, matching _gather_status_inputs.
+    _si_st = await (await db.execute(
+        "SELECT in_turn, awaiting_input FROM agent_status_state WHERE agent_id=?",
+        (agent_row["id"],),
+    )).fetchone()
+    _si_in_turn = bool(_si_st and _si_st["in_turn"])
+    _si_awaiting = bool(_si_st and _si_st["awaiting_input"])
+    _si_disabled = str(agent_row["status"] or "").lower() == "stopped"
+    if agent_session_mode == "managed":
+        _si_env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
+        _si_env_reachable = bool(_si_env_row) and _environment_effective_status(
+            _si_env_row,
+            offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
+        ) in {"online", "degraded"}
+        status_inputs = StatusInputs(
+            mode=agent_session_mode, alive=has_live_worker, in_turn=_si_in_turn,
+            awaiting_input=_si_awaiting, worker_present=has_live_worker,
+            env_reachable=_si_env_reachable, disabled=_si_disabled,
+            bridge_stale=False, has_live_session=has_live_worker, idle_too_long=False,
+        )
+    else:
+        _si_fresh = bool(resident_bridge_fresh)
+        status_inputs = StatusInputs(
+            mode=agent_session_mode, alive=_si_fresh, in_turn=_si_in_turn,
+            awaiting_input=_si_awaiting, worker_present=_si_fresh,
+            env_reachable=True, disabled=_si_disabled,
+            bridge_stale=(not _si_fresh), has_live_session=_si_fresh, idle_too_long=False,
+        )
     return {
         "status": effective_status,
         "reason": reason,
@@ -4374,6 +4429,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         "active_run_id": str((active_run["id"] if active_run else "") or "").strip(),
         "refresh_after": refresh_after,
         "updated_at": now,
+        "status_inputs": status_inputs,
     }
 
 
@@ -4395,7 +4451,12 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
         and old_status not in _MANUAL_STATUSES
     ):
         try:
-            new_status = await engine_status(db, row, settings=settings)
+            # status v2 CPU fix (2026-06-04): derive from the StatusInputs byproduct
+            # _compute_live_status_cache already assembled (a PURE derive() call) —
+            # NOT engine_status(), which would re-run the expensive _gather_status_inputs
+            # double-gather (the 10x idle-CPU regression). The byproduct mirrors
+            # _gather_status_inputs exactly, so derive() yields the same value.
+            new_status = derive(cache["status_inputs"])
             if old_status != new_status:
                 logger.info(
                     "status-disagreement agent=%s old=%s new=%s",

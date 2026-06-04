@@ -154,3 +154,153 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._agent_status_events(), [],
                          "old flag must not push engine agent_status from status-event")
+
+
+class StatusEngineHotRefreshParityTests(FastApiTestCase):
+    """status v2 CPU-fix: under status_engine=new, _refresh_agent_live_state must
+    derive the served status from the live-status-cache byproduct (a pure derive()
+    call), NOT by re-running the expensive _gather_status_inputs double-gather. The
+    derived value MUST equal what engine_status(db, row) returns (parity)."""
+
+    def _register(self, aid, mode="resident", runtime="claude-code", machine="linux:test"):
+        r = self.client.post("/api/v1/agents", json={"agentId": aid, "role": "coder",
+            "runtime": runtime, "sessionMode": mode, "machineId": machine, "bridgeId": "b1"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _set(self, key, val):
+        import json
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (key, json.dumps(val)))
+            c.commit()
+        finally:
+            c.close()
+
+    def _run(self, coro_factory):
+        import asyncio
+        from service.db import get_db
+
+        async def runner():
+            db = await get_db()
+            try:
+                return await coro_factory(db)
+            finally:
+                await db.close()
+
+        return asyncio.run(runner())
+
+    def _refreshed_status(self, aid):
+        """Run _refresh_agent_live_state and read back the written status."""
+        from service.routers import api_v2
+
+        async def factory(db):
+            settings = await api_v2._load_settings(db)
+            await api_v2._invalidate_agent_live_state(db, aid)
+            await api_v2._refresh_agent_live_state(db, aid, settings=settings)
+            row = await (await db.execute(
+                "SELECT status FROM agent_live_state WHERE agent_id=?", (aid,))).fetchone()
+            return str(row["status"]) if row else None
+
+        return self._run(factory)
+
+    def _engine_status(self, aid):
+        from service.routers import api_v2
+
+        async def factory(db):
+            settings = await api_v2._load_settings(db)
+            row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
+            return await api_v2.engine_status(db, row, settings=settings)
+
+        return self._run(factory)
+
+    def _register_env(self, env_id, machine, runtime):
+        r = self.client.post("/api/v1/environments/heartbeat", json={
+            "id": env_id, "machineId": machine, "status": "online",
+            "runtimes": [{"runtime": runtime}]})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    # ---- Test #1: correctness parity (refresh-written status == engine_status) ----
+
+    def test_parity_resident_working(self):
+        # (a) resident + fresh heartbeat + turn_start status-event -> both `working`.
+        self._register("p_work", mode="resident")
+        self.client.post("/api/v1/agents/p_work/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.client.post("/api/v1/agents/p_work/status-event", json={"kind": "turn_start", "runId": "r1"})
+        self._set("status_engine", "new")
+        engine = self._engine_status("p_work")
+        self.assertEqual(engine, "working")
+        self.assertEqual(self._refreshed_status("p_work"), engine)
+
+    def test_parity_managed_available(self):
+        # (b) managed + reachable env + no live worker -> both `available`.
+        self._register("p_avail", mode="managed", machine="linux:test")
+        self._register_env("env-a", "linux:test", "claude-code")
+        self._set("status_engine", "new")
+        engine = self._engine_status("p_avail")
+        self.assertEqual(engine, "available")
+        self.assertEqual(self._refreshed_status("p_avail"), engine)
+
+    def test_parity_resident_stale_offline(self):
+        # (c) resident with no fresh bridge -> both yield the same (stale/offline).
+        self._register("p_stale", mode="resident")
+        # Age the registration bridge well past the resident lease (150s) so the
+        # bridge reads stale (registration seeds a fresh bridge_instances row).
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                "UPDATE bridge_instances SET last_seen='2020-01-01T00:00:00Z' WHERE agent_id=?",
+                ("p_stale",))
+            c.commit()
+        finally:
+            c.close()
+        self._set("status_engine", "new")
+        engine = self._engine_status("p_stale")
+        self.assertIn(engine, {"stale", "offline"})
+        self.assertEqual(self._refreshed_status("p_stale"), engine)
+
+    # ---- Test #2: no-double-gather proof (the CPU-fix regression net) ----
+
+    def test_refresh_does_not_call_gather_status_inputs(self):
+        # The actual CPU-fix assertion: under status_engine=new the refresh path
+        # must derive from the cache byproduct, NOT via engine_status ->
+        # _gather_status_inputs (the expensive double-gather). Monkeypatch
+        # _gather_status_inputs to blow up; the refresh must STILL succeed, write a
+        # VALID status, AND must NOT have hit the engine-failure fallback (which is
+        # what the OLD code does when _gather_status_inputs raises via
+        # engine_status). FAILS before the fix (engine_status -> _gather_status_inputs
+        # raises -> logger.exception fallback fires); PASSES after, when
+        # derive(cache byproduct) is used and the gather is never touched.
+        from service.status_engine import VALID_STATUSES
+        from service.routers import api_v2
+
+        self._register("p_nogather", mode="resident")
+        self.client.post("/api/v1/agents/p_nogather/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self._set("status_engine", "new")
+
+        original_gather = api_v2._gather_status_inputs
+        original_log_exc = api_v2.logger.exception
+        fallback_hits = []
+
+        async def boom(*args, **kwargs):
+            raise AssertionError("hot path must not call _gather_status_inputs")
+
+        def spy_exception(msg, *args, **kwargs):
+            fallback_hits.append((msg, args))
+            return original_log_exc(msg, *args, **kwargs)
+
+        api_v2._gather_status_inputs = boom
+        api_v2.logger.exception = spy_exception
+        try:
+            status = self._refreshed_status("p_nogather")
+        finally:
+            api_v2._gather_status_inputs = original_gather
+            api_v2.logger.exception = original_log_exc
+        self.assertIsNotNone(status)
+        self.assertIn(status, VALID_STATUSES)
+        self.assertEqual(
+            fallback_hits, [],
+            "refresh must not fall back through the engine_status exception handler "
+            "— it must derive from the cache byproduct without calling "
+            "_gather_status_inputs",
+        )
