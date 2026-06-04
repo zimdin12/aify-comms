@@ -9991,6 +9991,36 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(claim.status_code, 200, claim.text)
         self.assertIsNone(claim.json()["run"])
 
+    def test_dispatch_claim_signals_stopped_for_disabled_agent(self):
+        # Phase H1 (status v2): a managed agent the operator DISABLED
+        # (agents.status == "stopped") must get a terminal `stopped` signal on
+        # claim so its worker + polling bridge self-exit (orphan reap) instead
+        # of polling forever. stopped is reversible — the claim must NOT clear
+        # the agent's session binding.
+        self._register("worker", runtime="claude", sessionMode="managed")
+        self._execute("UPDATE agents SET status = ? WHERE id = ?", ("stopped", "worker"))
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "worker", "bridgeId": "bridge-1", "executionModes": ["managed"]},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        body = claim.json()
+        self.assertTrue(body.get("stopped"))
+        self.assertIsNone(body["run"])
+
+    def test_dispatch_claim_does_not_signal_stopped_for_active_agent(self):
+        # Guard: a non-stopped managed agent's claim response must NOT carry the
+        # terminal stopped signal (otherwise live workers would self-exit).
+        self._register("worker", runtime="claude", sessionMode="managed")
+
+        claim = self.client.post(
+            "/api/v1/dispatch/claim",
+            json={"agentId": "worker", "bridgeId": "bridge-1", "executionModes": ["managed"]},
+        )
+        self.assertEqual(claim.status_code, 200, claim.text)
+        self.assertFalse(claim.json().get("stopped"))
+
     def test_inbox_headers_mode_and_message_id_lookup(self):
         self._register("alice")
         self._register("bob")

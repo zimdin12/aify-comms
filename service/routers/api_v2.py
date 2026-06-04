@@ -14878,6 +14878,10 @@ async def agent_turn_start(agent_id: str, request: Request):
             "UPDATE agents SET last_seen = ? WHERE id = ?",
             (now, agent_id),
         )
+        # status v2: feed the event-driven engine from the SAME turn signal so the
+        # `new` engine reflects working without a separate post. Flag-agnostic — only
+        # the `new` read path reads agent_status_state, so this is a no-op for `old`.
+        await _apply_status_event(db, agent_id, {"kind": "turn_start", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         return {"ok": True, "agentId": agent_id}
@@ -14929,6 +14933,9 @@ async def agent_turn_end(agent_id: str, request: Request):
             "UPDATE agents SET last_seen = ? WHERE id = ?",
             (now, agent_id),
         )
+        # status v2: feed the event-driven engine (clears in_turn). Flag-agnostic —
+        # only the `new` read path reads agent_status_state, so it's a no-op for `old`.
+        await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         return {"ok": True, "agentId": agent_id}
@@ -15411,6 +15418,15 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         if req.machineId and agent["machine_id"] and not _machine_ids_same_host(agent["machine_id"], req.machineId):
             await db.rollback()
             return {"ok": True, "run": None}
+
+        # Phase H1 (status v2): an explicitly DISABLED agent (status "stopped")
+        # must terminate its worker + polling bridge, not poll forever. Surface a
+        # terminal `stopped` signal (reversible — unlike 410 removed, this does NOT
+        # clear the agent's session binding) so the channel-sidecar / delivery loop
+        # self-exits and the orphan terminal reaps itself.
+        if str(agent["status"] or "").strip().lower() == "stopped":
+            await db.commit()
+            return {"ok": True, "run": None, "stopped": True}
 
         agent_runtime = _normalize_runtime(agent["runtime"] or "generic")
 

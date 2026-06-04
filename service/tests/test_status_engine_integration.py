@@ -128,6 +128,22 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(asyncio.run(run()), "idle",
                          "hot read under flag=new must serve the fresh cached status, not recompute")
 
+    def test_turn_start_endpoint_feeds_engine_state(self):
+        # The harness-level /turn-start + /turn-end endpoints (the SAME signal the
+        # old engine uses for turn_busy) must ALSO feed the new engine's
+        # agent_status_state, so the existing per-runtime detectors make the `new`
+        # path show working/idle without a separate status-event post. Flag-agnostic.
+        self._register("t1", mode="resident")
+        r = self.client.post("/api/v1/agents/t1/turn-start",
+                             json={"runtime": "claude-code", "bridgeId": "b1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("t1")["in_turn"]), 1,
+                         "/turn-start must set in_turn in agent_status_state")
+        r = self.client.post("/api/v1/agents/t1/turn-end", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("t1")["in_turn"]), 0,
+                         "/turn-end must clear in_turn in agent_status_state")
+
     def test_turn_start_event_no_push_under_old_flag(self):
         # Safety: with the default `old` flag the status-event ingest does NOT
         # broadcast engine-derived agent_status (old path is unchanged).
