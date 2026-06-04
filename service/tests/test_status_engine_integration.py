@@ -304,3 +304,178 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
             "— it must derive from the cache byproduct without calling "
             "_gather_status_inputs",
         )
+
+
+class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
+    """status v2 (Fix A + Fix B, 2026-06-05): the dominant turn signal for managed
+    runtimes (hermes/codex/pi/opencode) and claude channel-woken turns is the
+    /heartbeat `turnBusy` field — but it only wrote agent_turn_state (OLD engine)
+    and never fed agent_status_state, so the `new` engine showed online/idle
+    mid-turn. Fix A bridges turnBusy into the event engine; Fix B adds an in_turn
+    staleness backstop so a dropped turn-end can't latch `working` forever."""
+
+    ENV_ID = "linux:test-host:default"
+    MACHINE = "linux:test-host"
+
+    def _heartbeat_environment(self, runtime="hermes"):
+        r = self.client.post(
+            "/api/v1/environments/heartbeat",
+            json={
+                "id": self.ENV_ID,
+                "label": "Linux on test-host",
+                "machineId": self.MACHINE,
+                "os": "linux",
+                "kind": "linux",
+                "bridgeId": "env-bridge",
+                "cwdRoots": ["/workspace"],
+                "runtimes": [
+                    {
+                        "runtime": runtime,
+                        "modes": ["managed-warm"],
+                        "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
+                    }
+                ],
+                "metadata": {},
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _register(self, aid, mode="managed", runtime="hermes"):
+        r = self.client.post("/api/v1/agents", json={"agentId": aid, "role": "coder",
+            "runtime": runtime, "sessionMode": mode, "machineId": self.MACHINE, "bridgeId": "env-bridge"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _state(self, aid):
+        c = sqlite3.connect(str(self._db_path)); c.row_factory = sqlite3.Row
+        try:
+            return c.execute("SELECT * FROM agent_status_state WHERE agent_id=?", (aid,)).fetchone()
+        finally:
+            c.close()
+
+    def _set(self, key, val):
+        import json
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (key, json.dumps(val)))
+            c.commit()
+        finally:
+            c.close()
+
+    # 1. Heartbeat turnBusy feeds in_turn (set + owning clear) ───────────────
+    def test_heartbeat_turn_busy_true_sets_in_turn(self):
+        self._register("hb1")
+        r = self.client.post("/api/v1/agents/hb1/heartbeat",
+                             json={"bridgeId": "sidecar-1", "turnBusy": True,
+                                   "turnRunId": "run-1", "turnRuntime": "hermes"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("hb1")["in_turn"]), 1,
+                         "turnBusy:true heartbeat must set agent_status_state.in_turn")
+        # Owning bridge + run clears it.
+        r = self.client.post("/api/v1/agents/hb1/heartbeat",
+                             json={"bridgeId": "sidecar-1", "turnBusy": False,
+                                   "turnRunId": "run-1", "turnRuntime": "hermes"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("hb1")["in_turn"]), 0,
+                         "turnBusy:false from the OWNING bridge+run must clear in_turn")
+
+    # 2. Ownership guard: a non-owning/stale bridge must NOT clear in_turn ────
+    def test_heartbeat_turn_busy_false_from_stale_bridge_does_not_clear(self):
+        self._register("hb2")
+        self.client.post("/api/v1/agents/hb2/heartbeat",
+                         json={"bridgeId": "sidecar-owner", "turnBusy": True,
+                               "turnRunId": "run-9", "turnRuntime": "hermes"})
+        self.assertEqual(int(self._state("hb2")["in_turn"]), 1)
+        # A DIFFERENT (superseded) bridge tries to clear — must be ignored.
+        r = self.client.post("/api/v1/agents/hb2/heartbeat",
+                             json={"bridgeId": "stale-other", "turnBusy": False,
+                                   "turnRunId": "run-9", "turnRuntime": "hermes"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("hb2")["in_turn"]), 1,
+                         "a non-owning bridge's turnBusy:false must NOT clear in_turn")
+
+    # 3. End-to-end under new: managed agent with fresh turnBusy -> working ───
+    def test_managed_turn_busy_serves_working_under_new(self):
+        self._heartbeat_environment("hermes")
+        self._register("hb3", mode="managed", runtime="hermes")
+        self._set("status_engine", "new")
+        self.client.post("/api/v1/agents/hb3/heartbeat",
+                         json={"bridgeId": "sidecar-1", "turnBusy": True,
+                               "turnRunId": "run-3", "turnRuntime": "hermes"})
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='hb3'")).fetchone()
+                return await api_v2.engine_status(db, row)
+            finally:
+                await db.close()
+
+        self.assertEqual(asyncio.run(run()), "working",
+                         "managed agent mid-turn (fresh turnBusy heartbeat) must serve `working` under new")
+
+    # 4. in_turn staleness backstop ──────────────────────────────────────────
+    def test_in_turn_backstop_treats_stale_turn_as_ended(self):
+        from datetime import datetime, timezone, timedelta
+        from service.routers import api_v2
+        self._heartbeat_environment("hermes")
+        self._register("hb4", mode="managed", runtime="hermes")
+        # Seed an in_turn=1 row whose last_event_at is older than the backstop.
+        stale = (datetime.now(timezone.utc)
+                 - timedelta(seconds=api_v2.TURN_BUSY_BACKSTOP_SECONDS + 120)
+                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                """
+                INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input,
+                    turn_run_id, last_event, last_event_at, updated_at)
+                VALUES (?, 1, 0, '', 'turn_start', ?, ?)
+                ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at
+                """,
+                ("hb4", stale, stale),
+            )
+            c.commit()
+        finally:
+            c.close()
+        import asyncio
+        from service.db import get_db
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='hb4'")).fetchone()
+                inputs = await api_v2._gather_status_inputs(db, row)
+                return inputs.in_turn
+            finally:
+                await db.close()
+
+        self.assertFalse(asyncio.run(run()),
+                         "an in_turn older than TURN_BUSY_BACKSTOP_SECONDS must be treated as not-in-turn")
+
+    def test_in_turn_backstop_keeps_fresh_turn(self):
+        # Control: a FRESH in_turn (recent last_event_at) is NOT clamped.
+        from service.routers import api_v2
+        self._heartbeat_environment("hermes")
+        self._register("hb5", mode="managed", runtime="hermes")
+        self.client.post("/api/v1/agents/hb5/heartbeat",
+                         json={"bridgeId": "sidecar-1", "turnBusy": True,
+                               "turnRunId": "run-5", "turnRuntime": "hermes"})
+        import asyncio
+        from service.db import get_db
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='hb5'")).fetchone()
+                inputs = await api_v2._gather_status_inputs(db, row)
+                return inputs.in_turn
+            finally:
+                await db.close()
+
+        self.assertTrue(asyncio.run(run()),
+                        "a fresh in_turn must remain in-turn (backstop must not over-clamp)")
+

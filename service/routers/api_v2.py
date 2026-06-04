@@ -3972,9 +3972,21 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     aid = agent_row["id"]
     mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
     st = await (await db.execute(
-        "SELECT in_turn, awaiting_input FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
+        "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
     in_turn = bool(st and st["in_turn"])
     awaiting = bool(st and st["awaiting_input"])
+    # status v2 (Fix B, 2026-06-05): in_turn staleness backstop. The OLD engine
+    # clamps a stuck `working` via TURN_BUSY_BACKSTOP_SECONDS, but the NEW engine
+    # had NO ceiling on in_turn — so an agent with a turn-START signal but a
+    # DROPPED/absent turn-END (e.g. resident hermes, which has a start hook but no
+    # end hook) would latch `working` forever. Treat in_turn as ended once the
+    # row's last_event_at is older than the same backstop (dropped-event safety).
+    if in_turn:
+        last_event_epoch = _iso_to_epoch(st["last_event_at"] if st else "")
+        if last_event_epoch and (
+            datetime.now(timezone.utc).timestamp() - last_event_epoch
+        ) > TURN_BUSY_BACKSTOP_SECONDS:
+            in_turn = False
     disabled = str(agent_row["status"] or "").lower() == "stopped"
     if mode == "managed":
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
@@ -14705,6 +14717,16 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     """,
                     (agent_id, turn_run_id, bridge_id, turn_runtime, now),
                 )
+                # status v2 (Fix A, 2026-06-05): the /heartbeat turnBusy field is the
+                # DOMINANT turn signal for MANAGED runtimes (hermes/codex/pi/opencode)
+                # and claude channel-woken turns — the dispatch lifecycle pulses it,
+                # but it only ever wrote agent_turn_state (OLD engine) and never fed
+                # agent_status_state, so the `new` engine showed online/idle mid-turn.
+                # Feed turn_start here too. Flag-agnostic at the write layer (only the
+                # `new` read path consumes agent_status_state, so it is a no-op for
+                # `old`); idempotent with any resident turn-start hook (turn_start just
+                # sets in_turn=1). Mirrors the /turn-start endpoint's same pattern.
+                await _apply_status_event(db, agent_id, {"kind": "turn_start", "runId": turn_run_id})
             else:
                 cur = await (await db.execute(
                     "SELECT turn_bridge_id, turn_run_id FROM agent_turn_state WHERE agent_id = ?",
@@ -14718,6 +14740,13 @@ async def agent_heartbeat(agent_id: str, request: Request):
                             "UPDATE agent_turn_state SET turn_busy = 0, turn_updated_at = ? WHERE agent_id = ?",
                             (now, agent_id),
                         )
+                        # status v2 (Fix A): clear in_turn ONLY inside the SAME
+                        # ownership guard that gates the turn_busy=0 write, so a
+                        # stale/superseded bridge or a non-owning run can never wipe
+                        # a live turn's in_turn. Mirrors exactly the guard the
+                        # turn_busy=0 write uses — never clears where the old code
+                        # would not clear turn_busy.
+                        await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
             # A turn_busy flip changes derived status (working ⇄ idle). Invalidate
             # the live-state cache so the next read recomputes immediately, instead
             # of lagging up to the 60s reconcile sweep. Symmetric with the dedicated
