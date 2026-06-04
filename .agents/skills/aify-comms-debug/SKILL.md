@@ -748,7 +748,12 @@ the `HERMES_DASHBOARD_TUI=1` env. So after the `--tui` drop the gateway served t
 probe passed) but its `/api/ws` CLOSED → **"gateway websocket connection failed"** across ALL
 managed hermes agents → TUI never attached → headless orphans (operator incident 2026-06-04).
 **Real fix:** set `HERMES_DASHBOARD_TUI=1` in the gateway-host spawn env (crash-safe env equivalent
-of the rejected flag — verified: `/api/ws` OPENs with it, CLOSEs without). **Hardening (`b591a28`):**
+of the rejected flag — verified: `/api/ws` OPENs with it, CLOSEs without). **⚠ BINARY-DEPENDENT — CORRECTED
+2026-06-05 (peer review):** that OPEN/CLOSE result held on the *pre-patch* 0.15.1 binary. A later hermes
+0.15.1 patch (upstream `cae6b5486`, shipped by the same update that wiped `web_dist`) hardcodes
+`_DASHBOARD_EMBEDDED_CHAT_ENABLED = True` and drops the gate — on the CURRENT binary plain `hermes dashboard`
+serves `/api/ws`, and `HERMES_DASHBOARD_TUI=1` is a harmless no-op kept only as a fallback for older/pinned
+hermes. The durable binary-agnostic guard is the `b591a28` `/api/ws` readiness probe. **Hardening (`b591a28`):**
 `ensureGatewayHost` now opens `/api/ws` (not just the index) before declaring ready on the CLI
 `ensure-host` path, so a regression of this class fails FAST at spawn instead of becoming a headless
 orphan (env-gated `AIFY_HERMES_VERIFY_WS`, default on). The gateway child's stderr logs to
