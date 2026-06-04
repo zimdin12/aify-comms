@@ -7474,7 +7474,7 @@ function renderSessions(sessions) {
         session ? actionButtonFn('Compact', 'Compact this session into a fresh backing while keeping the same agent ID', () => continueSessionAs(session.id, false)) : '',
         session ? actionButtonFn('Continue as', 'Split this session into a new agent identity with an editable handoff packet', () => continueSessionAs(session.id, true)) : '',
         actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(agentId)),
-        canStopSession ? actionButtonFn('Stop', 'Stop this managed session and interrupt/cancel work where supported', () => controlSession(session.id, 'stop'), 'btn-danger') : '',
+        (!['stopped', 'offline'].includes(String(agentInfo.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop the worker + disable wake/dispatch -> stopped. Works even when the agent is available with no live session (routes through the agent control endpoint). Identity, history, and saved spawn spec are kept; a later message or Reset brings it back.", () => stopManagedAgent(agentId), 'btn-danger') : '',
         canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
       ];
       const sessionCell = session
