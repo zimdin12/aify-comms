@@ -23,3 +23,7 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(row["in_turn"]), 1)
         r = self.client.post("/api/v1/agents/a1/status-event", json={"kind": "turn_end", "runId": "r1"})
         self.assertEqual(int(self._state("a1")["in_turn"]), 0)
+
+    def test_status_engine_setting_defaults_old(self):
+        r = self.client.get("/api/v1/settings")
+        self.assertEqual(r.json().get("status_engine"), "old")

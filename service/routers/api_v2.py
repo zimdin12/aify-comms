@@ -261,6 +261,12 @@ DEFAULT_SETTINGS = {
     # switches. The wrappers still auto-detect at launch; this governs only
     # visibility of the manual override controls.
     "manual_session_mode": True,
+    # Status read-path engine selector (status v2, 2026-06-04). "old" (default)
+    # serves the legacy per-request _compute_live_status_cache derivation;
+    # "new" switches the read paths to the event-driven engine
+    # (service.status_engine.derive via engine_status / _gather_status_inputs).
+    # Disagreements are logged while "old" stays authoritative until the flip.
+    "status_engine": "old",
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",
