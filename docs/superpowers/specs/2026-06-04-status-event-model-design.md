@@ -151,6 +151,36 @@ runtime hook / gateway / app-server  ──event──▶  /agents/{id}/status-e
 backstop poll / reconcile ──synthesize missing event──▲
 ```
 
+### 3.6 Kill the wasted CPU (folded-in goal)
+
+The service was burning ~1.5 cores on **poll + recompute** (claim/heartbeat/status
+each recomputing live status synchronously, every call, × N agents) → 20 s claim
+timeouts under spikes. The engine removes this at the root:
+
+- **Serve status from the cached `agent_status_state` on hot reads** (`/dispatch/claim`,
+  `/agents/{id}`, deliverability checks) — never recompute per request. The cache is
+  kept fresh by **events**, not by re-deriving on read.
+- **Slow the backstop polls** (the only remaining server-side recompute is the
+  reconcile loop, now light + event-corrective).
+- Already landed early as safe relief: a **`_load_settings` cache** (commit `43295ad`)
+  — `_load_settings` had 55 hot call sites; caching it dropped baseline CPU from a
+  steady 120–170% to 8–25% idle. The remaining spikes are the per-request status
+  recompute this engine eliminates.
+
+### 3.7 Reap orphan terminals/workers (folded-in goal)
+
+Orphan workers (claude/sidecar processes that survive window-close or `stop`) keep
+**polling** → they pollute status *and* add to the wasted CPU. The engine makes
+reaping durable:
+
+- **Worker self-exit on `stopped`/`removed`.** The channel-sidecar / delivery loop
+  already polls the server; on observing its agent `stopped` (or a 410 removed) it
+  **terminates itself and its runtime child**, so orphan terminals reap themselves and
+  stop polling. (Closes the gap where `control:stop` disabled dispatch but left the
+  process heartbeating.)
+- **One-time sweep** for existing orphans: the `aify-comms` env-bridge boot
+  survivor-sweep, or an explicit reap.
+
 ## 4. Migration (no-regress)
 
 1. Land the engine **behind `status_engine=old`** (default). Old derivation untouched.
