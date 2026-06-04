@@ -454,7 +454,14 @@ export async function ensureGatewayHost({
     stdio: ["ignore", "ignore", gwErrFd],
     detached: true,
     windowsHide: true, // CRITICAL: no popup window on Windows (ConPTY-less child).
-    env: { ...process.env },
+    // Managed agents run unattended — there is no operator at the wheel to answer
+    // tool-approval prompts (execute_code, etc.). hermes freezes YOLO at import from
+    // HERMES_YOLO_MODE (tools/approval.py), so the gateway HOST that actually runs
+    // the dispatch turn must carry it — the wrapper's `--yolo` only reaches the
+    // visible TUI *client*, which does NOT govern the gateway-hosted turn's approvals.
+    // `hermes dashboard` REJECTS a `--yolo` flag (unrecognized arg, like the 0.15.1
+    // `--tui` rejection), so the env var is the correct, crash-safe lever.
+    env: { ...process.env, HERMES_YOLO_MODE: "1" },
   });
   if (typeof gwErrFd === "number") {
     try { fs.closeSync(gwErrFd); } catch {}
