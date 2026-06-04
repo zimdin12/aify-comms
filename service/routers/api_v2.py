@@ -14,7 +14,7 @@ import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -3782,6 +3782,196 @@ def _terminal_idle_prompt_hint(output: str) -> str:
     return "Claude PTY returned to an idle prompt without an explicit reply."
 
 
+class _WorkerLiveness(NamedTuple):
+    """Result of the managed/resident live-worker probe.
+
+    `has_live_worker` is the single boolean both the legacy derivation
+    (_compute_live_status_cache) and the event engine (_gather_status_inputs)
+    consume. The two reason flags are status-F1 / hermes-sidecar diagnostics the
+    legacy reason text uses; they are NOT part of the engine's input contract.
+    """
+    has_live_worker: bool
+    channel_managed_no_sidecar: bool
+    channel_managed_no_console: bool
+
+
+async def _worker_liveness_for(
+    db, agent_row, *, agent_session_mode: str, live_session: bool
+) -> _WorkerLiveness:
+    """Decide whether an agent currently has a LIVE serving worker.
+
+    This is the SINGLE definition of "has_live_worker" — extracted verbatim from
+    _compute_live_status_cache (status-F1 console+sidecar rule, the channel-flag
+    hermes channel-sidecar rule, and the FIX B3 codex managed-wrapper-child rule,
+    plus the live_session terminal-row probe and resident fallback). Both the
+    legacy derivation and _gather_status_inputs call it so old/new always agree on
+    worker liveness. Behavior-preserving: callers pass the same `live_session` and
+    `agent_session_mode` the original computed inline.
+    """
+    has_live_worker = False
+    if live_session:
+        worker_row = await (await db.execute(
+            """
+            SELECT status, command FROM terminal_sessions
+            WHERE agent_id = ?
+              AND status NOT IN ('stopped', 'failed')
+            ORDER BY updated_at DESC LIMIT 1
+            """,
+            (agent_row["id"],),
+        )).fetchone()
+        if worker_row:
+            w_status = str(worker_row["status"] or "").strip().lower()
+            w_command = str(worker_row["command"] or "")
+            if w_status in {"starting", "attached", "running", "active", "idle", "recovering"}:
+                if (
+                    w_command in VIRTUAL_RPC_COMMAND_SET
+                    or "-aify" in w_command
+                    or w_command.startswith("opencode")
+                ):
+                    has_live_worker = True
+        # Resident mode fallback: an operator-launched wrapper might
+        # not register a terminal_session (it lives outside the
+        # dashboard-tracked PTY). live_session is the only signal
+        # available — trust it.
+        if not has_live_worker and agent_session_mode == "resident":
+            has_live_worker = True
+    # Task 1.6 (2026-05-30): standalone-channel-sidecar deliverability gate —
+    # runtime-agnostic for channel-enabled managed agents. claude's sidecar
+    # runs inside the claude-aify wrapper PTY, so the terminal_sessions check
+    # above is its liveness proof and this branch is a no-op for it (it has no
+    # separate channel-sidecar bridge row). hermes's sidecar
+    # (hermes-channel.js) is a SEPARATE process that owns no PTY — its liveness
+    # proof is a fresh channel-sidecar bridge heartbeat. Without this, a
+    # channel-enabled managed hermes with no live_session/terminal would have
+    # has_live_worker=False and report `available` even while its sidecar is
+    # actively delivering; with it, `online` is gated on REAL deliverability
+    # (channelEnabled AND a live sidecar heartbeat) and falls back to
+    # `available` the moment the sidecar dies — never a falsely positive online.
+    # ASYMMETRY(hermes): hermes is the runtime that needs the standalone-sidecar
+    # liveness probe because it has no wrapper PTY in the channel path; claude
+    # is covered by its PTY terminal_session and harmlessly passes through here.
+    channel_managed_no_sidecar = False
+    # #166: distinguish "sidecar is alive but the console PTY is dead" (a headless
+    # orphan being reaped) from a genuinely dead sidecar — they need different
+    # operator-facing reasons. Both still produce `available` (not deliverable).
+    channel_managed_no_console = False
+    runtime_for_delivery = _normalize_runtime(agent_row["runtime"] or "")
+    if (
+        agent_session_mode == "managed"
+        and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
+    ):
+        # status-F1 (refined 2026-06-01, Workstream B; extended to hermes WS3
+        # 2026-06-02): a managed claude/hermes worker IS its visible console PTY;
+        # the channel-sidecar (claude-channel.js / the hermes delivery loop) is the
+        # actual claimer that delivers. Visible-TUI is a HARD requirement, so
+        # `online` REQUIRES BOTH a live console PTY AND a live channel sidecar — a
+        # live console with a dead claimer is the operator-observed "online but
+        # deaf" bug. A live sidecar with NO console is a headless orphan worker
+        # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
+        # falsely-positive `online`. A live console with a dead sidecar is also not
+        # deliverable → `available` (the original status-F1 intent, preserved).
+        sidecar_live = await _has_live_channel_sidecar(db, agent_row["id"])
+        console_live = await _has_live_terminal_session(db, agent_row["id"])
+        if sidecar_live and console_live:
+            has_live_worker = True
+        else:
+            has_live_worker = False
+            if sidecar_live and not console_live:
+                # Headless orphan: the delivery sidecar is alive but the visible
+                # console PTY is gone (a visible-TUI violation being reaped by
+                # _reconcile_managed_worker_hygiene). The sidecar is NOT the issue.
+                channel_managed_no_console = True
+            else:
+                channel_managed_no_sidecar = True
+    elif (
+        not has_live_worker
+        and agent_session_mode == "managed"
+        and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
+    ):
+        # Standalone channel-sidecar liveness for channel-flag runtimes that have
+        # no wrapper PTY (hermes hermes-channel.js). Only fills in has_live_worker
+        # when the PTY signal is absent — see ASYMMETRY(hermes) note above.
+        if await _has_live_channel_sidecar(db, agent_row["id"]):
+            has_live_worker = True
+        else:
+            channel_managed_no_sidecar = True
+    elif (
+        not has_live_worker
+        and agent_session_mode == "managed"
+        and runtime_for_delivery == "codex"
+    ):
+        # FIX B3 (2026-06-03): a managed CODEX run hosted by a wrapper-backed
+        # worker proves liveness with a fresh, non-superseded
+        # `managed-wrapper-child` bridge heartbeat (the visible console's
+        # in-session aify-comms MCP) — mirroring the hermes channel-sidecar gate
+        # above. Without this, a transient app-server close (now no longer
+        # instant-fatal per FIX B1) could fail the terminal rows → has_live_worker
+        # stays False → the agent flips to `available` mid-work even while its
+        # console is live and heartbeating. The wrapper-child heartbeat is the
+        # real deliverability proof, so honor it here.
+        if await _has_live_managed_wrapper_child(db, agent_row["id"]):
+            has_live_worker = True
+    return _WorkerLiveness(has_live_worker, channel_managed_no_sidecar, channel_managed_no_console)
+
+
+async def _has_live_worker_for(db, agent_row, *, settings=None) -> bool:
+    """True when the agent has a LIVE serving worker (managed: console+sidecar /
+    channel-sidecar / wrapper-child; resident: live tracked session/terminal).
+
+    Thin boolean wrapper over _worker_liveness_for — the shared definition used by
+    BOTH the legacy _compute_live_status_cache derivation and the event-engine
+    _gather_status_inputs, so old/new never disagree on worker liveness. Resolves
+    `live_session` from the agent's current session row exactly as the legacy path
+    does (a live agent_sessions.status), so the result matches for a given DB state.
+    """
+    agent_session_mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    session_row = await _current_agent_session_row(db, agent_row["id"])
+    session_status = str((session_row["status"] if session_row else "") or "").strip().lower()
+    live_session = session_status in _LIVE_SESSION_STATUSES
+    result = await _worker_liveness_for(
+        db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
+    )
+    return result.has_live_worker
+
+
+async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:
+    """Build a StatusInputs from the SAME live signals the legacy derivation reads.
+
+    No new derivation logic — just adapts existing signals (agent_status_state
+    turn flags, _has_live_worker_for, _managed_owning_environment_row /
+    _environment_effective_status for env reachability, _resident_bridge_is_fresh
+    for resident liveness) into the engine's pure input contract. status v2.
+    """
+    settings = settings or await _load_settings(db)
+    aid = agent_row["id"]
+    mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
+    st = await (await db.execute(
+        "SELECT in_turn, awaiting_input FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
+    in_turn = bool(st and st["in_turn"])
+    awaiting = bool(st and st["awaiting_input"])
+    disabled = str(agent_row["status"] or "").lower() == "stopped"
+    if mode == "managed":
+        env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
+        env_reachable = bool(env_row) and _environment_effective_status(
+            env_row, offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+        ) in {"online", "degraded"}
+        worker_present = await _has_live_worker_for(db, agent_row, settings=settings)
+        alive = worker_present
+        return StatusInputs(mode=mode, alive=alive, in_turn=in_turn, awaiting_input=awaiting,
+                            worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
+                            bridge_stale=False, has_live_session=worker_present, idle_too_long=False)
+    fresh = await _resident_bridge_is_fresh(db, agent_row,
+                lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150))
+    return StatusInputs(mode=mode, alive=fresh, in_turn=in_turn, awaiting_input=awaiting,
+                        worker_present=fresh, env_reachable=True, disabled=disabled,
+                        bridge_stale=(not fresh), has_live_session=fresh, idle_too_long=False)
+
+
+async def engine_status(db, agent_row, *, settings=None) -> str:
+    """status v2: serve one of VALID_STATUSES from the pure engine."""
+    return derive(await _gather_status_inputs(db, agent_row, settings=settings))
+
+
 async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None) -> dict[str, Any]:
     settings = settings or await _load_settings(db)
     now = now or _now()
@@ -3908,109 +4098,17 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         if _wake_mode.endswith("-missing-handle"):
             resident_missing_handle = True
             resident_bridge_stale = True
-    has_live_worker = False
-    if live_session:
-        worker_row = await (await db.execute(
-            """
-            SELECT status, command FROM terminal_sessions
-            WHERE agent_id = ?
-              AND status NOT IN ('stopped', 'failed')
-            ORDER BY updated_at DESC LIMIT 1
-            """,
-            (agent_row["id"],),
-        )).fetchone()
-        if worker_row:
-            w_status = str(worker_row["status"] or "").strip().lower()
-            w_command = str(worker_row["command"] or "")
-            if w_status in {"starting", "attached", "running", "active", "idle", "recovering"}:
-                if (
-                    w_command in VIRTUAL_RPC_COMMAND_SET
-                    or "-aify" in w_command
-                    or w_command.startswith("opencode")
-                ):
-                    has_live_worker = True
-        # Resident mode fallback: an operator-launched wrapper might
-        # not register a terminal_session (it lives outside the
-        # dashboard-tracked PTY). live_session is the only signal
-        # available — trust it.
-        if not has_live_worker and agent_session_mode == "resident":
-            has_live_worker = True
-    # Task 1.6 (2026-05-30): standalone-channel-sidecar deliverability gate —
-    # runtime-agnostic for channel-enabled managed agents. claude's sidecar
-    # runs inside the claude-aify wrapper PTY, so the terminal_sessions check
-    # above is its liveness proof and this branch is a no-op for it (it has no
-    # separate channel-sidecar bridge row). hermes's sidecar
-    # (hermes-channel.js) is a SEPARATE process that owns no PTY — its liveness
-    # proof is a fresh channel-sidecar bridge heartbeat. Without this, a
-    # channel-enabled managed hermes with no live_session/terminal would have
-    # has_live_worker=False and report `available` even while its sidecar is
-    # actively delivering; with it, `online` is gated on REAL deliverability
-    # (channelEnabled AND a live sidecar heartbeat) and falls back to
-    # `available` the moment the sidecar dies — never a falsely positive online.
-    # ASYMMETRY(hermes): hermes is the runtime that needs the standalone-sidecar
-    # liveness probe because it has no wrapper PTY in the channel path; claude
-    # is covered by its PTY terminal_session and harmlessly passes through here.
-    channel_managed_no_sidecar = False
-    # #166: distinguish "sidecar is alive but the console PTY is dead" (a headless
-    # orphan being reaped) from a genuinely dead sidecar — they need different
-    # operator-facing reasons. Both still produce `available` (not deliverable).
-    channel_managed_no_console = False
-    runtime_for_delivery = _normalize_runtime(agent_row["runtime"] or "")
-    if (
-        agent_session_mode == "managed"
-        and runtime_for_delivery in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
-    ):
-        # status-F1 (refined 2026-06-01, Workstream B; extended to hermes WS3
-        # 2026-06-02): a managed claude/hermes worker IS its visible console PTY;
-        # the channel-sidecar (claude-channel.js / the hermes delivery loop) is the
-        # actual claimer that delivers. Visible-TUI is a HARD requirement, so
-        # `online` REQUIRES BOTH a live console PTY AND a live channel sidecar — a
-        # live console with a dead claimer is the operator-observed "online but
-        # deaf" bug. A live sidecar with NO console is a headless orphan worker
-        # (reaped by _reconcile_managed_worker_hygiene) → report `available`, never a
-        # falsely-positive `online`. A live console with a dead sidecar is also not
-        # deliverable → `available` (the original status-F1 intent, preserved).
-        sidecar_live = await _has_live_channel_sidecar(db, agent_row["id"])
-        console_live = await _has_live_terminal_session(db, agent_row["id"])
-        if sidecar_live and console_live:
-            has_live_worker = True
-        else:
-            has_live_worker = False
-            if sidecar_live and not console_live:
-                # Headless orphan: the delivery sidecar is alive but the visible
-                # console PTY is gone (a visible-TUI violation being reaped by
-                # _reconcile_managed_worker_hygiene). The sidecar is NOT the issue.
-                channel_managed_no_console = True
-            else:
-                channel_managed_no_sidecar = True
-    elif (
-        not has_live_worker
-        and agent_session_mode == "managed"
-        and _channel_flag_enabled(_json_loads_or(agent_row["runtime_config"], {}))
-    ):
-        # Standalone channel-sidecar liveness for channel-flag runtimes that have
-        # no wrapper PTY (hermes hermes-channel.js). Only fills in has_live_worker
-        # when the PTY signal is absent — see ASYMMETRY(hermes) note above.
-        if await _has_live_channel_sidecar(db, agent_row["id"]):
-            has_live_worker = True
-        else:
-            channel_managed_no_sidecar = True
-    elif (
-        not has_live_worker
-        and agent_session_mode == "managed"
-        and runtime_for_delivery == "codex"
-    ):
-        # FIX B3 (2026-06-03): a managed CODEX run hosted by a wrapper-backed
-        # worker proves liveness with a fresh, non-superseded
-        # `managed-wrapper-child` bridge heartbeat (the visible console's
-        # in-session aify-comms MCP) — mirroring the hermes channel-sidecar gate
-        # above. Without this, a transient app-server close (now no longer
-        # instant-fatal per FIX B1) could fail the terminal rows → has_live_worker
-        # stays False → the agent flips to `available` mid-work even while its
-        # console is live and heartbeating. The wrapper-child heartbeat is the
-        # real deliverability proof, so honor it here.
-        if await _has_live_managed_wrapper_child(db, agent_row["id"]):
-            has_live_worker = True
+    # has_live_worker (+ the two channel-sidecar reason flags) is now decided by
+    # the SHARED _worker_liveness_for helper so the legacy derivation and the
+    # event engine (_gather_status_inputs → _has_live_worker_for) can never
+    # disagree on worker liveness. Behavior-preserving extraction — same inputs
+    # (agent_session_mode, live_session), same result.
+    _worker_live = await _worker_liveness_for(
+        db, agent_row, agent_session_mode=agent_session_mode, live_session=live_session
+    )
+    has_live_worker = _worker_live.has_live_worker
+    channel_managed_no_sidecar = _worker_live.channel_managed_no_sidecar
+    channel_managed_no_console = _worker_live.channel_managed_no_console
     # FIX B (2026-06-02): a MANAGED agent can only be spawned/hosted by its OWNING
     # environment bridge. If that env bridge is offline/stale, the agent is
     # effectively offline — even when a surviving detached delivery loop keeps a

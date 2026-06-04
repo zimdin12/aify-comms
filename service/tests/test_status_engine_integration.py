@@ -27,3 +27,20 @@ class StatusEventIngestTests(FastApiTestCase):
     def test_status_engine_setting_defaults_old(self):
         r = self.client.get("/api/v1/settings")
         self.assertEqual(r.json().get("status_engine"), "old")
+
+    def test_engine_status_working_after_turn_start(self):
+        self._register("a2", mode="resident", runtime="claude-code")
+        # mark a fresh resident bridge so alive=True (mirror existing heartbeat path)
+        self.client.post("/api/v1/agents/a2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.client.post("/api/v1/agents/a2/status-event", json={"kind": "turn_start", "runId": "r1"})
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id='a2'")).fetchone()
+                return await api_v2.engine_status(db, row)
+            finally:
+                await db.close()
+        self.assertEqual(asyncio.run(run()), "working")
