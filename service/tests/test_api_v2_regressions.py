@@ -11947,6 +11947,112 @@ class ApiV2RegressionTests(FastApiTestCase):
         run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_stale_1",))
         self.assertEqual(run_row["status"], "failed")
 
+    def test_run_to_working_target_is_not_failed_for_no_progress(self):
+        # Phase F1 (folds in the false-failed-busy-run fix): under
+        # status_engine=new, a claimed run whose TARGET is genuinely `working`
+        # (mid-turn) must NOT be reaped as no-progress, even when the run is aged
+        # past the wall-clock ceiling. A long turn IS progress — the old reaper
+        # falsely failed run_1780569850270 (busy 30 min) with "bridge crashed".
+        self.client.put("/api/v1/settings", json={
+            "active_managed_run_stale_minutes": 5,
+            "active_managed_run_wall_ceiling_minutes": 30,
+            "status_engine": "new",
+        })
+        self._register("busy-target", runtime="hermes", sessionMode="resident")
+        # Fresh resident bridge so the target is alive; in_turn=1 → engine `working`.
+        live_seen = api_v2._now()
+        self._execute(
+            """
+            INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, last_seen)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            ("bridge-busy-1", "busy-target", "test-machine", "hermes", "resident", live_seen, live_seen),
+        )
+        self._execute(
+            """
+            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
+            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
+            """,
+            ("busy-target", "run_busy_target", live_seen, live_seen),
+        )
+        # Aged past BOTH the no-progress window and the wall-clock ceiling.
+        aged_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_busy_target", None, "dashboard", "busy-target", "start_if_possible",
+                "channel", "request", "long turn", "body", "normal",
+                "running", 1, aged_at, aged_at, aged_at, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 0, f"working target must not be reaped; got {closed}")
+        run_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_busy_target",))
+        self.assertEqual(run_row["status"], "running",
+                         "a run to a working (mid-turn) target must stay running, not fail")
+
+    def test_run_to_dead_target_fails_fast_with_honest_reason(self):
+        # Phase F1: under status_engine=new, a run whose TARGET is stale/offline
+        # must fail with an HONEST reason naming the target's state — NOT the
+        # generic catch-all "bridge crashed / no owning bridge".
+        self.client.put("/api/v1/settings", json={
+            "active_managed_run_stale_minutes": 5,
+            "status_engine": "new",
+        })
+        self._register("dead-target", runtime="hermes", sessionMode="resident")
+        # No fresh bridge → resident engine_status = stale/offline.
+        aged_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute(
+            """
+            INSERT INTO dispatch_runs (
+                id, message_id, from_agent, target_agent, dispatch_mode,
+                execution_mode, message_type, subject, body, priority,
+                status, require_reply, requested_at, claimed_at, started_at,
+                claim_bridge_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "run_dead_target", None, "dashboard", "dead-target", "start_if_possible",
+                "channel", "request", "to a dead agent", "body", "normal",
+                "running", 1, aged_at, aged_at, aged_at, "",
+            ),
+        )
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await api_v2._close_orphaned_managed_runs(db, limit=10)
+            finally:
+                await db.commit()
+                await db.close()
+        closed = asyncio.run(_run())
+        self.assertEqual(len(closed), 1, f"dead target run must fail; got {closed}")
+        self.assertEqual(closed[0]["runId"], "run_dead_target")
+        run_row = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id = ?", ("run_dead_target",))
+        self.assertEqual(run_row["status"], "failed")
+        reason = (run_row["error_text"] or "").lower()
+        self.assertIn("dead-target", reason, f"reason must name the target; got {reason!r}")
+        self.assertIn("cannot be delivered", reason, f"reason must be honest; got {reason!r}")
+        self.assertNotIn("bridge crashed", reason,
+                         f"dead-target reason must not be the generic crash catch-all; got {reason!r}")
+
     def test_orphaned_managed_runs_closed_despite_reply_reminder_events(self):
         # Operator-reported (2026-05-23): sc-coder's stuck run had a
         # 'reply_reminder_skipped' dispatch_event firing every minute

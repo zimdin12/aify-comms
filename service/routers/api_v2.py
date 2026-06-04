@@ -16042,6 +16042,7 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
     now = _now()
+    engine_on = str(settings.get("status_engine", "old")).lower() == "new"
     for row in rows:
         run_id = str(row["id"] or "").strip()
         target_agent = str(row["target_agent"] or "").strip()
@@ -16049,7 +16050,44 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         execution_mode = str(row["execution_mode"] or "").strip()
         if not run_id:
             continue
-        reason = (
+        # Phase F1 (folds in the false-failed-busy-run fix): under the event
+        # engine the reaper consults the TARGET'S real status before failing a
+        # no-progress run, instead of blindly attributing it to a crashed bridge.
+        #   - working/blocked  → the target is mid-turn; a long turn IS progress.
+        #                         Do NOT fail it — skip/defer to a later cycle.
+        #   - stale/offline/stopped → the target is genuinely gone; fail FAST with
+        #                         an HONEST reason naming the target's state.
+        #   - online/idle (genuinely orphaned past the window) → keep the existing
+        #                         ceiling, but with an honest reason.
+        # Gated on status_engine=new so the default `old` path is unchanged.
+        honest_reason = None
+        if engine_on and target_agent:
+            try:
+                target_row = await (await db.execute(
+                    "SELECT * FROM agents WHERE id = ?", (target_agent,)
+                )).fetchone()
+            except Exception:
+                target_row = None
+            if target_row is not None:
+                try:
+                    target_status = await engine_status(db, target_row, settings=settings)
+                except Exception:
+                    target_status = ""
+                if target_status in {"working", "blocked"}:
+                    # Mid-turn = progress. Leave the run alone this cycle.
+                    continue
+                if target_status in {"stale", "offline", "stopped"}:
+                    honest_reason = (
+                        f"target '{target_agent}' is {target_status}; "
+                        f"run cannot be delivered."
+                    )
+                elif target_status:
+                    honest_reason = (
+                        f"target '{target_agent}' is {target_status} but the claimed "
+                        f"run made no progress for {stale_seconds}s and exceeded the "
+                        f"{ceiling_seconds}s wall-clock ceiling; run cannot be delivered."
+                    )
+        reason = honest_reason or (
             f"Active run (dispatch_mode={dispatch_mode or '(default)'}, "
             f"execution_mode={execution_mode or '(default)'}) has no owning bridge "
             f"and made no progress for {stale_seconds}s, or exceeded the "
