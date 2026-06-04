@@ -677,21 +677,42 @@ def test_run_to_dead_target_fails_fast_with_honest_reason(self):
 
 ## Phase G — Per-runtime event sources (push)
 
-### Task G1: shared `status-events.js` POST helper
+> **REVISED 2026-06-04 (satisfied-by-reuse).** Phase B added the
+> `_apply_status_event` feed to the EXISTING `/agents/{id}/turn-start` and
+> `/agents/{id}/turn-end` endpoints (commit 67d3c1c), so every runtime's
+> already-wired turn detectors now drive the engine's `agent_status_state.in_turn`
+> with zero new bridge code. A parallel `status-events.js` channel would have
+> DUPLICATED turn-signal wiring that already exists and is battle-tested across
+> dozens of tests — strictly worse. Phase G's goal (per-runtime push of turn
+> transitions) is therefore met by the existing sources below; G1–G4 as
+> originally written are SUPERSEDED. The genuinely-new signals that have no
+> existing source are listed as deferred follow-ups.
 
-**Files:** Create `mcp/stdio/status-events.js` exporting `postStatusEvent({serverUrl, agentId, kind, runId, bridgeId})` (mirror the existing `httpCall` POST pattern in `server.js`; best-effort, never throws). Test: `node --test mcp/stdio/tests/status-events.test.js` (fake fetch asserts the POST body/path). Commit.
+**Existing sources that now feed the engine (verified, `node --check`-clean, no change needed):**
 
-### Task G2: claude — push turn_start/turn_end from hooks; transcript poll = backstop
+| Runtime | turn_start source | turn_end source |
+|---|---|---|
+| claude (resident) | `UserPromptSubmit` hook → /turn-start; `claude-turn-end-detector.js` transcript backstop synthesizes /turn-start for **channel-woken** turns (test "RESIDENT channel-woken turn … POSTs /turn-start") | `Stop` hook → /turn-end; transcript backstop synthesizes /turn-end if `Stop` missed |
+| claude (managed) | console-session UserPromptSubmit + transcript detector | `Stop` + transcript detector |
+| hermes | `hermes-gateway-turn-detector.js` / `hermes-managed-host.js` in-flight probe → /turn-start (edge) | gateway sustained-idle debounce → /turn-end (authoritative) |
+| pi / codex (resident) | `turn-busy-heartbeat.js` → /turn-start | server turn backstop / Stop-equivalent |
 
-**Files:** `mcp/stdio/claude-turn-end-detector.js` + `mcp/stdio/server.js` wiring + the claude hook (`install.sh --with-hook` payload). Wire: `Stop` hook → `postStatusEvent(turn_end)`; `UserPromptSubmit`/first tool-use → `turn_start`. Keep the 30s transcript detector but have it POST `status-event` (synthesize `turn_start` for channel-woken turns, `turn_end` if `Stop` missed) instead of the legacy `/turn-start`/`/turn-end` when `status_engine=new`. `node --check` the bridges. Commit. (Wrapper hook change → rerun install.sh + relaunch.)
+Because these all POST the SAME two endpoints the engine now consumes, the §3.3
+spec requirement ("per-runtime event SOURCES") is satisfied for the live
+runtimes (claude resident + hermes managed) the operator actually runs, with the
+transcript backstop covering the channel-woken hook-gap the spec called out in §6.
 
-### Task G3: hermes — gateway transition pushes events
+### Deferred follow-ups (no existing source; build only if the disagreement log shows a gap)
 
-**Files:** `mcp/stdio/hermes-gateway-turn-detector.js` — push `turn_start` on `working`, `turn_end` on sustained idle (it already detects these; route to `status-events.js`). `worker_present` already proven by the gateway-host + loop heartbeat. `node --check`. Commit.
-
-### Task G4: codex — turn events push
-
-**Files:** the codex controller (`mcp/stdio/controllers/*codex*.js`) — on `turn`/`completed` app-server events → `postStatusEvent(turn_start|turn_end)`. `node --check`. Commit.
+- **G-codex-managed:** codex managed dispatch is **run-based** (the controller
+  resolves on `turn/completed` → dispatch PATCH), not turn-start/turn-end driven.
+  If codex-managed `working` under-reports post-flip, add a `turn_start` on run
+  claim + `turn_end` on `turn/completed` in `mcp/stdio/controllers/codex-managed-controller.js`.
+- **G-blocked:** the `blocked` status (console awaiting input) has **no reliable
+  runtime source today** — it was always a heuristic. `apply_event` already
+  handles `blocked`/`unblocked` events; wire a real detector (console prompt
+  pattern) only if the operator wants distinct `blocked` vs `working`. Until then
+  a console-awaiting agent reads `working`, which is correct-enough (it IS in a turn).
 
 ---
 
