@@ -119,6 +119,16 @@ DEFAULT_SETTINGS = {
     "idle_minutes": 5,
     "offline_minutes": 30,
     "environment_offline_seconds": 90,
+    # When a runtime reports (via bridge-heartbeat) a session id that DIFFERS from
+    # the pinned handle and it is NOT owned by another live agent (a safe
+    # self-change — e.g. claude compacted/restarted into a fresh session id),
+    # auto-adopt the new id instead of parking it as `pending_session_id` and
+    # waiting for a manual Confirm. Default ON: managed agents are single-owner,
+    # so the drift is almost always a legit self-change, and parking it causes a
+    # session-changed → stale-console-owner → recycle loop. The cross-agent
+    # COLLISION guard runs BEFORE this and ALWAYS parks (never auto-stolen), so
+    # turning this on cannot adopt a session id that belongs to another live agent.
+    "auto_confirm_session_id": True,
     "reply_contracts_enabled": True,
     "reply_reminder_minutes": 10,
     "reply_reminder_repeat_minutes": 10,
@@ -12497,11 +12507,23 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                     "agent": _agent_record_to_dict(updated, status, 0, dispatch_state),
                 }
 
+        # Auto-confirm (2026-06-04): when ON (default), a SAFE self-change — the
+        # cross-agent collision guard above already returned for a live-owned id —
+        # is adopted immediately (fall through to the bind path below) instead of
+        # parked. This breaks the managed-claude session-changed → stale-console-
+        # owner → recycle loop. When OFF, park as `pending_session_id` and wait for
+        # a manual Confirm (the original sticky-identity governance behavior).
+        _auto_confirm_sid = bool(
+            (await _load_settings(db)).get(
+                "auto_confirm_session_id", DEFAULT_SETTINGS["auto_confirm_session_id"]
+            )
+        )
         if (
             requested_by == "bridge-heartbeat"
             and session_handle
             and persisted_handle
             and session_handle != persisted_handle
+            and not _auto_confirm_sid
         ):
             await db.execute(
                 """

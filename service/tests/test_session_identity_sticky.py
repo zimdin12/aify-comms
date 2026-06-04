@@ -66,6 +66,19 @@ class SessionIdentityStickyTests(FastApiTestCase):
         finally:
             conn.close()
 
+    def _set_auto_confirm(self, value: bool):
+        """Set the auto_confirm_session_id setting (default ON in DEFAULT_SETTINGS)."""
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('auto_confirm_session_id', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("true" if value else "false",),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     # ── (a) first-id auto-accept ─────────────────────────────────────────
     def test_first_id_auto_accept(self):
         self._register()
@@ -91,9 +104,11 @@ class SessionIdentityStickyTests(FastApiTestCase):
         self.assertEqual(str(row["session_handle"] or ""), "sess-AAA")
         self.assertEqual(str(row["pending_session_id"] or ""), "")
 
-    # ── (c) different-id guard ───────────────────────────────────────────
+    # ── (c) different-id guard (auto-confirm OFF) ────────────────────────
     def test_different_id_parks_pending_and_keeps_live(self):
+        # Park-and-confirm is the behavior when auto_confirm_session_id is OFF.
         self._register()
+        self._set_auto_confirm(False)
         self._heartbeat_handle("claude-1", "sess-AAA")
         res = self._heartbeat_handle("claude-1", "sess-BBB")
         self.assertEqual(res.status_code, 200, res.text)
@@ -107,6 +122,25 @@ class SessionIdentityStickyTests(FastApiTestCase):
         self.assertEqual(str(row["pending_session_id"] or ""), "sess-BBB")
         self.assertTrue(body["agent"]["sessionChanged"])
         self.assertEqual(body["agent"]["pendingSessionId"], "sess-BBB")
+
+    # ── (c2) auto-confirm adopts a safe self-change by DEFAULT ───────────
+    def test_auto_confirm_adopts_self_change_by_default(self):
+        # Default auto_confirm_session_id=ON: a safe self-change (drift with no
+        # live collision — e.g. claude compacted/restarted into a new id) is
+        # adopted immediately, with no pending and no session-changed flag. This
+        # breaks the managed-claude session-changed -> stale-console-owner ->
+        # recycle loop that left agents flapping online<->available.
+        self._register()
+        self._heartbeat_handle("claude-1", "sess-AAA")
+        res = self._heartbeat_handle("claude-1", "sess-BBB")
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertNotEqual(body.get("state"), "session-changed", body)
+        self.assertEqual(body.get("sessionHandle"), "sess-BBB", "auto-confirm re-pins to the new id")
+        row = self._row("claude-1")
+        self.assertEqual(str(row["session_handle"] or ""), "sess-BBB")
+        self.assertEqual(str(row["pending_session_id"] or ""), "", "no pending when auto-confirmed")
+        self.assertFalse(body["agent"]["sessionChanged"])
 
     def test_operator_set_is_not_guarded(self):
         """A deliberate operator re-pin (non-heartbeat requestedBy) overwrites."""
@@ -124,6 +158,7 @@ class SessionIdentityStickyTests(FastApiTestCase):
     # ── (d) confirm re-pins ──────────────────────────────────────────────
     def test_confirm_repins_to_pending(self):
         self._register()
+        self._set_auto_confirm(False)  # park so there is a pending id to confirm
         self._heartbeat_handle("claude-1", "sess-AAA")
         self._heartbeat_handle("claude-1", "sess-BBB")  # parks pending
         res = self.client.post(
@@ -151,6 +186,7 @@ class SessionIdentityStickyTests(FastApiTestCase):
     # ── (e) keep clears pending + surfaces resume command ────────────────
     def test_keep_clears_pending_and_returns_resume_command(self):
         self._register()
+        self._set_auto_confirm(False)  # park so there is a pending id to keep/clear
         self._heartbeat_handle("claude-1", "sess-AAA")
         self._heartbeat_handle("claude-1", "sess-BBB")  # parks pending
         res = self.client.post(
@@ -183,6 +219,9 @@ class SessionIdentityStickyTests(FastApiTestCase):
         # The 651b895f incident: agent B must NOT adopt a session id already
         # owned by a different LIVE agent A (resident<->managed invariant). B's
         # own handle is kept; the colliding id is parked, never bound.
+        # SAFETY BOUNDARY: this runs with auto_confirm_session_id at its DEFAULT
+        # (ON) — the collision guard runs BEFORE the auto-confirm path, so a
+        # live-owned id is parked even with auto-confirm enabled (never auto-stolen).
         self._register("claude-A")
         self._heartbeat_handle("claude-A", "sess-SHARED")  # A owns it, fresh/live
         self._register("claude-B")

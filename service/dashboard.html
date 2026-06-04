@@ -1963,6 +1963,11 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <input id="s-worker-idle-close" type="number" min="0" max="1440" step="1" placeholder="0 = disabled">
         <div class="hint">Applies to managed wrapper PTYs and native virtual RPC workers. <code>0</code> also disables auto-close. Recommended: <code>10</code>.</div>
       </div>
+      <div class="form-group">
+        <label>Auto-confirm new session IDs</label>
+        <select id="s-auto-confirm-session"><option value="true">Enabled</option><option value="false">Disabled</option></select>
+        <div class="hint">When enabled (default), if a runtime reports a new native session id that differs from the pinned handle and no other live agent owns it (a safe self-change, e.g. a compaction/restart), the dashboard re-pins automatically instead of flagging "session-changed" and waiting for a manual Confirm — preventing the session-changed → stale-console recycle loop. A new id already owned by another live agent is always parked, never auto-adopted.</div>
+      </div>
           </section>
           <section class="settings-panel" data-settings-panel="work">
       <h3>Work Loop / Reply Contracts</h3>
@@ -8630,6 +8635,7 @@ async function loadSettings() {
   document.getElementById('s-pi-model').value = s.managed_pi_model || '';
   document.getElementById('s-pi-effort').value = s.managed_pi_effort || '';
   document.getElementById('s-worker-idle-enabled').value = String(!!s.worker_idle_close_enabled);
+  document.getElementById('s-auto-confirm-session').value = String(s.auto_confirm_session_id !== false);
   document.getElementById('s-worker-idle-close').value = Number(s.worker_idle_close_minutes || 0);
   document.getElementById('s-reply-contracts').value = String(s.reply_contracts_enabled);
   document.getElementById('s-reply-minutes').value = s.reply_reminder_minutes;
@@ -8682,6 +8688,7 @@ async function saveSettings(e) {
       managed_pi_model: document.getElementById('s-pi-model').value.trim(),
       managed_pi_effort: document.getElementById('s-pi-effort').value || '',
       worker_idle_close_enabled: settingsBool('s-worker-idle-enabled'),
+      auto_confirm_session_id: settingsBool('s-auto-confirm-session'),
       worker_idle_close_minutes: settingsNumber('s-worker-idle-close', 0, {min: 0, max: 1440}),
       reply_contracts_enabled: settingsBool('s-reply-contracts'),
       reply_reminder_minutes: settingsNumber('s-reply-minutes', 10, {min: 1, max: 240}),
