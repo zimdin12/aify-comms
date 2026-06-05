@@ -1910,9 +1910,35 @@ the last ENDED message → the detector reads not-working.
 **Fix (2026-06-05).** The managed PTY's spinner footer now drives a TTL "console-working
 lease" (`agent_console_signal`, `POST /agents/{id}/console-working`) that derives `working`
 for the spinner window. It's additive/weak: gated on a live worker, never clears a real
-turn, self-expires ~12s after the spinner stops. If it still under-reports: confirm the
+turn, self-expires ~20s after the spinner stops. If it still under-reports: confirm the
 service was rebuilt and the bridge reinstalled, and that the spinner footer actually renders
 in the Console. Disable nothing — it can't manufacture `working` for an idle/dead agent.
+
+## Managed claude flaps to `online` while working — but only when the Console is CLOSED
+
+**Symptom.** A managed claude reads `working` while you have its dashboard Console **open**,
+but flaps to `online` (then back to `working` when you reopen the Console) while it is still
+working. "It starts working again if I have the terminal open on my screen, otherwise it goes
+to online." Delivery still works — it's only the status dot.
+
+**Cause.** The console-working lease (above) refreshes from the spinner footer streaming
+through the managed PTY, but claude (Ink) only re-emits that footer while its PTY is
+*actively rendered*. With the Console closed, an unwatched working claude goes quiet on the
+PTY, the lease expires, and the dot falls to `online`. Opening the Console sends a resize →
+claude repaints → the footer streams again → the lease refreshes (hence the correlation with
+"having the terminal open").
+
+**Fix (2026-06-05).** The bridge now runs a managed-claude PTY **repaint keepalive**
+(`terminal-runtime._armConsoleKeepalive`): every ~4s it SIGWINCHes the PTY so claude re-emits
+its footer whether or not anyone watches, and the lease TTL was widened to 20s to span the
+keepalive cadence. claude-managed-only, best-effort, no visible flicker (the resize shrinks one
+column then restores synchronously, so claude redraws an identical frame). To deploy: re-run
+`install.sh --client claude` (re-copies the bridge) **and** restart the env bridge / claude
+wrapper, then rebuild the service for the TTL. Kill-switch `AIFY_NO_CONSOLE_KEEPALIVE=1`;
+cadence override `AIFY_CONSOLE_KEEPALIVE_MS`. If it still flaps after deploy: confirm the
+keepalive is armed (managed claude PTY) and the service carries the 20s TTL. *Note — not a
+time-grace:* a deaf/stale console can be recent too, so no age threshold distinguishes "working
+but unwatched" from "wedged"; forcing the signal to keep flowing is the only truthful fix.
 
 ## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 
