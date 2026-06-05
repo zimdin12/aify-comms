@@ -49,6 +49,15 @@ Then on restart, resolve reads the marker (the live session's durable key) → r
 ### Risk
 Touches the load-bearing managed-hermes delivery loop. Keep it a SEPARATE best-effort beat (failures isolated from delivery). Deploy = `install.sh --client hermes` + wrapper restart (bridge-side).
 
+## PROVEN (2026-06-05): the pointer sync is necessary AND sufficient
+
+Probing the live gateway directly:
+- `session.list` returns **26 rows** as `{"sessions":[{"id":"20260605_161037_c57d9a","title":"Context Retention Banana Test","message_count":6,...}]}` — note rows have **`id` = the durable key** and **no `session_key` field** (so `rowResumeKey` correctly falls back to `id`).
+- `pickSessionRowById(session.list, "20260605_161037_c57d9a")` → **MATCH**, `rowResumeKey` → the durable key. The parser is FINE (an earlier "active_list fallback" reading was gateway-state volatility, not a parser bug).
+- End-to-end: with the marker SET to a real session, `resolve-session` returned a **real resumable session** (`marker(live)` / `marker(db-resumable)`), never fresh. With the dead marker (`054328`), it goes fresh.
+
+**Conclusion:** marker-based resume works; the ONLY defect is that the marker never tracks the live session. The periodic resume-pointer sync above is the complete fix. Source the durable key from `rowResumeKey` of the agent's live `active_list` row (which yields the durable key), and when active_list is momentarily empty fall back to leaving the marker unchanged. No `session.list` parser change and no DB-validate softening needed.
+
 ## Immediate stopgap (no code)
 Manually point the marker + handle at a real session from the screenshot (e.g. the banana test) so ONE restart resumes it:
 ```bash

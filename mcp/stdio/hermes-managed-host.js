@@ -46,6 +46,7 @@ import {
   clearSessionMarker as defaultClearSessionMarker,
   readSessionIdMarker,
   writeSessionIdMarker,
+  readGatewayUrlMarker,
   isUsableSessionId,
 } from "./hermes-endpoint.js";
 import { defaultKillByPort } from "./hermes-daemon.js";
@@ -1767,6 +1768,67 @@ export function classifyClaimError(err, counter = { count: 0 }, { grace = CLAIM_
 // `deps` is injectable for tests:
 //   spawnImpl, fetchImpl, openWs, httpCall, installTeardown, sleepImpl,
 //   maxIterations (test bound; undefined → infinite).
+// RESUME-POINTER SYNC (2026-06-05): keep the agent's durable resume marker + aify session_handle
+// in lock-step with whatever session the TUI is LIVE on — independent of aify-comms delivery. The
+// TUI mints/switches sessions on its own (operator typing in the visible TUI), and the only prior
+// marker-update path (waitForActiveSession) runs ONLY on a delivery — so a directly-used agent kept
+// resuming a stale (often GC'd) key and started a FRESH "(untitled)" session on every restart,
+// losing the operator's thread (the next-tech-lead bug, with 26 resumable sessions stranded). This
+// periodic best-effort beat reads the gateway's most-recent live session, takes its DURABLE key
+// (rowResumeKey — session.list/active_list rows expose it), and writes it to the marker + reports it
+// to aify, so the next launch resolves the live session. Pure READ of gateway truth + marker write;
+// never throws into delivery. An empty active_list (gateway idle/restarting) leaves the marker
+// UNCHANGED — clearing is resolve's job, not this beat's.
+export function startResumeMarkerSync(opts = {}) {
+  const {
+    agentId,
+    intervalMs = 20_000,
+    tempDir = TMP_DIR,
+    openWs = openGatewayWsClient,
+    readGatewayUrl = readGatewayUrlMarker,
+    readMarker = readSessionIdMarker,
+    writeMarker = writeSessionIdMarker,
+    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
+    nextId = (() => { let n = 1; return () => n++; })(),
+  } = opts;
+  const id = String(agentId || "").trim();
+  if (!id || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
+  let stopped = false;
+
+  const tick = async () => {
+    if (stopped) return;
+    const gw = readGatewayUrl(id, { tempDir });
+    const wsUrl = gw && gw.gatewayUrl;
+    if (!wsUrl) return;
+    let cli = null;
+    try {
+      cli = await openWs(wsUrl);
+      const listResp = await cli.request(
+        buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }),
+      );
+      const row = pickMostRecentSessionRow(listResp);
+      const durable = row ? String(rowResumeKey(row) || "").trim() : "";
+      if (!durable) return; // empty active_list → leave the marker as-is (never clear here)
+      let current = "";
+      try { current = String(readMarker(id, { tempDir }) || "").trim(); } catch { current = ""; }
+      if (durable === current) return;
+      try { writeMarker(id, durable, { tempDir }); } catch { /* best-effort */ }
+      try {
+        await httpCall("PATCH", `/agents/${encodeURIComponent(id)}/session-handle`, { sessionHandle: durable });
+      } catch { /* best-effort */ }
+    } catch {
+      /* best-effort: a gateway hiccup never disturbs delivery */
+    } finally {
+      try { cli?.close?.(); } catch { /* ignore */ }
+    }
+  };
+
+  const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+  tick().catch(() => {}); // fire once promptly so a first launch captures fast
+  return () => { stopped = true; clearInterval(timer); };
+}
+
 export async function runDeliveryLoop(agentId, deps = {}) {
   const {
     httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
@@ -1849,6 +1911,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       });
     },
   });
+
+  // RESUME-POINTER SYNC: keep the durable resume marker + aify handle tracking the TUI's live
+  // session so a restart resumes it instead of minting a fresh "(untitled)" one. Best-effort,
+  // unref()'d — it dies with this `run` process on teardown/procExit (no explicit stop needed).
+  startResumeMarkerSync({ agentId: id, tempDir: markerDir });
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
   // self-exit so teardown runs at most once. `makeTeardown` kills the gateway

@@ -1852,6 +1852,20 @@ the cycle on the next launch. **Requires `install.sh --client hermes` + wrapper 
 (`get_session(key)`=None for all its markers; check `cwd`/title in `~/.hermes/state.db`) has nothing
 to resume — **fresh is correct** for it, not a bug.
 
+**Cause 4 — the resume POINTER never tracked the live session (the ROOT; `startResumeMarkerSync`,
+2026-06-05).** Symptom: a directly-used agent starts a fresh "(untitled)" session on every restart
+even though the TUI shows the old sessions as resumable ("1 live · 26 resumable"). Root cause: the
+durable resume marker (`/tmp/aify-hermes-session-<agent>`) was only updated by `waitForActiveSession`
+— which runs ONLY on an aify-comms DELIVERY. When the operator types in the visible TUI (or it mints
+a new session), nothing converted the live session's EPHEMERAL id (TUI active-session file) to its
+DURABLE `session_key` and wrote the marker — so it stayed on a stale/dead key and resolve resumed
+that → fresh. Proven: the gateway's `session.list` returns the sessions (rows have `id`=durable key,
+no `session_key`), `pickSessionRowById` matches, and a marker set to a real session resolves to it.
+*Fix:* `startResumeMarkerSync` — a periodic (~20s) best-effort beat in the delivery loop that reads
+the gateway's most-recent live session, takes `rowResumeKey` (durable), and writes the marker +
+PATCHes the aify handle, so a restart resolves the live session. Composes with Causes 1-3.
+**Requires `install.sh --client hermes` + wrapper restart.**
+
 **Fix / remediation.** Reinstall the bridge (`install.sh --client hermes`) + **restart the
 `hermes-aify` wrappers** (the resolver runs at launch). With `5c1617a` the dead markers are
 **cleared automatically** on the next launch — the manual cleanup below is no longer required, but
