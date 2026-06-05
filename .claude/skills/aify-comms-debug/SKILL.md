@@ -1828,10 +1828,17 @@ short-circuit**, which seeded it WITHOUT checking the SessionDB → hermes error
 found` and STRANDED the console (`stopped · Console attached`). Fixed: when a gateway is reachable,
 `runResolveSessionCli` now **DB-validates** the resume id — a REAL id still wins over a stale
 marker, a flaky gateway preserves operator intent, but a **definitively-absent id falls through to
-a clean fresh start + clears the dangling marker** (no dead `--resume`). KEY corollary: an agent
-whose workspace has **zero persisted sessions** in the SessionDB (`get_session(key)`=None for all
-its markers; check `cwd`/title in `~/.hermes/state.db`) has nothing to resume — **fresh is
-correct** for it, not a bug.
+a clean fresh start + clears the dangling marker** (no dead `--resume`). **Cause 2b — the wrapper
+bypassed that validation for a command-line `--resume` (install.sh, 2026-06-05).** The `hermes-aify`
+wrapper treats an explicit `--resume <id>` as authoritative and SKIPS `resolve-session`, so a stale
+handle the env-bridge spawns as `hermes-aify --aify-agent X --resume <GC'd-key>` went straight to
+`hermes --tui --resume` → "session not found" (the cms-senior-dev / next-* symptom; mp-senior-dev
+worked because its handle was a real session). It was already CALLING `resolve-session --explicit`
+but discarding the output. *Fix:* the wrapper now USES that DB-validated result — resumes a real id,
+or starts FRESH cleanly when it is empty (GC'd). **Requires `install.sh --client hermes` + a wrapper
+restart.** KEY corollary: an agent whose workspace has **zero persisted sessions** in the SessionDB
+(`get_session(key)`=None for all its markers; check `cwd`/title in `~/.hermes/state.db`) has nothing
+to resume — **fresh is correct** for it, not a bug.
 
 **Fix / remediation.** Reinstall the bridge (`install.sh --client hermes`) + **restart the
 `hermes-aify` wrappers** (the resolver runs at launch). With `5c1617a` the dead markers are

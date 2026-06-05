@@ -1801,14 +1801,23 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     # session marker (\`aify-hermes-session-<agent>\`) with <id> BEFORE launching the
     # TUI, so the in-session bridge's discoverSessionId reads <id> (active-file
     # primary) and a stale marker can NEVER override it. resolve-session --explicit
-    # short-circuits the gateway query and just seeds both. Best-effort; never
-    # blocks the launch. (The bridge ALSO sees AIFY_EXPLICIT_SESSION_HANDLE=true +
-    # AIFY_SESSION_HANDLE=<id> as a belt-and-suspenders fallback.)
-    node "\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session "\$HERMES_AIFY_AGENT_ID" --explicit "\$HERMES_SESSION_HANDLE" >/dev/null 2>&1 || true
-    echo "[hermes-aify] resuming explicit hermes session '\$HERMES_SESSION_HANDLE' for agent '\$HERMES_AIFY_AGENT_ID' (seeded active-session file + marker — authoritative handle)." >&2
+    # DB-VALIDATES the id against the gateway SessionDB (2026-06-05) and seeds the
+    # active-session file + marker. CRITICAL: we now USE its result as the resume
+    # target. A REAL id resumes; a GC'd/dead id yields EMPTY, so we start FRESH cleanly
+    # instead of launching --resume on a dead id, which errors 'session not found' and
+    # strands the console (the cms-senior-dev / next-* incident). A flaky/absent gateway
+    # returns the id unchanged, preserving operator intent. (The bridge ALSO sees
+    # AIFY_EXPLICIT_SESSION_HANDLE=true + AIFY_SESSION_HANDLE=<id> as a fallback.)
+    HERMES_EXPLICIT_RESOLVED="\$(node "\$AIFY_HERMES_MANAGED_HOST_JS" resolve-session "\$HERMES_AIFY_AGENT_ID" --explicit "\$HERMES_SESSION_HANDLE" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
     # FIX SET A1: run as a CHILD (not exec) so the EXIT/INT/TERM trap reaps the
     # delivery loop (and its gateway host) when the TUI closes.
-    "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_SESSION_HANDLE" "\${HERMES_PERMISSION_FLAGS[@]}"
+    if [ -n "\$HERMES_EXPLICIT_RESOLVED" ]; then
+      echo "[hermes-aify] resuming explicit hermes session '\$HERMES_EXPLICIT_RESOLVED' for agent '\$HERMES_AIFY_AGENT_ID' (DB-validated)." >&2
+      "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_EXPLICIT_RESOLVED" "\${HERMES_PERMISSION_FLAGS[@]}"
+    else
+      echo "[hermes-aify] explicit session '\$HERMES_SESSION_HANDLE' is not resumable (gone from the SessionDB) — starting fresh." >&2
+      "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
+    fi
     _aify_hermes_on_exit
     exit \$?
   fi
