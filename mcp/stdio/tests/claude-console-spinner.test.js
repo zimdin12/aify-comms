@@ -21,7 +21,14 @@ assert.equal(classifyClaudeConsoleTail(fx("idle-prompt.txt")), "idle");
 // Synthetic invariants.
 assert.equal(classifyClaudeConsoleTail("✻ Crunched for 14m 58s (esc to interrupt)"), "working");
 assert.equal(classifyClaudeConsoleTail("✶ Wibbling for 5s"), "working");
-assert.equal(classifyClaudeConsoleTail("esc to interrupt"), "working");
+// M-C (2026-06-05): the interrupt hint counts as working ONLY on a real footer line (a
+// spinner glyph present). The other footer shape — "(<time> · esc to interrupt)" with no
+// "for" — still classifies working because the glyph is on the line.
+assert.equal(classifyClaudeConsoleTail("✻ Crunching… (12s · esc to interrupt)"), "working");
+// ...but a BARE phrase, or claude's own PROSE mentioning it (no spinner glyph on that line),
+// must NOT manufacture a working classification — the false-positive M-C closes.
+assert.equal(classifyClaudeConsoleTail("esc to interrupt"), "unknown");
+assert.equal(classifyClaudeConsoleTail("You can press esc to interrupt the running command."), "unknown");
 assert.equal(classifyClaudeConsoleTail("│ > │\n  ? for shortcuts"), "idle");
 // A stale 'esc to interrupt' far up in scrollback must NOT pin working when the live
 // footer is the idle prompt.

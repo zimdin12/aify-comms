@@ -16,8 +16,14 @@ export function stripAnsi(s = "") {
 // rotating gerunds/past-tense ("Crunched", "Baked", "Wibbling", ...), so we match
 // "<glyph> <word> for <number><h|m|s>" rather than enumerating verbs.
 const SPINNER_RE = /[✱✶✽✺✹✷✵✳✢✻*·]\s+\S+\s+for\s+\d+\s*(?:h|m|s)\b/i;
-// The interrupt hint rides with every in-progress claude turn.
-const INTERRUPT_RE = /esc to interrupt/i;
+// The interrupt hint rides with every in-progress claude turn — but count it as a working
+// signal ONLY when a real spinner glyph is on the SAME LINE (the live footer). The bare
+// phrase matched ANYWHERE let claude's own PROSE ("press esc to interrupt …") manufacture a
+// false `working` classification (and the 12s→20s lease TTL widened that window). Requiring
+// a spinner glyph on the footer line keeps BOTH real footer shapes — "✻ Verb for 12s (esc to
+// interrupt)" and "✻ Verb… (12s · esc to interrupt)" — while rejecting a prose mention. (Only
+// true spinner glyphs are required here, not the `*`/`·` that also appear as prose bullets.)
+const INTERRUPT_RE = /[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt/i;
 // The idle prompt renders the shortcuts hint and no interrupt hint.
 const IDLE_HINT_RE = /\?\s*for shortcuts/i;
 
