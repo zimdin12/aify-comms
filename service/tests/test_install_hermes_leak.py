@@ -98,7 +98,14 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
         'if [ -n "\\$HERMES_AIFY_AGENT_ID" ] && [ \\${#HERMES_ARGS[@]} -eq 0 ]; then'
     )
     assert idx > 0, "bash gateway-host (resident/managed) branch not found"
-    branch = text[idx : idx + 11000]
+    # Bound the branch by the stable sentinel comment that immediately follows its closing
+    # `fi`, NOT a fixed char window — the branch grows (hermes-resume DB-validate etc.) and a
+    # fixed +N window silently dropped the teardown out of view (the 2026-06-05 stale-test).
+    end = text.find(
+        "# RESIDENT agent-id launch: handled by the unified GATEWAY-HOST branch above", idx
+    )
+    assert end > idx, "could not bound the bash gateway-host branch (sentinel comment missing)"
+    branch = text[idx:end]
     # It must NOT bare-exec the TUI (exec replaces the shell and skips teardown).
     assert 'exec "\\$HERMES_RUNTIME_COMMAND" --tui' not in branch, (
         "resident branch must not bare-exec the TUI; it must reap the loop on exit"

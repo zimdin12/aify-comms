@@ -1,7 +1,6 @@
 ---
 name: aify-comms
 description: Use when comms_* MCP tools are available or an agent needs aify-comms messaging, dashboard-managed runs, lifecycle coordination, channels, handoffs, or run audit.
-trigger: tool_available("comms_register") OR tool_available("comms_send") OR tool_available("comms_inbox")
 ---
 
 # aify-comms

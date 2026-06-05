@@ -15,6 +15,9 @@ export function stripAnsi(s = "") {
 // Spinner footer: a spinner glyph + a verb + "for <N><unit>". Verbs are claude's
 // rotating gerunds/past-tense ("Crunched", "Baked", "Wibbling", ...), so we match
 // "<glyph> <word> for <number><h|m|s>" rather than enumerating verbs.
+// (`*`/`·` are allowed here because the FULL "<glyph> <verb> for <N><unit>" shape is strong
+// enough that a prose bullet can't spoof it — UNLIKE the bare INTERRUPT_RE below, which is why
+// that one is intentionally restricted to true spinner glyphs. Don't "unify" the two classes.)
 const SPINNER_RE = /[✱✶✽✺✹✷✵✳✢✻*·]\s+\S+\s+for\s+\d+\s*(?:h|m|s)\b/i;
 // The interrupt hint rides with every in-progress claude turn — but count it as a working
 // signal ONLY when a real spinner glyph is on the SAME LINE (the live footer). The bare

@@ -16,6 +16,11 @@ const DOWN = "\x1b[B";
 const UP = "\x1b[A";
 const ENTER = "\r";
 const RESUME_FULL_RE = /Resume full session/i;
+// A claude interactive selection menu renders its highlighted option with a cursor glyph
+// (❯ / › / ▶). PROSE that merely mentions a prompt phrase has no such cursor — requiring one
+// is the primary guard against typing keystrokes into a live turn. Declared up here (before
+// computeResumeAnswer, which reads it at call-time) to avoid the hoisting smell.
+const MENU_CURSOR_RE = /[❯›▶]/;
 
 // CURSOR-AWARE resume selection (2026-06-05): operator policy is "Resume full session as-is".
 // The earlier fix blindly sent [Down, Enter] assuming the menu always renders summary on the
@@ -86,12 +91,6 @@ export const CONSOLE_PROMPT_RULES = [
     answer: "\r",
   },
 ];
-
-// A claude interactive selection menu renders its highlighted option with a cursor
-// glyph (❯ / › / ▶). PROSE that merely mentions "Resume full session" or "bypass
-// permissions" has no such cursor — requiring one is the primary guard against the
-// bridge typing keystrokes into a live turn when claude is just WRITING about a prompt.
-const MENU_CURSOR_RE = /[❯›▶]/;
 
 // Match the live tail region against the rules. Returns the first matching rule or null.
 // Only the last ~2KB of visible text is considered so a scrolled-away prompt is ignored.
