@@ -146,6 +146,7 @@ export class TerminalProcessManager {
     maxBatchChars = 16 * 1024,
     autoAnswer = true,
     autoAnswerKeyDelayMs = 150,
+    consoleKeepaliveMs = 4000,
   } = {}) {
     this.onOutput = onOutput;
     this.onExit = onExit;
@@ -155,6 +156,10 @@ export class TerminalProcessManager {
     // disables it. Never types into a resident/operator session.
     this.autoAnswer = autoAnswer !== false;
     this.autoAnswerKeyDelayMs = Math.max(0, Number(autoAnswerKeyDelayMs) || 0);
+    // Managed-claude repaint keepalive (2026-06-05): claude only re-emits its spinner footer
+    // while its PTY is actively rendered, so an UNWATCHED working claude goes quiet on the PTY
+    // and the console-working lease goes stale -> `online`. Nudge the PTY so it keeps emitting.
+    this.consoleKeepaliveMs = Math.max(0, Number(consoleKeepaliveMs) || 0);
     this.idleFlushMs = Math.max(1, Number(idleFlushMs) || 16);
     this.maxLatencyMs = Math.max(this.idleFlushMs, Number(maxLatencyMs) || 33);
     this.maxBatchChars = Math.max(1024, Number(maxBatchChars) || 16 * 1024);
@@ -273,6 +278,7 @@ export class TerminalProcessManager {
       resolveExit,
     };
     this.terminals.set(id, state);
+    state.stopConsoleKeepalive = this._armConsoleKeepalive(id, state);
     term.onData((text) => {
       this._handleOutput(id, state, text).catch(() => {});
     });
@@ -449,6 +455,7 @@ export class TerminalProcessManager {
   async _handleExit(id, state, detail = {}) {
     if (state.finalized) return;
     state.finalized = true;
+    try { state.stopConsoleKeepalive?.(); } catch { /* best-effort */ }
     if (state.resumeHealTimer) {
       clearTimeout(state.resumeHealTimer);
       state.resumeHealTimer = null;
@@ -547,6 +554,25 @@ export class TerminalProcessManager {
       }
     };
     sendNext();
+  }
+
+  // Periodically SIGWINCH a managed claude PTY (via resize to the SAME dims) so claude re-emits
+  // its footer even when the dashboard Console is closed — keeping the console-working lease
+  // fresh. claude-managed-only; best-effort; a noop for other runtimes / resident / when disabled.
+  _armConsoleKeepalive(id, state) {
+    if (!this.consoleKeepaliveMs || state.runtime !== "claude-code"
+        || state.sessionMode !== "managed" || state.kind !== "pty") {
+      return () => {};
+    }
+    const tick = () => {
+      const st = this.terminals.get(id);
+      if (!st || !st.term) return;
+      try { st.term.resize(Math.max(20, Number(st.cols || 100)), Math.max(6, Number(st.rows || 28))); }
+      catch { /* best-effort */ }
+    };
+    const timer = setInterval(tick, this.consoleKeepaliveMs);
+    if (timer && typeof timer.unref === "function") timer.unref();
+    return () => clearInterval(timer);
   }
 
   resize(id, cols = 0, rows = 0) {
