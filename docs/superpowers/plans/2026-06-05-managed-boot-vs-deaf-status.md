@@ -1,5 +1,8 @@
 # Managed Boot-vs-Deaf Status — Investigation + Design
 
+> **IMPLEMENTED 2026-06-05 (time-window-FREE).** Dropped the boot-grace entirely (operator: "age/time-based solutions have only bitten us"). Final signal: `_managed_console_is_booting` = no channel-sidecar last-seen at/after the live console's `created_at`. Display-only override (`available`→`online`); routing untouched. The 3 `13c4ae8` contract tests were re-modeled (deaf = sidecar after console, then stale) and 2 booting tests added (fresh + cross-restart). 383 status/deliverability/regression tests green.
+
+
 **Goal:** A *booting* managed claude/hermes (console up, sidecar coming) should read `online`, while a *deaf* one (console up, sidecar registered then died — the `13c4ae8` bug) stays `available`. The hard part is telling them apart from a single state snapshot.
 
 ## Investigation findings (2026-06-05)

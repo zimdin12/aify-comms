@@ -3827,6 +3827,45 @@ class _WorkerLiveness(NamedTuple):
     channel_managed_no_console: bool
 
 
+async def _managed_console_is_booting(db, agent_id: str) -> bool:
+    """True when the agent's live console came up but NO channel-sidecar has registered for it
+    YET — a worker BOOTING (sidecar still coming), distinct from a sidecar that registered for
+    THIS console and then died (the 13c4ae8 'online but deaf' case → stays `available`).
+
+    TIME-WINDOW-FREE (2026-06-05): keys purely on a relational fact — has any channel-sidecar
+    been last-seen AT/AFTER the current console's `created_at`? The sidecar is the worker's own
+    child, so it always registers AFTER its console; therefore:
+      - no sidecar seen since this console started  → it hasn't come up yet → BOOTING.
+      - a sidecar WAS seen at/after console start (now stale) → it came up then died → DEAF.
+    Cross-restart safe: an old sidecar row from a PRIOR session has last_seen < the new
+    console's created_at, so a relaunch correctly reads BOOTING until its own sidecar registers.
+    No arbitrary grace: a boot whose sidecar never arrives shows `online` only while its console
+    is live/streaming (the existing liveness gate); a dead/hung console is reaped separately.
+    """
+    console = await (await db.execute(
+        """
+        SELECT created_at FROM terminal_sessions
+        WHERE agent_id = ?
+          AND status IN ('starting','attached','running','active','idle','recovering')
+        ORDER BY updated_at DESC LIMIT 1
+        """,
+        (agent_id,),
+    )).fetchone()
+    if not console:
+        return False
+    console_started = _iso_to_epoch(str(console["created_at"] or ""))
+    if not console_started:
+        return False
+    sidecar = await (await db.execute(
+        "SELECT MAX(last_seen) AS last_seen FROM bridge_instances "
+        "WHERE agent_id = ? AND bridge_kind = 'channel-sidecar'",
+        (agent_id,),
+    )).fetchone()
+    sidecar_seen = _iso_to_epoch(str((sidecar["last_seen"] if sidecar else "") or ""))
+    # BOOTING iff no channel-sidecar has been seen since this console started.
+    return not (sidecar_seen and sidecar_seen >= console_started)
+
+
 async def _worker_liveness_for(
     db, agent_row, *, agent_session_mode: str, live_session: bool
 ) -> _WorkerLiveness:
@@ -4398,8 +4437,20 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         # haven't already attached a more specific reason (e.g. offline).
         if effective_status == "available" and channel_managed_no_console and not reason:
             reason = "Worker has no visible console (headless orphan being reaped)."
-        elif effective_status == "available" and channel_managed_no_sidecar and not reason:
-            reason = "No live channel sidecar heartbeat (not deliverable)."
+        elif effective_status == "available" and channel_managed_no_sidecar:
+            # BOOT vs DEAF (2026-06-05, operator-chosen): a live console whose sidecar hasn't
+            # registered SINCE THE CONSOLE STARTED is BOOTING → DISPLAY `online` so the operator
+            # doesn't miss the terminal. A console whose sidecar registered then died stays
+            # `available` (not deliverable; 13c4ae8). DISPLAY-ONLY — has_live_worker is unchanged,
+            # so a send during boot still QUEUES until the sidecar claims (routing untouched).
+            # (Legacy-path display; live engine is `old`. A `status_engine=new` flip would need
+            # the same signal in StatusInputs for parity.)
+            if await _managed_console_is_booting(db, agent_row["id"]):
+                effective_status = "online"
+                if not reason:
+                    reason = "Console booting (worker starting; deliverable once it claims)."
+            elif not reason:
+                reason = "No live channel sidecar heartbeat (not deliverable)."
     # NOTE (2026-06-05): a managed agent whose last session ended FAILED stays `available` by
     # design — it lazy-respawns on the next send (genuinely available-to-retry, NOT blocked; see
     # test_managed_codex_online_from_fresh_wrapper_child_bridge). The originally-reported

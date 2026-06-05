@@ -334,11 +334,14 @@ class StatusDeliverabilityTests(FastApiTestCase):
         # the sidecar-liveness behavior under test.
         self._insert_hermes_console_pty("hermes-idle")
 
-        # Before any claim: no sidecar row exists → available.
+        # Before any claim: no sidecar row exists. A fresh console whose sidecar has never
+        # registered is BOOTING (2026-06-05) → it reads `online` (worker starting). The idle
+        # claim below upserts a LIVE channel-sidecar bridge row — the mechanism under test —
+        # which is what keeps it `online` for REAL (deliverable), not merely booting.
         self.assertIsNone(self._channel_sidecar_bridge_row("hermes-idle"))
-        self.assertEqual(
-            self._status("hermes-idle"), "available",
-            "before any sidecar poll the agent must be available, not online",
+        self.assertIn(
+            self._status("hermes-idle"), {"online", "ready"},
+            "a fresh console with no sidecar yet is booting → online",
         )
 
         # Idle claim poll (no queued run) declaring channel-sidecar.
@@ -426,13 +429,53 @@ class StatusDeliverabilityTests(FastApiTestCase):
         self._heartbeat_environment("claude-code")
         self._register_managed(agent_id="claude-deadcar", runtime="claude-code", channel_enabled=True)
         self._insert_claude_wrapper_pty("claude-deadcar")          # live PTY (renders)
-        self._stamp_channel_sidecar_bridge("claude-deadcar", fresh=False)  # stale sidecar
+        self._stamp_channel_sidecar_bridge("claude-deadcar", fresh=False)  # stale sidecar (~20m)
+        # DEAF, not booting (2026-06-05): age the console so its sidecar registered FOR THIS
+        # console (~20m ago) then died — a genuinely deaf worker that must stay `available`. (A
+        # fresh console whose sidecar has NEVER registered is BOOTING and reads `online`; the
+        # discriminator is whether a sidecar was last-seen AFTER the console started.)
+        _con = sqlite3.connect(str(self._db_path))
+        _con.execute(
+            "UPDATE terminal_sessions SET created_at = ? WHERE agent_id = ?",
+            (_iso(datetime.now(timezone.utc) - timedelta(minutes=40)), "claude-deadcar"),
+        )
+        _con.commit()
+        _con.close()
         status = self._status("claude-deadcar")
         self.assertNotIn(
             status, {"online", "ready"},
             f"a live PTY with a dead sidecar must NOT be falsely online; got {status!r}",
         )
         self.assertEqual(status, "available", f"expected available; got {status!r}")
+
+    def test_managed_console_booting_no_sidecar_yet_is_online(self):
+        # BOOT vs DEAF (2026-06-05, operator-chosen): a managed claude whose console JUST came
+        # up but whose channel-sidecar has NOT registered yet is BOOTING — it reads `online` so
+        # the operator doesn't miss the terminal. DISPLAY-ONLY: has_live_worker stays False so a
+        # send still queues until the sidecar claims. Contrast the dead-sidecar test above (a
+        # sidecar that registered for this console then DIED stays `available`).
+        self._heartbeat_environment("claude-code")
+        self._register_managed(agent_id="claude-booting", runtime="claude-code", channel_enabled=True)
+        self._insert_claude_wrapper_pty("claude-booting")  # fresh live console, NO sidecar yet
+        self.assertEqual(
+            self._status("claude-booting"), "online",
+            "a fresh console whose sidecar hasn't registered yet is booting → online",
+        )
+
+    def test_managed_console_after_restart_old_sidecar_is_booting_online(self):
+        # Cross-restart (the mp-manager 'restarted, missed the terminal' case): a relaunched
+        # console with only a STALE sidecar from a PRIOR session (last_seen BEFORE the new
+        # console started) is BOOTING for the new console → `online` (its own sidecar hasn't
+        # registered yet). This is why the discriminator is relational (sidecar-since-console),
+        # not 'a sidecar row exists' — an old row persists across restarts.
+        self._heartbeat_environment("claude-code")
+        self._register_managed(agent_id="claude-relaunch", runtime="claude-code", channel_enabled=True)
+        self._stamp_channel_sidecar_bridge("claude-relaunch", fresh=False)  # old sidecar (prior session)
+        self._insert_claude_wrapper_pty("claude-relaunch")  # NEW console created now (after the old sidecar)
+        self.assertEqual(
+            self._status("claude-relaunch"), "online",
+            "a new console after restart with only a pre-console stale sidecar → booting → online",
+        )
 
     def test_managed_claude_without_live_worker_is_available(self):
         self._heartbeat_environment("claude-code")

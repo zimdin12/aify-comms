@@ -2309,8 +2309,26 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_id = "term_hermes_online_console"
         self._seed_managed_hermes_with_attached_terminal("online-hermes", terminal_id)
 
-        # Live `attached` console but NO channel-sidecar heartbeat → not a live
-        # claimer → available (NOT online).
+        # DEAF, not booting (2026-06-05): age the console and register a sidecar FOR it that then
+        # went stale — a genuinely deaf worker that must stay `available`. (A FRESH console whose
+        # sidecar has never registered is BOOTING → online; this test guards the DEAF case — a
+        # sidecar last-seen AFTER the console started, then died.)
+        _old = (datetime.now(timezone.utc) - timedelta(minutes=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _stale = (datetime.now(timezone.utc) - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._execute("UPDATE terminal_sessions SET created_at = ? WHERE agent_id = ?", (_old, "online-hermes"))
+        self._execute(
+            """
+            INSERT OR REPLACE INTO bridge_instances (
+                id, agent_id, machine_id, runtime, session_mode, session_handle,
+                terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("channel-linux:test-host-online-hermes", "online-hermes", "linux:test-host", "hermes",
+             "managed", "", "", "channel-sidecar", _stale, _stale, "", None),
+        )
+
+        # Live `attached` console with a DEAD (registered-then-stale) channel-sidecar → not a
+        # live claimer → available (NOT online).
         asyncio.run(self._async_invalidate("online-hermes"))
         agent = self.client.get("/api/v1/agents/online-hermes").json()["agent"]
         self.assertNotEqual(agent["status"], "online", agent)
