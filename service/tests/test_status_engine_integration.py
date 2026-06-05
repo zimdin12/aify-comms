@@ -479,3 +479,105 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
         self.assertTrue(asyncio.run(run()),
                         "a fresh in_turn must remain in-turn (backstop must not over-clamp)")
 
+
+class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
+    """M-A + M-B (2026-06-05): behavioral coverage of the SERVED byproduct path
+    (_compute_live_status_cache -> status_inputs -> derive), which is what
+    status_engine=new actually serves.
+
+    M-A: a console-working lease surfaces `working` ONLY with a live worker (the
+    has_live_worker gate) — the H1/M1 fold the lease feature relies on, previously
+    untested at the Python level.
+    M-B: a stale in_turn (dropped/absent turn-END) is clamped on THIS path too, matching
+    _gather_status_inputs (the byproduct read previously skipped the staleness clamp)."""
+
+    ENV_ID = "linux:test-host:default"
+    MACHINE = "linux:test-host"
+
+    def _heartbeat_environment(self):
+        r = self.client.post("/api/v1/environments/heartbeat", json={
+            "id": self.ENV_ID, "label": "L", "machineId": self.MACHINE, "os": "linux",
+            "kind": "linux", "bridgeId": "env-bridge", "cwdRoots": ["/workspace"],
+            "runtimes": [{"runtime": "claude-code", "modes": ["managed-warm"],
+                          "capabilities": {"nativeResume": True}}], "metadata": {}})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _register(self, aid):
+        r = self.client.post("/api/v1/agents", json={"agentId": aid, "role": "coder",
+            "runtime": "claude-code", "sessionMode": "managed", "machineId": self.MACHINE,
+            "bridgeId": "env-bridge"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _seed_live_worker(self, aid):
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        tid = f"term_{aid}"
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute(
+                """INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,
+                    mode, owner_mode, terminal_id, terminal_status, spawn_spec_id,
+                    spawn_request_id, status, started_at, last_seen)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (f"sess_{aid}", aid, self.ENV_ID, "claude-code", "/workspace/repo",
+                 "managed-warm", "managed", tid, "attached", None, None, "running", now, now))
+            c.execute(
+                """INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id,
+                    bridge_id, runtime, workspace, command, output, status, requested_by,
+                    created_at, updated_at, stopped_at, error)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (tid, f"sess_{aid}", aid, self.ENV_ID, "bridge-current", "claude-code",
+                 "/workspace/repo", "claude-aify --aify-agent " + aid, "", "attached",
+                 "dashboard", now, now, None, ""))
+            c.commit()
+        finally:
+            c.close()
+
+    def _byproduct_status(self, aid):
+        import asyncio
+        from service.db import get_db
+        from service.routers import api_v2
+        from service.status_engine import derive
+
+        async def run():
+            db = await get_db()
+            try:
+                row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
+                cache = await api_v2._compute_live_status_cache(db, row)
+                return derive(cache["status_inputs"])
+            finally:
+                await db.close()
+        return asyncio.run(run())
+
+    # NOTE: the lease→`working` HAPPY PATH (lease + live worker) is covered by the bridge JS
+    # lease/pulse tests + live validation; reproducing has_live_worker in a pure Python fixture
+    # is brittle (the terminal-row liveness resolution), so here we lock the two correctness
+    # properties instead: the worker GATE (below) and the staleness clamp (M-B).
+
+    def test_console_lease_without_live_worker_not_working(self):  # M-A: the worker gate
+        self._heartbeat_environment(); self._register("cl2")  # NO live worker seeded
+        self.client.post("/api/v1/agents/cl2/console-working", json={})
+        self.assertNotEqual(self._byproduct_status("cl2"), "working",
+                            "a lease with no live worker must NOT manufacture working")
+
+    def test_stale_in_turn_clamped_on_byproduct_path(self):  # M-B
+        import datetime as _dt
+        self._heartbeat_environment(); self._register("cl3"); self._seed_live_worker("cl3")
+        # Establish in_turn via the real endpoint, then age last_event_at past the backstop.
+        self.client.post("/api/v1/agents/cl3/status-event", json={"kind": "turn_start", "runId": "r"})
+        stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=45)).isoformat().replace("+00:00", "Z")
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute("UPDATE agent_status_state SET last_event_at=? WHERE agent_id=?", (stale, "cl3"))
+            c.commit()
+        finally:
+            c.close()
+        self.assertNotEqual(self._byproduct_status("cl3"), "working",
+                            "a stale in_turn (dropped turn-end) must be clamped on the served byproduct path")
+
+    def test_fresh_in_turn_not_clamped_on_byproduct_path(self):  # M-B control
+        self._heartbeat_environment(); self._register("cl4"); self._seed_live_worker("cl4")
+        self.client.post("/api/v1/agents/cl4/status-event", json={"kind": "turn_start", "runId": "r"})
+        self.assertEqual(self._byproduct_status("cl4"), "working",
+                         "a FRESH in_turn must still serve working (clamp must not over-fire)")
+

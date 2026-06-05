@@ -4508,13 +4508,26 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     #     once and reused).
     #   - idle_too_long: False for both modes, matching _gather_status_inputs.
     _si_st = await (await db.execute(
-        "SELECT in_turn, awaiting_input FROM agent_status_state WHERE agent_id=?",
+        "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?",
         (agent_row["id"],),
     )).fetchone()
+    # M-B parity (2026-06-05): mirror the _gather_status_inputs in_turn staleness backstop
+    # (Fix B) here too. This byproduct is the SERVED path under status_engine=new; without
+    # the clamp a DROPPED/absent turn-END would latch `working` here forever while the
+    # authoritative _gather_status_inputs would correctly clear it past the backstop — so the
+    # "MUST produce the same StatusInputs" promise above would be violated for stale in_turn.
+    _si_raw_in_turn = bool(_si_st and _si_st["in_turn"])
+    if _si_raw_in_turn:
+        _si_last_event_epoch = _iso_to_epoch(_si_st["last_event_at"] if _si_st else "")
+        if _si_last_event_epoch and (
+            datetime.now(timezone.utc).timestamp() - _si_last_event_epoch
+        ) > TURN_BUSY_BACKSTOP_SECONDS:
+            _si_raw_in_turn = False
     # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from
     # agent_status_state (which the lease never writes), so OR the worker-gated lease in here
-    # too — otherwise the feature is a no-op under status_engine=new.
-    _si_in_turn = bool(_si_st and _si_st["in_turn"]) or (console_working_lease and has_live_worker)
+    # too — otherwise the feature is a no-op under status_engine=new. (The lease has its OWN
+    # short TTL, so OR-ing it after the staleness clamp can't resurrect a truly-stale turn.)
+    _si_in_turn = _si_raw_in_turn or (console_working_lease and has_live_worker)
     _si_awaiting = bool(_si_st and _si_st["awaiting_input"])
     _si_disabled = str(agent_row["status"] or "").lower() == "stopped"
     if agent_session_mode == "managed":

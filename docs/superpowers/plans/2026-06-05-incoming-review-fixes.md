@@ -98,3 +98,15 @@ Each: implement → test → (service→rebuild / bridge→reinstall) → commit
 - **M-A / M-B / M-C — DEFERRED (status files, peer's active domain).** Flag to the peer instead of editing `api_v2.py` / `claude-console-spinner.js` while they iterate there.
 
 **Net round 2:** #2 fixed + tested; #3 closed as verified-safe; status-adjacent minors left to the peer. Then review the peer's status MR.
+
+---
+
+## ROUND 3 (2026-06-05) — close M-A/M-B/M-C (peer shipped + handed them back; collision gone)
+
+Peer confirmed all 3 of my round-1/2 fixes sound and handed the 3 minors back. All traced + confirmed open. Fix the safe+needed ones (all three have a safe form).
+
+- **M-B (correctness, DO) — byproduct path missing the in_turn staleness clamp.** `_gather_status_inputs` (api_v2.py 4023-4037) reads `last_event_at` and clamps `in_turn→False` past `TURN_BUSY_BACKSTOP_SECONDS`. The served byproduct path `_compute_live_status_cache` (4510-4517) reads ONLY `in_turn`/`awaiting_input` (no `last_event_at`) and skips the clamp — yet 4494-4495 claims exact parity. Under `status_engine=new` a dropped turn-end + >30min would latch `working` on the served path. **Fix:** add `last_event_at` to the 4511 SELECT + apply the same clamp before `_si_in_turn`. Service → rebuild. TDD: a status-engine integration test that a stale `in_turn` (old `last_event_at`) serves NOT-working under `new`.
+- **M-A (test gap, DO) — no behavioral lease test.** `test_console_working_lease.py` only covers stamp/idempotency/TTL. **Add:** lease + live worker + `status_engine=new` → served `working`; lease + NO live worker → NOT `working` (the `has_live_worker` gate). Locks the H1/M1 fold the peer built.
+- **M-C (regex false-positive, DO — SAFE form).** `INTERRUPT_RE = /esc to interrupt/i` (bare) lets claude's PROSE "esc to interrupt" manufacture a `working` lease; the 12→20 TTL bump widened the window. **Safe fix (can't break detection):** require a real spinner glyph on the SAME LINE as the interrupt hint — `/[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt/i` — which matches BOTH real footer formats (`… for 12s (esc to interrupt)` and `… (12s · esc to interrupt)`) but NOT a bare-prose mention. Keep `SPINNER_RE` too. Bridge → reinstall. TDD: footer→working, prose→unknown/idle.
+
+**Net round 3:** all three safe + needed → implement TDD, rebuild+reinstall, separate commits, push. Reply to the peer.
