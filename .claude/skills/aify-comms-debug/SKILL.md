@@ -88,10 +88,22 @@ BRIDGE-side signals that feed BOTH engines.
   dropped/absent turn-END (e.g. resident hermes — start hook, no end hook) latched `working`
   forever. `_gather_status_inputs` now treats `in_turn` as ended once the row's `last_event_at`
   is older than `TURN_BUSY_BACKSTOP_SECONDS` (the SAME 30-min ceiling the old engine uses).
+- **M-B — byproduct-path parity (2026-06-05).** The clamp above lived ONLY in
+  `_gather_status_inputs`; the SERVED path under `new` is `_compute_live_status_cache`'s
+  `StatusInputs` byproduct, which read `in_turn` RAW — so a dropped turn-end latched `working`
+  on the served path past 30 min. The byproduct now reads `last_event_at` and clamps
+  identically. If a managed agent shows `working` long after its turn ended, the service is
+  pre this fix.
+- **M-C — interrupt-hint false-positive (2026-06-05).** The console spinner classifier
+  (`claude-console-spinner.js`) treated a bare `esc to interrupt` ANYWHERE as `working`, so
+  claude writing that phrase in PROSE manufactured a `working` lease (worsened by the 12s→20s
+  lease TTL). It now requires a real spinner glyph on the SAME LINE as the hint — keeps both
+  live-footer shapes, rejects prose.
 
-**Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy is sent
-by the wrappers' delivery loops, so relaunch the affected wrapper). If a managed/channel agent
-still reads `online`/`idle` mid-turn while `status_engine=new`, the service is pre-`4d52571`.
+**Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy + the
+console spinner/lease are sent by the wrappers' delivery loops, so re-run `install.sh` and
+relaunch the affected wrapper). If a managed/channel agent still reads `online`/`idle` mid-turn
+while `status_engine=new`, the service is pre-`4d52571`.
 
 ## Codex resident keeps prompting for approval despite the bypass flag
 
