@@ -59,13 +59,31 @@ All 5 runtimes feed BOTH engines; all 31 tools wired end-to-end; flags/settings 
 
 ---
 
-## Merged from comms-senior-dev
-*(pending his reply — run_1780671931086_8c66e318; reconcile agreements/disagreements here, then finalize the sequencing.)*
+## Merged from comms-senior-dev (received 2026-06-05, reconciled — zero disagreements)
 
-## Proposed sequencing (after merge + operator go-ahead)
-1. C4(a) remove `trigger:` + O1 header (trivial, zero risk) — batch.
-2. C1 hermes kill-prior matcher (bash+PS1+test) — the one real lifecycle bug.
-3. C2 + C3 dashboard canonical status label + Restart verb (display-only).
-4. M1 + M2 status defense-in-depth + runtime-list parity test.
-5. C4(b)(c) debug-skill split — separate, careful, mirror-verified.
-6. OPTIONAL batch behind explicit go-ahead.
+His pass converged with mine + ADDED the root cause of C2 and one new critical:
+
+- **His #1 = the ROOT of my C2 (now CRITICAL, merged).** Delivery PATCHes write a NON-VOCAB `agentStatus: "active"`: `claude-channel.js:322-327/335-340`, `hermes-channel.js:203-225`, `hermes-managed-host.js:768-790/964-968`; and `api_v2.py:18152-18155` writes `req.agentStatus` straight into `agents.status` with NO enum validation. That is the source; my UI pass found the symptom (dashboard renders the raw "active"). **Combined fix (all layers):** (a) stop emitting `agentStatus:"active"` from delivery-only PATCHes — `working` already derives from turnBusy/in_turn, so "active" is redundant/wrong; (b) server-side VALIDATE/normalize `agentStatus` against the 8-status enum in the dispatch PATCH; (c) the canonical `statusLabel()` in the dashboard (my C2); (d) fix the dashboard help line teaching "active" (his #3, dashboard.html:1706); (e) update the pinned test `test_api_v2_regressions.py:6101-6113` that expects `agentStatus:"active"`. **Trace before removing:** confirm nothing depends on `agents.status='active'` (live-state derivation overrides it, so it's vestigial — verify).
+- **His #2 = NEW CRITICAL (MC2).** The managed-run `comms_register` guard error text (`server.js:3293-3297`) says "answer in final plain text; use comms_send only for separate updates" — which CONTRADICTS the managed reply contract (reply via `comms_send(inReplyTo=...)` same turn; final text is telemetry) documented at `server.js:3917-3922` + `runtimes.js:646-718`. An agent hitting the guard mid-request is told to do the wrong thing → stranded reply. **Fix:** reword the last sentence to direct a `comms_send(type=response, inReplyTo=<id>)` reply.
+- His #4 (status_engine.py:34-43 comment drift re offline-vs-in_turn dominance) and #5 (opencode resume/handle UI language beyond the wired surface — = my O3/A4) → OPTIONAL, folded below.
+
+## FINAL merged CRITICAL set (priority order)
+- **MC1** — non-vocab `active` status: source PATCHes + server enum-validation + dashboard canonical label + help line + test (his #1 + #3 + my C2). [his P0]
+- **MC2** — managed-register guard error text contradicts the reply contract (his #2). [his P0]
+- **MC3** — hermes kill-prior dead matcher (my C1).
+- **MC4** — dashboard missing Restart verb + wrong Stop tooltip (my C3).
+- **MC5** — skill quality: remove `trigger:` field (trivial) + split the 1,975-line debug skill into `references/` (my C4).
+
+(MEDIUM M1/M2/M3 and the OPTIONAL list unchanged above; his #4 + #5 join OPTIONAL.)
+
+## Proposed sequencing (after operator go-ahead) — merged
+1. **Trivial/zero-risk batch:** MC5(a) remove `trigger:` field + O1 "29 tools" header + his #4 comment cleanup.
+2. **MC1 — non-vocab `active` (CRITICAL):** trace deps first, then stop emitting "active" in the 4 delivery PATCH sites + server enum-validate + dashboard canonical `statusLabel()` + help line + update the pinned test. Service rebuild + bridge reinstall. (Highest value — root + symptom in one.)
+3. **MC2 — register-guard error text (CRITICAL):** reword `server.js:3293-3297`. Bridge reinstall.
+4. **MC3 — hermes kill-prior matcher (CRITICAL):** match the real resumed id, bash+PS1+test. install.sh + relaunch.
+5. **MC4 — dashboard Restart verb + Stop tooltip (CRITICAL):** add to Identity Directory managed menu. Rebuild.
+6. **M1 + M2 (MEDIUM):** status defense-in-depth (dispatch-PATCH feed) + runtime-list parity test.
+7. **MC5(b) — debug-skill split into `references/`:** separate, careful, mirror-verified (both .claude + .agents).
+8. **OPTIONAL batch** behind explicit go-ahead.
+
+Each step: implement → test → (service→rebuild / bridge→reinstall / install.sh→relaunch) → separate commit → push. comms-senior-dev to verify the MC1 active-removal doesn't break working-derivation.
