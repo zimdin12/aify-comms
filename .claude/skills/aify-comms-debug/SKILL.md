@@ -31,6 +31,9 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Managed worker "launches then dies", stuck `available`, reaped mid-boot (`reconciled_managed_ghost_console_dead_worker`)
 - Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 - Restarting aify-comms kills all managed sessions (by design — clean slate)
+- Hermes starts a FRESH session after an aify-comms restart ("session not found" → fresh)
+- Managed claude shows `online` while it is clearly thinking (the spinner under-report)
+- Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 - Managed agent finished but its reply never landed (deferred-reply strand)
 - Dispatch: send rejected, run stuck `running`, superseded bridge, orphaned runs
 - Environment presence, re-register semantics, install.sh on Windows
@@ -1800,6 +1803,63 @@ A cluster of resident+managed hermes delivery bugs, all resolved 2026-06-03 (com
 - **Switched a CODEX agent resident→managed and its dispatches sit `channel`/queued.** Cause: the switch re-attached a PTY to a leftover RESIDENT session instead of spawning a `managed-warm` worker, so no `managed-wrapper-child` claimer ever registered (and the 30s liveness beat demoted `bridge_kind` back to `resident`). Fix: switch/send now coldstart a managed-warm spawn for wrapper-backed runtimes, and the liveness beat can't demote a `managed-wrapper-child`/`channel-sidecar`. To unstick an already-switched agent: send it a message (it self-heals) or toggle managed→resident→managed once.
 - **Duplicate / stale resident sessions on the dashboard you can't tell apart.** Cause: the resident session id is a hash of `session_handle`, so each relaunch with a new native id minted a new `resident_*` row while the old stayed `running`. Fix: a 60s reconcile (`_reconcile_duplicate_resident_sessions`) keeps the resident session whose owning bridge is freshest/live per agent and retires the rest (it never retires a session whose owning bridge is still within the resident lease).
 - **Spawn fails "Workspace ... is outside this bridge's advertised roots" for a normal path under `/` or `~`.** Cause: `workspaceWithinRoots` (mcp/stdio/server.js) stripped `/` to empty (filtered out) and never expanded `~`. Fix: `/` is now match-all and `~` expands to `$HOME`.
+
+## Hermes starts a FRESH session after an aify-comms restart
+
+**Symptom.** A managed/resident hermes agent (e.g. `next-tech-lead`) resumes fine while
+aify-comms stays up, but after you **close/start aify-comms** it restarts into a brand-new
+session — "session not found" errors, lost chat history. Often only some agents; over time
+"it just started giving fresh session".
+
+**Cause (fixed 2026-06-05).** The delivery loop (`waitForActiveSession`) persisted the
+**ephemeral** runtime sid into the per-agent resume marker after every delivery, instead of
+the **durable** `session_key`. Invisible while up (the ephemeral id still matched a live
+`active_list` row), but on restart the gateway `active_list` is empty and the SessionDB
+(`session.list`) is keyed by `session_key`, so the ephemeral marker matched nothing →
+`runResolveSessionCli` cleared it → fresh session.
+
+**Fix / remediation.** Reinstall the bridge (`install.sh --client hermes`) + restart the
+`hermes-aify` wrappers to pick up the durable-marker fix. To unstick an already-poisoned
+marker right now: durable keys contain underscores (`YYYYMMDD_HHMMSS_hex`); an ephemeral one
+is short bare hex. Delete the ephemeral ones so the agent re-binds its durable key — the
+session still lives in hermes's SessionDB, only the stale pointer is removed:
+
+```bash
+for f in /tmp/aify-hermes-session-*; do v=$(cat "$f" 2>/dev/null); case "$v" in *_*|"") :;; *) echo "rm $f ($v)"; rm -f "$f";; esac; done
+```
+
+Verify after a restart: `cat /tmp/aify-hermes-session-<agent>` stays a `YYYYMMDD_HHMMSS_hex`
+key before AND after, and the gateway-host log shows `resolve-session … → <key> (marker(db-resumable))`, not `cleared stale marker; will start fresh`.
+
+## Managed claude shows `online` while it is clearly thinking
+
+**Symptom.** A managed claude is visibly working — the Console shows `✻ Crunched for 3m 12s
+(esc to interrupt)` — but the dashboard dot reads `online`, not `working`. Often "right after
+one tool call it went online but it's actually still working".
+
+**Cause.** The transcript turn-detector is structurally blind to LIVE generation: claude's
+transcript grows per *completed message*, so during a long thinking phase the tail still shows
+the last ENDED message → the detector reads not-working.
+
+**Fix (2026-06-05).** The managed PTY's spinner footer now drives a TTL "console-working
+lease" (`agent_console_signal`, `POST /agents/{id}/console-working`) that derives `working`
+for the spinner window. It's additive/weak: gated on a live worker, never clears a real
+turn, self-expires ~12s after the spinner stops. If it still under-reports: confirm the
+service was rebuilt and the bridge reinstalled, and that the spinner footer actually renders
+in the Console. Disable nothing — it can't manufacture `working` for an idle/dead agent.
+
+## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
+
+**Symptom.** A freshly-spawned or restarted managed claude sits at an unanswered TUI prompt
+(the "Resume from summary / Resume full session" menu, a compaction question, the bypass-
+permissions accept, or a channel-enter prompt) and never reaches a usable turn.
+
+**Fix (2026-06-05).** The host bridge auto-answers these via a centralized rules layer
+(`claude-console-prompts.js`): resume → **full session** (↓+Enter), the rest → Enter. Gated
+to **managed claude only** (never a resident/operator session), requires an interactive menu
+cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a NEW prompt
+appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
+and add a rule. Kill-switch: `AIFY_NO_AUTO_ANSWER=1` (set in the wrapper env) disables it.
 
 ## General escalation
 
