@@ -832,6 +832,9 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
       console.error(`[aify] failed to clear stale ${detail.runtime || "runtime"} session handle for "${agentId}":`, error?.message || error);
     }
   },
+  // Auto-answer managed-claude TUI prompts (resume/compaction/perms/channel) unless the
+  // operator opts out with AIFY_NO_AUTO_ANSWER=1.
+  autoAnswer: process.env.AIFY_NO_AUTO_ANSWER !== "1",
 });
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────

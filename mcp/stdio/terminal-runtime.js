@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
 import { reapPriorManagedClaude } from "./reap-managed-claude.js";
 import { classifyClaudeConsoleTail } from "./claude-console-spinner.js";
+import { matchConsolePrompt } from "./claude-console-prompts.js";
 
 // node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
 // chdir does not expand "~" — operator-supplied workspaces like
@@ -143,10 +144,15 @@ export class TerminalProcessManager {
     idleFlushMs = 16,
     maxLatencyMs = 33,
     maxBatchChars = 16 * 1024,
+    autoAnswer = true,
   } = {}) {
     this.onOutput = onOutput;
     this.onExit = onExit;
     this.onHeal = onHeal;
+    // Auto-answer claude TUI prompts (managed claude only). On by default;
+    // AIFY_NO_AUTO_ANSWER=1 (read by the bridge that constructs this) or autoAnswer:false
+    // disables it. Never types into a resident/operator session.
+    this.autoAnswer = autoAnswer !== false;
     this.idleFlushMs = Math.max(1, Number(idleFlushMs) || 16);
     this.maxLatencyMs = Math.max(this.idleFlushMs, Number(maxLatencyMs) || 33);
     this.maxBatchChars = Math.max(1024, Number(maxBatchChars) || 16 * 1024);
@@ -337,6 +343,18 @@ export class TerminalProcessManager {
     // turn detectors and are never classified here.
     state.consoleClass =
       state.runtime === "claude-code" ? classifyClaudeConsoleTail(state.outputTail) : null;
+    // Console prompt auto-answer (managed claude only). Type the answer once per on-screen
+    // appearance: track the answered rule; reset when the prompt clears so a later distinct
+    // appearance is answered again. Never types into a resident/operator session.
+    if (this.autoAnswer && state.runtime === "claude-code" && state.sessionMode === "managed") {
+      const rule = matchConsolePrompt(state.outputTail);
+      if (rule && state.answeredPrompt !== rule.name) {
+        state.answeredPrompt = rule.name;
+        try { this.input(id, rule.answer); } catch { /* terminal may have exited mid-frame */ }
+      } else if (!rule) {
+        state.answeredPrompt = null;
+      }
+    }
     const classification = classifyTerminalRuntimeOutput(state.runtime, state.outputTail);
     await this._enqueueOutput(id, text);
     if (classification?.kind === "auth" && !state.classification) {

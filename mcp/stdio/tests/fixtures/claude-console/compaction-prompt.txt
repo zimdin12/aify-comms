@@ -1,0 +1,4 @@
+This conversation is large.
+Continue without compacting the context?
+❯ Yes, continue
+  No, compact first

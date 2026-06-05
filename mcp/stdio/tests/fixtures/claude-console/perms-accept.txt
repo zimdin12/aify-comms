@@ -1,0 +1,4 @@
+WARNING: Claude Code running in Bypass Permissions mode
+By continuing you bypass permissions for all tool calls.
+❯ Yes, I accept
+  No, exit
