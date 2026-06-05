@@ -304,16 +304,21 @@ test("pickSessionStatusForKey: returns '' for empty/unknown response shapes", ()
   assert.equal(pickSessionStatusForKey({}, "aify-x"), "");
 });
 
-test("isGatewaySessionIdle: true ONLY for the terminal idle status", () => {
-  assert.equal(isGatewaySessionIdle("idle"), true);
-  assert.equal(isGatewaySessionIdle("IDLE"), true);
+test("isGatewaySessionIdle: true for the done/at-prompt statuses", () => {
+  // 2026-06-06: the hermes gateway reports "ready" (the "─ ready │" prompt footer) when a
+  // turn is DONE, not the literal "idle" — recognizing only "idle" left managed hermes stuck
+  // in `working`. The done/at-prompt states all mean turn-end.
+  for (const s of ["idle", "IDLE", "ready", "Ready", "done", "complete", "completed", "finished"]) {
+    assert.equal(isGatewaySessionIdle(s), true, `status ${JSON.stringify(s)} must read as idle/done`);
+  }
 });
 
 test("isGatewaySessionIdle: false for working/transitional/unknown (never end a live turn early)", () => {
-  // working = mid-turn; starting/waiting = transitional (agent building / pending
-  // approval) — NOT idle. An unknown/empty status must NOT be read as idle, or a
-  // gateway hiccup would falsely end a live turn (the #172 under-show-working trap).
-  for (const s of ["working", "starting", "waiting", "ready", "", undefined, null]) {
+  // working = mid-turn; starting/waiting = transitional (agent building / pending approval)
+  // — NOT idle. An unknown/empty status must NOT be read as idle, or a gateway hiccup would
+  // falsely end a live turn (the #172 under-show-working trap). (The detector's submit-race
+  // guard + 3-tick debounce further protect the now-broader done-states above.)
+  for (const s of ["working", "starting", "waiting", "", undefined, null]) {
     assert.equal(isGatewaySessionIdle(s), false, `status ${JSON.stringify(s)} must not be idle`);
   }
 });

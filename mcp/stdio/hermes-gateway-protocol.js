@@ -366,8 +366,17 @@ export function pickSessionStatusById(activeListResponse, realId) {
 // under-show `working` (the #172 regression). Clearing turn_busy on a real idle
 // signal is safe (it only CLEARS, never sets working off the aify server's
 // derived status — the anti-feedback-loop invariant).
+// Done/at-prompt gateway statuses that mean the turn has ended (back at the prompt awaiting
+// input). 2026-06-06: managed hermes got STUCK in `working` because the detector recognized
+// ONLY the literal "idle" — but the hermes gateway reports "ready" at the done prompt
+// (operator-observed "─ ready │" footer), so the turn-end edge never fired and in_turn latched
+// until the 30-min backstop. The detector's 3-tick (~9s) debounce means a momentary mid-turn
+// "ready"/"idle" flip still cannot end a turn early, so widening to the done-states is safe.
+// ("working"/"running"/"busy" → working; "starting"/"waiting"/"" → transitional no-op.)
+const GATEWAY_IDLE_STATUSES = new Set(["idle", "ready", "done", "complete", "completed", "finished"]);
+
 export function isGatewaySessionIdle(status) {
-  return String(status || "").trim().toLowerCase() === "idle";
+  return GATEWAY_IDLE_STATUSES.has(String(status || "").trim().toLowerCase());
 }
 
 // WS5 Task 5.2: is the gateway session actively running a turn? TRUE only for the
