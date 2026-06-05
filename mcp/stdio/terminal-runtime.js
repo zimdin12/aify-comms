@@ -145,6 +145,7 @@ export class TerminalProcessManager {
     maxLatencyMs = 33,
     maxBatchChars = 16 * 1024,
     autoAnswer = true,
+    autoAnswerKeyDelayMs = 150,
   } = {}) {
     this.onOutput = onOutput;
     this.onExit = onExit;
@@ -153,6 +154,7 @@ export class TerminalProcessManager {
     // AIFY_NO_AUTO_ANSWER=1 (read by the bridge that constructs this) or autoAnswer:false
     // disables it. Never types into a resident/operator session.
     this.autoAnswer = autoAnswer !== false;
+    this.autoAnswerKeyDelayMs = Math.max(0, Number(autoAnswerKeyDelayMs) || 0);
     this.idleFlushMs = Math.max(1, Number(idleFlushMs) || 16);
     this.maxLatencyMs = Math.max(this.idleFlushMs, Number(maxLatencyMs) || 33);
     this.maxBatchChars = Math.max(1024, Number(maxBatchChars) || 16 * 1024);
@@ -359,7 +361,7 @@ export class TerminalProcessManager {
       const rule = matchConsolePrompt(state.outputTail);
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
-        try { this.input(id, rule.answer); } catch { /* terminal may have exited mid-frame */ }
+        this._sendAnswer(id, rule.answer);
       } else if (!rule) {
         state.answeredPrompt = null;
       }
@@ -527,6 +529,24 @@ export class TerminalProcessManager {
       return;
     }
     terminal.proc?.stdin?.write(String(body || ""));
+  }
+
+  // Send a prompt auto-answer. A string is one write; an ARRAY is a SEQUENCE of keystrokes
+  // sent with `autoAnswerKeyDelayMs` between them, so a menu move (e.g. ↓) re-renders before
+  // the confirm (Enter) — sending them in one write loses the move to an Ink/React state-
+  // batching race (Enter reads the pre-move selection). Best-effort; stops if the terminal exits.
+  _sendAnswer(id, answer) {
+    const keys = Array.isArray(answer) ? answer.slice() : [answer];
+    const sendNext = () => {
+      if (!keys.length || !this.terminals.has(id)) return;
+      const key = keys.shift();
+      try { this.input(id, key); } catch { return; }
+      if (keys.length) {
+        const t = setTimeout(sendNext, this.autoAnswerKeyDelayMs);
+        if (t && typeof t.unref === "function") t.unref();
+      }
+    };
+    sendNext();
   }
 
   resize(id, cols = 0, rows = 0) {

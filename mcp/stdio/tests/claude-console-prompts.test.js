@@ -11,10 +11,11 @@ import { matchConsolePrompt, CONSOLE_PROMPT_RULES } from "../claude-console-prom
 const here = dirname(fileURLToPath(import.meta.url));
 const fx = (n) => readFileSync(join(here, "fixtures/claude-console", n), "utf8");
 
-// Resume prompt -> Resume full session = down + enter.
+// Resume prompt -> Resume full session = down THEN enter (a spaced sequence so the menu
+// move re-renders before the confirm; default is compact, one row down is full session).
 const resume = matchConsolePrompt(fx("resume-prompt.txt"));
 assert.equal(resume?.name, "resume-full-session");
-assert.equal(resume?.answer, "\x1b[B\r");
+assert.deepEqual(resume?.answer, ["\x1b[B", "\r"]);
 
 // Compaction question + perms accept + channel enter all match (Enter to confirm).
 assert.equal(matchConsolePrompt(fx("compaction-prompt.txt"))?.name, "compaction-question");
@@ -45,9 +46,11 @@ assert.equal(
   null,
 );
 
-// Every rule has the required shape.
+// Every rule has the required shape: an answer is a string OR an array of keystroke strings.
 for (const r of CONSOLE_PROMPT_RULES) {
-  assert.ok(r.name && r.match instanceof RegExp && typeof r.answer === "string");
+  const okAnswer = typeof r.answer === "string"
+    || (Array.isArray(r.answer) && r.answer.every((k) => typeof k === "string"));
+  assert.ok(r.name && r.match instanceof RegExp && okAnswer);
 }
 
 console.log("claude-console-prompts.test.js: all assertions passed");

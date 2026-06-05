@@ -14,12 +14,15 @@ import { stripAnsi } from "./claude-console-spinner.js";
 
 export const CONSOLE_PROMPT_RULES = [
   {
-    // Resume prompt. Operator policy: choose "Resume full session". The menu highlights
-    // "Resume from summary" by default, so move down once and confirm.
+    // Resume prompt. Operator policy: choose "Resume full session as is". The menu defaults
+    // to the COMPACT/summary option; "Resume full session" is one row down. The keystrokes are
+    // a SEQUENCE (down, then Enter) sent with a delay between them — sending them in one write
+    // loses the move to an Ink/React state-batching race (Enter reads the pre-move selection =
+    // compact). The array form makes the host space them out (see terminal-runtime _sendAnswer).
     name: "resume-full-session",
     match: /Resume full session/i,
     mustAlsoMatch: /Resume from summary/i,
-    answer: "\x1b[B\r",
+    answer: ["\x1b[B", "\r"],
   },
   {
     // Compaction question on resume. Tuned against

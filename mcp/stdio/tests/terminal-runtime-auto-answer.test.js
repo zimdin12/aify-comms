@@ -10,24 +10,29 @@ import { TerminalProcessManager } from "../terminal-runtime.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const resumeFrame = readFileSync(join(here, "fixtures/claude-console/resume-prompt.txt"), "utf8");
 
+const tick = (ms = 15) => new Promise((r) => setTimeout(r, ms));
+
 function makeMgr(opts = {}) {
   const typed = [];
-  const mgr = new TerminalProcessManager({ onOutput: async () => {}, ...opts });
+  // autoAnswerKeyDelayMs:1 so the spaced down→enter sequence completes fast in the test.
+  const mgr = new TerminalProcessManager({ onOutput: async () => {}, autoAnswerKeyDelayMs: 1, ...opts });
   mgr.input = (id, body) => typed.push([id, body]); // stub the PTY write
   return { mgr, typed };
 }
 
-// Managed claude: answered once even across repeated frames that still show the menu.
+// Managed claude: the resume prompt is answered once with a SPACED down→enter sequence
+// (so the menu move re-renders before the confirm), even across repeated frames.
 {
   const { mgr, typed } = makeMgr();
   const st = { id: "t1", runtime: "claude-code", sessionMode: "managed", agentId: "a1", outputTail: "" };
   mgr.terminals.set("t1", st);
   await mgr._handleOutput("t1", st, resumeFrame);
   await mgr._handleOutput("t1", st, "\r\n❯ 2. Resume full session as-is"); // redraw, still showing
+  await tick();
   assert.deepEqual(
     typed.filter((t) => t[0] === "t1").map((t) => t[1]),
-    ["\x1b[B\r"],
-    "managed resume prompt answered exactly once with down+enter",
+    ["\x1b[B", "\r"],
+    "managed resume prompt answered exactly once: down, then enter (spaced)",
   );
 }
 
