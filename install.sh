@@ -1625,20 +1625,22 @@ aify_hermes_kill_prior() {
         lsof -ti tcp:"\$host_port" 2>/dev/null | xargs kill >/dev/null 2>&1 || true
       fi
     fi
-    # Managed visible-TUI leak fix (fix/hermes-leak P1): reap a prior
-    # \`hermes --tui --resume aify-<agent>\` visible TUI for THIS agent. A silent
-    # relaunch otherwise leaks a duplicate resume-TUI per launch (the observed
-    # accumulation). AGENT-SCOPED: match the EXACT pinned resume handle
-    # (\`aify-<sanitized agentId>\`), NEVER a broad \`hermes --tui\` — mirrors the
-    # agent-scoped safety of reap-managed-claude.js. PRE-spawn ONLY
-    # (exclude_pid empty): at pre-spawn the new TUI does not exist yet, so no
-    # exclude is needed; the post-spawn call must NOT run this (it would kill the
-    # TUI we just exec'd).
+    # Managed visible-TUI leak fix (MC3, 2026-06-06): reap a prior
+    # \`hermes --tui --resume <id>\` visible TUI for THIS agent. The launch now resumes
+    # the agent's REAL native session id (timestamp), NOT the retired synthetic
+    # \`aify-<agent>\` key — so the old matcher matched nothing (dead matcher) and could
+    # leak a duplicate resume-TUI per relaunch. Match the REAL resume id from the per-agent
+    # session marker (the id the prior TUI was launched with). AGENT-SCOPED: the timestamp
+    # id is unique per session, so this can never hit another agent's TUI. PRE-spawn ONLY
+    # (exclude_pid empty): the new TUI does not exist yet, so the only match is the prior
+    # one; the post-spawn call must NOT run this. (The lsof/port reap above already catches
+    # the prior TUI as a gateway-port client on platforms with lsof; this is the
+    # cross-platform, cmdline-based backstop.)
     if [ -z "\$exclude_pid" ] && command -v pkill >/dev/null 2>&1; then
-      local _pinned
-      _pinned="aify-\$(printf '%s' "\$agent_id" | tr -c 'a-zA-Z0-9_-' '-' | sed -E 's/^-+|-+\$//g')"
-      if [ -n "\$_pinned" ]; then
-        pkill -f -- "--tui --resume \$_pinned" >/dev/null 2>&1 || true
+      local _prior_id
+      _prior_id="\$(node -e 'import("'"\$AIFY_HERMES_STDIO_DIR"'/hermes-endpoint.js").then(m=>process.stdout.write(String(m.readSessionIdMarker(process.argv[1])||"")))' "\$agent_id" 2>/dev/null || true)"
+      if [ -n "\$_prior_id" ]; then
+        pkill -f -- "--tui --resume \$_prior_id" >/dev/null 2>&1 || true
       fi
     fi
   fi
@@ -2158,18 +2160,20 @@ function Invoke-AifyHermesKillPrior {
     # Also reap the prior per-agent DAEMON for this agentId (pre-spawn only, so the
     # post-spawn call never kills the daemon/gateway the current launch brought up).
     try { & node \$AifyHermesDaemonCli stop \$AgentId 2>\$null | Out-Null } catch {}
-    # Managed visible-TUI leak fix (fix/hermes-leak P1): reap a prior
-    # 'hermes(.exe)? --tui --resume aify-<agent>' visible TUI for THIS agent. A
-    # silent relaunch otherwise leaks a duplicate resume-TUI per launch (the
-    # observed accumulation). AGENT-SCOPED: match the EXACT pinned resume handle
-    # on the command line, NEVER a broad '--tui' — mirrors reap-managed-claude.js.
-    # PRE-spawn ONLY (\$ExcludeLoopPid -le 0): the new TUI does not exist yet, so
-    # no exclude is needed; the post-spawn call must NOT run this.
+    # Managed visible-TUI leak fix (MC3, 2026-06-06): reap a prior
+    # 'hermes(.exe)? --tui --resume <id>' visible TUI for THIS agent. The launch resumes
+    # the agent's REAL native session id (timestamp), NOT the retired 'aify-<agent>' key —
+    # so the old matcher matched nothing and leaked a duplicate resume-TUI per relaunch
+    # (and the port reap above only catches the gateway LISTENER, not the TUI client, on
+    # Windows). Match the REAL resume id from the per-agent session marker (what the prior
+    # TUI was launched with). AGENT-SCOPED: the timestamp id is unique per session. PRE-spawn
+    # ONLY (\$ExcludeLoopPid -le 0): the new TUI does not exist yet, so only the prior matches.
     try {
-      \$pinned = 'aify-' + ((\$AgentId -replace '[^a-zA-Z0-9_-]+', '-') -replace '^-+|-+\$', '')
-      if (\$pinned) {
+      \$priorId = & node -e 'import(process.argv[1]).then(m=>process.stdout.write(String(m.readSessionIdMarker(process.argv[2])||"")))' (Join-Path \$AifyHermesStdioDir 'hermes-endpoint.js') \$AgentId 2>\$null
+      \$priorId = if (\$priorId) { "\$priorId".Trim() } else { '' }
+      if (\$priorId) {
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-          Where-Object { \$_.CommandLine -and \$_.CommandLine -match '--tui\\s+--resume\\s+' + [regex]::Escape(\$pinned) + '(\\s|\$)' } |
+          Where-Object { \$_.CommandLine -and \$_.CommandLine -match '--tui\\s+--resume\\s+' + [regex]::Escape(\$priorId) + '(\\s|\$)' } |
           ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
       }
     } catch {}

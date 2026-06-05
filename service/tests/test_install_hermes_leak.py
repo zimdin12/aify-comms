@@ -34,13 +34,18 @@ def test_bash_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
     text = _read_install_sh()
     fn_idx = text.find("aify_hermes_kill_prior() {")
     assert fn_idx > 0, "aify_hermes_kill_prior helper not found"
-    fn = text[fn_idx : fn_idx + 3600]
-    # Computes the pinned session (aify-<sanitized agent>) for the match.
-    assert "aify-" in fn and "tr -c 'a-zA-Z0-9_-'" in fn, (
-        "kill-prior must compute the pinned resume handle to match the TUI"
+    # Bound by the sentinel comment that follows the function, not a fixed char window
+    # (the function grows; a fixed window silently dropped the new matcher out of view).
+    fn_end = text.find("# Pre-warm the bridge before ANY interactive TUI launch", fn_idx)
+    assert fn_end > fn_idx, "could not bound aify_hermes_kill_prior (sentinel missing)"
+    fn = text[fn_idx:fn_end]
+    # MC3 (2026-06-06): match the prior TUI by its REAL resume id from the session marker
+    # (the launch resumes the real timestamp id, not the retired aify-<agent> key).
+    assert "readSessionIdMarker" in fn, (
+        "kill-prior must read the real session id from the marker to match the prior TUI"
     )
-    # Matches the resume-TUI on the EXACT pinned handle (not a broad --tui).
-    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <pinned>`"
+    # Matches the resume-TUI on the EXACT real id (not a broad --tui).
+    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <realId>`"
     # PRE-spawn only: the resume-TUI reap is gated behind the empty-exclude_pid
     # guard so the post-spawn call never kills the TUI we just exec'd.
     assert 'if [ -z "\\$exclude_pid" ]' in fn, (
@@ -59,17 +64,16 @@ def test_powershell_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
     fn_idx = text.find("function Invoke-AifyHermesKillPrior {")
     assert fn_idx > 0, "Invoke-AifyHermesKillPrior helper not found"
     fn = text[fn_idx : fn_idx + 4200]
-    # Computes the pinned session for the match.
-    assert "aify-" in fn and "-replace '[^a-zA-Z0-9_-]+'" in fn, (
-        "kill-prior must compute the pinned resume handle to match the TUI"
+    # MC3 (2026-06-06): read the prior session's REAL id from the marker for the match.
+    assert "readSessionIdMarker" in fn, (
+        "kill-prior must read the real session id from the marker to match the prior TUI"
     )
     # Matches a hermes(.exe) process whose command line carries the exact
-    # `--tui --resume <pinned>`.
-    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <pinned>`"
-    # Hermes is a python entrypoint launched as hermes / hermes.exe — match the
-    # resume handle on the command line regardless of host exe name.
-    assert "[regex]::Escape(\\$pinned" in fn, (
-        "the resume-TUI match must escape the exact pinned handle (agent-scoped)"
+    # `--tui --resume <realId>`.
+    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <realId>`"
+    # Match the REAL resume id on the command line regardless of host exe name.
+    assert "[regex]::Escape(\\$priorId" in fn, (
+        "the resume-TUI match must escape the exact real resume id (agent-scoped)"
     )
     # PRE-spawn only: gated behind the $ExcludeLoopPid -le 0 guard.
     assert "if (\\$ExcludeLoopPid -le 0)" in fn, (
