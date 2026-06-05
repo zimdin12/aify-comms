@@ -154,6 +154,11 @@ const IS_MANAGED_DISPATCH =
 const IS_ENVIRONMENT_BRIDGE =
   process.argv.includes("--environment-bridge") ||
   ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
+// Captured ONCE at startup: for an MCP-child bridge this is the controlling
+// harness (claude/codex/hermes). Used by the harness-death guard in main() so a
+// dead harness can't leave this process orphaned (it would otherwise reparent to
+// init/Relay and linger). process.ppid changes on reparenting; this snapshot does not.
+const ORIGINAL_PARENT_PID = Number(process.ppid) || 0;
 const MACHINE_ID = defaultMachineId();
 const BRIDGE_INSTANCE_ID = randomUUID();
 const BRIDGE_VERSION = "4.0.0";
@@ -5435,6 +5440,28 @@ async function main() {
   console.error("aify-comms-mcp v4.0.0 running on stdio");
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
+  // "Never leave a bridge child behind." For an MCP-CHILD bridge (loaded by a
+  // claude/codex/hermes harness), poll the controlling harness — the parent pid
+  // captured at startup. When it dies, shut down gracefully (same teardown as
+  // SIGTERM) instead of lingering as an orphan the server has to reap. (Found 6
+  // of these server.js children reparented to the WSL init relay for ~10h.) We
+  // poll the ORIGINAL parent pid, so reparenting (ppid -> init/Relay after the
+  // harness dies) doesn't hide the death. stdin-EOF would be cleaner, but the MCP
+  // SDK transport reads stdin via 'data' only and never propagates EOF (verified).
+  // EXCLUDED for the environment bridge: top-level process, its own lifecycle.
+  if (!IS_ENVIRONMENT_BRIDGE && ORIGINAL_PARENT_PID > 1) {
+    let parentMisses = 0;
+    const harnessGuard = setInterval(() => {
+      let alive = true;
+      try { process.kill(ORIGINAL_PARENT_PID, 0); } catch (e) { alive = (e && e.code === "EPERM"); }
+      if (alive) { parentMisses = 0; return; }
+      if (++parentMisses < 2) return; // tolerate one transient miss (~3s)
+      clearInterval(harnessGuard);
+      try { console.error(`[aify] controlling harness pid=${ORIGINAL_PARENT_PID} gone; MCP-child bridge shutting down`); } catch { /* best effort */ }
+      shutdownWithStatus(0); // idempotent via shutdownStarted; same teardown as SIGTERM
+    }, 3000);
+    if (typeof harnessGuard.unref === "function") harnessGuard.unref();
+  }
   await autoRegisterConfiguredAgent();
 }
 

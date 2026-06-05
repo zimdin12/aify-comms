@@ -379,8 +379,13 @@ const TURN_REFRESH_MAX_AGE_MS = 10 * 60 * 1000;
 // parent pid (>1) that is now reliably dead across CONSECUTIVE checks. A healthy
 // sidecar (parent alive) never trips it; a transient process.kill error is
 // tolerated by the consecutive-miss counter.
-const PARENT_GUARD_CHECK_MS = 30_000;
-const PARENT_GUARD_MISS_THRESHOLD = 3; // ~90s of consecutive dead-parent reads
+// Sped up 2026-06-05 ("never leave stuff behind"): 30s×3 ≈ 90s left a headless
+// sidecar lingering long enough for the operator to see "available, no console"
+// and for a dispatch to land on the orphan (delivered-no-reply). 3s×2 ≈ 6s still
+// tolerates one transient process.kill miss but reaps the orphan promptly. We poll
+// the ORIGINAL parent pid, so reparenting after claude dies doesn't hide it.
+const PARENT_GUARD_CHECK_MS = 3_000;
+const PARENT_GUARD_MISS_THRESHOLD = 2; // ~6s of consecutive dead-parent reads
 
 // True when the sidecar's original controlling parent is gone, so a surviving
 // orphan sidecar should self-exit. Conservative: an unknown/rootless ppid

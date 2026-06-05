@@ -55,9 +55,9 @@ assert.equal(shouldSelfExit(1, 3), false, "1 miss must not self-exit");
 assert.equal(shouldSelfExit(2, 3), false, "2 misses (below threshold) must not self-exit");
 assert.equal(shouldSelfExit(3, 3), true, "reaching the threshold must self-exit");
 assert.equal(shouldSelfExit(5, 3), true, "exceeding the threshold must self-exit");
-// default threshold is 3
-assert.equal(shouldSelfExit(2), false, "default threshold (3): 2 misses must not self-exit");
-assert.equal(shouldSelfExit(3), true, "default threshold (3): 3 misses must self-exit");
+// default threshold is 2 (sped up 2026-06-05: 3s x 2 ~= 6s self-exit, was 30s x 3 ~= 90s)
+assert.equal(shouldSelfExit(1), false, "default threshold (2): 1 miss must not self-exit");
+assert.equal(shouldSelfExit(2), true, "default threshold (2): 2 misses must self-exit");
 
 // --- End-to-end of the latch using an isAlive that flips, simulating the
 // counter reset on a transient live read (no false positive). ---
