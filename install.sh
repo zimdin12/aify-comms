@@ -2312,18 +2312,36 @@ if (\$HermesAifyAgentId -and \$HermesArgs.Count -eq 0) {
   # the loop's own SIGTERM teardown then reaps the gateway host — nothing orphans.
   try {
     if (\$HermesExplicitSessionHandle -and \$HermesSessionHandle) {
-      # EXPLICIT-RESUME AUTHORITY: the operator passed --resume <id> — <id> is
-      # AUTHORITATIVE for the REGISTERED handle. PROACTIVELY SEED the per-agent
-      # active-session file AND the session marker with <id> BEFORE launching, so
-      # the in-session bridge's discoverSessionId reads <id> and a stale marker can
-      # never override it. resolve-session --explicit short-circuits the gateway
-      # query and just seeds both. Best-effort; never blocks the launch.
+      # EXPLICIT-RESUME AUTHORITY + DB-VALIDATE (PS1 parity with bash 16de796 + 98bcc91,
+      # 2026-06-05): resolve-session --explicit DB-validates <id> against the gateway
+      # SessionDB and seeds the active-session file + marker. We USE its result as the
+      # resume target: a REAL id resumes; a GC'd/dead id yields EMPTY so we start FRESH
+      # cleanly (launching --resume on a dead id errors 'session not found' and strands
+      # the console). A flaky/absent gateway returns <id> unchanged (operator intent kept).
       # (EAP relaxed: PS 5.1 turns native stderr into a terminating error under 'Stop'.)
       \$eapPrev = \$ErrorActionPreference; \$ErrorActionPreference = 'Continue'
-      & node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId --explicit \$HermesSessionHandle 2>\$null | Out-Null
+      \$HermesExplicitResolved = (& node \$AifyHermesManagedHostJs resolve-session \$HermesAifyAgentId --explicit \$HermesSessionHandle 2>\$null | Select-Object -First 1)
       \$ErrorActionPreference = \$eapPrev
-      [Console]::Error.WriteLine("[hermes-aify] resuming explicit hermes session '\$HermesSessionHandle' for agent '\$HermesAifyAgentId' (seeded active-session file + marker -- authoritative handle).")
-      Invoke-HermesRuntime (@('--tui', '--resume', \$HermesSessionHandle) + \$HermesPermissionFlags)
+      if (\$HermesExplicitResolved) { \$HermesExplicitResolved = \$HermesExplicitResolved.Trim() }
+      if (-not [string]::IsNullOrEmpty(\$HermesExplicitResolved)) {
+        [Console]::Error.WriteLine("[hermes-aify] resuming explicit hermes session '\$HermesExplicitResolved' for agent '\$HermesAifyAgentId' (DB-validated).")
+        # Re-export the VALIDATED id (durable vs ephemeral) so the in-session bridge
+        # heartbeats the session actually resumed, not the stale request.
+        \$env:HERMES_SESSION_ID = \$HermesExplicitResolved
+        \$env:AIFY_SESSION_HANDLE = \$HermesExplicitResolved
+        Invoke-HermesRuntime (@('--tui', '--resume', \$HermesExplicitResolved) + \$HermesPermissionFlags)
+      } else {
+        [Console]::Error.WriteLine("[hermes-aify] explicit session '\$HermesSessionHandle' is not resumable (gone from the SessionDB) -- starting fresh.")
+        # CRITICAL (parity with bash 98bcc91): the requested handle is DEAD and we start
+        # fresh, so CLEAR the exported handle. Otherwise the in-session bridge heartbeats
+        # the dead handle back, aify stores it, and the env bridge re-resumes it on every
+        # restart -- the dead-handle cycle that never captures the fresh session.
+        Remove-Item Env:HERMES_SESSION_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:AIFY_SESSION_HANDLE -ErrorAction SilentlyContinue
+        Remove-Item Env:AIFY_EXPLICIT_SESSION_HANDLE -ErrorAction SilentlyContinue
+        Remove-Item Env:HERMES_EXPLICIT_SESSION_HANDLE -ErrorAction SilentlyContinue
+        Invoke-HermesRuntime (@('--tui') + \$HermesPermissionFlags)
+      }
     } elseif (-not [string]::IsNullOrEmpty(\$hermesResumeRealId)) {
       [Console]::Error.WriteLine("[hermes-aify] resuming real hermes session '\$hermesResumeRealId' for agent '\$HermesAifyAgentId'.")
       Invoke-HermesRuntime (@('--tui', '--resume', \$hermesResumeRealId) + \$HermesPermissionFlags)
