@@ -6558,11 +6558,18 @@ function updateChatControls(meta) {
       // NOT that a live deliverable console exists. The prior "Console ready"
       // overstated readiness for agents with no live worker/sidecar (a sent
       // message would not actually land) — operator-reported 2026-05-31.
-      consoleState.textContent = session?.terminalId
+      // Truthfulness (2026-06-05): never show "Console attached" once the session is in a
+      // dead state — a stopped/failed/ended session with a lingering terminalId (a teardown
+      // race) must read its real state, not the terminal's stale "attached".
+      const deadSession = ['stopped', 'ended', 'failed', 'lost', 'cancelled', 'completed']
+        .includes(String(session?.status || '').toLowerCase());
+      consoleState.textContent = (session?.terminalId && !deadSession)
         ? `Console ${status || 'active'}`
-        : available
-          ? 'Console available'
-          : 'Console unavailable';
+        : deadSession
+          ? `Console ${String(session.status).toLowerCase()}`
+          : available
+            ? 'Console available'
+            : 'Console unavailable';
     }
   }
   if (manageButton) {

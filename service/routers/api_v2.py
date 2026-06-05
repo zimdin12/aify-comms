@@ -4400,6 +4400,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             reason = "Worker has no visible console (headless orphan being reaped)."
         elif effective_status == "available" and channel_managed_no_sidecar and not reason:
             reason = "No live channel sidecar heartbeat (not deliverable)."
+    # NOTE (2026-06-05): a managed agent whose last session ended FAILED stays `available` by
+    # design — it lazy-respawns on the next send (genuinely available-to-retry, NOT blocked; see
+    # test_managed_codex_online_from_fresh_wrapper_child_bridge). The originally-reported
+    # "stopped · Console attached" was a TRANSIENT teardown race during a hermes resume error,
+    # removed at the root by the DB-validated resume fix (5c1617a); the dashboard console label
+    # is the honest surface (never "attached" for a dead session — dashboard.html).
     refresh_after = _status_refresh_after(
         agent_last_seen,
         env_last_seen,
