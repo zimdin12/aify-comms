@@ -40,6 +40,21 @@ function makeMgr(opts = {}) {
   assert.equal(typed.length, 0, "resident session must never be auto-answered");
 }
 
+// B1: while claude is mid-turn (consoleClass becomes "working" from the same frame),
+// a resume-menu-looking match must NOT be answered — guards against keystroke injection
+// into a generating claude. Frame carries BOTH a working footer and resume-ish text.
+{
+  const { mgr, typed } = makeMgr();
+  const st = { id: "t4", runtime: "claude-code", sessionMode: "managed", agentId: "a4", outputTail: "" };
+  mgr.terminals.set("t4", st);
+  await mgr._handleOutput(
+    "t4",
+    st,
+    "❯ 1. Resume from summary\n  2. Resume full session as-is\n✻ Crunched for 1m 2s (esc to interrupt)",
+  );
+  assert.equal(typed.length, 0, "must not auto-answer while claude is working (consoleClass=working)");
+}
+
 // Kill-switch disables it.
 {
   const { mgr, typed } = makeMgr({ autoAnswer: false });

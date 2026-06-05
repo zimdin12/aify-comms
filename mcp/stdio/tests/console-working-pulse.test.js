@@ -20,9 +20,15 @@ assert.deepEqual(
   decideConsolePulse({ runtime: "claude-code", consoleClass: null, agentId: "a1" }),
   { kind: "none" },
 );
+// Non-claude runtimes do not get an output-based pulse (native detectors own it; the
+// legacy terminal pulse was dead and is kept disabled).
 assert.deepEqual(
   decideConsolePulse({ runtime: "codex", consoleClass: null, agentId: "a2" }),
-  { kind: "terminal-pulse", agentId: "a2" },
+  { kind: "none" },
+);
+assert.deepEqual(
+  decideConsolePulse({ runtime: "hermes", consoleClass: null, agentId: "a3" }),
+  { kind: "none" },
 );
 assert.deepEqual(
   decideConsolePulse({ runtime: "claude-code", consoleClass: "working", agentId: "" }),

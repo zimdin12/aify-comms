@@ -30,6 +30,14 @@ assert.equal(matchConsolePrompt(""), null);
 // session" mention without the menu does not fire.
 assert.equal(matchConsolePrompt("note: you can Resume full session later"), null);
 
+// B1 (keystroke-injection guard): claude's OWN prose that mentions the prompt phrases
+// but has NO interactive menu cursor (❯) must NEVER match — otherwise a generating
+// claude writing about these topics gets stray keystrokes typed into its PTY.
+assert.equal(matchConsolePrompt("The menu offers Resume from summary and Resume full session as-is."), null);
+assert.equal(matchConsolePrompt("I'll continue without compacting the context for now."), null);
+assert.equal(matchConsolePrompt("Claude is running in bypass permissions mode; yes, I accept the risk."), null);
+assert.equal(matchConsolePrompt("Loaded the development-channels server earlier this turn."), null);
+
 // Only the live tail region matches: a resume menu far up in scrollback under a current
 // idle prompt does NOT match (avoid answering a scrolled-away prompt).
 assert.equal(

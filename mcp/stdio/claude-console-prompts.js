@@ -45,10 +45,20 @@ export const CONSOLE_PROMPT_RULES = [
   },
 ];
 
+// A claude interactive selection menu renders its highlighted option with a cursor
+// glyph (❯ / › / ▶). PROSE that merely mentions "Resume full session" or "bypass
+// permissions" has no such cursor — requiring one is the primary guard against the
+// bridge typing keystrokes into a live turn when claude is just WRITING about a prompt.
+const MENU_CURSOR_RE = /[❯›▶]/;
+
 // Match the live tail region against the rules. Returns the first matching rule or null.
 // Only the last ~2KB of visible text is considered so a scrolled-away prompt is ignored.
+// SAFETY: an interactive menu cursor (❯) MUST be present — otherwise the "match" is
+// claude's own prose, not a focused prompt awaiting input, and answering it would inject
+// stray keystrokes mid-turn. (The caller additionally gates on consoleClass !== "working".)
 export function matchConsolePrompt(rawTail = "") {
   const visible = stripAnsi(rawTail).slice(-2000);
+  if (!MENU_CURSOR_RE.test(visible)) return null;
   for (const rule of CONSOLE_PROMPT_RULES) {
     if (!rule.match.test(visible)) continue;
     if (rule.mustAlsoMatch && !rule.mustAlsoMatch.test(visible)) continue;

@@ -672,7 +672,11 @@ export function decideConsolePulse({ runtime, consoleClass, agentId }) {
   if (runtime === "claude-code") {
     return consoleClass === "working" ? { kind: "console-working", agentId: aid } : { kind: "none" };
   }
-  return { kind: "terminal-pulse", agentId: aid };
+  // Non-claude runtimes (codex/hermes/pi) own native turn detectors (codex turn/completed,
+  // hermes gateway idle/running, pi agent_end). The legacy any-output terminal pulse was
+  // effectively DEAD before this change (stateFor omitted agentId, so it never fired), so we
+  // keep it disabled rather than newly activating an untested output-based `working` for them.
+  return { kind: "none" };
 }
 
 const CONSOLE_WORKING_REMIT_MS = 2000;

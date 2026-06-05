@@ -4070,22 +4070,26 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     except Exception:
         turn_busy = False
         turn_state_ready = False
-    # Console-working lease (2026-06-05): a fresh spinner-gated lease derives `working`
-    # even when turn_busy is 0 — the transcript detector's premature /turn-end during a
-    # long thinking phase (transcript grows per completed message, so live generation is
-    # invisible to it). ADDITIVE — only ever sets, never clears; self-heals via TTL.
-    if not turn_busy:
-        try:
-            _cw = await (await db.execute(
-                "SELECT working_at FROM agent_console_signal WHERE agent_id = ?",
-                (agent_row["id"],),
-            )).fetchone()
-            if _cw:
-                _seen = _iso_to_epoch(str(_cw["working_at"] or ""))
-                if _seen and datetime.now(timezone.utc).timestamp() - _seen <= CONSOLE_WORKING_LEASE_SECONDS:
-                    turn_busy = True
-        except Exception:
-            pass
+    # Console-working lease (2026-06-05): a fresh spinner-gated lease is the managed-claude
+    # "working" signal the per-completed-message transcript can't see (a long thinking phase
+    # shows the last ENDED message). Read it HERE, but fold it into turn_busy / the v2 in_turn
+    # input only AFTER worker liveness is known (below) — gated on a live worker so it can
+    # never manufacture `working` for a dead/available agent (additive-only contract).
+    console_working_lease = False
+    console_lease_iso = ""
+    try:
+        _cw = await (await db.execute(
+            "SELECT working_at FROM agent_console_signal WHERE agent_id = ?",
+            (agent_row["id"],),
+        )).fetchone()
+        if _cw:
+            _cw_iso = str(_cw["working_at"] or "").strip()
+            _seen = _iso_to_epoch(_cw_iso)
+            if _seen and datetime.now(timezone.utc).timestamp() - _seen <= CONSOLE_WORKING_LEASE_SECONDS:
+                console_working_lease = True
+                console_lease_iso = _cw_iso
+    except Exception:
+        console_working_lease = False
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
     environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
     env_row = None
@@ -4224,6 +4228,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         effective_status = "offline"
     else:
         effective_status = "available"
+    # Fold the console-working lease into turn_busy now that worker liveness is known.
+    # Gated on has_live_worker so it can NEVER manufacture `working` for a dead/available
+    # agent — only a live managed worker showing its spinner reads `working` (the
+    # turn_busy branch below). Additive: it never clears turn_busy.
+    if console_working_lease and has_live_worker and not turn_busy:
+        turn_busy = True
+        if not turn_runtime:
+            turn_runtime = "claude-code"
     reason = ""
     awaiting_reply = False  # set True when the agent is idle but owes a channel reply
     terminal_input_hint = ""
@@ -4406,6 +4418,15 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_BACKSTOP_SECONDS)
         if busy_deadline:
             refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
+    # M2: when `working` is driven by the console-working lease (turn_updated_at is unset,
+    # so the backstop clamp above is skipped), clamp refresh_after to the lease TTL so the
+    # cache self-expires when the spinner stops — the bridge stops POSTing, so nothing else
+    # forces a recompute, and the cached `working` would otherwise persist to the next
+    # heartbeat window (minutes) rather than the 12s lease.
+    if effective_status == "working" and console_working_lease and console_lease_iso:
+        lease_deadline = _iso_add_seconds(console_lease_iso, CONSOLE_WORKING_LEASE_SECONDS)
+        if lease_deadline:
+            refresh_after = min([v for v in (refresh_after, lease_deadline) if v])
     # status v2 (2026-06-04): assemble the engine's StatusInputs from the raw
     # signals THIS function already computed, so _refresh_agent_live_state can
     # derive the `new` status with a PURE derive() call instead of re-running the
@@ -4430,7 +4451,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         "SELECT in_turn, awaiting_input FROM agent_status_state WHERE agent_id=?",
         (agent_row["id"],),
     )).fetchone()
-    _si_in_turn = bool(_si_st and _si_st["in_turn"])
+    # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from
+    # agent_status_state (which the lease never writes), so OR the worker-gated lease in here
+    # too — otherwise the feature is a no-op under status_engine=new.
+    _si_in_turn = bool(_si_st and _si_st["in_turn"]) or (console_working_lease and has_live_worker)
     _si_awaiting = bool(_si_st and _si_st["awaiting_input"])
     _si_disabled = str(agent_row["status"] or "").lower() == "stopped"
     if agent_session_mode == "managed":

@@ -345,8 +345,17 @@ export class TerminalProcessManager {
       state.runtime === "claude-code" ? classifyClaudeConsoleTail(state.outputTail) : null;
     // Console prompt auto-answer (managed claude only). Type the answer once per on-screen
     // appearance: track the answered rule; reset when the prompt clears so a later distinct
-    // appearance is answered again. Never types into a resident/operator session.
-    if (this.autoAnswer && state.runtime === "claude-code" && state.sessionMode === "managed") {
+    // appearance is answered again. Never types into a resident/operator session, and NEVER
+    // while claude is mid-turn (consoleClass==="working") — a generating claude writing
+    // prose about a prompt must not have keystrokes injected; a real boot prompt awaits
+    // input with no working spinner. Combined with the menu-cursor requirement in
+    // matchConsolePrompt, this prevents self-output misfires.
+    if (
+      this.autoAnswer &&
+      state.runtime === "claude-code" &&
+      state.sessionMode === "managed" &&
+      state.consoleClass !== "working"
+    ) {
       const rule = matchConsolePrompt(state.outputTail);
       if (rule && state.answeredPrompt !== rule.name) {
         state.answeredPrompt = rule.name;
