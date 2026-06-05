@@ -1092,9 +1092,19 @@ export async function waitForActiveSession({
         if (fresh || graceElapsed) {
           sessionId = recent;
           if (id && recent !== wanted) {
+            // DURABLE-MARKER FIX (2026-06-05, "fresh session after aify-comms restart"):
+            // persist the DURABLE session_key to the resume marker, NEVER the ephemeral
+            // runtime id (`recent`). Writing the ephemeral id here re-poisoned the marker
+            // after every delivery; on an aify-comms restart active_list is empty and the
+            // SessionDB (session.list) is keyed by session_key, so an ephemeral-id marker
+            // matched no row → resolveManagedHermesSession cleared it → the agent started
+            // fresh and abandoned its history. The ephemeral `recent` stays bound for THIS
+            // delivery only (prompt.submit/steer require the live id); the marker is durable.
+            const recentRow = pickMostRecentSessionRow(listResp);
+            const durable = (recentRow && rowResumeKey(recentRow)) || recent;
             // Capture the real id we fell back to (best-effort; never throws).
             try {
-              writeMarker(id, recent, { tempDir });
+              writeMarker(id, durable, { tempDir });
             } catch {
               /* best-effort marker write — never break delivery */
             }
