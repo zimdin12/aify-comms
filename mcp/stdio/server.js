@@ -839,6 +839,12 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
   // Auto-answer managed-claude TUI prompts (resume/compaction/perms/channel) unless the
   // operator opts out with AIFY_NO_AUTO_ANSWER=1.
   autoAnswer: process.env.AIFY_NO_AUTO_ANSWER !== "1",
+  // Repaint keepalive for managed claude PTYs so the console-working lease stays fresh when the
+  // Console is closed (2026-06-05). Opt out with AIFY_NO_CONSOLE_KEEPALIVE=1; override cadence
+  // with AIFY_CONSOLE_KEEPALIVE_MS.
+  consoleKeepaliveMs: process.env.AIFY_NO_CONSOLE_KEEPALIVE === "1"
+    ? 0
+    : (Number(process.env.AIFY_CONSOLE_KEEPALIVE_MS) || 4000),
 });
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
