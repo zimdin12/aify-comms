@@ -206,9 +206,7 @@ async function markRunDelivered(httpCall, run) {
     // view stays clean. The 'delivered' event below carries the audit signal;
     // meaningful summaries are reserved for failures (see markRunFailed).
     summary: "",
-    runtime: RUNTIME,
-    agentStatus: "active",
-    appendEvent: "Delivered to hermes channel sidecar (agent self-replies)",
+    runtime: RUNTIME,    appendEvent: "Delivered to hermes channel sidecar (agent self-replies)",
     eventType: "delivered",
   });
 }
@@ -220,9 +218,7 @@ async function markRunFailed(httpCall, run, error) {
     status: "failed",
     error: cause,
     summary: `hermes channel delivery failed: ${cause}`,
-    runtime: RUNTIME,
-    agentStatus: "active",
-    appendEvent: `hermes channel delivery failed: ${cause}`,
+    runtime: RUNTIME,    appendEvent: `hermes channel delivery failed: ${cause}`,
     eventType: "failed",
   });
 }

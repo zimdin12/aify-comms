@@ -322,9 +322,7 @@ async function markDispatchDelivered(run) {
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: awaitingReply ? "delivered" : "completed",
     summary: "",
-    runtime: "claude-code",
-    agentStatus: "active",
-    appendEvent: channelRun
+    runtime: "claude-code",    appendEvent: channelRun
       ? "Delivered to Claude channel bridge"
       : "Delivered and completed by channel bridge",
     eventType: "delivered",
@@ -335,9 +333,7 @@ async function markDispatchDeliveryFailed(runId, error) {
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: "failed",
     error: error?.message || String(error),
-    runtime: "claude-code",
-    agentStatus: "active",
-    appendEvent: `Claude channel delivery failed: ${error?.message || String(error)}`,
+    runtime: "claude-code",    appendEvent: `Claude channel delivery failed: ${error?.message || String(error)}`,
     eventType: "failed",
   });
 }

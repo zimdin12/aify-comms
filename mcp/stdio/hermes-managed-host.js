@@ -771,9 +771,7 @@ async function markRunDelivered(httpCall, run) {
     // view stays clean. The 'delivered' event below carries the audit signal;
     // meaningful summaries are reserved for failures (see markRunFailed).
     summary: "",
-    runtime: RUNTIME,
-    agentStatus: "active",
-    appendEvent: "Delivered to managed-hermes visible TUI (agent self-replies)",
+    runtime: RUNTIME,    appendEvent: "Delivered to managed-hermes visible TUI (agent self-replies)",
     eventType: "delivered",
   });
 }
@@ -785,9 +783,7 @@ async function markRunFailed(httpCall, run, error) {
     status: "failed",
     error: cause,
     summary: `managed hermes delivery failed: ${cause}`,
-    runtime: RUNTIME,
-    agentStatus: "active",
-    appendEvent: `managed hermes delivery failed: ${cause}`,
+    runtime: RUNTIME,    appendEvent: `managed hermes delivery failed: ${cause}`,
     eventType: "failed",
   });
 }
@@ -963,9 +959,7 @@ async function markRunRequeued(httpCall, run, reason) {
   const runId = String(run?.id || "");
   await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(runId)}`, {
     status: "queued",
-    runtime: RUNTIME,
-    agentStatus: "active",
-    appendEvent: `managed hermes delivery deferred (requeued): ${reason}`,
+    runtime: RUNTIME,    appendEvent: `managed hermes delivery deferred (requeued): ${reason}`,
     eventType: "requeued",
   });
 }

@@ -26,7 +26,7 @@ _listen_events: dict[str, asyncio.Event] = {}
 
 from pydantic import BaseModel
 from service.db import get_db
-from service.status_engine import apply_event, derive, StatusInputs
+from service.status_engine import apply_event, derive, StatusInputs, VALID_STATUSES
 from service.models import (
     AgentRegister, AgentStatusUpdate, AgentDescribeRequest, MessageSend, ClearRequest,
     ChannelCreate, ChannelMessage, ChannelJoin,
@@ -18149,7 +18149,12 @@ async def update_dispatch_run(run_id: str, req: DispatchRunUpdate, request: Requ
                             recent_only=True,
                         )
 
-        if req.agentStatus:
+        # MC1 (2026-06-06): only persist a status that is in the 8-status vocabulary.
+        # Delivery PATCHes historically sent a non-vocab agentStatus:"active", which got
+        # written raw into agents.status and leaked to the dashboard as a 9th status. Now an
+        # out-of-vocab value is ignored (status is DERIVED from turn/liveness signals anyway);
+        # only an explicit valid operator/runtime status is written. last_seen still refreshes.
+        if req.agentStatus and req.agentStatus in VALID_STATUSES:
             await db.execute(
                 "UPDATE agents SET status = ?, last_seen = ? WHERE id = ?",
                 (req.agentStatus, now, row["target_agent"])
