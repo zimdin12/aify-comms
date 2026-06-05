@@ -362,11 +362,14 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # (or this backstop) clears it (anti-feedback-loop invariant).
 TURN_BUSY_STALE_SECONDS = 120
 # Console-working lease (2026-06-05): the managed-claude PTY spinner footer refreshes
-# this lease every TERMINAL re-emit (~2s). A short TTL keeps `working` honest — a small
-# multiple of the spinner redraw cadence so it self-expires within seconds of the
-# spinner stopping, but long enough to survive a coalesced-output gap. ADDITIVE only:
-# OR'd into derived `working`, it never clears turn_busy.
-CONSOLE_WORKING_LEASE_SECONDS = 12
+# this lease every TERMINAL re-emit. When the dashboard Console is CLOSED, claude would
+# otherwise go quiet on the PTY (it only re-emits its footer while actively rendered), so
+# the bridge runs a ~4s repaint keepalive (terminal-runtime._armConsoleKeepalive) that
+# SIGWINCHes the PTY to force a footer re-emit. The TTL spans that keepalive cadence — a
+# small multiple of ~4s so a missed poke or two never drops `working`, yet it still
+# self-expires within seconds of claude truly stopping. ADDITIVE only: OR'd into derived
+# `working`, it never clears turn_busy.
+CONSOLE_WORKING_LEASE_SECONDS = 20
 # pure-event-status change #3 (2026-06-02): STATUS is now PURE-EVENT. The
 # turn-START event sets turn_busy=1 → working; the turn-END event clears
 # turn_busy=0 → idle, INSTANTLY (the /turn-end POST invalidates the live-status
