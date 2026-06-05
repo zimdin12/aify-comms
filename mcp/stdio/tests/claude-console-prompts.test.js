@@ -12,10 +12,26 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fx = (n) => readFileSync(join(here, "fixtures/claude-console", n), "utf8");
 
 // Resume prompt -> Resume full session = down THEN enter (a spaced sequence so the menu
-// move re-renders before the confirm; default is compact, one row down is full session).
+// move re-renders before the confirm; in the default layout the cursor is on summary and
+// full session is one row down).
 const resume = matchConsolePrompt(fx("resume-prompt.txt"));
 assert.equal(resume?.name, "resume-full-session");
 assert.deepEqual(resume?.answer, ["\x1b[B", "\r"]);
+
+// CURSOR-AWARE (2026-06-05): the answer is computed from the cursor's real position, not a
+// blind down. If claude reorders so full-session is ALREADY the cursor row, we press Enter
+// only (the old blind down+enter would have wrongly moved to summary).
+const resumeReordered = matchConsolePrompt(
+  "Resume session?\n\n❯ 1. Resume full session as-is\n  2. Resume from summary (recommended)\n",
+);
+assert.equal(resumeReordered?.name, "resume-full-session");
+assert.deepEqual(resumeReordered?.answer, ["\r"], "cursor already on full session → Enter only");
+
+// If full-session is ABOVE the cursor, move UP the exact number of rows then Enter.
+const resumeFullAbove = matchConsolePrompt(
+  "Resume session?\n\n  1. Resume full session as-is\n❯ 2. Resume from summary (recommended)\n",
+);
+assert.deepEqual(resumeFullAbove?.answer, ["\x1b[A", "\r"], "full session one row above cursor → Up+Enter");
 
 // Compaction question + perms accept + channel enter all match (Enter to confirm).
 assert.equal(matchConsolePrompt(fx("compaction-prompt.txt"))?.name, "compaction-question");
@@ -46,10 +62,12 @@ assert.equal(
   null,
 );
 
-// Every rule has the required shape: an answer is a string OR an array of keystroke strings.
+// Every rule has the required shape: a static `answer` (string OR array of keystroke strings)
+// OR a `computeAnswer` function that derives the keystrokes from the live frame.
 for (const r of CONSOLE_PROMPT_RULES) {
   const okAnswer = typeof r.answer === "string"
-    || (Array.isArray(r.answer) && r.answer.every((k) => typeof k === "string"));
+    || (Array.isArray(r.answer) && r.answer.every((k) => typeof k === "string"))
+    || typeof r.computeAnswer === "function";
   assert.ok(r.name && r.match instanceof RegExp && okAnswer);
 }
 

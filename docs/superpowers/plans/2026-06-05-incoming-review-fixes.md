@@ -88,3 +88,13 @@ Each: implement → test → (service→rebuild / bridge→reinstall) → commit
 - **M-B (byproduct staleness clamp)** is in `api_v2.py` status code the peer just touched (`22536dd`). → **DEFER** to avoid collision; low-impact edge.
 
 **Net this round:** execute Issue 1 only (PS1 parity, peer's blind spot, this-host bug). Flag #2/#3/M-B to the peer. Re-pull before doing more.
+
+---
+
+## ROUND 2 (2026-06-05) — fix the non-status issues (peer is in the status files)
+
+- **Issue #2 (cursor-aware resume) — DONE.** `claude-console-prompts.js`: the resume rule now uses `computeResumeAnswer(visible)` — locates the cursor (❯) line and the "Resume full session" line and moves EXACTLY that many rows (Down/Up) before Enter; returns null (rule doesn't fire) if it can't locate both or they're >9 rows apart, so it never selects the wrong entry blindly. `matchConsolePrompt` resolves `computeAnswer` → `{...rule, answer}` (caller unchanged). Confined to `claude-console-prompts.js` + its test (no touch to `terminal-runtime.js`/status files). Tests: default layout → Down+Enter (unchanged); reordered (cursor on full) → Enter only; full-above-cursor → Up+Enter. Green; auto-answer caller test still green.
+- **Issue #3 (self-exit margin) — RESOLVED by verification, NO code change.** The live process census showed the channel-sidecar (`17640`) and MCP server (`58016`) are BOTH direct children of `claude.exe` (`62168`) — node's immediate parent in the managed tree IS the durable `claude.exe`; the transient `cmd`/`bash` are higher ancestors. So `d999e32`'s 6s self-exit watches the correct durable owner; the #173 transient-parent misfire does not apply. No ancestor-walk needed. (Left the code untouched — also avoids colliding with the peer.)
+- **M-A / M-B / M-C — DEFERRED (status files, peer's active domain).** Flag to the peer instead of editing `api_v2.py` / `claude-console-spinner.js` while they iterate there.
+
+**Net round 2:** #2 fixed + tested; #3 closed as verified-safe; status-adjacent minors left to the peer. Then review the peer's status MR.

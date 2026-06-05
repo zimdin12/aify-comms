@@ -12,17 +12,56 @@
 // mcp/stdio/tests/fixtures/claude-console/ and re-tune the rule here (one place).
 import { stripAnsi } from "./claude-console-spinner.js";
 
+const DOWN = "\x1b[B";
+const UP = "\x1b[A";
+const ENTER = "\r";
+const RESUME_FULL_RE = /Resume full session/i;
+
+// CURSOR-AWARE resume selection (2026-06-05): operator policy is "Resume full session as-is".
+// The earlier fix blindly sent [Down, Enter] assuming the menu always renders summary on the
+// cursor row and full-session exactly one row below. That is a POSITIONAL bet on a
+// version-dependent menu: if claude reorders/renumbers the options (or pre-selects full
+// session), blind Down+Enter silently selects the WRONG entry. Instead we read where the
+// cursor (❯) actually is and where the "Resume full session" line is, and move EXACTLY that
+// many rows before Enter. If we cannot locate both (or they're implausibly far apart), we
+// return null — the rule does NOT fire and we let the operator / settle handle it rather than
+// guess-press. The keystrokes stay a SPACED sequence (the host's _sendAnswer delays between
+// them) so the Ink/React menu move re-renders before the Enter confirm.
+function computeResumeAnswer(visible) {
+  const lines = visible.split(/\r?\n/);
+  // The live, focused menu is the LAST cursor glyph in the tail.
+  let cursorIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (MENU_CURSOR_RE.test(lines[i])) { cursorIdx = i; break; }
+  }
+  if (cursorIdx < 0) return null;
+  // The "Resume full session" option line CLOSEST to the cursor line (the live menu, not
+  // a prose mention scrolled above it).
+  let targetIdx = -1;
+  let best = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    if (!RESUME_FULL_RE.test(lines[i])) continue;
+    const d = Math.abs(i - cursorIdx);
+    if (d < best) { best = d; targetIdx = i; }
+  }
+  if (targetIdx < 0) return null;
+  const delta = targetIdx - cursorIdx;
+  if (Math.abs(delta) > 9) return null; // implausible spread → don't guess-press
+  const keys = [];
+  for (let i = 0; i < Math.abs(delta); i++) keys.push(delta > 0 ? DOWN : UP);
+  keys.push(ENTER);
+  return keys;
+}
+
 export const CONSOLE_PROMPT_RULES = [
   {
-    // Resume prompt. Operator policy: choose "Resume full session as is". The menu defaults
-    // to the COMPACT/summary option; "Resume full session" is one row down. The keystrokes are
-    // a SEQUENCE (down, then Enter) sent with a delay between them — sending them in one write
-    // loses the move to an Ink/React state-batching race (Enter reads the pre-move selection =
-    // compact). The array form makes the host space them out (see terminal-runtime _sendAnswer).
+    // Resume prompt → select "Resume full session as-is" by CURSOR POSITION (see
+    // computeResumeAnswer). computeAnswer returns the exact move+Enter sequence, or null to
+    // abort if the menu can't be read (so we never select the wrong resume entry blindly).
     name: "resume-full-session",
     match: /Resume full session/i,
     mustAlsoMatch: /Resume from summary/i,
-    answer: ["\x1b[B", "\r"],
+    computeAnswer: computeResumeAnswer,
   },
   {
     // Compaction question on resume. Tuned against
@@ -65,6 +104,14 @@ export function matchConsolePrompt(rawTail = "") {
   for (const rule of CONSOLE_PROMPT_RULES) {
     if (!rule.match.test(visible)) continue;
     if (rule.mustAlsoMatch && !rule.mustAlsoMatch.test(visible)) continue;
+    if (rule.computeAnswer) {
+      // Rule matched, but the keystrokes are computed from the live frame. A null result
+      // means "matched but cannot answer safely" → do NOT fire (don't fall through to a
+      // different rule either; the focused prompt is this one).
+      const answer = rule.computeAnswer(visible);
+      if (answer == null) return null;
+      return { ...rule, answer };
+    }
     return rule;
   }
   return null;
