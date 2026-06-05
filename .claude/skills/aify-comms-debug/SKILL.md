@@ -32,6 +32,7 @@ Before digging in, always call `comms_agent_info(agentId="target")` on the agent
 - Send to a managed agent with no live claimer (always queues; backstop reaper is the net)
 - Restarting aify-comms kills all managed sessions (by design — clean slate)
 - Hermes starts a FRESH session after an aify-comms restart ("session not found" → fresh)
+- A `stopped` agent still shows "Console attached" (misleading)
 - Managed claude shows `online` while it is clearly thinking (the spinner under-report)
 - Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 - Managed agent finished but its reply never landed (deferred-reply strand)
@@ -1811,25 +1812,57 @@ aify-comms stays up, but after you **close/start aify-comms** it restarts into a
 session — "session not found" errors, lost chat history. Often only some agents; over time
 "it just started giving fresh session".
 
-**Cause (fixed 2026-06-05).** The delivery loop (`waitForActiveSession`) persisted the
-**ephemeral** runtime sid into the per-agent resume marker after every delivery, instead of
-the **durable** `session_key`. Invisible while up (the ephemeral id still matched a live
-`active_list` row), but on restart the gateway `active_list` is empty and the SessionDB
+**Cause 1 — ephemeral marker (`9353f86`, 2026-06-05).** The delivery loop (`waitForActiveSession`)
+persisted the **ephemeral** runtime sid into the per-agent resume marker after every delivery,
+instead of the **durable** `session_key`. Invisible while up (the ephemeral id still matched a
+live `active_list` row), but on restart the gateway `active_list` is empty and the SessionDB
 (`session.list`) is keyed by `session_key`, so the ephemeral marker matched nothing →
-`runResolveSessionCli` cleared it → fresh session.
+`runResolveSessionCli` cleared it → fresh session. Fixed: the loop now persists the durable
+`rowResumeKey`.
 
-**Fix / remediation.** Reinstall the bridge (`install.sh --client hermes`) + restart the
-`hermes-aify` wrappers to pick up the durable-marker fix. To unstick an already-poisoned
-marker right now: durable keys contain underscores (`YYYYMMDD_HHMMSS_hex`); an ephemeral one
-is short bare hex. Delete the ephemeral ones so the agent re-binds its durable key — the
-session still lives in hermes's SessionDB, only the stale pointer is removed:
+**Cause 2 — dead `--resume` of a GC'd session (`5c1617a`, 2026-06-05).** Even with a durable-format
+marker, hermes **GC's empty sessions** (`delete_empty_sessions`) — so a marker captured from a
+session that never got a turn becomes a pointer to a session that no longer exists in the
+SessionDB. The spawner passed that key straight to `hermes --resume <key>` via the **explicit-resume
+short-circuit**, which seeded it WITHOUT checking the SessionDB → hermes errored `session not
+found` and STRANDED the console (`stopped · Console attached`). Fixed: when a gateway is reachable,
+`runResolveSessionCli` now **DB-validates** the resume id — a REAL id still wins over a stale
+marker, a flaky gateway preserves operator intent, but a **definitively-absent id falls through to
+a clean fresh start + clears the dangling marker** (no dead `--resume`). KEY corollary: an agent
+whose workspace has **zero persisted sessions** in the SessionDB (`get_session(key)`=None for all
+its markers; check `cwd`/title in `~/.hermes/state.db`) has nothing to resume — **fresh is
+correct** for it, not a bug.
+
+**Fix / remediation.** Reinstall the bridge (`install.sh --client hermes`) + **restart the
+`hermes-aify` wrappers** (the resolver runs at launch). With `5c1617a` the dead markers are
+**cleared automatically** on the next launch — the manual cleanup below is no longer required, but
+still works as an immediate stopgap on a not-yet-restarted wrapper (durable keys contain
+underscores `YYYYMMDD_HHMMSS_hex`; ephemeral is short bare hex; the session still lives in the
+SessionDB, only the stale pointer is removed):
 
 ```bash
 for f in /tmp/aify-hermes-session-*; do v=$(cat "$f" 2>/dev/null); case "$v" in *_*|"") :;; *) echo "rm $f ($v)"; rm -f "$f";; esac; done
 ```
 
 Verify after a restart: `cat /tmp/aify-hermes-session-<agent>` stays a `YYYYMMDD_HHMMSS_hex`
-key before AND after, and the gateway-host log shows `resolve-session … → <key> (marker(db-resumable))`, not `cleared stale marker; will start fresh`.
+key before AND after, and the gateway-host log shows `resolve-session … → <key> (marker(db-resumable))`, not `cleared stale marker; will start fresh`. To check whether an agent even HAS a
+resumable session: `python3 -c "from hermes_state import SessionDB; print(SessionDB().get_session('<key>'))"` (run with hermes's venv python) — `None` means it's gone (fresh is correct).
+
+## A `stopped` agent still shows "Console attached" (misleading)
+
+**Symptom.** An agent reads `stopped` (or a dead session) but the console pill says "Console
+attached" — it looks like it has a live console while stopped.
+
+**Cause + fix (2026-06-05).** Two parts. (1) The usual trigger was the hermes resume-error strand
+above (dead `--resume` → `session not found` → the PTY lingered attached while the session was torn
+down) — removed at the root by `5c1617a` (DB-validated resume → clean fresh start). (2) The legacy
+dashboard label keyed purely on the terminal row's `attached` status, so a brief teardown race
+showed "Console attached" under a dead session. `b69bda3` makes the label honest: a session in a
+dead state (`stopped`/`failed`/`ended`/`lost`/`cancelled`) renders its real state ("Console
+stopped" / "Console failed"), never "attached". NOTE: a managed agent whose last session FAILED
+correctly stays **`available`** (not `blocked`/`errored`) — it lazy-respawns on the next send, so
+it is genuinely available-to-retry (a `failed → blocked` status change was tried and rejected; see
+DECISIONS.md 2026-06-05). Requires the container rebuild to deploy the dashboard.
 
 ## Managed claude shows `online` while it is clearly thinking
 
