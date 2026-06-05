@@ -3295,7 +3295,8 @@ server.tool(
               "so comms_register without an explicit sessionMode is disabled here to avoid converting the managed agent into a resident CLI identity. " +
               "To take this identity over as a resident CLI session (e.g., the managed worker is stopped and you want to claim it from here), " +
               "call comms_register with sessionMode=\"resident\" explicitly. " +
-              "Otherwise, answer the current message in final plain text; use comms_send only for separate agent/dashboard updates.",
+              "Otherwise, do NOT call comms_register from this managed run — reply to the current aify-comms message with " +
+              "comms_send(type=\"response\", inReplyTo=<the message id>) when a reply is owed (final plain text is only your working output, not the delivered reply).",
           }],
           isError: true,
         };

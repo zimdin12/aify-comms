@@ -3750,7 +3750,8 @@ function managedAgentsTableHtml(workers) {
       actionButtonFn('Assign task', 'Open chat composer as a request to this managed identity', () => prefillWorkerMessage(id, 'request')),
       actionButtonFn('Assign env', 'Open identity editor to retarget this agent and saved spawn spec to another online environment', () => openAgentEditor(id)),
       activeRunId ? actionButtonFn('Interrupt', 'Ask the active managed run to stop at the next supported interruption point', () => interruptRun(activeRunId), 'btn-danger') : '',
-      (!['stopped', 'offline'].includes((info.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop this managed agent's worker (console/TUI + session). Identity, history, and saved spawn spec are kept — a later message or Reset (fresh context) brings it back.", () => stopManagedAgent(id), 'btn-danger') : '',
+      (!['stopped', 'offline'].includes((info.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop this managed agent's worker (console/TUI + session). Identity, history, and saved spawn spec are kept — a later message, or Restart (preserves context), brings it back.", () => stopManagedAgent(id), 'btn-danger') : '',
+      actionButtonFn('Restart', 'Restore dashboard control using the saved spawn spec and native resume handle — PRESERVES native chat context (the reversal of Stop).', () => restartAgent(id)),
       actionButtonFn('Reset (fresh context)', 'Leave the old native session behind and queue a fresh managed backing. Destroys native chat context; messages and identity remain.', () => recreateAgent(id), 'btn-reset'),
       actionButtonFn('Remove', 'Unregister this managed identity and cancel queued work', () => deleteAgent(id), 'btn-danger'),
     ];
@@ -8494,6 +8495,18 @@ function recreateAgent(agentId) {
     return;
   }
   controlSession(session.id, 'recreate');
+}
+
+// MC4 (2026-06-06): context-PRESERVING re-spawn (native resume), the documented reversal of
+// Stop. Mirrors recreateAgent but uses 'restart' (native_first) instead of 'recreate'
+// (fresh_context). Parity with the Sessions page, which already exposes Restart.
+function restartAgent(agentId) {
+  const session = primarySessionForAgent(agentId);
+  if (!session?.id) {
+    toast(`No managed session record for ${agentId}; spawn a fresh managed identity from Environments.`, '#f85149');
+    return;
+  }
+  controlSession(session.id, 'restart');
 }
 
 // Stop a managed agent's worker (console/TUI + session). Prefers the proven
