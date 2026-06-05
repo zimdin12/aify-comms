@@ -661,6 +661,35 @@ function pulseTerminalTurnBusy(terminalId, agentId) {
     TERMINAL_TURN_BUSY_TIMERS.delete(terminalId);
   }, TERMINAL_TURN_BUSY_QUIET_MS);
 }
+
+// Pure gate (exported for tests): given a terminal's runtime + console classification,
+// decide which working pulse to emit. Claude uses the spinner-gated console-working
+// lease (the strong, specific "claude is generating" signal — the TUI footer). Other
+// runtimes keep the legacy any-output terminal pulse (they own native turn detectors).
+export function decideConsolePulse({ runtime, consoleClass, agentId }) {
+  const aid = String(agentId || "").trim();
+  if (!aid) return { kind: "none" };
+  if (runtime === "claude-code") {
+    return consoleClass === "working" ? { kind: "console-working", agentId: aid } : { kind: "none" };
+  }
+  return { kind: "terminal-pulse", agentId: aid };
+}
+
+const CONSOLE_WORKING_REMIT_MS = 2000;
+const CONSOLE_WORKING_TIMERS = new Map();
+
+// Refresh the server-side console-working lease while the claude spinner footer is
+// visible. Debounced to ~once / CONSOLE_WORKING_REMIT_MS so a per-second spinner redraw
+// does not spam the endpoint. No clear timer: the lease self-expires server-side (TTL).
+function pulseConsoleWorking(terminalId, agentId) {
+  const aid = String(agentId || "").trim();
+  if (!aid) return;
+  const last = CONSOLE_WORKING_TIMERS.get(terminalId) || 0;
+  const now = Date.now();
+  if (now - last < CONSOLE_WORKING_REMIT_MS) return;
+  CONSOLE_WORKING_TIMERS.set(terminalId, now);
+  httpCall("POST", `/agents/${encodeURIComponent(aid)}/console-working`, {}).catch(() => {});
+}
 async function ensureVirtualTerminal(agentId, agentInfo, runtime) {
   const key = String(agentId || "").trim();
   const rt = String(runtime || "").trim();
@@ -773,8 +802,14 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
     // the agent's terminal is actively producing output even when no
     // dispatch_run is in flight. Self-clears after the quiet window.
     try {
-      const agentId = TERMINAL_MANAGER.stateFor?.(terminalId)?.agentId || "";
-      if (agentId) pulseTerminalTurnBusy(terminalId, agentId);
+      const st = TERMINAL_MANAGER.stateFor?.(terminalId) || {};
+      const decision = decideConsolePulse({
+        runtime: st.runtime,
+        consoleClass: st.consoleClass,
+        agentId: st.agentId,
+      });
+      if (decision.kind === "console-working") pulseConsoleWorking(terminalId, decision.agentId);
+      else if (decision.kind === "terminal-pulse") pulseTerminalTurnBusy(terminalId, decision.agentId);
     } catch {}
   },
   onExit: async (terminalId, detail = {}) => {

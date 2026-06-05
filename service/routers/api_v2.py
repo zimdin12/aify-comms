@@ -361,6 +361,12 @@ _TERMINAL_DEAD_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "c
 # re-arm of turn_busy on derived status — only the bridge sets it and only an event
 # (or this backstop) clears it (anti-feedback-loop invariant).
 TURN_BUSY_STALE_SECONDS = 120
+# Console-working lease (2026-06-05): the managed-claude PTY spinner footer refreshes
+# this lease every TERMINAL re-emit (~2s). A short TTL keeps `working` honest — a small
+# multiple of the spinner redraw cadence so it self-expires within seconds of the
+# spinner stopping, but long enough to survive a coalesced-output gap. ADDITIVE only:
+# OR'd into derived `working`, it never clears turn_busy.
+CONSOLE_WORKING_LEASE_SECONDS = 12
 # pure-event-status change #3 (2026-06-02): STATUS is now PURE-EVENT. The
 # turn-START event sets turn_busy=1 → working; the turn-END event clears
 # turn_busy=0 → idle, INSTANTLY (the /turn-end POST invalidates the live-status
@@ -4064,6 +4070,22 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     except Exception:
         turn_busy = False
         turn_state_ready = False
+    # Console-working lease (2026-06-05): a fresh spinner-gated lease derives `working`
+    # even when turn_busy is 0 — the transcript detector's premature /turn-end during a
+    # long thinking phase (transcript grows per completed message, so live generation is
+    # invisible to it). ADDITIVE — only ever sets, never clears; self-heals via TTL.
+    if not turn_busy:
+        try:
+            _cw = await (await db.execute(
+                "SELECT working_at FROM agent_console_signal WHERE agent_id = ?",
+                (agent_row["id"],),
+            )).fetchone()
+            if _cw:
+                _seen = _iso_to_epoch(str(_cw["working_at"] or ""))
+                if _seen and datetime.now(timezone.utc).timestamp() - _seen <= CONSOLE_WORKING_LEASE_SECONDS:
+                    turn_busy = True
+        except Exception:
+            pass
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
     environment_id = str((session_row["environment_id"] if session_row else "") or runtime_state.get("environmentId") or "").strip()
     env_row = None
@@ -14980,6 +15002,37 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
         return {"ok": True, "agentId": agent_id, "kind": req.kind}
     finally:
         await db.close()
+
+
+@router.post("/agents/{agent_id}/console-working")
+async def agent_console_working(agent_id: str, request: Request):
+    """Spinner-gated working lease from the managed-claude console PTY.
+
+    The host bridge POSTs this while the claude TUI working footer
+    ("esc to interrupt" / "<glyph> <verb> for <time>") is visible. It stamps a
+    short TTL lease that is OR'd into derived `working` — additive, never clears
+    turn_busy, self-expires when the spinner stops. This closes the
+    "online while thinking" under-report the per-completed-message transcript
+    cannot see. Idempotent best-effort.
+    """
+    now = _now()
+    db = await get_db()
+    try:
+        agent_row = await (await db.execute(
+            "SELECT id FROM agents WHERE id = ?", (agent_id,)
+        )).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        await db.execute(
+            "INSERT INTO agent_console_signal (agent_id, working_at) VALUES (?, ?) "
+            "ON CONFLICT(agent_id) DO UPDATE SET working_at = excluded.working_at",
+            (agent_id, now),
+        )
+        await db.commit()
+        await _invalidate_agent_live_state(db, agent_id)
+    finally:
+        await db.close()
+    return {"ok": True}
 
 
 @router.post("/agents/{agent_id}/turn-start")

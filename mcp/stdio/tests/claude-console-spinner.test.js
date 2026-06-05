@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+// NOTE: the fixture frames here are REPRESENTATIVE of the claude TUI (spinner footer
+// vs idle prompt). When the claude TUI version changes, re-capture a real console tail
+// into these fixtures and re-tune SPINNER_RE / IDLE_HINT_RE if needed.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { stripAnsi, classifyClaudeConsoleTail } from "../claude-console-spinner.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fx = (n) => readFileSync(join(here, "fixtures/claude-console", n), "utf8");
+
+// stripAnsi removes CSI/OSC sequences but keeps visible text.
+assert.equal(stripAnsi("\x1b[31m✻ Baked for 3m 55s\x1b[0m"), "✻ Baked for 3m 55s");
+
+// Representative captured frames classify correctly.
+assert.equal(classifyClaudeConsoleTail(fx("working-spinner.txt")), "working");
+assert.equal(classifyClaudeConsoleTail(fx("idle-prompt.txt")), "idle");
+
+// Synthetic invariants.
+assert.equal(classifyClaudeConsoleTail("✻ Crunched for 14m 58s (esc to interrupt)"), "working");
+assert.equal(classifyClaudeConsoleTail("✶ Wibbling for 5s"), "working");
+assert.equal(classifyClaudeConsoleTail("esc to interrupt"), "working");
+assert.equal(classifyClaudeConsoleTail("│ > │\n  ? for shortcuts"), "idle");
+// A stale 'esc to interrupt' far up in scrollback must NOT pin working when the live
+// footer is the idle prompt.
+assert.equal(
+  classifyClaudeConsoleTail("esc to interrupt\n" + "x\n".repeat(2000) + "│ > │\n  ? for shortcuts"),
+  "idle",
+);
+// Unrecognized text never flips state.
+assert.equal(classifyClaudeConsoleTail("just some build log output\n"), "unknown");
+assert.equal(classifyClaudeConsoleTail(""), "unknown");
+
+console.log("claude-console-spinner.test.js: all assertions passed");

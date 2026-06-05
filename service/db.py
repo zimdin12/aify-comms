@@ -401,6 +401,17 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 
+-- Console-working lease (2026-06-05): the managed-claude PTY spinner footer
+-- ("esc to interrupt" / "<glyph> <verb> for <time>") refreshes working_at while
+-- claude is generating. A short TTL lease OR'd into derived `working` — additive,
+-- never clears turn_busy, self-expires when the spinner stops. Closes the
+-- "online while thinking" under-report the per-completed-message transcript can't see.
+CREATE TABLE IF NOT EXISTS agent_console_signal (
+    agent_id TEXT PRIMARY KEY,
+    working_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+
 -- Status engine v2 (2026-06-04): one row per agent holding the event-driven
 -- turn sub-state that feeds status_engine.derive(). Placed after agent_turn_state
 -- so the FK target `agents` already exists. Liveness / worker_present /

@@ -3,6 +3,7 @@ import { createRequire } from "module";
 import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
 import { reapPriorManagedClaude } from "./reap-managed-claude.js";
+import { classifyClaudeConsoleTail } from "./claude-console-spinner.js";
 
 // node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
 // chdir does not expand "~" — operator-supplied workspaces like
@@ -166,6 +167,12 @@ export class TerminalProcessManager {
       status: state.status,
       command: state.command,
       outputTail: state.outputTail || "",
+      // agentId + consoleClass drive the host-side working pulse (server.js onOutput).
+      // agentId was previously omitted here, so the legacy any-output pulse — which
+      // reads stateFor(...).agentId — never fired (a contributor to the managed-claude
+      // under-report). consoleClass is the claude TUI spinner classification.
+      agentId: state.agentId || "",
+      consoleClass: state.consoleClass || null,
     };
   }
 
@@ -325,6 +332,11 @@ export class TerminalProcessManager {
   async _handleOutput(id, state, text) {
     if (!text) return;
     state.outputTail = appendTail(state.outputTail, text);
+    // Console working-signal (claude only): classify the visible TUI footer so the host
+    // can drive a spinner-gated working lease. Non-claude runtimes keep their own native
+    // turn detectors and are never classified here.
+    state.consoleClass =
+      state.runtime === "claude-code" ? classifyClaudeConsoleTail(state.outputTail) : null;
     const classification = classifyTerminalRuntimeOutput(state.runtime, state.outputTail);
     await this._enqueueOutput(id, text);
     if (classification?.kind === "auth" && !state.classification) {

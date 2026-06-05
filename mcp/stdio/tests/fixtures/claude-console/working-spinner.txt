@@ -1,0 +1,2 @@
+\033[2m  ⎿  Running…\033[0m
+✻ Crunched for 3m 12s (esc to interrupt · ctrl+t to show todos)
