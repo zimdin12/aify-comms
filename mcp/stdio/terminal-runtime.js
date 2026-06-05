@@ -556,9 +556,13 @@ export class TerminalProcessManager {
     sendNext();
   }
 
-  // Periodically SIGWINCH a managed claude PTY (via resize to the SAME dims) so claude re-emits
-  // its footer even when the dashboard Console is closed — keeping the console-working lease
-  // fresh. claude-managed-only; best-effort; a noop for other runtimes / resident / when disabled.
+  // Periodically SIGWINCH a managed claude PTY so claude re-emits its footer even when the
+  // dashboard Console is closed — keeping the console-working lease fresh. A same-dims resize
+  // sends NO SIGWINCH (the Linux kernel skips it when the winsize is unchanged — verified
+  // empirically), so each tick momentarily shrinks one column to FORCE the signal, then restores
+  // the true dims so the net terminal size is unchanged. The shrink/restore is synchronous, so
+  // the at-width-1-less window is sub-millisecond. claude-managed-only; best-effort; a noop for
+  // other runtimes / resident / when disabled.
   _armConsoleKeepalive(id, state) {
     if (!this.consoleKeepaliveMs || state.runtime !== "claude-code"
         || state.sessionMode !== "managed" || state.kind !== "pty") {
@@ -567,8 +571,12 @@ export class TerminalProcessManager {
     const tick = () => {
       const st = this.terminals.get(id);
       if (!st || !st.term) return;
-      try { st.term.resize(Math.max(20, Number(st.cols || 100)), Math.max(6, Number(st.rows || 28))); }
-      catch { /* best-effort */ }
+      const cols = Math.max(20, Number(st.cols || 100));
+      const rows = Math.max(6, Number(st.rows || 28));
+      try {
+        st.term.resize(cols - 1, rows); // changed dim → SIGWINCH
+        st.term.resize(cols, rows);     // restore true dims (net unchanged)
+      } catch { /* best-effort */ }
     };
     const timer = setInterval(tick, this.consoleKeepaliveMs);
     if (timer && typeof timer.unref === "function") timer.unref();

@@ -8,7 +8,9 @@ import { TerminalProcessManager } from "../terminal-runtime.js";
 
 const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
 
-// (1) Only claude-code managed PTYs get the keepalive; it resizes on a cadence.
+// (1) Only claude-code managed PTYs get the keepalive; each tick TOGGLES a dimension so a real
+// SIGWINCH fires (a same-dims resize sends NO SIGWINCH — verified empirically), then RESTORES the
+// true dims so the net terminal size is unchanged.
 {
   const resizes = [];
   const mgr = new TerminalProcessManager({ onOutput: async () => {}, consoleKeepaliveMs: 5 });
@@ -20,8 +22,10 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
   const stop = mgr._armConsoleKeepalive("t1", claude);
   await tick();
   stop();
-  assert.ok(resizes.length >= 1, "claude managed pty is poked at least once");
-  assert.deepEqual(resizes[0], [100, 28], "poke resizes to the same dims (invisible SIGWINCH)");
+  assert.ok(resizes.length >= 2, "claude managed pty is poked (toggle = 2 resizes per tick)");
+  // First tick: a changed dim then a restore to the true dims.
+  assert.notDeepEqual(resizes[0], [100, 28], "first resize changes a dim (forces SIGWINCH)");
+  assert.deepEqual(resizes[1], [100, 28], "second resize restores the true dims");
   // stop() must halt further pokes.
   const after = resizes.length;
   await tick();
