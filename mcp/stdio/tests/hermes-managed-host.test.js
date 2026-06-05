@@ -1565,15 +1565,21 @@ test("runResolveSessionCli: no agentId → throws (CLI boundary)", async () => {
 // EXPLICIT-RESUME mode (BUG 2, 2026-06-03): `hermes-aify --resume <id>` makes <id>
 // AUTHORITATIVE — resolve-session --explicit <id> SEEDS the active-session file +
 // marker with <id>, SKIPS the gateway active_list query entirely, and prints <id>.
-test("runResolveSessionCli --explicit: seeds marker + active file with the operator id, no gateway query", async () => {
+test("runResolveSessionCli --explicit: when REAL (in SessionDB), wins over a stale marker + seeds marker/active", async () => {
+  // With a gateway reachable, the explicit id is DB-VALIDATED (2026-06-05): a REAL explicit
+  // beats the stale marker (the core operator contract) AND is confirmed resumable, so we
+  // never seed a dead --resume that errors "session not found". active_list empty (pre-attach);
+  // session.list (DB) holds the explicit id's row.
   let stdout = "";
   let wroteMarker = null;
   let wroteActive = null;
+  const emptyActive = { result: { sessions: [] } };
+  const dbList = { result: { sessions: [{ id: "eph123", session_key: "20260529_071302_ea65af", last_active: "2026-05-29T07:13:02.000Z" }] } };
+  let i = 0;
   const res = await runResolveSessionCli("ci-senior-dev", {
     explicitId: "20260529_071302_ea65af",
-    // Even WITH a gateway, the explicit short-circuit must not consult it.
     gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
-    openClient: async () => { throw new Error("gateway must NOT be queried on explicit resume"); },
+    openClient: async () => ({ request: async () => [emptyActive, dbList][i++], close() {} }),
     readMarker: () => "20260603_034413_8480e3", // STALE marker (the live symptom)
     writeMarker: (a, v) => { wroteMarker = { a, v }; },
     writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
@@ -1581,11 +1587,58 @@ test("runResolveSessionCli --explicit: seeds marker + active file with the opera
     out: (s) => (stdout += s),
     err: () => {},
   });
-  assert.equal(res.resolved, "20260529_071302_ea65af", "explicit id is authoritative");
-  assert.equal(res.source, "explicit-resume");
+  assert.equal(res.resolved, "20260529_071302_ea65af", "real explicit id wins over the stale marker");
   assert.equal(stdout.trim(), "20260529_071302_ea65af", "prints the explicit id");
-  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" }, "overwrites the stale marker with the explicit id");
-  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260529_071302_ea65af" }, "seeds the active-session file with the explicit id");
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260529_071302_ea65af" }, "seeds the active-session file with the resolved id");
+  assert.ok(wroteMarker && wroteMarker.v === "20260529_071302_ea65af", "marker holds the resolved durable id");
+});
+
+test("runResolveSessionCli --explicit: a DEAD explicit id (GC'd, not in SessionDB) → clean fresh, never a dead --resume", async () => {
+  // The "session not found → stranded console" fix: a spawner-supplied --resume whose session
+  // hermes already GC'd is NOT seeded; with the gateway confirming it's gone (empty active_list
+  // + empty session.list), resolve returns "" (start fresh) and clears the dangling marker
+  // instead of launching `hermes --resume <dead-id>`.
+  let stdout = "";
+  let cleared = false;
+  const empty = { result: { sessions: [] } };
+  let i = 0;
+  const res = await runResolveSessionCli("next-tech-lead", {
+    explicitId: "20260605_054328_970d9c", // GC'd empty session — not in the DB
+    gatewayUrl: "ws://127.0.0.1:9000/api/ws?token=t",
+    openClient: async () => ({ request: async () => [empty, empty][i++], close() {} }),
+    readMarker: () => "20260605_054328_970d9c",
+    writeMarker: () => {},
+    clearMarker: () => { cleared = true; },
+    writeActiveSessionFile: () => {},
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "", "a dead explicit id resolves to fresh, not the dead id");
+  assert.equal(stdout.trim(), "", "prints empty (wrapper starts fresh, no --resume)");
+  assert.equal(cleared, true, "the dangling marker is cleared");
+});
+
+test("runResolveSessionCli --explicit: NO gateway to validate → seeds the explicit id authoritatively", async () => {
+  // Offline / no gateway: we cannot prove the id dead, so preserve operator intent (the
+  // original explicit-resume behavior) — seed marker + active file with the explicit id.
+  let stdout = "";
+  let wroteMarker = null;
+  let wroteActive = null;
+  const res = await runResolveSessionCli("ci-senior-dev", {
+    explicitId: "20260529_071302_ea65af",
+    gatewayUrl: "",
+    readMarker: () => "20260603_034413_8480e3",
+    writeMarker: (a, v) => { wroteMarker = { a, v }; },
+    writeActiveSessionFile: (f, sid) => { wroteActive = { f, sid }; },
+    activeSessionFile: "/fake/active.json",
+    out: (s) => (stdout += s),
+    err: () => {},
+  });
+  assert.equal(res.resolved, "20260529_071302_ea65af", "explicit id authoritative with no gateway");
+  assert.equal(res.source, "explicit-resume");
+  assert.deepEqual(wroteMarker, { a: "ci-senior-dev", v: "20260529_071302_ea65af" });
+  assert.deepEqual(wroteActive, { f: "/fake/active.json", sid: "20260529_071302_ea65af" });
 });
 
 test("runResolveSessionCli --explicit: works even with NO gateway and NO active-file path (marker-only seed)", async () => {

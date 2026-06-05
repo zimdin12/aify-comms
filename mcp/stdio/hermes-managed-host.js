@@ -2378,35 +2378,46 @@ export async function runResolveSessionCli(agentId, deps = {}) {
   const id = String(agentId || "").trim();
   if (!id) throw new Error("resolve-session requires an agentId");
 
-  // EXPLICIT-RESUME short-circuit: an operator-supplied id wins unconditionally.
-  // Seed the active-session file + marker and print it; no gateway round-trip.
   // Guard against an UNEXPANDED placeholder (e.g. `--resume "${HERMES_SESSION_ID}"`
   // when the var is unset) — treat it as "no explicit" and fall through to
   // active_list resolution, never seed a poison id (2026-06-04).
   const explicit = String(explicitId || "").trim();
-  if (explicit && isUsableSessionId(explicit)) {
+  const explicitUsable = !!(explicit && isUsableSessionId(explicit));
+
+  // Read the gateway URL the wrapper already resolved + exported (ensure-host ran
+  // first). Without a gateway we cannot query ground truth.
+  const wsUrl = String(
+    deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL || "",
+  ).trim();
+
+  // EXPLICIT-RESUME: an operator/spawner `--resume <id>`. It is AUTHORITATIVE only when we
+  // CANNOT validate it (no gateway to consult) — then seed the marker + active file as before.
+  // When a gateway IS reachable we DO NOT seed blindly: <id> becomes the marker candidate and
+  // is DB-validated below. A dead key (e.g. an empty session hermes GC'd — the "session not
+  // found → stranded console" bug) then falls through to a CLEAN fresh start + marker clear
+  // instead of launching `hermes --resume <dead-id>`, which errors and strands the console.
+  if (explicitUsable && !wsUrl) {
     try { writeMarker(id, explicit, { tempDir }); } catch { /* best-effort */ }
     if (activeSessionFile) {
       try { writeActiveSessionFile(activeSessionFile, explicit); } catch { /* best-effort */ }
     }
-    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${explicit} (explicit-resume; seeded marker + active file).\n`);
+    err(`[hermes-managed-host] resolve-session: agent '${id}' → ${explicit} (explicit-resume; no gateway to validate; seeded marker + active file).\n`);
     out(explicit + "\n");
     return { agentId: id, resolved: explicit, source: "explicit-resume" };
   }
 
-  // Read the gateway URL the wrapper already resolved + exported (ensure-host ran
-  // first). Without a gateway we cannot query ground truth → emit empty (the
-  // wrapper then resumes the bare marker / starts fresh, same as before).
-  const wsUrl = String(
-    deps.gatewayUrl || process.env.AIFY_HERMES_GATEWAY_URL || process.env.HERMES_TUI_GATEWAY_URL || "",
-  ).trim();
-  const marker = (() => {
+  // The actual marker FILE content (for the write-skip comparison below — the candidate may
+  // be an explicit id that differs from the file).
+  const fileMarker = (() => {
     try {
       return String(readMarker(id, { tempDir }) || "").trim();
     } catch {
       return "";
     }
   })();
+  // The id to resolve: an explicit `--resume` wins as the CANDIDATE, else the saved marker.
+  // Either way it is DB-validated below, so a dead candidate clears and starts fresh.
+  const marker = explicitUsable ? explicit : fileMarker;
 
   if (!wsUrl) {
     // No gateway to consult — fall back to the marker as-is (best we know).
@@ -2473,8 +2484,10 @@ export async function runResolveSessionCli(agentId, deps = {}) {
   }
 
   if (resolved) {
-    // Converge launch == loop == marker == active-session file. Best-effort.
-    if (resolved !== marker) {
+    // Converge launch == loop == marker == active-session file. Best-effort. Compare against
+    // the FILE content (not the candidate, which may be an explicit id) so a resolved id is
+    // persisted even when it equals the explicit candidate but differs from the saved marker.
+    if (resolved !== fileMarker) {
       try { writeMarker(id, resolved, { tempDir }); } catch { /* best-effort */ }
     }
     if (activeSessionFile) {
