@@ -1836,7 +1836,19 @@ handle the env-bridge spawns as `hermes-aify --aify-agent X --resume <GC'd-key>`
 worked because its handle was a real session). It was already CALLING `resolve-session --explicit`
 but discarding the output. *Fix:* the wrapper now USES that DB-validated result — resumes a real id,
 or starts FRESH cleanly when it is empty (GC'd). **Requires `install.sh --client hermes` + a wrapper
-restart.** KEY corollary: an agent whose workspace has **zero persisted sessions** in the SessionDB
+restart.**
+
+**Cause 3 — the dead-handle CYCLE (`fresh on every stop+start`, install.sh 2026-06-05).** Symptom:
+an agent loses its session on EVERY stop+start even after you send it real work. Root cause: the
+wrapper exported `AIFY_SESSION_HANDLE=<requested handle>` to the in-session bridge BEFORE validating
+it. So even when DB-validate started hermes FRESH, the bridge heartbeated the DEAD handle back
+(status note "Session handle set by bridge-heartbeat"), aify stored it, and the env bridge
+re-`--resume`d it next launch — an infinite loop that never captured the fresh session (verified:
+`agents.session_handle` + `/tmp/aify-hermes-session-<agent>` both stuck on a GC'd key, ZERO sessions
+for the agent's cwd in `~/.hermes/state.db`). *Fix:* on a fresh start the wrapper now **unsets**
+`AIFY_SESSION_HANDLE`/`HERMES_SESSION_ID`/`AIFY_EXPLICIT_SESSION_HANDLE` so the bridge DISCOVERS the
+fresh session's real id and reports THAT; on a validated resume it re-exports the resolved id. Breaks
+the cycle on the next launch. **Requires `install.sh --client hermes` + wrapper restart.** KEY corollary: an agent whose workspace has **zero persisted sessions** in the SessionDB
 (`get_session(key)`=None for all its markers; check `cwd`/title in `~/.hermes/state.db`) has nothing
 to resume — **fresh is correct** for it, not a bug.
 

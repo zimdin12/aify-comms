@@ -1813,9 +1813,19 @@ if [ -n "\$HERMES_AIFY_AGENT_ID" ] && [ \${#HERMES_ARGS[@]} -eq 0 ]; then
     # delivery loop (and its gateway host) when the TUI closes.
     if [ -n "\$HERMES_EXPLICIT_RESOLVED" ]; then
       echo "[hermes-aify] resuming explicit hermes session '\$HERMES_EXPLICIT_RESOLVED' for agent '\$HERMES_AIFY_AGENT_ID' (DB-validated)." >&2
+      # The validated id may differ from the requested handle (durable vs ephemeral) — re-export
+      # it so the in-session bridge heartbeats the SESSION ACTUALLY RESUMED, not the stale request.
+      export HERMES_SESSION_ID="\$HERMES_EXPLICIT_RESOLVED"
+      export AIFY_SESSION_HANDLE="\$HERMES_EXPLICIT_RESOLVED"
       "\$HERMES_RUNTIME_COMMAND" --tui --resume "\$HERMES_EXPLICIT_RESOLVED" "\${HERMES_PERMISSION_FLAGS[@]}"
     else
       echo "[hermes-aify] explicit session '\$HERMES_SESSION_HANDLE' is not resumable (gone from the SessionDB) — starting fresh." >&2
+      # CRITICAL (2026-06-05): the requested handle is DEAD and we are starting fresh, so CLEAR
+      # the exported handle. Otherwise the in-session bridge heartbeats the dead handle back, aify
+      # stores it, and the env bridge re-resumes it on every restart — an infinite dead-handle
+      # cycle that never captures the fresh session (the next-tech-lead 'fresh on every stop+start'
+      # bug). Cleared, the bridge DISCOVERS the fresh session's real id and reports THAT.
+      unset HERMES_SESSION_ID AIFY_SESSION_HANDLE AIFY_EXPLICIT_SESSION_HANDLE HERMES_EXPLICIT_SESSION_HANDLE
       "\$HERMES_RUNTIME_COMMAND" --tui "\${HERMES_PERMISSION_FLAGS[@]}"
     fi
     _aify_hermes_on_exit
