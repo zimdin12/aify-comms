@@ -263,3 +263,25 @@ Turn lifecycle is explicit, but it is not lockstep. Agents may exchange messages
 5. Confirm the agent appears in **Sessions** and **Chat**.
 
 For full removal of the service, wrappers, MCP config, hooks, skills, and data volume, see [UNINSTALL.md](UNINSTALL.md).
+
+## Advanced tuning knobs (env vars)
+
+Read by the bridge with sane defaults; most operators never set them. Set them in the environment that launches `aify-comms` / the per-runtime wrapper.
+
+| Var | Default | Effect |
+|-----|---------|--------|
+| `AIFY_HTTP_TIMEOUT_MS` | `20000` | HTTP timeout for bridge→service calls. |
+| `AIFY_DISPATCH_POLL_MS` | `3000` | Resident dispatch poll cadence. |
+| `AIFY_COMMS_CHANNEL_POLL_MS` | `3000` | Channel-sidecar poll cadence (legacy aliases `AIFY_CLAUDE_CHANNEL_POLL_MS` / `AIFY_HERMES_CHANNEL_POLL_MS`). |
+| `AIFY_SESSION_HEARTBEAT_MS` | `60000` | Per-session liveness heartbeat. |
+| `AIFY_ENVIRONMENT_HEARTBEAT_MS` | `30000` | Environment-bridge heartbeat. |
+| `AIFY_TERMINAL_CONTROL_POLL_MS` | `800` | Terminal-control poll cadence. |
+| `AIFY_NO_AUTO_ANSWER` | unset | `=1` disables managed-claude TUI boot-prompt auto-answer. |
+| `AIFY_NO_CONSOLE_KEEPALIVE` / `AIFY_CONSOLE_KEEPALIVE_MS` | on / `4000` | Kill-switch / cadence for the managed-claude PTY repaint keepalive. |
+| `AIFY_TERMINAL_BRIDGE` | `1` | `=0` disables bridge-owned PTY support (forces native controller fallback). |
+| `AIFY_BRIDGE_DISABLED` | unset | `=1` kill-switch for the whole bridge. |
+| `AIFY_FORCE_REGISTER` | unset | Force re-register on boot. |
+| `AIFY_HERMES_FS_UNSAFE` | unset | `=1` disables FS path-safety in the hermes ACP session (use with care). |
+| ~20 `AIFY_HERMES_*` gateway/attach timers | various | Internal hermes-managed timing (READY_MS, RPC_TIMEOUT_MS, ATTACH_*, GATEWAY_PROBE_*, NO_TUI_TEARDOWN_CYCLES, …) — see `mcp/stdio/hermes-managed-host.js`. Not normally touched. |
+
+Documented per-runtime elsewhere: `AIFY_HERMES_COMMAND`/`HERMES_COMMAND` + `AIFY_HERMES_IDLE_TIMEOUT_MS` (install.hermes.md), `AIFY_CODEX_COMMAND` + `AIFY_CODEX_IDLE_TIMEOUT_MS` (install.codex.md), `AIFY_PI_COMMAND`/`PI_COMMAND` + `AIFY_PI_IDLE_TIMEOUT_MS` (install.pi.md), `AIFY_CLAUDE_STRICT_MCP` (install.claude.md / DECISIONS.md).

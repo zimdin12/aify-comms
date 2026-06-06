@@ -87,3 +87,20 @@ His pass converged with mine + ADDED the root cause of C2 and one new critical:
 8. **OPTIONAL batch** behind explicit go-ahead.
 
 Each step: implement → test → (service→rebuild / bridge→reinstall / install.sh→relaunch) → separate commit → push. comms-senior-dev to verify the MC1 active-removal doesn't break working-derivation.
+
+---
+
+## EXECUTION LOG (2026-06-06)
+
+**CRITICAL — all shipped:** MC1 (active-status: bridges + server enum-validate + dashboard canonical label + help + test), MC2 (register-guard reply text), MC3 (hermes kill-prior real-id matcher, bash+PS1), MC4 (dashboard Restart verb), MC5(a) (trigger field). Plus the new **hermes stuck-`working`** fix (gateway "ready"/done → turn-end) and the laputa **stale leak-test** + nits.
+
+**OPTIONAL — shipped:** his#4 (derive() comment), O2 (comms_dispatch reply contract), A4 (pi/opencode no-resume), M2 (runtime-list parity test), keepalive idle-grace gate, O5 (skill mirror-parity test), O7 (tuning-knobs reference in BRIDGE_SETUP.md).
+
+**OPTIONAL — remaining:** MC5(b) debug-skill split into `references/`; O4 usage-skill prose trim.
+
+**M1 — DEFERRED for safety (deliberate).** Feeding `_apply_status_event` from the dispatch lifecycle is FUTURE-PROOFING (no current managed path bypasses `reportTurnBusy`→`/heartbeat`, which already feeds both engines). The safe wiring would have to touch the nuanced terminal-state `turn_busy`-clearing logic (the send-deadlock fix at `api_v2.py:18107-18129`), which carries real regression risk for zero current benefit. Per "only act on what we're SURE of," deferred until a future managed path actually asserts working via the dispatch-run lifecycle. The 30-min `in_turn` backstop already bounds any worst case.
+
+**React-migration carry-overs (do NOT churn the OLD dashboard — the new one is the target):**
+- A3/A5 — settle ONE home for lifecycle verbs (Identity Directory vs Sessions divergence; "Stop wake"/"Resume wake" vs "Stop"/missing-"Resume" label divergence).
+- B3 — the Hermes `mcp_aify_comms_*` tool-name prefix is only documented in the skill; surface it in the tool descriptions or normalize names in the new dashboard's agent view.
+- A4 (UI copy) — show an explicit "managed-only · no resident resume" note for pi/opencode (the old dashboard just hides the block; the new one should explain).
