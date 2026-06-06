@@ -147,6 +147,7 @@ export class TerminalProcessManager {
     autoAnswer = true,
     autoAnswerKeyDelayMs = 150,
     consoleKeepaliveMs = 4000,
+    consoleKeepaliveIdleGraceTicks = 30,
   } = {}) {
     this.onOutput = onOutput;
     this.onExit = onExit;
@@ -160,6 +161,10 @@ export class TerminalProcessManager {
     // while its PTY is actively rendered, so an UNWATCHED working claude goes quiet on the PTY
     // and the console-working lease goes stale -> `online`. Nudge the PTY so it keeps emitting.
     this.consoleKeepaliveMs = Math.max(0, Number(consoleKeepaliveMs) || 0);
+    // After this many CONSECUTIVE idle-prompt ticks, stop nudging (zero churn on a truly-idle
+    // console). Default 30 ≈ 2 min at the 4s cadence. A working/unknown tick resets the streak;
+    // a new delivery's output re-arms it. See the IDLE-GRACE GATE in _armConsoleKeepalive.
+    this.consoleKeepaliveIdleGraceTicks = Math.max(1, Number(consoleKeepaliveIdleGraceTicks) || 30);
     this.idleFlushMs = Math.max(1, Number(idleFlushMs) || 16);
     this.maxLatencyMs = Math.max(this.idleFlushMs, Number(maxLatencyMs) || 33);
     this.maxBatchChars = Math.max(1024, Number(maxBatchChars) || 16 * 1024);
@@ -571,6 +576,20 @@ export class TerminalProcessManager {
     const tick = () => {
       const st = this.terminals.get(id);
       if (!st || !st.term) return;
+      // IDLE-GRACE GATE (2026-06-06): only nudge while work is plausible. We pause the
+      // SIGWINCH ONLY after the console has shown the IDLE PROMPT (consoleClass==="idle")
+      // for a sustained run of ticks. This is SAFE against the unwatched-working case the
+      // keepalive exists for: a working-but-quiet turn keeps consoleClass==="working" (it
+      // never rendered the idle prompt), so it is NEVER paused and keeps getting nudged;
+      // "unknown" also keeps nudging (could be working). When a genuinely idle agent receives
+      // a NEW turn, the delivered input produces output that reclassifies off "idle", so the
+      // next tick re-arms. Net: zero churn on a truly-idle console, full coverage of work.
+      if (st.consoleClass === "idle") {
+        st._kaIdleTicks = (st._kaIdleTicks || 0) + 1;
+      } else {
+        st._kaIdleTicks = 0;
+      }
+      if (st._kaIdleTicks > this.consoleKeepaliveIdleGraceTicks) return;
       const cols = Math.max(20, Number(st.cols || 100));
       const rows = Math.max(6, Number(st.rows || 28));
       try {

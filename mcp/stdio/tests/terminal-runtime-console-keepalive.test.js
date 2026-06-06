@@ -85,4 +85,30 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
   stop();
 }
 
+// (6) IDLE-GRACE GATE: a console sustained at the IDLE prompt stops getting nudged after the
+// grace; a working/unknown class keeps getting nudged; a flip back off "idle" re-arms.
+{
+  const resizes = [];
+  const mgr = new TerminalProcessManager({
+    onOutput: async () => {}, consoleKeepaliveMs: 5, consoleKeepaliveIdleGraceTicks: 3,
+  });
+  const claude = {
+    id: "t6", runtime: "claude-code", sessionMode: "managed", kind: "pty",
+    cols: 100, rows: 28, consoleClass: "working", term: { resize: (c, r) => resizes.push([c, r]) },
+  };
+  mgr.terminals.set("t6", claude);
+  const stop = mgr._armConsoleKeepalive("t6", claude);
+  await tick(40);                                  // working → keeps poking
+  assert.ok(resizes.length >= 2, "a working console keeps getting nudged");
+  claude.consoleClass = "idle";                    // genuinely idle now
+  await tick(60);                                  // > 3 grace ticks of idle
+  const pausedAt = resizes.length;
+  await tick(40);
+  assert.equal(resizes.length, pausedAt, "a sustained-idle console stops getting nudged (no churn)");
+  claude.consoleClass = "working";                 // new turn → output reclassifies off idle
+  await tick(40);
+  assert.ok(resizes.length > pausedAt, "a flip back off idle (new turn) re-arms the keepalive");
+  stop();
+}
+
 console.log("terminal-runtime-console-keepalive.test.js: all assertions passed");
