@@ -4707,10 +4707,12 @@ function sessionResumeCommand(session, agentInfo = {}) {
       ? `hermes-aify.cmd${agentFlag} --resume ${quoteCmd(handle)}`
       : `hermes-aify${agentFlag} --resume ${quoteShell(handle)}`);
   }
-  if (runtime === 'opencode') {
-    return prefix('opencode');
-  }
-  if (runtime === 'pi') {
+  if (runtime === 'opencode' || runtime === 'pi') {
+    // A4 (2026-06-06): pi and opencode are MANAGED-ONLY (no resident/CLI takeover surface —
+    // omp `--mode rpc` / opencode embedded-SDK are single-client). Show NO resume command
+    // rather than a misleading bare `opencode` — the resume-command block is hidden when
+    // empty. (Operator-facing "managed-only, no resident resume" copy is a React-dashboard
+    // carry-over; not worth plumbing a note through every call site of the old dashboard.)
     return '';
   }
   return '';

@@ -31,12 +31,14 @@ class StatusInputs:
 
 def derive(i: StatusInputs) -> str:
     """Map explicit inputs to one of VALID_STATUSES. First match wins."""
-    # Explicit stop / unreachable managed environment is offline regardless.
+    # Explicit stop / unreachable managed environment wins FIRST, regardless of turn state:
+    # a stopped or env-down agent is stopped/offline even mid-"turn" (the turn can't run).
     if i.disabled:
         return "stopped"
     if i.mode == "managed" and not i.env_reachable:
         return "offline"
-    # A turn in flight dominates (so a long turn never reads offline/available).
+    # AFTER those short-circuits, a turn in flight dominates the remaining LIVE states (so a
+    # long turn never falls back to idle/online/available — NOT offline, which already won above).
     if i.in_turn and i.awaiting_input:
         return "blocked"
     if i.in_turn:
