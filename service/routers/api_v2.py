@@ -3767,11 +3767,29 @@ _ANSI_RE = re.compile(
 )
 
 
+_CLAUDE_WORKING_FOOTER_RE = re.compile(
+    r"[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt"
+    r"|[✱✶✽✺✹✷✵✳✢✻]\s+\S+\s+for\s+\d+\s*[hms]\b",
+    re.I,
+)
+
+
 def _terminal_awaiting_input_hint(output: str) -> str:
     clean = _ANSI_RE.sub("", str(output or ""))
     clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
     tail = clean[-2000:].strip()
     if not tail:
+        return ""
+    # WORKING beats AWAITING-INPUT: a live claude spinner footer ("✻ <verb> for <N>s" /
+    # a spinner glyph on the "esc to interrupt" line) means claude is GENERATING — incl.
+    # while running subagents/Task tools — not waiting on the operator. Without this, the
+    # decision-flavored PROSE patterns below ("which option", "your call", "choose one")
+    # matched a subagent's verbose report and a busy claude read `blocked` mid-work (the
+    # subagent→blocked incident, 2026-06-07). A REAL interactive prompt pauses the spinner
+    # (claude is waiting), so this never suppresses a genuine y/n / decision prompt.
+    # Requires a real spinner glyph (mirrors claude-console-spinner.js), so claude writing
+    # "esc to interrupt" in prose can't itself manufacture the suppression.
+    if _CLAUDE_WORKING_FOOTER_RE.search(tail):
         return ""
     if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|enter\s+to\s+confirm|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", tail, re.I):
         return "Awaiting console confirmation."
@@ -6551,8 +6569,6 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
 
     settings = await _load_settings(db)
     stale_after = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
-    updated_at = _iso_to_epoch((terminal["updated_at"] if terminal else "") or "")
-    terminal_stale = bool(updated_at and (time.time() - updated_at) > stale_after)
     terminal_bridge_id = str((terminal["bridge_id"] if terminal else "") or "").strip()
     env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (owner_session["environment_id"],))).fetchone()
     env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
@@ -6563,7 +6579,16 @@ async def _release_stale_console_owner_for_claim(db, owner_session, req: Dispatc
         and terminal_bridge_id == str(env_row["bridge_id"] or "").strip()
     )
     active_status = terminal_status in {"starting", "attached", "running", "active", "idle"}
-    if terminal and active_status and bridge_current and not terminal_stale:
+    # Keep a live Console owner regardless of how long it has been QUIET. Liveness is
+    # bridge_current (the owning env bridge is online AND still owns this terminal's
+    # bridge_id) + active_status (the PTY has not posted a terminal/exit status) — NOT
+    # output age. An alive-but-quiet managed worker (idle between turns, or mid-turn
+    # not printing) legitimately emits nothing for minutes; releasing it on a ~90s
+    # output-age then respawned a fresh PTY on the NEXT dispatch — the terminal-churn
+    # / "terminal closes constantly" + accumulating terminal_sessions rows incident
+    # (2026-06-06). Age is not liveness; the env-offline + bridge-mismatch checks below
+    # (real liveness) still release a genuinely-dead owner.
+    if terminal and active_status and bridge_current:
         return {
             "reason": "console_owner_active",
             "sessionId": owner_session["id"],
@@ -6702,11 +6727,11 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         int(settings.get("environment_offline_seconds", 90) or 90),
         int(settings.get("resident_lease_seconds", 150) or 150),
     )
-    updated_at = _iso_to_epoch(row["updated_at"] or "")
-    if updated_at and (time.time() - updated_at) > stale_after:
-        await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
-        return None
-
+    # Do NOT release on terminal output-age: a live-but-quiet managed worker emits
+    # nothing for minutes between/within turns. Liveness is the owning env bridge being
+    # online + still owning this terminal's bridge_id (checked below) — not how long
+    # since the last PTY byte. (Output-age release caused the terminal churn /
+    # accumulating terminal_sessions rows; 2026-06-06.)
     env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (row["environment_id"],))).fetchone()
     env_status = _environment_effective_status(env_row, offline_seconds=stale_after) if env_row else "offline"
     if env_status not in {"online", "degraded"}:
