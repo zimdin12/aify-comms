@@ -2095,7 +2095,19 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     }
     // Not bound yet (or the bound session isn't live): fall back to the legacy
     // synthetic-key title match so a pre-native session still reports status.
-    return pickSessionStatusForKey(listResp, managedSessionKey);
+    const byKey = pickSessionStatusForKey(listResp, managedSessionKey);
+    if (byKey) return byKey;
+    // FINAL FALLBACK (2026-06-06): the hermes gateway keys active_list rows by the
+    // EPHEMERAL runtime id + a human task TITLE, never the durable session_key — so
+    // a resumed/captured session misses BOTH lookups above and returns "" (read as
+    // not-idle → the gateway's idle/ready turn-end is never observed → in_turn latches
+    // `working` until the 30-min backstop: the cms/next-* stuck-`working` incident).
+    // The gateway is PER-AGENT (its own port), so active_list holds ONLY this agent's
+    // session(s) — the most-recent row IS this agent's live session. Read its status
+    // so turn-end fires. SAFE: the detector's observed-working guard + multi-tick idle
+    // debounce still prevent ending a turn early on a transient idle blip.
+    const recentRow = pickMostRecentSessionRow(listResp);
+    return String(recentRow?.status || "").trim();
   };
   // NO-TUI TEARDOWN BACKSTOP (FIX SET A2). Count the gateway host's ATTACHED
   // sessions via session.active_list. A visible TUI (or any non-loop WS client)
@@ -2166,6 +2178,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     postTurnStart: () => reportTurnBusy(httpCall, id, { busy: true }).catch(() => {}),
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
     postTurnEnd: () => clearTurn(httpCall, id).catch(() => {}),
+    // Re-stamp turn-busy while the gateway stays WORKING so a turn longer than the
+    // dispatch re-pulse window (~15min) never expires turn_busy → `online` while working.
+    // Mirrors the re-pulse cadence (45s), comfortably under the 120s server stale window.
+    workingRefreshMs: REPULSE_MS,
   });
 
   let totalProcessed = 0;

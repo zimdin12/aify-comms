@@ -105,6 +105,9 @@ export function startHermesGatewayTurnDetector({
   readGatewayStatus,
   postTurnStart,
   postTurnEnd,
+  // Re-stamp turn-busy while the gateway reports WORKING, every workingRefreshMs.
+  // MUST be < the server's TURN_BUSY_STALE_SECONDS (120s) so it can't go stale.
+  workingRefreshMs = 45000,
 }) {
   const noop = () => {};
   if (
@@ -117,6 +120,8 @@ export function startHermesGatewayTurnDetector({
   }
   let stopped = false;
   const detector = makeGatewayTurnDetector({ idleDebounce });
+  const refreshMs = Math.max(0, Number(workingRefreshMs) || 0);
+  let workingAccumMs = 0;
 
   const tick = async () => {
     if (stopped) return;
@@ -127,6 +132,27 @@ export function startHermesGatewayTurnDetector({
       // Gateway hiccup → unknown status → detector treats it as a transient
       // no-op (never a false turn-end). Skip this tick entirely.
       return;
+    }
+    // KEEP-FRESH (2026-06-07): turn-start below is EDGE-triggered (stamped ONCE), and the
+    // dispatch re-pulse only refreshes for REPULSE_WINDOW_MS (~15min) after a submit — so a
+    // LONGER or AUTONOMOUS turn stops being refreshed, the server expires turn_busy after
+    // TURN_BUSY_STALE_SECONDS (120s) / in_turn after the 30-min backstop, and the agent reads
+    // `online` while STILL working (the next-senior-dev long-refactor incident). While the
+    // gateway reports WORKING, re-stamp turn-busy every workingRefreshMs (< 120s). This is
+    // gateway-truth-driven (not the server's derived status), so the anti-feedback invariant
+    // holds; a non-working tick resets the accumulator so it never refreshes a finished turn.
+    if (refreshMs && isGatewaySessionWorking(status)) {
+      workingAccumMs += intervalMs;
+      if (workingAccumMs >= refreshMs && typeof postTurnStart === "function" && !stopped) {
+        workingAccumMs = 0;
+        try {
+          await postTurnStart();
+        } catch {
+          /* best-effort; the next refresh tick retries */
+        }
+      }
+    } else {
+      workingAccumMs = 0;
     }
     let directive = null;
     try {

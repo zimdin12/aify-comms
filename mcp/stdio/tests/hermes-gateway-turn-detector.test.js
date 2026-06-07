@@ -164,3 +164,54 @@ test("startHermesGatewayTurnDetector: no-op with invalid params", () => {
   startHermesGatewayTurnDetector({})(); // must not throw
   startHermesGatewayTurnDetector({ intervalMs: 0, readGatewayStatus: async () => "x" })();
 });
+
+test("startHermesGatewayTurnDetector: re-stamps turn-busy while WORKING (long turn never goes stale)", async () => {
+  // The bug: turn-start is edge-triggered (once), so a turn longer than the dispatch
+  // re-pulse window let the server expire turn_busy → `online` while still working
+  // (next-senior-dev long refactor). While the gateway stays WORKING, the detector must
+  // keep re-stamping turn-busy so last_event_at never crosses the server stale window.
+  let starts = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 3,
+    workingRefreshMs: 12, // refresh ~every 12ms while working
+    readGatewayStatus: async () => "working", // one long, uninterrupted turn
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+  });
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+  // 1 edge "start" + several periodic refreshes — NOT a single edge that then goes stale.
+  assert.ok(starts >= 3, `a sustained working turn must keep re-stamping turn-busy (got ${starts})`);
+});
+
+test("startHermesGatewayTurnDetector: workingRefreshMs=0 keeps edge-only turn-start", async () => {
+  let starts = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 3,
+    workingRefreshMs: 0, // disabled → edge-triggered only (back-compat)
+    readGatewayStatus: async () => "working",
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+  });
+  await new Promise((r) => setTimeout(r, 50));
+  stop();
+  assert.equal(starts, 1, "refresh disabled → exactly one edge /turn-start");
+});
+
+test("startHermesGatewayTurnDetector: refresh does not cause a false turn-end, and still ends on sustained idle", async () => {
+  // working (refreshing) then sustained idle → exactly one end; refresh must not interfere.
+  let ends = 0, i = 0;
+  const stop = startHermesGatewayTurnDetector({
+    intervalMs: 5,
+    idleDebounce: 2,
+    workingRefreshMs: 8,
+    readGatewayStatus: async () => { i++; return i <= 4 ? "working" : "idle"; },
+    postTurnStart: async () => {},
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 70));
+  stop();
+  assert.equal(ends, 1, "sustained idle after a refreshing working turn → exactly one /turn-end");
+});
