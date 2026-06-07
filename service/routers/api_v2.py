@@ -17535,6 +17535,7 @@ async def _prune_terminal_history(
     terminal_event_ttl_hours: int = 24,
     dispatch_event_ttl_hours: int = 72,
     ended_output_ttl_hours: int = 24,
+    terminal_control_ttl_hours: int = 24,
     chunk: int = 5000,
     max_chunks: int = 200,
 ) -> dict[str, int]:
@@ -17547,7 +17548,7 @@ async def _prune_terminal_history(
     output blob of long-ended terminals. Chunked deletes keep each statement
     short so a live control plane is never locked for long.
     """
-    counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0}
+    counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0, "terminal_controls": 0}
     keep_events_per_terminal = 200
 
     async def _chunked_delete(sql: str, params: tuple) -> int:
@@ -17612,6 +17613,21 @@ async def _prune_terminal_history(
     )
     await db.commit()
     counts["ended_output_cleared"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+    # terminal_controls retention (2026-06-07): this is the runtime command QUEUE — once a
+    # control is HANDLED (handled_at set) it is pure delivered-keystroke audit history. It was
+    # never pruned, so it grew unbounded (13k+ rows over 4 days, dominated by per-keystroke
+    # dashboard input). Delete ONLY handled controls past the TTL — a control with handled_at
+    # IS NULL is still PENDING (a bridge has not claimed/executed it yet) and MUST never be
+    # touched here, or a queued keystroke/resize/stop would be silently dropped. Chunked +
+    # indexed on id so a live control plane is never locked for long.
+    counts["terminal_controls"] = await _chunked_delete(
+        f"DELETE FROM terminal_controls WHERE id IN ("
+        f"SELECT id FROM terminal_controls "
+        f"WHERE handled_at IS NOT NULL AND handled_at < datetime('now', ?) "
+        f"ORDER BY id ASC LIMIT {int(chunk)})",
+        (f"-{max(1, int(terminal_control_ttl_hours))} hours",),
+    )
     return counts
 
 
