@@ -622,7 +622,14 @@ export class TerminalProcessManager {
       // Kill the whole process group instead.
       try { terminateProcessTree(terminal.term, "SIGTERM"); }
       catch { try { terminal.term.kill(); } catch {} }
-      await waitForExitOrTimeout(terminal.exitPromise, 1500);
+      const exited = await waitForExitOrTimeout(terminal.exitPromise, 1500);
+      if (!exited) {
+        // SIGTERM ignored within the grace (a wrapper that traps TERM, a wedged
+        // child) — escalate to SIGKILL so a Stop DETERMINISTICALLY halts the backing
+        // instead of leaving an orphan PTY for a reaper (2026-06-07).
+        try { terminateProcessTree(terminal.term, "SIGKILL"); } catch {}
+        await waitForExitOrTimeout(terminal.exitPromise, 1000);
+      }
       return { stopped: true };
     }
     try {

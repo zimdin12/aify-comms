@@ -11451,6 +11451,30 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                 (now, agent_id),
             )
 
+        # Halt the running backing (2026-06-07): Stop/Restart/Reset/CLI-takeover must PROMPTLY
+        # kill the live managed PTY, not just flip DB status. Previously only the agent-control
+        # stop enqueued a terminal stop, so the UI's session-control Stop left the worker running
+        # as a headless orphan until a reaper / the next Restart's reap-prior. Enqueue a terminal
+        # 'stop' for the session's live terminal(s). For restart/recreate the new spawn_request
+        # was already queued above (and an env-offline target 409'd before reaching here), so we
+        # never kill the old backing without a replacement queued. Resume is unaffected — it
+        # carries via the durable session_handle, not the live PTY.
+        live_terminals = await (await db.execute(
+            "SELECT id, environment_id, bridge_id, status FROM terminal_sessions WHERE session_id = ?",
+            (session_id,),
+        )).fetchall()
+        for term_row in live_terminals:
+            if str(term_row["status"] or "").strip().lower() in _TERMINAL_ACTIVE_STATUSES:
+                await _append_terminal_control(
+                    db,
+                    terminal_id=term_row["id"],
+                    environment_id=term_row["environment_id"] or "",
+                    bridge_id=term_row["bridge_id"] or "",
+                    action="stop",
+                    requested_by=req.from_agent or "dashboard",
+                    body=f"Session {action} from dashboard.",
+                )
+
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
         ws = await _get_ws(request)
