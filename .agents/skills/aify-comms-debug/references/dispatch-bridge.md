@@ -27,6 +27,7 @@
 - [Stale session handle causing prompt.submit failures (Plan 6 A)](#stale-session-handle-causing-promptsubmit-failures-plan-6-a)
 - [Fixed check: wrapper-backed channel claim must be child-owned](#fixed-check-wrapper-backed-channel-claim-must-be-child-owned)
 - [Managed claude freezes on boot at a prompt (resume / compaction / permissions)](#managed-claude-freezes-on-boot-at-a-prompt-resume-compaction-permissions)
+- [Run failed with a "provider rate-limiting, not your request — retry shortly" notice](#run-failed-with-a-provider-rate-limiting-not-your-request--retry-shortly-notice)
 - [General escalation](#general-escalation)
 
 ## Managed claude instance proliferation / a managed agent killed my session
@@ -516,9 +517,21 @@ cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a 
 appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
 and add a rule. Kill-switch: `AIFY_NO_AUTO_ANSWER=1` (set in the wrapper env) disables it.
 
-## General escalation
+## Run failed with a "provider rate-limiting, not your request — retry shortly" notice
 
-If none of the fixes above resolve the issue:
+**Symptom.** A dispatch run you sent comes back FAILED and the sender notice says something like
+*"provider rate-limiting, not your request — retry shortly"* rather than a raw API error.
+
+**This is expected, not an aify bug.** As of 2026-06-07 (`11e7a5a`), when a run fails because the
+underlying provider throttled the worker (an Anthropic "temporarily limiting requests" / "hit your
+limit" message, an HTTP 429/529, or an "overloaded" error), the failure mirrored back to the SENDER
+is rewritten into a clear, human notice instead of surfacing the raw provider/API error text. It
+means: the request was fine, the provider is rate-limiting the model right now, and you should
+**retry shortly**. The agent itself is healthy.
+
+**What to do.** Wait a short while and re-send — there is nothing to repair on the aify side. If the
+notice persists across many minutes, the provider throttle is sustained (check the agent's Console
+for the upstream provider message), but the run-failure path is working as designed.
 
 1. Capture the exact symptom (dispatch run ID, agent ID, error text).
 2. Hit `curl http://localhost:8800/api/v1/dispatch/runs/<id>` to get the raw run state.

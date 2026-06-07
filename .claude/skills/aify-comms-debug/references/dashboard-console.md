@@ -69,3 +69,20 @@ Paste and interactive input are unchanged. If copy still fails after updating, t
 **Cause.** Pre-`fd00c85`, `start_session_console` always created a fresh terminal_session, even when the agent_session already had a live `terminal_id` in `{starting, attached, running, active, idle, recovering}`.
 
 **Fix.** Already fixed in `fd00c85` — the endpoint now checks the existing terminal_id first and returns `{reused:true, terminal:{...}}` without spawning a sibling. Audit event `console_attach_reused_existing` confirms it in the audit log. If you still see it, container needs rebuild to pick up the api_v2.py change.
+
+## Fresh Console seed starts with garbage / a broken ANSI escape
+
+**Symptom.** Opening a Console (a fresh xterm attach) sometimes renders a line or two of on-screen
+garbage at the very top of the scrollback — stray characters or a half-applied color/format — before
+the live stream looks normal.
+
+**Cause.** The seed sent to a freshly-attached xterm is the tail of the server-side terminal-output
+buffer (capped at ~64KB). The buffer used to be trimmed to that cap at a raw BYTE boundary, so the
+seed could begin in the MIDDLE of an ANSI escape sequence (`ESC[...m`). xterm then interpreted the
+truncated escape's leftover bytes as literal output → the garbage at the top of the seed.
+
+**Fix (`4a0bfb8`, 2026-06-07).** The 64KB buffer now trims at a clean LINE boundary (it drops to the
+next newline rather than cutting mid-byte), so the seed always starts at the beginning of a line and
+never mid-escape — a fresh xterm seed no longer renders broken-ANSI garbage. Cosmetic only (it never
+affected delivery or the live stream). `dashboard.html` and the service buffer are COPY'd into the
+image — rebuild the service if you still see seed garbage after updating.

@@ -46,6 +46,15 @@ The canonical verbs:
 Old dashboards/scripts that said "Recreate" or called the removed `recover`/`resume`
 session actions should map to **Reset (fresh context)** or **Restart** respectively.
 
+**Stop/Restart/Reset/cli_takeover now SYNCHRONOUSLY kill the live managed PTY (2026-06-07,
+`8ef31a2`).** A session-control action enqueues a terminal stop, and `TERMINAL_MANAGER.stop`
+escalates SIGTERM→SIGKILL on the managed PTY in-band, so the live worker is gone by the time
+the action returns. This closes the old gap where an operator Stop/Restart left a headless
+orphan (live PTY, no claimer) hanging until the 60s `_reconcile_managed_worker_hygiene`
+hygiene reaper swept it. The 60s reaper is now the BACKSTOP for crash/leak residue only — a
+clean lifecycle action no longer relies on it. (Restart/Reset then re-spawn fresh per the
+verbs above; the kill is the teardown half of the same action.)
+
 ## resident↔managed switch is now safe (handle carries; pi/opencode managed-only)
 
 **Symptom (old footgun).** Switching a pi/opencode agent to resident left it

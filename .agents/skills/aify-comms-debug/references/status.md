@@ -2,7 +2,7 @@
 
 ## Contents
 
-- [Status labels: online vs available vs idle vs working vs stale vs offline vs stopped](#status-labels-online-vs-available-vs-idle-vs-working-vs-stale-vs-offline-vs-stopped)
+- [Status labels: online vs available vs idle vs working vs blocked vs stale vs offline vs stopped](#status-labels-online-vs-available-vs-idle-vs-working-vs-blocked-vs-stale-vs-offline-vs-stopped)
 - [`status_engine=new` is the live event engine — managed/channel `working` is FIXED (4d52571)](#status_enginenew-is-the-live-event-engine-managedchannel-working-is-fixed-4d52571)
 - [`available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast](#availableonline-is-prompt-now-and-unrelated-to-auto-close-resident-clean-exit-drops-online-fast)
 - [Session status is derived now — no more "Stopped/Stale but running"](#session-status-is-derived-now-no-more-stoppedstale-but-running)
@@ -12,8 +12,9 @@
 - [Agent shows online without a console (Plan 5 Section C)](#agent-shows-online-without-a-console-plan-5-section-c)
 - [Managed claude shows `online` while it is clearly thinking](#managed-claude-shows-online-while-it-is-clearly-thinking)
 - [Managed claude flaps to `online` while working — but only when the Console is CLOSED](#managed-claude-flaps-to-online-while-working-but-only-when-the-console-is-closed)
+- [Managed claude showed `blocked` mid-generation (2026-06-07)](#managed-claude-showed-blocked-mid-generation-2026-06-07)
 
-## Status labels: online vs available vs idle vs working vs stale vs offline vs stopped
+## Status labels: online vs available vs idle vs working vs blocked vs stale vs offline vs stopped
 
 **Question.** Operator confusion — "is `idle` the same as `stale`? is `available` the same
 as `online`?" They are distinct signals. Canonical reference:
@@ -24,12 +25,16 @@ as `online`?" They are distinct signals. Canonical reference:
 | `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
 | `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
 | `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `blocked` | Active run, but the terminal tail looks like it needs operator input/a decision (a prompt/question awaiting an answer, not healthy generation). |
 | `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
 | `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
 | `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
 
 Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
-adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close. Key
+adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
+`blocked` is a sub-state of an active run (not a separate down-state): the run is live but
+the terminal tail reads as awaiting operator input/a decision rather than healthy generation
+(2026-06-07 — see "Managed claude showed `blocked` mid-generation"). Key
 distinctions: `available` ≠ `online` (no live worker yet — it boots one on send); `idle` is
 NOT a separate down-state, it's an `online` worker just gone quiet; `stale` is resident-only
 and means a LIVE-but-expired bridge lease, not an old label that "stuck".
@@ -150,7 +155,12 @@ rather than waiting out a staleness window. A headless orphan (live sidecar, no
 console — a visible-TUI violation and a proliferation source) reports `available` and
 is reaped by `_reconcile_managed_worker_hygiene` (60s reconcile loop), which now
 covers the hermes triad and also reaps ghost console rows (dead worker, stale
-`attached` terminal). Host-side defenses back this: the managed worker tree is
+`attached` terminal). **As of 2026-06-07 (`8ef31a2`) the 60s reaper is the BACKSTOP, not
+the primary path for lifecycle-driven teardown:** Stop/Restart/Reset/cli_takeover now
+SYNCHRONOUSLY kill the live managed PTY (session-control enqueues a terminal stop;
+`TERMINAL_MANAGER.stop` escalates SIGTERM→SIGKILL), so they no longer leave a headless
+orphan waiting out the 60s hygiene reaper — the orphan path now only catches crash/leak
+residue, not an operator Stop/Restart. Host-side defenses back this: the managed worker tree is
 tree-killed when its console PTY closes, the channel-sidecar self-exits once its
 parent process is gone, and the env bridge reaps console rows whose local
 `process_id` is dead. After updating, restart the affected environment bridge or
@@ -232,9 +242,13 @@ deliverable)"). The inverse case is also handled: a live sidecar with no console
 is a "headless orphan" (visible-TUI violation + proliferation source) — it reads
 `available` and is reaped by `_reconcile_managed_worker_hygiene` (60s reconcile
 loop), backed host-side by PTY-close tree-kill of the worker and channel-sidecar
-self-exit when its parent claude is gone. If you see `available` with a live
-Console, the sidecar is down — restart the wrapper (and ensure the
-self-heal/per-agent-id build is deployed).
+self-exit when its parent claude is gone. (2026-06-07, `8ef31a2`: an operator
+Stop/Restart/Reset/cli_takeover now kills the managed PTY SYNCHRONOUSLY —
+session-control enqueues a terminal stop and `TERMINAL_MANAGER.stop` escalates
+SIGTERM→SIGKILL — so a lifecycle action no longer strands a headless orphan for the
+60s reaper; the reaper is the backstop for crash/leak residue.) If you see
+`available` with a live Console, the sidecar is down — restart the wrapper (and
+ensure the self-heal/per-agent-id build is deployed).
 
 ## Agent shows online without a console (Plan 5 Section C)
 
@@ -301,3 +315,23 @@ cadence override `AIFY_CONSOLE_KEEPALIVE_MS`. If it still flaps after deploy: co
 keepalive is armed (managed claude PTY) and the service carries the 20s TTL. *Note — not a
 time-grace:* a deaf/stale console can be recent too, so no age threshold distinguishes "working
 but unwatched" from "wedged"; forcing the signal to keep flowing is the only truthful fix.
+
+## Managed claude showed `blocked` mid-generation (2026-06-07)
+
+**Symptom.** A managed claude with a live active run flips to `blocked` while it is actually
+generating — typically right after a subagent/Task dispatch whose prose contains
+decision-flavored language ("which option do you want", "your call", "let me know how to
+proceed"). The agent is not actually stuck at a prompt; it's still producing tokens.
+
+**Cause.** The awaiting-input classifier read the terminal tail for prompt-/decision-shaped
+phrasing to derive `blocked`. Subagent/Task PROSE that merely *discusses* a decision tripped
+it, so a busy claude mid-generation got mislabeled `blocked`.
+
+**Fix (`4ef1db3`, 2026-06-07).** A live spinner footer **short-circuits** the awaiting-input
+hint: when the managed PTY tail carries a running spinner (`✻ … esc to interrupt` /
+`✻ <verb> for <N>s`), claude is provably generating, so decision-flavored subagent/Task prose
+no longer fires `blocked` while the spinner runs. A REAL prompt pauses the spinner (claude
+stops emitting the footer when it's actually waiting on the menu/question), so a genuine
+awaiting-input state still reads `blocked` — the spinner's presence/absence is the
+discriminator. If a busy managed claude still flips to `blocked` after deploy, confirm the
+service was rebuilt and the spinner footer actually renders in the Console.
