@@ -111,4 +111,41 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
   stop();
 }
 
+// (7) CONSOLE-CLASS FLAP (status-accuracy Task 2): a managed-claude console whose consoleClass
+// flaps working → unknown → working across ticks must KEEP getting nudged — only a SUSTAINED idle
+// run (> grace) pauses. The idle accumulator resets to 0 on ANY non-idle class (working AND
+// unknown), so a transient mid-turn unknown blip can never accumulate toward the idle-grace pause
+// and drop the keepalive on a still-working turn (which would let the 20s console-working lease
+// lapse → false `online`). Guards against the SIGWINCH-keepalive-misfire-on-flap regression.
+{
+  const resizes = [];
+  const mgr = new TerminalProcessManager({
+    onOutput: async () => {}, consoleKeepaliveMs: 5, consoleKeepaliveIdleGraceTicks: 3,
+  });
+  const claude = {
+    id: "t7", runtime: "claude-code", sessionMode: "managed", kind: "pty",
+    cols: 100, rows: 28, consoleClass: "working", term: { resize: (c, r) => resizes.push([c, r]) },
+  };
+  mgr.terminals.set("t7", claude);
+  const stop = mgr._armConsoleKeepalive("t7", claude);
+  // Drive a working → unknown → working flap across several ticks, holding each class long enough
+  // to span more than `consoleKeepaliveIdleGraceTicks` worth of ticks — far longer than the grace
+  // a SUSTAINED idle would need to pause. A flapping (never-sustained-idle) console must NOT pause.
+  await tick(40);                                  // working
+  claude.consoleClass = "unknown"; await tick(40); // unknown (could be working — keep nudging)
+  claude.consoleClass = "working"; await tick(40); // working again
+  claude.consoleClass = null;      await tick(40); // null/unknown class
+  claude.consoleClass = "working"; await tick(40); // working again
+  const flapResizes = resizes.length;
+  assert.ok(flapResizes >= 8, `a working↔unknown flap keeps getting nudged (got ${flapResizes})`);
+  // Now a genuinely SUSTAINED idle must pause (proves the gate still works — the flap above wasn't
+  // ignoring the gate entirely).
+  claude.consoleClass = "idle";
+  await tick(80);                                  // >> 3 grace ticks of sustained idle
+  const pausedAt = resizes.length;
+  await tick(40);
+  assert.equal(resizes.length, pausedAt, "only SUSTAINED idle pauses the keepalive (the flap did not)");
+  stop();
+}
+
 console.log("terminal-runtime-console-keepalive.test.js: all assertions passed");
