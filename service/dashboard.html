@@ -589,6 +589,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;background:li
 .topbar-live{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:.82em;white-space:nowrap}
 .topbar-live::before{content:"";width:8px;height:8px;border-radius:999px;background:var(--state-online);box-shadow:0 0 0 4px #55c47518}
 .topbar-live.disconnected::before{background:var(--state-error);box-shadow:0 0 0 4px #f2706b18}
+.version-badge{display:inline-flex;align-items:center;font-size:.74em;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;padding:3px 8px;border-radius:999px;border:1px solid #282d30;background:#0a0b0c}
+.version-badge[hidden]{display:none}
+.version-badge.behind{color:#f4c969;border-color:color-mix(in srgb,#f4c969 45%,#282d30);background:color-mix(in srgb,#f4c969 12%,#0a0b0c);cursor:help}
 .page>h2{font-size:1.55em;margin-bottom:8px}
 .page-head-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .page-head-row h2{margin:0;font-size:1.55em}
@@ -711,6 +714,8 @@ tr:hover{background:#1b1f21}
 .status-bar-track{height:8px;border-radius:999px;background:#0a0b0c;border:1px solid #282d30;overflow:hidden}
 .status-bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--state-info),color-mix(in srgb,var(--state-info) 45%,#0a0b0c))}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
+.chat-analytics{padding:6px 4px 18px}
+.chat-analytics-h{margin:18px 0 4px;font-size:.82em;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
 .table-wrap{width:100%;max-width:100%;overflow:visible}
 .sessions-grid{table-layout:fixed}
 .sessions-grid th:nth-child(1),.sessions-grid td:nth-child(1){width:38px}
@@ -1128,13 +1133,13 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
 <body>
 
 <div class="sidebar" id="sidebar">
-  <button class="toggle-btn" title="Collapse or expand navigation" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">&laquo;</button>
+  <button class="toggle-btn" title="Collapse or expand navigation" onclick="toggleSidebar()">&laquo;</button>
   <h1 id="sidebar-brand">AIFY Comms</h1>
   <div class="ver">v4.0.0</div>
   <div class="nav">
     <div class="nav-section">Work</div>
-    <a onclick="showPage('dashboard')" id="nav-dashboard" class="active" title="Control Room"><span><b>Control</b><small>live overview</small></span></a>
-    <a onclick="showPage('chat')" id="nav-chat" title="Chat"><span><b>Chat</b><small>DMs and rooms</small></span></a>
+    <a onclick="showPage('chat')" id="nav-chat" class="active" title="Chat"><span><b>Chat</b><small>DMs and rooms</small></span></a>
+    <a onclick="showPage('dashboard')" id="nav-dashboard" title="Control Room"><span><b>Control</b><small>live overview</small></span></a>
     <a onclick="showPage('work')" id="nav-work" title="Work Loop"><span><b>Work Loop</b><small>contracts</small></span></a>
     <div class="nav-section">Runtime</div>
     <a onclick="showPage('environments')" id="nav-environments" title="Environments"><span><b>Environments</b><small>spawn targets</small></span></a>
@@ -1156,6 +1161,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
       <strong class="app-title" id="app-page-title">Control Room</strong>
     </div>
     <div class="topbar-meta">
+      <span class="version-badge" id="version-badge" hidden></span>
       <span class="topbar-live" id="topbar-live">Live</span>
       <button class="btn btn-sm" title="Refresh all dashboard data now" onclick="refreshDashboard()">Refresh</button>
     </div>
@@ -1172,7 +1178,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   </div>
 
   <!-- ============ DASHBOARD ============ -->
-  <div class="page active" id="page-dashboard">
+  <div class="page" id="page-dashboard">
     <div class="ops-hero">
       <div>
         <h2>Control Room</h2>
@@ -1261,7 +1267,7 @@ input[type="checkbox"]::before{background:var(--secondary-contrast)}
   </div>
 
   <!-- ============ CHAT ============ -->
-  <div class="page" id="page-chat">
+  <div class="page active" id="page-chat">
     <div class="chat-shell">
       <aside class="chat-rail">
         <div class="chat-rail-head">
@@ -2040,6 +2046,7 @@ window._spawnRequests = [];
 window._sessions = [];
 window._channels = [];
 window._chatSelected = null;
+window._chatAnalyticsKey = localStorage.getItem('aifyChatAnalyticsKey') || null;
 window._mobileChatRailOpen = false;
 window._chatChannelMessages = {};
 window._chatReadMarking = new Set();
@@ -2076,6 +2083,9 @@ const TERMINAL_ACTIVITY_MS = 2200;
 window._chatInspectorHidden = localStorage.getItem('aifyChatInspectorHidden') === '1';
 if (window.matchMedia?.('(max-width:860px)').matches && localStorage.getItem('aifyChatInspectorHidden') === null) {
   window._chatInspectorHidden = true;
+}
+if (localStorage.getItem('aifySidebarCollapsed') === '1') {
+  document.getElementById('sidebar')?.classList.add('collapsed');
 }
 window._chatToolTab = localStorage.getItem('aifyChatToolTab') || 'find';
 if (!['find', 'filters', 'channels', ''].includes(window._chatToolTab)) window._chatToolTab = 'find';
@@ -2141,7 +2151,7 @@ function isKnownPage(name) {
 function initialPageFromLocation() {
   if (window.location.pathname.endsWith('/dashboard/dispatches')) return 'dispatches';
   const stored = localStorage.getItem('aifyDashboardPage') || '';
-  return isKnownPage(stored) ? stored : 'dashboard';
+  return isKnownPage(stored) ? stored : 'chat';
 }
 
 function pageTitle(name) {
@@ -2160,7 +2170,7 @@ function pageTitle(name) {
 }
 
 function showPage(name, updateHistory = true) {
-  if (!isKnownPage(name)) name = 'dashboard';
+  if (!isKnownPage(name)) name = 'chat';
   currentPage = name;
   localStorage.setItem('aifyDashboardPage', name);
   document.body.dataset.page = name;
@@ -5918,12 +5928,114 @@ async function toggleChatFavorite(event, agentId, currentlyFavorited) {
 
 async function selectChatConversation(key) {
   saveCurrentChatDraft();
+  // Clicking the already-selected DM toggles it closed and surfaces that
+  // agent's chat analytics instead of the message timeline. A second click on
+  // the same rail item (now deselected) reselects normally via the else branch.
+  if (key && key === window._chatSelected && key.startsWith('dm:')) {
+    window._chatSelected = null;
+    window._chatAnalyticsKey = key.slice('dm:'.length);
+    setChatAnalyticsPersisted(window._chatAnalyticsKey);
+    window._chatFollowBottom = true;
+    if (isMobileDashboard()) window._mobileChatRailOpen = false;
+    renderChat();
+    return;
+  }
   window._chatSelected = key;
+  window._chatAnalyticsKey = null;
+  setChatAnalyticsPersisted(null);
   window._chatFollowBottom = true;
   if (isMobileDashboard()) window._mobileChatRailOpen = false;
   if (key?.startsWith('channel:')) await refreshSelectedChannelMessages();
   loadCurrentChatDraft();
   renderChat();
+}
+
+function setChatAnalyticsPersisted(key) {
+  try {
+    if (key) localStorage.setItem('aifyChatAnalyticsKey', key);
+    else localStorage.removeItem('aifyChatAnalyticsKey');
+  } catch (_) {
+    // localStorage may be unavailable in some sandboxed contexts
+  }
+}
+
+async function renderChatAnalyticsPanel(timeline, agentId) {
+  const id = String(agentId || '').trim();
+  if (!timeline) return;
+  const closeBtn = actionButton('Back to chat', 'Close analytics and reselect this conversation', `closeChatAnalytics(${JSON.stringify(id)})`);
+  const header =
+    `<div class="banner"><div class="banner-row">` +
+    `<span><b>Chat analytics:</b> ${esc(id || 'unknown agent')}</span>${closeBtn}</div></div>`;
+  const signature = `analytics:${id}`;
+  if (timeline.dataset.analyticsKey !== signature) {
+    timeline.innerHTML = header + '<p class="em">Loading analytics…</p>';
+    timeline.dataset.analyticsKey = signature;
+  }
+  timeline.dataset.chatKey = '';
+  let data = {};
+  try {
+    data = await apiFetch(API + `/analytics/agent/${encodeURIComponent(id)}`).then(r => r.json());
+  } catch (_) {
+    data = {ok: false};
+  }
+  // The render may race a page switch; bail if analytics is no longer showing.
+  if (window._chatAnalyticsKey !== id || window._chatSelected) return;
+  if (!data || data.ok === false) {
+    timeline.innerHTML = header + '<p class="em">Analytics are unavailable for this agent right now.</p>';
+    return;
+  }
+  const total = Number(data.messageTotal || 0);
+  const workingMinutes = Math.max(0, Math.round(Number(data.workingMinutes || 0)));
+  const hours = Math.floor(workingMinutes / 60);
+  const mins = workingMinutes % 60;
+  const workingLabel = `${hours}h ${mins}m`;
+  const buckets = Array.isArray(data.messagesPerHourOfDay) ? data.messagesPerHourOfDay : [];
+  const hourMax = Math.max(1, ...buckets.map(n => Number(n || 0)));
+  const hourBars = buckets.length
+    ? `<div class="status-bars">` + buckets.map((count, hour) => {
+        const value = Number(count || 0);
+        const width = Math.max(2, Math.round((value / hourMax) * 100));
+        const label = String(hour).padStart(2, '0') + ':00';
+        return `<div class="status-bar-row"><span class="status-bar-label">${esc(label)}</span>` +
+          `<span class="status-bar-track"><span class="status-bar-fill" style="width:${width}%"></span></span>` +
+          `<span class="status-bar-value">${value}</span></div>`;
+      }).join('') + `</div>`
+    : '<p class="em">No hourly message data yet.</p>';
+  const peers = data.byPeer && typeof data.byPeer === 'object' ? data.byPeer : {};
+  const peerEntries = Object.entries(peers)
+    .map(([peer, count]) => [peer, Number(count || 0)])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const peerMax = Math.max(1, ...peerEntries.map(([, count]) => count));
+  const peerBars = peerEntries.length
+    ? `<div class="status-bars">` + peerEntries.map(([peer, count]) => {
+        const width = Math.max(2, Math.round((count / peerMax) * 100));
+        return `<div class="status-bar-row"><span class="status-bar-label clip-1"${titleAttr(peer)}>${esc(peer)}</span>` +
+          `<span class="status-bar-track"><span class="status-bar-fill" style="width:${width}%"></span></span>` +
+          `<span class="status-bar-value">${count}</span></div>`;
+      }).join('') + `</div>`
+    : '<p class="em">No direct-message peers yet.</p>';
+  timeline.innerHTML = header +
+    `<div class="chat-analytics">` +
+    `<div class="ops-strip">` +
+    `<div class="sc"><div class="n">${total}</div><div class="l">Direct messages</div></div>` +
+    `<div class="sc"><div class="n">${workingLabel}</div><div class="l">Working time</div></div>` +
+    `<div class="sc"><div class="n">${peerEntries.length}</div><div class="l">Peers</div></div>` +
+    `</div>` +
+    `<h3 class="chat-analytics-h">Messages by hour of day</h3>${hourBars}` +
+    `<h3 class="chat-analytics-h">Top peers</h3>${peerBars}` +
+    `</div>`;
+}
+
+function closeChatAnalytics(agentId) {
+  const id = String(agentId || '').trim();
+  window._chatAnalyticsKey = null;
+  setChatAnalyticsPersisted(null);
+  if (id) {
+    selectChatConversation(`dm:${id}`);
+  } else {
+    renderChat();
+  }
 }
 
 async function refreshSelectedChannelMessages() {
@@ -6035,6 +6147,20 @@ async function markSelectedChatRead() {
 
 function renderChat() {
   syncChatFromOptions();
+  // Analytics view: an open DM was clicked closed, so show that agent's chat
+  // analytics in the timeline area instead of forcing a new conversation
+  // selection. Render the rail (nothing active) + the panel, then bail before
+  // selectedChatMeta() auto-selects the first conversation.
+  if (window._chatAnalyticsKey && !window._chatSelected && chatMode() !== 'console') {
+    renderChatRail();
+    const timeline = document.getElementById('chat-timeline');
+    const titleEl = document.getElementById('chat-title');
+    const subtitleEl = document.getElementById('chat-subtitle');
+    if (titleEl) titleEl.textContent = 'Chat analytics';
+    if (subtitleEl) subtitleEl.textContent = window._chatAnalyticsKey;
+    renderChatAnalyticsPanel(timeline, window._chatAnalyticsKey);
+    return;
+  }
   const meta = selectedChatMeta();
   renderChatRail();
   updateChatControls(meta);
@@ -6080,6 +6206,12 @@ function renderChat() {
     ].join('\u001f');
   }).join('\u001e');
   const signature = [window._chatSelected || '', from, prelude, messageSignature].join('\u001d');
+  // If we are returning from the analytics panel, force a re-render even when
+  // the message signature happens to match a previously cached value.
+  if (timeline.dataset.analyticsKey) {
+    timeline._chatSignature = null;
+    delete timeline.dataset.analyticsKey;
+  }
   if (timeline._chatSignature !== signature) {
     timeline.innerHTML = !messages.length
       ? prelude + '<p class="em">No messages in this conversation yet.</p>'
@@ -6486,6 +6618,13 @@ function conversationHealthText({meta, messages, agentInfo, session, environment
   const run = latestRun ? ` Last run: ${humanStatusLabel(latestRun.status)}.` : '';
   const backing = session ? ` Backed by ${environment?.label || session.environmentId || 'an environment'}.` : ' No managed runtime backing is recorded.';
   return `${status}. ${wake}.${backing}${run}`;
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+  const collapsed = sidebar.classList.toggle('collapsed');
+  localStorage.setItem('aifySidebarCollapsed', collapsed ? '1' : '0');
 }
 
 function toggleChatInspector() {
@@ -8062,6 +8201,7 @@ async function refreshDashboard() {
       topbarLive.textContent = 'Live';
       topbarLive.classList.remove('disconnected');
     }
+    refreshVersionBadge();
   } catch(e) {
     updateConnectionStatus('● Disconnected', '#f85149');
     const topbarLive = document.getElementById('topbar-live');
@@ -8728,6 +8868,36 @@ async function saveSettings(e) {
   toast('Settings saved'); loadSettings();
 }
 
+async function refreshVersionBadge() {
+  const badge = document.getElementById('version-badge');
+  if (!badge) return;
+  let data;
+  try {
+    data = await apiFetch('/version').then(r => r.json());
+  } catch (_) {
+    // Fail silently — the badge stays hidden / shows its last good value.
+    return;
+  }
+  if (!data || data.ok === false) return;
+  const version = data.version || '';
+  const shaShort = data.sha_short || data.short || '';
+  const baseLabel = [version ? `v${version}` : '', shaShort].filter(Boolean).join(' · ');
+  const update = data.update || {};
+  const behind = update.behind_by;
+  if (typeof behind === 'number' && behind > 0) {
+    badge.classList.add('behind');
+    badge.textContent = `⚠ ${behind} commit${behind === 1 ? '' : 's'} behind — run git pull && ./redeploy.sh`;
+    badge.title = baseLabel ? `${baseLabel} — ${behind} behind origin/main` : `${behind} behind origin/main`;
+  } else {
+    badge.classList.remove('behind');
+    badge.textContent = baseLabel || 'version';
+    badge.title = behind === null || behind === undefined
+      ? `${baseLabel} — update status unavailable`.trim().replace(/^—\s*/, '')
+      : baseLabel;
+  }
+  badge.hidden = !badge.textContent;
+}
+
 // ─── Init ──────────────────────────────
 
 updateAppViewportVars();
@@ -8738,6 +8908,7 @@ showPage(initialPageFromLocation(), false);
 setupChatKeyboard();
 connectDashboardSocket();
 refreshDashboard();
+refreshVersionBadge();
 loadSettings();
 </script>
 </body>

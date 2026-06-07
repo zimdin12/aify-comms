@@ -19419,6 +19419,97 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         await db.close()
 
 
+@router.get("/analytics/agent/{agent_id}")
+async def get_agent_analytics(agent_id: str, request: Request):
+    """Per-agent chat analytics (additive — leaves GET /analytics untouched).
+
+    All counts are over the agent's DIRECT messages (source='direct'). Returns:
+      - messageTotal           total direct messages to/from the agent
+      - messagesPerHourOfDay   24 buckets keyed on hour-of-day (UTC)
+      - byPeer                 direct message counts grouped by the other party
+      - workingMinutes         minutes the agent spent as a dispatch target
+
+    PITFALL honored: messages.timestamp is epoch-ms INTEGER but
+    dispatch_runs.{started,finished}_at are ISO TEXT — working-minutes uses
+    julianday() on the run columns (never epoch arithmetic), NULL-guards both
+    run timestamps, and clamps the result >= 0.
+    """
+    db = await get_db()
+    try:
+        direct_where = "source = 'direct' AND (from_agent = ? OR to_agent = ?)"
+
+        total_c = await db.execute(
+            f"SELECT COUNT(*) FROM messages WHERE {direct_where}",
+            (agent_id, agent_id),
+        )
+        message_total = int((await total_c.fetchone())[0])
+
+        # Hour-of-day histogram (UTC) — 0..23, zero-filled.
+        hour_counts = {h: 0 for h in range(24)}
+        hod_c = await db.execute(
+            f"""
+            SELECT CAST(strftime('%H', datetime(timestamp / 1000, 'unixepoch')) AS INTEGER) AS hour,
+                   COUNT(*) AS cnt
+            FROM messages
+            WHERE {direct_where}
+            GROUP BY hour
+            """,
+            (agent_id, agent_id),
+        )
+        for row in await hod_c.fetchall():
+            h = row["hour"]
+            if h is not None and 0 <= int(h) <= 23:
+                hour_counts[int(h)] = int(row["cnt"] or 0)
+        messages_per_hour_of_day = [
+            {"hour": h, "count": hour_counts[h]} for h in range(24)
+        ]
+
+        # Per-peer counts: the other party on each direct message.
+        peer_c = await db.execute(
+            f"""
+            SELECT CASE WHEN from_agent = ? THEN to_agent ELSE from_agent END AS peer,
+                   COUNT(*) AS cnt
+            FROM messages
+            WHERE {direct_where}
+            GROUP BY peer
+            ORDER BY cnt DESC, peer ASC
+            """,
+            (agent_id, agent_id, agent_id),
+        )
+        by_peer = [
+            {"peer": row["peer"], "count": int(row["cnt"] or 0)}
+            for row in await peer_c.fetchall()
+            if row["peer"] is not None
+        ]
+
+        # Working minutes from dispatch_runs where this agent is the target.
+        # julianday() gives fractional days; *1440 -> minutes. Guard NULL run
+        # timestamps and clamp the sum >= 0.
+        work_c = await db.execute(
+            """
+            SELECT COALESCE(SUM((julianday(finished_at) - julianday(started_at)) * 1440), 0)
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND started_at IS NOT NULL
+              AND finished_at IS NOT NULL
+            """,
+            (agent_id,),
+        )
+        working_minutes_raw = (await work_c.fetchone())[0]
+        working_minutes = max(0.0, float(working_minutes_raw or 0))
+
+        return {
+            "ok": True,
+            "agentId": agent_id,
+            "messageTotal": message_total,
+            "messagesPerHourOfDay": messages_per_hour_of_day,
+            "byPeer": by_peer,
+            "workingMinutes": working_minutes,
+        }
+    finally:
+        await db.close()
+
+
 # ─── Clear ───────────────────────────────────────────────────────────────────
 
 @router.post("/clear")
