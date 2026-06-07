@@ -8498,11 +8498,46 @@ def _auto_handoff_subject_for_run(row) -> str:
     return f"Re: {subject}"
 
 
+def _is_provider_rate_limit_error(text: str) -> bool:
+    """A model-provider rate / usage / capacity limit (NOT an aify-comms bug).
+
+    These surface as run failures with provider error text; the sender deserves a clear,
+    actionable note ("retry shortly") rather than a raw API error string.
+    """
+    t = str(text or "").lower()
+    return any(
+        s in t
+        for s in (
+            "temporarily limiting requests",
+            "rate limit",
+            "rate-limit",
+            "ratelimit",
+            "hit your limit",
+            "usage limit",
+            "quota",
+            "too many requests",
+            "overloaded",
+            "529",
+            "429",
+        )
+    )
+
+
 def _auto_handoff_body_for_run(row) -> str:
     status = str((row["status"] if row else "") or "").strip().lower()
     from_agent = str((row["from_agent"] if row else "") or "").strip()
     if status == "failed":
         detail = str((row["error_text"] if row else "") or (row["summary"] if row else "") or "Run failed.").strip()
+        if _is_provider_rate_limit_error(detail):
+            # Sender-facing notice (2026-06-07): a provider rate/usage limit is transient and
+            # NOT the sender's fault — say so plainly so they retry instead of assuming the
+            # recipient ignored them. Flows through the existing auto-handoff delivery.
+            who = str((row["target_agent"] if row else "") or "").strip() or "The agent"
+            note = (
+                f"⚠️ {who} couldn't respond — its model provider is rate-limiting / at a usage "
+                "limit right now (a provider-side throttle, not your request). Please retry shortly."
+            )
+            return f"{note}\n\n{detail}"
         if from_agent == "dashboard":
             return f"The run failed before the agent sent a chat reply.\n\n{detail}"
         intro = "Auto-mirrored dispatch failure because no explicit reply message was recorded for the run."
