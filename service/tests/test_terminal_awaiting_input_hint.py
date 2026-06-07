@@ -50,3 +50,17 @@ def test_bare_prose_esc_to_interrupt_without_glyph_does_not_suppress():
     # NOT manufacture the working-suppression (mirrors the tightened bridge classifier).
     tail = "As I noted, press esc to interrupt is the shortcut. Which option do you want? your call:\n"
     assert _terminal_awaiting_input_hint(tail) != ""
+
+
+def test_real_prompt_after_a_stale_footer_is_still_detected():
+    # Position-aware (2026-06-07): a genuine prompt that renders AFTER an old spinner footer is
+    # the current bottom-of-screen state → must be flagged, NOT suppressed by the stale footer.
+    tail = "✻ Crunched for 1m 0s (esc to interrupt)\nFinished. Overwrite existing file? (y/n) "
+    assert _terminal_awaiting_input_hint(tail) == "Awaiting console confirmation."
+
+
+def test_prose_before_footer_is_suppressed_but_prompt_after_is_not():
+    # subagent decision prose BEFORE the live footer → stale scrollback (suppressed); but if a
+    # real y/n renders AFTER the footer it is detected. Here the footer is last → suppressed.
+    tail = "subagent says: which option, your call?\n✻ Synthesizing for 9s (esc to interrupt)\n"
+    assert _terminal_awaiting_input_hint(tail) == ""

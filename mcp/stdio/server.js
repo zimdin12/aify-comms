@@ -453,11 +453,24 @@ export function makeResidentGatewayStatusReader({
   const sessionKey = pinnedSessionId(agentId);
   let wsClient = null;
   let rpcId = 800000;
+  // BACKOFF (2026-06-07): once the gateway is sustained-dead (resident-lost / host gone),
+  // stop re-connecting every poll tick — each failed open eats a connect-timeout. After
+  // FAIL_THRESHOLD consecutive failures, actually probe only 1 in BACKOFF_EVERY reads
+  // (~10x fewer connects); the other reads return "" cheaply (a detector no-op). Any
+  // successful request resets it instantly, so a recovered gateway resumes within one cycle.
+  const FAIL_THRESHOLD = 3;
+  const BACKOFF_EVERY = 10;
+  let consecutiveFailures = 0;
+  let skipCounter = 0;
   const wsOpen = (client) => {
     const rs = client?._socket?.readyState;
     return rs === undefined || rs === 1; /* OPEN (or a fake test client w/o a socket) */
   };
   return async () => {
+    if (consecutiveFailures >= FAIL_THRESHOLD) {
+      skipCounter = (skipCounter + 1) % BACKOFF_EVERY;
+      if (skipCounter !== 0) return ""; // backed off — skip the connect attempt this tick
+    }
     try {
       if (!wsClient || !wsOpen(wsClient)) {
         try { wsClient?.close?.(); } catch { /* ignore */ }
@@ -466,6 +479,7 @@ export function makeResidentGatewayStatusReader({
       const listResp = await wsClient.request(
         buildSessionActiveListFrame({ id: rpcId++, currentSessionId: "" }),
       );
+      consecutiveFailures = 0; // the gateway responded → clear any backoff
       const realId = readSessionId(agentId);
       if (realId) {
         const byId = pickSessionStatusById(listResp, realId);
@@ -480,6 +494,7 @@ export function makeResidentGatewayStatusReader({
       // detector treats it as a transient no-op (never a false turn-end).
       try { wsClient?.close?.(); } catch { /* ignore */ }
       wsClient = null;
+      consecutiveFailures += 1;
       return "";
     }
   };

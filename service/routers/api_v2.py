@@ -3789,11 +3789,19 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     # (claude is waiting), so this never suppresses a genuine y/n / decision prompt.
     # Requires a real spinner glyph (mirrors claude-console-spinner.js), so claude writing
     # "esc to interrupt" in prose can't itself manufacture the suppression.
-    if _CLAUDE_WORKING_FOOTER_RE.search(tail):
+    # A real interactive prompt is the CURRENT bottom-of-screen state, so it appears AFTER the
+    # last live spinner footer; only scan the region after it (text before is stale scrollback
+    # while claude works — subagent/Task prose, or a y/n echoed in tool output mid-generation).
+    # If the footer is the very last thing → generating, not awaiting. No footer → scan all.
+    footer_end = -1
+    for _m in _CLAUDE_WORKING_FOOTER_RE.finditer(tail):
+        footer_end = _m.end()
+    region = tail[footer_end:] if footer_end >= 0 else tail
+    if not region.strip():
         return ""
-    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|enter\s+to\s+confirm|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", tail, re.I):
+    if re.search(r"(\(y/n\)|\[y/n\]|\by/n\b|\[y/N\]|\[Y/n\]|yes/no|press\s+(enter|any key)|enter\s+to\s+confirm|are you sure|overwrite\?|\bpassword\s*:\s*$|passphrase\s*:\s*$)", region, re.I):
         return "Awaiting console confirmation."
-    if re.search(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))", tail, re.I):
+    if re.search(r"(use arrows|press enter to (select|confirm)|\(use arrow keys\))", region, re.I):
         return "Awaiting console selection."
     # Claude Code can stop at an interactive prompt without emitting a formal
     # dashboard reply. This keeps the run active but no useful work is moving.
@@ -3802,12 +3810,12 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     # prompts after successful work too.
     decision_prompt = re.search(
         r"(tell me which|need (?:a )?decision|which (option|one)|choose (one|an option)|say the word)",
-        tail,
+        region,
         re.I,
     )
-    your_call_prompt = re.search(r"your call\s*(?:[:\u2014-]|\n|$)", tail, re.I) and re.search(
+    your_call_prompt = re.search(r"your call\s*(?:[:\u2014-]|\n|$)", region, re.I) and re.search(
         r"(decision|option|choose|execute|continue|switch|revert|debug|drive|say the word)",
-        tail,
+        region,
         re.I,
     )
     if decision_prompt or your_call_prompt:

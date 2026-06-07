@@ -140,6 +140,30 @@ test("makeResidentGatewayStatusReader: a WS open / RPC error reads as '' (never 
   assert.equal(await read(), "", "an unreadable gateway is '' (transient no-op for the detector)");
 });
 
+test("makeResidentGatewayStatusReader: backs off connecting a sustained-dead gateway, recovers on success", async () => {
+  let opens = 0;
+  let alive = false;
+  const read = makeResidentGatewayStatusReader({
+    agentId: "dave",
+    gatewayUrl: "ws://127.0.0.1:9100/api/ws?token=x",
+    openWs: async () => {
+      opens += 1;
+      if (!alive) throw new Error("gateway down");
+      return { request: async () => ({ sessions: [{ id: "real-1", status: "working" }] }), close() {} };
+    },
+    readSessionId: () => "real-1",
+  });
+  // 30 reads against a DEAD gateway: without backoff that's 30 connect attempts; with it,
+  // ~3 (threshold) + 1-in-10 thereafter — far fewer. All reads still return "" (detector no-op).
+  for (let i = 0; i < 30; i++) assert.equal(await read(), "");
+  assert.ok(opens <= 8, `backed off a dead gateway (got ${opens} connect attempts, expected <= 8)`);
+  // Gateway recovers → the next allowed probe succeeds and resets the backoff.
+  alive = true;
+  let recovered = "";
+  for (let i = 0; i < 12 && recovered !== "working"; i++) recovered = await read();
+  assert.equal(recovered, "working", "a recovered gateway resumes reads after the backoff window");
+});
+
 // ---------------------------------------------------------------------------
 // End-to-end wiring: the resident reader feeds the SAME
 // startHermesGatewayTurnDetector the managed loop uses. A stubbed gateway that
