@@ -36,6 +36,14 @@ fi
 
 built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
 
+# Escape backslash + double-quote so a branch name containing them can't produce
+# invalid JSON (git allows `"` and `\` in branch names; env overrides are unvalidated).
+_json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+sha="$(_json_escape "$sha")"
+short="$(_json_escape "$short")"
+branch="$(_json_escape "$branch")"
+built_at="$(_json_escape "$built_at")"
+
 cat > "$OUT" <<EOF
 {"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at"}
 EOF

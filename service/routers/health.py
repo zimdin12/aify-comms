@@ -3,6 +3,7 @@ Health and service info endpoints.
 Used by Docker healthchecks and by AI agents to discover the service.
 """
 
+import asyncio
 import time
 import urllib.request
 import json as _json
@@ -105,6 +106,9 @@ async def version():
     ``behind_by`` is null when offline / rate-limited / unknown sha.
     """
     config = get_config()
+    # _check_update may do a blocking GitHub call on a cache miss — run it in a worker thread
+    # so a slow/unreachable GitHub never stalls the event loop (this route is unauthenticated).
+    update = await asyncio.to_thread(_check_update, config.build_sha)
     return {
         "name": config.name,
         "version": config.version,
@@ -112,7 +116,7 @@ async def version():
         "sha_short": config.build_short,
         "branch": config.build_branch,
         "built_at": config.built_at,
-        "update": _check_update(config.build_sha),
+        "update": update,
     }
 
 

@@ -2454,7 +2454,7 @@ if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
   fi
   # Backend version (best-effort; silent on any failure).
   if command -v curl >/dev/null 2>&1; then
-    BACKEND_JSON="\$(curl -s --max-time 3 "\$SERVER_URL/api/v1/version" 2>/dev/null || true)"
+    BACKEND_JSON="\$(curl -s --max-time 3 "\$SERVER_URL/version" 2>/dev/null || true)"
     if [ -n "\${BACKEND_JSON:-}" ]; then
       echo "  backend: \$BACKEND_JSON"
     fi

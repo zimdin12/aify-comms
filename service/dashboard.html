@@ -1744,6 +1744,7 @@ codex-aify --aify-agent coder --aify-role coder</pre>
       <p>Mostly useful for debugging integrations and tests; daily work should happen through Control, Chat, Work Loop, Environments, Sessions, Runs, and Artifacts.</p>
       <ul>
         <li><code>GET /health</code> — Health check</li>
+        <li><code>GET /version</code> — Build SHA + "N commits behind origin/main" warning (cached)</li>
         <li><code>GET /mcp/sse</code> — MCP SSE endpoint</li>
         <li><code>GET/POST /api/v1/agents</code>, <code>DELETE /api/v1/agents/{id}</code> — Identity records</li>
         <li><code>POST /api/v1/agents/{id}/control</code> — Stop, resume, or interrupt active work for an identity</li>
@@ -1762,6 +1763,8 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <li><code>POST /api/v1/messages/{id}/read</code> — Mark one message read/unread for its recipient</li>
         <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
         <li><code>POST /api/v1/messages/conversation/clear</code> — Clear a direct chat between two identities</li>
+        <li><code>GET /api/v1/analytics</code> — Global message/run analytics (per-hour, totals, status breakdown)</li>
+        <li><code>GET /api/v1/analytics/agent/{id}</code> — Per-agent chat analytics (messages, by-hour-of-day, top peers, working minutes)</li>
         <li><code>POST /api/v1/dispatch</code> — Create a tracked delivery/run for triggerable resident sessions or managed identities</li>
         <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a run record, events, and controls</li>
         <li><code>POST /api/v1/dispatch/runs/{id}/control</code> — Request interrupt or steer for an active run</li>
@@ -5989,11 +5992,13 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
   const hours = Math.floor(workingMinutes / 60);
   const mins = workingMinutes % 60;
   const workingLabel = `${hours}h ${mins}m`;
+  // The endpoint returns objects: messagesPerHourOfDay=[{hour,count}], byPeer=[{peer,count}].
   const buckets = Array.isArray(data.messagesPerHourOfDay) ? data.messagesPerHourOfDay : [];
-  const hourMax = Math.max(1, ...buckets.map(n => Number(n || 0)));
+  const hourMax = Math.max(1, ...buckets.map(b => Number((b && b.count) || 0)));
   const hourBars = buckets.length
-    ? `<div class="status-bars">` + buckets.map((count, hour) => {
-        const value = Number(count || 0);
+    ? `<div class="status-bars">` + buckets.map((b) => {
+        const value = Number((b && b.count) || 0);
+        const hour = Number((b && b.hour) || 0);
         const width = Math.max(2, Math.round((value / hourMax) * 100));
         const label = String(hour).padStart(2, '0') + ':00';
         return `<div class="status-bar-row"><span class="status-bar-label">${esc(label)}</span>` +
@@ -6001,9 +6006,9 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
           `<span class="status-bar-value">${value}</span></div>`;
       }).join('') + `</div>`
     : '<p class="em">No hourly message data yet.</p>';
-  const peers = data.byPeer && typeof data.byPeer === 'object' ? data.byPeer : {};
-  const peerEntries = Object.entries(peers)
-    .map(([peer, count]) => [peer, Number(count || 0)])
+  const peerEntries = (Array.isArray(data.byPeer) ? data.byPeer : [])
+    .map(p => [String((p && p.peer) || ''), Number((p && p.count) || 0)])
+    .filter(([peer]) => peer)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
   const peerMax = Math.max(1, ...peerEntries.map(([, count]) => count));

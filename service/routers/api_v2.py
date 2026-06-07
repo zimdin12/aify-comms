@@ -8515,7 +8515,7 @@ def _is_provider_rate_limit_error(text: str) -> bool:
     actionable note ("retry shortly") rather than a raw API error string.
     """
     t = str(text or "").lower()
-    return any(
+    if any(
         s in t
         for s in (
             "temporarily limiting requests",
@@ -8524,13 +8524,17 @@ def _is_provider_rate_limit_error(text: str) -> bool:
             "ratelimit",
             "hit your limit",
             "usage limit",
-            "quota",
             "too many requests",
             "overloaded",
-            "529",
-            "429",
+            "quota exceeded",
+            "usage quota",
         )
-    )
+    ):
+        return True
+    # Bare HTTP status codes only count as a throttle when they appear as a standalone token
+    # (word-bounded) — so "code 429"/"429 Too Many Requests" match but "exited with code 4290"
+    # or a token count like "529 tokens" do not.
+    return bool(re.search(r"\b(429|529)\b", t))
 
 
 def _auto_handoff_body_for_run(row) -> str:
@@ -19487,7 +19491,7 @@ async def get_agent_analytics(agent_id: str, request: Request):
         # timestamps and clamp the sum >= 0.
         work_c = await db.execute(
             """
-            SELECT COALESCE(SUM((julianday(finished_at) - julianday(started_at)) * 1440), 0)
+            SELECT COALESCE(SUM(MAX(0, (julianday(finished_at) - julianday(started_at)) * 1440)), 0)
             FROM dispatch_runs
             WHERE target_agent = ?
               AND started_at IS NOT NULL

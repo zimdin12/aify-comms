@@ -130,6 +130,10 @@ After an update, rerun the relevant install command and restart both the CLI cli
 
 After updating **Hermes itself**, rerun `bash install.sh --client hermes …` — a hermes update wipes the prebuilt `hermes_cli/web_dist`, and `hermes-aify` cannot serve the gateway/console without it. The installer's one-time `web_dist` prebuild is idempotent (a noop when `web_dist/index.html` already exists), so reinstalling after a hermes upgrade rebuilds the missing bundle.
 
+**Checking your version / "N commits behind".** The dashboard header shows a build badge (`v… · <sha>`); when the checkout is behind `origin/main` it turns into a warning pill (`⚠ N commits behind — run git pull && ./redeploy.sh`). The same data is at `GET /version` (JSON: build SHA + a cached GitHub-compare `behind_by`), and `aify-comms --version` prints the installed host-bridge SHA plus a fresh behind-count. The behind-count is a **warning, not an auto-update** — the container has no `.git` to rebuild itself, so updating is the manual `git pull && ./redeploy.sh` (+ `docker compose up -d --build` for the service). The build SHA is stamped at build time by `scripts/stamp.sh` (the container's `.git` is excluded from the image).
+
+The dashboard opens on the **Chat** page (the default landing surface; your last-visited page is still remembered), with a persistent collapsible sidebar and per-conversation chat analytics (open a direct message, click it again to see message-rate, top peers, and total working time).
+
 ## Connect Environments
 
 Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine.
