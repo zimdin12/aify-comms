@@ -206,6 +206,23 @@ copy_bridge_to_native_dir() {
     cp -RL "$src/." "$AIFY_BRIDGE_DIR/"
   fi
   echo "  Bridge runtime installed to $AIFY_BRIDGE_DIR (native, fast load)."
+
+  # Stamp the installed host bridge with the repo's git identity ($SCRIPT_DIR is
+  # the repo checkout and HAS .git; the native copy does not). `aify-comms
+  # --version` reads this to report the installed host bridge SHA and to compute
+  # "N commits behind origin/main". Guard for git being unavailable or $SCRIPT_DIR
+  # not being a git repo -> write "unknown" so --version never errors.
+  local _stamp="$AIFY_NATIVE_BASE/.aify-version"
+  local _vsha="unknown" _vshort="unknown" _vbranch="unknown" _vdate="unknown"
+  if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    _vsha="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+    _vshort="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    _vbranch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    _vdate="$(git -C "$SCRIPT_DIR" log -1 --format=%cI HEAD 2>/dev/null || echo unknown)"
+  fi
+  printf 'sha=%s\nshort=%s\nbranch=%s\ndate=%s\n' \
+    "$_vsha" "$_vshort" "$_vbranch" "$_vdate" > "$_stamp" 2>/dev/null || true
+  echo "  Host bridge version stamp written to $_stamp ($_vshort)."
 }
 
 copy_claude_assets() {
@@ -2409,6 +2426,41 @@ if [ -z "\$SAFE_CWD" ] || [ ! -d "\$SAFE_CWD" ]; then
 fi
 
 SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
+if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
+  # Host bridge version stamp (baked at install time). $AIFY_NATIVE_BASE and
+  # $SCRIPT_DIR below are the install-time literals; everything network/git is
+  # best-effort and MUST fail silently (offline-safe).
+  STAMP_FILE="$AIFY_NATIVE_BASE/.aify-version"
+  REPO_DIR="$SCRIPT_DIR"
+  echo "aify-comms host bridge:"
+  if [ -f "\$STAMP_FILE" ]; then
+    sed 's/^/  /' "\$STAMP_FILE" 2>/dev/null || cat "\$STAMP_FILE" 2>/dev/null || true
+  else
+    echo "  (no version stamp; reinstall to generate \$STAMP_FILE)"
+  fi
+  # Fresh remote check: fetch before counting behind (honor the version-check rule).
+  LOCAL_SHA="\$(grep '^sha=' "\$STAMP_FILE" 2>/dev/null | cut -d= -f2- || true)"
+  if command -v git >/dev/null 2>&1 && [ -n "\${LOCAL_SHA:-}" ] && [ "\$LOCAL_SHA" != "unknown" ] \\
+     && git -C "\$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "\$REPO_DIR" fetch -q origin main 2>/dev/null || true
+    BEHIND="\$(git -C "\$REPO_DIR" rev-list --count "\$LOCAL_SHA"..origin/main 2>/dev/null || true)"
+    if [ -n "\${BEHIND:-}" ]; then
+      if [ "\$BEHIND" = "0" ]; then
+        echo "  host: up to date with origin/main"
+      else
+        echo "  host: \$BEHIND commit(s) behind origin/main — run git pull && ./redeploy.sh"
+      fi
+    fi
+  fi
+  # Backend version (best-effort; silent on any failure).
+  if command -v curl >/dev/null 2>&1; then
+    BACKEND_JSON="\$(curl -s --max-time 3 "\$SERVER_URL/api/v1/version" 2>/dev/null || true)"
+    if [ -n "\${BACKEND_JSON:-}" ]; then
+      echo "  backend: \$BACKEND_JSON"
+    fi
+  fi
+  exit 0
+fi
 if [ "\${1:-}" = "--help" ] || [ "\${1:-}" = "-h" ]; then
   cat <<'USAGE'
 Usage: aify-comms [server-url] [extra-root ...]
@@ -2416,6 +2468,9 @@ Usage: aify-comms [server-url] [extra-root ...]
 Starts the local environment bridge for dashboard-managed agents.
 The current directory is always an allowed workspace root. Extra roots are
 optional safety boundaries.
+
+  --version, -V   Print the installed host bridge SHA and check origin/main
+                  and the backend for a behind-count (offline-safe).
 USAGE
   exit 0
 fi

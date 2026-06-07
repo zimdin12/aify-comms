@@ -28,7 +28,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next):
-        skip_paths = ["/health", "/ready", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
+        skip_paths = ["/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
         if any(request.url.path.startswith(p) for p in skip_paths):
             return await call_next(request)
         provided_key = (

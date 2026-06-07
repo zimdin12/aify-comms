@@ -21,6 +21,17 @@ if [ ! -f "$REPO_ROOT/install.sh" ]; then
   exit 1
 fi
 
+# Stamp the build SHA into service/_build_stamp.json from the host git checkout
+# BEFORE any container rebuild (the container has no .git of its own). Safe and
+# non-fatal: stamp.sh falls back to "unknown" outside a checkout.
+# NOTE: this redeploy.sh refreshes the host *-aify wrappers only — it does NOT
+# itself run `docker compose up -d --build`. The container rebuild is the
+# documented `docker compose up -d --build` step (see CLAUDE.md); stamp.sh is
+# stamped here so the file is fresh whenever the operator rebuilds next.
+if [ -f "$REPO_ROOT/scripts/stamp.sh" ]; then
+  bash "$REPO_ROOT/scripts/stamp.sh" || echo "redeploy.sh: stamp.sh failed (non-fatal)" >&2
+fi
+
 WRAPPERS_DIR="$HOME/.local/bin"
 if [ ! -d "$WRAPPERS_DIR" ]; then
   echo "redeploy.sh: $WRAPPERS_DIR does not exist; nothing to redeploy" >&2

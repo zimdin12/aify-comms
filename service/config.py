@@ -24,6 +24,14 @@ class ServiceConfig:
     version: str = "4.0.0"
     description: str = "Dashboard and bridge for spawning, messaging, monitoring, and controlling headless coding agents across connected environments"
 
+    # Build stamp (loaded from service/_build_stamp.json at startup; the file is
+    # written by scripts/stamp.sh before each build because the container has no
+    # .git of its own). Env-overridable; defaults to "unknown".
+    build_sha: str = "unknown"
+    build_short: str = "unknown"
+    build_branch: str = "unknown"
+    built_at: str = ""
+
     # Network
     port: int = 8800
     host: str = "0.0.0.0"
@@ -54,6 +62,22 @@ class ServiceConfig:
         """Load config with precedence: env vars > service.json > defaults."""
         config = cls()
 
+        # Load the build stamp (service/_build_stamp.json). It lives next to
+        # this module (service/) which IS COPY'd into the image. Missing or
+        # malformed → keep the "unknown" defaults; never raise at startup.
+        stamp_path = Path(__file__).resolve().parent / "_build_stamp.json"
+        if stamp_path.exists():
+            try:
+                with open(stamp_path) as f:
+                    stamp = json.load(f)
+                config.build_sha = str(stamp.get("sha", config.build_sha) or "unknown")
+                config.build_short = str(stamp.get("short", config.build_short) or "unknown")
+                config.build_branch = str(stamp.get("branch", config.build_branch) or "unknown")
+                config.built_at = str(stamp.get("built_at", config.built_at) or "")
+            except (json.JSONDecodeError, OSError) as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Invalid _build_stamp.json: {e}")
+
         # Load service.json if exists
         json_path = Path(os.getenv("CONFIG_DIR", config.config_dir)) / "service.json"
         if json_path.exists():
@@ -73,6 +97,10 @@ class ServiceConfig:
             "SERVICE_NAME": "name",
             "SERVICE_VERSION": "version",
             "SERVICE_DESCRIPTION": "description",
+            "AIFY_BUILD_SHA": "build_sha",
+            "AIFY_BUILD_SHORT": "build_short",
+            "AIFY_BUILD_BRANCH": "build_branch",
+            "AIFY_BUILT_AT": "built_at",
             "SERVICE_PORT": ("port", int),
             "HOST": "host",
             "DATA_DIR": "data_dir",
