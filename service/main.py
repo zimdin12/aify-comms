@@ -71,6 +71,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reconcile_dead_session_status,
         _reconcile_duplicate_resident_sessions,
         _reconcile_managed_worker_hygiene,
+        _reconcile_resurrected_managed_consoles,
         _reroute_orphaned_managed_channel_runs,
         _reconcile_stale_managed_terminals_for_resident_agents,
         _refresh_expired_agent_live_states,
@@ -154,6 +155,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # claude is either online-with-console or fully down — never a headless
         # background worker (visible-TUI hard requirement).
         managed_hygiene = await _reconcile_managed_worker_hygiene(db)
+        # Self-heal the inverse: a console ghost-reaped on an INFERRED death (heartbeat lapse /
+        # host starvation) whose worker is provably alive again (live channel-sidecar + fresh
+        # output) is re-activated so the agent recovers `online` instead of staying stranded
+        # `available` while it works headless (the next-manager incident, 2026-06-08). Runs AFTER
+        # the reaper — they never fight in one pass (the reaper only reaps when signals are stale;
+        # this only resurrects when they are fresh). Strictly scoped to the ghost-reap reason.
+        resurrected_consoles = await _reconcile_resurrected_managed_consoles(db)
         # Downgrade a live-status agent_sessions row to 'stopped' once its backing is
         # dead (2026-06-03): a managed session whose terminal is failed/stopped/
         # exited/lost, a session whose agent is stopped, or a resident session whose
@@ -194,6 +202,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "undeliverable_queued_runs_failed": len(reaped_queued),
             "managed_ghost_rows_reaped": managed_hygiene.get("managed_ghost_rows_reaped", 0),
             "orphan_workers_reaped": managed_hygiene.get("orphan_workers_reaped", 0),
+            "resurrected_consoles": resurrected_consoles,
             "pruned_superseded_bridges": pruned_bridges,
             "pruned_orphaned_dispatch_runs": pruned_orphaned_runs,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},

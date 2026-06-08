@@ -3061,6 +3061,84 @@ async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     return result
 
 
+async def _reconcile_resurrected_managed_consoles(db) -> int:
+    """Self-heal the INVERSE of the ghost reap: a managed console reaped as
+    `reconciled_managed_ghost_console_dead_worker` (an INFERRED death — all three liveness
+    signals lapsed at once, e.g. host/WSL starvation paused the heartbeats) whose worker is now
+    provably ALIVE again. The reap is monotonic (a `stopped` row can't go active via output —
+    `_terminal_status_transition`), so a starved-but-alive worker that resumes stays stranded
+    `available` while it works HEADLESS, claiming and completing channel runs, until a console is
+    manually re-attached (the next-manager incident, 2026-06-08). Re-activate the row so the agent
+    recovers `online`/`working`.
+
+    STRICTLY scoped to never resurrect a genuinely-dead or operator-stopped console:
+      - only rows stopped with the ghost-reap error (an explicit Stop / real PTY exit / any other
+        reason is NEVER touched — those are authoritative);
+      - only when the worker is UNAMBIGUOUSLY alive RIGHT NOW: a live channel-sidecar AND fresh
+        terminal output (updated_at within MANAGED_ORPHAN_GRACE_SECONDS) — a trailing frame from a
+        dying process or a stale ghost that never came back is left dead;
+      - only when the agent has NO OTHER live terminal (`_has_live_terminal_session`): if a new
+        console was already attached the agent has already recovered, so re-activating the old row
+        would create a duplicate console + clobber the newer binding. Idempotent: once a row is
+        re-activated it counts as live, so the next pass skips the agent.
+    """
+    healed = 0
+    rows = await (await db.execute(
+        """
+        SELECT t.id AS terminal_id, t.agent_id AS agent_id, t.session_id AS session_id,
+               t.updated_at AS updated_at
+        FROM terminal_sessions t
+        JOIN agents a ON a.id = t.agent_id
+        WHERE a.session_mode = 'managed'
+          AND t.status IN ('stopped', 'failed')
+          AND t.error = 'reconciled_managed_ghost_console_dead_worker'
+          AND t.id NOT LIKE 'vterm_%'
+        ORDER BY t.updated_at DESC
+        """
+    )).fetchall()
+    now = _now()
+    for row in (rows or []):
+        agent_id = row["agent_id"]
+        terminal_id = row["terminal_id"]
+        # Already has a live console (a new one attached, or a sibling row already healed) → the
+        # agent has recovered; do NOT resurrect this old row (avoids a duplicate + binding clobber).
+        if await _has_live_terminal_session(db, agent_id):
+            continue
+        # Output must be FRESH — the worker is streaming right now, not a trailing/stale frame.
+        updated = _iso_to_epoch(str(row["updated_at"] or ""))
+        if not updated or (datetime.now(timezone.utc).timestamp() - updated) > MANAGED_ORPHAN_GRACE_SECONDS:
+            continue
+        # AND the worker must be reachable now (live, non-superseded channel-sidecar).
+        if not await _has_live_channel_sidecar(db, agent_id):
+            continue
+        # Provably alive → un-reap (guard the UPDATE to the still-stopped row).
+        await db.execute(
+            "UPDATE terminal_sessions SET status = 'attached', stopped_at = NULL, error = '' "
+            "WHERE id = ? AND status IN ('stopped', 'failed')",
+            (terminal_id,),
+        )
+        # Restore the session→terminal binding so the dashboard re-attaches the live console.
+        # Safe from clobber: we only reach here when the agent has NO other live terminal.
+        session_id = str(row["session_id"] or "").strip()
+        if session_id:
+            await db.execute(
+                "UPDATE agent_sessions SET terminal_id = ?, terminal_status = 'attached', last_seen = ? WHERE id = ?",
+                (terminal_id, now, session_id),
+            )
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "reconciled_managed_console_resurrected",
+            json.dumps({
+                "agentId": agent_id,
+                "reason": "ghost-reaped console is alive again (live channel-sidecar + fresh output); re-activated",
+            }),
+        )
+        await _invalidate_agent_live_state(db, agent_id)
+        healed += 1
+    return healed
+
+
 async def _record_channel_sidecar_heartbeat(
     db,
     *,
