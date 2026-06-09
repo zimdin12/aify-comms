@@ -24,7 +24,8 @@ def _iso(delta_s: float = 0.0) -> str:
 
 class ResurrectManagedConsoleTests(FastApiTestCase):
     def _seed(self, *, status="stopped", error=GHOST, output_age=10, sidecar_age=10,
-              sidecar=True, extra_live_terminal=False, session_mode="managed", agent="rmc"):
+              sidecar=True, extra_live_terminal=False, session_mode="managed", agent="rmc",
+              session_status="running"):
         con = sqlite3.connect(str(self._db_path))
         con.execute("PRAGMA foreign_keys=OFF")
         now = _iso()
@@ -34,7 +35,7 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
         con.execute("INSERT INTO agents (id, role, name, runtime, session_mode, status, registered_at, last_seen) VALUES (?,?,?,?,?,?,?,?)",
                     (agent, "coder", agent, "claude-code", session_mode, "available", now, now))
         con.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, status, workspace, started_at, last_seen, terminal_id, terminal_status, owner_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (sess, agent, env, "claude-code", "running", "/w", now, now, "", "", "managed"))
+                    (sess, agent, env, "claude-code", session_status, "/w", now, now, "", "", "managed"))
         # the ghost-reaped console row
         con.execute("INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, status, requested_by, created_at, updated_at, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (term, sess, agent, env, f"br_{agent}", "claude-code", "/w", "claude-aify", status, "dashboard", now, _iso(-output_age), error))
@@ -75,6 +76,13 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
         finally:
             con.close()
 
+    def _session_status(self, sess):
+        con = sqlite3.connect(str(self._db_path))
+        try:
+            return con.execute("SELECT status FROM agent_sessions WHERE id=?", (sess,)).fetchone()[0]
+        finally:
+            con.close()
+
     # --- positive ---------------------------------------------------------
     def test_alive_ghost_console_is_resurrected_and_rebound(self):
         term, sess = self._seed(agent="rmc-ok")
@@ -84,6 +92,15 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
         self.assertEqual(r["status"], "attached", "alive ghost console re-activated")
         self.assertEqual(r["error"], "", "ghost error cleared")
         self.assertEqual(self._binding(sess), term, "session re-bound to the resurrected console")
+
+    def test_resurrection_promotes_a_dead_session_denorm(self):
+        # The session row was downgraded to 'stopped' when the old backing died; re-binding the
+        # resurrected live console must promote it back to 'running', else the Console label
+        # reads "Console stopped" over a live attached terminal (cms-manager, 2026-06-10).
+        term, sess = self._seed(agent="rmc-promote", session_status="stopped")
+        self.assertEqual(self._run(), 1)
+        self.assertEqual(self._row(term)["status"], "attached")
+        self.assertEqual(self._session_status(sess), "running", "dead session denorm promoted on bind")
 
     # --- negative edges (must stay stopped) -------------------------------
     def test_stale_output_not_resurrected(self):

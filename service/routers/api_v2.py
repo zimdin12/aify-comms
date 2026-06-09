@@ -3122,7 +3122,13 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
         session_id = str(row["session_id"] or "").strip()
         if session_id:
             await db.execute(
-                "UPDATE agent_sessions SET terminal_id = ?, terminal_status = 'attached', last_seen = ? WHERE id = ?",
+                "UPDATE agent_sessions SET terminal_id = ?, terminal_status = 'attached', "
+                # Re-binding the resurrected live console is a "backing is running" event — also
+                # promote a dead-state session denorm (same rule as the other bind sites), else
+                # the Console label reads "Console stopped" over a live attached terminal.
+                "status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed') THEN 'running' ELSE status END, "
+                "ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed') THEN NULL ELSE ended_at END, "
+                "last_seen = ? WHERE id = ?",
                 (terminal_id, now, session_id),
             )
         await _append_terminal_event(
@@ -7264,6 +7270,16 @@ async def _ensure_managed_pty_for_dispatch(db, agent_id: str, *, runtime: str, s
             terminal_status = 'starting',
             terminal_command = ?,
             terminal_workspace = ?,
+            -- Spawning a NEW managed PTY for this session IS the "backing (re)started" event:
+            -- promote a dead-state denorm back to running, else the row keeps the previous
+            -- backing's 'stopped' and the Console label reads "Console stopped" for a live
+            -- attached terminal forever (cms-manager, 2026-06-10 — the lazy auto-start-on-send
+            -- bound a fresh PTY to a session left 'stopped' by the old backing's death; the
+            -- display deriver deliberately never promotes, so the bind moment must).
+            status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                          THEN 'running' ELSE status END,
+            ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                            THEN NULL ELSE ended_at END,
             last_seen = ?
         WHERE id = ?
         """,
@@ -9896,7 +9912,16 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                         """
                         UPDATE agent_sessions
                         SET terminal_id = ?, terminal_status = ?,
-                            terminal_command = ?, terminal_workspace = ?
+                            terminal_command = ?, terminal_workspace = ?,
+                            -- Binding a LIVE terminal is the authoritative "backing (re)started"
+                            -- event: promote a dead-state denorm back to running, else the row
+                            -- keeps the PREVIOUS backing's 'stopped' and the Console label reads
+                            -- "Console stopped" for a live attached terminal forever (cms-manager,
+                            -- 2026-06-10; the display deriver deliberately never promotes).
+                            status = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                                          THEN 'running' ELSE status END,
+                            ended_at = CASE WHEN status IN ('stopped','ended','failed','lost','cancelled','completed')
+                                            THEN NULL ELSE ended_at END
                         WHERE id = ?
                         """,
                         (
@@ -11924,8 +11949,16 @@ async def register_agent(req: AgentRegister, request: Request):
                     terminal_id = ?,
                     terminal_status = ?,
                     session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                    status = CASE WHEN status = 'cli-takeover' THEN 'running' ELSE status END,
-                    ended_at = CASE WHEN status = 'cli-takeover' THEN NULL ELSE ended_at END,
+                    -- A live console PTY attaching IS the authoritative "backing (re)started"
+                    -- event: promote a dead-state denorm back to running, else the session row
+                    -- stays 'stopped' from the PREVIOUS backing's death and the Console label
+                    -- reads "Console stopped" for a live attached terminal forever (cms-manager,
+                    -- 2026-06-10 — the display deriver deliberately never promotes, so the bind
+                    -- moment must). Operator disable is enforced on agents.status, not here.
+                    status = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
+                                  THEN 'running' ELSE status END,
+                    ended_at = CASE WHEN status IN ('cli-takeover','stopped','ended','failed','lost','cancelled','completed')
+                                    THEN NULL ELSE ended_at END,
                     last_seen = ?
                 WHERE id = ?
                 """,
