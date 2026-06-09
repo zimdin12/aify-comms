@@ -2005,8 +2005,20 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // leaves that shared gateway alone (2026-06-02 fix).
 
   let wsClient = null;
+  const wsIsOpen = (client) => {
+    const rs = client?._socket?.readyState;
+    return rs === undefined || rs === 1; /* OPEN (or a fake test client w/o a socket) */
+  };
   const ensureWs = async () => {
-    if (wsClient) return wsClient;
+    // Liveness-check the cached client (review must-fix, 2026-06-10): a dropped socket
+    // (gateway/TUI restart, idle close) previously stayed cached FOREVER — every request
+    // rejected with "WS not open" (which isGatewayConnectRefused deliberately excludes), so
+    // the loop became a zombie: it kept claiming runs it could never deliver, failed each
+    // after the 25s attach window with a misleading "No visible hermes TUI" error, and the
+    // turn detector + no-TUI teardown went blind. Re-open on a dead socket (mirrors the
+    // resident reader's wsOpen check in server.js).
+    if (wsClient && wsIsOpen(wsClient)) return wsClient;
+    try { wsClient?.close?.(); } catch { /* ignore */ }
     wsClient = await openWs(host.wsUrl);
     return wsClient;
   };

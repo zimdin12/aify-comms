@@ -1371,6 +1371,17 @@ def _contract_reply_expected(row) -> bool:
     message_type = str((row["message_type"] if "message_type" in row.keys() else "") or "").strip().lower()
     if message_type in {"info", "response", "approval"}:
         return False
+    # System-generated failure mirrors (auto-handoff / undeliverable notices) are rr=0
+    # type='error' notifications, NOT asks — without this exclusion they read as open
+    # "reply expected" contracts and the reminder loop nags the ORIGINAL sender to reply
+    # to an automated failure notice, repeatedly (review must-fix, 2026-06-10).
+    body = str((row["body"] if "body" in row.keys() else "") or "")
+    if message_type == "error" and not _row_require_reply(row) and (
+        body.startswith("Auto-mirrored dispatch")
+        or body.startswith("⚠️")
+        or "[NOT DELIVERED]" in str((row["subject"] if "subject" in row.keys() else "") or "")
+    ):
+        return False
     priority = str((row["priority"] if "priority" in row.keys() else "") or "").strip().lower()
     return message_type in {"request", "review", "error"} or priority in {"high", "urgent"}
 
@@ -3086,10 +3097,11 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
     rows = await (await db.execute(
         """
         SELECT t.id AS terminal_id, t.agent_id AS agent_id, t.session_id AS session_id,
-               t.updated_at AS updated_at
+               t.updated_at AS updated_at, t.stopped_at AS stopped_at
         FROM terminal_sessions t
         JOIN agents a ON a.id = t.agent_id
         WHERE a.session_mode = 'managed'
+          AND a.status != 'stopped'
           AND t.status IN ('stopped', 'failed')
           AND t.error = 'reconciled_managed_ghost_console_dead_worker'
           AND t.id NOT LIKE 'vterm_%'
@@ -3107,6 +3119,15 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
         # Output must be FRESH — the worker is streaming right now, not a trailing/stale frame.
         updated = _iso_to_epoch(str(row["updated_at"] or ""))
         if not updated or (datetime.now(timezone.utc).timestamp() - updated) > MANAGED_ORPHAN_GRACE_SECONDS:
+            continue
+        # And it must be REAL output SINCE the reap: the reap itself wrote updated_at = stopped_at
+        # = now, so for ~90s after a reap the freshness gate above is satisfied by the reap's own
+        # write. A genuine post-reap output frame bumps updated_at PAST stopped_at; a reap-only row
+        # has them equal — without this, a dead PTY whose (separate) sidecar recovered would be
+        # resurrected and then permanently shield the dead console from both reapers (review M2,
+        # 2026-06-10).
+        stopped = _iso_to_epoch(str(row["stopped_at"] or "")) if "stopped_at" in row.keys() else 0
+        if stopped and updated <= stopped:
             continue
         # AND the worker must be reachable now (live, non-superseded channel-sidecar).
         if not await _has_live_channel_sidecar(db, agent_id):
@@ -8041,11 +8062,17 @@ async def _create_dispatch_runs(
             # Keep message_id and in_reply_to pointing at the FIRST item that
             # opened this buffered run. Per-item ids are preserved in the body
             # text so the receiver can still pull each original from inbox.
-            await db.execute(
+            # GUARDED merge (review must-fix, 2026-06-10): the run was read as 'queued' but a
+            # concurrent /dispatch/claim (BEGIN IMMEDIATE) can flip it to 'claimed' between the
+            # read and this write — the bridge then delivers the PRE-merge body and completes the
+            # run, silently losing the merged message. Guard on status='queued' and check
+            # rowcount: 0 rows updated → the run was claimed mid-merge → fall through to insert a
+            # FRESH queued run instead.
+            merge_cursor = await db.execute(
                 """
                 UPDATE dispatch_runs
                 SET subject = ?, body = ?, priority = ?, dispatch_mode = ?, message_type = ?, require_reply = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'queued'
                 """,
                 (
                     _build_pending_dispatch_subject(merged_count, subject),
@@ -8057,21 +8084,23 @@ async def _create_dispatch_runs(
                     mergeable_run["id"],
                 ),
             )
-            await _append_dispatch_event(
-                db,
-                mergeable_run["id"],
-                "merged",
-                f"Buffered update from {from_agent}: {subject}",
-            )
-            runs.append({
-                "runId": mergeable_run["id"],
-                "targetAgentId": recipient_id,
-                "status": "queued",
-                "merged": True,
-                "mergedCount": merged_count,
-                "requireReply": bool(mergeable_run["require_reply"]) or require_reply,
-            })
-            continue
+            if merge_cursor.rowcount and merge_cursor.rowcount > 0:
+                await _append_dispatch_event(
+                    db,
+                    mergeable_run["id"],
+                    "merged",
+                    f"Buffered update from {from_agent}: {subject}",
+                )
+                runs.append({
+                    "runId": mergeable_run["id"],
+                    "targetAgentId": recipient_id,
+                    "status": "queued",
+                    "merged": True,
+                    "mergedCount": merged_count,
+                    "requireReply": bool(mergeable_run["require_reply"]) or require_reply,
+                })
+                continue
+            # else: claimed mid-merge — fall through to the fresh-insert path below.
 
         run_id = f"run_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         await db.execute(
@@ -8313,6 +8342,8 @@ async def _clear_turn_busy_if_no_open_reply_owing_run(db, target_agent: str, exc
         """,
         (target_agent, _now()),
     )
+    # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
+    await _clear_status_state_in_turn(db, target_agent)
     return True
 
 
@@ -8666,6 +8697,39 @@ def _auto_handoff_body_for_run(row) -> str:
         detail = str((row["summary"] if row else "") or "Run completed.").strip()
         return detail
     return f"{intro}\n\n{detail}"
+
+
+async def _sweep_unmirrored_failed_handoffs(db, *, window_hours: int = 6, limit: int = 50) -> int:
+    """Mirror sender notices for require_reply runs FAILED by a reaper, not a PATCH.
+
+    _mirror_missing_dispatch_handoff fires only on PATCH /dispatch/runs/{id} (the bridge
+    reporting) and the manual repair endpoint — runs failed by the reapers (orphan close,
+    claim-path auto-heal, stale-active fail) never notified the sender; the contract just
+    read `failed` if they happened to poll (review must-fix, 2026-06-10). Sweep recent
+    terminal rr=1 runs with no result message and mirror them. Idempotent: the mirror sets
+    result_message_id, so a swept run is never re-mirrored. Bounded by window + limit.
+    """
+    rows = await (await db.execute(
+        """
+        SELECT * FROM dispatch_runs
+        WHERE require_reply = 1
+          AND status IN ('failed', 'cancelled')
+          AND COALESCE(result_message_id, '') = ''
+          AND COALESCE(finished_at, '') != ''
+          AND finished_at > datetime('now', ?)
+        ORDER BY finished_at DESC
+        LIMIT ?
+        """,
+        (f"-{max(1, int(window_hours))} hours", max(1, int(limit))),
+    )).fetchall()
+    mirrored = 0
+    for row in (rows or []):
+        try:
+            if await _mirror_missing_dispatch_handoff(db, row):
+                mirrored += 1
+        except Exception:
+            continue  # best-effort per row; the next pass retries
+    return mirrored
 
 
 async def _mirror_missing_dispatch_handoff(db, row) -> Optional[str]:
@@ -15218,6 +15282,8 @@ async def stop_agent_worker(agent_id: str, request: Request):
             """,
             (agent_id, now),
         )
+        # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
+        await _clear_status_state_in_turn(db, agent_id)
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         ws = await _get_ws(request)
@@ -15239,6 +15305,24 @@ class AgentStatusEventRequest(BaseModel):
     runId: str | None = None
     bridgeId: str | None = None
     detail: str | None = None
+
+async def _clear_status_state_in_turn(db, agent_id: str) -> None:
+    """Clear the v2 engine's in_turn alongside an agent_turn_state turn_busy clear.
+
+    Dual-table drift guard (review M3, 2026-06-10): the busy SETTERS feed both tables, but
+    several reaper/clear paths cleared only agent_turn_state — under status_engine=new the
+    agent stayed `working` until the 30-min backstop (and under `old` the disagreement log
+    spammed). Commit-free on purpose: callers (reapers inside the reconcile transaction,
+    endpoints with their own commit) own the transaction boundary.
+    """
+    now = _now()
+    await db.execute(
+        "UPDATE agent_status_state SET in_turn = 0, turn_run_id = '', "
+        "last_event = 'turn_end', last_event_at = ?, updated_at = ? "
+        "WHERE agent_id = ? AND in_turn = 1",
+        (now, now, agent_id),
+    )
+
 
 async def _apply_status_event(db, agent_id: str, event: dict) -> dict:
     now = _now()
@@ -15306,6 +15390,10 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         await _apply_status_event(db, agent_id, req.model_dump())
         await _invalidate_agent_live_state(db, agent_id)  # existing cache invalidator
+        # _apply_status_event commits internally BEFORE the invalidate above, so the
+        # invalidate's DELETE needs its own commit or it is rolled back on close()
+        # (review M1, 2026-06-10).
+        await db.commit()
         # Phase D1: under the event engine, push the transition immediately so the
         # dashboard updates the instant a turn starts/ends. Gated on the flag so
         # the default `old` path is byte-for-byte unchanged (no engine broadcast).
@@ -15342,8 +15430,12 @@ async def agent_console_working(agent_id: str, request: Request):
             "ON CONFLICT(agent_id) DO UPDATE SET working_at = excluded.working_at",
             (agent_id, now),
         )
-        await db.commit()
+        # Invalidate BEFORE the commit — the invalidate is itself a DELETE on agent_live_state,
+        # so issued after the only commit it is rolled back on close() and the cached `online`
+        # keeps serving until refresh_after (the spinner lease was inert for operator-typed
+        # work, review M1 2026-06-10). Mirrors /turn-start//turn-end ordering.
         await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
     finally:
         await db.close()
     return {"ok": True}
@@ -16690,6 +16782,8 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
                 """,
                 (target_agent, now),
             )
+            # Keep the v2 engine in sync (dual-table drift guard, review M3 2026-06-10).
+            await _clear_status_state_in_turn(db, target_agent)
             await _invalidate_agent_live_state(db, target_agent)
         closed.append({"runId": run_id, "agentId": target_agent})
     return closed
@@ -17097,6 +17191,9 @@ async def _clear_turn_busy_for_dead_bridges(db, *, limit: int = 200) -> list[dic
             """,
             (now, agent_id),
         )
+        # Keep the v2 engine in sync — the dead bridge's heartbeats are exactly what set
+        # in_turn=1, and no turn_end will ever arrive from it (review M3, 2026-06-10).
+        await _clear_status_state_in_turn(db, agent_id)
         await _invalidate_agent_live_state(db, agent_id)
         cleared.append({"agentId": agent_id, "deadBridgeId": dead_bridge})
     return cleared

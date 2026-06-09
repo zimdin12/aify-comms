@@ -2657,7 +2657,15 @@ function connectDashboardSocket() {
   dashboardSocket.onerror = () => updateConnectionStatus('● Realtime error', '#f85149');
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+// HTML-escape INCLUDING quotes: esc() output is interpolated into attributes
+// (title="...", data-*="...") all over the dashboard, and textContent->innerHTML
+// escapes only &/</> — an agent-authored subject like x" onpointerover=... was an
+// attribute-breakout stored XSS in the operator's dashboard (review must-fix, 2026-06-10).
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function titleAttr(s) { return s ? ` title="${esc(s)}"` : ''; }
 function jsArg(s) { return JSON.stringify(String(s || '')); }
 function cssSel(s) { return window.CSS?.escape ? CSS.escape(String(s || '')) : String(s || '').replace(/["\\]/g, '\\$&'); }
@@ -6059,6 +6067,13 @@ function selectedChatMeta() {
   const {dmItems, channelItems} = chatConversations();
   const validKeys = new Set(dmItems.concat(channelItems).map(item => item.key));
   let key = window._chatSelected;
+  if (!key && window._chatAnalyticsKey) {
+    // Analytics view is open (DM toggled closed on purpose): do NOT auto-select the first
+    // rail conversation — that side effect closed the analytics panel on every WS/poll
+    // refresh, marked the top conversation read as collateral, and made the composer send
+    // to the WRONG agent (review must-fix, 2026-06-10).
+    return {kind: '', id: '', title: 'Chat analytics', subtitle: ''};
+  }
   if (!key || !validKeys.has(key)) {
     key = dmItems[0]?.key || channelItems[0]?.key || '';
     window._chatSelected = key;
@@ -6266,7 +6281,10 @@ function terminalCache(terminalId) {
 async function loadTerminal(terminalId, options = {}) {
   const id = String(terminalId || '').trim();
   if (!id) return null;
-  if (!options.force && window._terminalDetails[id]) return window._terminalDetails[id];
+  // A cached FAILURE is not a cache hit — treating {error} entries as cached blocked all
+  // retries, so one transient fetch blip left the console stuck on "Waiting for terminal
+  // output..." until a full page reload (review must-fix, 2026-06-10). Retry instead.
+  if (!options.force && window._terminalDetails[id] && !window._terminalDetails[id].error) return window._terminalDetails[id];
   if (window._terminalLoading.has(id)) return window._terminalDetails[id] || null;
   window._terminalLoading.add(id);
   try {

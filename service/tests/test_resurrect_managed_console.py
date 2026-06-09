@@ -86,6 +86,11 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
     # --- positive ---------------------------------------------------------
     def test_alive_ghost_console_is_resurrected_and_rebound(self):
         term, sess = self._seed(agent="rmc-ok")
+        # Realistic ghost-reap row: stopped_at set by the reap, with REAL output streamed
+        # SINCE the reap (updated_at newer than stopped_at).
+        con = sqlite3.connect(str(self._db_path))
+        con.execute("UPDATE terminal_sessions SET stopped_at = ? WHERE id = ?", (_iso(-30), term))
+        con.commit(); con.close()
         healed = self._run()
         self.assertEqual(healed, 1)
         r = self._row(term)
@@ -122,6 +127,29 @@ class ResurrectManagedConsoleTests(FastApiTestCase):
         term, _ = self._seed(agent="rmc-opstop", error="Session stop from dashboard.")
         self.assertEqual(self._run(), 0)
         self.assertEqual(self._row(term)["status"], "stopped", "an explicit stop is authoritative — never un-reaped")
+
+    def test_reap_only_timestamp_not_resurrected(self):
+        # The reap itself writes updated_at = stopped_at = now, which satisfies the freshness
+        # gate for ~90s — but it is NOT real output. A row with updated_at <= stopped_at (no
+        # output SINCE the reap) must stay dead, else a dead PTY whose separate sidecar
+        # recovered would be resurrected and shield itself from both reapers (review M2).
+        term, _ = self._seed(agent="rmc-reaponly")
+        con = sqlite3.connect(str(self._db_path))
+        con.execute("UPDATE terminal_sessions SET stopped_at = updated_at WHERE id = ?", (term,))
+        con.commit(); con.close()
+        self.assertEqual(self._run(), 0)
+        self.assertEqual(self._row(term)["status"], "stopped")
+
+    def test_operator_stopped_agent_not_resurrected(self):
+        # agents.status='stopped' is an operator disable — the autonomous reconciler must not
+        # resurrect its console (review S3).
+        term, _ = self._seed(agent="rmc-disabled")
+        con = sqlite3.connect(str(self._db_path))
+        con.execute("UPDATE agents SET status = 'stopped' WHERE id = 'rmc-disabled'")
+        con.execute("UPDATE terminal_sessions SET stopped_at = NULL WHERE id = ?", (term,))
+        con.commit(); con.close()
+        self.assertEqual(self._run(), 0)
+        self.assertEqual(self._row(term)["status"], "stopped")
 
     def test_agent_with_a_new_live_console_not_resurrected(self):
         # A new console already attached → agent recovered; the old ghost row must NOT be revived

@@ -63,6 +63,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _close_idle_virtual_rpc_workers,
         _close_orphaned_managed_runs,
         _close_reconcilable_delivered_runs,
+        _sweep_unmirrored_failed_handoffs,
         _load_settings,
         _prune_orphaned_dispatch_runs,
         _prune_superseded_bridges,
@@ -149,6 +150,10 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # _close_orphaned_managed_runs.
         reaped_queued = await _reap_undeliverable_queued_runs(db, limit=200)
         closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
+        # Sender notices for runs the REAPERS failed (vs a bridge PATCH, which mirrors
+        # inline): without this sweep a require_reply run failed by the orphan-closer /
+        # claim auto-heal never told the sender (review, 2026-06-10). Idempotent.
+        mirrored_failed_handoffs = await _sweep_unmirrored_failed_handoffs(db)
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
         # headless orphan workers (live sidecar, no console PTY) so a managed

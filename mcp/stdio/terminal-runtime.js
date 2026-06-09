@@ -504,6 +504,10 @@ export class TerminalProcessManager {
           sessionHandle: "",
           healAttempted: true,
           agentId: state.agentId,
+          // Carry the session-mode tag through the heal — dropping it untagged the healed
+          // console, so stopAll's FIX-6 resident skip no longer protected an operator's
+          // resident console from an env-bridge restart (review, 2026-06-10).
+          sessionMode: state.sessionMode,
         });
         return;
       }
@@ -606,7 +610,14 @@ export class TerminalProcessManager {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error(`Terminal "${id}" is not running`);
     if (terminal.kind === "pty") {
-      terminal.term.resize(Math.max(20, Number(cols || 100)), Math.max(6, Number(rows || 28)));
+      const nextCols = Math.max(20, Number(cols || 100));
+      const nextRows = Math.max(6, Number(rows || 28));
+      // Persist the new dims on state — the console keepalive restores state.cols/rows after
+      // its SIGWINCH toggle, so stale dims here made it snap a dashboard-resized console back
+      // to the SPAWN-time size every 4s (review must-fix, 2026-06-10).
+      terminal.cols = nextCols;
+      terminal.rows = nextRows;
+      terminal.term.resize(nextCols, nextRows);
     }
     return { status: "attached" };
   }
