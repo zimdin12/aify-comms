@@ -1,6 +1,19 @@
 # Known Issues & Concerns — aify-comms
 
-Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-07.
+Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-10.
+
+## Backlog from the 2026-06-10 project-wide review (should-fix, deferred)
+
+The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide bug-hunt` commit). These remain, prioritized:
+
+- **v2 `derive()` parity gaps block the `status_engine=new` flip:** (a) a managed agent with NO owning environment row derives `offline` under new but rests `available` under legacy (env resolved at claim time); (b) `idle_too_long` is hardcoded False, so new can never produce `idle` nor the 30-min stale→`offline` downgrade; (c) `blocked` is unreachable under new (nothing posts `blocked` status-events; legacy derives it from the terminal hint); (d) an active claimed/running run alone doesn't set v2 `working`; (e) `resident-missing-handle → stale` has no v2 input. Fix these in `_gather_status_inputs`/the byproduct before flipping the flag.
+- **PATCH /dispatch/runs/{id} has no ownership/transition guard:** any caller can set any status; a superseded sidecar waking late can clobber the new owner's state or resurrect a failed run to `running`. Add an optional bridgeId match + reject terminal→non-terminal.
+- **`_reap_undeliverable_queued_runs` claimer check is not execution-mode aware:** a channel run whose wrapper died sits `queued` forever while the env bridge heartbeats; runtime-mismatched queued runs are silently skipped by claim and invisible to the backstop. Also: the backstop can fail a queued run whose coldstart spawn is still in flight (skip targets with a pending spawn_request).
+- **Steered messages lose their reply anchor** (no Message ID in the steer body), so a steered rr=1 contract can strand at `delivered` until the 24h rule; include inReplyTo guidance in the steer body + let delivered-reconciler class 4 cover steer runs.
+- **B1 ghost reap doesn't invalidate the live-state cache** (cached `online` lingers); resurrect doesn't restore `runtime_state.consoleTerminal` (Console endpoints can't resolve the healed console until re-register).
+- **`/ready` refreshes `turn_updated_at` on a busy row it doesn't own** (re-arms the 120s claim gate + 30-min backstop for a stuck turn).
+- **Bridge:** shutdown ordering lets the env heartbeat re-mark the env online after the `offline` POST (clear all timers first); dropped PTY output frames are unlogged/unretried (reuse the pi sink's retry pattern); a bare Enter on a claude console stalls the single-flight terminal-control loop ~10.5s (prompt-settle only when the prompt was seen); duplicate hermes turn detectors for a managed agent whose MCP child carries the gateway URL.
+- **Dashboard:** per-output-chunk full refetch for never-opened terminals (track last status outside the details cache); N+1 sequential inbox fetches per refresh (Promise.all); console label/widget disagreement siblings (dead-session set not applied to the start-console branch; env-offline keeps input enabled); seq gaps in the console stream are not detected (force-resync on gap).
 
 ## Status / liveness / worker-hygiene
 
