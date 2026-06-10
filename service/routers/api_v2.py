@@ -13649,6 +13649,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         # `force=true` may override (operator-initiated metadata-only flip), but
         # we still attach a clear warning to the response so the limbo is visible.
         forced_resident_warning = ""
+        switch_warnings = []
         if new_mode == "resident":
             try:
                 from service.runtimes import adapter_for
@@ -13693,9 +13694,15 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                     (agent_id, runtime),
                 )).fetchone()
                 if not managed_session:
-                    raise HTTPException(
-                        409,
-                        "Switch to managed requires an existing dashboard-managed session/backing. Spawn or recover the agent from an Environment, or pass force=true to only change metadata.",
+                    # RELAXED (2026-06-11): this used to 409, but since lazy auto-start a
+                    # managed agent with no live backing is simply `available` — it cold-starts
+                    # on the next send and resolves its environment at claim time. Blocking the
+                    # flip stranded resident agents on offline machines (operator-reported: an
+                    # old resident session on another PC could not be switched). Allow the
+                    # switch and surface a warning instead.
+                    switch_warnings.append(
+                        "No live managed backing yet — the agent reads `available` and a managed "
+                        "worker will cold-start on the next send once its environment is online."
                     )
 
         now = _now()
@@ -13908,7 +13915,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             "sideEffects": side_effects,
         }
         if forced_resident_warning:
-            response_payload["warning"] = forced_resident_warning
+            switch_warnings.insert(0, forced_resident_warning)
+        if switch_warnings:
+            response_payload["warning"] = " ".join(switch_warnings)
         return response_payload
     finally:
         await db.close()

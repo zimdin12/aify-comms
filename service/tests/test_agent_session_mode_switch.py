@@ -140,6 +140,28 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
 
     # ─── C1 ────────────────────────────────────────────────────────────────
 
+    def test_switch_resident_to_managed_without_backing_succeeds_with_warning(self):
+        # RELAXED 2026-06-11: no live managed session/backing used to 409; since lazy
+        # auto-start the agent is simply `available` and cold-starts on the next send —
+        # blocking the flip stranded resident agents on offline machines.
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-noback", runtime="codex", session_mode="resident")
+        # The old PC's sessions are long dead — mark every session row ended (the user case).
+        import sqlite3
+        con = sqlite3.connect(str(self._db_path))
+        con.execute("UPDATE agent_sessions SET status='ended' WHERE agent_id='codex-noback'")
+        con.commit(); con.close()
+        res = self.client.patch(
+            "/api/v1/agents/codex-noback/session-mode",
+            json={"mode": "managed"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertTrue(body.get("ok"))
+        self.assertEqual(body.get("mode"), "managed")
+        self.assertIn("cold-start", str(body.get("warning") or ""))
+        self.assertEqual(self._read_agent_mode("codex-noback"), "managed")
+
     def test_switch_resident_to_managed_success(self):
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-r1", runtime="codex", session_mode="resident")
