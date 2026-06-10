@@ -180,7 +180,17 @@ const BRIDGE_STARTED_AT = new Date().toISOString();
 function computeBridgeBuildTag() {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    // mcp/stdio -> repo root is two levels up
+    // Native-copy install (the normal case): install.sh stamps .aify-version at the
+    // install root (two levels up, ~/.aify-comms/.aify-version) with the repo SHA at
+    // copy time — the native copy has no .git, so without this every installed bridge
+    // printed "no-git" and the banner couldn't prove which code runs (2026-06-10).
+    const stampPath = path.resolve(here, "..", "..", ".aify-version");
+    if (fs.existsSync(stampPath)) {
+      const m = fs.readFileSync(stampPath, "utf-8").match(/^short=(\S+)/m)
+        || fs.readFileSync(stampPath, "utf-8").match(/^sha=(\S+)/m);
+      if (m && m[1] && m[1] !== "unknown") return m[1].slice(0, 12);
+    }
+    // Repo-checkout fallback: read .git/HEAD two levels up.
     const gitDir = path.resolve(here, "..", "..", ".git");
     const headPath = path.join(gitDir, "HEAD");
     if (!fs.existsSync(headPath)) return "no-git";
