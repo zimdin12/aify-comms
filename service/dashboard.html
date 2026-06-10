@@ -5954,18 +5954,12 @@ async function toggleChatFavorite(event, agentId, currentlyFavorited) {
 
 async function selectChatConversation(key) {
   saveCurrentChatDraft();
-  // Clicking the already-selected DM toggles it closed and surfaces that
-  // agent's chat analytics instead of the message timeline. A second click on
-  // the same rail item (now deselected) reselects normally via the else branch.
-  if (key && key === window._chatSelected && key.startsWith('dm:')) {
-    persistChatSelected(null);
-    window._chatAnalyticsKey = key.slice('dm:'.length);
-    setChatAnalyticsPersisted(window._chatAnalyticsKey);
-    window._chatFollowBottom = true;
-    if (isMobileDashboard()) window._mobileChatRailOpen = false;
-    renderChat();
-    return;
-  }
+  // GESTURE REMOVED (2026-06-10): clicking the already-selected DM used to toggle it closed
+  // and show analytics — but rail rows shift position on refresh, so habitual/mid-refresh
+  // clicks landed on the selected row and "closed the chat" (operator-reported). Re-clicking
+  // the open conversation is now a no-op; analytics opens via the explicit inspector button
+  // (openChatAnalytics).
+  if (key && key === window._chatSelected) return;
   persistChatSelected(key);
   window._chatAnalyticsKey = null;
   setChatAnalyticsPersisted(null);
@@ -6053,6 +6047,17 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
     `<h3 class="chat-analytics-h">Messages by hour of day</h3>${hourBars}` +
     `<h3 class="chat-analytics-h">Top peers</h3>${peerBars}` +
     `</div>`;
+}
+
+// Explicit analytics entry (2026-06-10): replaces the removed click-again rail gesture.
+function openChatAnalytics(agentId) {
+  const id = String(agentId || '').trim();
+  if (!id) return;
+  saveCurrentChatDraft();
+  persistChatSelected(null);
+  window._chatAnalyticsKey = id;
+  setChatAnalyticsPersisted(id);
+  renderChat();
 }
 
 function closeChatAnalytics(agentId) {
@@ -7037,6 +7042,7 @@ function renderChatInspector(meta, messages) {
         sessionResumeCommandBlock(resumeCommand) +
         '<div class="btn-row">' +
         actionButton('Sessions', 'Open the Sessions page filtered mentally to this agent', "showPage('sessions')") +
+        actionButtonFn('Analytics', 'Show this conversation\'s chat analytics (messages, working time, peers)', () => openChatAnalytics(meta.id)) +
         agentModeSwitchAction(meta.id, agentInfo) +
         ((environmentSupportsConsoleForSession(environment, session)
           && String(agentInfo?.sessionMode || session?.mode || '').toLowerCase() !== 'resident'
