@@ -2048,8 +2048,19 @@ window._environments = [];
 window._spawnRequests = [];
 window._sessions = [];
 window._channels = [];
-window._chatSelected = null;
+// The open conversation survives page reloads (2026-06-10): _chatSelected was the one
+// piece of chat view state NOT persisted, so F5/browser refresh closed the open chat.
+window._chatSelected = localStorage.getItem('aifyChatSelected') || null;
 window._chatAnalyticsKey = localStorage.getItem('aifyChatAnalyticsKey') || null;
+// Single setter so every selection change persists (and stays consistent with the
+// analytics-key persistence below).
+function persistChatSelected(key) {
+  window._chatSelected = key || null;
+  try {
+    if (key) localStorage.setItem('aifyChatSelected', key);
+    else localStorage.removeItem('aifyChatSelected');
+  } catch (_) { /* storage full/blocked — selection still works in-memory */ }
+}
 window._mobileChatRailOpen = false;
 window._chatChannelMessages = {};
 window._chatReadMarking = new Set();
@@ -3910,7 +3921,7 @@ async function saveAgentEditor(originalAgentId) {
       const renameRes = await renameResponse.json();
       if (!renameResponse.ok || renameRes.ok === false) throw new Error(renameRes.detail || renameRes.error || 'Rename failed');
       agentId = newAgentId;
-      if (window._chatSelected === `dm:${originalAgentId}`) window._chatSelected = `dm:${agentId}`;
+      if (window._chatSelected === `dm:${originalAgentId}`) persistChatSelected(`dm:${agentId}`);
     }
     if (environmentId && runtime && workspace) {
       const assignResponse = await apiFetch(API + `/agents/${encodeURIComponent(agentId)}/environment`, {
@@ -5637,7 +5648,11 @@ function chatConversations() {
     // Hide removed/tombstoned agents from the rail by default.
     if (deleted && !showDeleted) return null;
     const last = conversationPreviewForAgent(id, identity);
-    if (openOnly && !last) return null;
+    // The OPEN conversation is never dropped from the rail (2026-06-10): filters dropping
+    // the selected DM made the rail show no active row, and (before the selectedChatMeta fix)
+    // got the open chat yanked to the first rail item on every refresh.
+    const isSelectedConversation = window._chatSelected === `dm:${id}`;
+    if (openOnly && !last && !isSelectedConversation) return null;
     // A deleted agent has no live status — show a 'deleted' presence, never a
     // stale running/online badge, and never an actionable work rank.
     const presence = deleted
@@ -5650,7 +5665,7 @@ function chatConversations() {
     // unread messages visible, so the operator never loses a pinned or unanswered
     // conversation regardless of the filter. ('deleted' is handled above via
     // showDeleted; here we bucket the live presence dot.)
-    if (!deleted && !favorited && unread <= 0 && !statusFilter.has(statusBucketForPresence(presence.kind))) return null;
+    if (!deleted && !favorited && !isSelectedConversation && unread <= 0 && !statusFilter.has(statusBucketForPresence(presence.kind))) return null;
     return {
       key: `dm:${id}`,
       kind: 'dm',
@@ -5943,7 +5958,7 @@ async function selectChatConversation(key) {
   // agent's chat analytics instead of the message timeline. A second click on
   // the same rail item (now deselected) reselects normally via the else branch.
   if (key && key === window._chatSelected && key.startsWith('dm:')) {
-    window._chatSelected = null;
+    persistChatSelected(null);
     window._chatAnalyticsKey = key.slice('dm:'.length);
     setChatAnalyticsPersisted(window._chatAnalyticsKey);
     window._chatFollowBottom = true;
@@ -5951,7 +5966,7 @@ async function selectChatConversation(key) {
     renderChat();
     return;
   }
-  window._chatSelected = key;
+  persistChatSelected(key);
   window._chatAnalyticsKey = null;
   setChatAnalyticsPersisted(null);
   window._chatFollowBottom = true;
@@ -6065,7 +6080,6 @@ async function refreshSelectedChannelMessages() {
 
 function selectedChatMeta() {
   const {dmItems, channelItems} = chatConversations();
-  const validKeys = new Set(dmItems.concat(channelItems).map(item => item.key));
   let key = window._chatSelected;
   if (!key && window._chatAnalyticsKey) {
     // Analytics view is open (DM toggled closed on purpose): do NOT auto-select the first
@@ -6074,9 +6088,14 @@ function selectedChatMeta() {
     // to the WRONG agent (review must-fix, 2026-06-10).
     return {kind: '', id: '', title: 'Chat analytics', subtitle: ''};
   }
-  if (!key || !validKeys.has(key)) {
+  // NEVER yank an explicit selection (2026-06-10): the old `!validKeys.has(key)` branch
+  // re-assigned the open chat to the FIRST rail item whenever the selected conversation was
+  // filtered out of the rail (read → unread 0 + status bucket unchecked, status change,
+  // mid-refresh) — operator-reported "Refresh closes my chat". An open conversation stays
+  // open; only a truly-empty selection auto-picks a default.
+  if (!key) {
     key = dmItems[0]?.key || channelItems[0]?.key || '';
-    window._chatSelected = key;
+    persistChatSelected(key);
   }
   if (!key) return {kind: '', id: '', title: 'Chat', subtitle: 'Spawn or register agents to start chatting'};
   if (key.startsWith('channel:')) {
@@ -7113,7 +7132,7 @@ async function removeChannelMember(channelName, agentId) {
 function setChatReplyContext(mode, target, messageId, subject, preview) {
   if (!target || target === '_system') return;
   saveCurrentChatDraft();
-  window._chatSelected = `dm:${target}`;
+  persistChatSelected(`dm:${target}`);
   window._chatReplyTo = {mode, target, id: messageId, subject: subject || '', preview: preview || ''};
   loadCurrentChatDraft();
   window._chatReplyTo = {mode, target, id: messageId, subject: subject || '', preview: preview || ''};
@@ -7146,7 +7165,7 @@ function followUpChatMessage(from, messageId, subject, preview) {
 
 function openAgentChat(agentId) {
   saveCurrentChatDraft();
-  window._chatSelected = `dm:${agentId}`;
+  persistChatSelected(`dm:${agentId}`);
   loadCurrentChatDraft();
   showPage('chat');
   renderChat();
@@ -7197,7 +7216,7 @@ async function manageSelectedChat() {
       if (!confirm(`Delete channel #${meta.id} and all of its messages?`)) return;
       const res = await apiFetch(API + `/channels/${encodeURIComponent(meta.id)}`, {method: 'DELETE'}).then(r => r.json());
       if (!res.ok) throw new Error(res.detail || res.error || 'Delete channel failed');
-      window._chatSelected = null;
+      persistChatSelected(null);
       toast(`#${meta.id} deleted`);
       await refreshDashboard();
       return;
@@ -8631,7 +8650,7 @@ async function createChatChannel() {
     const res = await response.json();
     if (!response.ok || res.ok === false) throw new Error(res.detail || res.error || 'Create channel failed');
     input.value = '';
-    window._chatSelected = `channel:${name}`;
+    persistChatSelected(`channel:${name}`);
     loadCurrentChatDraft();
     toast(`#${name} created`);
     await refreshDashboard();
@@ -8644,7 +8663,7 @@ async function createChatChannel() {
 function prefillWorkerMessage(agentId, mode) {
   saveCurrentChatDraft();
   showPage('chat');
-  window._chatSelected = `dm:${agentId}`;
+  persistChatSelected(`dm:${agentId}`);
   loadCurrentChatDraft();
   renderChat();
   document.getElementById('chat-type').value = mode === 'request' ? 'request' : 'info';
