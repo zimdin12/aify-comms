@@ -1,5 +1,10 @@
 # Web App Design
 
+> **PARTIALLY SUPERSEDED (2026-06-10):** see [DASHBOARD_REBUILD_PLAN.md](DASHBOARD_REBUILD_PLAN.md)
+> — the active rebuild plan. Still-valid here: Continue/compaction-packet UX, the Spawn Flow
+> wizard, Anti-Patterns, frontend state rules. The IA (Work/Runtime/Insight/System), status
+> colors, and Home Page detail are superseded (chat-first landing + the 8-status contract).
+
 ## Goal
 
 The dashboard is the product. It should not feel like a debug page bolted onto an MCP server.

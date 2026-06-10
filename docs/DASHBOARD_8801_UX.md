@@ -1,5 +1,11 @@
 # 8801 Dashboard — UX Vision & Recommendations
 
+> **AMENDED (2026-06-10)** by [DASHBOARD_REBUILD_PLAN.md](DASHBOARD_REBUILD_PLAN.md) — this doc
+> remains the primary UX blueprint, with two corrections: (1) default landing is CHAT (the
+> 2026-06-07 chat-first decision), not Sessions; (2) status chips follow the 8-label contract
+> (working/online/idle/available/blocked/stale/offline/stopped). Slices 1, 4, parts of 5 and 11
+> are already shipped in service/new_dashboard/.
+
 Companion to [DASHBOARD_8801_PARITY.md](DASHBOARD_8801_PARITY.md). The
 parity contract is the correctness GATE; this doc is the DIRECTION. Slice
 roadmap below sits on top of the parity foundations (F1–F3).
