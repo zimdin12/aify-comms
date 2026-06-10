@@ -71,4 +71,40 @@ for (const r of CONSOLE_PROMPT_RULES) {
   assert.ok(r.name && r.match instanceof RegExp && okAnswer);
 }
 
+// ── Agents-manager incident regressions (2026-06-10) ────────────────────────
+// The background-agents manager footer + a ❯ row cursor + a subagent task title containing
+// "continue" must fire NOTHING — the old bypass rule matched the always-present footer chrome
+// and typed Enter ("Enter to view") into a live console.
+const AGENTS_MANAGER_FRAME = [
+  "❯ main  4m 51s · ↓ 48.7k tokens",
+  "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents · ↓ to manage",
+  "● main ↑/↓ to select · Enter to view",
+  "◯ general-purpose Full integration re-validation continue docs pass 4m 51s",
+].join("\n");
+assert.equal(matchConsolePrompt(AGENTS_MANAGER_FRAME), null,
+  "agents-manager chrome must never fire an auto-answer");
+
+// The REAL bypass dialog (fixture shape) still fires.
+assert.equal(
+  matchConsolePrompt("WARNING: Claude Code running in Bypass Permissions mode\nBy continuing you bypass permissions for all tool calls.\n❯ Yes, I accept\n  No, exit")?.name,
+  "bypass-permissions-accept",
+  "the real bypass dialog still auto-accepts",
+);
+
+// Prose with "compact … continue" / "join channel" near a cursor must NOT fire (loose-rule class).
+assert.equal(matchConsolePrompt("❯ next: compact the list and continue with the merge"), null,
+  "prose 'compact…continue' must not fire the compaction rule");
+assert.equal(matchConsolePrompt("❯ then join channel #dev and report"), null,
+  "prose 'join channel' must not fire the channel rule");
+
+// The real compaction + channel dialogs still fire.
+assert.equal(
+  matchConsolePrompt("This conversation is large.\nContinue without compacting the context?\n❯ Yes, continue\n  No, compact first")?.name,
+  "compaction-question",
+);
+assert.equal(
+  matchConsolePrompt("Loading development-channels: server:aify-comms-channel\nEnter channel to receive dispatched messages?\n❯ Yes")?.name,
+  "channel-enter",
+);
+
 console.log("claude-console-prompts.test.js: all assertions passed");

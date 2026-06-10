@@ -71,23 +71,36 @@ export const CONSOLE_PROMPT_RULES = [
   {
     // Compaction question on resume. Tuned against
     // fixtures/claude-console/compaction-prompt.txt; Enter accepts the highlighted option.
+    // TIGHTENED (2026-06-10, same class as the bypass rule): the old second alternative
+    // `compact…continue` matched PROSE ("compact the list and continue") — keep only the
+    // dialog-literal phrasing.
     name: "compaction-question",
-    match: /continue without compact|compact[\s\S]{0,80}continue/i,
+    match: /continue without compact/i,
     answer: "\r",
   },
   {
     // Bypass-permissions accept dialog. Tuned against
     // fixtures/claude-console/perms-accept.txt; Enter confirms the highlighted accept.
+    // TIGHTENED (2026-06-10): the old /bypass permissions...(accept|continue)/ also matched
+    // claude's ALWAYS-PRESENT footer chrome "bypass permissions on (shift+tab to cycle)" plus
+    // any incidental "continue/accept" within 160 chars (e.g. a SUBAGENT's task title in the
+    // background-agents manager, whose ❯ row cursor satisfied the menu gate while the manager
+    // occluded the spinner) — the bridge then typed Enter into a live console, which the agents
+    // manager interpreted as "Enter to view" (the operator-reported random agent-selection
+    // screen). Require the real dialog shape: the "Bypass Permissions mode" warning + the
+    // literal "Yes, I accept" option.
     name: "bypass-permissions-accept",
-    match: /bypass permissions[\s\S]{0,160}(accept|yes, i accept|continue)/i,
+    match: /bypass permissions mode[\s\S]{0,200}yes, i accept/i,
     answer: "\r",
   },
   {
     // Channel auto-enter: accept the development-channels prompt so a dispatched channel
     // wake lands instead of stranding at the prompt. Tuned against
     // fixtures/claude-console/channel-enter.txt.
+    // TIGHTENED (2026-06-10): `enter channel|join channel` alone is prose-able ("join
+    // channel #dev") — require the plugin name or the dialog's own question line.
     name: "channel-enter",
-    match: /development-channels|enter channel|join channel/i,
+    match: /development-channels|enter channel to receive/i,
     answer: "\r",
   },
 ];
@@ -97,9 +110,18 @@ export const CONSOLE_PROMPT_RULES = [
 // SAFETY: an interactive menu cursor (❯) MUST be present — otherwise the "match" is
 // claude's own prose, not a focused prompt awaiting input, and answering it would inject
 // stray keystrokes mid-turn. (The caller additionally gates on consoleClass !== "working".)
+// Background-agents manager chrome (Claude Code's subagent panel). Its rows carry a ❯-style
+// selection cursor and its footer ("← for agents", "↑/↓ to select · Enter to view") sits where
+// the spinner footer would be — so while it is on screen the cursor gate is satisfied and the
+// working classification can read unknown. The manager means claude is ORCHESTRATING SUBAGENTS,
+// never stuck at a boot prompt: suppress ALL auto-answers while its chrome is visible
+// (2026-06-10, the "random agent-selection screen" incident).
+const AGENTS_MANAGER_RE = /← for agents|↑\/↓ to select|↓ to manage/;
+
 export function matchConsolePrompt(rawTail = "") {
   const visible = stripAnsi(rawTail).slice(-2000);
   if (!MENU_CURSOR_RE.test(visible)) return null;
+  if (AGENTS_MANAGER_RE.test(visible)) return null;
   for (const rule of CONSOLE_PROMPT_RULES) {
     if (!rule.match.test(visible)) continue;
     if (rule.mustAlsoMatch && !rule.mustAlsoMatch.test(visible)) continue;
