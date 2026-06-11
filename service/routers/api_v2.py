@@ -2286,6 +2286,32 @@ async def _compute_session_display_status(db, session_row, agent_row=None) -> st
     """
     stored = str((session_row["status"] if session_row is not None else "") or "").strip()
     if stored.lower() not in {s.lower() for s in LIVE_SESSION_STATUSES}:
+        # INVERSE truthfulness (2026-06-11): a DEAD stored status with a LIVE bound terminal
+        # is factually wrong — the dashboard rendered "Console stopped" over a visibly-running
+        # terminal (next-manager, twice: a heartbeat lapse let the dead-session reconciler
+        # downgrade the row AFTER the bind, so the bind-moment promotion never re-fired).
+        # Display 'running' when the bound terminal row is live and the agent is not
+        # operator-stopped. Display-only — the stored row is never mutated, and operator
+        # disable (agents.status='stopped') still wins.
+        keys0 = session_row.keys() if session_row is not None else []
+        bound_terminal = str((session_row["terminal_id"] if "terminal_id" in keys0 else "") or "").strip()
+        if bound_terminal and not bound_terminal.startswith("vterm_"):
+            try:
+                if agent_row is None:
+                    agent_row = await (await db.execute(
+                        "SELECT * FROM agents WHERE id = ?",
+                        (str((session_row["agent_id"] if "agent_id" in keys0 else "") or ""),),
+                    )).fetchone()
+                agent_stopped = bool(agent_row and str(agent_row["status"] or "").strip().lower() == "stopped")
+                if not agent_stopped:
+                    _t = await (await db.execute(
+                        "SELECT status FROM terminal_sessions WHERE id = ?",
+                        (bound_terminal,),
+                    )).fetchone()
+                    if _t and str(_t["status"] or "").strip().lower() in {"starting", "attached", "running", "active", "idle"}:
+                        return "running"
+            except Exception:
+                pass
         return stored  # already terminal — display as-is.
     agent_id = str((session_row["agent_id"] if session_row is not None else "") or "").strip()
     if not agent_id:
