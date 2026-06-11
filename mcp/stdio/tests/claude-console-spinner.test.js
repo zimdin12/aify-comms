@@ -41,3 +41,26 @@ assert.equal(classifyClaudeConsoleTail("just some build log output\n"), "unknown
 assert.equal(classifyClaudeConsoleTail(""), "unknown");
 
 console.log("claude-console-spinner.test.js: all assertions passed");
+
+// ── Subagents / agents-manager working signal (2026-06-11) ───────────────────
+import { hasActiveSubagents } from "../claude-console-spinner.js";
+{
+  const MANAGER_RUNNING = [
+    "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents · ↓ to manage",
+    "● main ↑/↓ to select · Enter to view",
+    "◯ general-purpose Full integration re-validation pass 4m 51s · ↓ 48.7k tokens",
+  ].join("\n");
+  assert.equal(hasActiveSubagents(MANAGER_RUNNING), true, "manager + running row = subagents active");
+  assert.equal(classifyClaudeConsoleTail(MANAGER_RUNNING), "working", "manager + running row classifies working (footer occluded)");
+  // Manager chrome with only COMPLETED rows (tool uses, no elapsed) = not active.
+  const MANAGER_IDLE = [
+    "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents · ↓ to manage",
+    "◯ general-purpose Done thing +73 tool uses · ↓ 53.2k tokens",
+    "? for shortcuts",
+  ].join("\n");
+  assert.equal(hasActiveSubagents(MANAGER_IDLE), false, "manager with only completed rows is not subagents-active");
+  assert.equal(classifyClaudeConsoleTail(MANAGER_IDLE), "idle", "idle prompt wins when no running row");
+  // Prose mentioning tokens without manager chrome = nothing.
+  assert.equal(hasActiveSubagents("we used 4m 2s · ↓ 9k tokens yesterday"), false, "no manager chrome → not subagents");
+}
+console.log("subagents detection assertions passed");

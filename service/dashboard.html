@@ -5544,11 +5544,14 @@ function chatPresenceForAgent(info = {}) {
   // note and tag the label — otherwise an agent that owes a reply looks
   // identical to a freshly-idle one in the chat rail.
   const awaitSuffix = /awaiting reply/i.test(String(info.statusNote || '')) ? ' · awaiting reply' : '';
+  // Subagents mini-tag (2026-06-11): the server appends "Running subagents." to the working
+  // reason while the claude background-agents manager shows a running row.
+  const subagentsSuffix = /running subagents/i.test(String(info.statusNote || '')) ? ' · ⚒ subagents' : '';
   if (issue) {
     return {kind: ['offline', 'stale', 'stopped'].includes(raw) ? raw : 'unreachable', label: issue};
   }
   if (raw === 'working') {
-    return {kind: 'working', label: activeRun ? `working: ${activeRun.subject || activeRun.runId || 'run'}${queued}; orange pulse means terminal output is arriving` : `working${queued}; orange pulse means terminal output is arriving`};
+    return {kind: 'working', label: activeRun ? `working: ${activeRun.subject || activeRun.runId || 'run'}${queued}${subagentsSuffix}; orange pulse means terminal output is arriving` : `working${queued}${subagentsSuffix}; orange pulse means terminal output is arriving`};
   }
   if (raw === 'blocked') {
     return {kind: 'blocked', label: activeRun ? `blocked: ${activeRun.subject || activeRun.runId || 'run'}${queued}; console appears to need input` : `blocked${queued}; console appears to need input`};

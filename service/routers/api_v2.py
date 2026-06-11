@@ -4250,9 +4250,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # never manufacture `working` for a dead/available agent (additive-only contract).
     console_working_lease = False
     console_lease_iso = ""
+    subagents_active = False
     try:
         _cw = await (await db.execute(
-            "SELECT working_at FROM agent_console_signal WHERE agent_id = ?",
+            "SELECT working_at, subagents_at FROM agent_console_signal WHERE agent_id = ?",
             (agent_row["id"],),
         )).fetchone()
         if _cw:
@@ -4261,6 +4262,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             if _seen and datetime.now(timezone.utc).timestamp() - _seen <= CONSOLE_WORKING_LEASE_SECONDS:
                 console_working_lease = True
                 console_lease_iso = _cw_iso
+            # Subagents mini-tag (2026-06-11): the bridge stamps subagents_at while the
+            # claude background-agents manager shows a RUNNING row. Same TTL as the lease.
+            _sa_seen = _iso_to_epoch(str(_cw["subagents_at"] or "").strip()) if "subagents_at" in _cw.keys() else 0
+            if _sa_seen and datetime.now(timezone.utc).timestamp() - _sa_seen <= CONSOLE_WORKING_LEASE_SECONDS:
+                subagents_active = True
     except Exception:
         console_working_lease = False
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
@@ -4681,6 +4687,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             env_reachable=True, disabled=_si_disabled,
             bridge_stale=(not _si_fresh), has_live_session=_si_fresh, idle_too_long=False,
         )
+    # Subagents mini-tag (2026-06-11): surfaced through the reason string (the dashboard
+    # already derives nuances like awaiting-reply from it) so no payload-shape change.
+    if subagents_active and effective_status == "working":
+        reason = f"{reason} Running subagents.".strip()
     return {
         "status": effective_status,
         "reason": reason,
@@ -15434,10 +15444,16 @@ async def agent_console_working(agent_id: str, request: Request):
         )).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        subagents = bool(isinstance(body, dict) and body.get("subagents"))
         await db.execute(
-            "INSERT INTO agent_console_signal (agent_id, working_at) VALUES (?, ?) "
-            "ON CONFLICT(agent_id) DO UPDATE SET working_at = excluded.working_at",
-            (agent_id, now),
+            "INSERT INTO agent_console_signal (agent_id, working_at, subagents_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(agent_id) DO UPDATE SET working_at = excluded.working_at, "
+            "subagents_at = CASE WHEN ? THEN excluded.working_at ELSE '' END",
+            (agent_id, now, now if subagents else "", 1 if subagents else 0),
         )
         # Invalidate BEFORE the commit — the invalidate is itself a DELETE on agent_live_state,
         # so issued after the only commit it is rolled back on close() and the cached `online`

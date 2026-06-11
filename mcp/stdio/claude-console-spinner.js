@@ -30,6 +30,23 @@ const INTERRUPT_RE = /[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt/i;
 // The idle prompt renders the shortcuts hint and no interrupt hint.
 const IDLE_HINT_RE = /\?\s*for shortcuts/i;
 
+// Background-agents manager (2026-06-11): when claude runs SUBAGENTS the manager panel
+// OCCLUDES the spinner footer, so the lease lapsed and a hard-working claude read `online`
+// (the next-manager incident). The manager's chrome ("← for agents" / "↑/↓ to select" /
+// "↓ to manage") plus a RUNNING agent row (elapsed time + live token counter, e.g.
+// "4m 51s · ↓ 48.7k tokens") is a strong positive working signal. Chrome alone is NOT
+// enough — the manager can stay on screen while everything is idle (completed rows show
+// "+N tool uses · ↓ Nk tokens" with no elapsed time, and don't match the running row).
+const AGENTS_MANAGER_CHROME_RE = /← for agents|↑\/↓ to select|↓ to manage/;
+const AGENTS_RUNNING_ROW_RE = /\b(?:\d+h\s+)?(?:\d+m\s+)?\d+s\s*·\s*↓\s*[\d.]+k tokens/;
+
+// True when the agents manager is visible WITH at least one running row — claude is
+// orchestrating subagents right now.
+export function hasActiveSubagents(rawTail = "") {
+  const visible = stripAnsi(rawTail).slice(-4000);
+  return AGENTS_MANAGER_CHROME_RE.test(visible) && AGENTS_RUNNING_ROW_RE.test(visible);
+}
+
 // Index of the LAST match of `re` in `text`, or -1. The console tail ACCUMULATES
 // (the old spinner line lingers above a freshly-rendered idle prompt), so "contains"
 // is wrong — whichever signal appears LATEST in the byte stream is the live footer.
@@ -50,6 +67,11 @@ function lastIndexOfMatch(text, re) {
 // so this never flips state on unrecognized output.
 export function classifyClaudeConsoleTail(rawTail = "") {
   const visible = stripAnsi(rawTail).slice(-4000);
+  // The agents manager occludes the spinner footer; a visible manager with a RUNNING row
+  // means claude is working (orchestrating subagents) regardless of footer position.
+  if (AGENTS_MANAGER_CHROME_RE.test(visible) && AGENTS_RUNNING_ROW_RE.test(visible)) {
+    return "working";
+  }
   const workingIdx = Math.max(
     lastIndexOfMatch(visible, INTERRUPT_RE),
     lastIndexOfMatch(visible, SPINNER_RE),

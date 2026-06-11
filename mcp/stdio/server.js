@@ -859,14 +859,14 @@ const CONSOLE_WORKING_TIMERS = new Map();
 // Refresh the server-side console-working lease while the claude spinner footer is
 // visible. Debounced to ~once / CONSOLE_WORKING_REMIT_MS so a per-second spinner redraw
 // does not spam the endpoint. No clear timer: the lease self-expires server-side (TTL).
-function pulseConsoleWorking(terminalId, agentId) {
+function pulseConsoleWorking(terminalId, agentId, subagents = false) {
   const aid = String(agentId || "").trim();
   if (!aid) return;
   const last = CONSOLE_WORKING_TIMERS.get(terminalId) || 0;
   const now = Date.now();
   if (now - last < CONSOLE_WORKING_REMIT_MS) return;
   CONSOLE_WORKING_TIMERS.set(terminalId, now);
-  httpCall("POST", `/agents/${encodeURIComponent(aid)}/console-working`, {}).catch(() => {});
+  httpCall("POST", `/agents/${encodeURIComponent(aid)}/console-working`, { subagents: !!subagents }).catch(() => {});
 }
 async function ensureVirtualTerminal(agentId, agentInfo, runtime) {
   const key = String(agentId || "").trim();
@@ -986,7 +986,7 @@ const TERMINAL_MANAGER = new TerminalProcessManager({
         consoleClass: st.consoleClass,
         agentId: st.agentId,
       });
-      if (decision.kind === "console-working") pulseConsoleWorking(terminalId, decision.agentId);
+      if (decision.kind === "console-working") pulseConsoleWorking(terminalId, decision.agentId, st.subagentsActive);
       else if (decision.kind === "terminal-pulse") pulseTerminalTurnBusy(terminalId, decision.agentId);
     } catch {}
   },

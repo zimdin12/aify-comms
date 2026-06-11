@@ -3,7 +3,7 @@ import { createRequire } from "module";
 import { homedir } from "node:os";
 import { normalizeRuntime, runtimeCommandWithoutResume, sessionEnvVarsForRuntime, terminateProcessTree } from "./runtimes.js";
 import { reapPriorManagedClaude } from "./reap-managed-claude.js";
-import { classifyClaudeConsoleTail } from "./claude-console-spinner.js";
+import { classifyClaudeConsoleTail, hasActiveSubagents } from "./claude-console-spinner.js";
 import { matchConsolePrompt } from "./claude-console-prompts.js";
 
 // node-pty's pty.spawn calls native chdir(2) with the cwd verbatim. POSIX
@@ -191,6 +191,7 @@ export class TerminalProcessManager {
       // under-report). consoleClass is the claude TUI spinner classification.
       agentId: state.agentId || "",
       consoleClass: state.consoleClass || null,
+      subagentsActive: !!state.subagentsActive,
     };
   }
 
@@ -356,6 +357,10 @@ export class TerminalProcessManager {
     // turn detectors and are never classified here.
     state.consoleClass =
       state.runtime === "claude-code" ? classifyClaudeConsoleTail(state.outputTail) : null;
+    // Background-subagents flag (2026-06-11): the agents manager + a running row means
+    // claude is orchestrating subagents — surfaced as a status mini-tag via the lease pulse.
+    state.subagentsActive =
+      state.runtime === "claude-code" ? hasActiveSubagents(state.outputTail) : false;
     // Console prompt auto-answer (managed claude only). Type the answer once per on-screen
     // appearance: track the answered rule; reset when the prompt clears so a later distinct
     // appearance is answered again. Never types into a resident/operator session, and NEVER
