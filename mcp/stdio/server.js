@@ -921,6 +921,11 @@ async function dispatchVirtualTerminalLine(agentId, lineBody) {
     onRuntimeState: () => {},
     onRefs: () => {},
   });
+  // Status gap A (2026-06-11, cross-harness audit): an operator-typed pi console turn ran
+  // with NO turn tracking (deliberately no dispatch_run row — but that also skipped the
+  // turn-busy heartbeat), so the agent read `online` for the whole turn. Registering the
+  // turn promise arms the existing 30s turn-busy re-pulse for its duration.
+  __markControllerStart(turnHandle.promise);
   return turnHandle.promise;
 }
 

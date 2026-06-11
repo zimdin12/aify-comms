@@ -2,6 +2,14 @@
 
 Living list of known limitations, deferred work, and things to watch. Complements [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Last reviewed 2026-06-10.
 
+## Cross-harness status audit (2026-06-11) — verdicts + small backlog
+
+No occlusion analogs of the claude footer-scrape exist (hermes/codex/pi/opencode all use process-truth signals). Fixed same-day: pi **Gap A** (operator-typed pi console turns now arm the turn-busy heartbeat via `__markControllerStart`). Remaining, low severity:
+- **pi Gap B:** an omp `bg_task` background task can wake pi into an autonomous turn between dispatches with no tracker (`_onAgentEnd` early-returns without `_activeTurn`). Fix shape: session-level edge-triggered turn-start/end POSTs on `agent_start`/`agent_end` — the pi mirror of the hermes continuous detector.
+- **codex hooks are version-fragile:** on a codex CLI without the hook events, resident typed turns silently show `online`; install-time warning would help.
+- **hermes watch-item:** delegation (`delegate_task`) currently blocks the parent turn (tracked); if a future hermes makes it async, the 3-tick idle debounce would false-end — recheck on hermes upgrades.
+- **opencode resident is presence-only by design** (documented); revisit via the OpenCode SDK event stream if it ever matters.
+
 ## Backlog from the 2026-06-10 project-wide review (should-fix, deferred)
 
 The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide bug-hunt` commit). These remain, prioritized:
