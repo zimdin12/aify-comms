@@ -2853,6 +2853,14 @@ function streamConsoleDelta(terminalId, chunk, status, seq) {
   // Drop replays/out-of-order frames using the monotonic server seq.
   if (typeof seq === 'number') {
     if (typeof state.lastSeq === 'number' && seq <= state.lastSeq) return true;
+    // SEQ GAP (2026-06-11): a dropped WS frame (reconnect blip) used to leave a SILENT hole —
+    // the xterm froze while the PTY kept working, which reads as "a ghost session is answering
+    // somewhere else" (ci-manager incident). On a gap, force a full authoritative repaint.
+    if (typeof state.lastSeq === 'number' && seq > state.lastSeq + 1 && !state._gapResync) {
+      state._gapResync = true;
+      loadTerminal(id, {force: true, resync: true}).finally(() => { state._gapResync = false; });
+      return true; // the resync repaints everything incl. this frame's content
+    }
     state.lastSeq = seq;
   }
   if (status) state.lastStatus = status;
