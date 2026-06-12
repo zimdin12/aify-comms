@@ -75,6 +75,10 @@ export function channelBridgeId(agentId) {
   return id ? `${CHANNEL_BRIDGE_PREFIX}-${id}` : CHANNEL_BRIDGE_PREFIX;
 }
 const POLL_MS = Number(process.env.AIFY_COMMS_CHANNEL_POLL_MS || process.env.AIFY_CLAUDE_CHANNEL_POLL_MS || 3000);
+// Dormant back-off after a mode-FSM `release` (we are not the active driver). Long enough
+// not to spam claims while displaced, short enough that a healed driver_state (the server's
+// adopt-live-resident self-heal) restores delivery within a minute.
+const RELEASE_RECHECK_MS = Math.max(5000, Number(process.env.AIFY_CHANNEL_RELEASE_RECHECK_MS || 60_000));
 const TMP_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 const IS_MAIN = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -524,14 +528,23 @@ async function pollLoop() {
           process.exit(0);
         }
         // Mode FSM release signal (Task 4.1): the operator switched this agent
-        // to resident, so this managed sidecar is no longer the driver. Stop
-        // driving and exit the poll loop gracefully — the resident TUI/CLI now
-        // owns the session (one-driver invariant).
+        // to resident, so this managed sidecar is no longer the driver.
+        // DORMANT, NOT DEAD (2026-06-12, sc-manager strand): the old permanent
+        // `return` killed the poll loop forever — but for a resident claude this
+        // sidecar IS the session's only delivery path, and a transient release
+        // (the mode switch briefly clobbering driver_state before the server's
+        // adopt-live-resident self-heal) permanently severed delivery: sends said
+        // "sent", runs queued, nothing claimed until a full session restart. Go
+        // dormant for one back-off window and re-check — the next claim either
+        // gets released again (still displaced → stay dormant) or resumes
+        // normally (the server healed driver_state → we are the driver).
         if (claim?.release) {
           console.error(
-            `[claude-channel] released: agent '${agentId}' switched to resident; sidecar stopping.`,
+            `[claude-channel] released: agent '${agentId}' not the active driver; dormant for ${Math.round(RELEASE_RECHECK_MS / 1000)}s, then re-checking.`,
           );
-          return;
+          await sleep(RELEASE_RECHECK_MS);
+          batch.length = 0;
+          break;
         }
         const executionMode = String(claim?.run?.executionMode || "").trim().toLowerCase();
         if (!claim?.run || !["channel", "resident"].includes(executionMode)) break;

@@ -13852,7 +13852,7 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 capabilities = ?,
                 runtime_config = ?,
                 runtime_state = ?,
-                driver_state = 'idle',
+                driver_state = ?,
                 status = CASE WHEN status = 'stopped' THEN 'idle' ELSE status END,
                 status_note = ?,
                 last_seen = ?
@@ -13868,6 +13868,13 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
                 json.dumps(capabilities),
                 json.dumps(runtime_config),
                 json.dumps(runtime_state),
+                # Switching TO resident while adopting a LIVE resident bridge keeps that
+                # session as the active driver. The previous unconditional 'idle' clobbered
+                # the 'driving' the just-registered resident session had set, so its OWN
+                # channel sidecar was told to RELEASE on its next claim/heartbeat and
+                # resident delivery silently died — sends said "sent", runs queued forever
+                # (sc-manager, 2026-06-12: launch terminal first, click switch second).
+                ("driving" if (new_mode == "resident" and str(resident_candidate.get("bridgeId") or "").strip()) else "idle"),
                 f"Manually switched from {current_mode} to {new_mode} by {requested_by}"
                 + (f" (runtime {runtime}->{effective_runtime})" if effective_runtime != runtime else "")
                 + ".",
@@ -14646,9 +14653,15 @@ async def send_message(req: MessageSend, request: Request):
                         and _execution_mode == "channel"
                     ):
                         existing = await _active_terminal_for_agent(db, recipient_id, settings=settings)
+                        # B2 parity (2026-06-12): a leftover non-managed terminal row must not
+                        # suppress the cold start — only a LIVE managed-wrapper-child proves a
+                        # worker actually backs this agent (same strand class as lc-coder).
+                        if existing and not await _has_live_managed_wrapper_child(db, recipient_id):
+                            existing = None
                         if not existing:
+                            started = None
                             try:
-                                await _ensure_managed_pty_for_dispatch(
+                                started = await _ensure_managed_pty_for_dispatch(
                                     db,
                                     recipient_id,
                                     runtime=runtime,
@@ -14656,11 +14669,35 @@ async def send_message(req: MessageSend, request: Request):
                                     requested_by=req.from_agent,
                                 )
                             except Exception:
-                                # Best-effort. claude-channel.js may still
-                                # pick this up if a wrapper exists in
-                                # another env; otherwise dispatch stays
-                                # queued and operator can spawn manually.
-                                pass
+                                started = None
+                            if not started:
+                                # ROOT-CAUSE-G PARITY (2026-06-12, graph-tech-lead strand):
+                                # _ensure_managed_pty_for_dispatch returns None when the agent
+                                # has no usable session row to launch into — exactly the state
+                                # after an env-bridge restart retires every session. The native
+                                # runtimes fall back to a cold-start spawn_request here; managed
+                                # claude never did, so the channel run sat queued with a claimer
+                                # that could never exist until the 180s backstop FAILED it.
+                                coldstarted = False
+                                try:
+                                    coldstarted = await _coldstart_spawn_request_for_dispatch(
+                                        db,
+                                        recipient_id,
+                                        runtime=runtime,
+                                        settings=settings,
+                                        requested_by=req.from_agent,
+                                    )
+                                except Exception:
+                                    coldstarted = False
+                                if not coldstarted and not await _has_claimable_spawn_request(db, recipient_id):
+                                    not_started.append(
+                                        _dispatch_fix_hint(
+                                            recipient_id,
+                                            row,
+                                            f"No online environment can host managed {runtime} for this agent; start an environment bridge that advertises {runtime}, or recover the session.",
+                                        )
+                                    )
+                                    channel_backing_failed.add(recipient_id)
                     continue
                 console_terminal = await _active_terminal_for_agent(db, recipient_id, settings=settings)
                 if not console_terminal:
@@ -15077,6 +15114,34 @@ async def agent_last_read(agent_id: str, request: Request):
         await db.close()
 
 
+async def _adopt_live_resident_driver(db, agent_id: str) -> bool:
+    """SELF-HEAL for the launch-terminal-first / switch-second ordering (2026-06-12,
+    sc-manager strand): a channel sidecar claiming/beating for a RESIDENT-mode agent with
+    driver_state != 'driving' is only a DISPLACED MANAGED driver when no live resident
+    session exists. When a FRESH resident bridge row is beating, this sidecar IS that live
+    resident session's own delivery path — the operator launched the resident terminal
+    FIRST (registration set driver_state='driving') and clicked "switch to resident"
+    SECOND, and the switch clobbered driver_state back to 'idle'. Releasing the sidecar
+    then silently killed resident delivery: sends reported "sent", runs queued forever,
+    nothing claimed. Adopt the driving state instead of releasing. Returns True when
+    adopted (caller skips the release)."""
+    # bridge_kind is '' on a registration-created row (only heartbeats stamp the kind) —
+    # accept that shape only when the bridge row itself was registered as a RESIDENT
+    # session; a managed registration's kindless bridge must never count as a live
+    # resident driver (it would re-adopt a genuinely displaced agent).
+    row = await (await db.execute(
+        "SELECT id FROM bridge_instances WHERE agent_id = ? "
+        "AND (bridge_kind = 'resident' OR (COALESCE(bridge_kind, '') = '' AND session_mode = 'resident')) "
+        "AND COALESCE(superseded_by, '') = '' AND last_seen > datetime('now', '-150 seconds') "
+        "LIMIT 1",
+        (agent_id,),
+    )).fetchone()
+    if not row:
+        return False
+    await db.execute("UPDATE agents SET driver_state = 'driving' WHERE id = ?", (agent_id,))
+    return True
+
+
 @router.post("/agents/{agent_id}/heartbeat")
 async def agent_heartbeat(agent_id: str, request: Request):
     """Lightweight heartbeat — bridge poll loop calls this to signal liveness."""
@@ -15111,7 +15176,13 @@ async def agent_heartbeat(agent_id: str, request: Request):
                 and _normalize_session_mode(mode_row["session_mode"] or "resident") != "managed"
                 and str((mode_row["driver_state"] if "driver_state" in mode_row.keys() else "") or "").strip().lower() != "driving"
             ):
-                return {"ok": True, "release": True}
+                # Live resident bridge ⇒ this is the resident's OWN delivery sidecar,
+                # not a displaced managed driver — adopt driving instead of releasing
+                # (see _adopt_live_resident_driver).
+                if await _adopt_live_resident_driver(db, agent_id):
+                    await db.commit()
+                else:
+                    return {"ok": True, "release": True}
         if bridge_id:
             bridge_row = await (await db.execute(
                 "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
@@ -16183,8 +16254,12 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             and _normalize_session_mode(agent["session_mode"] or "resident") != "managed"
             and str((agent["driver_state"] if "driver_state" in agent.keys() else "") or "").strip().lower() != "driving"
         ):
-            await db.commit()
-            return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}
+            # Live resident bridge ⇒ this is the resident's OWN delivery sidecar, not a
+            # displaced managed driver — adopt driving and keep claiming instead of
+            # releasing (see _adopt_live_resident_driver; the sc-manager strand).
+            if not await _adopt_live_resident_driver(db, agent["id"]):
+                await db.commit()
+                return {"ok": True, "run": None, "release": True, "sessionMode": _normalize_session_mode(agent["session_mode"] or "resident")}
 
         # Self-heal a superseded channel-sidecar (operator-reported 2026-05-31,
         # sc-claude). A managed agent's channel sidecar and the visible TUI's

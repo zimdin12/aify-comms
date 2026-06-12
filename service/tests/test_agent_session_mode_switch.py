@@ -429,6 +429,95 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         # reports managedSpawnRequested rather than a missing-backing error.
         self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"))
 
+    # ─── 2026-06-12 — the sc-manager "sent but never received" strand ─────────
+
+    def _register_resident_candidate(self, agent_id: str) -> None:
+        """Re-register an existing managed agent as a LIVE resident session (the
+        operator's launch-terminal-first flow): creates the resident bridge row and
+        records manualResidentCandidate for the later mode switch."""
+        res = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": agent_id,
+                "role": "coder",
+                "runtime": "claude-code",
+                "sessionMode": "resident",
+                "sessionHandle": "resident-claude-session",
+                "machineId": "linux:test-host",
+                "bridgeId": "resident-bridge-live",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def _read_driver_state(self, agent_id: str) -> str:
+        row = self._read_agent_row(agent_id)
+        return str(row["driver_state"] or "") if row else ""
+
+    def test_switch_to_resident_with_live_candidate_keeps_driving(self):
+        """Switching to resident while ADOPTING a live resident bridge must leave
+        driver_state='driving' — the old unconditional 'idle' made the server tell the
+        resident session's OWN channel sidecar to release, silently killing delivery."""
+        self._heartbeat_environment("claude-code")
+        self._register_agent(agent_id="claude-flip", runtime="claude-code", session_mode="managed")
+        self._register_resident_candidate("claude-flip")
+        res = self.client.patch(
+            "/api/v1/agents/claude-flip/session-mode",
+            json={"mode": "resident"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(self._read_agent_mode("claude-flip"), "resident")
+        self.assertEqual(self._read_driver_state("claude-flip"), "driving",
+                         "adopting a live resident candidate must keep it the active driver")
+        # The resident's own sidecar heartbeat must NOT be told to release.
+        hb = self.client.post(
+            "/api/v1/agents/claude-flip/heartbeat",
+            json={"bridgeId": "channel-test-claude-flip", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(hb.status_code, 200, hb.text)
+        self.assertFalse(hb.json().get("release"), "live resident driver's sidecar must keep driving")
+
+    def test_sidecar_heartbeat_adopts_live_resident_driver(self):
+        """Self-heal: resident agent with driver_state drifted to 'idle' but a FRESH
+        resident bridge beating — the sidecar heartbeat must adopt 'driving' instead of
+        releasing (a release here permanently severed delivery pre-fix)."""
+        self._heartbeat_environment("claude-code")
+        self._register_agent(agent_id="claude-heal", runtime="claude-code", session_mode="managed")
+        self._register_resident_candidate("claude-heal")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            # The resident registration just wrote a fresh ISO last_seen on the
+            # resident bridge row; only the driver_state drift is simulated here.
+            conn.execute("UPDATE agents SET session_mode='resident', driver_state='idle' WHERE id='claude-heal'")
+            conn.commit()
+        finally:
+            conn.close()
+        hb = self.client.post(
+            "/api/v1/agents/claude-heal/heartbeat",
+            json={"bridgeId": "channel-test-claude-heal", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(hb.status_code, 200, hb.text)
+        self.assertFalse(hb.json().get("release"), "fresh resident bridge → adopt driving, not release")
+        self.assertEqual(self._read_driver_state("claude-heal"), "driving")
+
+    def test_sidecar_heartbeat_still_releases_without_live_resident(self):
+        """The release path stays intact for the case it was built for: a displaced
+        managed sidecar with NO live resident session behind the agent."""
+        self._heartbeat_environment("claude-code")
+        self._register_agent(agent_id="claude-displaced", runtime="claude-code", session_mode="managed")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            conn.execute("UPDATE agents SET session_mode='resident', driver_state='idle' WHERE id='claude-displaced'")
+            conn.commit()
+        finally:
+            conn.close()
+        hb = self.client.post(
+            "/api/v1/agents/claude-displaced/heartbeat",
+            json={"bridgeId": "channel-test-claude-displaced", "bridgeKind": "channel-sidecar", "liveness": True},
+        )
+        self.assertEqual(hb.status_code, 200, hb.text)
+        self.assertTrue(hb.json().get("release"), "no live resident bridge → the displaced sidecar still releases")
+
     def test_switch_resident_to_managed_force_reports_missing_backing(self):
         self._heartbeat_environment("codex")
         self._register_agent(agent_id="codex-force-noenv", runtime="codex", session_mode="resident")
