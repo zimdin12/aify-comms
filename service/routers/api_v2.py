@@ -13296,12 +13296,38 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 "auto_confirm_session_id", DEFAULT_SETTINGS["auto_confirm_session_id"]
             )
         )
+        # FRESH-START GUARD (2026-06-12, the ci-manager lost-context incident): auto-adopt
+        # exists for SAFE self-changes (a compaction/resume issues a new id that CARRIES the
+        # context). But when the live terminal started FRESH (its command has no --resume —
+        # e.g. the wrapper dropped an unresumable handle after days offline), the reported id
+        # is an EMPTY session: adopting it overwrites the pinned handle of the real
+        # context-bearing session, and every later Restart then "correctly" resumes the empty
+        # one. Park such ids for manual Confirm instead, even when auto-confirm is ON.
+        _fresh_start_terminal = False
+        if (
+            _auto_confirm_sid
+            and requested_by == "bridge-heartbeat"
+            and session_handle
+            and persisted_handle
+            and session_handle != persisted_handle
+        ):
+            try:
+                _lt = await (await db.execute(
+                    "SELECT command FROM terminal_sessions WHERE agent_id = ? "
+                    "AND status IN ('starting','attached','running','active','idle') "
+                    "AND id NOT LIKE 'vterm_%' ORDER BY datetime(COALESCE(updated_at, created_at)) DESC LIMIT 1",
+                    (agent_id,),
+                )).fetchone()
+                if _lt is not None:
+                    _fresh_start_terminal = "--resume" not in str(_lt["command"] or "")
+            except Exception:
+                _fresh_start_terminal = False
         if (
             requested_by == "bridge-heartbeat"
             and session_handle
             and persisted_handle
             and session_handle != persisted_handle
-            and not _auto_confirm_sid
+            and (not _auto_confirm_sid or _fresh_start_terminal)
         ):
             await db.execute(
                 """
