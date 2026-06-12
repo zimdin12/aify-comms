@@ -1107,6 +1107,10 @@ h2::after{background:linear-gradient(90deg,var(--accent),var(--secondary),transp
 .env-session-strip b{font-size:.78em;color:var(--muted);margin-right:2px}
 .session-group{border:1px solid var(--line);border-radius:13px;background:#101214;margin:0 0 14px;overflow:visible}
 .session-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line-soft);background:linear-gradient(135deg,var(--selection-bg),transparent)}
+summary.session-group-head{cursor:pointer;list-style:none}
+summary.session-group-head::-webkit-details-marker{display:none}
+details.session-group:not([open]) summary.session-group-head{border-bottom:0}
+.session-group-caret{opacity:.75}
 .session-group-title{min-width:0}
 .session-group-title b{display:block;color:var(--text)}
 .session-group-title span{display:block;color:var(--muted);font-size:.8em;margin-top:2px}
@@ -7495,7 +7499,13 @@ function sessionsAgentRows() {
       : (session ? sessionPresenceForSession(session, info) : chatPresenceForAgent(info));
     const bucket = deleted ? 'deleted' : statusBucketForPresence(presence.kind);
     if (!filter.has(bucket)) continue;
-    const environmentId = (session && session.environmentId) || info.runtimeState?.environmentId || 'unassigned';
+    // Environment fallback chain (2026-06-12): an agent whose only sessions are ENDED
+    // still has a meaningful home environment — without the latest-session fallback it
+    // landed in the noisy "unassigned" group (operator-reported "unknowns").
+    const environmentId = (session && session.environmentId)
+      || info.runtimeState?.environmentId
+      || sessionsForAgent(agentId)[0]?.environmentId
+      || 'unassigned';
     const runtime = (session && session.runtime) || info.runtime || info.runtimeState?.runtime || '';
     rows.push({agentId, info, session, presence, bucket, deleted, environmentId, runtime});
   }
@@ -7579,6 +7589,29 @@ function toggleSessionGroupSelection(environmentId, checked) {
   renderSessions(window._sessions || []);
 }
 
+// Collapsible Sessions groups (2026-06-12, operator request: the "unassigned"/unknown
+// group should be hideable). Collapsed-state is OURS (localStorage), not the
+// data-stable-key restore (which only re-opens, so a user-closed default-open group
+// would pop back open every refresh). First visit collapses 'unassigned' by default.
+const SESSION_GROUP_COLLAPSE_KEY = 'aifyCollapsedSessionGroups';
+function collapsedSessionGroups() {
+  if (!window._collapsedSessionGroups) {
+    try {
+      const stored = localStorage.getItem(SESSION_GROUP_COLLAPSE_KEY);
+      window._collapsedSessionGroups = new Set(stored ? JSON.parse(stored) : ['unassigned']);
+    } catch {
+      window._collapsedSessionGroups = new Set(['unassigned']);
+    }
+  }
+  return window._collapsedSessionGroups;
+}
+function toggleSessionGroupCollapsed(environmentId, openNow) {
+  const set = collapsedSessionGroups();
+  if (openNow) set.delete(environmentId);
+  else set.add(environmentId);
+  try { localStorage.setItem(SESSION_GROUP_COLLAPSE_KEY, JSON.stringify([...set])); } catch { /* in-memory set still applies */ }
+}
+
 function sessionBatchToolbar(visibleSessions) {
   const selectedSessions = visibleSelectedSessions(visibleSessions);
   const selectedCount = selectedSessions.length;
@@ -7649,9 +7682,10 @@ function renderSessions(sessions) {
     const issueCount = groupRows.filter(row => ['stale', 'offline', 'stopped'].includes(row.bucket)).length;
     const groupSessions = groupRows.map(row => row.session).filter(Boolean);
     const groupSelected = groupSessions.length > 0 && groupSessions.every(session => selectedSessionSet().has(session.id));
-    html += `<section class="session-group">` +
-      `<div class="session-group-head"><div class="session-group-title"><b class="clip-1"${titleAttr(env.label || environmentId)}>${esc(env.label || environmentId)}</b><span class="clip-1"${titleAttr(environmentId)}>${esc(environmentId)}</span></div>` +
-      `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupRows.length} agent${groupRows.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}</div></div>` +
+    const groupOpen = !collapsedSessionGroups().has(environmentId);
+    html += `<details class="session-group"${groupOpen ? ' open' : ''} ontoggle="toggleSessionGroupCollapsed(${jsArg(environmentId)}, this.open)">` +
+      `<summary class="session-group-head"><div class="session-group-title"><b class="clip-1"${titleAttr(env.label || environmentId)}>${esc(env.label || environmentId)}</b><span class="clip-1"${titleAttr(environmentId)}>${esc(environmentId)}</span></div>` +
+      `<div class="session-group-meta"><span class="env-status env-${cssToken(envStatus)}">${esc(envStatus)}</span><span class="env-pill">${groupRows.length} agent${groupRows.length === 1 ? '' : 's'}</span>${runningCount ? `<span class="env-pill">${runningCount} live</span>` : ''}${issueCount ? `<span class="env-pill">${issueCount} issue${issueCount === 1 ? '' : 's'}</span>` : ''}<span class="env-pill session-group-caret">${groupOpen ? 'hide' : 'show'}</span></div></summary>` +
       `<div class="table-wrap"><table class="actions-table sessions-grid"><thead><tr><th class="session-select-col"><input type="checkbox" ${groupSelected ? 'checked' : ''} onchange="toggleSessionGroupSelection(${jsArg(environmentId)}, this.checked)"></th><th>Agent</th><th>Runtime</th><th>Workspace</th><th>Status</th><th>Capabilities</th><th>Last Seen</th><th></th></tr></thead><tbody>`;
     for (const row of groupRows) {
       const {agentId, info: agentInfo, session, presence} = row;
@@ -7690,6 +7724,13 @@ function renderSessions(sessions) {
         actionButtonFn('History', 'View compaction and continuation history for this agent', () => viewCompactionHistory(agentId)),
         (!['stopped', 'offline'].includes(String(agentInfo.statusRaw || '').toLowerCase())) ? actionButtonFn('Stop', "Stop the worker + disable wake/dispatch -> stopped. Works even when the agent is available with no live session (routes through the agent control endpoint). Identity, history, and saved spawn spec are kept; a later message or Reset brings it back.", () => stopManagedAgent(agentId), 'btn-danger') : '',
         canDeleteSession ? actionButtonFn('Delete', 'Delete this inactive session record and terminal output. Agent identity and chat messages stay.', () => deleteSessionRecord(session.id), 'btn-danger') : '',
+        // Remove identity (2026-06-12): the "unknowns" rows are mostly stale agent
+        // identities with no session at all — the session-record Delete can't touch
+        // them, so the Sessions page had no way to clean them up (operator-reported).
+        // Offered only for rows with no live presence.
+        (!session || ['offline', 'stale', 'stopped', 'deleted'].includes(row.bucket))
+          ? actionButtonFn('Remove identity', 'Tombstone this agent id: cancels queued work, removes it from rosters, and blocks stale bridges from auto-recreating it. Chat history is kept.', () => deleteAgent(agentId), 'btn-danger')
+          : '',
       ];
       const sessionCell = session
         ? `<span class="t clip-1"${titleAttr(`${session.id} · ${session.status || 'unknown'}`)}>${esc(session.id)} · ${esc(session.status || 'unknown')}</span>${resumeCommand ? `<details class="session-helper" data-stable-key="session-helper:${esc(session.id)}"><summary>CLI resume</summary>${sessionResumeCommandBlock(resumeCommand, 'Resume command')}${actionButtonFn('Pause for CLI', 'Pause dashboard delivery and copy the native CLI resume command', () => takeOverSessionInCli(session.id))}</details>` : ''}`
@@ -7714,7 +7755,7 @@ function renderSessions(sessions) {
         `</div></td>` +
         `</tr>`;
     }
-    html += '</tbody></table></div></section>';
+    html += '</tbody></table></div></details>';
   }
   container.innerHTML = html;
 }
