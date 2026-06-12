@@ -241,6 +241,25 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         self.assertEqual(engine, "available")
         self.assertEqual(self._refreshed_status("p_avail"), engine)
 
+    def test_wake_disabled_serves_stopped_not_available(self):
+        """2026-06-12 audit: launch_mode='none' (operator Stop wake) must read as
+        DISABLED in BOTH gathers — the engine previously served `available` for
+        wake-disabled managed agents (inviting sends that can never wake them).
+        derive(disabled) → 'stopped'; parity between engine_status and the
+        refresh-written byproduct value must hold."""
+        self._register("p_disabled", mode="managed", machine="linux:test")
+        self._register_env("env-d", "linux:test", "claude-code")
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute("UPDATE agents SET launch_mode='none' WHERE id='p_disabled'")
+            c.commit()
+        finally:
+            c.close()
+        self._set("status_engine", "new")
+        engine = self._engine_status("p_disabled")
+        self.assertEqual(engine, "stopped", "wake-disabled must not read available")
+        self.assertEqual(self._refreshed_status("p_disabled"), engine)
+
     def test_parity_resident_stale_offline(self):
         # (c) resident with no fresh bridge -> both yield the same (stale/offline).
         self._register("p_stale", mode="resident")

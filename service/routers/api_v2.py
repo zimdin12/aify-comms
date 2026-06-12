@@ -874,6 +874,72 @@ async def _enforce_live_worker_gate(
     return payload
 
 
+async def _enforce_env_reachable_gate(
+    payload: dict[str, Any],
+    db,
+    settings: dict[str, Any],
+    agent_id: str,
+) -> dict[str, Any]:
+    """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
+    status must not outlive its owning ENVIRONMENT. `agent_live_state.refresh_after` is
+    keyed on heartbeat freshness, and nothing invalidates dependent agents when an env
+    bridge dies (env death is computed-on-read from last_seen age — there is no
+    transition event) — so a managed agent could keep serving cached `online`/`available`
+    for the full refresh window after its machine went dark. (Masked until today: the
+    read-path cache upserts were rolled back on close, hiding the staleness behind
+    constant recomputes.) Sibling of `_enforce_live_worker_gate`: when the cached status
+    claims the env is usable but the env row no longer reads online/degraded, recompute
+    fresh — the full derivation applies the offline policy."""
+    status = str(payload.get("status") or "").lower()
+    if status not in {"online", "ready", "idle", "working", "available"}:
+        return payload
+    if str(payload.get("sessionMode") or "").lower() != "managed":
+        return payload
+    env_id = str((payload.get("runtimeState") or {}).get("environmentId") or "").strip()
+    if not env_id:
+        # The binding may live on the session row instead of runtime_state — the cached
+        # live-state row carries whichever environment the derivation actually used.
+        _ls = await (await db.execute(
+            "SELECT environment_id FROM agent_live_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        env_id = str((_ls["environment_id"] if _ls else "") or "").strip()
+    env_row = None
+    if env_id:
+        env_row = await (await db.execute(
+            "SELECT * FROM environments WHERE id = ?", (env_id,)
+        )).fetchone()
+    else:
+        # No quick binding anywhere — resolve the owning env the same way the offline
+        # derivation does (machine_id + runtime), so an agent with no session row and no
+        # runtime_state binding still gets gated against its real environment.
+        agent_row = await (await db.execute(
+            "SELECT * FROM agents WHERE id = ?", (agent_id,)
+        )).fetchone()
+        if agent_row is None:
+            return payload
+        env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
+        if env_row is None:
+            return payload
+    offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+    if env_row and _environment_effective_status(env_row, offline_seconds=offline_seconds) in {"online", "degraded"}:
+        return payload
+    # Env is gone but the cached status predates its death → recompute now.
+    try:
+        await _invalidate_agent_live_state(db, agent_id)
+        await _refresh_agent_live_state(db, agent_id, settings=settings)
+        fresh = await (await db.execute(
+            "SELECT status, reason FROM agent_live_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        await db.commit()
+        if fresh:
+            payload["status"] = str(fresh["status"] or payload.get("status") or "")
+            payload["statusRaw"] = payload["status"]
+            payload["statusNote"] = str(fresh["reason"] or "")
+    except Exception:
+        logger.debug("env-reachable gate recompute failed for %s; serving cached", agent_id, exc_info=True)
+    return payload
+
+
 def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) -> bool:
     """Plan 4 (2026-05-25): synth-terminal (aify://virtual-rpc/<runtime>) is
     deprecated for wrapper-backed runtimes. The wrapper PTY IS the terminal.
@@ -1100,9 +1166,23 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
             return
         settings = await _load_settings(db)
         cache = await _compute_live_status_cache(db, row, settings=settings)
+        status = cache.get("status") or ""
+        # PUSH/POLL PARITY (2026-06-12 audit): polled reads serve the NEW-engine value under
+        # status_engine=new, but this push broadcast the LEGACY derivation unconditionally —
+        # wherever the two disagreed, a WS push momentarily overwrote a correct polled status
+        # in the dashboard (status flicker). Apply the same flag-gated override the cache
+        # refresh applies.
+        if (
+            str(settings.get("status_engine", "old")).lower() == "new"
+            and status not in _MANUAL_STATUSES
+        ):
+            try:
+                status = derive(cache["status_inputs"])
+            except Exception:
+                pass  # fall back to the legacy value, same as the refresh path
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
-            "status": cache.get("status") or "",
+            "status": status,
             "statusNote": cache.get("reason") or "",
         })
     except Exception:
@@ -4192,7 +4272,15 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             datetime.now(timezone.utc).timestamp() - last_event_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
-    disabled = str(agent_row["status"] or "").lower() == "stopped"
+    # DISABLED = explicit stop OR wake disabled (launch_mode='none' — the operator's "Stop
+    # wake"). The engine only knew 'stopped' (2026-06-12 audit): wake-disabled agents served
+    # `available` under status_engine=new — inviting sends that can never wake them — while
+    # the legacy path correctly said offline (Phase 3: offline = explicit disable). This was
+    # the bulk of the old/new status-disagreement log noise (ef-* fleet).
+    disabled = (
+        str(agent_row["status"] or "").lower() == "stopped"
+        or str(agent_row["launch_mode"] or "").lower() == "none"
+    )
     if mode == "managed":
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
         env_reachable = bool(env_row) and _environment_effective_status(
@@ -4692,7 +4780,12 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # short TTL, so OR-ing it after the staleness clamp can't resurrect a truly-stale turn.)
     _si_in_turn = _si_raw_in_turn or (console_working_lease and has_live_worker)
     _si_awaiting = bool(_si_st and _si_st["awaiting_input"])
-    _si_disabled = str(agent_row["status"] or "").lower() == "stopped"
+    # Mirrors _gather_status_inputs exactly (the byproduct-parity promise): disabled =
+    # stopped OR wake disabled (launch_mode='none') — see the 2026-06-12 audit note there.
+    _si_disabled = (
+        str(agent_row["status"] or "").lower() == "stopped"
+        or str(agent_row["launch_mode"] or "").lower() == "none"
+    )
     if agent_session_mode == "managed":
         _si_env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
         _si_env_reachable = bool(_si_env_row) and _environment_effective_status(
@@ -4756,10 +4849,21 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
             # _gather_status_inputs exactly, so derive() yields the same value.
             new_status = derive(cache["status_inputs"])
             if old_status != new_status:
-                logger.info(
-                    "status-disagreement agent=%s old=%s new=%s",
-                    agent_id, old_status, new_status,
-                )
+                # De-dup (2026-06-12 audit): the same stable divergence (e.g. dead-machine
+                # residents: legacy offline vs engine stale — tolerated per the status-v2
+                # spec) logged on EVERY refresh and drowned the log (1,700+ entries). Log
+                # each (agent, old, new) transition once per process; a CHANGED pair logs
+                # again (that's the signal worth seeing).
+                _memo = getattr(_refresh_agent_live_state, "_disagreement_memo", None)
+                if _memo is None:
+                    _memo = {}
+                    _refresh_agent_live_state._disagreement_memo = _memo
+                if _memo.get(agent_id) != (old_status, new_status):
+                    _memo[agent_id] = (old_status, new_status)
+                    logger.info(
+                        "status-disagreement agent=%s old=%s new=%s",
+                        agent_id, old_status, new_status,
+                    )
             cache["status"] = new_status
         except Exception:
             # Never let the engine path break a live-state refresh — fall back to
@@ -5069,7 +5173,15 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     return True
 
 
-async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> None:
+async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> int:
+    """Recompute expired/missing agent_live_state rows. Returns how many were refreshed.
+
+    CALLERS MUST COMMIT when the return value is > 0 (2026-06-12 audit): aiosqlite runs in
+    implicit-transaction mode, so the upserts here are visible to THIS connection's reads
+    but ROLL BACK on close() without commit. The read endpoints (list_agents / get_agent)
+    previously never committed in the common path — the cache only ever persisted via the
+    60s reconcile sweep, and every roster poll silently re-derived every expired row (the
+    exact poll-load the cache exists to absorb)."""
     settings = settings or await _load_settings(db)
     now = _now()
     where = ""
@@ -5088,10 +5200,13 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
         tuple(params),
     )
     rows = await cursor.fetchall()
+    refreshed = 0
     for row in rows:
         refresh_after = str((row["refresh_after"] if "refresh_after" in row.keys() else "") or "").strip()
         if not refresh_after or refresh_after <= now:
             await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
+            refreshed += 1
+    return refreshed
 
 
 async def _managed_environment_status(db, row) -> tuple[str, str, str]:
@@ -11765,8 +11880,10 @@ async def list_agents(request: Request):
     try:
         repaired_active_runs = await _repair_unusable_active_runs(db)
         settings = await _load_settings(db)
-        await _refresh_expired_agent_live_states(db, settings=settings)
-        if repaired_active_runs:
+        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings)
+        if repaired_active_runs or refreshed_live_states:
+            # Persist the refreshed cache rows — without this commit they roll back on
+            # close() and every subsequent poll re-derives them (2026-06-12 audit).
             await db.commit()
         cursor = await db.execute(
             """
@@ -11786,6 +11903,7 @@ async def list_agents(request: Request):
             # Plan 5 Section C: read-path live-worker gate — see
             # _enforce_live_worker_gate for full rationale.
             payload = await _enforce_live_worker_gate(payload, db, settings, aid)
+            payload = await _enforce_env_reachable_gate(payload, db, settings, aid)
             result[aid] = payload
         return {"agents": result}
     finally:
@@ -12445,7 +12563,10 @@ async def get_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
         settings = await _load_settings(db)
-        await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[agent_id])
+        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[agent_id])
+        if refreshed_live_states:
+            # Persist the refreshed cache row (rolls back on close otherwise — 2026-06-12 audit).
+            await db.commit()
         cursor = await db.execute(
             """
             SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
@@ -12467,6 +12588,7 @@ async def get_agent(agent_id: str, request: Request):
         # Plan 5 Section C: read-path live-worker gate — see
         # _enforce_live_worker_gate for full rationale.
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
+        payload = await _enforce_env_reachable_gate(payload, db, settings, agent_id)
         return {"ok": True, "agentId": agent_id, "agent": payload}
     finally:
         await db.close()
