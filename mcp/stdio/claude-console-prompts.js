@@ -40,6 +40,10 @@ function computeResumeAnswer(visible) {
     if (MENU_CURSOR_RE.test(lines[i])) { cursorIdx = i; break; }
   }
   if (cursorIdx < 0) return null;
+  // The LIVE cursor row must itself be a resume-menu option — if the last cursor on
+  // screen belongs to some OTHER dialog (the menu is stale scrollback), arrows computed
+  // against it would land in that dialog instead (2026-06-12).
+  if (!/Resume (?:from summary|full session)/i.test(lines[cursorIdx])) return null;
   // The "Resume full session" option line CLOSEST to the cursor line (the live menu, not
   // a prose mention scrolled above it).
   let targetIdx = -1;
@@ -97,13 +101,43 @@ export const CONSOLE_PROMPT_RULES = [
     // Channel auto-enter: accept the development-channels prompt so a dispatched channel
     // wake lands instead of stranding at the prompt. Tuned against
     // fixtures/claude-console/channel-enter.txt.
-    // TIGHTENED (2026-06-10): `enter channel|join channel` alone is prose-able ("join
-    // channel #dev") — require the plugin name or the dialog's own question line.
+    // TIGHTENED again (2026-06-12, the auto-compact-on-resume incident): the previous
+    // `development-channels` alternative matched ORDINARY BOOT OUTPUT — the worker's own
+    // command line / plugin-load log line ("--dangerously-load-development-channels
+    // server:aify-comms-channel") sits in the tail at exactly the moment the RESUME menu
+    // renders, so this rule typed a blind Enter into the menu and selected the highlighted
+    // "Resume from summary (recommended)" — silently summarizing (≈compacting) the session
+    // on EVERY worker cold-start. Only the dialog's own question line identifies the real
+    // prompt.
     name: "channel-enter",
-    match: /development-channels|enter channel to receive/i,
+    match: /enter channel to receive/i,
     answer: "\r",
   },
 ];
+
+// RESUME-MENU INTERLOCK (2026-06-12): while a resume menu is on screen — even PARTIALLY
+// rendered (one option line painted, the other not yet) — no blind-Enter rule may fire.
+// The menu's highlighted default is "Resume from summary (recommended)", so any stray
+// Enter destroys the session's full context. Only the cursor-aware resume rule (which
+// requires BOTH option lines and computes the exact moves) is allowed to answer it.
+// ORDER-AWARE: the console tail ACCUMULATES, so menu text lingers in scrollback after
+// the menu is answered — a blind rule is suppressed only when the resume-menu text is
+// LATER in the byte stream than that rule's own dialog text (i.e. the menu is the live,
+// focused thing). A channels/perms dialog rendered AFTER the menu still auto-answers.
+const RESUME_MENU_ANY_RE = /Resume (?:from summary|full session)/i;
+
+// Index of the LAST match of `re` in `text`, or -1 (latest-wins, same as the spinner
+// classifier's helper).
+function lastIndexOf(text, re) {
+  const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+  let m;
+  let idx = -1;
+  while ((m = g.exec(text)) !== null) {
+    idx = m.index;
+    if (m.index === g.lastIndex) g.lastIndex++;
+  }
+  return idx;
+}
 
 // Match the live tail region against the rules. Returns the first matching rule or null.
 // Only the last ~2KB of visible text is considered so a scrolled-away prompt is ignored.
@@ -122,18 +156,38 @@ export function matchConsolePrompt(rawTail = "") {
   const visible = stripAnsi(rawTail).slice(-2000);
   if (!MENU_CURSOR_RE.test(visible)) return null;
   if (AGENTS_MANAGER_RE.test(visible)) return null;
+  // RECENCY-FIRST (2026-06-12): the tail ACCUMULATES, so an already-answered dialog's
+  // text lingers in scrollback while a NEW dialog renders below it. The live, focused
+  // prompt is whichever dialog text appears LATEST in the byte stream — so among the
+  // matching rules, the one with the highest last-match index wins (rule order is only
+  // the tiebreak via >). Previously "first rule in array order wins" let a scrolled-away
+  // resume menu re-claim a live channels dialog and compute arrows against the wrong
+  // cursor.
+  const resumeMenuIdx = lastIndexOf(visible, RESUME_MENU_ANY_RE);
+  let bestRule = null;
+  let bestIdx = -1;
   for (const rule of CONSOLE_PROMPT_RULES) {
     if (!rule.match.test(visible)) continue;
     if (rule.mustAlsoMatch && !rule.mustAlsoMatch.test(visible)) continue;
-    if (rule.computeAnswer) {
-      // Rule matched, but the keystrokes are computed from the live frame. A null result
-      // means "matched but cannot answer safely" → do NOT fire (don't fall through to a
-      // different rule either; the focused prompt is this one).
-      const answer = rule.computeAnswer(visible);
-      if (answer == null) return null;
-      return { ...rule, answer };
+    const idx = lastIndexOf(visible, rule.match);
+    if (!rule.computeAnswer && resumeMenuIdx > idx) {
+      // The resume menu is LIVE-er than this rule's dialog text — a blind Enter here
+      // would select "Resume from summary" and summarize away the session. Skip.
+      continue;
     }
-    return rule;
+    if (idx > bestIdx) {
+      bestIdx = idx;
+      bestRule = rule;
+    }
   }
-  return null;
+  if (!bestRule) return null;
+  if (bestRule.computeAnswer) {
+    // Rule matched, but the keystrokes are computed from the live frame. A null result
+    // means "matched but cannot answer safely" → do NOT fire (don't fall through to a
+    // different rule either; the focused prompt is this one).
+    const answer = bestRule.computeAnswer(visible);
+    if (answer == null) return null;
+    return { ...bestRule, answer };
+  }
+  return bestRule;
 }

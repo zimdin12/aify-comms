@@ -107,4 +107,59 @@ assert.equal(
   "channel-enter",
 );
 
+// ── Auto-compact-on-resume incident regressions (2026-06-12) ─────────────────
+// The worker's own boot output contains "--dangerously-load-development-channels
+// server:aify-comms-channel" — the old channel rule matched that SUBSTRING and typed a
+// blind Enter into the freshly-rendered resume menu, selecting the highlighted "Resume
+// from summary (recommended)" → the session got summarized (≈compacted) on EVERY cold
+// start (operator: "it should not auto compact each time").
+const BOOT_ECHO = "claude --dangerously-load-development-channels server:aify-comms-channel --settings C:/tmp/x";
+
+// (1) Boot echo + PARTIALLY rendered resume menu (only the highlighted summary row painted
+// yet) → NOTHING fires. The old rule fired channel-enter here and compacted the session.
+assert.equal(
+  matchConsolePrompt(`${BOOT_ECHO}\nResume session?\n❯ 1. Resume from summary (recommended)`),
+  null,
+  "partial resume menu + boot echo must fire nothing (the auto-compact incident)",
+);
+
+// (2) Boot echo + FULL resume menu → the cursor-aware resume rule picks full session.
+{
+  const m = matchConsolePrompt(
+    `${BOOT_ECHO}\nResume session?\n❯ 1. Resume from summary (recommended)\n  2. Resume full session as-is`,
+  );
+  assert.equal(m?.name, "resume-full-session");
+  assert.deepEqual(m?.answer, ["\x1b[B", "\r"], "one Down + Enter selects full session");
+}
+
+// (3) Resume menu answered and scrolled ABOVE; the channels dialog renders BELOW (live)
+// → channel-enter still fires (the interlock is order-aware, not a blanket suppress).
+assert.equal(
+  matchConsolePrompt(
+    "❯ 1. Resume from summary (recommended)\n  2. Resume full session as-is\n…resumed…\n" +
+    "Enter channel to receive dispatched messages?\n❯ Yes",
+  )?.name,
+  "channel-enter",
+  "a channels dialog rendered after the menu still auto-answers",
+);
+
+// (4) The plugin-load log line alone (no dialog question) must never fire — even with an
+// idle ❯ input box satisfying the cursor gate.
+assert.equal(
+  matchConsolePrompt("Loading development-channels: server:aify-comms-channel\n❯ "),
+  null,
+  "the boot log line is not the channels dialog",
+);
+
+// (5) A live resume menu rendered AFTER older perms-dialog text must suppress that blind
+// Enter too (the interlock covers every blind rule, not just channel-enter).
+assert.equal(
+  matchConsolePrompt(
+    "WARNING: Claude Code running in Bypass Permissions mode\nBy continuing you bypass permissions for all tool calls.\n❯ Yes, I accept\n" +
+    "…\nResume session?\n❯ 1. Resume from summary (recommended)",
+  ),
+  null,
+  "a live resume menu suppresses earlier blind-dialog text",
+);
+
 console.log("claude-console-prompts.test.js: all assertions passed");
