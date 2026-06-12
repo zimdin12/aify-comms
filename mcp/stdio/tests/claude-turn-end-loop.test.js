@@ -105,6 +105,57 @@ test("missing params return a no-op stop fn and never throw", () => {
   stop2();
 });
 
+test("KEEP-FRESH: a sustained in-flight turn re-stamps /turn-start every workingRefreshMs", async () => {
+  // The server's delivery-completion clear can wipe a LIVE turn's turn_busy (a steered
+  // message lands mid-turn → no reply-owing run → clear); edge-triggered start never
+  // re-fires, so the resident read `online` while hard at work (2026-06-12). While the
+  // transcript stays in-flight the loop must keep re-stamping.
+  // Intervals sit ABOVE the Windows ~15ms setInterval floor (see the hermes detector
+  // tests): 25ms ticks + a proportional refresh window keep the count deterministic.
+  let starts = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 25,
+    workingRefreshMs: 50, // refresh ~every 2 ticks while in-flight
+    readTranscript: async () => TOOL_USE, // one long, uninterrupted turn
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop();
+  assert.ok(starts >= 3, `a sustained in-flight turn must keep re-stamping turn-start (got ${starts})`);
+});
+
+test("KEEP-FRESH: workingRefreshMs=0 keeps edge-only /turn-start (back-compat)", async () => {
+  let starts = 0;
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 5,
+    workingRefreshMs: 0,
+    readTranscript: async () => TOOL_USE,
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => {},
+  });
+  await new Promise((r) => setTimeout(r, 60));
+  stop();
+  assert.strictEqual(starts, 1, `refresh disabled → exactly one edge /turn-start; got ${starts}`);
+});
+
+test("KEEP-FRESH: refresh never fires after the turn ENDS, and the next turn re-arms cleanly", async () => {
+  let starts = 0, ends = 0, i = 0;
+  const seq = [TOOL_USE, TOOL_USE, END_TURN, END_TURN, END_TURN, END_TURN, END_TURN, END_TURN];
+  const stop = startClaudeTurnEndDetector({
+    intervalMs: 25,
+    workingRefreshMs: 50,
+    readTranscript: async () => seq[Math.min(i++, seq.length - 1)],
+    postTurnStart: async () => { starts++; },
+    postTurnEnd: async () => { ends++; },
+  });
+  await new Promise((r) => setTimeout(r, 350));
+  stop();
+  assert.strictEqual(ends, 1, `one ended turn → one /turn-end; got ${ends}`);
+  // 1 edge + at most 1 refresh before the end at tick 3 — and NO refresh after the end.
+  assert.ok(starts <= 2, `no re-stamp after turn-end (got ${starts} starts)`);
+});
+
 test("a loop with only postTurnEnd (no postTurnStart) still ENDs and never throws on START", async () => {
   // Back-compat: a caller that wires only the clear path must not crash when the
   // detector wants to START. It should simply skip the unwired START.

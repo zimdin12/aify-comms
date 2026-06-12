@@ -20,7 +20,11 @@ assert.equal(classifyClaudeConsoleTail(fx("idle-prompt.txt")), "idle");
 
 // Synthetic invariants.
 assert.equal(classifyClaudeConsoleTail("✻ Crunched for 14m 58s (esc to interrupt)"), "working");
-assert.equal(classifyClaudeConsoleTail("✶ Wibbling for 5s"), "working");
+// COMPLETED-thought residue (2026-06-12): a spinner-shaped line WITHOUT the interrupt
+// hint is what claude leaves in the scrollback when the turn ENDS — it is idle evidence,
+// not working. (Counting it as working pinned bypass-permissions consoles — which never
+// render "? for shortcuts" — at `working` forever: the sc-manager/sc-claude incident.)
+assert.equal(classifyClaudeConsoleTail("✶ Wibbled for 5s"), "idle");
 // M-C (2026-06-05): the interrupt hint counts as working ONLY on a real footer line (a
 // spinner glyph present). The other footer shape — "(<time> · esc to interrupt)" with no
 // "for" — still classifies working because the glyph is on the line.
@@ -39,6 +43,38 @@ assert.equal(
 // Unrecognized text never flips state.
 assert.equal(classifyClaudeConsoleTail("just some build log output\n"), "unknown");
 assert.equal(classifyClaudeConsoleTail(""), "unknown");
+
+// ── Bypass-permissions idle console (the 2026-06-12 stuck-working incident) ──
+// Real-world shape: NO "? for shortcuts" anywhere (bypass footer variant), a completed
+// residue line, and the idle prompt. Must classify IDLE, not working.
+const BYPASS_IDLE_TAIL = [
+  "● Resolved — contract closed. I'm idle on standby.",
+  "✻ Sautéed for 21s",
+  "────────────────────────────────",
+  "❯ ",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+].join("\n");
+assert.equal(classifyClaudeConsoleTail(BYPASS_IDLE_TAIL), "idle",
+  "completed residue + bypass footer (no shortcuts hint) is IDLE");
+// The same console with a LIVE footer rendered LATER is working again (latest wins).
+assert.equal(
+  classifyClaudeConsoleTail(BYPASS_IDLE_TAIL + "\n✻ Crunching… (12s · esc to interrupt)"),
+  "working",
+  "a live interrupt footer below the residue wins → working",
+);
+// Old interrupt frames ABOVE a later completed residue do not pin working.
+assert.equal(
+  classifyClaudeConsoleTail("✻ Crunching… (9s · esc to interrupt)\nsome output\n✻ Crunched for 9s\n❯ "),
+  "idle",
+  "the completed residue is the latest signal → idle",
+);
+// A `·` prose bullet must NOT vote idle (true spinner glyphs only) — mid-turn prose like
+// "· waited for 3s" with a live footer further down stays working.
+assert.equal(
+  classifyClaudeConsoleTail("· waited for 3s\n✻ Crunching… (12s · esc to interrupt)"),
+  "working",
+);
+console.log("bypass-idle classification assertions passed");
 
 console.log("claude-console-spinner.test.js: all assertions passed");
 

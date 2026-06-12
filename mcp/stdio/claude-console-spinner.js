@@ -12,13 +12,21 @@ export function stripAnsi(s = "") {
   return String(s || "").replace(ANSI_RE, "");
 }
 
-// Spinner footer: a spinner glyph + a verb + "for <N><unit>". Verbs are claude's
-// rotating gerunds/past-tense ("Crunched", "Baked", "Wibbling", ...), so we match
-// "<glyph> <word> for <number><h|m|s>" rather than enumerating verbs.
-// (`*`/`·` are allowed here because the FULL "<glyph> <verb> for <N><unit>" shape is strong
-// enough that a prose bullet can't spoof it — UNLIKE the bare INTERRUPT_RE below, which is why
-// that one is intentionally restricted to true spinner glyphs. Don't "unify" the two classes.)
-const SPINNER_RE = /[✱✶✽✺✹✷✵✳✢✻*·]\s+\S+\s+for\s+\d+\s*(?:h|m|s)\b/i;
+// Spinner-shaped line: a spinner glyph + a verb + "for <N><unit>". The shape alone does
+// NOT mean working — claude renders it in TWO states and only the interrupt hint on the
+// SAME line tells them apart:
+//   LIVE footer:        "✻ Sautéing for 21s (esc to interrupt)"  → working (INTERRUPT_RE)
+//   COMPLETED residue:  "✻ Sautéed for 21s"  (no interrupt hint) → the turn ENDED → idle
+// The completed-thought line stays in the scrollback and is re-emitted by every repaint,
+// so it is positive idle evidence. This distinction is load-bearing: the idle prompt's
+// "? for shortcuts" hint NEVER renders in bypass-permissions sessions (their footer is
+// "⏵⏵ bypass permissions on … · ← for agents"), so the residue is the ONLY idle signal
+// those consoles emit — counting it as working pinned idle managed claudes at `working`
+// forever, re-pulsed the console lease every repaint, and kept the SIGWINCH keepalive
+// churning (sc-manager/sc-claude stuck-working incident, 2026-06-12). True spinner glyphs
+// only: `*`/`·` prose bullets must not vote idle mid-turn.
+const SPINNER_LINE_RE = /[✱✶✽✺✹✷✵✳✢✻]\s+\S+\s+for\s+\d+\s*(?:h|m|s)\b/i;
+const INTERRUPT_HINT_RE = /esc to interrupt/i;
 // The interrupt hint rides with every in-progress claude turn — but count it as a working
 // signal ONLY when a real spinner glyph is on the SAME LINE (the live footer). The bare
 // phrase matched ANYWHERE let claude's own PROSE ("press esc to interrupt …") manufacture a
@@ -61,6 +69,23 @@ function lastIndexOfMatch(text, re) {
   return idx;
 }
 
+// Index of the LAST completed-thought line ("✻ Sautéed for 21s" — a spinner-shaped line
+// WITHOUT the interrupt hint on its own line), or -1. See SPINNER_LINE_RE above: this is
+// the turn-ENDED residue, i.e. idle evidence.
+function lastIndexOfCompletedSpinner(text) {
+  const g = new RegExp(SPINNER_LINE_RE.source, "gi");
+  let m;
+  let idx = -1;
+  while ((m = g.exec(text)) !== null) {
+    const lineStart = text.lastIndexOf("\n", m.index) + 1;
+    const lineEndRaw = text.indexOf("\n", m.index);
+    const line = text.slice(lineStart, lineEndRaw === -1 ? text.length : lineEndRaw);
+    if (!INTERRUPT_HINT_RE.test(line)) idx = m.index;
+    if (m.index === g.lastIndex) g.lastIndex++;
+  }
+  return idx;
+}
+
 // Classify the visible console tail. Returns "working" | "idle" | "unknown".
 // The LATEST signal wins: a working footer (spinner / "esc to interrupt") rendered
 // below an old idle prompt → working, and vice-versa. A tie of "neither" → unknown,
@@ -72,11 +97,15 @@ export function classifyClaudeConsoleTail(rawTail = "") {
   if (AGENTS_MANAGER_CHROME_RE.test(visible) && AGENTS_RUNNING_ROW_RE.test(visible)) {
     return "working";
   }
-  const workingIdx = Math.max(
-    lastIndexOfMatch(visible, INTERRUPT_RE),
-    lastIndexOfMatch(visible, SPINNER_RE),
+  // Working = the LIVE footer only (spinner glyph + "esc to interrupt" on one line).
+  // A spinner-shaped line WITHOUT the hint is the completed-thought residue → idle
+  // evidence (see SPINNER_LINE_RE) — the only idle signal bypass-permissions sessions
+  // ever render.
+  const workingIdx = lastIndexOfMatch(visible, INTERRUPT_RE);
+  const idleIdx = Math.max(
+    lastIndexOfMatch(visible, IDLE_HINT_RE),
+    lastIndexOfCompletedSpinner(visible),
   );
-  const idleIdx = lastIndexOfMatch(visible, IDLE_HINT_RE);
   if (workingIdx < 0 && idleIdx < 0) return "unknown";
   return workingIdx >= idleIdx ? "working" : "idle";
 }

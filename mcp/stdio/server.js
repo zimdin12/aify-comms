@@ -393,6 +393,11 @@ if (
 ) {
   __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
     intervalMs: 30_000,
+    // Re-stamp /turn-start while the transcript stays in-flight (KEEP-FRESH,
+    // 2026-06-12): the server's delivery-completion clear can wipe a LIVE turn's
+    // turn_busy (steered message lands mid-turn → no reply-owing run → clear), and
+    // an edge-triggered start never re-fires. Same value as the hermes detector.
+    workingRefreshMs: 45_000,
     readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
     // SET working when the transcript tail transitions into in-flight. RESIDENT
     // under-report fix (2026-06-02): a channel-woken / scheduled claude turn never

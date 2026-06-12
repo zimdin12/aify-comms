@@ -36,7 +36,7 @@
 
 import { makeTurnEndDetector } from "./turn-end-detector.js";
 
-export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTurnStart, postTurnEnd }) {
+export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTurnStart, postTurnEnd, workingRefreshMs = 45000 }) {
   const noop = () => {};
   if (typeof readTranscript !== "function" || typeof postTurnEnd !== "function"
       || !Number.isFinite(intervalMs) || intervalMs <= 0) {
@@ -44,6 +44,19 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
   }
   let stopped = false;
   const detector = makeTurnEndDetector();
+  // KEEP-FRESH (2026-06-12): /turn-start is edge-triggered, but the SERVER can clear
+  // turn_busy MID-TURN — the delivery-completion send-deadlock clear fires when a
+  // steered/queued message lands and no reply-owing run remains
+  // (_clear_turn_busy_if_no_open_reply_owing_run). After that an edge-triggered
+  // detector never re-fires, so a hard-working resident read `online` until its next
+  // turn boundary (operator-reported, 2026-06-12: comms-tech-lead online mid-
+  // investigation the moment a dashboard message steered in). While the transcript
+  // stays IN-FLIGHT, re-stamp /turn-start every workingRefreshMs so any server-side
+  // clear heals within one window. Mirrors hermes-gateway-turn-detector's re-stamp.
+  // 0 disables (edge-only back-compat).
+  const refreshMs = Math.max(0, Number(workingRefreshMs) || 0);
+  let inFlight = false;
+  let sinceRefresh = 0;
 
   const tick = async () => {
     if (stopped) return;
@@ -51,8 +64,10 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
     try { curr = await readTranscript(); } catch { return; }
     let directive = null;
     try { directive = detector.observe(curr); } catch { return; }
-    if (!directive || stopped) return;
+    if (stopped) return;
     if (directive === "start") {
+      inFlight = true;
+      sinceRefresh = 0;
       // Best-effort; back-compat: a caller that only wires the clear path simply
       // skips the set. The instant UserPromptSubmit hook covers typed turns.
       if (typeof postTurnStart === "function") {
@@ -60,8 +75,20 @@ export function startClaudeTurnEndDetector({ intervalMs, readTranscript, postTur
       }
       return;
     }
-    // directive === "end"
-    try { await postTurnEnd(); } catch { /* best-effort; the long ceiling still self-heals */ }
+    if (directive === "end") {
+      inFlight = false;
+      sinceRefresh = 0;
+      try { await postTurnEnd(); } catch { /* best-effort; the long ceiling still self-heals */ }
+      return;
+    }
+    // No directive: steady state. Re-stamp while in-flight (see KEEP-FRESH above).
+    if (inFlight && refreshMs > 0 && typeof postTurnStart === "function") {
+      sinceRefresh += intervalMs;
+      if (sinceRefresh >= refreshMs) {
+        sinceRefresh = 0;
+        try { await postTurnStart(); } catch { /* best-effort; next window retries */ }
+      }
+    }
   };
 
   const timer = setInterval(tick, intervalMs);
