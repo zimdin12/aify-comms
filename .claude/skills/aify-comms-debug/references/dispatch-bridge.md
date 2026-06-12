@@ -517,6 +517,18 @@ cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a 
 appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
 and add a rule. Kill-switch: `AIFY_NO_AUTO_ANSWER=1` (set in the wrapper env) disables it.
 
+**Hardened (2026-06-12, `aca7562`) — the silent auto-compact-on-resume.** The channel-enter
+rule once matched the bare substring `development-channels`, which also appears in the
+worker's own BOOT OUTPUT (`--dangerously-load-development-channels …`) — at the moment the
+resume menu rendered, the blind Enter accepted the highlighted "Resume from summary
+(recommended)" and silently summarized the session away on EVERY cold start (operator: "it
+auto compacts each time"). Now: channel-enter matches only the dialog's own question line
+(`Enter channel to receive …`); any visible resume-menu text suppresses ALL blind-Enter rules
+until the cursor-aware resume rule can answer; matching is recency-first (the latest dialog
+text in the stream wins, so a scrolled-away menu can never re-claim a live dialog). If a
+managed claude still loses context on restart, its PTY-hosting environment bridge predates
+this fix — restart the `aify-comms` wrapper.
+
 ## Run failed with a "provider rate-limiting, not your request — retry shortly" notice
 
 **Symptom.** A dispatch run you sent comes back FAILED and the sender notice says something like

@@ -76,6 +76,22 @@ BRIDGE-side signals that feed BOTH engines.
   claude writing that phrase in PROSE manufactured a `working` lease (worsened by the 12s→20s
   lease TTL). It now requires a real spinner glyph on the SAME LINE as the hint — keeps both
   live-footer shapes, rejects prose.
+- **Completed-residue false-`working` (2026-06-12, `8129b6c`).** The classifier counted
+  claude's completed-thought residue (`✻ Sautéed for 21s` — spinner-shaped, NO interrupt
+  hint) as a working signal, and bypass-permissions sessions never render the `? for
+  shortcuts` idle hint — so an idle managed claude could never vote idle: the console lease
+  re-pulsed on every repaint and the agent pinned `working` forever (sc-manager/sc-claude
+  incident). Now `working` = the LIVE footer only (glyph + `esc to interrupt` on one line);
+  a spinner-shaped line WITHOUT the hint is the turn-ended residue and counts as IDLE
+  evidence. Bridge-side: the fix only applies to consoles hosted by a bridge process started
+  after reinstall — a stuck agent means its environment bridge predates the fix; restart the
+  `aify-comms` wrapper.
+- **Resident `online` while hard at work (2026-06-12, `8129b6c`).** Delivering a steered
+  message INTO a running resident turn fires the server's delivery-completion turn_busy
+  clear, and the transcript turn detector was edge-triggered — it never re-fired, so the
+  resident read `online` until its next turn boundary. The detector now re-stamps
+  `/turn-start` every 45s while the transcript stays in-flight (`workingRefreshMs`, mirrors
+  the hermes gateway detector). Needs a wrapper relaunch to pick up.
 
 **Deploy.** Service-side (rebuild the container) + bridge-side (`/heartbeat` turnBusy + the
 console spinner/lease are sent by the wrappers' delivery loops, so re-run `install.sh` and
