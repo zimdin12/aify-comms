@@ -111,6 +111,58 @@ class ChatAnalyticsTests(FastApiTestCase):
         # workingMinutes: 30 from run1; run2 (NULL finished_at) skipped.
         self.assertAlmostEqual(data["workingMinutes"], 30.0, places=3)
 
+    def test_agent_analytics_revamp_fields(self):
+        """2026-06-12 revamp: sent/received split, 14-day dailyActivity, runs7d,
+        reply latency, and openContracts. Old fields stay (back-compat)."""
+        self._register("ca-rev")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            import time as _t
+            now_ms = int(_t.time() * 1000)
+            for mid, frm, to in (("r1", "ca-rev", "peerA"), ("r2", "peerA", "ca-rev"), ("r3", "peerA", "ca-rev")):
+                conn.execute(
+                    "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, "
+                    "priority, dispatch_requested, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (mid, frm, to, "direct", "info", "", "", "normal", 0, None, now_ms),
+                )
+            from datetime import datetime, timezone, timedelta
+            t0 = datetime.now(timezone.utc) - timedelta(hours=1)
+            iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Completed rr=1 run: 10 min request→finish (reply latency), 6 min started→finish.
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, require_reply, "
+                "result_message_id, requested_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("rr1", None, "peerA", "ca-rev", "completed", 1, "msg-x",
+                 iso(t0), iso(t0 + timedelta(minutes=4)), iso(t0 + timedelta(minutes=10))),
+            )
+            # Failed run + an OPEN rr=1 contract (delivered, no reply yet).
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, require_reply, "
+                "requested_at, finished_at) VALUES (?,?,?,?,?,?,?,?)",
+                ("rr2", None, "peerA", "ca-rev", "failed", 0, iso(t0), iso(t0 + timedelta(minutes=1))),
+            )
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, require_reply, "
+                "requested_at) VALUES (?,?,?,?,?,?,?)",
+                ("rr3", None, "peerA", "ca-rev", "delivered", 1, iso(t0)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        data = self.client.get("/api/v1/analytics/agent/ca-rev").json()
+        self.assertEqual(data["messagesSent"], 1)
+        self.assertEqual(data["messagesReceived"], 2)
+        self.assertEqual(len(data["dailyActivity"]), 14)
+        today = data["dailyActivity"][-1]
+        self.assertEqual(today["sent"], 1)
+        self.assertEqual(today["received"], 2)
+        self.assertEqual(data["runs7d"]["completed"], 1)
+        self.assertEqual(data["runs7d"]["failed"], 1)
+        self.assertEqual(data["runs7d"]["open"], 1)
+        self.assertAlmostEqual(data["avgRunMinutes7d"], 6.0, places=1)
+        self.assertAlmostEqual(data["medianReplyMinutes7d"], 10.0, places=1)
+        self.assertEqual(data["openContracts"], 1)
+
     def test_agent_analytics_empty_agent(self):
         # An agent with no messages/runs must return a valid zeroed shape,
         # not 500.

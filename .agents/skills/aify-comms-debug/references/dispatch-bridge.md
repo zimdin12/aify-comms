@@ -529,6 +529,31 @@ text in the stream wins, so a scrolled-away menu can never re-claim a live dialo
 managed claude still loses context on restart, its PTY-hosting environment bridge predates
 this fix — restart the `aify-comms` wrapper.
 
+## Resident sends say "sent" but the agent never receives them (post mode-switch)
+
+**Symptom.** An agent was switched managed→resident (operator launched the resident
+terminal FIRST, clicked "switch to resident" SECOND). Sends report "sent", runs sit
+`queued` with `claim_bridge_id=''`, and the agent's `channel-…` sidecar bridge row stops
+heartbeating at the exact switch moment.
+
+**Cause (fixed `9d81ea8`, 2026-06-12).** The switch clobbered `driver_state` to 'idle',
+so the server answered the resident session's OWN channel sidecar with the mode-FSM
+`release` — and the sidecar permanently exited its poll loop. Fix: the switch keeps
+'driving' when adopting a live resident candidate; the release sites self-heal (a fresh
+resident bridge ⇒ adopt driving, never release); claude-channel.js treats `release` as a
+60s dormant re-check instead of a permanent stop. **Recovery on an old bridge:** restart
+the agent's terminal — queued runs deliver as soon as a live sidecar claims.
+
+## Send to an `available` managed claude FAILED after ~180s instead of cold-starting
+
+**Cause (fixed `9d81ea8`, 2026-06-12 — root-cause-G parity).** The channel-mode claude
+branch never fell back to `_coldstart_spawn_request_for_dispatch` when
+`_ensure_managed_pty_for_dispatch` had no usable session row (the post-env-restart
+state); the run sat queued with a claimer that could never exist until the queued-run
+backstop failed it. hermes/codex always had the fallback; claude now does too
+(`test_dispatch_claude_coldstart.py`). Re-send after deploying — the message cold-starts
+a worker.
+
 ## Run failed with a "provider rate-limiting, not your request — retry shortly" notice
 
 **Symptom.** A dispatch run you sent comes back FAILED and the sender notice says something like

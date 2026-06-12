@@ -1768,7 +1768,7 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <li><code>DELETE /api/v1/messages/{id}</code> — Unsend a message</li>
         <li><code>POST /api/v1/messages/conversation/clear</code> — Clear a direct chat between two identities</li>
         <li><code>GET /api/v1/analytics</code> — Global message/run analytics (per-hour, totals, status breakdown)</li>
-        <li><code>GET /api/v1/analytics/agent/{id}</code> — Per-agent chat analytics (messages, by-hour-of-day, top peers, working minutes)</li>
+        <li><code>GET /api/v1/analytics/agent/{id}</code> — Per-agent chat analytics: sent/received, 14-day activity, run outcomes + reply latency (7d), open reply contracts, working minutes, top peers. Open it in chat by clicking the open conversation again (closes the chat, shows its stats).</li>
         <li><code>POST /api/v1/dispatch</code> — Create a tracked delivery/run for triggerable resident sessions or managed identities</li>
         <li><code>GET /api/v1/dispatch/runs/{id}</code> — Inspect a run record, events, and controls</li>
         <li><code>POST /api/v1/dispatch/runs/{id}/control</code> — Request interrupt or steer for an active run</li>
@@ -5749,6 +5749,10 @@ function renderChatRail() {
   if (el._chatRailSignature !== html) {
     el.innerHTML = html;
     el._chatRailSignature = html;
+    // Stamp ONLY when rows actually changed — the click-again-to-close gesture
+    // ignores clicks landing within the post-render shift window (see
+    // selectChatConversation).
+    window._chatRailRenderedAt = Date.now();
   }
   renderGlobalMessageSearch();
 }
@@ -5969,12 +5973,24 @@ async function toggleChatFavorite(event, agentId, currentlyFavorited) {
 
 async function selectChatConversation(key) {
   saveCurrentChatDraft();
-  // GESTURE REMOVED (2026-06-10): clicking the already-selected DM used to toggle it closed
-  // and show analytics — but rail rows shift position on refresh, so habitual/mid-refresh
-  // clicks landed on the selected row and "closed the chat" (operator-reported). Re-clicking
-  // the open conversation is now a no-op; analytics opens via the explicit inspector button
-  // (openChatAnalytics).
-  if (key && key === window._chatSelected) return;
+  // CLICK-AGAIN-TO-CLOSE, GUARDED (restored 2026-06-12 by operator request): clicking the
+  // already-open conversation closes the chat — a DM reveals its analytics panel. The
+  // gesture was removed on 2026-06-10 because rail rows shift position on refresh and
+  // habitual/mid-refresh clicks landed on the selected row; the guard below keeps that
+  // fix: a click within the post-render shift window is treated as a plain re-select
+  // (no-op), never a surprise close. Only a click on a STABLE rail toggles.
+  if (key && key === window._chatSelected) {
+    if (Date.now() - Number(window._chatRailRenderedAt || 0) < 700) return;
+    if (key.startsWith('dm:')) {
+      openChatAnalytics(key.slice(3));
+    } else {
+      persistChatSelected(null);
+      window._chatAnalyticsKey = null;
+      setChatAnalyticsPersisted(null);
+      renderChat();
+    }
+    return;
+  }
   persistChatSelected(key);
   window._chatAnalyticsKey = null;
   setChatAnalyticsPersisted(null);
@@ -6019,25 +6035,36 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
     timeline.innerHTML = header + '<p class="em">Analytics are unavailable for this agent right now.</p>';
     return;
   }
-  const total = Number(data.messageTotal || 0);
+  // 2026-06-12 REVAMP (operator: "really bad stats, not that useful"): leads with
+  // operationally meaningful numbers — does the agent answer, how fast, is it failing —
+  // and a 14-day activity strip instead of the old hour-of-day histogram.
   const workingMinutes = Math.max(0, Math.round(Number(data.workingMinutes || 0)));
-  const hours = Math.floor(workingMinutes / 60);
-  const mins = workingMinutes % 60;
-  const workingLabel = `${hours}h ${mins}m`;
-  // The endpoint returns objects: messagesPerHourOfDay=[{hour,count}], byPeer=[{peer,count}].
-  const buckets = Array.isArray(data.messagesPerHourOfDay) ? data.messagesPerHourOfDay : [];
-  const hourMax = Math.max(1, ...buckets.map(b => Number((b && b.count) || 0)));
-  const hourBars = buckets.length
-    ? `<div class="status-bars">` + buckets.map((b) => {
-        const value = Number((b && b.count) || 0);
-        const hour = Number((b && b.hour) || 0);
-        const width = Math.max(2, Math.round((value / hourMax) * 100));
-        const label = String(hour).padStart(2, '0') + ':00';
+  const workingLabel = `${Math.floor(workingMinutes / 60)}h ${workingMinutes % 60}m`;
+  const sent = Number(data.messagesSent || 0);
+  const received = Number(data.messagesReceived || 0);
+  const owed = Number(data.openContracts || 0);
+  const medianReply = Number(data.medianReplyMinutes7d || 0);
+  const medianReplyLabel = medianReply >= 60
+    ? `${Math.floor(medianReply / 60)}h ${Math.round(medianReply % 60)}m`
+    : `${Math.round(medianReply)}m`;
+  const runs = data.runs7d || {};
+  const runsCompleted = Number(runs.completed || 0);
+  const runsFailed = Number(runs.failed || 0);
+  const avgRun = Number(data.avgRunMinutes7d || 0);
+  const days = Array.isArray(data.dailyActivity) ? data.dailyActivity : [];
+  const dayMax = Math.max(1, ...days.map(d => Number(d.sent || 0) + Number(d.received || 0)));
+  const dayBars = days.length
+    ? `<div class="status-bars">` + days.map(d => {
+        const inN = Number(d.received || 0);
+        const outN = Number(d.sent || 0);
+        const total = inN + outN;
+        const width = Math.max(2, Math.round((total / dayMax) * 100));
+        const label = String(d.date || '').slice(5); // MM-DD
         return `<div class="status-bar-row"><span class="status-bar-label">${esc(label)}</span>` +
           `<span class="status-bar-track"><span class="status-bar-fill" style="width:${width}%"></span></span>` +
-          `<span class="status-bar-value">${value}</span></div>`;
+          `<span class="status-bar-value"${titleAttr(`${inN} received · ${outN} sent`)}>${inN}↓ ${outN}↑</span></div>`;
       }).join('') + `</div>`
-    : '<p class="em">No hourly message data yet.</p>';
+    : '<p class="em">No activity in the last 14 days.</p>';
   const peerEntries = (Array.isArray(data.byPeer) ? data.byPeer : [])
     .map(p => [String((p && p.peer) || ''), Number((p && p.count) || 0)])
     .filter(([peer]) => peer)
@@ -6052,14 +6079,23 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
           `<span class="status-bar-value">${count}</span></div>`;
       }).join('') + `</div>`
     : '<p class="em">No direct-message peers yet.</p>';
+  const runsLine =
+    `<dl class="chat-kv">` +
+    `<dt>Completed</dt><dd>${runsCompleted}</dd>` +
+    `<dt>Failed</dt><dd>${runsFailed ? `<span class="status-text st-bad">${runsFailed}</span>` : '0'}${runs.lastFailedSubject ? ` <span class="t clip-1"${titleAttr(runs.lastFailedSubject)}>· last: ${esc(String(runs.lastFailedSubject).slice(0, 60))}</span>` : ''}</dd>` +
+    `<dt>Avg turn</dt><dd>${avgRun ? `${avgRun} min` : '—'}</dd>` +
+    `</dl>`;
   timeline.innerHTML = header +
     `<div class="chat-analytics">` +
     `<div class="ops-strip">` +
-    `<div class="sc"><div class="n">${total}</div><div class="l">Direct messages</div></div>` +
+    `<div class="sc"><div class="n">${received}</div><div class="l">Received</div></div>` +
+    `<div class="sc"><div class="n">${sent}</div><div class="l">Sent</div></div>` +
     `<div class="sc"><div class="n">${workingLabel}</div><div class="l">Working time</div></div>` +
-    `<div class="sc"><div class="n">${peerEntries.length}</div><div class="l">Peers</div></div>` +
+    `<div class="sc"><div class="n">${medianReply ? medianReplyLabel : '—'}</div><div class="l">Median reply (7d)</div></div>` +
+    `<div class="sc"><div class="n">${owed ? `<span class="status-text st-bad">${owed}</span>` : '0'}</div><div class="l">Owes replies</div></div>` +
     `</div>` +
-    `<h3 class="chat-analytics-h">Messages by hour of day</h3>${hourBars}` +
+    `<h3 class="chat-analytics-h">Activity — last 14 days (received↓ / sent↑)</h3>${dayBars}` +
+    `<h3 class="chat-analytics-h">Work runs — last 7 days</h3>${runsLine}` +
     `<h3 class="chat-analytics-h">Top peers</h3>${peerBars}` +
     `</div>`;
 }

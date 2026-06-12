@@ -19907,6 +19907,114 @@ async def get_agent_analytics(agent_id: str, request: Request):
         working_minutes_raw = (await work_c.fetchone())[0]
         working_minutes = max(0.0, float(working_minutes_raw or 0))
 
+        # ── 2026-06-12 revamp (operator: "really bad stats, not that useful") ──
+        # Operationally meaningful additions; everything above is kept for
+        # back-compat. All run-time comparisons use julianday() (ISO TEXT-safe).
+
+        sent_c = await db.execute(
+            "SELECT COUNT(*) FROM messages WHERE source = 'direct' AND from_agent = ?",
+            (agent_id,),
+        )
+        messages_sent = int((await sent_c.fetchone())[0])
+        messages_received = max(0, message_total - messages_sent)
+
+        # Daily in/out activity, last 14 days, zero-filled (UTC days).
+        daily = {}
+        daily_c = await db.execute(
+            """
+            SELECT date(timestamp / 1000, 'unixepoch') AS day,
+                   SUM(CASE WHEN from_agent = ? THEN 1 ELSE 0 END) AS sent,
+                   SUM(CASE WHEN to_agent = ? THEN 1 ELSE 0 END) AS received
+            FROM messages
+            WHERE source = 'direct' AND (from_agent = ? OR to_agent = ?)
+              AND timestamp / 1000 >= CAST(strftime('%s', 'now', '-14 days') AS INTEGER)
+            GROUP BY day
+            """,
+            (agent_id, agent_id, agent_id, agent_id),
+        )
+        for row in await daily_c.fetchall():
+            if row["day"]:
+                daily[str(row["day"])] = {
+                    "sent": int(row["sent"] or 0),
+                    "received": int(row["received"] or 0),
+                }
+        day_rows = await (await db.execute(
+            "SELECT date('now', '-' || value || ' days') AS day FROM "
+            "(SELECT 0 AS value UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 "
+            "UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 "
+            "UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13) ORDER BY day"
+        )).fetchall()
+        daily_activity = [
+            {"date": str(r["day"]), **daily.get(str(r["day"]), {"sent": 0, "received": 0})}
+            for r in day_rows
+        ]
+
+        # Dispatch runs targeting this agent, last 7 days.
+        runs_c = await db.execute(
+            """
+            SELECT status, require_reply, requested_at, started_at, finished_at, subject
+            FROM dispatch_runs
+            WHERE target_agent = ?
+              AND dispatch_mode != 'audit'
+              AND julianday(requested_at) > julianday('now') - 7
+            """,
+            (agent_id,),
+        )
+        runs = await runs_c.fetchall()
+        runs_completed = sum(1 for r in runs if str(r["status"] or "") == "completed")
+        runs_failed = sum(1 for r in runs if str(r["status"] or "") in ("failed", "cancelled"))
+        runs_open = sum(1 for r in runs if str(r["status"] or "") in ("queued", "claimed", "running", "delivered"))
+        last_failed_subject = next(
+            (str(r["subject"] or "") for r in sorted(runs, key=lambda r: str(r["requested_at"] or ""), reverse=True)
+             if str(r["status"] or "") in ("failed", "cancelled")),
+            "",
+        )
+
+        def _run_minutes(row, start_col):
+            try:
+                s = str(row[start_col] or "")
+                f = str(row["finished_at"] or "")
+                if not s or not f:
+                    return None
+                from datetime import datetime as _dt
+                sv = _dt.fromisoformat(s.replace("Z", "+00:00"))
+                fv = _dt.fromisoformat(f.replace("Z", "+00:00"))
+                m = (fv - sv).total_seconds() / 60.0
+                return m if m >= 0 else None
+            except Exception:
+                return None
+
+        run_durations = sorted(
+            m for m in (_run_minutes(r, "started_at") for r in runs if str(r["status"] or "") == "completed")
+            if m is not None
+        )
+        avg_run_minutes = (sum(run_durations) / len(run_durations)) if run_durations else 0.0
+        # Reply latency: request arrival → reply landing, rr=1 completed runs only —
+        # "how fast does this agent answer".
+        reply_latencies = sorted(
+            m for m in (
+                _run_minutes(r, "requested_at")
+                for r in runs
+                if str(r["status"] or "") == "completed" and int(r["require_reply"] or 0) == 1
+            )
+            if m is not None
+        )
+        median_reply_minutes = (
+            reply_latencies[len(reply_latencies) // 2] if reply_latencies else 0.0
+        )
+
+        # Open reply contracts RIGHT NOW (not windowed) — what the agent still owes.
+        owed_c = await db.execute(
+            """
+            SELECT COUNT(*) FROM dispatch_runs
+            WHERE target_agent = ? AND require_reply = 1
+              AND status IN ('queued', 'claimed', 'running', 'delivered')
+              AND COALESCE(result_message_id, '') = ''
+            """,
+            (agent_id,),
+        )
+        open_contracts = int((await owed_c.fetchone())[0])
+
         return {
             "ok": True,
             "agentId": agent_id,
@@ -19914,6 +20022,18 @@ async def get_agent_analytics(agent_id: str, request: Request):
             "messagesPerHourOfDay": messages_per_hour_of_day,
             "byPeer": by_peer,
             "workingMinutes": working_minutes,
+            "messagesSent": messages_sent,
+            "messagesReceived": messages_received,
+            "dailyActivity": daily_activity,
+            "runs7d": {
+                "completed": runs_completed,
+                "failed": runs_failed,
+                "open": runs_open,
+                "lastFailedSubject": last_failed_subject,
+            },
+            "avgRunMinutes7d": round(avg_run_minutes, 1),
+            "medianReplyMinutes7d": round(median_reply_minutes, 1),
+            "openContracts": open_contracts,
         }
     finally:
         await db.close()
