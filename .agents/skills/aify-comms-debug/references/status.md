@@ -86,6 +86,21 @@ BRIDGE-side signals that feed BOTH engines.
   evidence. Bridge-side: the fix only applies to consoles hosted by a bridge process started
   after reinstall — a stuck agent means its environment bridge predates the fix; restart the
   `aify-comms` wrapper.
+- **2026-06-12 evening audit (`00bb544`) — four pipeline flaws.** (1) The read-path cache
+  upserts ROLLED BACK on close (no commit in list/get agents) — the cache only persisted
+  via the 60s reconcile and every poll re-derived expired rows; both endpoints now commit.
+  (2) Wake-disabled (`launch_mode='none'`) was invisible to the engine's `disabled` input —
+  parked agents served `available` under `status_engine=new`; they now serve `stopped`.
+  (3) WS pushes broadcast the LEGACY derivation while polls served the new-engine value —
+  push/poll flicker wherever they disagreed; the push now applies the same flag-gated
+  `derive()`. (4) Environment death never expired dependent agents' cached live statuses
+  (no transition event exists) — the read-boundary `_enforce_env_reachable_gate` (sibling
+  of the live-worker gate) recomputes when a cached live/available status outlives its env.
+  Known tolerated divergence: long-dead remote RESIDENTS read `stale` under the engine
+  where legacy said `offline` (spec accepts either); disagreement logs are de-duped per
+  (agent, old→new) transition. `agent_status_state.status` is VESTIGIAL (written/read by
+  nothing — don't trust its values when debugging; the real turn state is `in_turn` +
+  `last_event_at`).
 - **Resident `online` while hard at work (2026-06-12, `8129b6c`).** Delivering a steered
   message INTO a running resident turn fires the server's delivery-completion turn_busy
   clear, and the transcript turn detector was edge-triggered — it never re-fired, so the

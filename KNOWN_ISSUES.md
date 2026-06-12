@@ -35,7 +35,7 @@ The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide
 | `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
 | `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
 | `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
-| `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+| `stopped` | Operator-stopped, wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
 
 Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
 
@@ -49,6 +49,14 @@ Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/off
 
 ### Deferred (cost/benefit)
 
+- **`agent_status_state.status` is a vestigial column** (2026-06-12 audit): written and
+  read by nothing — `_apply_status_event` maintains only `in_turn` / `awaiting_input` /
+  `turn_run_id` / `last_event*`. Its stale values (often `offline`) mislead anyone
+  debugging by table dump. Drop the column in a future schema pass; until then, ignore it.
+- **Engine vs legacy: long-dead remote RESIDENTS read `stale` (engine) where legacy said
+  `offline`.** Tolerated per the status-v2 spec (resident stale→stale/offline both
+  accepted); the `status-disagreement` log is de-duped per (agent, old→new) transition so
+  this stable divergence no longer floods the log (was 1,700+ entries).
 - **The 60s reconcile sweep doesn't push status deltas over WebSocket.** When the periodic self-heal corrects a stale status, dashboards see it on their next poll rather than instantly. Event-driven push (C1) already covers operator-driven transitions; the reconcile loop has no WS handle, so wiring a broadcast there is awkward for modest benefit. Tracked in task #171.
 
 ### Watch (revisit only if the symptom recurs)
