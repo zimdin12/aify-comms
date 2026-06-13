@@ -2518,7 +2518,7 @@ async def _fresh_same_mode_bridge_conflict(
     cutoff = max(15, int(lease_seconds or 150))
     cursor = await db.execute(
         """
-        SELECT id, last_seen, bridge_kind
+        SELECT id, last_seen, bridge_kind, session_handle
         FROM bridge_instances
         WHERE agent_id = ?
           AND machine_id = ?
@@ -12053,6 +12053,45 @@ async def register_agent(req: AgentRegister, request: Request):
                 session_mode=normalized_session_mode,
                 lease_seconds=settings_for_guard.get("resident_lease_seconds", 150),
             )
+            # SAME-SESSION RELAUNCH TAKEOVER (2026-06-13, the sc-manager stale+deaf
+            # incident): a quick close-and-relaunch of a resident wrapper ALWAYS hit this
+            # guard — kill-prior killed the old session seconds before the new bridge
+            # booted, but the dead bridge's heartbeat lease (150s) made it look like a
+            # "LIVE owner", the auto-register was 409'd (never retried), and the session
+            # ran for hours with no binding file: sidecar mute (no inbound delivery, no
+            # sidecar liveness) + runtime_state pinned to the dead bridge → `stale`.
+            # When the incoming registration RESUMES the very session handle the
+            # conflicting bridge holds, it is a relaunch of that same native session —
+            # one session can only have one living process — so take over: supersede the
+            # old bridge and proceed. A conflict with a DIFFERENT (or unknown) session
+            # stays hard-409 (the real Phase-4 duplicate-identity protection).
+            incoming_handle = str(req.sessionHandle or "").strip()
+            conflict_handle = str(
+                (conflict["session_handle"] if conflict and "session_handle" in conflict.keys() else "") or ""
+            ).strip()
+            if conflict and incoming_handle and incoming_handle == conflict_handle:
+                # IN-FLIGHT PROTECTION (the Phase-4 operator-chosen invariant stays): a
+                # prior bridge actively driving a claimed/running run is genuinely-live
+                # evidence — never silently supersede it; the hard 409 below stands and
+                # the bridge-side retry waits it out. Only an IDLE same-session owner
+                # (the killed-prior relaunch case) is taken over.
+                in_flight = await (await db.execute(
+                    """
+                    SELECT COUNT(*) FROM dispatch_runs
+                    WHERE target_agent = ? AND status IN ('claimed', 'running')
+                    """,
+                    (req.agentId,),
+                )).fetchone()
+                if not int(in_flight[0] or 0):
+                    await db.execute(
+                        "UPDATE bridge_instances SET superseded_by = ?, superseded_at = ? WHERE id = ?",
+                        (bridge_id, _now(), conflict["id"]),
+                    )
+                    logger.info(
+                        "same-session relaunch takeover: agent=%s handle=%s superseded=%s by=%s",
+                        req.agentId, incoming_handle, conflict["id"], bridge_id,
+                    )
+                    conflict = None
             if conflict:
                 seen_s = _iso_to_epoch((conflict["last_seen"] or ""))
                 ago = int(max(0, time.time() - seen_s)) if seen_s else 0

@@ -529,6 +529,25 @@ text in the stream wins, so a scrolled-away menu can never re-claim a live dialo
 managed claude still loses context on restart, its PTY-hosting environment bridge predates
 this fix — restart the `aify-comms` wrapper.
 
+## Resident relaunch goes stale + deaf (auto-register refused by the race guard)
+
+**Symptom.** Close a resident wrapper and relaunch it quickly. The session works for
+SENDING, but: status reads `stale`, inbound messages never arrive (runs queue/fail with
+no claimer), the sidecar bridge row stops heartbeating at the relaunch moment, and the
+bridge boot log shows `auto-register for "<agent>" was refused — another live wrapper
+owns this session (HTTP 409 … seen Ns ago)`.
+
+**Cause (fixed 2026-06-13).** Kill-prior kills the old session seconds before the new
+bridge boots, but the dead bridge's heartbeat lease (~150s) makes it look like a LIVE
+owner — the Phase-4 race guard 409'd the auto-register, which never retried. No binding
+file → `claude-channel.js` never binds (mute: no claims, no liveness) and
+`runtime_state.bridgeInstanceId` stays pinned to the dead bridge (→ `stale`).
+**Fix:** the server now allows a SAME-session-handle relaunch to take over an IDLE
+prior bridge (supersedes it; a prior with an in-flight claimed/running run still 409s —
+the Phase-4 in-flight protection stands), and the bridge retries a refused auto-register
+every 30s for ~4 min. **Recovery on an old bridge:** run `comms_register` inside the
+session (binds immediately, no restart) or relaunch once more after updating.
+
 ## Resident sends say "sent" but the agent never receives them (post mode-switch)
 
 **Symptom.** An agent was switched managed→resident (operator launched the resident

@@ -1345,7 +1345,7 @@ export async function computeInitialSessionHandle({ adapter, envHandle }) {
   return String(envHandle || "").trim();
 }
 
-async function autoRegisterConfiguredAgent() {
+async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
   if (!IS_REMOTE || IS_MANAGED_DISPATCH || !AIFY_AGENT_ID) return;
   try { validateName(AIFY_AGENT_ID, "agent ID"); } catch (error) {
     console.error(`[aify] AIFY_AGENT_ID ignored: ${error.message}`);
@@ -1463,13 +1463,30 @@ async function autoRegisterConfiguredAgent() {
   } catch (error) {
     const msg = String(error?.message || error || "");
     // Phase 4 race guard: a LIVE same-mode bridge already owns this identity.
-    // Tell the operator how to take over rather than failing silently.
+    // RETRY, DON'T GIVE UP (2026-06-13, the sc-manager stale+deaf incident): a quick
+    // close-and-relaunch always trips this guard — kill-prior killed the prior session
+    // seconds ago, but its heartbeat lease makes it look live for up to ~150s. A
+    // one-shot refusal left the session permanently unbound (mute sidecar = no inbound
+    // delivery; stale status). The server now allows same-session-handle relaunch
+    // takeover, and this retry loop covers older servers + genuine lease-expiry waits:
+    // re-attempt every 30s for ~4 minutes. A genuinely-owned identity keeps refusing
+    // (correct — operator hint stands); the dead prior simply ages out and a retry wins.
     if (/already has a LIVE/i.test(msg) || /force=true/i.test(msg)) {
       console.error(
         `[aify] auto-register for "${AIFY_AGENT_ID}" was refused — another live wrapper owns this session.\n` +
           `       ${msg}\n` +
-          `       If you intend to take over (you restarted the prior wrapper), relaunch with AIFY_FORCE_REGISTER=1.`,
+          `       Retrying every 30s for ~4 minutes (a just-killed prior wrapper ages out of its lease).` +
+          ` To take over immediately, relaunch with AIFY_FORCE_REGISTER=1.`,
       );
+      const retriesLeft = Number.isFinite(_retriesLeft) ? _retriesLeft : 8;
+      if (retriesLeft > 0) {
+        const t = setTimeout(() => {
+          autoRegisterConfiguredAgent(retriesLeft - 1).catch(() => {});
+        }, 30_000);
+        if (typeof t.unref === "function") t.unref();
+      } else {
+        console.error(`[aify] auto-register retries exhausted for "${AIFY_AGENT_ID}" — run comms_register in this session to bind it.`);
+      }
     } else {
       console.error(`[aify] auto-register failed for "${AIFY_AGENT_ID}": ${msg}`);
     }

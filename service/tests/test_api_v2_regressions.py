@@ -7413,6 +7413,75 @@ class ApiV2RegressionTests(FastApiTestCase):
         run = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "running", f"in-flight resident run was killed by a rejected re-register: {dict(run)}")
 
+    def test_same_session_relaunch_takeover_when_idle(self):
+        """2026-06-13 (sc-manager stale+deaf incident): a quick close-and-relaunch of a
+        resident wrapper resumes the SAME session handle while the killed prior bridge
+        still looks live (heartbeat lease). With NO in-flight run, the re-register must
+        SUCCEED and supersede the prior bridge — the one-shot 409 left the session
+        unbound for hours (mute sidecar, pinned dead bridge → stale). The in-flight
+        variant (test above) must keep its hard 409."""
+        self._heartbeat_environment()
+        self._register(
+            "relaunch-owner",
+            runtime="codex",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="omp-session-3",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        # No in-flight run, same handle, different bridge, NO force.
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "relaunch-owner",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "omp-session-3",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 200, reregistered.text)
+        prior = self._fetchone("SELECT superseded_by FROM bridge_instances WHERE id=?", ("bridge-A",))
+        self.assertEqual(prior["superseded_by"], "bridge-B",
+                         "idle same-session relaunch must take over the dead-looking prior bridge")
+
+    def test_same_machine_different_session_still_409s(self):
+        """The Phase-4 duplicate-identity protection stays for a DIFFERENT session
+        handle: only a same-session relaunch may take over without force."""
+        self._heartbeat_environment()
+        self._register(
+            "relaunch-other",
+            runtime="codex",
+            sessionMode="resident",
+            launchMode="detached",
+            sessionHandle="omp-session-4",
+            bridgeId="bridge-A",
+            machineId="linux:test-host",
+            capabilities=["resident-run", "resume", "interrupt"],
+        )
+        reregistered = self.client.post(
+            "/api/v1/agents",
+            json={
+                "agentId": "relaunch-other",
+                "role": "coder",
+                "runtime": "codex",
+                "sessionMode": "resident",
+                "launchMode": "detached",
+                "sessionHandle": "omp-session-DIFFERENT",
+                "machineId": "linux:test-host",
+                "bridgeId": "bridge-B",
+                "capabilities": ["resident-run", "resume", "interrupt"],
+            },
+        )
+        self.assertEqual(reregistered.status_code, 409, reregistered.text)
+        self.assertIn("LIVE", reregistered.text)
+
     def test_resident_reregister_with_force_takes_over_live_bridge(self):
         # Phase 4: force=true is the deliberate takeover escape hatch. The
         # operator restarted the prior wrapper, so a fresh same-mode bridge
