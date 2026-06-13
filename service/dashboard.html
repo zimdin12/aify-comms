@@ -3063,7 +3063,13 @@ document.addEventListener('click', event => {
   const chatTarget = clickedElement.closest('[data-chat-key]');
   if (chatTarget) {
     event.preventDefault();
-    selectChatConversation(chatTarget.getAttribute('data-chat-key') || '');
+    // The click-again-to-close gesture applies ONLY to rail rows (.chat-item). The chat
+    // TIMELINE also carries data-chat-key (render tracking), so without this scope a
+    // click anywhere in the chat body/console surface re-selected the open conversation
+    // — which the toggle then "closed" (2026-06-13 regression).
+    selectChatConversation(chatTarget.getAttribute('data-chat-key') || '', {
+      toggleIfSelected: chatTarget.classList.contains('chat-item'),
+    });
     return;
   }
   const globalMessageTarget = clickedElement.closest('[data-global-message-from]');
@@ -5971,15 +5977,17 @@ async function toggleChatFavorite(event, agentId, currentlyFavorited) {
   }
 }
 
-async function selectChatConversation(key) {
+async function selectChatConversation(key, opts = {}) {
   saveCurrentChatDraft();
   // CLICK-AGAIN-TO-CLOSE, GUARDED (restored 2026-06-12 by operator request): clicking the
   // already-open conversation closes the chat — a DM reveals its analytics panel. The
-  // gesture was removed on 2026-06-10 because rail rows shift position on refresh and
-  // habitual/mid-refresh clicks landed on the selected row; the guard below keeps that
-  // fix: a click within the post-render shift window is treated as a plain re-select
-  // (no-op), never a surprise close. Only a click on a STABLE rail toggles.
+  // toggle fires ONLY when the caller marks the click as a genuine RAIL click
+  // (toggleIfSelected — the document handler scopes it to .chat-item rows): every
+  // programmatic re-select and any click bubbling from the chat timeline/console (which
+  // also carries data-chat-key) stays the historical no-op. The stability guard keeps
+  // the 2026-06-10 fix: a click within the post-render shift window never closes.
   if (key && key === window._chatSelected) {
+    if (!opts.toggleIfSelected) return;
     if (Date.now() - Number(window._chatRailRenderedAt || 0) < 700) return;
     if (key.startsWith('dm:')) {
       openChatAnalytics(key.slice(3));
@@ -6100,7 +6108,7 @@ async function renderChatAnalyticsPanel(timeline, agentId) {
     `</div>`;
 }
 
-// Explicit analytics entry (2026-06-10): replaces the removed click-again rail gesture.
+// Analytics entry — used by the rail click-again gesture and the inspector button.
 function openChatAnalytics(agentId) {
   const id = String(agentId || '').trim();
   if (!id) return;
@@ -6108,6 +6116,10 @@ function openChatAnalytics(agentId) {
   persistChatSelected(null);
   window._chatAnalyticsKey = id;
   setChatAnalyticsPersisted(id);
+  // Analytics is a Messenger-surface panel: in console mode the analytics render is
+  // skipped and the user saw only "Console mode is only available for direct agent
+  // chats" (2026-06-13). Switch to messenger so the panel actually shows.
+  if (chatMode() === 'console') setChatMode('messenger');
   renderChat();
 }
 
