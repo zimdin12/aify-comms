@@ -1836,8 +1836,21 @@ function renderRuntime() {
       </div>
       <div class="contract-actions">
         <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
+        ${resolveStatus(env.status).kind === 'offline'
+          ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
+          : `<button class="ghost" data-env-control="restart" data-env-id="${esc(env.id)}" title="Ask this bridge to restart">Restart bridge</button>
+             <button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
       </div>
-    </article>`).join('') || '<div class="item">No environments loaded.</div>';
+    </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start an aify-comms bridge on a host to see it here.</p></div>';
+}
+
+async function controlEnvironment(environmentId, action) {
+  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`)) return;
+  try {
+    await api(`/environments/${encodeURIComponent(environmentId)}/control`, { method: 'POST', body: JSON.stringify({ action, requestedBy: 'dashboard' }) });
+    toast(`Environment ${action} requested`, 'ok');
+    refreshSoon();
+  } catch (err) { toast(`Environment ${action} failed: ${err?.message || err}`, 'error'); }
 }
 
 const runFrom = (r) => String(r.from || r.fromAgent || r.from_agent || '');
@@ -2791,6 +2804,8 @@ document.addEventListener('click', (event) => {
     byId('env-spawn-agent-id')?.focus();
     return;
   }
+  const envControl = event.target.closest('[data-env-control]');
+  if (envControl) { controlEnvironment(envControl.dataset.envId, envControl.dataset.envControl); return; }
   const sessionCheckbox = event.target.closest('[data-session-checkbox]');
   if (sessionCheckbox) {
     const id = sessionCheckbox.dataset.sessionCheckbox;
@@ -2846,7 +2861,8 @@ document.addEventListener('click', (event) => {
   }
   const copyRunButton = event.target.closest('[data-copy-run-id]');
   if (copyRunButton) {
-    navigator.clipboard?.writeText(copyRunButton.dataset.copyRunId || '');
+    // Use the execCommand-fallback copy (navigator.clipboard is undefined on the http LAN origin).
+    copyText(copyRunButton.dataset.copyRunId || '').then((ok) => toast(ok ? 'Run ID copied' : 'Copy failed', ok ? 'ok' : 'error'));
     return;
   }
   const threadButton = event.target.closest('[data-open-thread-message]');
@@ -2986,6 +3002,13 @@ byId('chat-composer-body')?.addEventListener('input', (event) => {
   const key = state.chat.selected;
   if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = event.target.value; }
 });
+// Enter-to-send in chat (Shift+Enter inserts a newline) — WS-I11.
+byId('chat-composer-body')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    chatController.send();
+  }
+});
 // Chat artifact-attach (WS-F): upload the chosen file to /shared, insert a reference.
 byId('chat-attach-input')?.addEventListener('change', (event) => {
   const file = event.target.files?.[0];
@@ -3033,7 +3056,8 @@ byId('composer').addEventListener('submit', async (event) => {
 });
 document.addEventListener('paste', (event) => {
   const target = event.target;
-  if (!target || target.id !== 'composer-body') return;
+  // Image paste works in BOTH the Sessions composer and the chat composer (the landing surface).
+  if (!target || (target.id !== 'composer-body' && target.id !== 'chat-composer-body')) return;
   const items = event.clipboardData?.items ? [...event.clipboardData.items] : [];
   const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
   if (!imageItem) return;
