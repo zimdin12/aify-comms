@@ -306,6 +306,21 @@ function applyRealtimeEvent(event, data = {}) {
     refreshSoon();
     return;
   }
+  // Granular consumption (Phase 1.2): a status change patches the agent in place and
+  // re-renders (signature-gated) WITHOUT the 9-endpoint full refetch — the dashboard's
+  // biggest poll-load reduction. Only fall back to refreshSoon for events that change data
+  // the client can't synthesize from the event payload.
+  if (event === 'agent_status' && data.agentId) {
+    const agent = state.agents.find((a) => a.id === data.agentId);
+    if (agent) {
+      if (data.status) { agent.status = data.status; agent.statusRaw = data.status; }
+      if (data.statusNote !== undefined) agent.statusNote = data.statusNote;
+      renderAll();
+      return;
+    }
+    refreshSoon(); // unknown agent — a registration we haven't loaded yet
+    return;
+  }
   if ([
     'message_sent',
     'dispatch_queued',
@@ -318,7 +333,6 @@ function applyRealtimeEvent(event, data = {}) {
     'session_control_requested',
     'session_deleted',
     'agent_registered',
-    'agent_status',
   ].includes(event)) {
     refreshSoon();
   }
