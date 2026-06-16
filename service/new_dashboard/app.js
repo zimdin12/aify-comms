@@ -44,7 +44,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null },
+  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'chat',
@@ -53,6 +53,7 @@ const state = {
   inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
   filter: '',
   runStatusFilter: '',
+  runFromFilter: '', runToFilter: '', runRuntimeFilter: '', runSearch: '', // WS-H runs filters
   sessionStatusFilter: new Set(), // WS-F: status multiselect for the Sessions rail (empty = all)
   settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
@@ -478,6 +479,13 @@ function filtered(items, fields) {
   return items.filter((item) => fields.some((field) => String(item[field] || '').toLowerCase().includes(needle)));
 }
 
+// Single-item version of the top-bar global Find (for callers that do their own filtering).
+function matchesGlobalFilter(item, fields) {
+  const needle = state.filter.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.some((field) => String(item[field] || '').toLowerCase().includes(needle));
+}
+
 // Phase 0.4 (DASHBOARD_REBUILD_PLAN §0.4): per-section render keyed on an input signature
 // computed in ONE place, so renderAll (run on every 15s poll, every WS event, and every
 // filter keystroke) only rewrites a section's innerHTML when its inputs actually changed —
@@ -514,7 +522,7 @@ function renderAll() {
   renderSection('envSummary', [_envSig()], renderEnvironmentSummary);
   renderEnvironmentSpawnOptions();
   renderSection('runtime', [_envSig()], renderRuntime);
-  renderSection('runs', [_runSig(), f, state.runStatusFilter || '', [...state.selectedDiagnosticIds]], renderRuns);
+  renderSection('runs', [_runSig(), f, state.runStatusFilter || '', state.runFromFilter, state.runToFilter, state.runRuntimeFilter, state.runSearch, [...state.selectedDiagnosticIds]], renderRuns);
   renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
   renderSection('settings', [state.settings], renderSettings);
   // Keep the analytics page live while it's the active page (re-fetch on the poll cycle).
@@ -1773,8 +1781,38 @@ function renderRuntime() {
     </article>`).join('') || '<div class="item">No environments loaded.</div>';
 }
 
+const runFrom = (r) => String(r.from || r.fromAgent || r.from_agent || '');
+const runTo = (r) => String(r.targetAgentId || r.target_agent || r.to || '');
+const runRuntime = (r) => String(r.runtime || r.requestedRuntime || r.requested_runtime || '');
+
+// Populate a filter <select> with distinct values, preserving the current selection.
+function syncRunFilterOptions(id, values, current) {
+  const sel = byId(id);
+  if (!sel) return;
+  const opts = ['', ...[...new Set(values.filter(Boolean))].sort()];
+  const sig = opts.join('|');
+  if (sel.dataset.optsSig === sig) { sel.value = current || ''; return; }
+  sel.dataset.optsSig = sig;
+  sel.innerHTML = opts.map((v) => `<option value="${esc(v)}"${v === (current || '') ? ' selected' : ''}>${v ? esc(v) : 'Any'}</option>`).join('');
+}
+
 function renderRuns() {
-  const runs = filtered(state.runs, ['id', 'subject', 'targetAgentId', 'from', 'summary']).slice(0, 80);
+  // Populate from/to/runtime dropdowns from the loaded set (WS-H).
+  syncRunFilterOptions('run-from-filter', state.runs.map(runFrom), state.runFromFilter);
+  syncRunFilterOptions('run-to-filter', state.runs.map(runTo), state.runToFilter);
+  syncRunFilterOptions('run-runtime-filter', state.runs.map(runRuntime), state.runRuntimeFilter);
+  const search = String(state.runSearch || '').trim().toLowerCase();
+  const runs = state.runs.filter((r) => {
+    if (state.runFromFilter && runFrom(r) !== state.runFromFilter) return false;
+    if (state.runToFilter && runTo(r) !== state.runToFilter) return false;
+    if (state.runRuntimeFilter && runRuntime(r) !== state.runRuntimeFilter) return false;
+    if (search) {
+      const hay = [r.id, r.subject, r.summary, r.error, runFrom(r), runTo(r), r.mergedFromAgents].join(' ').toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    // also honor the top-bar global Find
+    return matchesGlobalFilter(r, ['id', 'subject', 'targetAgentId', 'from', 'summary']);
+  }).slice(0, 80);
   const note = byId('run-result-note');
   if (note) {
     const status = state.runStatusFilter ? `${state.runStatusFilter} ` : '';
@@ -2800,6 +2838,10 @@ byId('run-status-filter').addEventListener('change', async (event) => {
     inspect('API error', { message: error.message });
   }
 });
+byId('run-from-filter')?.addEventListener('change', (e) => { state.runFromFilter = e.target.value; renderRuns(); });
+byId('run-to-filter')?.addEventListener('change', (e) => { state.runToFilter = e.target.value; renderRuns(); });
+byId('run-runtime-filter')?.addEventListener('change', (e) => { state.runRuntimeFilter = e.target.value; renderRuns(); });
+byId('run-search')?.addEventListener('input', (e) => { state.runSearch = e.target.value; renderRuns(); });
 byId('env-spawn-environment')?.addEventListener('change', (event) => {
   byId('env-spawn-workspace').value = '';
   renderEnvironmentSpawnOptions(event.target.value);
@@ -2841,6 +2883,18 @@ byId('chat-identity')?.addEventListener('change', (event) => {
 });
 byId('chat-live-only')?.addEventListener('change', (event) => {
   state.chat.liveOnly = event.target.checked;
+  chatController.renderRail();
+});
+byId('chat-sort')?.addEventListener('change', (event) => {
+  state.chat.sortMode = event.target.value || 'activity';
+  chatController.renderRail();
+});
+byId('chat-open-only')?.addEventListener('change', (event) => {
+  state.chat.openOnly = event.target.checked;
+  chatController.renderRail();
+});
+byId('chat-working-up')?.addEventListener('change', (event) => {
+  state.chat.workingUp = event.target.checked;
   chatController.renderRail();
 });
 byId('chat-composer')?.addEventListener('submit', (event) => {

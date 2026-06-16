@@ -77,12 +77,26 @@
         <section class="chat-shell">
           <aside class="chat-rail" aria-label="Conversations">
             <div class="chat-rail-controls">
-              <input id="chat-filter" type="search" placeholder="Search conversations">
+              <input id="chat-filter" type="search" placeholder="Search conversations + messages">
               <div class="chat-rail-row">
                 <label class="chat-as">Viewing as
                   <select id="chat-identity" title="Send and read as this identity"></select>
                 </label>
+                <label class="chat-as">Sort
+                  <select id="chat-sort" title="Conversation sort order">
+                    <option value="activity">Recent activity</option>
+                    <option value="unread">Unread first</option>
+                    <option value="name">Name (A–Z)</option>
+                    <option value="name-desc">Name (Z–A)</option>
+                    <option value="status">Status</option>
+                    <option value="runtime">Runtime</option>
+                  </select>
+                </label>
+              </div>
+              <div class="chat-rail-row chat-rail-toggles">
                 <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
+                <label class="check-row"><input id="chat-open-only" type="checkbox"><span>Has messages</span></label>
+                <label class="check-row"><input id="chat-working-up" type="checkbox"><span>Working first</span></label>
               </div>
               <form id="chat-new-channel-form" class="chat-new-channel">
                 <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
@@ -223,7 +237,7 @@
               <h2>Runs</h2>
               <span id="run-result-note" class="subtle">Showing most recent runs.</span>
             </div>
-            <div class="toolbar">
+            <div class="toolbar runs-toolbar">
               <label>
                 <span class="subtle">Status</span>
                 <select id="run-status-filter">
@@ -235,6 +249,22 @@
                   <option value="failed">Failed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
+              </label>
+              <label>
+                <span class="subtle">From</span>
+                <select id="run-from-filter"><option value="">Any</option></select>
+              </label>
+              <label>
+                <span class="subtle">To</span>
+                <select id="run-to-filter"><option value="">Any</option></select>
+              </label>
+              <label>
+                <span class="subtle">Runtime</span>
+                <select id="run-runtime-filter"><option value="">Any</option></select>
+              </label>
+              <label class="runs-search-field">
+                <span class="subtle">Search</span>
+                <input id="run-search" type="search" placeholder="id, subject, summary, error…">
               </label>
             </div>
             <div id="run-list" class="run-list"></div>

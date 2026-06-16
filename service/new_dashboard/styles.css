@@ -1218,6 +1218,15 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .empty-state strong { color: var(--soft); font-weight: 650; }
 .empty-state p { font-size: .86em; max-width: 320px; }
 .empty-state button { margin-top: 2px; }
+
+/* WS-H toolbars: runs filter row + chat rail toggle row. */
+.runs-toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
+.runs-toolbar label { display: grid; gap: 3px; font-size: .8em; }
+.runs-toolbar select, .runs-toolbar input { min-height: 34px; }
+.runs-search-field { flex: 1 1 180px; }
+.runs-search-field input { width: 100%; }
+.chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
+.chat-rail-toggles .check-row { font-size: .8em; }
 /* WS-F chat attach button. */
 .chat-attach { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach input[type="file"] { display: none; }

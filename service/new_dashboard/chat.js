@@ -18,12 +18,21 @@ export function dmMessages(messages, agentId, identity = 'dashboard') {
   });
 }
 
-// Build rail items (DMs + channels) from state. Pure → unit-tested. Sort: unread first, then
-// favorites, then most-recent activity, then id.
+// Rank for the "status" sort + working-first hoist: busy/blocked float up, dead sink.
+const STATUS_SORT_RANK = { working: 0, blocked: 1, online: 2, idle: 3, available: 4, stale: 5, offline: 6, stopped: 7, unknown: 8 };
+function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? 8; }
+
+// Build rail items (DMs + channels) from state. Pure → unit-tested. Honors sortMode, the
+// live-only / open-only / working-first toggles, the status filter set, and global text search.
 export function chatConversationItems(state) {
-  const identity = state.chat?.identity || 'dashboard';
-  const filter = String(state.chat?.filter || '').trim().toLowerCase();
-  const liveOnly = !!state.chat?.liveOnly;
+  const chat = state.chat || {};
+  const identity = chat.identity || 'dashboard';
+  const filter = String(chat.filter || '').trim().toLowerCase();
+  const liveOnly = !!chat.liveOnly;
+  const openOnly = !!chat.openOnly;
+  const workingUp = !!chat.workingUp;
+  const sortMode = chat.sortMode || 'activity';
+  const statusSet = chat.statusFilter instanceof Set ? chat.statusFilter : null;
   const ts = (v) => { const n = Date.parse(String(v || '')); return Number.isFinite(n) ? n : Number(v) || 0; };
 
   const dms = (state.agents || [])
@@ -35,33 +44,44 @@ export function chatConversationItems(state) {
       return {
         kind: 'dm', key: `dm:${a.id}`, id: a.id, status: a.status || 'unknown',
         statusNote: a.statusNote || a.status_note || '',
+        runtime: a.runtime || a.runtimeId || '',
         preview: last ? (last.subject || last.preview || last.body || '') : '',
+        msgCount: msgs.length,
         unread, favorited: !!a.favorited, lastTs: ts(last?.timestamp || last?.createdAt),
       };
     });
 
   const channels = (state.chat?.channels || []).map((c) => ({
-    kind: 'channel', key: `channel:${c.name}`, id: c.name, status: 'online',
+    kind: 'channel', key: `channel:${c.name}`, id: c.name, status: 'online', runtime: '',
     preview: c.description || `${c.memberCount ?? (c.members?.length || 0)} members`,
+    msgCount: (c.unreadCount || 0) + 1,
     unread: c.unreadCount || 0, favorited: false, lastTs: ts(c.lastMessageAt || c.createdAt),
   }));
 
   let items = [...dms, ...channels];
   const live = new Set(['working', 'online', 'idle', 'available', 'blocked']);
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
+  if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind) || i.unread > 0 || i.favorited);
+  if (openOnly) items = items.filter((i) => i.kind === 'channel' ? i.unread > 0 : i.msgCount > 0);
   if (filter) {
-    // Global search (parity with old dashboard): match the id/preview AND any loaded message
-    // body in the conversation, so searching surfaces a DM by its message contents too.
-    const bodyMatch = (i) => {
-      if (i.kind !== 'dm') return false;
-      return dmMessages(state.messages, i.id, identity).some((m) => String(m.body || m.subject || m.preview || '').toLowerCase().includes(filter));
-    };
+    // Global search (parity with old dashboard): match id/preview AND any loaded message body.
+    const bodyMatch = (i) => i.kind === 'dm'
+      && dmMessages(state.messages, i.id, identity).some((m) => String(m.body || m.subject || m.preview || '').toLowerCase().includes(filter));
     items = items.filter((i) => i.id.toLowerCase().includes(filter) || i.preview.toLowerCase().includes(filter) || bodyMatch(i));
   }
+
+  const byMode = (a, b) => {
+    if (sortMode === 'name') return a.id.localeCompare(b.id);
+    if (sortMode === 'name-desc') return b.id.localeCompare(a.id);
+    if (sortMode === 'unread') return (b.unread - a.unread) || (b.lastTs - a.lastTs);
+    if (sortMode === 'status') return (statusRank(resolveStatus(a.status).kind) - statusRank(resolveStatus(b.status).kind)) || (b.lastTs - a.lastTs);
+    if (sortMode === 'runtime') return String(a.runtime).localeCompare(String(b.runtime)) || (b.lastTs - a.lastTs);
+    return b.lastTs - a.lastTs; // activity (default)
+  };
   items.sort((a, b) => (
-    (b.unread > 0) - (a.unread > 0)
-    || (b.favorited - a.favorited)
-    || (b.lastTs - a.lastTs)
+    (b.favorited - a.favorited)                              // favorites always float
+    || (workingUp ? (statusRank(resolveStatus(a.status).kind) - statusRank(resolveStatus(b.status).kind)) : 0)
+    || byMode(a, b)
     || a.id.localeCompare(b.id)
   ));
   return items;
