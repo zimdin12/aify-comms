@@ -8,6 +8,19 @@ from service.new_dashboard_app import app
 
 
 ROOT = Path(__file__).resolve().parents[2]
+_DASH = ROOT / "service" / "new_dashboard"
+
+
+def _dashboard_js() -> str:
+    """Combined Dashboard Next client JS. Phase 0.1 (DASHBOARD_REBUILD_PLAN) split app.js
+    into ES modules (util.js / status.js / console-chooser.js + the app.js orchestrator), so
+    source-presence assertions must scan all of them, not just app.js."""
+    parts = []
+    for name in ("app.js", "util.js", "status.js", "console-chooser.js"):
+        path = _DASH / name
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 class NewDashboardAppTest(unittest.TestCase):
@@ -31,7 +44,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_api_origin_is_configurable_without_hardcoded_localhost(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
 
         self.assertRegex(html, r'data-default-api-port="8800"')
         self.assertIn("localStorage.getItem('aify.next.apiOrigin')", script)
@@ -50,7 +63,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_first_slice_has_attention_inspector_and_no_destructive_actions(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
 
         self.assertIn("Needs Attention", html)
         self.assertIn('id="inspector"', html)
@@ -61,7 +74,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIsNone(re.search(r"/contracts/[^'\"]+/(close|cancel|delete)", script))
 
     def test_parity_foundations_are_declared_and_reused(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
 
         self.assertIn("const flowGates", script)
         self.assertIn("function resolveStatus", script)
@@ -75,7 +88,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_next_slice_exposes_safe_parity_controls(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
 
         self.assertIn('id="composer-type"', html)
         self.assertIn('id="composer-priority"', html)
@@ -108,7 +121,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_polish_slice_has_collapsible_sidebar_and_real_drawer_inspector(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="toggle-nav"', html)
@@ -124,7 +137,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("openInspector", script)
 
     def test_polish_slice_makes_status_and_cockpit_visually_dense(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('class="status-dot', script)
@@ -137,7 +150,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_session_centric_ia_has_session_workspace_and_diagnostics(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('data-page="sessions"', html)
@@ -178,7 +191,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.session-shell\s*\{[^}]*grid-template-columns:\s*1fr")
 
     def test_universal_run_inspector_contract(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn("inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false", script)
@@ -209,7 +222,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_status_why_and_activity_feed_are_gated_and_reuse_status_resolver(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="activity-feed"', html)
@@ -233,7 +246,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_mobile_shell_has_bottom_tab_bar_for_primary_destinations(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="mobile-tabbar"', html)
@@ -251,7 +264,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_diagnostics_destination_has_summary_and_bulk_selection(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="diagnostics-summary"', html)
@@ -275,7 +288,7 @@ class NewDashboardAppTest(unittest.TestCase):
 
     def test_environments_destination_has_spawn_form_and_rich_cards(self):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="environment-summary"', html)
@@ -300,7 +313,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.environment-spawn-grid\s*\{[^}]*grid-template-columns:\s*1fr")
 
     def test_attention_strip_does_not_show_diagnostics_bulk_checkboxes(self):
-        script = (ROOT / "service" / "new_dashboard" / "app.js").read_text(encoding="utf-8")
+        script = _dashboard_js()
 
         self.assertIn("function contractCard(contract, { selectable = true } = {})", script)
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)

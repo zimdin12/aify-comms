@@ -1,3 +1,10 @@
+// Dashboard Next SPA entry. ES module (DASHBOARD_REBUILD_PLAN §0.1): pure cores live in
+// sibling modules and are imported here; app.js remains the orchestrator (render + actions +
+// the single delegated event handler + init) until later Phase-0 slices split those too.
+import { esc, relTime } from './util.js';
+import { STATUS_KINDS, resolveStatus, renderStatusChip, renderStatusDot } from './status.js';
+import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
+
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
   const requested = params.get('apiOrigin');
@@ -45,30 +52,6 @@ const state = {
 // (green, live worker idle) → working (animated, mid-turn). `ready` is an
 // internal bridge readiness bit; if an older backend/cache still returns it,
 // render it as online instead of introducing a second positive idle label.
-const STATUS_KINDS = {
-  active: { label: 'active', dotKind: 'ok', tone: 'ok', inputEnabled: true },
-  idle: { label: 'idle', dotKind: 'online', tone: 'ok', inputEnabled: true },
-  available: { label: 'available', dotKind: 'available', tone: 'muted', inputEnabled: false },
-  starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
-  recovering: { label: 'recovering', dotKind: 'working', tone: 'warn', inputEnabled: false },
-  online: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
-  ready: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
-  working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
-  blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
-  stale: { label: 'stale', dotKind: 'offline', tone: 'muted', inputEnabled: false },
-  queued: { label: 'queued', dotKind: 'queued', tone: 'muted', inputEnabled: false },
-  claimed: { label: 'claimed', dotKind: 'working', tone: 'warn', inputEnabled: false },
-  running: { label: 'running', dotKind: 'working', tone: 'warn', inputEnabled: false },
-  completed: { label: 'completed', dotKind: 'ok', tone: 'ok', inputEnabled: true },
-  stopped: { label: 'stopped', dotKind: 'offline', tone: 'muted', inputEnabled: false },
-  failed: { label: 'failed', dotKind: 'bad', tone: 'bad', inputEnabled: true },
-  cancelled: { label: 'cancelled', dotKind: 'bad', tone: 'bad', inputEnabled: true },
-  lost: { label: 'lost', dotKind: 'bad', tone: 'bad', inputEnabled: false },
-  unreachable: { label: 'unreachable', dotKind: 'bad', tone: 'bad', inputEnabled: false },
-  offline: { label: 'offline', dotKind: 'offline', tone: 'muted', inputEnabled: false },
-  unknown: { label: 'unknown', dotKind: 'unknown', tone: 'muted', inputEnabled: false },
-};
-
 const flowAssertions = {
   foundations: () => Boolean(STATUS_KINDS.unknown && state.terminalOwners && typeof connectRealtimeSocket === 'function'),
   sessions: () => Boolean(byId('session-rail') && byId('session-chat-thread') && typeof renderSessionWorkspace === 'function'),
@@ -100,21 +83,9 @@ const pages = {
   settings: ['Settings', 'Configuration stays on the classic dashboard until this flow reaches parity.'],
 };
 
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-}[char]));
-
 const byId = (id) => document.getElementById(id);
 let refreshTimer = null;
 let dashboardSocket = null;
-
-function resolveStatus(rawStatus, context = {}) {
-  const raw = String(rawStatus || '').trim().toLowerCase();
-  const base = STATUS_KINDS[raw] || STATUS_KINDS.unknown;
-  const label = context.label || base.label;
-  const badges = Array.isArray(context.badges) ? context.badges.filter(Boolean) : [];
-  return { ...base, kind: STATUS_KINDS[raw] ? raw : 'unknown', label, badges };
-}
 
 function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
   const base = resolveStatus(rawStatus, context);
@@ -150,37 +121,12 @@ function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown',
   return { ...context, label: context.label || base.label, why: parts.filter(Boolean).join(' ') };
 }
 
-function renderStatusChip(rawStatus, context = {}) {
-  const status = resolveStatus(rawStatus, context);
-  const badges = status.badges.length ? ` <small>${esc(status.badges.join(' · '))}</small>` : '';
-  const why = context.why || `${status.label} status`;
-  return `<span class="status-chip ${esc(status.tone)} status-why-trigger" role="button" tabindex="0" title="${esc(why)}" data-status-why="${esc(why)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
-}
-
-function renderStatusDot(rawStatus) {
-  const status = resolveStatus(rawStatus);
-  return `<span class="status-dot dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}"></span>`;
-}
-
 function evaluateFlowGates() {
   Object.values(flowGates).forEach((gate) => {
     gate.enabled = Boolean(gate.assertion());
   });
   return flowGates;
 }
-
-const relTime = (iso) => {
-  if (!iso) return '';
-  let ms = Number(iso);
-  if (!Number.isFinite(ms) || String(iso).includes('-')) ms = Date.parse(iso);
-  if (Number.isFinite(ms) && ms > 0 && ms < 1000000000000) ms *= 1000;
-  if (!Number.isFinite(ms)) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 6) / 10;
-  if (hours < 48) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
-};
 
 async function api(path, options = {}) {
   const response = await fetch(`${apiBase}${path}`, {
@@ -747,102 +693,6 @@ function renderSessionChat(session) {
 // Input:  ws://127.0.0.1:1234/api/ws?token=abc
 // Output: http://127.0.0.1:1234/?token=abc
 // Returns "" if the input isn't a recognizable loopback ws:// URL.
-function hermesGatewayUrlToHttp(wsUrl) {
-  const raw = String(wsUrl || '').trim();
-  if (!/^wss?:\/\//i.test(raw)) return '';
-  try {
-    const u = new URL(raw);
-    // Only embed loopback hermes dashboards — public hosts would expose tokens
-    // through the iframe URL and the dashboard would need explicit allowlisting.
-    if (!['127.0.0.1', 'localhost', '::1'].includes(u.hostname)) return '';
-    const scheme = u.protocol === 'wss:' ? 'https' : 'http';
-    const token = u.searchParams.get('token') || '';
-    const query = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${scheme}://${u.hostname}:${u.port || (scheme === 'https' ? '443' : '80')}/${query}`;
-  } catch (_) {
-    return '';
-  }
-}
-
-// Pure: pick the Session Console widget and the effective terminalId to use.
-// Caches the most-recent terminalId per session so the widget doesn't
-// oscillate when the server temporarily clears runtime_state.virtualTerminalId
-// (Bug #3: _stop_virtual_terminals_for_superseded_bridges runs on every
-// dashboard list-sessions refresh and wipes virtualTerminalId; the
-// terminal_session row itself usually still exists, so we keep showing the
-// xterm widget mounted to the cached terminalId until the operator switches
-// sessions). Stateless contract so it can be unit-tested without DOM setup.
-//
-// Inputs:
-//   agent: agent record with runtimeState
-//   sessionId: the selected session id (used as the cache key)
-//   runtime: normalized runtime string ('hermes' / 'codex' / ...)
-//   runtimeConfig: agent.runtimeConfig
-//   cache: Map<sessionId, terminalId> — updated in-place when a fresh
-//     terminalId is observed
-// Output:
-//   { kind: 'xterm' | 'hermes-iframe' | 'codex-synth' | 'none',
-//     terminalId, hermesGatewayHttp, codexAppServerUrl, codexThreadId }
-// (Marked `function` not `export function` because app.js is loaded as a
-// classic <script>, not a module. The test in app.test.mjs reads the source,
-// strips the `export` it expects, and evals — see app.test.mjs for the
-// extract pattern.)
-function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
-  const normalizedSessionMode = String(sessionMode || agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
-  const normalizedTerminalStatus = String(terminalStatus || agent?.terminalStatus || agent?.terminal_status || '').trim().toLowerCase();
-  const terminalCanRepresentCurrentOwner = normalizedSessionMode !== 'resident' && !['stopping', 'stopped', 'failed'].includes(normalizedTerminalStatus);
-  // Plan 4 Task 18: prefer the wrapper PTY (runtimeState.terminalId, set by
-  // managed dispatch at api_v2.py:4462) over the synth virtual-rpc terminal
-  // (runtimeState.virtualTerminalId, set by ensure_virtual_terminal at line
-  // 7656). When both exist for the same agent — e.g. codex dispatched via
-  // managed wrapper *and* a synth terminal previously ensured — the wrapper
-  // PTY is the operator-facing real Ink TUI render; the synth is the JSON-RPC
-  // translation shim and is the lower-fidelity fallback. Cache (set below)
-  // remains sticky per session id regardless of which path provided the id.
-  const liveTerminalId = terminalCanRepresentCurrentOwner
-    ? String(agent?.runtimeState?.terminalId || agent?.runtimeState?.virtualTerminalId || '').trim()
-    : '';
-  if (liveTerminalId && cache && typeof cache.set === 'function') {
-    cache.set(String(sessionId || ''), liveTerminalId);
-  }
-  const cachedTerminalId = (cache && typeof cache.get === 'function')
-    ? String(cache.get(String(sessionId || '')) || '').trim()
-    : '';
-  const effectiveTerminalId = terminalCanRepresentCurrentOwner ? (liveTerminalId || cachedTerminalId) : '';
-
-  if (effectiveTerminalId) {
-    return {
-      kind: 'xterm',
-      terminalId: effectiveTerminalId,
-      isLive: Boolean(liveTerminalId),
-      hermesGatewayHttp: '',
-      codexAppServerUrl: '',
-      codexThreadId: '',
-    };
-  }
-  if (normalizedSessionMode === 'resident' && runtime === 'hermes' && hermesGatewayHttp) {
-    return {
-      kind: 'hermes-iframe',
-      terminalId: '',
-      isLive: false,
-      hermesGatewayHttp,
-      codexAppServerUrl: '',
-      codexThreadId: '',
-    };
-  }
-  if (normalizedSessionMode === 'resident' && runtime === 'codex' && codexAttachable) {
-    return {
-      kind: 'codex-synth',
-      terminalId: '',
-      isLive: false,
-      hermesGatewayHttp: '',
-      codexAppServerUrl,
-      codexThreadId,
-    };
-  }
-  return { kind: 'none', terminalId: '', isLive: false, hermesGatewayHttp: '', codexAppServerUrl: '', codexThreadId: '' };
-}
-
 // --- Real PTY rendering via xterm.js ---------------------------------
 // When the bridge spawns a managed agent via TerminalProcessManager
 // (managed-claude PTY today; codex-aify / hermes-aify PTY soon), the
