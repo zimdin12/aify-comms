@@ -889,3 +889,14 @@ small, .subtle { color: var(--muted); }
 .chat-conv-actions { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .chat-members { font-size: .76em; color: var(--muted); }
 .chat-conv-actions button { padding: 4px 10px; font-size: .78em; }
+
+/* Shared Files page (Phase 1.4b). */
+.files-upload { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; }
+.files-upload input[type="text"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 8px 10px; font-size: .85em; }
+.files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 320px); overflow-y: auto; }
+.file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 11px 14px; }
+.file-main { min-width: 0; }
+.file-main small { color: var(--muted); font-size: .74em; }
+.file-actions { display: inline-flex; gap: 7px; flex: 0 0 auto; }
+.file-actions a, .file-actions button { padding: 5px 11px; font-size: .8em; text-decoration: none; }
+@media (max-width: 760px) { .files-upload { grid-template-columns: 1fr; } .file-row { flex-direction: column; align-items: stretch; } }

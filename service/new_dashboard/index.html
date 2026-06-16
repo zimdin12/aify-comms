@@ -31,6 +31,7 @@
         <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
         <button class="nav-item" data-page="environments" data-short="E">Environments</button>
         <button class="nav-item" data-page="diagnostics" data-short="D">Diagnostics</button>
+        <button class="nav-item" data-page="files" data-short="F">Files</button>
         <button class="nav-item" data-page="settings" data-short="G">Settings</button>
       </nav>
       <div class="nav-footer">
@@ -234,6 +235,22 @@
         </section>
       </section>
 
+      <section id="page-files" class="page">
+        <section class="band">
+          <div class="section-head">
+            <h2>Shared Files</h2>
+            <span class="subtle">artifacts shared via comms_share</span>
+          </div>
+          <form id="files-upload-form" class="files-upload">
+            <input id="files-upload-input" type="file">
+            <input id="files-upload-name" type="text" placeholder="Name (optional — defaults to filename)">
+            <input id="files-upload-desc" type="text" placeholder="Description (optional)">
+            <button type="submit" class="primary">Upload</button>
+          </form>
+        </section>
+        <div id="files-list" class="files-list scroll-region"></div>
+      </section>
+
       <section id="page-settings" class="page">
         <section class="band">
           <div class="section-head">
@@ -273,6 +290,7 @@
       <button type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
       <button type="button" data-page="environments" data-mobile-page="environments">Environments</button>
       <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Diagnostics</button>
+      <button type="button" data-page="files" data-mobile-page="files">Files</button>
       <button type="button" data-page="settings" data-mobile-page="settings">Settings</button>
     </nav>
   </div>

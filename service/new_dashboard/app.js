@@ -32,6 +32,7 @@ const state = {
   sessions: [],
   environments: [],
   stats: {},
+  files: [],
   // Plan 6 C3/C4/C5/C6: server settings snapshot (GET /api/v1/settings).
   // Mode-switch chips (Plan 6) and any other settings-gated UI consult
   // state.settings here. Empty object until first refresh completes.
@@ -85,6 +86,7 @@ const pages = {
   sessions: ['Sessions', 'Environment-backed sessions with chat and console in one workspace.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
+  files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
   settings: ['Settings', 'Configuration stays on the classic dashboard until this flow reaches parity.'],
 };
 
@@ -126,6 +128,60 @@ const chatController = createChatController({
   refresh: () => refresh(),
   loadConversation: chatLoadConversation,
 });
+
+// Shared files (Phase 1.4b): list/upload/delete artifacts via /shared.
+async function loadFiles() {
+  try { const res = await api('/shared'); state.files = res.files || res || []; } catch (_) { /* keep prior */ }
+}
+function fileSizeLabel(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+function renderFiles() {
+  const host = byId('files-list');
+  if (!host) return;
+  const files = filtered(state.files, ['name', 'from', 'description']);
+  host.innerHTML = files.length ? files.map((f) => `
+    <article class="file-row" data-kind="file" data-id="${esc(f.name)}">
+      <div class="file-main">
+        <strong class="clip">${esc(f.name)}</strong>
+        <p class="preview">${esc(f.description || '')}</p>
+        <small>${esc(f.from || 'unknown')} · ${esc(fileSizeLabel(f.size))} · ${esc(relTime(f.sharedAt))} ago</small>
+      </div>
+      <div class="file-actions">
+        <a class="ghost" href="${apiBase}/shared/${encodeURIComponent(f.name)}" target="_blank" rel="noreferrer">Download</a>
+        <button class="ghost danger" data-file-delete="${esc(f.name)}">Delete</button>
+      </div>
+    </article>`).join('') : '<div class="item">No shared files.</div>';
+}
+async function uploadSharedFile() {
+  const input = byId('files-upload-input');
+  const file = input?.files?.[0];
+  if (!file) { toast('Choose a file to upload', 'warn'); return; }
+  const name = (byId('files-upload-name')?.value || '').trim() || file.name;
+  const description = (byId('files-upload-desc')?.value || '').trim();
+  const form = new FormData();
+  form.append('from_agent', 'dashboard');
+  form.append('name', name);
+  form.append('description', description);
+  form.append('file', file, name);
+  await api('/shared', { method: 'POST', body: form, headers: {} });
+  if (input) input.value = '';
+  if (byId('files-upload-name')) byId('files-upload-name').value = '';
+  if (byId('files-upload-desc')) byId('files-upload-desc').value = '';
+  await loadFiles();
+  renderFiles();
+  toast(`Uploaded ${name}`, 'ok');
+}
+async function deleteSharedFile(name) {
+  if (!(await uiConfirm(`Delete shared file "${name}"? This removes it for everyone.`, { tone: 'danger', confirmLabel: 'Delete' }))) return;
+  await api(`/shared/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  await loadFiles();
+  renderFiles();
+  toast(`Deleted ${name}`, 'ok');
+}
 
 // Channels management (Phase 1.4): create/join/leave/read scoped to the viewing identity.
 async function chatCreateChannel(name) {
@@ -326,6 +382,7 @@ async function refresh() {
       if (terminalId && agentId) state.terminalOwners.set(String(terminalId), String(agentId));
     });
     await chatLoadChannels();
+    await loadFiles();
     evaluateFlowGates();
     renderAll();
     byId('api-status').textContent = 'live';
@@ -380,6 +437,7 @@ function renderAll() {
   renderEnvironmentSpawnOptions();
   renderSection('runtime', [_envSig()], renderRuntime);
   renderSection('runs', [_runSig(), f, state.runStatusFilter || '', [...state.selectedDiagnosticIds]], renderRuns);
+  renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
   renderSection('settings', [state.settings], renderSettings);
 }
 
@@ -1834,6 +1892,12 @@ document.addEventListener('click', (event) => {
       .catch((err) => toast(`Channel action failed: ${err?.message || err}`, 'error'));
     return;
   }
+  const fileDelete = event.target.closest('[data-file-delete]');
+  if (fileDelete) {
+    deleteSharedFile(fileDelete.dataset.fileDelete)
+      .catch((err) => toast(`Delete failed: ${err?.message || err}`, 'error'));
+    return;
+  }
   const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
   if (openHermesTab) {
     const url = openHermesTab.dataset.url;
@@ -2046,6 +2110,10 @@ byId('chat-live-only')?.addEventListener('change', (event) => {
 byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
   chatController.send();
+});
+byId('files-upload-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  uploadSharedFile().catch((err) => toast(`Upload failed: ${err?.message || err}`, 'error'));
 });
 byId('chat-new-channel-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
