@@ -6,13 +6,13 @@
   <title>AIFY Comms Dashboard Next</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/styles.css">
-  <!-- xterm.js for real PTY rendering (TerminalProcessManager backed
-       managed agents — codex-aify / hermes-aify / claude-aify in
-       node-pty). Loaded from jsdelivr CDN; switch to bundled assets
-       once the dashboard build pipeline can vendor them. -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <!-- xterm.js for real PTY rendering (TerminalProcessManager-backed managed agents:
+       codex-aify / hermes-aify / claude-aify in node-pty). VENDORED (Phase 0.3) under
+       /assets/vendor so the console works offline / on an air-gapped LAN — no CDN
+       dependency. Pinned: @xterm/xterm@5.5.0, @xterm/addon-fit@0.10.0. -->
+  <link rel="stylesheet" href="/assets/vendor/xterm.css">
+  <script src="/assets/vendor/xterm.js"></script>
+  <script src="/assets/vendor/addon-fit.js"></script>
 </head>
 <body>
   <div id="app-shell" class="app-shell">
