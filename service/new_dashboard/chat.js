@@ -74,16 +74,20 @@ function railItemHtml(item, selectedKey) {
 
 // Wake-vs-stored badge: a message that triggered a dispatch run "woke" the agent; otherwise
 // it was stored to the inbox. read/unread shown alongside.
-function messageHtml(m) {
+function messageHtml(m, identity = 'dashboard') {
   const id = String(m.id || m.messageId || '');
   const runId = String(m.dispatchRunId || m.dispatch_run_id || m.runId || m.run_id || '');
   const woke = !!runId || m.dispatchRequested || m.dispatch_requested;
+  const priority = String(m.priority || '').toLowerCase();
+  const mine = String(m.from || '') === String(identity);
   const badges = [
     `<span class="msg-badge ${m.read === false ? 'unread' : 'read'}">${m.read === false ? 'unread' : 'read'}</span>`,
     woke ? '<span class="msg-badge woke">woke</span>' : '<span class="msg-badge stored">stored</span>',
-    m.type ? `<span class="msg-badge type">${esc(m.type)}</span>` : '',
+    m.type ? `<span class="msg-badge type t-${esc(m.type)}">${esc(m.type)}</span>` : '',
+    (priority === 'high' || priority === 'urgent') ? `<span class="msg-badge p-${esc(priority)}">${esc(priority)}</span>` : '',
+    (m.expectsReply || m.expects_reply) && m.read === false ? '<span class="msg-badge await">awaiting</span>' : '',
   ].join('');
-  return `<article class="chat-msg" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
+  return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}</span>
     </div>
@@ -214,7 +218,7 @@ export function createChatController(deps) {
       ? (state.chat.channelMessages?.[id] || [])
       : dmMessages(state.messages, id, state.chat.identity);
     timeline.innerHTML = msgs.length
-      ? msgs.map(messageHtml).join('')
+      ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('')
       : '<div class="chat-empty">No messages yet in this conversation.</div>';
     timeline.scrollTop = timeline.scrollHeight;
     const composer = byId('chat-composer');

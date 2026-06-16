@@ -43,11 +43,11 @@ Core xterm PTY already works (stream+input+resize). Missing the UX/robustness sh
 - [x] D5. Await-input pill + rail ⌛ badge; ResizeObserver re-fit; debounced/clamped resize; text fallback.
 
 ### WS-E — Visual polish (same-or-better look)
-- [ ] E1. Shadow/depth token tier on cards/panels/rows/metrics/rails/modals (P0).
-- [ ] E2. Hover-lift + bg/border shift on buttons/nav/rows; composerPulse; scroll-to-bottom FAB.
-- [ ] E3. Typography: h2 gradient underline, tiered weights; ambient `body::before` wash; nav shadow; blurred topbar.
-- [ ] E4. Pill taxonomy (type/priority/await/handoff/draft) color coding; directional chat bubbles (mine/system).
-- [ ] E5. Custom form controls (checkbox/select caret/scrollbars); segmented-control pill styling.
+- [x] E1. Shadow/depth token tier on cards/panels/rows/metrics/rails/modals (P0).
+- [x] E2. Hover-lift + bg/border shift on buttons/nav/rows; composerPulse; scroll-to-bottom FAB.
+- [x] E3. Typography: h2 gradient underline, tiered weights; ambient `body::before` wash; nav shadow; blurred topbar.
+- [x] E4. Pill taxonomy (type/priority/await/handoff/draft) color coding; directional chat bubbles (mine/system).
+- [x] E5. Custom form controls (checkbox/select caret/scrollbars); segmented-control pill styling.
 
 ### WS-F — Feature gaps (un-sanctioned drops, audit F)
 - [ ] F1. Compact / Continue-as-new-agent (compaction packet UX) + history. (Most operationally significant.)
