@@ -5,6 +5,7 @@ import { esc, relTime } from './util.js';
 import { STATUS_KINDS, resolveStatus, renderStatusChip, renderStatusDot } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
+import { createChatController } from './chat.js';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -39,6 +40,8 @@ const state = {
   activeXterm: null, // { terminalId, agentId, term, fitAddon, container } — xterm.js mounted into Session Console
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
+  // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
+  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {} },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'chat',
@@ -78,6 +81,7 @@ const flowGates = {
 };
 
 const pages = {
+  chat: ['Chat', 'Direct messages and channels across the fleet — the operator landing surface.'],
   sessions: ['Sessions', 'Environment-backed sessions with chat and console in one workspace.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
@@ -87,6 +91,41 @@ const pages = {
 const byId = (id) => document.getElementById(id);
 let refreshTimer = null;
 let dashboardSocket = null;
+
+// Chat-first landing controller (chat.js). Adapters bridge the pure module to app state:
+// sendMessage routes DM→/messages/send (trigger+toast ladder) vs channel→/channels/{n}/send;
+// loadConversation fetches a channel's messages; loadChannels refreshes the rail's channels.
+async function chatLoadChannels() {
+  try {
+    const res = await api('/channels');
+    state.chat.channels = res.channels || res || [];
+  } catch (_) { /* keep prior list */ }
+}
+async function chatLoadConversation(name) {
+  const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
+  state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];
+}
+async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy }) {
+  if (isChannel) {
+    return api(`/channels/${encodeURIComponent(target)}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ from: identity, body }),
+    });
+  }
+  const type = expectsReply ? 'request' : 'info';
+  return sendMessageWithTimeout({
+    from_agent: identity, to: target, type,
+    subject: body.slice(0, 80), body, trigger: true,
+    queueIfBusy: !!queueIfBusy, requireReply: !!expectsReply,
+  });
+}
+const chatController = createChatController({
+  state, byId,
+  sendMessage: chatSendMessage,
+  loadChannels: chatLoadChannels,
+  refresh: () => refresh(),
+  loadConversation: chatLoadConversation,
+});
 
 function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
   const base = resolveStatus(rawStatus, context);
@@ -265,6 +304,7 @@ async function refresh() {
       const agentId = session.agentId || session.agent_id;
       if (terminalId && agentId) state.terminalOwners.set(String(terminalId), String(agentId));
     });
+    await chatLoadChannels();
     evaluateFlowGates();
     renderAll();
     byId('api-status').textContent = 'live';
@@ -300,10 +340,13 @@ const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
 const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
 const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);
 const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);
-const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject]);
+const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
+const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
+const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
 
 function renderAll() {
   const f = state.filter || '';
+  renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.filter, state.chat.identity, state.chat.liveOnly], () => chatController.render());
   renderSection('metrics', [_agentSig(), _contractSig().map((c) => [c[1], c[3]]), state.stats], renderMetrics);
   renderSection('attention', [_contractSig(), f], renderAttention);
   // Session workspace + console: not signature-gated (own internal guards preserve live state).
@@ -1759,6 +1802,11 @@ function updateStaticLinks() {
 }
 
 document.addEventListener('click', (event) => {
+  const chatOpen = event.target.closest('[data-chat-open]');
+  if (chatOpen) {
+    chatController.open(chatOpen.dataset.chatOpen);
+    return;
+  }
   const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
   if (openHermesTab) {
     const url = openHermesTab.dataset.url;
@@ -1955,6 +2003,24 @@ document.addEventListener('submit', (event) => {
   if (input) input.value = '';
 });
 
+// Chat-first landing wiring (Phase 1).
+byId('chat-filter')?.addEventListener('input', (event) => {
+  state.chat.filter = event.target.value;
+  chatController.renderRail();
+});
+byId('chat-identity')?.addEventListener('change', (event) => {
+  state.chat.identity = event.target.value || 'dashboard';
+  chatController.render();
+});
+byId('chat-live-only')?.addEventListener('change', (event) => {
+  state.chat.liveOnly = event.target.checked;
+  chatController.renderRail();
+});
+byId('chat-composer')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  chatController.send();
+});
+
 byId('composer').addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = byId('composer-body').value.trim();
@@ -2034,6 +2100,7 @@ async function loadVersionBadge() {
 
 installRejectionToast();
 loadVersionBadge();
+setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();

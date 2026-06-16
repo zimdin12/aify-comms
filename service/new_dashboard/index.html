@@ -27,7 +27,8 @@
       </div>
       <nav>
         <p>Fleet</p>
-        <button class="nav-item active" data-page="sessions" data-short="S">Sessions</button>
+        <button class="nav-item active" data-page="chat" data-short="C">Chat</button>
+        <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
         <button class="nav-item" data-page="environments" data-short="E">Environments</button>
         <button class="nav-item" data-page="diagnostics" data-short="D">Diagnostics</button>
         <button class="nav-item" data-page="settings" data-short="G">Settings</button>
@@ -66,7 +67,38 @@
         <div id="attention-list" class="item-list scroll-region"></div>
       </section>
 
-      <section id="page-sessions" class="page active">
+      <section id="page-chat" class="page active">
+        <section class="chat-shell">
+          <aside class="chat-rail" aria-label="Conversations">
+            <div class="chat-rail-controls">
+              <input id="chat-filter" type="search" placeholder="Search conversations">
+              <div class="chat-rail-row">
+                <label class="chat-as">Viewing as
+                  <select id="chat-identity" title="Send and read as this identity"></select>
+                </label>
+                <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
+              </div>
+            </div>
+            <div id="chat-rail-list" class="chat-rail-list"></div>
+          </aside>
+          <section class="chat-conversation">
+            <div class="chat-conv-head">
+              <h2 id="chat-conv-title">Select a conversation</h2>
+            </div>
+            <div id="chat-timeline" class="chat-timeline"></div>
+            <form id="chat-composer" class="composer" hidden>
+              <div class="composer-options">
+                <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
+                <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
+              </div>
+              <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
+              <button type="submit" class="primary">Send</button>
+            </form>
+          </section>
+        </section>
+      </section>
+
+      <section id="page-sessions" class="page">
         <section id="session-view" class="session-shell">
           <aside class="session-rail-wrap" aria-label="Sessions by environment">
             <div id="session-bulk-toolbar" class="session-bulk-toolbar" hidden></div>
@@ -232,7 +264,8 @@
     </aside>
     <div id="status-why-popover" class="status-why-popover" hidden></div>
     <nav id="mobile-tabbar" class="mobile-tabbar" aria-label="Mobile primary navigation">
-      <button class="active" type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
+      <button class="active" type="button" data-page="chat" data-mobile-page="chat">Chat</button>
+      <button type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
       <button type="button" data-page="environments" data-mobile-page="environments">Environments</button>
       <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Diagnostics</button>
       <button type="button" data-page="settings" data-mobile-page="settings">Settings</button>
