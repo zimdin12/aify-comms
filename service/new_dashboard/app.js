@@ -2009,7 +2009,31 @@ byId('inspector').addEventListener('touchend', (event) => {
   }
 }, { passive: true });
 
+// Version badge (Phase 1.8): show the running build SHA + a behind-count warning pill,
+// ported from the 8800 dashboard. /version lives at the API ORIGIN root (not /api/v1).
+async function loadVersionBadge() {
+  const badge = byId('version-badge');
+  if (!badge) return;
+  try {
+    const res = await fetch(`${apiOrigin}/version`);
+    if (!res.ok) throw new Error(String(res.status));
+    const v = await res.json();
+    const behind = Number(v?.update?.behind_by || 0);
+    const short = esc(v.sha_short || v.sha || '?');
+    const branch = esc(v.branch || '');
+    badge.textContent = behind > 0 ? `${short} · ${behind} behind` : short;
+    badge.classList.toggle('behind', behind > 0);
+    badge.title = behind > 0
+      ? `Running ${short} (${branch}) — ${behind} commit${behind === 1 ? '' : 's'} behind origin. git pull && rebuild to update.`
+      : `Running ${short} (${branch}) — up to date with origin.`;
+  } catch (_) {
+    badge.textContent = '';
+    badge.title = 'Build version unavailable';
+  }
+}
+
 installRejectionToast();
+loadVersionBadge();
 updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();

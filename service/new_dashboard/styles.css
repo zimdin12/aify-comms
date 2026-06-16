@@ -830,3 +830,12 @@ small, .subtle { color: var(--muted); }
   .dialog-actions { flex-direction: column-reverse; }
   .dialog-actions button { width: 100%; min-height: 44px; }
 }
+
+/* Version badge (Phase 1.8) — running build SHA + behind-count warning pill. */
+.version-badge {
+  font-size: .72em; color: var(--muted); text-decoration: none; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; white-space: nowrap;
+}
+.version-badge:hover { color: var(--soft); border-color: var(--accent-border, var(--line)); }
+.version-badge:empty { display: none; }
+.version-badge.behind { color: var(--amber); border-color: rgba(223,177,86,.4); }
