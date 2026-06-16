@@ -282,19 +282,41 @@ function filtered(items, fields) {
   return items.filter((item) => fields.some((field) => String(item[field] || '').toLowerCase().includes(needle)));
 }
 
+// Phase 0.4 (DASHBOARD_REBUILD_PLAN §0.4): per-section render keyed on an input signature
+// computed in ONE place, so renderAll (run on every 15s poll, every WS event, and every
+// filter keystroke) only rewrites a section's innerHTML when its inputs actually changed —
+// no needless re-render, no flicker. The session workspace + console are intentionally NOT
+// gated here: they keep their own proven internal guards (the xterm remount guard +
+// terminalId cache) which already preserve live PTY/scroll/focus state across refreshes.
+const _sectionSig = Object.create(null);
+function renderSection(key, signature, renderFn) {
+  const sig = JSON.stringify(signature);
+  if (_sectionSig[key] === sig) return;
+  _sectionSig[key] = sig;
+  renderFn();
+}
+// Compact, stable fingerprints of just the fields a section renders from.
+const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
+const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
+const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);
+const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);
+const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject]);
+
 function renderAll() {
-  renderMetrics();
-  renderAttention();
+  const f = state.filter || '';
+  renderSection('metrics', [_agentSig(), _contractSig().map((c) => [c[1], c[3]]), state.stats], renderMetrics);
+  renderSection('attention', [_contractSig(), f], renderAttention);
+  // Session workspace + console: not signature-gated (own internal guards preserve live state).
   renderSessionWorkspace();
-  renderActivityFeed();
+  renderSection('activity', [_runSig().map((r) => [r[0], r[1]]), _msgSig(), _contractSig().map((c) => [c[0], c[1]])], renderActivityFeed);
   renderDiagnosticsSummary();
   renderDiagnosticsBulkToolbar();
-  renderContracts();
-  renderEnvironmentSummary();
+  renderSection('contracts', [_contractSig(), byId('contract-state')?.value || '', f], renderContracts);
+  renderSection('envSummary', [_envSig()], renderEnvironmentSummary);
   renderEnvironmentSpawnOptions();
-  renderRuntime();
-  renderRuns();
-  renderSettings();
+  renderSection('runtime', [_envSig()], renderRuntime);
+  renderSection('runs', [_runSig(), f, state.runStatusFilter || '', [...state.selectedDiagnosticIds]], renderRuns);
+  renderSection('settings', [state.settings], renderSettings);
 }
 
 // Legacy setting mirror. Mode-switch chips are now always visible; ownership
