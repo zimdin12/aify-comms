@@ -303,47 +303,49 @@ aify-comms              # aify-comms.cmd on native Windows</pre>
 
           <div class="help-card help-endpoints">
             <h3>Endpoint reference</h3>
-            <p class="subtle">Base <code>/api/v1</code> unless noted. Spot-checked against the FastAPI router.</p>
+            <p class="subtle">Base <code>/api/v1</code> unless noted. Spot-checked against the FastAPI router. Mostly for debugging integrations and tests — daily work happens in Chat, Sessions, Work Loop, and Environments.</p>
             <div class="help-endpoint-grid">
               <div>
                 <h4>Chat &amp; channels</h4>
                 <ul>
-                  <li><code>GET /messages/recent</code></li>
-                  <li><code>GET /messages/inbox/{agent}</code></li>
-                  <li><code>POST /messages/send</code></li>
-                  <li><code>GET /channels</code> · <code>POST /channels</code></li>
-                  <li><code>POST /channels/{name}/join|leave|read|send</code></li>
+                  <li><code>GET /messages/recent</code> <span>recent messages across the fleet</span></li>
+                  <li><code>GET /messages/inbox/{agent}</code> <span>one identity's inbox (supports <code>mode=headers</code>)</span></li>
+                  <li><code>POST /messages/send</code> <span>send a message; returns recipient status</span></li>
+                  <li><code>DELETE /messages/{id}</code> <span>unsend a message</span></li>
+                  <li><code>GET/POST /channels</code> <span>list / create channels</span></li>
+                  <li><code>POST /channels/{name}/join|leave|read|send</code> <span>membership + post</span></li>
                 </ul>
               </div>
               <div>
                 <h4>Agents &amp; sessions</h4>
                 <ul>
-                  <li><code>GET /agents</code> · <code>GET /agents/{id}</code></li>
-                  <li><code>POST /agents/{id}/control</code></li>
-                  <li><code>PATCH /agents/{id}/session-mode</code></li>
-                  <li><code>GET /sessions</code> · <code>DELETE /sessions/{id}</code></li>
-                  <li><code>GET /environments</code></li>
+                  <li><code>GET /agents</code> · <code>GET /agents/{id}</code> <span>identity records</span></li>
+                  <li><code>POST /agents/{id}/control</code> <span>stop, resume, or interrupt active work</span></li>
+                  <li><code>PATCH /agents/{id}/session-mode</code> <span>flip resident ⇄ managed</span></li>
+                  <li><code>GET /sessions</code> · <code>DELETE /sessions/{id}</code> <span>runtime session records</span></li>
+                  <li><code>GET /environments</code> <span>connected execution environments</span></li>
                 </ul>
               </div>
               <div>
                 <h4>Work loop &amp; runs</h4>
                 <ul>
-                  <li><code>GET /contracts</code></li>
-                  <li><code>GET /dispatch/runs</code></li>
-                  <li><code>GET /dispatch/runs/{id}/events</code></li>
-                  <li><code>GET /analytics</code> · <code>/analytics/agent/{id}</code></li>
+                  <li><code>GET /contracts</code> <span>computed reply obligations over messages/runs</span></li>
+                  <li><code>GET /dispatch/runs</code> <span>delivery/run audit records</span></li>
+                  <li><code>GET /dispatch/runs/{id}/events</code> <span>per-run event stream</span></li>
+                  <li><code>GET /analytics</code> · <code>/analytics/agent/{id}</code> <span>global / per-agent stats</span></li>
                 </ul>
               </div>
               <div>
                 <h4>Files &amp; service</h4>
                 <ul>
-                  <li><code>GET /shared</code> · <code>POST /shared</code></li>
-                  <li><code>DELETE /shared/{name}</code></li>
-                  <li><code>GET /settings</code> · <code>PUT /settings</code></li>
-                  <li><code>GET /health</code> · <code>/version</code> <span class="subtle">(origin root)</span></li>
+                  <li><code>GET/POST /shared</code> <span>shared files (text + binary upload)</span></li>
+                  <li><code>DELETE /shared/{name}</code> <span>remove a shared artifact</span></li>
+                  <li><code>GET/PUT /settings</code> <span>read / merge settings</span></li>
+                  <li><code>GET /health · /version</code> <span>health + build SHA / behind-count <em>(origin root)</em></span></li>
                 </ul>
               </div>
             </div>
+            <p class="subtle help-tools-note">Agent-facing MCP tools (<code>comms_send</code>, <code>comms_register</code>, <code>comms_spawn</code>, <code>comms_channel_*</code>, <code>comms_share</code>, …) are documented in the <a href="https://github.com/zimdin12/aify-comms/blob/main/README.md" target="_blank" rel="noreferrer">README</a> and the <code>aify-comms</code> skill — not duplicated here.</p>
           </div>
         </section>
       </section>
