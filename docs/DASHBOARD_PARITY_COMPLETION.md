@@ -36,11 +36,11 @@ Old dashboard: `service/dashboard.html`. New: `service/new_dashboard/`.
 
 ### WS-D — Pseudo-terminal console  ⭐ operator named "pseudo terminal view"
 Core xterm PTY already works (stream+input+resize). Missing the UX/robustness shell:
-- [ ] D1. Console toolbar: Copy (sel/all, execCommand fallback, Ctrl+Shift+C), Refresh/resync, Stop, Start console/Start fresh.
-- [ ] D2. Vendor + wire WebGL addon (perf) with context-loss fallback.
-- [ ] D3. Seq-based dedup + gap-resync on `terminal_output`.
-- [ ] D4. Blocked-input guard (toast instead of POST into void).
-- [ ] D5. Await-input pill + rail ⌛ badge; ResizeObserver re-fit; debounced/clamped resize; text fallback.
+- [x] D1. Console toolbar: Copy (sel/all, execCommand fallback, Ctrl+Shift+C), Refresh/resync, Stop, Start console/Start fresh.
+- [x] D2. Vendor + wire WebGL addon (perf) with context-loss fallback.
+- [x] D3. Seq-based dedup + gap-resync on `terminal_output`.
+- [x] D4. Blocked-input guard (toast instead of POST into void).
+- [x] D5. Await-input pill + rail ⌛ badge; ResizeObserver re-fit; debounced/clamped resize; text fallback.
 
 ### WS-E — Visual polish (same-or-better look)
 - [ ] E1. Shadow/depth token tier on cards/panels/rows/metrics/rails/modals (P0).

@@ -303,11 +303,25 @@ function applyRealtimeEvent(event, data = {}) {
     const owner = state.terminalOwners.get(String(data.terminalId));
     if (owner && data.agentId && data.agentId !== owner) return;
     if (data.agentId) state.terminalOwners.set(String(data.terminalId), String(data.agentId));
-    // Live PTY rendering: if this terminal is currently mounted in
-    // the Session Console pane, write the new bytes straight to the
-    // xterm.js instance — no DOM refresh required for the byte stream.
-    if (state.activeXterm && String(state.activeXterm.terminalId) === String(data.terminalId) && data.output) {
-      try { state.activeXterm.term.write(data.output); } catch {}
+    // Live PTY rendering: if this terminal is currently mounted in the Session Console pane,
+    // write the new bytes straight to the xterm.js instance — no DOM refresh for the stream.
+    const entry = state.activeXterm;
+    if (entry && String(entry.terminalId) === String(data.terminalId) && data.output) {
+      // Seq-based dedup + gap-resync (WS-D): the server tags frames with a monotonic seq.
+      // Drop frames we've already painted; on a gap (missed a frame, e.g. WS reconnect blip)
+      // re-fetch the authoritative buffer instead of painting out-of-order bytes.
+      const seq = Number(data.seq);
+      if (Number.isFinite(seq) && entry.lastSeq >= 0) {
+        if (seq <= entry.lastSeq) { refreshSoon(); return; }
+        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); refreshSoon(); return; }
+      }
+      if (Number.isFinite(seq)) entry.lastSeq = seq;
+      try {
+        if (entry.term) entry.term.write(data.output);
+        else if (entry.fallbackPre) { entry.fallbackPre.textContent += data.output; entry.fallbackPre.scrollTop = entry.fallbackPre.scrollHeight; }
+        entry.recentText = (String(entry.recentText || '') + String(data.output)).slice(-600);
+        updateAwaitPill();
+      } catch {}
     }
     refreshSoon();
     return;
@@ -1041,14 +1055,25 @@ function renderSessionChat(session) {
 function disposeActiveXterm() {
   const entry = state.activeXterm;
   if (!entry) return;
+  try { entry.resizeObserver?.disconnect(); } catch {}
   try { entry.term.dispose(); } catch {}
   state.activeXterm = null;
 }
 
-async function mountXtermForTerminal(terminalId, agentId, container) {
+let consoleInputBlockedToastAt = 0;
+
+async function mountXtermForTerminal(terminalId, agentId, container, { canInput = true } = {}) {
   if (!container || !terminalId) return;
   if (typeof window.Terminal === 'undefined') {
-    container.innerHTML = '<div class="codex-line err">[xterm.js failed to load from CDN — refresh dashboard or check network]</div>';
+    // Non-xterm fallback: a scrolling text dump of the buffered output (parity with the old
+    // dashboard's console-output-fallback) rather than just an error line.
+    container.innerHTML = '<pre class="console-output-fallback" aria-live="polite"></pre>';
+    const pre = container.querySelector('pre');
+    try {
+      const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
+      if (pre) { pre.textContent = String(data?.terminal?.output || ''); pre.scrollTop = pre.scrollHeight; }
+    } catch { if (pre) pre.textContent = '[xterm.js unavailable and history fetch failed]'; }
+    state.activeXterm = { terminalId, agentId, term: null, fitAddon: null, container, fallbackPre: pre, lastSeq: -1, canInput };
     return;
   }
   if (
@@ -1057,6 +1082,7 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
     && state.activeXterm.container === container
     && container.isConnected !== false
   ) {
+    state.activeXterm.canInput = canInput;
     return;
   }
   disposeActiveXterm();
@@ -1067,7 +1093,7 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
     cursorBlink: true,
     fontFamily: '"Cascadia Code", ui-monospace, "Consolas", monospace',
     fontSize: 13,
-    theme: { background: '#0b0e13', foreground: '#cdd6f4' },
+    theme: { background: '#0b0e13', foreground: '#cdd6f4', cursor: '#51c5b0' },
     scrollback: 5000,
   });
   let fitAddon = null;
@@ -1076,15 +1102,32 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
     term.loadAddon(fitAddon);
   }
   term.open(container);
+  // WebGL renderer (WS-D) — big perf win under heavy TUI output; fall back to the DOM
+  // renderer if the GL context is lost or the addon throws.
+  if (window.WebglAddon && window.WebglAddon.WebglAddon) {
+    try {
+      const webgl = new window.WebglAddon.WebglAddon();
+      webgl.onContextLoss(() => { try { webgl.dispose(); } catch {} });
+      term.loadAddon(webgl);
+    } catch { /* DOM renderer remains active */ }
+  }
   if (fitAddon) {
     try { fitAddon.fit(); } catch {}
   }
 
   // Keystroke forwarding back to the bridge PTY via /terminals/<id>/input.
   // Service request shape (TerminalControlRequest in api_v2.py): {body, requestedBy}.
-  // The control is claimed by the bridge's polling loop and applied via
-  // TERMINAL_MANAGER.input(terminalId, body).
   term.onData(async (data) => {
+    // Blocked-input guard (WS-D): don't silently POST into a console that can't accept input —
+    // warn the operator (debounced) so their keystrokes aren't lost into the void.
+    if (state.activeXterm && state.activeXterm.canInput === false) {
+      const now = Date.now();
+      if (now - consoleInputBlockedToastAt > 4000) {
+        consoleInputBlockedToastAt = now;
+        toast('This console is not accepting input right now (session not live).', 'warn');
+      }
+      return;
+    }
     try {
       await api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
         method: 'POST',
@@ -1094,22 +1137,33 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
       term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
     }
   });
+  let resizeTimer = 0;
   term.onResize(({ cols, rows }) => {
-    api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
-      method: 'POST',
-      body: JSON.stringify({ cols, rows, requestedBy: 'dashboard' }),
-    }).catch(() => {});
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
+        method: 'POST',
+        body: JSON.stringify({ cols: Math.max(20, cols), rows: Math.max(5, rows), requestedBy: 'dashboard' }),
+      }).catch(() => {});
+    }, 120);
   });
 
-  state.activeXterm = { terminalId, agentId, term, fitAddon, container };
+  // Re-fit on container/window resize so the terminal tracks the pane size.
+  let resizeObserver = null;
+  if (window.ResizeObserver && fitAddon) {
+    resizeObserver = new ResizeObserver(() => { try { fitAddon.fit(); } catch {} });
+    try { resizeObserver.observe(container); } catch {}
+  }
 
-  // Replay existing buffered output so the operator sees history when
-  // they open the Console pane mid-session (instead of waiting for the
-  // next byte to arrive).
+  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, lastSeq: -1, canInput };
+
+  // Replay existing buffered output so the operator sees history when they open the Console
+  // pane mid-session (instead of waiting for the next byte to arrive).
   try {
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}`);
     const output = data?.terminal?.output;
     if (output) term.write(String(output));
+    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.seq ?? state.activeXterm.lastSeq);
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
   }
@@ -1117,6 +1171,78 @@ async function mountXtermForTerminal(terminalId, agentId, container) {
     try { fitAddon.fit(); } catch {}
   }
   term.focus();
+}
+
+// Re-fetch the authoritative buffer and repaint (used by the Refresh button and on a
+// detected seq gap, mirroring the old dashboard's resync path).
+async function resyncActiveConsole() {
+  const entry = state.activeXterm;
+  if (!entry || !entry.term) return;
+  try {
+    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}`);
+    entry.term.clear();
+    entry.term.write(String(data?.terminal?.output || ''));
+    entry.lastSeq = Number(data?.terminal?.seq ?? entry.lastSeq);
+  } catch { /* keep current buffer */ }
+}
+
+// Clipboard copy that works on the http loopback origin (navigator.clipboard is undefined
+// there) — falls back to a hidden textarea + execCommand, ported from the old dashboard.
+async function copyText(text) {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
+function copyActiveConsole() {
+  const entry = state.activeXterm;
+  if (!entry || !entry.term) return;
+  let text = '';
+  try { text = entry.term.hasSelection() ? entry.term.getSelection() : (entry.term.selectAll(), entry.term.getSelection()); } catch {}
+  copyText(text).then((ok) => toast(ok ? 'Console copied' : 'Copy failed', ok ? 'ok' : 'error'));
+}
+
+async function stopConsoleTerminal(terminalId) {
+  if (!terminalId) return;
+  if (!await uiConfirm('Stop this terminal? The agent returns to messenger ownership.')) return;
+  try {
+    await api(`/terminals/${encodeURIComponent(terminalId)}/stop`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', body: '' }) });
+    disposeActiveXterm();
+    toast('Console stopped', 'ok');
+    refreshSoon();
+  } catch (err) { toast(`Stop failed: ${err?.message || err}`, 'error'); }
+}
+
+async function startConsoleForSession(sessionId, freshContext = false) {
+  if (!sessionId) return;
+  try {
+    await api(`/sessions/${encodeURIComponent(sessionId)}/console/start`, { method: 'POST', body: JSON.stringify({ requestedBy: 'dashboard', freshContext }) });
+    toast(freshContext ? 'Starting fresh console…' : 'Starting console…', 'ok');
+    refreshSoon();
+  } catch (err) { toast(`Start console failed: ${err?.message || err}`, 'error'); }
+}
+
+// Best-effort "waiting for input" detector on the console tail (ported pure helper). Drives
+// the ⌛ await-input pill so the operator notices a console blocked on a prompt.
+function consoleAwaitingInputHint(text) {
+  const tail = String(text || '').slice(-400).toLowerCase();
+  if (!tail.trim()) return false;
+  return /\((y\/n|yes\/no)\)|press enter|are you sure|continue\?|\[y\/n\]|overwrite\?|proceed\?|❯|>\s*$/.test(tail);
+}
+
+function updateAwaitPill() {
+  const pill = byId('console-await-pill');
+  if (!pill) return;
+  pill.hidden = !consoleAwaitingInputHint(state.activeXterm?.recentText || '');
 }
 
 // --- Codex live-console widget --------------------------------------
@@ -1366,8 +1492,29 @@ function renderSessionConsole(session) {
 
   const ptyEmbed = hasTerminal
     ? `<div class="console-embed" data-kind="pty-xterm">
-         <div class="console-embed-label">${isVirtualTerminal ? 'Synth terminal' : 'Live PTY'} — <code>${esc(agent?.runtime || 'runtime')}</code> · terminal <code>${esc(terminalId)}</code>${isVirtualTerminal ? '' : ' · keystrokes flow back to the wrapper'}</div>
+         <div class="console-embed-label">
+           <span>${isVirtualTerminal ? 'Synth terminal' : 'Live PTY'} — <code>${esc(agent?.runtime || 'runtime')}</code> · terminal <code>${esc(terminalId)}</code>${isVirtualTerminal ? '' : ' · keystrokes flow back to the wrapper'}</span>
+           <span class="console-toolbar">
+             <span class="console-await-pill" id="console-await-pill" hidden>⌛ awaiting input</span>
+             <button class="ghost" data-console-action="copy" title="Copy selection (or whole buffer) — Ctrl+Shift+C">Copy</button>
+             <button class="ghost" data-console-action="refresh" title="Re-fetch the authoritative buffer and repaint">Refresh</button>
+             ${canStop ? `<button class="ghost danger" data-console-action="stop" data-terminal-id="${esc(terminalId)}" title="Stop this terminal and return the agent to messenger ownership">Stop console</button>` : ''}
+           </span>
+         </div>
          <div id="${esc(ptyContainerId)}" class="xterm-host"></div>
+       </div>`
+    : '';
+
+  // No live terminal yet (widgetChoice 'none') but the session is a managed/PTY-capable one:
+  // offer to start a console (parity with the old dashboard's Start console / Start fresh).
+  const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !hermesGatewayHttp && !codexAttachable;
+  const startConsoleEmbed = canStartConsole
+    ? `<div class="console-embed" data-kind="console-start">
+         <div class="console-embed-label"><span>No live console for this session.</span></div>
+         <div class="console-start-actions">
+           <button class="primary" data-console-action="start" data-session-id="${esc(id)}">Start console</button>
+           <button class="ghost" data-console-action="start-fresh" data-session-id="${esc(id)}" title="Start a console with a fresh context">Start fresh</button>
+         </div>
        </div>`
     : '';
 
@@ -1399,13 +1546,13 @@ function renderSessionConsole(session) {
        </div>`
     : '';
 
-  byId('session-console-summary').innerHTML = `${headerCard}${ptyEmbed}${hermesIframe}${codexConsole}`;
+  byId('session-console-summary').innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${hermesIframe}${codexConsole}`;
 
   // Mount xterm.js into the terminal container we just rendered. If a
   // different terminal was previously mounted, dispose its xterm first.
   if (hasTerminal) {
     const container = byId(ptyContainerId);
-    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container).catch(() => {});
+    if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canStop }).catch(() => {});
   } else {
     disposeActiveXterm();
   }
@@ -2209,6 +2356,16 @@ document.addEventListener('click', (event) => {
     closeStatusWhy();
     return;
   }
+  const consoleAction = event.target.closest('[data-console-action]');
+  if (consoleAction) {
+    const action = consoleAction.dataset.consoleAction;
+    if (action === 'copy') copyActiveConsole();
+    else if (action === 'refresh') resyncActiveConsole().then(() => toast('Console refreshed', 'ok')).catch(() => {});
+    else if (action === 'stop') stopConsoleTerminal(consoleAction.dataset.terminalId);
+    else if (action === 'start') startConsoleForSession(consoleAction.dataset.sessionId, false);
+    else if (action === 'start-fresh') startConsoleForSession(consoleAction.dataset.sessionId, true);
+    return;
+  }
   const analyticsRange = event.target.closest('[data-analytics-range]');
   if (analyticsRange) {
     state.analytics.range = rangeDef(analyticsRange.dataset.analyticsRange).key;
@@ -2334,6 +2491,12 @@ document.addEventListener('keydown', (event) => {
   if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
     event.preventDefault();
     openStatusWhy(event.target);
+  }
+  // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as
+  // SIGINT into the PTY, so the copy shortcut is shifted — parity with the old dashboard).
+  if (event.ctrlKey && event.shiftKey && (event.key === 'C' || event.key === 'c') && state.activeXterm?.term) {
+    event.preventDefault();
+    copyActiveConsole();
   }
 });
 

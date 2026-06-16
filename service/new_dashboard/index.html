@@ -13,6 +13,10 @@
   <link rel="stylesheet" href="/assets/vendor/xterm.css">
   <script src="/assets/vendor/xterm.js"></script>
   <script src="/assets/vendor/addon-fit.js"></script>
+  <!-- WebGL renderer (WS-D) — vendored @xterm/addon-webgl@0.18.0. The DOM renderer was the
+       main source of console lag under heavy TUI output; WebGL is activated after open() with
+       an onContextLoss fallback to DOM. -->
+  <script src="/assets/vendor/addon-webgl.js"></script>
 </head>
 <body>
   <div id="app-shell" class="app-shell">

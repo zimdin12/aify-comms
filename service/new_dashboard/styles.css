@@ -1053,3 +1053,11 @@ small, .subtle { color: var(--muted); }
 .status-bar-value { text-align: right; color: var(--muted); font-size: .78em; }
 @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } #analytics-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { #analytics-stats, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Console toolbar + await-pill + start/fallback (WS-D). */
+.console-embed-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.console-toolbar { display: flex; align-items: center; gap: 6px; }
+.console-toolbar button { padding: 4px 9px; min-height: 30px; font-size: .78em; }
+.console-await-pill { background: color-mix(in srgb, var(--amber) 18%, var(--panel)); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: 999px; padding: 2px 9px; font-size: .74em; font-weight: 700; }
+.console-start-actions { display: flex; gap: 8px; padding: 14px; }
+.console-output-fallback { margin: 0; padding: 10px; background: #060708; color: #d7dde1; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }

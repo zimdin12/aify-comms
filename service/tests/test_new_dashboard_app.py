@@ -321,6 +321,22 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)
         self.assertIn("contracts.map(contractCard)", script)
 
+    def test_console_toolbar_and_robustness(self):
+        # WS-D: the pseudo-terminal console gained a toolbar (copy/refresh/stop/start), WebGL,
+        # seq-dedup/resync, a blocked-input guard, and an await-input pill.
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = _dashboard_js()
+
+        self.assertIn("addon-webgl.js", html, "WebGL addon must be vendored + scripted")
+        self.assertIn("WebglAddon", script, "WebGL renderer must be wired with a fallback")
+        self.assertIn("data-console-action", script, "console toolbar actions must exist")
+        for action in ("copyActiveConsole", "resyncActiveConsole", "stopConsoleTerminal", "startConsoleForSession"):
+            self.assertIn(action, script, f"{action} must exist")
+        self.assertIn("consoleAwaitingInputHint", script, "await-input detector must exist")
+        self.assertIn("canInput === false", script, "blocked-input guard must exist")
+        self.assertIn("seq > entry.lastSeq + 1", script, "seq gap-resync must exist")
+        self.assertIn("ResizeObserver", script, "console must re-fit on resize")
+
     def test_global_analytics_page_exists(self):
         # WS-C: the global Analytics page (traffic chart, stat cards, health grid, run-status
         # mix, range selector) must exist — the old /analytics surface the new build dropped.
