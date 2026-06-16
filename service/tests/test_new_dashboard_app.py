@@ -321,6 +321,30 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)
         self.assertIn("contracts.map(contractCard)", script)
 
+    def test_appearance_theming_and_settings_parity(self):
+        # WS-A/WS-B: the Appearance group (8-theme picker + custom palette + title) must exist,
+        # and the previously-missing settings keys must be in the schema.
+        script = _dashboard_js()
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
+
+        # Theme engine
+        self.assertIn("appearance: true", script, "Appearance settings group must exist")
+        self.assertIn("type: 'theme'", script, "theme picker control type must exist")
+        self.assertIn("type: 'color'", script, "color picker control type must exist")
+        self.assertIn("data-theme-choice", script, "theme preview tiles must be clickable")
+        self.assertIn("applyCachedTheme()", script, "cached theme must paint at startup")
+        for theme in ("forest", "ember", "ocean", "indigo"):
+            self.assertIn(f'body[data-theme="{theme}"]', styles, f"{theme} preset CSS must exist")
+
+        # Settings parity — keys that were missing from the new schema
+        for key in (
+            "dashboard_theme", "dashboard_primary_color", "auto_confirm_session_id",
+            "managed_via_wrapper", "contract_stale_hours", "idle_minutes", "offline_minutes",
+            "active_run_stale_minutes", "active_managed_run_stale_minutes",
+        ):
+            self.assertIn(f"key: '{key}'", script, f"settings schema must expose {key}")
+        self.assertIn("'xhigh'", script, "effort options must include xhigh")
+
     def test_help_reference_lives_on_settings_page_as_links_not_essay(self):
         # Slice 7 "Help" half: canonical-doc links + compact quick-start + endpoint
         # reference, NOT a third copy of the 8800 status essay. Static HTML on the

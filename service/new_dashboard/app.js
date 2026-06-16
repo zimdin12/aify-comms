@@ -6,6 +6,7 @@ import { STATUS_KINDS, resolveStatus, renderStatusChip, renderStatusDot } from '
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
+import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -391,6 +392,7 @@ async function refresh() {
     state.environments = asArray(environments, 'environments');
     state.stats = stats || {};
     state.settings = settings && typeof settings === 'object' ? settings : {};
+    applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
     state.sessions.forEach((session) => {
       const terminalId = session.terminalId || session.terminal?.id;
       const agentId = session.agentId || session.agent_id;
@@ -461,60 +463,104 @@ function renderAll() {
 // Settings parity (Phase 1.7): curated, GROUPED editor over PUT /settings (which merges a
 // partial). Rare/advanced knobs stay on the classic dashboard. Each item: key + type
 // (toggle/number/text/select). The effort selects use the standard tiers.
-const EFFORT_OPTS = ['low', 'medium', 'high'];
+const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh'];
+// Pi accepts an empty effort meaning "OMP default" — preserve that as a selectable option.
+const PI_EFFORT_OPTS = ['', 'low', 'medium', 'high', 'xhigh'];
 const SETTINGS_SCHEMA = [
+  { group: 'Appearance', appearance: true, items: [
+    { key: 'dashboard_theme', label: 'Color scheme', type: 'theme' },
+    { key: 'dashboard_primary_color', label: 'Primary color', type: 'color', hint: 'Actions, brand, focus.' },
+    { key: 'dashboard_secondary_color', label: 'Secondary color', type: 'color', hint: 'Selection, links.' },
+    { key: 'dashboard_tertiary_color', label: 'Tertiary color', type: 'color', hint: 'Depth, charts.' },
+    { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
+  ] },
   { group: 'Status & lifecycle', items: [
     { key: 'status_engine', label: 'Status engine', type: 'select', options: ['old', 'new'], hint: 'The live-status derivation engine. `new` is the event-driven engine.' },
-    { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number' },
-    { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number' },
+    { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number', min: 30, max: 3600 },
+    { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number', min: 30, max: 3600 },
+    { key: 'idle_minutes', label: 'Idle threshold (min)', type: 'number', min: 1, max: 120 },
+    { key: 'offline_minutes', label: 'Offline threshold (min)', type: 'number', min: 5, max: 1440 },
     { key: 'worker_idle_close_enabled', label: 'Auto-close idle managed workers', type: 'toggle' },
-    { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number' },
+    { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number', min: 0, max: 1440 },
+    { key: 'auto_confirm_session_id', label: 'Auto-confirm new session IDs', type: 'toggle' },
     { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
   ] },
   { group: 'Reply contracts', items: [
     { key: 'reply_contracts_enabled', label: 'Reply contracts enabled', type: 'toggle' },
-    { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number' },
-    { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number' },
-    { key: 'reply_reminder_max_count', label: 'Max reminders', type: 'number' },
+    { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number', min: 1, max: 240 },
+    { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number', min: 1, max: 1440 },
+    { key: 'reply_reminder_max_count', label: 'Max reminders (0 = unlimited)', type: 'number', min: 0, max: 20 },
+    { key: 'contract_stale_hours', label: 'Contract history window (h)', type: 'number', min: 1, max: 720 },
   ] },
   { group: 'Managed runtimes', items: [
     { key: 'managed_terminal_backing_enabled', label: 'Terminal-backed managed sessions', type: 'toggle' },
     { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
     { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
     { key: 'console_auto_confirm_claude_dev_channels', label: 'Auto-confirm claude dev-channels prompt', type: 'toggle' },
+    { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
     { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
     { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },
     { key: 'managed_codex_model', label: 'Managed codex model', type: 'text' },
     { key: 'managed_codex_effort', label: 'Managed codex effort', type: 'select', options: EFFORT_OPTS },
     { key: 'managed_pi_model', label: 'Managed pi model', type: 'text' },
-    { key: 'managed_pi_effort', label: 'Managed pi effort', type: 'select', options: EFFORT_OPTS },
+    { key: 'managed_pi_effort', label: 'Managed pi effort', type: 'select', options: PI_EFFORT_OPTS, optionLabels: { '': 'OMP default' } },
   ] },
   { group: 'Retention & rotation', items: [
     { key: 'rotation_enabled', label: 'Rotation enabled', type: 'toggle' },
-    { key: 'retention_days', label: 'Retention (days)', type: 'number' },
-    { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number' },
-    { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number' },
-    { key: 'stale_agent_hours', label: 'Stale agent after (h)', type: 'number' },
+    { key: 'retention_days', label: 'Retention (days)', type: 'number', min: 1, max: 3650 },
+    { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number', min: 10, max: 100000 },
+    { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number', min: 10, max: 100000 },
+    { key: 'stale_agent_hours', label: 'Stale agent after (h)', type: 'number', min: 1, max: 720 },
+    { key: 'active_run_stale_minutes', label: 'Terminal run stale cleanup (min)', type: 'number', min: 5, max: 240 },
+    { key: 'active_managed_run_stale_minutes', label: 'Managed run stale cleanup (min)', type: 'number', min: 1, max: 120 },
   ] },
   { group: 'Dashboard', items: [
-    { key: 'dashboard_refresh_seconds', label: 'Poll fallback (s)', type: 'number', hint: 'A safety net only — live updates arrive over WebSocket.' },
-    { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
+    { key: 'dashboard_refresh_seconds', label: 'Poll fallback (s)', type: 'number', min: 5, max: 300, hint: 'A safety net only — live updates arrive over WebSocket.' },
   ] },
 ];
 
-function settingsItemHtml(item, value) {
+function themePreviewTilesHtml(selectedKey) {
+  const selected = THEMES[selectedKey] ? selectedKey : 'default';
+  return `<div class="theme-preview-grid" id="theme-preview-grid">${Object.entries(THEMES).map(([key, t]) => `
+    <button type="button" class="theme-preview${key === selected ? ' active' : ''}" data-theme-choice="${esc(key)}" title="Use ${esc(t.label)} color scheme">
+      <b>${esc(t.label)}</b>
+      <span class="theme-preview-swatches"><span style="background:${esc(t.accent)}"></span><span style="background:${esc(t.secondary)}"></span><span style="background:${esc(t.tertiary)}"></span></span>
+    </button>`).join('')}</div>`;
+}
+
+function settingsItemHtml(item, value, settings = {}) {
   const id = `set-${item.key}`;
   const hint = item.hint ? `<small class="settings-hint">${esc(item.hint)}</small>` : '';
+  const bounds = `${item.min != null ? ` min="${item.min}"` : ''}${item.max != null ? ` max="${item.max}"` : ''}`;
   let control;
   if (item.type === 'toggle') {
     control = `<input type="checkbox" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="toggle"${value === true ? ' checked' : ''}>`;
     return `<label class="settings-row settings-toggle-row">${control}<span class="settings-label">${esc(item.label)}${hint}</span></label>`;
   }
+  if (item.type === 'theme') {
+    const key = THEMES[value] ? value : 'default';
+    const opts = Object.entries(THEMES).map(([k, t]) => `<option value="${esc(k)}"${k === key ? ' selected' : ''}>${esc(t.label)}</option>`).join('');
+    control = `<select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="theme">${opts}</select>`;
+    return `<div class="settings-row settings-row-wide"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}${themePreviewTilesHtml(key)}</div>`;
+  }
+  if (item.type === 'color') {
+    const preset = paletteFromSettings(settings, settings.dashboard_theme);
+    const fallback = item.key === 'dashboard_secondary_color' ? preset.secondary : item.key === 'dashboard_tertiary_color' ? preset.tertiary : preset.accent;
+    const hex = /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;
+    control = `<input type="color" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="color" value="${esc(hex)}">`;
+    return `<div class="settings-row settings-color-row"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}</div>`;
+  }
   if (item.type === 'select') {
-    const opts = (item.options || []).map((o) => `<option value="${esc(o)}"${String(value) === String(o) ? ' selected' : ''}>${esc(o)}</option>`).join('');
+    const opts = (item.options || []).map((o) => {
+      const label = (item.optionLabels && item.optionLabels[o] != null) ? item.optionLabels[o] : (o === '' ? '(default)' : o);
+      return `<option value="${esc(o)}"${String(value ?? '') === String(o) ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('');
     control = `<select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="select">${opts}</select>`;
   } else if (item.type === 'number') {
-    control = `<input type="number" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="number" value="${esc(value ?? '')}">`;
+    control = `<input type="number" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="number" value="${esc(value ?? '')}"${bounds}>`;
+  } else if (item.type === 'csv') {
+    const text = Array.isArray(value) ? value.join(', ') : (value ?? '');
+    control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="csv" value="${esc(text)}">`;
   } else {
     control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="text" value="${esc(value ?? '')}">`;
   }
@@ -526,10 +572,32 @@ function renderSettings() {
   if (!host) return;
   const s = state.settings || {};
   host.innerHTML = SETTINGS_SCHEMA.map((grp) => `
-    <section class="settings-group">
+    <section class="settings-group${grp.appearance ? ' settings-appearance' : ''}">
       <h3 class="settings-group-title">${esc(grp.group)}</h3>
-      <div class="settings-grid">${grp.items.map((item) => settingsItemHtml(item, s[item.key])).join('')}</div>
+      <div class="settings-grid">${grp.items.map((item) => settingsItemHtml(item, s[item.key], s)).join('')}</div>
     </section>`).join('');
+}
+
+// Read the (possibly unsaved) Appearance editor controls into a partial settings object.
+function readAppearanceInputs() {
+  const val = (k) => byId(`set-${k}`)?.value;
+  return {
+    dashboard_theme: val('dashboard_theme'),
+    dashboard_primary_color: val('dashboard_primary_color'),
+    dashboard_secondary_color: val('dashboard_secondary_color'),
+    dashboard_tertiary_color: val('dashboard_tertiary_color'),
+    dashboard_title: val('dashboard_title'),
+  };
+}
+
+// Live-preview the Appearance editor without saving (theme tile, select, or color picker).
+function previewAppearance() {
+  const a = readAppearanceInputs();
+  previewTheme({ theme: a.dashboard_theme, primary: a.dashboard_primary_color, secondary: a.dashboard_secondary_color, tertiary: a.dashboard_tertiary_color });
+  const title = String(a.dashboard_title || 'AIFY Comms').trim() || 'AIFY Comms';
+  document.title = title;
+  const brand = document.querySelector('.brand-copy strong');
+  if (brand) brand.textContent = title;
 }
 
 async function saveSettings() {
@@ -540,12 +608,14 @@ async function saveSettings() {
     const type = el.dataset.settingType;
     if (type === 'toggle') payload[key] = el.checked;
     else if (type === 'number') { const n = Number(el.value); if (el.value !== '' && Number.isFinite(n)) payload[key] = n; }
-    else payload[key] = el.value;
+    else if (type === 'csv') payload[key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
+    else payload[key] = el.value; // text, select, theme, color
   });
   if (statusEl) statusEl.textContent = 'Saving…';
   try {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
     state.settings = res && typeof res === 'object' ? res : { ...state.settings, ...payload };
+    applyTheme(state.settings); // persist + paint the saved appearance
     if (statusEl) statusEl.textContent = 'Saved';
     toast('Settings saved', 'ok');
     renderSettings();
@@ -1996,6 +2066,23 @@ function updateStaticLinks() {
 }
 
 document.addEventListener('click', (event) => {
+  const themeChoice = event.target.closest('[data-theme-choice]');
+  if (themeChoice) {
+    const key = themeChoice.dataset.themeChoice;
+    const sel = byId('set-dashboard_theme');
+    if (sel) sel.value = key;
+    // Selecting a preset resets the custom color pickers to that preset's palette.
+    const preset = THEMES[key] || THEMES.default;
+    const setColor = (k, v) => { const el = byId(`set-${k}`); if (el) el.value = v; };
+    setColor('dashboard_primary_color', preset.accent);
+    setColor('dashboard_secondary_color', preset.secondary);
+    setColor('dashboard_tertiary_color', preset.tertiary);
+    document.querySelectorAll('#theme-preview-grid .theme-preview').forEach((tile) => {
+      tile.classList.toggle('active', tile.dataset.themeChoice === key);
+    });
+    previewAppearance();
+    return;
+  }
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
     chatController.open(chatOpen.dataset.chatOpen);
@@ -2347,6 +2434,7 @@ async function loadVersionBadge() {
 }
 
 installRejectionToast();
+applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings
 loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();
@@ -2357,4 +2445,11 @@ setInterval(refresh, 15000);
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
 byId('settings-save')?.addEventListener('click', () => {
   saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
+});
+// Live-preview Appearance edits (theme select, color pickers, title) without saving.
+byId('settings-form')?.addEventListener('input', (event) => {
+  if (event.target.closest('.settings-appearance')) previewAppearance();
+});
+byId('settings-form')?.addEventListener('change', (event) => {
+  if (event.target.closest('.settings-appearance')) previewAppearance();
 });

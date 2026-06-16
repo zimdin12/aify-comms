@@ -1,0 +1,148 @@
+// theme.js — WS-A dashboard theming/coloring engine.
+//
+// Ported + modernized from the old 8800 dashboard's appearance system. Drives:
+//   - 8 named presets via document.body.dataset.theme (CSS in styles.css)
+//   - a custom 3-color palette (primary/secondary/tertiary) applied as CSS vars
+//   - document.title + sidebar brand text from dashboard_title
+//
+// Pure helpers (THEMES, paletteFromSettings, normalizedHexColor, hexLuminance,
+// derivePaletteVars) are exported for unit tests; applyTheme/cache touch the DOM +
+// localStorage so the chosen theme paints instantly on next load, before /settings returns.
+
+export const THEMES = {
+  default:  { label: 'Default dark', accent: '#51c5b0', secondary: '#74b7ff', tertiary: '#dfb156' },
+  forest:   { label: 'Forest',       accent: '#49b87e', secondary: '#e4bb69', tertiary: '#8bbdf5' },
+  violet:   { label: 'Violet',       accent: '#b9a5ff', secondary: '#f095c0', tertiary: '#60c78d' },
+  ember:    { label: 'Ember',        accent: '#f2b76e', secondary: '#e78776', tertiary: '#8dbcf6' },
+  ocean:    { label: 'Ocean',        accent: '#52d1d5', secondary: '#70b8ff', tertiary: '#67c987' },
+  graphite: { label: 'Graphite',     accent: '#a9b5bc', secondary: '#89b9e8', tertiary: '#d0b66c' },
+  crimson:  { label: 'Crimson',      accent: '#d34b64', secondary: '#8ebaf1', tertiary: '#e0bc64' },
+  indigo:   { label: 'Indigo',       accent: '#8ea7ff', secondary: '#dd90bd', tertiary: '#66c889' },
+};
+
+const PALETTE_KEY = 'aifyDashboardPalette';
+const THEME_KEY = 'aifyDashboardTheme';
+const TITLE_KEY = 'aifyDashboardTitle';
+
+export function themeKey(value) {
+  const key = String(value || 'default').trim() || 'default';
+  return Object.prototype.hasOwnProperty.call(THEMES, key) ? key : 'default';
+}
+
+export function normalizedHexColor(value, fallback) {
+  const color = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
+}
+
+export function hexLuminance(hex) {
+  const value = normalizedHexColor(hex, '#ffffff').slice(1);
+  const rgb = [0, 2, 4].map((i) => {
+    const c = parseInt(value.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+}
+
+// Resolve the effective palette: explicit settings colors win, else local cache, else preset.
+export function paletteFromSettings(settings = {}, key = 'default', localPalette = {}) {
+  const preset = THEMES[themeKey(key)] || THEMES.default;
+  return {
+    accent: normalizedHexColor(settings.dashboard_primary_color || localPalette.dashboard_primary_color, preset.accent),
+    secondary: normalizedHexColor(settings.dashboard_secondary_color || localPalette.dashboard_secondary_color, preset.secondary),
+    tertiary: normalizedHexColor(settings.dashboard_tertiary_color || localPalette.dashboard_tertiary_color, preset.tertiary),
+  };
+}
+
+// Compute the CSS custom-property overrides for a palette (pure — returns a {var:value} map).
+export function derivePaletteVars(palette = {}) {
+  const accent = normalizedHexColor(palette.accent, THEMES.default.accent);
+  const second = normalizedHexColor(palette.secondary, THEMES.default.secondary);
+  const third = normalizedHexColor(palette.tertiary, THEMES.default.tertiary);
+  const contrast = (hex) => (hexLuminance(hex) > 0.45 ? '#06110f' : '#f7fbff');
+  const readable = (hex) => (hexLuminance(hex) > 0.38 ? hex : `color-mix(in srgb, ${hex} 64%, #ffffff)`);
+  return {
+    '--accent': accent,
+    '--accent-strong': `color-mix(in srgb, ${accent} 72%, #000000)`,
+    '--accent-hover': `color-mix(in srgb, ${accent} 82%, #ffffff)`,
+    '--accent-text': readable(accent),
+    '--accent-contrast': contrast(accent),
+    '--secondary': second,
+    '--secondary-text': readable(second),
+    '--secondary-contrast': contrast(second),
+    '--tertiary': third,
+    '--tertiary-text': readable(third),
+    '--tertiary-contrast': contrast(third),
+  };
+}
+
+function readLocal(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return raw;
+  } catch {
+    return fallback;
+  }
+}
+
+function readLocalPalette() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalPalette(palette) {
+  try {
+    localStorage.setItem(PALETTE_KEY, JSON.stringify({
+      dashboard_primary_color: normalizedHexColor(palette.accent, THEMES.default.accent),
+      dashboard_secondary_color: normalizedHexColor(palette.secondary, THEMES.default.secondary),
+      dashboard_tertiary_color: normalizedHexColor(palette.tertiary, THEMES.default.tertiary),
+    }));
+  } catch { /* storage may be unavailable; theming still applies for the session */ }
+}
+
+// Apply theme + palette + title to the live document. `persist` also caches for instant next-load.
+export function applyTheme(settings = {}, { persist = true } = {}) {
+  const key = themeKey(settings.dashboard_theme);
+  const palette = paletteFromSettings(settings, key, readLocalPalette());
+  const title = String(settings.dashboard_title || readLocal(TITLE_KEY, 'AIFY Comms') || 'AIFY Comms').trim() || 'AIFY Comms';
+
+  document.body.dataset.theme = key;
+  const vars = derivePaletteVars(palette);
+  for (const [name, value] of Object.entries(vars)) document.body.style.setProperty(name, value);
+
+  document.title = title;
+  const brand = document.querySelector('.brand-copy strong');
+  if (brand) brand.textContent = title;
+
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_KEY, key);
+      localStorage.setItem(TITLE_KEY, title);
+    } catch { /* ignore */ }
+    writeLocalPalette(palette);
+  }
+  return { key, palette, title };
+}
+
+// Paint the cached theme synchronously at startup, before settings are fetched, so the
+// dashboard never flashes the default palette for a themed install.
+export function applyCachedTheme() {
+  applyTheme({
+    dashboard_theme: readLocal(THEME_KEY, 'default'),
+    dashboard_title: readLocal(TITLE_KEY, 'AIFY Comms'),
+  }, { persist: false });
+}
+
+// Preview a live (unsaved) selection from the Appearance editor inputs.
+export function previewTheme({ theme, primary, secondary, tertiary } = {}) {
+  applyTheme({
+    dashboard_theme: theme,
+    dashboard_primary_color: primary,
+    dashboard_secondary_color: secondary,
+    dashboard_tertiary_color: tertiary,
+  }, { persist: false });
+}
