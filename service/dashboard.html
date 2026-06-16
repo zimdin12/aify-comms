@@ -493,6 +493,9 @@ a{color:var(--accent-text)}
 .chat-mode-switch{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .chat-mode-switch .btn{min-height:30px;padding:5px 9px}
 .chat-console-state{color:var(--muted);font-size:.76em;white-space:nowrap}
+/* Analytics view has no selected conversation: hide the mode switch + per-chat
+   controls. The analytics panel header carries its own "Back to chat" action. */
+.chat-main.analytics-view .chat-mode-switch,.chat-main.analytics-view .chat-actions{display:none}
 .chat-as-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.78em}
 .chat-as-label select{min-width:150px}
 .chat-message-search{min-width:180px;max-width:240px;background:#0a0f15;border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:7px;font-size:.84em}
@@ -6260,6 +6263,12 @@ function renderChat() {
   // selectedChatMeta() auto-selects the first conversation.
   if (window._chatAnalyticsKey && !window._chatSelected && chatMode() !== 'console') {
     renderChatRail();
+    // No conversation is selected in analytics view, so the Messenger/Console mode
+    // switch, the per-chat search, and the Details/More chat actions are meaningless
+    // (and showing Console controls over an analytics panel was operator-reported
+    // 2026-06-16). Mark the surface so CSS hides them; the normal path clears it.
+    const chatMain = document.querySelector('.chat-main');
+    if (chatMain) chatMain.classList.add('analytics-view');
     const timeline = document.getElementById('chat-timeline');
     const titleEl = document.getElementById('chat-title');
     const subtitleEl = document.getElementById('chat-subtitle');
@@ -6270,6 +6279,8 @@ function renderChat() {
   }
   const meta = selectedChatMeta();
   renderChatRail();
+  const chatMainEl = document.querySelector('.chat-main');
+  if (chatMainEl) chatMainEl.classList.remove('analytics-view');
   updateChatControls(meta);
   updateChatInspectorVisibility();
   updateChatReplyContext(meta);
