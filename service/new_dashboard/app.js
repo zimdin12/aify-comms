@@ -44,7 +44,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {}, analytics: { agent: '', data: null } },
+  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'chat',
@@ -113,7 +113,7 @@ async function chatLoadConversation(name) {
   const res = await api(`/channels/${encodeURIComponent(name)}?limit=80&agentId=${encodeURIComponent(state.chat.identity)}`);
   state.chat.channelMessages[name] = res.messages || res.channel?.messages || [];
 }
-async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy }) {
+async function chatSendMessage({ isChannel, target, identity, body, expectsReply, queueIfBusy, inReplyTo }) {
   if (isChannel) {
     return api(`/channels/${encodeURIComponent(target)}/send`, {
       method: 'POST',
@@ -125,7 +125,23 @@ async function chatSendMessage({ isChannel, target, identity, body, expectsReply
     from_agent: identity, to: target, type,
     subject: body.slice(0, 80), body, trigger: true,
     queueIfBusy: !!queueIfBusy, requireReply: !!expectsReply,
+    ...(inReplyTo ? { inReplyTo } : {}),
   });
+}
+
+// Favorites (WS-F): PATCH /agents/{id}/favorite, optimistic so the rail re-sorts immediately.
+async function toggleFavorite(agentId) {
+  const agent = state.agents.find((a) => a.id === agentId);
+  const next = !(agent && agent.favorited);
+  if (agent) agent.favorited = next; // optimistic
+  chatController.render();
+  try {
+    await api(`/agents/${encodeURIComponent(agentId)}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorited: next }) });
+  } catch (err) {
+    if (agent) agent.favorited = !next; // revert
+    chatController.render();
+    toast(`Favorite failed: ${err?.message || err}`, 'error');
+  }
 }
 const chatController = createChatController({
   state, byId,
@@ -1867,8 +1883,13 @@ function openAgentDrawer(agentId) {
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   const actions = [
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="recover" data-session="${esc(sid)}">Recover</button>` : '',
     sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop</button>` : '',
+    sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
+    sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
+    sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
+    `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
   byId('inspector-content').innerHTML = `
@@ -1887,6 +1908,114 @@ function openAgentDrawer(agentId) {
   state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// F8 — message detail surface in the inspector.
+function openMessageDetail(msgId) {
+  const m = state.messages.find((x) => messageId(x) === String(msgId));
+  if (!m) { toast('Message not found in the loaded set', 'warn'); return; }
+  const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer">
+      <div class="agent-drawer-head"><strong>Message ${esc(String(messageId(m)).slice(0, 12))}</strong></div>
+      <dl class="chat-kv agent-drawer-kv">
+        ${row('From', esc(m.from || 'unknown'))}
+        ${row('To', esc(m.to || m.target || '—'))}
+        ${row('Type', esc(m.type || 'info'))}
+        ${row('Priority', esc(m.priority || 'normal'))}
+        ${row('Read', m.read === false ? 'unread' : 'read')}
+        ${row('When', esc(relTime(m.timestamp || m.createdAt)) + ' ago')}
+        ${messageRunId(m) ? row('Run', esc(messageRunId(m))) : ''}
+      </dl>
+      ${m.subject ? `<h4 class="an-h">${esc(m.subject)}</h4>` : ''}
+      <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'message', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// F1 — Compact / Continue-as (handoff packet UX). Build a packet from recent messages and
+// render an editable continuation form into the inspector; submit creates a managed-warm
+// spawn-request seeded with the packet (POST /spawn-requests), same mechanism as 8800.
+function buildHandoffPacket(agentId, count = 25) {
+  const related = state.messages
+    .filter((m) => m.from === agentId || m.to === agentId || m.target === agentId)
+    .slice(-count)
+    .map((m) => `[${m.from || '?'}→${m.to || m.target || '?'}] ${m.subject ? m.subject + ': ' : ''}${m.body || m.preview || ''}`.trim());
+  return `Handoff packet for ${agentId} (last ${related.length} messages):\n\n${related.join('\n')}`;
+}
+
+function openContinueForm(sid, splitIdentity) {
+  const target = state.sessions.find((s) => String(sessionId(s)) === String(sid));
+  if (!target) { toast('Session not found', 'warn'); return; }
+  const agentId = sessionAgentId(target) || '';
+  const packet = buildHandoffPacket(agentId);
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>${splitIdentity ? 'Continue as new agent' : 'Compact session'}</strong></div>
+      <p class="subtle">${splitIdentity ? 'Splits into a new agent identity with an editable handoff packet.' : 'Compacts into a fresh managed backing, keeping the same agent ID.'}</p>
+      <label class="settings-label">Agent ID<input id="cont-agent-id" type="text" value="${esc(splitIdentity ? '' : agentId)}" placeholder="${esc(agentId)}"></label>
+      <label class="settings-label">Role<input id="cont-role" type="text" value="${esc(target.role || 'coder')}"></label>
+      <label class="settings-label">Environment<input id="cont-env" type="text" value="${esc(sessionEnvironmentId(target) || '')}"></label>
+      <label class="settings-label">Runtime<input id="cont-runtime" type="text" value="${esc(sessionRuntime(target) || '')}"></label>
+      <label class="settings-label">Workspace<input id="cont-workspace" type="text" value="${esc(target.workspace || target.cwd || '')}"></label>
+      <label class="settings-label">Handoff packet<textarea id="cont-packet" rows="8">${esc(packet)}</textarea></label>
+      <div class="agent-drawer-actions">
+        <button class="primary" data-continue-submit="${esc(sid)}" data-split="${splitIdentity ? '1' : '0'}">${splitIdentity ? 'Continue as' : 'Compact'}</button>
+      </div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'continue', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+async function submitContinue(sid, splitIdentity) {
+  const target = state.sessions.find((s) => String(sessionId(s)) === String(sid));
+  if (!target) { toast('Session not found', 'error'); return; }
+  const v = (id) => byId(id)?.value?.trim() || '';
+  const sourceAgent = sessionAgentId(target) || '';
+  const newAgentId = splitIdentity ? v('cont-agent-id') : (v('cont-agent-id') || sourceAgent);
+  if (!newAgentId) { toast('Agent ID is required', 'error'); return; }
+  try {
+    await api('/spawn-requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        createdBy: 'dashboard', environmentId: v('cont-env') || sessionEnvironmentId(target),
+        agentId: newAgentId, role: v('cont-role') || 'coder', runtime: v('cont-runtime') || sessionRuntime(target),
+        workspace: v('cont-workspace') || target.workspace || target.cwd, initialMessage: v('cont-packet'),
+        subject: splitIdentity ? `Continue as from ${sourceAgent}` : `Handoff compact from ${sourceAgent}`,
+        mode: 'managed-warm', resumePolicy: 'fresh_context',
+        metadata: { continuedFromSessionId: sid, continuedFromAgentId: sourceAgent, compactMode: 'handoff', sameAgentId: newAgentId === sourceAgent, splitIdentity },
+      }),
+    });
+    toast(splitIdentity ? `Continue-as queued for ${newAgentId}` : `Compact queued for ${newAgentId}`, 'ok');
+    closeInspector();
+    refreshSoon();
+    setPage('environments');
+  } catch (err) { toast(`Continue failed: ${err?.message || err}`, 'error'); }
+}
+
+async function removeAgent(agentId) {
+  if (!agentId) return;
+  if (!await uiConfirm(`Remove agent "${agentId}"? This tombstones the identity.`)) return;
+  try {
+    await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+    toast(`Removed ${agentId}`, 'ok');
+    closeInspector();
+    refreshSoon();
+  } catch (err) { toast(`Remove failed: ${err?.message || err}`, 'error'); }
+}
+
+async function deleteSessionById(sid) {
+  if (!sid) return;
+  if (!await uiConfirm('Delete this session record?')) return;
+  try {
+    await api(`/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' });
+    toast('Session deleted', 'ok');
+    closeInspector();
+    refreshSoon();
+  } catch (err) { toast(`Delete failed: ${err?.message || err}`, 'error'); }
 }
 
 function openInspector(request) {
@@ -2273,15 +2402,41 @@ document.addEventListener('click', (event) => {
     previewAppearance();
     return;
   }
+  const favToggle = event.target.closest('[data-fav-toggle]');
+  if (favToggle) {
+    event.stopPropagation();
+    toggleFavorite(favToggle.dataset.favToggle);
+    return;
+  }
+  const chatReply = event.target.closest('[data-chat-reply]');
+  if (chatReply) {
+    const msg = state.messages.find((m) => messageId(m) === chatReply.dataset.chatReply);
+    if (msg) {
+      state.chat.replyTo = { id: messageId(msg), from: msg.from || 'unknown', subject: msg.subject || '', preview: msg.body || msg.preview || '', conversationKey: state.chat.selected };
+      chatController.renderConversation();
+      byId('chat-composer-body')?.focus();
+    }
+    return;
+  }
+  if (event.target.closest('[data-chat-reply-clear]')) {
+    state.chat.replyTo = null;
+    chatController.renderConversation();
+    return;
+  }
+  const msgDetail = event.target.closest('[data-message-detail]');
+  if (msgDetail) {
+    openMessageDetail(msgDetail.dataset.messageDetail);
+    return;
+  }
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
-    const id = chatOpen.dataset.chatOpen;
+    const key = chatOpen.dataset.chatOpen;
     // Click-again gesture (parity with old dashboard): re-clicking the already-open DM
     // reveals its analytics. Channels have no per-agent analytics, so they just re-open.
-    if (id === state.chat.selected && !id.startsWith('#') && !state.chat.analytics.data) {
-      chatController.openAnalytics(id);
+    if (key === state.chat.selected && key.startsWith('dm:') && !state.chat.analytics.agent) {
+      chatController.openAnalytics(key.slice('dm:'.length));
     } else {
-      chatController.open(id);
+      chatController.open(key);
     }
     return;
   }
@@ -2315,6 +2470,16 @@ document.addEventListener('click', (event) => {
     closeInspector();
     return;
   }
+  const agentCompact = event.target.closest('[data-agent-compact]');
+  if (agentCompact) { openContinueForm(agentCompact.dataset.agentCompact, false); return; }
+  const agentContinue = event.target.closest('[data-agent-continue]');
+  if (agentContinue) { openContinueForm(agentContinue.dataset.agentContinue, true); return; }
+  const continueSubmit = event.target.closest('[data-continue-submit]');
+  if (continueSubmit) { submitContinue(continueSubmit.dataset.continueSubmit, continueSubmit.dataset.split === '1'); return; }
+  const agentRemove = event.target.closest('[data-agent-remove]');
+  if (agentRemove) { removeAgent(agentRemove.dataset.agentRemove); return; }
+  const agentDeleteSession = event.target.closest('[data-agent-delete-session]');
+  if (agentDeleteSession) { deleteSessionById(agentDeleteSession.dataset.agentDeleteSession); return; }
   const chanAction = event.target.closest('[data-chat-channel-action]');
   if (chanAction) {
     chatChannelAction(chanAction.dataset.chatChannelAction, chanAction.dataset.channel)
@@ -2565,6 +2730,11 @@ byId('chat-live-only')?.addEventListener('change', (event) => {
 byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
   chatController.send();
+});
+// Draft preservation (WS-F): persist the composer body per conversation as the operator types.
+byId('chat-composer-body')?.addEventListener('input', (event) => {
+  const key = state.chat.selected;
+  if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = event.target.value; }
 });
 byId('files-upload-form')?.addEventListener('submit', (event) => {
   event.preventDefault();

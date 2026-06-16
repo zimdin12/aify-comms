@@ -49,7 +49,15 @@ export function chatConversationItems(state) {
   let items = [...dms, ...channels];
   const live = new Set(['working', 'online', 'idle', 'available', 'blocked']);
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
-  if (filter) items = items.filter((i) => i.id.toLowerCase().includes(filter) || i.preview.toLowerCase().includes(filter));
+  if (filter) {
+    // Global search (parity with old dashboard): match the id/preview AND any loaded message
+    // body in the conversation, so searching surfaces a DM by its message contents too.
+    const bodyMatch = (i) => {
+      if (i.kind !== 'dm') return false;
+      return dmMessages(state.messages, i.id, identity).some((m) => String(m.body || m.subject || m.preview || '').toLowerCase().includes(filter));
+    };
+    items = items.filter((i) => i.id.toLowerCase().includes(filter) || i.preview.toLowerCase().includes(filter) || bodyMatch(i));
+  }
   items.sort((a, b) => (
     (b.unread > 0) - (a.unread > 0)
     || (b.favorited - a.favorited)
@@ -65,7 +73,10 @@ function railItemHtml(item, selectedKey) {
     ? `<span class="status-dot ${esc(resolveStatus(item.status).dotKind)}"></span>`
     : '<span class="chat-rail-hash">#</span>';
   const unread = item.unread > 0 ? `<span class="chat-unread">${item.unread}</span>` : '';
-  const fav = item.favorited ? '<span class="chat-fav" title="Favorite">★</span>' : '';
+  // DMs get a clickable star (PATCH /agents/{id}/favorite); channels have no server favorite.
+  const fav = item.kind === 'dm'
+    ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
+    : (item.favorited ? '<span class="chat-fav" title="Favorite">★</span>' : '');
   return `<button class="chat-rail-item${active}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
     <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${fav}${unread}</span>
     <span class="chat-rail-preview clip">${esc(item.preview || '')}</span>
@@ -89,7 +100,7 @@ function messageHtml(m, identity = 'dashboard') {
   ].join('');
   return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
-      <span class="chat-msg-badges">${badges}${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}</span>
+      <span class="chat-msg-badges">${badges}${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button><button class="chat-msg-detail" data-message-detail="${esc(id)}" title="Message details">⋯</button></span>
     </div>
     ${m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : ''}
     <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
@@ -217,14 +228,36 @@ export function createChatController(deps) {
     const msgs = isChannel
       ? (state.chat.channelMessages?.[id] || [])
       : dmMessages(state.messages, id, state.chat.identity);
+    // Follow-bottom: only auto-scroll to the newest message if the operator was already near
+    // the bottom — don't yank them down while they're reading scrollback.
+    const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
     timeline.innerHTML = msgs.length
       ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('')
       : '<div class="chat-empty">No messages yet in this conversation.</div>';
-    timeline.scrollTop = timeline.scrollHeight;
+    if (nearBottom) timeline.scrollTop = timeline.scrollHeight;
     const composer = byId('chat-composer');
     if (composer) composer.hidden = false;
+    // Reply-context banner: when replying to a message, show what we're replying to + a clear button.
+    const reply = state.chat.replyTo;
+    let banner = byId('chat-reply-banner');
+    if (reply && reply.conversationKey === key) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'chat-reply-banner';
+        banner.className = 'chat-reply-banner';
+        composer?.parentNode?.insertBefore(banner, composer);
+      }
+      banner.innerHTML = `<span class="clip">↳ Replying to <strong>${esc(reply.from)}</strong>: ${esc((reply.subject || reply.preview || '').slice(0, 60))}</span><button class="ghost" type="button" data-chat-reply-clear>✕</button>`;
+    } else if (banner) {
+      banner.remove();
+    }
     const placeholder = byId('chat-composer-body');
-    if (placeholder) placeholder.placeholder = isChannel ? `Message #${id}` : `Message ${id}`;
+    if (placeholder) {
+      placeholder.placeholder = isChannel ? `Message #${id}` : `Message ${id}`;
+      // Draft preservation: restore any per-conversation draft when switching in.
+      const draft = state.chat.drafts?.[key];
+      if (draft != null && placeholder.value !== draft && document.activeElement !== placeholder) placeholder.value = draft;
+    }
   }
 
   function renderIdentityOptions() {
@@ -273,12 +306,17 @@ export function createChatController(deps) {
     const id = key.slice(key.indexOf(':') + 1);
     const expectsReply = byId('chat-expects-reply')?.checked;
     const queueIfBusy = byId('chat-queue')?.checked;
+    const reply = state.chat.replyTo;
+    const inReplyTo = (reply && reply.conversationKey === key) ? reply.id : '';
     try {
       const response = await sendMessage({
         isChannel, target: id, identity: state.chat.identity, body,
-        expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy,
+        expectsReply: !!expectsReply, queueIfBusy: !!queueIfBusy, inReplyTo,
       });
       if (bodyEl) bodyEl.value = '';
+      // Sent cleanly: drop the saved draft + reply context for this conversation.
+      if (state.chat.drafts) delete state.chat.drafts[key];
+      state.chat.replyTo = null;
       if (!isChannel) {
         const t = deliveryToastFor(response, id);
         toast(t.text, t.tone);

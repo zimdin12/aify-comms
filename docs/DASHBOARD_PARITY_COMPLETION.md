@@ -50,14 +50,14 @@ Core xterm PTY already works (stream+input+resize). Missing the UX/robustness sh
 - [x] E5. Custom form controls (checkbox/select caret/scrollbars); segmented-control pill styling.
 
 ### WS-F — Feature gaps (un-sanctioned drops, audit F)
-- [ ] F1. Compact / Continue-as-new-agent (compaction packet UX) + history. (Most operationally significant.)
-- [ ] F2. Reply / follow-up threading (inReplyTo from composer + reply-context banner).
-- [ ] F3. Draft preservation per conversation + send-failure body restore + stuck-send watchdog + follow-bottom.
-- [ ] F4. Favorites toggle (star set/unset, fav hoist) — display-only today.
+- [x] F1. Compact / Continue-as-new-agent (compaction packet UX) + history. (Most operationally significant.)
+- [x] F2. Reply / follow-up threading (inReplyTo from composer + reply-context banner).
+- [x] F3. Draft preservation per conversation + send-failure body restore + stuck-send watchdog + follow-bottom.
+- [x] F4. Favorites toggle (star set/unset, fav hoist) — display-only today.
 - [ ] F5. Sessions status multiselect filter + batch delete.
-- [ ] F6. Agent drawer full lifecycle action set (delete/remove/clear/recover/compact/continue/edit) — 4→full.
-- [ ] F7. Global message search (scan loaded message bodies).
-- [ ] F8. Message-detail surface (inspector view for a single message).
+- [x] F6. Agent drawer full lifecycle action set (delete/remove/clear/recover/compact/continue/edit) — 4→full.
+- [x] F7. Global message search (scan loaded message bodies).
+- [x] F8. Message-detail surface (inspector view for a single message).
 - [ ] F9. Inbox Hygiene panel; bulk contract close; chat artifact-attach button.
 
 ## Operating rules
