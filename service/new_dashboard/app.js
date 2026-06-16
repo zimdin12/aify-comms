@@ -2123,6 +2123,7 @@ function openAgentDrawer(agentId) {
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
     `<button class="ghost" data-agent-edit="${esc(id)}">Edit…</button>`,
+    `<button class="ghost" data-agent-history="${esc(id)}">History</button>`,
     sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
@@ -2143,6 +2144,40 @@ function openAgentDrawer(agentId) {
   state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// I9 — compaction / continuation lineage, derived from spawn records (metadata.continuedFrom*).
+async function openCompactionHistory(agentId) {
+  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Loading…</p></div>`;
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+  state.inspector = { ...state.inspector, kind: 'history', runId: '' };
+  let rows = [];
+  try {
+    const res = await api('/spawn-requests');
+    const reqs = res.spawnRequests || res.requests || res || [];
+    rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {
+      const m = r.metadata || {};
+      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;
+    }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
+  } catch (err) {
+    byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p></div>`;
+    return;
+  }
+  const body = rows.length ? rows.map((r) => {
+    const m = r.metadata || {};
+    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';
+    return `<div class="history-row">
+      <div class="history-head"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>
+      <dl class="agent-drawer-kv">
+        <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>
+        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>
+        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}
+        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class="clip">${esc(m.continuedFromSessionId)}</dd>` : ''}
+        ${r.subject ? `<dt>Subject</dt><dd class="clip">${esc(r.subject)}</dd>` : ''}
+      </dl></div>`;
+  }).join('') : '<div class="empty-state"><span class="empty-icon">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';
+  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Compact/continue lineage from spawn records.</p>${body}</div>`;
 }
 
 // I3 — edit agent identity: rename, description, native session handle.
@@ -2789,6 +2824,8 @@ document.addEventListener('click', (event) => {
   if (continueSubmit) { submitContinue(continueSubmit.dataset.continueSubmit, continueSubmit.dataset.split === '1'); return; }
   const agentEdit = event.target.closest('[data-agent-edit]');
   if (agentEdit) { openAgentEditForm(agentEdit.dataset.agentEdit); return; }
+  const agentHistory = event.target.closest('[data-agent-history]');
+  if (agentHistory) { openCompactionHistory(agentHistory.dataset.agentHistory); return; }
   const agentEditSubmit = event.target.closest('[data-agent-edit-submit]');
   if (agentEditSubmit) { submitAgentEdit(agentEditSubmit.dataset.agentEditSubmit); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');

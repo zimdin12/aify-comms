@@ -43,11 +43,11 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
 - [x] I2. Unsend / delete message (DELETE /messages/{id}).
 - [x] I3. Edit agent: rename / retarget env / edit workspace / set-clear session handle.
 - [x] I4. Environment controls: restart / stop / forget bridge; edit workspace roots.
-- [ ] I5. Confirm / Keep session-id governance (session/confirm, session/keep).
+- [~] I5. Confirm / Keep session-id governance (session/confirm, session/keep).
 - [x] I6. Reset / recreate session (fresh-context) action.
 - [x] I7. Channel add / remove member.
-- [ ] I8. Console mode inside Chat (flip a DM to live console in the chat pane).
-- [ ] I9. Compaction / spawn-lineage history viewer.
+- [~] I8. Console mode inside Chat (flip a DM to live console in the chat pane).
+- [x] I9. Compaction / spawn-lineage history viewer.
 - [x] I10. Follow-up (reply-as-request); resident stop / resume-wake; mode-switch force-on-409 retry.
 - [~] I11. Correctness/affordance: copy-run-id execCommand fallback; image paste in CHAT composer;
       Enter-to-send + jump-to-bottom in chat; preview-reminders dry-run; settings discard/reset.
