@@ -241,11 +241,21 @@ export function createChatController(deps) {
         const members = chan.members || [];
         const isMember = members.includes(state.chat.identity);
         const count = chan.memberCount ?? members.length;
+        // I7: add-member select (agents not already in the channel) + per-member remove chips.
+        const candidates = (state.agents || []).map((a) => a.id).filter((aid) => aid && aid !== 'dashboard' && !members.includes(aid));
+        const addControl = candidates.length
+          ? `<select id="chat-add-member-${esc(id)}" class="chat-add-member"><option value="">+ Add member…</option>${candidates.map((aid) => `<option value="${esc(aid)}">${esc(aid)}</option>`).join('')}</select><button class="ghost" data-channel-add-member="${esc(id)}">Add</button>`
+          : '';
         actions.innerHTML = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
           + (isMember
             ? `<button class="ghost" data-chat-channel-action="leave" data-channel="${esc(id)}">Leave</button>`
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
-          + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`;
+          + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`
+          + addControl;
+        // Member chips with remove buttons below the action row.
+        if (members.length) {
+          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button></span>`).join('')}</div>`;
+        }
       } else {
         actions.innerHTML = `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`
           + `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`

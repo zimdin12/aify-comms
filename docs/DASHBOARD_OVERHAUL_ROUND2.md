@@ -41,14 +41,14 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
 ## WS-I — Feature parity (top capability gaps, audit Top-20)
 - [x] I1. Mark read / mark-all-read (the `#mark-read` stub) + peek toggle. (HIGH — unread never clears today.)
 - [x] I2. Unsend / delete message (DELETE /messages/{id}).
-- [ ] I3. Edit agent: rename / retarget env / edit workspace / set-clear session handle.
+- [x] I3. Edit agent: rename / retarget env / edit workspace / set-clear session handle.
 - [x] I4. Environment controls: restart / stop / forget bridge; edit workspace roots.
 - [ ] I5. Confirm / Keep session-id governance (session/confirm, session/keep).
-- [ ] I6. Reset / recreate session (fresh-context) action.
-- [ ] I7. Channel add / remove member.
+- [x] I6. Reset / recreate session (fresh-context) action.
+- [x] I7. Channel add / remove member.
 - [ ] I8. Console mode inside Chat (flip a DM to live console in the chat pane).
 - [ ] I9. Compaction / spawn-lineage history viewer.
-- [ ] I10. Follow-up (reply-as-request); resident stop / resume-wake; mode-switch force-on-409 retry.
+- [x] I10. Follow-up (reply-as-request); resident stop / resume-wake; mode-switch force-on-409 retry.
 - [~] I11. Correctness/affordance: copy-run-id execCommand fallback; image paste in CHAT composer;
       Enter-to-send + jump-to-bottom in chat; preview-reminders dry-run; settings discard/reset.
 

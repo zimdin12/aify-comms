@@ -289,6 +289,28 @@ async function chatChannelAction(action, name) {
   toast(`${action === 'read' ? 'Marked read' : action === 'join' ? 'Joined' : 'Left'} #${name}`, 'ok');
 }
 
+// I7: add/remove ANOTHER agent to/from a channel (join/leave take an agentId).
+async function addChannelMember(name) {
+  const sel = byId(`chat-add-member-${name}`);
+  const agentId = sel?.value || '';
+  if (!agentId) { toast('Pick an agent to add', 'warn'); return; }
+  try {
+    await api(`/channels/${encodeURIComponent(name)}/join`, { method: 'POST', body: JSON.stringify({ agentId }) });
+    await chatLoadChannels();
+    chatController.render();
+    toast(`${agentId} added to #${name}`, 'ok');
+  } catch (err) { toast(`Add member failed: ${err?.message || err}`, 'error'); }
+}
+async function removeChannelMember(name, agentId) {
+  if (!await uiConfirm(`Remove ${agentId} from #${name}? They stop receiving fan-out; history remains.`)) return;
+  try {
+    await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId }) });
+    await chatLoadChannels();
+    chatController.render();
+    toast(`${agentId} removed from #${name}`, 'ok');
+  } catch (err) { toast(`Remove member failed: ${err?.message || err}`, 'error'); }
+}
+
 function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
   const base = resolveStatus(rawStatus, context);
   const parts = [];
@@ -1130,7 +1152,7 @@ function renderSessionBulkToolbar() {
   toolbar.hidden = ids.length === 0;
   toolbar.innerHTML = ids.length
     ? `<span>${ids.length} selected</span>
-       <button class="ghost" data-bulk-session-action="recover">Recover</button>
+       <button class="ghost" data-bulk-session-action="recreate">Reset</button>
        <button class="ghost" data-bulk-session-action="restart">Restart</button>
        <button class="ghost danger" data-bulk-session-action="stop">Stop</button>
        <button class="ghost danger" data-bulk-session-action="delete">Delete</button>`
@@ -1581,10 +1603,19 @@ async function switchAgentSessionMode(agentId, targetMode, { force = false } = {
   let body = null;
   try { body = await res.json(); } catch {}
   if (!res.ok) {
+    // I10: an active run blocks the switch (409). Offer to force it, matching the old dashboard.
+    if (res.status === 409 && !force) {
+      const detail = body?.detail || body?.error || 'An active run is blocking the switch.';
+      if (await uiConfirm(`${detail}\n\nForce the switch to ${targetMode} anyway?`)) {
+        return switchAgentSessionMode(agentId, targetMode, { force: true });
+      }
+      return null;
+    }
+    toast(`Mode switch failed: ${body?.detail || body?.error || res.status}`, 'error');
     inspect('Mode switch failed', { agentId, targetMode, status: res.status, body });
     return null;
   }
-  inspect('Mode switch ok', { agentId, mode: body?.mode, previousMode: body?.previousMode, sideEffects: body?.sideEffects });
+  toast(`Switched ${agentId} to ${body?.mode || targetMode}`, 'ok');
   refreshSoon();
   return body;
 }
@@ -1618,7 +1649,7 @@ function renderSessionConsole(session) {
       <div class="contract-actions">
         ${renderModeSwitchChip(agent)}
         <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
-        <button class="ghost" data-session-control="recover" data-session-id="${esc(id)}">Recover</button>
+        <button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}" title="Restart with a FRESH context (discards native session)">Reset</button>
         ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
         ${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}
         ${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}
@@ -2086,11 +2117,12 @@ function openAgentDrawer(agentId) {
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   const actions = [
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
-    sid ? `<button class="ghost" data-agent-control="recover" data-session="${esc(sid)}">Recover</button>` : '',
+    sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}" title="Restart with a FRESH context (discards native session)">Reset</button>` : '',
     sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
+    `<button class="ghost" data-agent-edit="${esc(id)}">Edit…</button>`,
     sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
     `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
@@ -2111,6 +2143,44 @@ function openAgentDrawer(agentId) {
   state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+// I3 — edit agent identity: rename, description, native session handle.
+function openAgentEditForm(agentId) {
+  const agent = state.agents.find((a) => a.id === agentId) || { id: agentId };
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer continue-form">
+      <div class="agent-drawer-head"><strong>Edit ${esc(agentId)}</strong></div>
+      <label class="settings-label">Agent ID (rename)<input id="edit-agent-id" type="text" value="${esc(agentId)}"></label>
+      <label class="settings-label">Description<input id="edit-agent-desc" type="text" value="${esc(agent.description || '')}" placeholder="Short role/description"></label>
+      <label class="settings-label">Native session handle<input id="edit-agent-handle" type="text" value="${esc(agent.sessionHandle || agent.session_handle || '')}" placeholder="Claude/Codex/Pi session id — blank clears"></label>
+      <div class="agent-drawer-actions"><button class="primary" data-agent-edit-submit="${esc(agentId)}">Save changes</button></div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'agent-edit', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
+async function submitAgentEdit(agentId) {
+  const agent = state.agents.find((a) => a.id === agentId) || {};
+  const newId = byId('edit-agent-id')?.value.trim() || agentId;
+  const desc = byId('edit-agent-desc')?.value ?? '';
+  const handle = byId('edit-agent-handle')?.value.trim() ?? '';
+  try {
+    if (desc !== (agent.description || '')) {
+      await api(`/agents/${encodeURIComponent(agentId)}/description`, { method: 'PATCH', body: JSON.stringify({ description: desc }) });
+    }
+    if (handle !== String(agent.sessionHandle || agent.session_handle || '')) {
+      await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
+    }
+    if (newId && newId !== agentId) {
+      if (!await uiConfirm(`Rename "${agentId}" → "${newId}"? Chats/sessions/records move to the new id.`)) return;
+      await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
+    }
+    toast('Agent updated', 'ok');
+    closeInspector();
+    await refresh();
+  } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
 }
 
 // F8 — message detail surface in the inspector.
@@ -2268,7 +2338,7 @@ async function requestSessionControl(sessionId, action, confirmAction = true, re
   const labels = {
     stop: 'stop this session',
     restart: 'restart this session using its saved backing',
-    recover: 'recover this session using its saved backing',
+    recreate: 'RESET this session with a fresh context (the current native session is discarded)',
   };
   if (!sessionId || !action) return;
   if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`)) return;
@@ -2717,6 +2787,10 @@ document.addEventListener('click', (event) => {
   if (agentContinue) { openContinueForm(agentContinue.dataset.agentContinue, true); return; }
   const continueSubmit = event.target.closest('[data-continue-submit]');
   if (continueSubmit) { submitContinue(continueSubmit.dataset.continueSubmit, continueSubmit.dataset.split === '1'); return; }
+  const agentEdit = event.target.closest('[data-agent-edit]');
+  if (agentEdit) { openAgentEditForm(agentEdit.dataset.agentEdit); return; }
+  const agentEditSubmit = event.target.closest('[data-agent-edit-submit]');
+  if (agentEditSubmit) { submitAgentEdit(agentEditSubmit.dataset.agentEditSubmit); return; }
   const agentRemove = event.target.closest('[data-agent-remove]');
   if (agentRemove) { removeAgent(agentRemove.dataset.agentRemove); return; }
   const agentDeleteSession = event.target.closest('[data-agent-delete-session]');
@@ -2727,6 +2801,10 @@ document.addEventListener('click', (event) => {
       .catch((err) => toast(`Channel action failed: ${err?.message || err}`, 'error'));
     return;
   }
+  const chanAddMember = event.target.closest('[data-channel-add-member]');
+  if (chanAddMember) { addChannelMember(chanAddMember.dataset.channelAddMember); return; }
+  const chanRemoveMember = event.target.closest('[data-channel-remove-member]');
+  if (chanRemoveMember) { removeChannelMember(chanRemoveMember.dataset.channelRemoveMember, chanRemoveMember.dataset.member); return; }
   const fileDelete = event.target.closest('[data-file-delete]');
   if (fileDelete) {
     deleteSharedFile(fileDelete.dataset.fileDelete)

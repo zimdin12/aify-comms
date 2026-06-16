@@ -1193,6 +1193,12 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .chat-msg-reply, .chat-msg-detail, .chat-msg-act { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; min-height: auto; font-size: .76em; }
 .chat-msg-reply:hover, .chat-msg-detail:hover, .chat-msg-act:hover { color: var(--accent-text); transform: none; }
 .chat-msg-act.danger:hover { color: var(--red); }
+/* I7 channel member chips + add control. */
+.chat-add-member { min-height: 30px; font-size: .8em; max-width: 150px; }
+.chat-member-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; flex-basis: 100%; }
+.chat-member-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 9px; font-size: .76em; color: var(--soft); }
+.chat-member-chip button { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 3px; min-height: auto; font-size: .9em; }
+.chat-member-chip button:hover { color: var(--red); transform: none; }
 .chat-reply-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--accent-softer); border: 1px solid var(--accent-border); border-radius: 8px; padding: 6px 10px; margin: 0 0 8px; font-size: .82em; color: var(--soft); }
 .chat-reply-banner button { padding: 2px 7px; min-height: auto; }
 .continue-form label.settings-label { display: grid; gap: 4px; margin-bottom: 10px; font-size: .82em; }
