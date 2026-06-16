@@ -929,3 +929,11 @@ small, .subtle { color: var(--muted); }
 .an-runs { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .82em; margin: 0; }
 .an-runs dt { color: var(--muted); }
 .an-runs dd { margin: 0; }
+
+/* Agent-detail drawer (Phase 1.3) — rendered into the shared inspector. */
+.agent-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.agent-drawer-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .85em; margin: 0 0 14px; }
+.agent-drawer-kv dt { color: var(--muted); }
+.agent-drawer-kv dd { margin: 0; word-break: break-word; }
+.agent-drawer-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.agent-drawer-actions button { padding: 6px 11px; font-size: .82em; }

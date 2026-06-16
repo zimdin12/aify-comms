@@ -1592,6 +1592,43 @@ async function inspect(kind, payload) {
   openInspector();
 }
 
+// Agent-detail drawer (Phase 1.3): ONE drawer (the shared inspector) surfacing an agent's
+// session/runtime/status + the key lifecycle actions, reusing the existing control functions
+// — no duplicated action surface (the 8800 triplication the plan kills). Reachable from chat.
+function openAgentDrawer(agentId) {
+  const id = String(agentId || '').trim();
+  if (!id) return;
+  const agent = state.agents.find((a) => a.id === id) || { id };
+  const session = sessionForAgent(id);
+  const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
+  const sid = session ? sessionId(session) : '';
+  const mode = String(agent.sessionMode || (session && session.mode) || 'resident').toLowerCase();
+  const otherMode = mode === 'managed' ? 'resident' : 'managed';
+  const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+  const actions = [
+    sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
+    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop</button>` : '',
+    `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
+    `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
+  ].filter(Boolean).join('');
+  byId('inspector-content').innerHTML = `
+    <div class="agent-drawer">
+      <div class="agent-drawer-head"><strong>${esc(id)}</strong>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</div>
+      <dl class="chat-kv agent-drawer-kv">
+        ${row('Runtime', esc(agent.runtime || (session && sessionRuntime(session)) || '—'))}
+        ${row('Mode', esc(mode))}
+        ${row('Environment', esc((env && (env.label || env.id)) || sessionEnvironmentId(session) || '—'))}
+        ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}
+        ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
+        ${row('Machine', esc(agent.machineId || '—'))}
+      </dl>
+      <div class="agent-drawer-actions">${actions}</div>
+    </div>`;
+  state.inspector = { ...state.inspector, kind: 'agent', runId: '' };
+  byId('inspector')?.classList.add('open');
+  byId('inspector')?.classList.remove('run-inspector-sheet');
+}
+
 function openInspector(request) {
   if (request && request.kind === 'run' && request.runId && state.inspector.runId !== String(request.runId)) {
     openRunInspector(request);
@@ -1967,6 +2004,31 @@ document.addEventListener('click', (event) => {
   const chatAnalytics = event.target.closest('[data-chat-analytics]');
   if (chatAnalytics) {
     chatController.openAnalytics(chatAnalytics.dataset.chatAnalytics);
+    return;
+  }
+  const agentDrawer = event.target.closest('[data-agent-drawer]');
+  if (agentDrawer) {
+    openAgentDrawer(agentDrawer.dataset.agentDrawer);
+    return;
+  }
+  const agentControl = event.target.closest('[data-agent-control]');
+  if (agentControl) {
+    requestSessionControl(agentControl.dataset.session, agentControl.dataset.agentControl)
+      .catch((err) => toast(`Action failed: ${err?.message || err}`, 'error'));
+    return;
+  }
+  const agentMode = event.target.closest('[data-agent-mode]');
+  if (agentMode) {
+    switchAgentSessionMode(agentMode.dataset.agent, agentMode.dataset.agentMode)
+      .catch((err) => toast(`Mode switch failed: ${err?.message || err}`, 'error'));
+    return;
+  }
+  const agentOpenSessions = event.target.closest('[data-agent-open-sessions]');
+  if (agentOpenSessions) {
+    const sid = agentOpenSessions.dataset.agentOpenSessions;
+    if (sid) { state.selectedSessionId = sid; renderSessionWorkspace(); }
+    setPage('sessions');
+    closeInspector();
     return;
   }
   const chanAction = event.target.closest('[data-chat-channel-action]');

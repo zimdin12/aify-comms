@@ -206,7 +206,8 @@ export function createChatController(deps) {
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
           + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`;
       } else {
-        actions.innerHTML = `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
+        actions.innerHTML = `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
+          + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
     }
     const msgs = isChannel
