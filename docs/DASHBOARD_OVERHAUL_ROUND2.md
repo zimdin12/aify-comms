@@ -35,7 +35,7 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
 - [x] H2. Per-message search within a conversation (+ match banner); dedicated global message-search results.
 - [x] H3. Runs: from-agent / to-agent / runtime filter selects + dedicated runs search (id/from/merged/target/subject/summary/error).
 - [x] H4. Sessions: status All/None/Live presets + persist filter + group collapse + select-all (visible/stoppable/deletable).
-- [ ] H5. Work Loop: category filter (direct/channel/self_wake) + missing state options + show-closed + priority sort.
+- [x] H5. Work Loop: category filter (direct/channel/self_wake) + missing state options + show-closed + priority sort.
 - [x] H6. Global "Find": extend scope to sessions/agents (placeholder promises it).
 
 ## WS-I — Feature parity (top capability gaps, audit Top-20)

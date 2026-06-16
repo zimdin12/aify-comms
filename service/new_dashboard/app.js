@@ -518,7 +518,7 @@ function renderAll() {
   renderSection('activity', [_runSig().map((r) => [r[0], r[1]]), _msgSig(), _contractSig().map((c) => [c[0], c[1]])], renderActivityFeed);
   renderDiagnosticsSummary();
   renderDiagnosticsBulkToolbar();
-  renderSection('contracts', [_contractSig(), byId('contract-state')?.value || '', f], renderContracts);
+  renderSection('contracts', [_contractSig(), byId('contract-state')?.value || '', byId('contract-category')?.value || '', f], renderContracts);
   renderSection('envSummary', [_envSig()], renderEnvironmentSummary);
   renderEnvironmentSpawnOptions();
   renderSection('runtime', [_envSig()], renderRuntime);
@@ -1724,11 +1724,19 @@ function renderSessionWorkspace() {
 // surfaced by the session rail + chat workspace instead. Removed; their landing surface
 // returns as the chat-first slice (Phase 1).
 
+function contractCategory(c) {
+  return String(c.category || c.kind || (c.channel ? 'channel' : c.selfWake || c.self_wake ? 'self_wake' : 'direct')).toLowerCase();
+}
 function renderContracts() {
   const selected = byId('contract-state').value || 'open';
+  const category = byId('contract-category')?.value || '';
   const contracts = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
-    .filter((contract) => selected === 'open' ? ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state) : contract.state === selected);
-  byId('contract-list').innerHTML = contracts.map(contractCard).join('') || '<div class="item">No contracts match this filter.</div>';
+    .filter((contract) => selected === 'all' ? true
+      : selected === 'open' ? ['overdue', 'working', 'queued', 'sent', 'seen'].includes(contract.state)
+      : contract.state === selected)
+    .filter((contract) => !category || contractCategory(contract) === category);
+  byId('contract-list').innerHTML = contracts.map(contractCard).join('')
+    || '<div class="empty-state"><span class="empty-icon">✓</span><strong>No contracts match</strong><p>No reply obligations in this filter.</p></div>';
   renderDiagnosticsBulkToolbar();
 }
 
@@ -2851,6 +2859,7 @@ byId('global-filter').addEventListener('input', (event) => {
   renderSessionWorkspace(); // WS-H6: Find also narrows the Sessions rail
 });
 byId('contract-state').addEventListener('change', renderContracts);
+byId('contract-category')?.addEventListener('change', renderContracts);
 byId('run-status-filter').addEventListener('change', async (event) => {
   byId('api-status').textContent = 'filtering';
   byId('api-status').className = 'status-chip muted';

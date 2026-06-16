@@ -222,14 +222,28 @@
               <button id="send-reminders" class="primary" title="Runs existing due-reminder endpoint">Send Due Reminders</button>
             </div>
             <div class="toolbar">
-              <select id="contract-state">
-                <option value="open">Open</option>
-                <option value="overdue">Overdue</option>
-                <option value="working">Working</option>
-                <option value="queued">Queued</option>
-                <option value="answered">Answered</option>
-                <option value="failed">Failed</option>
-              </select>
+              <label><span class="subtle">State</span>
+                <select id="contract-state">
+                  <option value="all">All states</option>
+                  <option value="open" selected>Open</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="working">Working</option>
+                  <option value="queued">Queued</option>
+                  <option value="seen">Seen</option>
+                  <option value="sent">Sent</option>
+                  <option value="missing_reply">Missing reply</option>
+                  <option value="answered">Answered</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+              <label><span class="subtle">Category</span>
+                <select id="contract-category">
+                  <option value="">All</option>
+                  <option value="direct">Direct</option>
+                  <option value="channel">Channel</option>
+                  <option value="self_wake">Self-wake</option>
+                </select>
+              </label>
             </div>
             <div id="contract-list" class="contract-list"></div>
           </div>
