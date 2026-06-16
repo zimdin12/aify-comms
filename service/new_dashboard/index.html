@@ -175,10 +175,10 @@
           </div>
           <form id="environment-spawn-form">
             <div class="environment-spawn-grid">
-              <select id="env-spawn-environment" title="Environment"></select>
-              <select id="env-spawn-runtime" title="Runtime"></select>
-              <input id="env-spawn-agent-id" placeholder="Agent ID">
-              <select id="env-spawn-role" title="Role">
+              <label class="spawn-field"><span>Environment</span><select id="env-spawn-environment"></select></label>
+              <label class="spawn-field"><span>Runtime</span><select id="env-spawn-runtime"></select></label>
+              <label class="spawn-field"><span>Agent ID</span><input id="env-spawn-agent-id" placeholder="e.g. coder-1"></label>
+              <label class="spawn-field"><span>Role</span><select id="env-spawn-role">
                 <option value="coder">coder</option>
                 <option value="reviewer">reviewer</option>
                 <option value="tester">tester</option>
@@ -186,10 +186,10 @@
                 <option value="architect">architect</option>
                 <option value="manager">manager</option>
                 <option value="operator">operator</option>
-              </select>
-              <input id="env-spawn-workspace" placeholder="Workspace">
-              <input id="env-spawn-prompt" placeholder="Initial task (optional)">
-              <button class="primary" type="submit">Spawn</button>
+              </select></label>
+              <label class="spawn-field"><span>Workspace</span><input id="env-spawn-workspace" placeholder="Project folder"></label>
+              <label class="spawn-field"><span>Initial task <em>(optional)</em></span><input id="env-spawn-prompt" placeholder="First instruction"></label>
+              <div class="spawn-field spawn-submit"><button class="primary" type="submit">Spawn</button></div>
             </div>
           </form>
           <p class="preview">Spawn starts a fresh session. To keep existing context, use Compact or Continue&nbsp;as from an agent's Details drawer (Chat → Details, or Sessions).</p>
@@ -270,10 +270,10 @@
             <span class="subtle">artifacts shared via comms_share</span>
           </div>
           <form id="files-upload-form" class="files-upload">
-            <input id="files-upload-input" type="file">
-            <input id="files-upload-name" type="text" placeholder="Name (optional — defaults to filename)">
-            <input id="files-upload-desc" type="text" placeholder="Description (optional)">
-            <button type="submit" class="primary">Upload</button>
+            <label class="spawn-field"><span>File</span><input id="files-upload-input" type="file"></label>
+            <label class="spawn-field"><span>Name <em>(optional)</em></span><input id="files-upload-name" type="text" placeholder="Defaults to filename"></label>
+            <label class="spawn-field"><span>Description <em>(optional)</em></span><input id="files-upload-desc" type="text" placeholder="Short note"></label>
+            <div class="spawn-field spawn-submit"><button type="submit" class="primary">Upload</button></div>
           </form>
         </section>
         <div id="files-list" class="files-list scroll-region"></div>

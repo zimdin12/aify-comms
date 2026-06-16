@@ -328,14 +328,21 @@ small, .subtle { color: var(--muted); }
 .environment-spawn { margin-bottom: 12px; }
 .environment-spawn-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 14px;
   align-items: end;
 }
 .environment-spawn-grid input,
 .environment-spawn-grid select {
   min-width: 0;
 }
+/* Labeled form field (spawn + upload): label above a full-width control. */
+.spawn-field { display: grid; gap: 5px; min-width: 0; }
+.spawn-field > span { font-size: .78em; color: var(--muted); font-weight: 600; }
+.spawn-field > span em { font-style: normal; color: var(--muted); opacity: .8; font-weight: 400; }
+.spawn-field > input, .spawn-field > select { width: 100%; min-height: 40px; }
+.spawn-field.spawn-submit { align-self: end; }
+.spawn-field.spawn-submit button { width: 100%; min-height: 40px; }
 .diagnostics-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -400,8 +407,8 @@ small, .subtle { color: var(--muted); }
 .message { max-width: 900px; }
 .composer { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 10px; margin-top: 12px; align-items: end; }
 .composer-options { display: grid; gap: 8px; }
-.check-row { display: flex; gap: 8px; align-items: center; color: var(--muted); }
-.check-row input { min-height: 0; }
+.check-row { display: flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; }
+.check-row input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
 .inspector {
   position: fixed;
   inset: 0 0 0 auto;
