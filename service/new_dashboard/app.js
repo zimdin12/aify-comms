@@ -1007,12 +1007,18 @@ function agentForSession(session) {
 function groupedSessionsByEnvironment() {
   const groups = new Map();
   const filter = state.sessionStatusFilter;
+  const find = state.filter.trim().toLowerCase();
   state.sessions.forEach((session) => {
     // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
     if (filter && filter.size) {
       const agent = agentForSession(session);
       const kind = resolveStatus(session.status || agent.status || 'unknown').kind;
       if (!filter.has(kind)) return;
+    }
+    // WS-H6: the top-bar global Find also narrows Sessions (id / agent / workspace / runtime).
+    if (find) {
+      const hay = [sessionId(session), sessionAgentId(session), session.workspace || session.cwd, sessionRuntime(session), sessionEnvironmentId(session)].join(' ').toLowerCase();
+      if (!hay.includes(find)) return;
     }
     const envId = sessionEnvironmentId(session);
     if (!groups.has(envId)) {
@@ -1098,12 +1104,22 @@ function renderSessionBulkToolbar() {
 
 // WS-F: status multiselect filter chips for the Sessions rail.
 const SESSION_FILTER_KINDS = ['working', 'online', 'idle', 'available', 'blocked', 'stale', 'offline', 'stopped'];
+const SESSION_LIVE_KINDS = ['working', 'online', 'idle', 'available', 'blocked'];
 function renderSessionStatusFilter() {
   const host = byId('session-status-filter');
   if (!host) return;
-  host.innerHTML = SESSION_FILTER_KINDS.map((k) =>
+  const presets = `<span class="filter-presets">`
+    + `<button type="button" class="filter-preset" data-session-status-preset="all">All</button>`
+    + `<button type="button" class="filter-preset" data-session-status-preset="none">None</button>`
+    + `<button type="button" class="filter-preset" data-session-status-preset="live">Live</button>`
+    + `</span>`;
+  host.innerHTML = presets + SESSION_FILTER_KINDS.map((k) =>
     `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}">${k}</button>`
   ).join('');
+}
+
+function persistSessionStatusFilter() {
+  try { localStorage.setItem('aifySessionStatusFilter', JSON.stringify([...state.sessionStatusFilter])); } catch { /* ignore */ }
 }
 
 function renderSessionRail() {
@@ -2616,11 +2632,20 @@ document.addEventListener('click', (event) => {
     closeInspector();
     return;
   }
+  const sessionStatusPreset = event.target.closest('[data-session-status-preset]');
+  if (sessionStatusPreset) {
+    const which = sessionStatusPreset.dataset.sessionStatusPreset;
+    state.sessionStatusFilter = new Set(which === 'all' ? SESSION_FILTER_KINDS : which === 'live' ? SESSION_LIVE_KINDS : []);
+    persistSessionStatusFilter();
+    renderSessionWorkspace();
+    return;
+  }
   const sessionStatusFilter = event.target.closest('[data-session-status-filter]');
   if (sessionStatusFilter) {
     const k = sessionStatusFilter.dataset.sessionStatusFilter;
     if (state.sessionStatusFilter.has(k)) state.sessionStatusFilter.delete(k);
     else state.sessionStatusFilter.add(k);
+    persistSessionStatusFilter();
     renderSessionWorkspace();
     return;
   }
@@ -2823,6 +2848,7 @@ byId('refresh').addEventListener('click', refresh);
 byId('global-filter').addEventListener('input', (event) => {
   state.filter = event.target.value;
   renderAll();
+  renderSessionWorkspace(); // WS-H6: Find also narrows the Sessions rail
 });
 byId('contract-state').addEventListener('change', renderContracts);
 byId('run-status-filter').addEventListener('change', async (event) => {
@@ -2876,6 +2902,10 @@ document.addEventListener('submit', (event) => {
 byId('chat-filter')?.addEventListener('input', (event) => {
   state.chat.filter = event.target.value;
   chatController.renderRail();
+});
+byId('chat-msg-search')?.addEventListener('input', (event) => {
+  state.chat.msgFilter = event.target.value;
+  chatController.renderConversation();
 });
 byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
@@ -3004,6 +3034,7 @@ async function loadVersionBadge() {
 installRejectionToast();
 applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings
 try { state.settingsTab = localStorage.getItem('aifySettingsTab') || ''; } catch { /* ignore */ }
+try { const sf = JSON.parse(localStorage.getItem('aifySessionStatusFilter') || '[]'); if (Array.isArray(sf)) state.sessionStatusFilter = new Set(sf); } catch { /* ignore */ }
 loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();

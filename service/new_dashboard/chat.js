@@ -205,6 +205,8 @@ export function createChatController(deps) {
     const titleEl = byId('chat-conv-title');
     const timeline = byId('chat-timeline');
     if (!timeline) return;
+    const msgSearch = byId('chat-msg-search');
+    if (msgSearch) msgSearch.hidden = true; // shown only in the message view below
     // Analytics view survives polls/re-renders (state-tracked, not a one-shot DOM write).
     const an = state.chat.analytics || {};
     if (an.agent) {
@@ -245,16 +247,24 @@ export function createChatController(deps) {
           + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
     }
-    const msgs = isChannel
+    const allMsgs = isChannel
       ? (state.chat.channelMessages?.[id] || [])
       : dmMessages(state.messages, id, state.chat.identity);
+    // Per-message search within the open conversation (WS-H2).
+    const msgFilter = String(state.chat.msgFilter || '').trim().toLowerCase();
+    const search = byId('chat-msg-search');
+    if (search) { search.hidden = false; if (document.activeElement !== search && search.value !== (state.chat.msgFilter || '')) search.value = state.chat.msgFilter || ''; }
+    const msgs = msgFilter
+      ? allMsgs.filter((m) => `${m.from || ''} ${m.subject || ''} ${m.body || m.preview || ''}`.toLowerCase().includes(msgFilter))
+      : allMsgs;
     // Follow-bottom: only auto-scroll to the newest message if the operator was already near
     // the bottom — don't yank them down while they're reading scrollback.
     const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
-    timeline.innerHTML = msgs.length
-      ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('')
+    const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
+    timeline.innerHTML = allMsgs.length
+      ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
-    if (nearBottom) timeline.scrollTop = timeline.scrollHeight;
+    if (nearBottom && !msgFilter) timeline.scrollTop = timeline.scrollHeight;
     const composer = byId('chat-composer');
     if (composer) composer.hidden = false;
     // Reply-context banner: when replying to a message, show what we're replying to + a clear button.

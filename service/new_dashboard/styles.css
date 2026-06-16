@@ -1227,6 +1227,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .runs-search-field input { width: 100%; }
 .chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
 .chat-rail-toggles .check-row { font-size: .8em; }
+.chat-msg-search { max-width: 200px; min-height: 34px; }
+.chat-search-banner { color: var(--muted); font-size: .8em; margin: 0 0 8px; padding: 4px 8px; background: var(--panel-3); border-radius: 8px; }
+.filter-presets { display: inline-flex; gap: 3px; margin-right: 6px; }
+.filter-preset { padding: 3px 9px; min-height: 26px; font-size: .72em; border-radius: 999px; color: var(--muted); }
+.filter-preset:hover { color: var(--soft); }
 /* WS-F chat attach button. */
 .chat-attach { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach input[type="file"] { display: none; }
