@@ -4,6 +4,7 @@
 import { esc, relTime } from './util.js';
 import { STATUS_KINDS, resolveStatus, renderStatusChip, renderStatusDot } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
+import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -1101,51 +1102,12 @@ function renderSessionWorkspace() {
   renderSessionConsole(session);
 }
 
-function renderAgents() {
-  const agents = filtered(state.agents, ['id', 'name', 'role', 'runtime', 'status']).slice(0, 18);
-  byId('agent-list').innerHTML = agents.map((agent) => `
-    <article class="agent" data-kind="agent" data-id="${esc(agent.id)}">
-      ${renderStatusDot(agent.status)}
-      <div>
-        <strong>${esc(agent.id)}</strong>
-        <p class="preview">${esc(agent.runtime || 'runtime')} · ${esc(agent.sessionMode || '')} · ${esc(agent.machineId || '')}</p>
-      </div>
-      ${renderStatusChip(agent.status, statusWhyContext('agent', agent, agent.status))}
-    </article>`).join('');
-}
-
-function renderMessages() {
-  const messages = filtered(state.messages, ['from', 'subject', 'preview', 'body']).slice(0, 10);
-  byId('message-list').innerHTML = messages.map((message) => `
-    <article class="item" data-kind="message" data-id="${esc(message.id)}">
-      <div class="item-title">
-        <strong class="clip">${esc(message.subject || '(no subject)')}</strong>
-        ${renderStatusChip(message.read ? 'completed' : 'queued', { label: message.read ? 'read' : 'unread', why: `Message is ${message.read ? 'read' : 'unread'} from ${message.from || 'unknown'}.` })}
-      </div>
-      <p class="preview">${esc(message.preview || message.body || '')}</p>
-      <small>${esc(message.from)} · ${relTime(message.createdAt || message.timestamp || message.time)} ago</small>
-    </article>`).join('');
-}
-
-function renderConversations() {
-  const agents = state.agents.filter((a) => a.id !== 'dashboard').slice(0, 50);
-  byId('conversation-count').textContent = `${agents.length} agents`;
-  byId('conversation-list').innerHTML = [
-    `<button class="nav-item ${state.selectedConversation === 'dashboard' ? 'active' : ''}" data-conversation="dashboard">Dashboard Inbox</button>`,
-    ...agents.map((agent) => `<button class="nav-item ${state.selectedConversation === agent.id ? 'active' : ''}" data-conversation="${esc(agent.id)}">${esc(agent.id)} <small>${esc(resolveStatus(agent.status).label)}</small></button>`),
-  ].join('');
-  const title = state.selectedConversation === 'dashboard' ? 'Dashboard Inbox' : state.selectedConversation;
-  byId('conversation-title').textContent = title;
-  const messages = state.selectedConversation === 'dashboard'
-    ? state.messages
-    : state.messages.filter((message) => message.from === state.selectedConversation);
-  byId('conversation-messages').innerHTML = messages.slice(0, 30).map((message) => `
-    <article class="message" data-kind="message" data-id="${esc(message.id)}">
-      <div class="item-title"><strong>${esc(message.from)}</strong><span class="status-chip muted">${esc(message.type)}</span></div>
-      <h3>${esc(message.subject || '(no subject)')}</h3>
-      <p class="preview">${esc(message.body || message.preview || '')}</p>
-    </article>`).join('') || '<div class="message">No loaded messages for this conversation.</div>';
-}
+// (Phase 0.2 dead-code removal, 2026-06-16) renderAgents / renderMessages /
+// renderConversations were never called by renderAll and targeted DOM ids that
+// don't exist in index.html (agent-list / message-list / conversation-list) — they
+// would null-crash if wired naively. Their data (agents/messages/conversations) is
+// surfaced by the session rail + chat workspace instead. Removed; their landing surface
+// returns as the chat-first slice (Phase 1).
 
 function renderContracts() {
   const selected = byId('contract-state').value || 'open';
@@ -1241,26 +1203,9 @@ function renderRuns() {
   renderDiagnosticsBulkToolbar();
 }
 
-function renderAnalytics() {
-  byId('analytics-grid').innerHTML = [
-    metric('Messages today', state.stats.messages_today || 0),
-    metric('Completed runs 24h', state.stats.completed_runs_24h || 0),
-    metric('Run failures 24h', state.stats.run_failures_24h || 0),
-    metric('Unread messages', state.stats.unread_messages || 0),
-    metric('Online environments', state.environments.filter((e) => resolveStatus(e.status).kind === 'online').length),
-  ].join('');
-  const counts = state.stats.dispatch_runs_by_status || state.runs.reduce((acc, run) => {
-    acc[run.status || 'unknown'] = (acc[run.status || 'unknown'] || 0) + 1;
-    return acc;
-  }, {});
-  const max = Math.max(1, ...Object.values(counts));
-  byId('run-status-mix').innerHTML = Object.entries(counts).map(([status, count]) => `
-    <div class="bar-row">
-      <span>${esc(status)}</span>
-      <div class="bar-track"><div class="bar-fill" style="width:${Math.round((count / max) * 100)}%"></div></div>
-      <b>${count}</b>
-    </div>`).join('');
-}
+// (Phase 0.2 dead-code removal, 2026-06-16) renderAnalytics was never called and targeted
+// analytics-grid / run-status-mix (absent from index.html). The analytics surface returns as
+// a tab on the Control Room slice (Phase 1) consuming GET /analytics + GET /analytics/agent/{id}.
 
 async function loadRunDetails(runId) {
   const result = await api(`/dispatch/runs/${encodeURIComponent(runId)}`);
@@ -1459,7 +1404,7 @@ function preferredNavCollapsed() {
 }
 
 async function requestRunControl(runId) {
-  const body = prompt('Steer this active run');
+  const body = await uiPrompt('Steer this active run');
   if (!body) return;
   await api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
     method: 'POST',
@@ -1475,7 +1420,7 @@ async function requestSessionControl(sessionId, action, confirmAction = true, re
     recover: 'recover this session using its saved backing',
   };
   if (!sessionId || !action) return;
-  if (confirmAction && !confirm(`Really ${labels[action] || action}?`)) return;
+  if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`)) return;
   await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
     method: 'POST',
     body: JSON.stringify({
@@ -1490,7 +1435,7 @@ async function requestSessionControl(sessionId, action, confirmAction = true, re
 async function requestBulkSessionControl(action) {
   const ids = selectedSessionIds();
   if (!ids.length || !action) return;
-  if (!confirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;
+  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;
   for (const id of ids) {
     await requestSessionControl(id, action, false, false);
   }
@@ -1506,7 +1451,7 @@ async function patchRun(runId, payload) {
 }
 
 async function closeWorkContract(runId, confirmAction = true, refreshAfter = true) {
-  if (confirmAction && !confirm('Close this Work Loop contract as operator-reviewed?')) return;
+  if (confirmAction && !await uiConfirm('Close this Work Loop contract as operator-reviewed?')) return;
   await patchRun(runId, {
     status: 'completed',
     requireReply: false,
@@ -1547,7 +1492,7 @@ async function requestBulkDiagnosticAction(action) {
     return;
   }
   if (action === 'close') {
-    if (!confirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
+    if (!await uiConfirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
     for (const item of selected) {
       if (item.kind === 'contract') {
         await closeWorkContract(item.id, false, false);
@@ -1661,27 +1606,27 @@ async function handleRunInspectorControl(action) {
     return;
   }
   if (action === 'steer') {
-    const body = prompt('Steer this active run');
+    const body = await uiPrompt('Steer this active run');
     if (!body) return;
     await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
       method: 'POST',
       body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
     });
   } else if (action === 'interrupt') {
-    if (!confirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    if (!await uiConfirm(`Interrupt this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
     await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
       method: 'POST',
       body: JSON.stringify({ from_agent: 'dashboard', action: 'interrupt', body: 'Interrupted from Dashboard Next run inspector.' }),
     });
   } else if (action === 'queue-after') {
-    const body = prompt('Queue a follow-up after this run');
+    const body = await uiPrompt('Queue a follow-up after this run');
     if (!body) return;
     await sendRunFollowup(run, { body });
   } else if (action === 'retry') {
-    if (!confirm(`Retry this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    if (!await uiConfirm(`Retry this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
     await sendRunFollowup(run, { retry: true });
   } else if (action === 'close') {
-    if (!confirm('Close this run as operator-reviewed?')) return;
+    if (!await uiConfirm('Close this run as operator-reviewed?')) return;
     await patchRun(run.id, {
       status: 'completed',
       requireReply: false,
@@ -1881,11 +1826,6 @@ document.addEventListener('click', (event) => {
     requestBulkSessionControl(bulkSessionButton.dataset.bulkSessionAction);
     return;
   }
-  const conversation = event.target.closest('[data-conversation]')?.dataset.conversation;
-  if (conversation) {
-    state.selectedConversation = conversation;
-    renderConversations();
-  }
   const runChip = event.target.closest('[data-run-chip]');
   if (runChip) {
     openRunInspector({ runId: runChip.dataset.runChip, source: 'chat', sourceMessageId: runChip.dataset.messageId || '' });
@@ -2047,6 +1987,7 @@ byId('inspector').addEventListener('touchend', (event) => {
   }
 }, { passive: true });
 
+installRejectionToast();
 updateStaticLinks();
 setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();

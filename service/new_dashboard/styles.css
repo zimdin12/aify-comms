@@ -789,3 +789,44 @@ small, .subtle { color: var(--muted); }
   }
   .run-event-list { max-height: 48vh; }
 }
+
+/* Toasts + inline dialogs (Phase 0.5) — promise-based, themed, replacing the browser's
+   blocking prompt()/confirm(). DOM is created lazily by ui.js. */
+.toast-host {
+  position: fixed; right: 18px; bottom: 18px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 8px; max-width: min(380px, 92vw);
+}
+.toast {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-left: 3px solid var(--muted); border-radius: 10px; padding: 10px 13px;
+  box-shadow: var(--shadow); font-size: .86em; cursor: pointer;
+  opacity: 0; transform: translateY(8px); transition: opacity .18s ease, transform .18s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-ok { border-left-color: var(--green); }
+.toast-warn { border-left-color: var(--amber); }
+.toast-error { border-left-color: var(--red); }
+.toast-info { border-left-color: var(--blue); }
+
+.dialog-overlay {
+  position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55); padding: 18px; backdrop-filter: blur(2px);
+}
+.dialog {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 20px; width: min(460px, 100%);
+}
+.dialog-title { margin: 0 0 8px; font-size: 1.02em; }
+.dialog-message { margin: 0 0 14px; color: var(--soft); white-space: pre-wrap; line-height: 1.45; }
+.dialog-input {
+  width: 100%; background: var(--panel-3); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 9px 11px; font-size: .9em; margin-bottom: 14px;
+}
+.dialog-input:focus { outline: none; border-color: var(--teal); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-confirm.danger { background: var(--red); border-color: var(--red); color: #1b0608; }
+@media (max-width: 414px) {
+  .toast-host { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+  .dialog-actions { flex-direction: column-reverse; }
+  .dialog-actions button { width: 100%; min-height: 44px; }
+}
