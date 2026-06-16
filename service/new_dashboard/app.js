@@ -127,6 +127,27 @@ const chatController = createChatController({
   loadConversation: chatLoadConversation,
 });
 
+// Channels management (Phase 1.4): create/join/leave/read scoped to the viewing identity.
+async function chatCreateChannel(name) {
+  const clean = String(name || '').trim();
+  if (!clean) return;
+  await api('/channels', { method: 'POST', body: JSON.stringify({ name: clean, createdBy: state.chat.identity }) });
+  await chatLoadChannels();
+  state.chat.selected = `channel:${clean}`;
+  try { await chatLoadConversation(clean); } catch (_) {}
+  chatController.render();
+  toast(`Created #${clean}`, 'ok');
+}
+async function chatChannelAction(action, name) {
+  const identity = state.chat.identity;
+  if (action === 'join') await api(`/channels/${encodeURIComponent(name)}/join`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+  else if (action === 'leave') await api(`/channels/${encodeURIComponent(name)}/leave`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+  else if (action === 'read') await api(`/channels/${encodeURIComponent(name)}/read`, { method: 'POST', body: JSON.stringify({ agentId: identity }) });
+  await chatLoadChannels();
+  chatController.render();
+  toast(`${action === 'read' ? 'Marked read' : action === 'join' ? 'Joined' : 'Left'} #${name}`, 'ok');
+}
+
 function statusWhyContext(kind, item = {}, rawStatus = item.status || 'unknown', context = {}) {
   const base = resolveStatus(rawStatus, context);
   const parts = [];
@@ -1807,6 +1828,12 @@ document.addEventListener('click', (event) => {
     chatController.open(chatOpen.dataset.chatOpen);
     return;
   }
+  const chanAction = event.target.closest('[data-chat-channel-action]');
+  if (chanAction) {
+    chatChannelAction(chanAction.dataset.chatChannelAction, chanAction.dataset.channel)
+      .catch((err) => toast(`Channel action failed: ${err?.message || err}`, 'error'));
+    return;
+  }
   const openHermesTab = event.target.closest('[data-action="open-hermes-tab"]');
   if (openHermesTab) {
     const url = openHermesTab.dataset.url;
@@ -2019,6 +2046,14 @@ byId('chat-live-only')?.addEventListener('change', (event) => {
 byId('chat-composer')?.addEventListener('submit', (event) => {
   event.preventDefault();
   chatController.send();
+});
+byId('chat-new-channel-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = byId('chat-new-channel');
+  const name = (input?.value || '').trim();
+  if (!name) return;
+  chatCreateChannel(name).then(() => { if (input) input.value = ''; })
+    .catch((err) => toast(`Create channel failed: ${err?.message || err}`, 'error'));
 });
 
 byId('composer').addEventListener('submit', async (event) => {

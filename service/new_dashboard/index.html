@@ -78,12 +78,17 @@
                 </label>
                 <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
               </div>
+              <form id="chat-new-channel-form" class="chat-new-channel">
+                <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
+                <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+</button>
+              </form>
             </div>
             <div id="chat-rail-list" class="chat-rail-list"></div>
           </aside>
           <section class="chat-conversation">
             <div class="chat-conv-head">
               <h2 id="chat-conv-title">Select a conversation</h2>
+              <div id="chat-conv-actions" class="chat-conv-actions"></div>
             </div>
             <div id="chat-timeline" class="chat-timeline"></div>
             <form id="chat-composer" class="composer" hidden>

@@ -143,6 +143,23 @@ export function createChatController(deps) {
     const isChannel = key.startsWith('channel:');
     const id = key.slice(key.indexOf(':') + 1);
     if (titleEl) titleEl.textContent = isChannel ? `#${id}` : id;
+    // Channel management actions (join/leave/read) reflect membership for the viewing identity.
+    const actions = byId('chat-conv-actions');
+    if (actions) {
+      if (isChannel) {
+        const chan = (state.chat.channels || []).find((c) => c.name === id) || {};
+        const members = chan.members || [];
+        const isMember = members.includes(state.chat.identity);
+        const count = chan.memberCount ?? members.length;
+        actions.innerHTML = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
+          + (isMember
+            ? `<button class="ghost" data-chat-channel-action="leave" data-channel="${esc(id)}">Leave</button>`
+            : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
+          + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`;
+      } else {
+        actions.innerHTML = '';
+      }
+    }
     const msgs = isChannel
       ? (state.chat.channelMessages?.[id] || [])
       : dmMessages(state.messages, id, state.chat.identity);

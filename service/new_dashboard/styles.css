@@ -880,3 +880,12 @@ small, .subtle { color: var(--muted); }
   .chat-shell { grid-template-columns: 1fr; height: auto; }
   .chat-rail { max-height: 38vh; }
 }
+
+/* Channels management (Phase 1.4): rail create-control + conversation-header actions. */
+.chat-new-channel { display: flex; gap: 6px; }
+.chat-new-channel input { flex: 1; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 6px 8px; font-size: .8em; }
+.chat-new-channel button { flex: 0 0 auto; padding: 4px 11px; font-weight: 800; }
+.chat-conv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.chat-conv-actions { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.chat-members { font-size: .76em; color: var(--muted); }
+.chat-conv-actions button { padding: 4px 10px; font-size: .78em; }
