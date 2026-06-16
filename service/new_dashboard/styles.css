@@ -974,6 +974,7 @@ small, .subtle { color: var(--muted); }
 .settings-tab.active { color: var(--accent-text); border-bottom-color: var(--accent); }
 .settings-panel { display: none; }
 .settings-panel.active { display: block; padding: 4px 2px 2px; }
+.settings-panel-desc { color: var(--muted); font-size: .84em; margin: 6px 2px 2px; }
 
 /* Aligned field row: label (+hint) left, control right, divider between. */
 .settings-field {
@@ -1157,11 +1158,13 @@ button.ghost:hover { background: var(--panel-2); }
 .section-head h2 { font-weight: 800; letter-spacing: .2px; }
 
 /* E4 — directional chat bubbles + richer pill taxonomy. */
-.chat-msg { transition: border-color .14s ease; }
+/* Directional dialogue (WS-G9): my messages hug the right with an accent tint; others' hug the
+   left, neutral — so a conversation reads as a back-and-forth, not a flat list. */
+.chat-msg { transition: border-color .14s ease; max-width: 82%; align-self: flex-start; }
 .chat-msg-mine {
   background: color-mix(in srgb, var(--accent) 12%, var(--panel));
   border-color: var(--accent-border);
-  margin-left: 32px;
+  align-self: flex-end;
 }
 .chat-msg-mine .chat-msg-head strong { color: var(--accent-text); }
 .msg-badge.t-request { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
@@ -1196,8 +1199,25 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 
 /* WS-F sessions status filter chips. */
 .session-status-filter { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-.session-filter-chip { padding: 3px 9px; min-height: 28px; font-size: .74em; border-radius: 999px; text-transform: capitalize; }
+.session-filter-chip { padding: 3px 10px; min-height: 26px; font-size: .74em; border-radius: 999px; text-transform: capitalize; background: transparent; border-color: transparent; color: var(--muted); }
+.session-filter-chip:hover { color: var(--soft); background: var(--panel-2); }
 .session-filter-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 700; }
+
+/* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
+   designed empty states. */
+.session-row { padding: 7px 8px; }
+.session-row-body .mode-switch-chip { width: fit-content; padding: 3px 10px; min-height: 26px; font-size: .76em; }
+.session-row-body { gap: 4px; }
+.session-row .session-runtime-badge { margin-top: 1px; }
+.empty-state {
+  display: grid; justify-items: center; gap: 8px; text-align: center;
+  padding: 34px 20px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+.empty-state .empty-icon { font-size: 26px; opacity: .7; }
+.empty-state strong { color: var(--soft); font-weight: 650; }
+.empty-state p { font-size: .86em; max-width: 320px; }
+.empty-state button { margin-top: 2px; }
 /* WS-F chat attach button. */
 .chat-attach { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach input[type="file"] { display: none; }

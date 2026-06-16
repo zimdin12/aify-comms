@@ -199,7 +199,7 @@ export function createChatController(deps) {
     const key = state.chat.selected;
     if (!key) {
       if (titleEl) titleEl.textContent = 'Select a conversation';
-      timeline.innerHTML = '<div class="chat-empty">Pick a direct message or channel from the left to start.</div>';
+      timeline.innerHTML = '<div class="empty-state"><span class="empty-icon">💬</span><strong>Pick a conversation</strong><p>Choose a direct message or channel from the left to start chatting.</p></div>';
       const composer = byId('chat-composer');
       if (composer) composer.hidden = true;
       return;
@@ -233,7 +233,7 @@ export function createChatController(deps) {
     const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
     timeline.innerHTML = msgs.length
       ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('')
-      : '<div class="chat-empty">No messages yet in this conversation.</div>';
+      : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
     if (nearBottom) timeline.scrollTop = timeline.scrollHeight;
     const composer = byId('chat-composer');
     if (composer) composer.hidden = false;

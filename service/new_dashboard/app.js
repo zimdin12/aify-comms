@@ -179,7 +179,7 @@ function renderFiles() {
         <a class="ghost" href="${apiBase}/shared/${encodeURIComponent(f.name)}" target="_blank" rel="noreferrer">Download</a>
         <button class="ghost danger" data-file-delete="${esc(f.name)}">Delete</button>
       </div>
-    </article>`).join('') : '<div class="item">No shared files.</div>';
+    </article>`).join('') : '<div class="empty-state"><span class="empty-icon">📂</span><strong>No shared files</strong><p>Upload an artifact above, or share one from an agent with comms_share.</p></div>';
 }
 async function uploadSharedFile() {
   const input = byId('files-upload-input');
@@ -596,6 +596,14 @@ const SETTINGS_TAB_LABELS = {
   'Appearance': 'Appearance', 'Status & lifecycle': 'Status', 'Reply contracts': 'Contracts',
   'Managed runtimes': 'Runtimes', 'Retention & rotation': 'Retention', 'Dashboard': 'Dashboard',
 };
+const SETTINGS_TAB_DESC = {
+  'Appearance': 'Theme, accent colors, and the dashboard title.',
+  'Status & lifecycle': 'How liveness is derived and when agents are marked idle/offline.',
+  'Reply contracts': 'Reply-reminder cadence and how long contracts stay tracked.',
+  'Managed runtimes': 'Defaults applied to dashboard-spawned managed agents.',
+  'Retention & rotation': 'Message/file retention and stale-record cleanup windows.',
+  'Dashboard': 'Dashboard-only preferences.',
+};
 const HELP_TAB = 'Help';
 
 // One aligned field row: label (+hint) on the left, control on the right. Toggles render a real
@@ -661,6 +669,7 @@ function renderSettings() {
     + `</div>`;
   const panels = SETTINGS_SCHEMA.map((grp) => `
     <section class="settings-panel${grp.group === active ? ' active' : ''}${grp.appearance ? ' settings-appearance' : ''}" data-settings-panel="${esc(grp.group)}">
+      ${SETTINGS_TAB_DESC[grp.group] ? `<p class="settings-panel-desc">${esc(SETTINGS_TAB_DESC[grp.group])}</p>` : ''}
       ${grp.items.map((item) => settingsFieldHtml(item, s[item.key], s)).join('')}
     </section>`).join('');
   host.innerHTML = tabBar + panels;
@@ -1116,7 +1125,7 @@ function renderSessionRail() {
             </div>
           </article>`;
       }).join('')}
-    </section>`).join('') : '<div class="item">No sessions loaded.</div>';
+    </section>`).join('') : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>';
 }
 
 function renderSessionChat(session) {
@@ -1136,7 +1145,7 @@ function renderSessionChat(session) {
       <h3>${esc(message.subject || '(no subject)')}</h3>
       <p class="preview">${esc(message.body || message.preview || '')}</p>
     </article>`;
-  }).join('') : '<div class="message">No loaded messages for this session yet.</div>';
+  }).join('') : '<div class="empty-state"><span class="empty-icon">💬</span><strong>No messages yet</strong><p>Send the first message below, or switch to the Console tab to drive this session directly.</p></div>';
 }
 
 // Convert a hermes tui_gateway WS URL into its sibling HTTP root URL.
@@ -1670,8 +1679,8 @@ function renderSessionWorkspace() {
     byId('session-title').textContent = 'No sessions loaded';
     byId('session-subtitle').textContent = 'Spawn or connect an agent to start a session workspace.';
     byId('session-status').innerHTML = renderStatusChip('unknown', statusWhyContext('session', {}, 'unknown'));
-    byId('session-chat-thread').innerHTML = '<div class="message">No session selected.</div>';
-    byId('session-console-summary').innerHTML = '<div class="item">No session selected.</div>';
+    byId('session-chat-thread').innerHTML = '<div class="empty-state"><span class="empty-icon">💬</span><strong>No session selected</strong><p>Pick a session from the rail to see its chat and console.</p></div>';
+    byId('session-console-summary').innerHTML = '';
     byId('composer-body').placeholder = 'Select a session to send a message';
     return;
   }

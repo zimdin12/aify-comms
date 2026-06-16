@@ -17,17 +17,17 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
    as primary; lost 3-pane/context-rail layouts; settings lost per-tab descriptions.
 
 ## WS-G — Design overhaul (do FIRST; this is the "feel better" fix)
-- [ ] G1. Attention strip → landing only (Chat). Remove from sessions/envs/diagnostics/analytics/files/settings.
-- [ ] G2. One metric strip per page — fold env-summary/diagnostics-summary counts into page headers or demote.
-- [ ] G3. Landing hero on Chat (gradient surface, live status dot, 1–2 sentence pulse).
-- [ ] G4. De-accent neutral data: runtime/capability pills neutral; remove per-heading gradient underline;
+- [x] G1. Attention strip → landing only (Chat). Remove from sessions/envs/diagnostics/analytics/files/settings.
+- [x] G2. One metric strip per page — fold env-summary/diagnostics-summary counts into page headers or demote.
+- [x] G3. Landing hero on Chat (gradient surface, live status dot, 1–2 sentence pulse).
+- [x] G4. De-accent neutral data: runtime/capability pills neutral; remove per-heading gradient underline;
       reserve accent for active nav / primary button / focus so crimson stays calm.
-- [ ] G5. Designed empty states (icon + sentence + CTA) for sessions main, attention list, work loop.
-- [ ] G6. Refresh → ghost/icon; exactly one solid-accent primary per page.
-- [ ] G7. Density: tighten session rows (8→6px, action on hover/overflow), compact runs/files rows,
+- [x] G5. Designed empty states (icon + sentence + CTA) for sessions main, attention list, work loop.
+- [x] G6. Refresh → ghost/icon; exactly one solid-accent primary per page.
+- [x] G7. Density: tighten session rows (8→6px, action on hover/overflow), compact runs/files rows,
       subtle gradient body background.
-- [ ] G8. Sessions status-filter chips lower-contrast when inactive; Settings per-tab description line.
-- [ ] G9. Chat message direction: distinct mine/others, sender initial/avatar.
+- [x] G8. Sessions status-filter chips lower-contrast when inactive; Settings per-tab description line.
+- [x] G9. Chat message direction: distinct mine/others, sender initial/avatar.
 
 ## WS-H — Sorting / filtering parity
 - [ ] H1. Chat rail: sort selector (activity/oldest/name/name-desc/runtime/status), status multiselect +
