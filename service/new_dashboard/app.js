@@ -813,9 +813,12 @@ function renderAttention() {
   const items = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
     .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued')
     .slice(0, 8);
-  byId('attention-list').innerHTML = items.length
+  const host = byId('attention-list');
+  // WS-G: when clear, collapse to a slim one-liner instead of a tall empty card.
+  host.classList.toggle('is-clear', items.length === 0);
+  host.innerHTML = items.length
     ? items.map((contract) => contractCard(contract, { selectable: false })).join('')
-    : '<div class="item"><strong>No open attention items</strong><p class="preview">The current Work Loop is clear.</p></div>';
+    : '<p class="attention-clear">✓ Work Loop clear — no overdue or in-flight replies.</p>';
 }
 
 function diagnosticKey(kind, id) {
@@ -2462,6 +2465,10 @@ function setPage(page) {
   document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
   document.querySelectorAll('.nav-item[data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
   document.querySelectorAll('.mobile-tabbar [data-page]').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+  // WS-G1: the Needs-Attention strip belongs to the landing surface only — showing it on every
+  // page wasted ~210px and made every page feel sparse. Chat is the landing; show it there.
+  const strip = byId('attention-strip');
+  if (strip) strip.hidden = page !== 'chat';
 }
 
 function updateStaticLinks() {
