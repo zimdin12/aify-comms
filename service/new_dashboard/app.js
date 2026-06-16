@@ -7,6 +7,7 @@ import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-ch
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
+import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef } from './analytics.js';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -52,6 +53,9 @@ const state = {
   inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
   filter: '',
   runStatusFilter: '',
+  // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
+  // while it stays active, and on range change. data === null until first load completes.
+  analytics: { range: 'hour', data: null, loading: false },
 };
 
 // Agent status taxonomy: available (blue, wakeable/spawnable idle) → online
@@ -87,6 +91,7 @@ const pages = {
   sessions: ['Sessions', 'Environment-backed sessions with chat and console in one workspace.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
+  analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
   files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
   settings: ['Settings', 'Curated service + dashboard configuration. Save writes to the live settings; rare knobs stay on classic.'],
 };
@@ -456,6 +461,8 @@ function renderAll() {
   renderSection('runs', [_runSig(), f, state.runStatusFilter || '', [...state.selectedDiagnosticIds]], renderRuns);
   renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
   renderSection('settings', [state.settings], renderSettings);
+  // Keep the analytics page live while it's the active page (re-fetch on the poll cycle).
+  if (byId('page-analytics')?.classList.contains('active')) loadAnalytics();
 }
 
 // Legacy setting mirror. Mode-switch chips are now always visible; ownership
@@ -623,6 +630,42 @@ async function saveSettings() {
     if (statusEl) statusEl.textContent = `Save failed: ${error?.message || error}`;
     toast(`Save failed: ${error?.message || error}`, 'error');
   }
+}
+
+async function loadAnalytics() {
+  const range = rangeDef(state.analytics.range).key;
+  state.analytics.loading = true;
+  try {
+    const data = await api(`/analytics?range=${encodeURIComponent(range)}`);
+    state.analytics.data = data && typeof data === 'object' ? data : {};
+  } catch (error) {
+    state.analytics.data = state.analytics.data || {};
+    toast(`Analytics failed: ${error?.message || error}`, 'error');
+  } finally {
+    state.analytics.loading = false;
+    renderAnalyticsPage();
+  }
+}
+
+function renderAnalyticsPage() {
+  const statsHost = byId('analytics-stats');
+  if (!statsHost) return;
+  const data = state.analytics.data;
+  const rangeHost = byId('analytics-range');
+  if (rangeHost) rangeHost.innerHTML = rangeSelectorHtml(state.analytics.range);
+  if (!data) {
+    statsHost.innerHTML = '';
+    const traffic = byId('analytics-traffic');
+    if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'Open to load analytics.'}</p>`;
+    return;
+  }
+  statsHost.innerHTML = statCardsHtml(data);
+  const traffic = byId('analytics-traffic');
+  if (traffic) traffic.innerHTML = trafficChartHtml(data, state.analytics.range);
+  const health = byId('analytics-health');
+  if (health) health.innerHTML = healthGridHtml(data);
+  const runs = byId('analytics-runs');
+  if (runs) runs.innerHTML = runStatusMixHtml(data.runsByStatus || {});
 }
 
 function metric(label, value, tone = 'neutral') {
@@ -2085,7 +2128,14 @@ document.addEventListener('click', (event) => {
   }
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
-    chatController.open(chatOpen.dataset.chatOpen);
+    const id = chatOpen.dataset.chatOpen;
+    // Click-again gesture (parity with old dashboard): re-clicking the already-open DM
+    // reveals its analytics. Channels have no per-agent analytics, so they just re-open.
+    if (id === state.chat.selected && !id.startsWith('#') && !state.chat.analytics.data) {
+      chatController.openAnalytics(id);
+    } else {
+      chatController.open(id);
+    }
     return;
   }
   const chatAnalytics = event.target.closest('[data-chat-analytics]');
@@ -2159,8 +2209,18 @@ document.addEventListener('click', (event) => {
     closeStatusWhy();
     return;
   }
+  const analyticsRange = event.target.closest('[data-analytics-range]');
+  if (analyticsRange) {
+    state.analytics.range = rangeDef(analyticsRange.dataset.analyticsRange).key;
+    loadAnalytics();
+    return;
+  }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
-  if (page) setPage(page);
+  if (page) {
+    setPage(page);
+    // Lazy-load the analytics page the first time it's opened (and refresh on re-open).
+    if (page === 'analytics') loadAnalytics();
+  }
   const diagnosticSelect = event.target.closest('[data-diagnostic-select]');
   if (diagnosticSelect) {
     const key = diagnosticKey(diagnosticSelect.dataset.diagnosticKind || 'run', diagnosticSelect.dataset.diagnosticSelect);

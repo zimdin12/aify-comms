@@ -29,10 +29,10 @@ Old dashboard: `service/dashboard.html`. New: `service/new_dashboard/`.
 - [ ] B4. (Optional) Advanced group for 4 backend-only knobs (or leave to Classic link).
 
 ### WS-C — Chat statistics / Analytics  ⭐ operator named "chat statistics does not exist"
-- [ ] C1. Global Analytics page: nav item + `#page-analytics` + loader for `GET /analytics?range=`.
-- [ ] C2. Traffic SVG chart (grid+axis+bars+area+line+dots) + range selector 24h/30d/12m/All + Total/Avg/Latest.
-- [ ] C3. Global stat cards (6) + health grid (6) + run-status-mix bars.
-- [ ] C4. Per-agent panel: restore `lastFailedSubject`; add rail click-again gesture.
+- [x] C1. Global Analytics page: nav item + `#page-analytics` + loader for `GET /analytics?range=`.
+- [x] C2. Traffic SVG chart (grid+axis+bars+area+line+dots) + range selector 24h/30d/12m/All + Total/Avg/Latest.
+- [x] C3. Global stat cards (6) + health grid (6) + run-status-mix bars.
+- [x] C4. Per-agent panel: restore `lastFailedSubject`; add rail click-again gesture.
 
 ### WS-D — Pseudo-terminal console  ⭐ operator named "pseudo terminal view"
 Core xterm PTY already works (stream+input+resize). Missing the UX/robustness shell:

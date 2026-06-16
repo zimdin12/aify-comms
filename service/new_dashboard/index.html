@@ -31,6 +31,7 @@
         <button class="nav-item" data-page="sessions" data-short="S">Sessions</button>
         <button class="nav-item" data-page="environments" data-short="E">Environments</button>
         <button class="nav-item" data-page="diagnostics" data-short="D">Diagnostics</button>
+        <button class="nav-item" data-page="analytics" data-short="A">Analytics</button>
         <button class="nav-item" data-page="files" data-short="F">Files</button>
         <button class="nav-item" data-page="settings" data-short="G">Settings</button>
       </nav>
@@ -235,6 +236,27 @@
         </section>
       </section>
 
+      <section id="page-analytics" class="page">
+        <div class="metric-grid" id="analytics-stats"></div>
+        <section class="band">
+          <div class="section-head">
+            <h2>Message traffic</h2>
+            <div class="segmented analytics-range" id="analytics-range" role="tablist" aria-label="Analytics range"></div>
+          </div>
+          <div id="analytics-traffic"></div>
+        </section>
+        <section class="split analytics-grid">
+          <div class="band">
+            <div class="section-head"><h2>Capacity now</h2></div>
+            <div id="analytics-health"></div>
+          </div>
+          <div class="band">
+            <div class="section-head"><h2>Run status mix</h2></div>
+            <div id="analytics-runs"></div>
+          </div>
+        </section>
+      </section>
+
       <section id="page-files" class="page">
         <section class="band">
           <div class="section-head">
@@ -364,6 +386,7 @@ aify-comms              # aify-comms.cmd on native Windows</pre>
       <button type="button" data-page="sessions" data-mobile-page="sessions">Sessions</button>
       <button type="button" data-page="environments" data-mobile-page="environments">Environments</button>
       <button type="button" data-page="diagnostics" data-mobile-page="diagnostics">Diagnostics</button>
+      <button type="button" data-page="analytics" data-mobile-page="analytics">Analytics</button>
       <button type="button" data-page="files" data-mobile-page="files">Files</button>
       <button type="button" data-page="settings" data-mobile-page="settings">Settings</button>
     </nav>

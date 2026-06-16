@@ -142,7 +142,7 @@ export function renderAnalyticsPanelHtml(agentId, data) {
     </div>
     <h4 class="an-h">Activity — 14 days (received↓ / sent↑)</h4>${dayBars}
     <h4 class="an-h">Work runs — 7 days</h4>
-    <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
+    <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}${runs.lastFailedSubject ? ` <span class="subtle clip" title="${esc(runs.lastFailedSubject)}">· ${esc(runs.lastFailedSubject)}</span>` : ''}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
     <h4 class="an-h">Top peers</h4>${peerBars}
   </div>`;
 }

@@ -321,6 +321,24 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)
         self.assertIn("contracts.map(contractCard)", script)
 
+    def test_global_analytics_page_exists(self):
+        # WS-C: the global Analytics page (traffic chart, stat cards, health grid, run-status
+        # mix, range selector) must exist — the old /analytics surface the new build dropped.
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        script = _dashboard_js()
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="page-analytics"', html, "Analytics page section must exist")
+        self.assertIn('data-page="analytics"', html, "Analytics nav item must exist")
+        self.assertIn('id="analytics-traffic"', html)
+        self.assertIn('id="analytics-range"', html)
+        self.assertIn("function loadAnalytics()", script, "analytics loader must exist")
+        self.assertIn("/analytics?range=", script, "must fetch the ranged analytics endpoint")
+        self.assertIn("trafficChartHtml", script)
+        self.assertIn("data-analytics-range", script, "range selector must be wired")
+        self.assertIn(".chart-svg", styles, "traffic chart CSS must exist")
+        self.assertIn(".health-grid", styles)
+
     def test_appearance_theming_and_settings_parity(self):
         # WS-A/WS-B: the Appearance group (8-theme picker + custom palette + title) must exist,
         # and the previously-missing settings keys must be in the schema.

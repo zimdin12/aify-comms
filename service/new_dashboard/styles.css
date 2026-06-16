@@ -1013,3 +1013,43 @@ small, .subtle { color: var(--muted); }
 .theme-preview b { font-size: .82em; }
 .theme-preview-swatches { display: flex; gap: 5px; }
 .theme-preview-swatches span { width: 24px; height: 16px; border-radius: 5px; border: 1px solid rgba(255,255,255,.08); }
+
+/* Analytics page (WS-C) — ported from the old dashboard, retoned to the new palette. */
+.analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.analytics-range button { padding: 5px 12px; min-height: 32px; font-size: .82em; }
+.analytics-range button.active { background: var(--accent); border-color: var(--accent); color: #061615; font-weight: 750; }
+#analytics-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.sc { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 13px 16px; min-width: 0; box-shadow: var(--shadow-card); }
+.sc .n { font-size: 1.7em; font-weight: 750; color: var(--secondary); line-height: 1; }
+.sc .l { color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 6px; letter-spacing: .03em; }
+.sc .s { color: var(--muted); font-size: .7em; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc.warn .n { color: var(--amber); }
+.chart-wrap { position: relative; min-height: 290px; padding: 10px 4px 0; }
+.chart-svg { width: 100%; height: 260px; display: block; overflow: visible; }
+.chart-grid { stroke: var(--line-soft); stroke-width: 1; }
+.chart-axis { stroke: var(--line); stroke-width: 1; }
+.chart-area { fill: url(#trafficGradient); opacity: .72; }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 8px var(--accent-shadow)); }
+.chart-dot { fill: #101214; stroke: var(--accent); stroke-width: 2; }
+.chart-bar { fill: color-mix(in srgb, var(--tertiary) 38%, transparent); }
+.chart-labels { display: flex; justify-content: space-between; gap: 6px; margin-top: 6px; color: var(--muted); font-size: .72em; }
+.chart-labels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.chart-summary div { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 9px; }
+.chart-summary b { display: block; color: var(--text); font-size: 1.18em; line-height: 1; }
+.chart-summary span { display: block; color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 5px; }
+.health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.health-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.health-card b { display: block; font-size: 1.35em; color: var(--text); line-height: 1; }
+.health-card span { display: block; color: var(--muted); font-size: .74em; text-transform: uppercase; margin-top: 5px; }
+.health-card.warn b { color: var(--amber); }
+.health-card.bad b { color: var(--red); }
+.health-card.good b { color: var(--green); }
+.status-bars { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
+.status-bar-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 34px; gap: 8px; align-items: center; }
+.status-bar-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78em; min-width: 0; }
+.status-bar-track { height: 8px; border-radius: 999px; background: #0a0b0c; border: 1px solid var(--line); overflow: hidden; }
+.status-bar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 45%, #0a0b0c)); }
+.status-bar-value { text-align: right; color: var(--muted); font-size: .78em; }
+@media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } #analytics-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { #analytics-stats, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
