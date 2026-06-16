@@ -132,6 +132,41 @@ async function chatSendMessage({ isChannel, target, identity, body, expectsReply
   });
 }
 
+// WS-I1/I2: per-message read/unread, unsend, and mark-conversation-read. The recipient for a
+// read toggle is the viewing identity (POST /messages/{id}/read {agentId, read}).
+async function markMessageRead(msgId, read) {
+  try {
+    await api(`/messages/${encodeURIComponent(msgId)}/read`, { method: 'POST', body: JSON.stringify({ agentId: state.chat.identity, read }) });
+    const m = state.messages.find((x) => messageIdOf(x) === msgId);
+    if (m) m.read = read;
+    chatController.render();
+  } catch (err) { toast(`Read update failed: ${err?.message || err}`, 'error'); }
+}
+
+async function unsendMessage(messageId) {
+  if (!await uiConfirm('Unsend this message? It will be removed for the recipient.')) return;
+  try {
+    await api(`/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+    state.messages = state.messages.filter((m) => messageIdOf(m) !== messageId);
+    toast('Message unsent', 'ok');
+    chatController.render();
+    refreshSoon();
+  } catch (err) { toast(`Unsend failed: ${err?.message || err}`, 'error'); }
+}
+
+async function markConversationRead(agentId) {
+  const unread = state.messages.filter((m) => String(m.from || '') === agentId && m.read === false);
+  if (!unread.length) { toast('Nothing unread', 'ok'); return; }
+  try {
+    await Promise.all(unread.map((m) => api(`/messages/${encodeURIComponent(messageIdOf(m))}/read`, { method: 'POST', body: JSON.stringify({ agentId: state.chat.identity, read: true }) })));
+    unread.forEach((m) => { m.read = true; });
+    toast(`Marked ${unread.length} read`, 'ok');
+    chatController.render();
+  } catch (err) { toast(`Mark-read failed: ${err?.message || err}`, 'error'); }
+}
+
+function messageIdOf(m) { return String(m?.id || m?.messageId || m?.message_id || ''); }
+
 // Favorites (WS-F): PATCH /agents/{id}/favorite, optimistic so the rail re-sorts immediately.
 async function toggleFavorite(agentId) {
   const agent = state.agents.find((a) => a.id === agentId);
@@ -2578,6 +2613,12 @@ document.addEventListener('click', (event) => {
     toggleFavorite(favToggle.dataset.favToggle);
     return;
   }
+  const msgRead = event.target.closest('[data-msg-read]');
+  if (msgRead) { markMessageRead(msgRead.dataset.msgRead, msgRead.dataset.read === '0'); return; }
+  const msgUnsend = event.target.closest('[data-msg-unsend]');
+  if (msgUnsend) { unsendMessage(msgUnsend.dataset.msgUnsend); return; }
+  const markConvRead = event.target.closest('[data-mark-conv-read]');
+  if (markConvRead) { markConversationRead(markConvRead.dataset.markConvRead); return; }
   const chatReply = event.target.closest('[data-chat-reply]');
   if (chatReply) {
     const msg = state.messages.find((m) => messageId(m) === chatReply.dataset.chatReply);
@@ -2990,7 +3031,6 @@ byId('composer').addEventListener('submit', async (event) => {
     inspect('send-error', { message: error.message || 'Send failed' });
   }
 });
-byId('mark-read')?.addEventListener('click', () => inspect('mark-read', { note: 'Mark-read is planned for the next slice.' }));
 document.addEventListener('paste', (event) => {
   const target = event.target;
   if (!target || target.id !== 'composer-body') return;

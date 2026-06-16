@@ -118,9 +118,13 @@ function messageHtml(m, identity = 'dashboard') {
     (priority === 'high' || priority === 'urgent') ? `<span class="msg-badge p-${esc(priority)}">${esc(priority)}</span>` : '',
     (m.expectsReply || m.expects_reply) && m.read === false ? '<span class="msg-badge await">awaiting</span>' : '',
   ].join('');
+  const runChip = runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : '';
+  const readToggle = !mine ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
+  const unsendBtn = mine ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
+  const actions = `${runChip}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" title="Message details">⋯</button>`;
   return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
-      <span class="chat-msg-badges">${badges}${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button><button class="chat-msg-detail" data-message-detail="${esc(id)}" title="Message details">⋯</button></span>
+      <span class="chat-msg-badges">${badges}${actions}</span>
     </div>
     ${m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : ''}
     <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
@@ -243,7 +247,8 @@ export function createChatController(deps) {
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
           + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`;
       } else {
-        actions.innerHTML = `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
+        actions.innerHTML = `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`
+          + `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
           + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
     }

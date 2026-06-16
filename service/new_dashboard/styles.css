@@ -1190,8 +1190,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .chat-fav-toggle { cursor: pointer; color: var(--muted); font-size: 1em; padding: 0 2px; }
 .chat-fav-toggle.on { color: var(--tertiary); }
 .chat-fav-toggle:hover { color: var(--tertiary); }
-.chat-msg-reply, .chat-msg-detail { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; min-height: auto; font-size: .76em; }
-.chat-msg-reply:hover, .chat-msg-detail:hover { color: var(--accent-text); transform: none; }
+.chat-msg-reply, .chat-msg-detail, .chat-msg-act { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; min-height: auto; font-size: .76em; }
+.chat-msg-reply:hover, .chat-msg-detail:hover, .chat-msg-act:hover { color: var(--accent-text); transform: none; }
+.chat-msg-act.danger:hover { color: var(--red); }
 .chat-reply-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--accent-softer); border: 1px solid var(--accent-border); border-radius: 8px; padding: 6px 10px; margin: 0 0 8px; font-size: .82em; color: var(--soft); }
 .chat-reply-banner button { padding: 2px 7px; min-height: auto; }
 .continue-form label.settings-label { display: grid; gap: 4px; margin-bottom: 10px; font-size: .82em; }

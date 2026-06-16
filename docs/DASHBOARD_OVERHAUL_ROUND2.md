@@ -39,8 +39,8 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
 - [x] H6. Global "Find": extend scope to sessions/agents (placeholder promises it).
 
 ## WS-I — Feature parity (top capability gaps, audit Top-20)
-- [ ] I1. Mark read / mark-all-read (the `#mark-read` stub) + peek toggle. (HIGH — unread never clears today.)
-- [ ] I2. Unsend / delete message (DELETE /messages/{id}).
+- [x] I1. Mark read / mark-all-read (the `#mark-read` stub) + peek toggle. (HIGH — unread never clears today.)
+- [x] I2. Unsend / delete message (DELETE /messages/{id}).
 - [ ] I3. Edit agent: rename / retarget env / edit workspace / set-clear session handle.
 - [ ] I4. Environment controls: restart / stop / forget bridge; edit workspace roots.
 - [ ] I5. Confirm / Keep session-id governance (session/confirm, session/keep).
