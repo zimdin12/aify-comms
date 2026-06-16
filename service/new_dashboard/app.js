@@ -54,6 +54,7 @@ const state = {
   filter: '',
   runStatusFilter: '',
   sessionStatusFilter: new Set(), // WS-F: status multiselect for the Sessions rail (empty = all)
+  settingsTab: '', // active settings tab (empty → first group)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.
   analytics: { range: 'hour', data: null, loading: false },
@@ -590,28 +591,40 @@ function themePreviewTilesHtml(selectedKey) {
     </button>`).join('')}</div>`;
 }
 
-function settingsItemHtml(item, value, settings = {}) {
+// Short tab labels for the settings tab bar (the full group names are long).
+const SETTINGS_TAB_LABELS = {
+  'Appearance': 'Appearance', 'Status & lifecycle': 'Status', 'Reply contracts': 'Contracts',
+  'Managed runtimes': 'Runtimes', 'Retention & rotation': 'Retention', 'Dashboard': 'Dashboard',
+};
+const HELP_TAB = 'Help';
+
+// One aligned field row: label (+hint) on the left, control on the right. Toggles render a real
+// switch. The theme picker spans the full width (select + preview tiles). Same input ids +
+// data-setting-* attrs as before so saveSettings/previewAppearance/theme tiles keep working.
+function settingsFieldHtml(item, value, settings = {}) {
   const id = `set-${item.key}`;
-  const hint = item.hint ? `<small class="settings-hint">${esc(item.hint)}</small>` : '';
+  const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';
+  const labelBlock = `<div class="field-label">${esc(item.label)}${hint}</div>`;
   const bounds = `${item.min != null ? ` min="${item.min}"` : ''}${item.max != null ? ` max="${item.max}"` : ''}`;
-  let control;
+
   if (item.type === 'toggle') {
-    control = `<input type="checkbox" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="toggle"${value === true ? ' checked' : ''}>`;
-    return `<label class="settings-row settings-toggle-row">${control}<span class="settings-label">${esc(item.label)}${hint}</span></label>`;
+    return `<div class="settings-field"><label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`
+      + `<div class="field-control"><label class="switch"><input type="checkbox" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="toggle"${value === true ? ' checked' : ''}><span class="switch-slider"></span></label></div></div>`;
   }
   if (item.type === 'theme') {
     const key = THEMES[value] ? value : 'default';
     const opts = Object.entries(THEMES).map(([k, t]) => `<option value="${esc(k)}"${k === key ? ' selected' : ''}>${esc(t.label)}</option>`).join('');
-    control = `<select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="theme">${opts}</select>`;
-    return `<div class="settings-row settings-row-wide"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}${themePreviewTilesHtml(key)}</div>`;
+    return `<div class="settings-field settings-field-wide">${labelBlock}`
+      + `<div class="field-control"><select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="theme">${opts}</select></div>`
+      + `<div class="settings-field-extra">${themePreviewTilesHtml(key)}</div></div>`;
   }
   if (item.type === 'color') {
     const preset = paletteFromSettings(settings, settings.dashboard_theme);
     const fallback = item.key === 'dashboard_secondary_color' ? preset.secondary : item.key === 'dashboard_tertiary_color' ? preset.tertiary : preset.accent;
     const hex = /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;
-    control = `<input type="color" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="color" value="${esc(hex)}">`;
-    return `<div class="settings-row settings-color-row"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}</div>`;
+    return `<div class="settings-field">${labelBlock}<div class="field-control field-control-color"><input type="color" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="color" value="${esc(hex)}"><code class="field-color-hex">${esc(hex)}</code></div></div>`;
   }
+  let control;
   if (item.type === 'select') {
     const opts = (item.options || []).map((o) => {
       const label = (item.optionLabels && item.optionLabels[o] != null) ? item.optionLabels[o] : (o === '' ? '(default)' : o);
@@ -626,18 +639,36 @@ function settingsItemHtml(item, value, settings = {}) {
   } else {
     control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="text" value="${esc(value ?? '')}">`;
   }
-  return `<div class="settings-row"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}</div>`;
+  return `<div class="settings-field">${labelBlock}<div class="field-control">${control}</div></div>`;
 }
 
+function activeSettingsTab() {
+  const tabs = [...SETTINGS_SCHEMA.map((g) => g.group), HELP_TAB];
+  return tabs.includes(state.settingsTab) ? state.settingsTab : SETTINGS_SCHEMA[0].group;
+}
+
+// Tabbed settings: one panel visible at a time (short page), but ALL schema panels stay in the
+// DOM so Save collects every field regardless of the active tab. Help is its own tab and toggles
+// the static help-band.
 function renderSettings() {
   const host = byId('settings-form');
   if (!host) return;
   const s = state.settings || {};
-  host.innerHTML = SETTINGS_SCHEMA.map((grp) => `
-    <section class="settings-group${grp.appearance ? ' settings-appearance' : ''}">
-      <h3 class="settings-group-title">${esc(grp.group)}</h3>
-      <div class="settings-grid">${grp.items.map((item) => settingsItemHtml(item, s[item.key], s)).join('')}</div>
+  const active = activeSettingsTab();
+  const tabBar = `<div class="settings-tabs" role="tablist">`
+    + SETTINGS_SCHEMA.map((g) => `<button type="button" class="settings-tab${g.group === active ? ' active' : ''}" data-settings-tab="${esc(g.group)}">${esc(SETTINGS_TAB_LABELS[g.group] || g.group)}</button>`).join('')
+    + `<button type="button" class="settings-tab${active === HELP_TAB ? ' active' : ''}" data-settings-tab="${HELP_TAB}">${HELP_TAB}</button>`
+    + `</div>`;
+  const panels = SETTINGS_SCHEMA.map((grp) => `
+    <section class="settings-panel${grp.group === active ? ' active' : ''}${grp.appearance ? ' settings-appearance' : ''}" data-settings-panel="${esc(grp.group)}">
+      ${grp.items.map((item) => settingsFieldHtml(item, s[item.key], s)).join('')}
     </section>`).join('');
+  host.innerHTML = tabBar + panels;
+  // Help tab shows the static help-band; schema tabs hide it. Save/Classic buttons hide on Help.
+  const helpBand = byId('help-band');
+  if (helpBand) helpBand.hidden = active !== HELP_TAB;
+  const saveBtn = byId('settings-save');
+  if (saveBtn) saveBtn.style.display = active === HELP_TAB ? 'none' : '';
 }
 
 // Read the (possibly unsaved) Appearance editor controls into a partial settings object.
@@ -660,6 +691,12 @@ function previewAppearance() {
   document.title = title;
   const brand = document.querySelector('.brand-copy strong');
   if (brand) brand.textContent = title;
+  // Keep the hex labels next to the color pickers in sync.
+  document.querySelectorAll('.field-control-color').forEach((wrap) => {
+    const input = wrap.querySelector('input[type="color"]');
+    const code = wrap.querySelector('.field-color-hex');
+    if (input && code) code.textContent = input.value;
+  });
 }
 
 async function saveSettings() {
@@ -2433,6 +2470,13 @@ function updateStaticLinks() {
 }
 
 document.addEventListener('click', (event) => {
+  const settingsTab = event.target.closest('[data-settings-tab]');
+  if (settingsTab) {
+    state.settingsTab = settingsTab.dataset.settingsTab;
+    try { localStorage.setItem('aifySettingsTab', state.settingsTab); } catch { /* ignore */ }
+    renderSettings();
+    return;
+  }
   const themeChoice = event.target.closest('[data-theme-choice]');
   if (themeChoice) {
     const key = themeChoice.dataset.themeChoice;
@@ -2889,6 +2933,7 @@ async function loadVersionBadge() {
 
 installRejectionToast();
 applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings
+try { state.settingsTab = localStorage.getItem('aifySettingsTab') || ''; } catch { /* ignore */ }
 loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();

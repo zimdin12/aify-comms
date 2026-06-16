@@ -367,6 +367,11 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("type: 'color'", script, "color picker control type must exist")
         self.assertIn("data-theme-choice", script, "theme preview tiles must be clickable")
         self.assertIn("applyCachedTheme()", script, "cached theme must paint at startup")
+        # Settings is tabbed with aligned field rows + real toggle switches (not tiny checkboxes).
+        self.assertIn("settings-tab", script, "settings must be tabbed")
+        self.assertIn("settings-field", script, "settings must use aligned field rows")
+        self.assertIn('class="switch"', script, "toggles must be real switches")
+        self.assertIn("data-settings-tab", script, "settings tabs must be wired")
         for theme in ("forest", "ember", "ocean", "indigo"):
             self.assertIn(f'body[data-theme="{theme}"]', styles, f"{theme} preset CSS must exist")
 
