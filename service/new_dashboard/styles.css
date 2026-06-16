@@ -1142,3 +1142,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .chat-reply-banner button { padding: 2px 7px; min-height: auto; }
 .continue-form label.settings-label { display: grid; gap: 4px; margin-bottom: 10px; font-size: .82em; }
 .continue-form input, .continue-form textarea { width: 100%; }
+
+/* WS-F sessions status filter chips. */
+.session-status-filter { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.session-filter-chip { padding: 3px 9px; min-height: 28px; font-size: .74em; border-radius: 999px; text-transform: capitalize; }
+.session-filter-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 700; }
+/* WS-F chat attach button. */
+.chat-attach { display: inline-flex; align-items: center; gap: 4px; }
+.chat-attach input[type="file"] { display: none; }

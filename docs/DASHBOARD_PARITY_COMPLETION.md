@@ -54,11 +54,11 @@ Core xterm PTY already works (stream+input+resize). Missing the UX/robustness sh
 - [x] F2. Reply / follow-up threading (inReplyTo from composer + reply-context banner).
 - [x] F3. Draft preservation per conversation + send-failure body restore + stuck-send watchdog + follow-bottom.
 - [x] F4. Favorites toggle (star set/unset, fav hoist) — display-only today.
-- [ ] F5. Sessions status multiselect filter + batch delete.
+- [x] F5. Sessions status multiselect filter + batch delete.
 - [x] F6. Agent drawer full lifecycle action set (delete/remove/clear/recover/compact/continue/edit) — 4→full.
 - [x] F7. Global message search (scan loaded message bodies).
 - [x] F8. Message-detail surface (inspector view for a single message).
-- [ ] F9. Inbox Hygiene panel; bulk contract close; chat artifact-attach button.
+- [~] F9. Inbox Hygiene panel; bulk contract close; chat artifact-attach button.
 
 ## Operating rules
 - Browser-verify EACH chunk against the old dashboard (chrome-devtools), screenshot compare, console clean.

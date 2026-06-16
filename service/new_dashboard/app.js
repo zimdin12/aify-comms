@@ -53,6 +53,7 @@ const state = {
   inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
   filter: '',
   runStatusFilter: '',
+  sessionStatusFilter: new Set(), // WS-F: status multiselect for the Sessions rail (empty = all)
   // Global analytics page (WS-C). Lazily loaded when the page is first opened, then on refresh
   // while it stays active, and on range change. data === null until first load completes.
   analytics: { range: 'hour', data: null, loading: false },
@@ -198,6 +199,30 @@ async function uploadSharedFile() {
   renderFiles();
   toast(`Uploaded ${name}`, 'ok');
 }
+// WS-F: attach a file from the chat composer — upload to /shared, insert a reference into the body.
+async function attachChatFile(file) {
+  if (!file) return;
+  const name = file.name;
+  const form = new FormData();
+  form.append('from_agent', state.chat.identity || 'dashboard');
+  form.append('name', name);
+  form.append('description', `Shared from chat by ${state.chat.identity || 'dashboard'}`);
+  form.append('file', file, name);
+  try {
+    await api('/shared', { method: 'POST', body: form, headers: {} });
+    const bodyEl = byId('chat-composer-body');
+    if (bodyEl) {
+      const ref = `[shared:${name}]`;
+      bodyEl.value = bodyEl.value ? `${bodyEl.value} ${ref}` : ref;
+      bodyEl.focus();
+      const key = state.chat.selected;
+      if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = bodyEl.value; }
+    }
+    await loadFiles();
+    toast(`Attached ${name}`, 'ok');
+  } catch (err) { toast(`Attach failed: ${err?.message || err}`, 'error'); }
+}
+
 async function deleteSharedFile(name) {
   if (!(await uiConfirm(`Delete shared file "${name}"? This removes it for everyone.`, { tone: 'danger', confirmLabel: 'Delete' }))) return;
   await api(`/shared/${encodeURIComponent(name)}`, { method: 'DELETE' });
@@ -924,7 +949,14 @@ function agentForSession(session) {
 
 function groupedSessionsByEnvironment() {
   const groups = new Map();
+  const filter = state.sessionStatusFilter;
   state.sessions.forEach((session) => {
+    // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
+    if (filter && filter.size) {
+      const agent = agentForSession(session);
+      const kind = resolveStatus(session.status || agent.status || 'unknown').kind;
+      if (!filter.has(kind)) return;
+    }
     const envId = sessionEnvironmentId(session);
     if (!groups.has(envId)) {
       const env = state.environments.find((item) => String(item.id || item.environmentId) === envId) || {};
@@ -1002,13 +1034,25 @@ function renderSessionBulkToolbar() {
     ? `<span>${ids.length} selected</span>
        <button class="ghost" data-bulk-session-action="recover">Recover</button>
        <button class="ghost" data-bulk-session-action="restart">Restart</button>
-       <button class="ghost danger" data-bulk-session-action="stop">Stop</button>`
+       <button class="ghost danger" data-bulk-session-action="stop">Stop</button>
+       <button class="ghost danger" data-bulk-session-action="delete">Delete</button>`
     : '';
+}
+
+// WS-F: status multiselect filter chips for the Sessions rail.
+const SESSION_FILTER_KINDS = ['working', 'online', 'idle', 'available', 'blocked', 'stale', 'offline', 'stopped'];
+function renderSessionStatusFilter() {
+  const host = byId('session-status-filter');
+  if (!host) return;
+  host.innerHTML = SESSION_FILTER_KINDS.map((k) =>
+    `<button type="button" class="session-filter-chip${state.sessionStatusFilter.has(k) ? ' active' : ''}" data-session-status-filter="${k}">${k}</button>`
+  ).join('');
 }
 
 function renderSessionRail() {
   const groups = groupedSessionsByEnvironment();
   renderSessionBulkToolbar();
+  renderSessionStatusFilter();
   byId('session-rail').innerHTML = groups.length ? groups.map((group) => `
     <section class="session-env-group">
       <div class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></div>
@@ -2085,7 +2129,11 @@ async function requestBulkSessionControl(action) {
   if (!ids.length || !action) return;
   if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`)) return;
   for (const id of ids) {
-    await requestSessionControl(id, action, false, false);
+    if (action === 'delete') {
+      try { await api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(`Delete ${id} failed: ${err?.message || err}`, 'error'); }
+    } else {
+      await requestSessionControl(id, action, false, false);
+    }
   }
   state.selectedSessionIds.clear();
   await refresh();
@@ -2470,6 +2518,14 @@ document.addEventListener('click', (event) => {
     closeInspector();
     return;
   }
+  const sessionStatusFilter = event.target.closest('[data-session-status-filter]');
+  if (sessionStatusFilter) {
+    const k = sessionStatusFilter.dataset.sessionStatusFilter;
+    if (state.sessionStatusFilter.has(k)) state.sessionStatusFilter.delete(k);
+    else state.sessionStatusFilter.add(k);
+    renderSessionWorkspace();
+    return;
+  }
   const agentCompact = event.target.closest('[data-agent-compact]');
   if (agentCompact) { openContinueForm(agentCompact.dataset.agentCompact, false); return; }
   const agentContinue = event.target.closest('[data-agent-continue]');
@@ -2735,6 +2791,11 @@ byId('chat-composer')?.addEventListener('submit', (event) => {
 byId('chat-composer-body')?.addEventListener('input', (event) => {
   const key = state.chat.selected;
   if (key) { state.chat.drafts = state.chat.drafts || {}; state.chat.drafts[key] = event.target.value; }
+});
+// Chat artifact-attach (WS-F): upload the chosen file to /shared, insert a reference.
+byId('chat-attach-input')?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (file) attachChatFile(file).finally(() => { event.target.value = ''; });
 });
 byId('files-upload-form')?.addEventListener('submit', (event) => {
   event.preventDefault();

@@ -101,6 +101,7 @@
               <div class="composer-options">
                 <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
                 <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
+                <label class="chat-attach ghost" title="Share a file and insert its reference"><span>📎 Attach</span><input id="chat-attach-input" type="file"></label>
               </div>
               <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
               <button type="submit" class="primary">Send</button>
@@ -113,6 +114,7 @@
         <section id="session-view" class="session-shell">
           <aside class="session-rail-wrap" aria-label="Sessions by environment">
             <div id="session-bulk-toolbar" class="session-bulk-toolbar" hidden></div>
+            <div id="session-status-filter" class="session-status-filter" aria-label="Filter sessions by status"></div>
             <div id="session-rail" class="session-rail"></div>
             <section class="activity-feed" aria-label="Recent activity">
               <div class="section-head">
