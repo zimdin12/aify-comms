@@ -912,3 +912,20 @@ small, .subtle { color: var(--muted); }
 .settings-hint { color: var(--muted); font-size: .82em; font-weight: 400; }
 .settings-row input[type="text"], .settings-row input[type="number"], .settings-row select { background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 9px; font-size: .85em; }
 .settings-row input:focus, .settings-row select:focus { outline: none; border-color: var(--teal); }
+
+/* Per-agent chat analytics panel (Phase 1.5). */
+.chat-analytics { padding: 4px 2px; }
+.an-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.an-card { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.an-n { font-size: 1.3em; font-weight: 750; }
+.an-n.an-bad { color: var(--red); }
+.an-l { font-size: .72em; color: var(--muted); margin-top: 2px; }
+.an-h { margin: 16px 0 6px; font-size: .76em; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.an-bar-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; align-items: center; margin: 3px 0; font-size: .78em; }
+.an-bar-label { color: var(--muted); }
+.an-bar-track { background: var(--panel-2); border-radius: 999px; height: 8px; overflow: hidden; }
+.an-bar-fill { display: block; height: 100%; background: var(--teal); }
+.an-bar-val { color: var(--soft); font-variant-numeric: tabular-nums; }
+.an-runs { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .82em; margin: 0; }
+.an-runs dt { color: var(--muted); }
+.an-runs dd { margin: 0; }

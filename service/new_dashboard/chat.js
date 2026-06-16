@@ -109,10 +109,48 @@ export function deliveryToastFor(response, to) {
   return { tone: 'ok', text: `Sent to ${to}` };
 }
 
+// Per-agent analytics panel (reuses GET /analytics/agent/{id} — the revamped metrics).
+// Pure HTML builder so it can be unit-tested and rendered into the timeline area.
+export function renderAnalyticsPanelHtml(agentId, data) {
+  if (!data || data.ok === false) return `<div class="chat-empty">Analytics unavailable for ${esc(agentId)}.</div>`;
+  const wm = Math.max(0, Math.round(Number(data.workingMinutes || 0)));
+  const workLabel = `${Math.floor(wm / 60)}h ${wm % 60}m`;
+  const mr = Number(data.medianReplyMinutes7d || 0);
+  const mrLabel = mr >= 60 ? `${Math.floor(mr / 60)}h ${Math.round(mr % 60)}m` : `${Math.round(mr)}m`;
+  const runs = data.runs7d || {};
+  const days = Array.isArray(data.dailyActivity) ? data.dailyActivity : [];
+  const dayMax = Math.max(1, ...days.map((d) => Number(d.sent || 0) + Number(d.received || 0)));
+  const dayBars = days.length ? days.map((d) => {
+    const inN = Number(d.received || 0); const outN = Number(d.sent || 0);
+    const w = Math.max(2, Math.round(((inN + outN) / dayMax) * 100));
+    return `<div class="an-bar-row"><span class="an-bar-label">${esc(String(d.date || '').slice(5))}</span><span class="an-bar-track"><span class="an-bar-fill" style="width:${w}%"></span></span><span class="an-bar-val" title="${inN} received · ${outN} sent">${inN}↓ ${outN}↑</span></div>`;
+  }).join('') : '<p class="subtle">No activity in 14 days.</p>';
+  const peers = (Array.isArray(data.byPeer) ? data.byPeer : []).slice(0, 8);
+  const peerMax = Math.max(1, ...peers.map((p) => Number(p.count || 0)));
+  const peerBars = peers.length ? peers.map((p) => {
+    const w = Math.max(2, Math.round((Number(p.count || 0) / peerMax) * 100));
+    return `<div class="an-bar-row"><span class="an-bar-label clip">${esc(p.peer)}</span><span class="an-bar-track"><span class="an-bar-fill" style="width:${w}%"></span></span><span class="an-bar-val">${Number(p.count || 0)}</span></div>`;
+  }).join('') : '<p class="subtle">No peers yet.</p>';
+  const owed = Number(data.openContracts || 0);
+  return `<div class="chat-analytics">
+    <div class="an-cards">
+      <div class="an-card"><div class="an-n">${Number(data.messagesReceived || 0)}</div><div class="an-l">Received</div></div>
+      <div class="an-card"><div class="an-n">${Number(data.messagesSent || 0)}</div><div class="an-l">Sent</div></div>
+      <div class="an-card"><div class="an-n">${esc(workLabel)}</div><div class="an-l">Working</div></div>
+      <div class="an-card"><div class="an-n">${mr ? esc(mrLabel) : '—'}</div><div class="an-l">Median reply 7d</div></div>
+      <div class="an-card"><div class="an-n${owed ? ' an-bad' : ''}">${owed}</div><div class="an-l">Owes replies</div></div>
+    </div>
+    <h4 class="an-h">Activity — 14 days (received↓ / sent↑)</h4>${dayBars}
+    <h4 class="an-h">Work runs — 7 days</h4>
+    <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
+    <h4 class="an-h">Top peers</h4>${peerBars}
+  </div>`;
+}
+
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
-// loadChannels, refresh, loadConversation }.
+// loadChannels, refresh, loadConversation, loadAgentAnalytics }.
 export function createChatController(deps) {
-  const { state, byId, sendMessage, loadChannels, refresh, loadConversation } = deps;
+  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics } = deps;
 
   function renderRail() {
     const host = byId('chat-rail-list');
@@ -132,6 +170,17 @@ export function createChatController(deps) {
     const titleEl = byId('chat-conv-title');
     const timeline = byId('chat-timeline');
     if (!timeline) return;
+    // Analytics view survives polls/re-renders (state-tracked, not a one-shot DOM write).
+    const an = state.chat.analytics || {};
+    if (an.agent) {
+      if (titleEl) titleEl.textContent = `Analytics · ${an.agent}`;
+      const actions = byId('chat-conv-actions');
+      if (actions) actions.innerHTML = `<button class="ghost" data-chat-open="dm:${esc(an.agent)}">Back to chat</button>`;
+      timeline.innerHTML = an.data ? renderAnalyticsPanelHtml(an.agent, an.data) : '<div class="chat-empty">Loading analytics…</div>';
+      const composer = byId('chat-composer');
+      if (composer) composer.hidden = true;
+      return;
+    }
     const key = state.chat.selected;
     if (!key) {
       if (titleEl) titleEl.textContent = 'Select a conversation';
@@ -157,7 +206,7 @@ export function createChatController(deps) {
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`)
           + `<button class="ghost" data-chat-channel-action="read" data-channel="${esc(id)}">Mark read</button>`;
       } else {
-        actions.innerHTML = '';
+        actions.innerHTML = `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
     }
     const msgs = isChannel
@@ -189,12 +238,25 @@ export function createChatController(deps) {
   }
 
   async function open(key) {
+    state.chat.analytics = { agent: '', data: null }; // leaving analytics view
     state.chat.selected = key;
     if (key.startsWith('channel:')) {
       const name = key.slice('channel:'.length);
       try { await loadConversation(name); } catch (_) { /* toast handled upstream */ }
     }
     render();
+  }
+
+  async function openAnalytics(agentId) {
+    state.chat.analytics = { agent: agentId, data: null };
+    renderConversation(); // shows the loading state immediately
+    let data = { ok: false };
+    try { data = await loadAgentAnalytics(agentId); } catch (_) { data = { ok: false }; }
+    // Only paint if still viewing this agent's analytics (avoid a stale async overwrite).
+    if (state.chat.analytics.agent === agentId) {
+      state.chat.analytics.data = data;
+      renderConversation();
+    }
   }
 
   async function send() {
@@ -226,5 +288,5 @@ export function createChatController(deps) {
     }
   }
 
-  return { render, open, send, renderRail, renderConversation };
+  return { render, open, openAnalytics, send, renderRail, renderConversation };
 }

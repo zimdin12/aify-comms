@@ -42,7 +42,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {} },
+  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, channels: [], channelMessages: {}, analytics: { agent: '', data: null } },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'chat',
@@ -127,6 +127,7 @@ const chatController = createChatController({
   loadChannels: chatLoadChannels,
   refresh: () => refresh(),
   loadConversation: chatLoadConversation,
+  loadAgentAnalytics: (id) => api(`/analytics/agent/${encodeURIComponent(id)}`),
 });
 
 // Shared files (Phase 1.4b): list/upload/delete artifacts via /shared.
@@ -424,7 +425,7 @@ const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(
 
 function renderAll() {
   const f = state.filter || '';
-  renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.filter, state.chat.identity, state.chat.liveOnly], () => chatController.render());
+  renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.filter, state.chat.identity, state.chat.liveOnly, state.chat.analytics.agent, !!state.chat.analytics.data], () => chatController.render());
   renderSection('metrics', [_agentSig(), _contractSig().map((c) => [c[1], c[3]]), state.stats], renderMetrics);
   renderSection('attention', [_contractSig(), f], renderAttention);
   // Session workspace + console: not signature-gated (own internal guards preserve live state).
@@ -1947,6 +1948,11 @@ document.addEventListener('click', (event) => {
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
     chatController.open(chatOpen.dataset.chatOpen);
+    return;
+  }
+  const chatAnalytics = event.target.closest('[data-chat-analytics]');
+  if (chatAnalytics) {
+    chatController.openAnalytics(chatAnalytics.dataset.chatAnalytics);
     return;
   }
   const chanAction = event.target.closest('[data-chat-channel-action]');
