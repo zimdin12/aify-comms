@@ -900,3 +900,15 @@ small, .subtle { color: var(--muted); }
 .file-actions { display: inline-flex; gap: 7px; flex: 0 0 auto; }
 .file-actions a, .file-actions button { padding: 5px 11px; font-size: .8em; text-decoration: none; }
 @media (max-width: 760px) { .files-upload { grid-template-columns: 1fr; } .file-row { flex-direction: column; align-items: stretch; } }
+
+/* Settings editor (Phase 1.7): grouped, schema-driven. */
+.settings-form { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+.settings-group { border: 1px solid var(--line); border-radius: 11px; padding: 13px 15px; background: var(--panel-3); }
+.settings-group-title { margin: 0 0 11px; font-size: .82em; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 18px; }
+.settings-row { display: flex; flex-direction: column; gap: 5px; }
+.settings-row.settings-toggle-row { flex-direction: row; align-items: flex-start; gap: 9px; }
+.settings-label { font-size: .85em; color: var(--soft); display: flex; flex-direction: column; gap: 2px; }
+.settings-hint { color: var(--muted); font-size: .82em; font-weight: 400; }
+.settings-row input[type="text"], .settings-row input[type="number"], .settings-row select { background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 9px; font-size: .85em; }
+.settings-row input:focus, .settings-row select:focus { outline: none; border-color: var(--teal); }

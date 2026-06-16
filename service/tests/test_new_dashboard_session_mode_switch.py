@@ -127,46 +127,25 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
 
     # ─── C6 — Settings UI toggle ───────────────────────────────────────────
 
-    def test_settings_page_has_manual_session_mode_toggle(self):
-        self.assertIn(
-            'id="setting-manual-session-mode"',
-            self.html,
-            "Plan 6 C6: Settings page must declare the manual_session_mode toggle input",
-        )
-        self.assertIn(
-            'id="setting-manual-session-mode-status"',
-            self.html,
-            "Plan 6 C6: Settings page must surface a save-status element for the toggle",
-        )
+    def test_settings_page_has_grouped_editor_with_manual_session_mode(self):
+        # Phase 1.7 (2026-06-16): the C6 single-toggle stub became a grouped, schema-driven
+        # settings editor. The page declares the form host + a Save button; the schema still
+        # exposes manual_session_mode (now one knob among many).
+        self.assertIn('id="settings-form"', self.html, "Settings page must declare the settings-form host")
+        self.assertIn('id="settings-save"', self.html, "Settings page must declare a Save button")
+        self.assertIn("SETTINGS_SCHEMA", self.script, "a schema-driven settings editor must exist")
+        self.assertIn("key: 'manual_session_mode'", self.script,
+                      "the settings schema must still expose manual_session_mode")
 
-    def test_render_settings_syncs_checkbox_from_state(self):
-        self.assertIn(
-            "function renderSettings()",
-            self.script,
-            "Plan 6 C6: renderSettings() must be defined to mirror state.settings.manual_session_mode into the checkbox",
-        )
-        self.assertIn(
-            "state.settings?.manual_session_mode === true",
-            self.script,
-            "Plan 6 C6: renderSettings must read manual_session_mode from state",
-        )
+    def test_render_settings_builds_from_state_and_schema(self):
+        self.assertIn("function renderSettings()", self.script, "renderSettings() must be defined")
+        self.assertIn("state.settings", self.script, "renderSettings must read from state.settings")
+        self.assertIn("SETTINGS_SCHEMA.map", self.script, "renderSettings must build groups from the schema")
 
-    def test_change_handler_puts_settings(self):
-        self.assertIn(
-            "async function setManualSessionMode(enabled)",
-            self.script,
-            "Plan 6 C6: setManualSessionMode helper must be defined",
-        )
-        self.assertIn(
-            "method: 'PUT'",
-            self.script,
-            "Plan 6 C6: helper must PUT /api/v1/settings",
-        )
-        self.assertIn(
-            "manual_session_mode: Boolean(enabled)",
-            self.script,
-            "Plan 6 C6: PUT body must carry manual_session_mode",
-        )
+    def test_save_handler_puts_settings(self):
+        self.assertIn("async function saveSettings()", self.script, "saveSettings helper must be defined")
+        self.assertIn("method: 'PUT'", self.script, "saveSettings must PUT /api/v1/settings")
+        self.assertIn("data-setting-key", self.script, "saveSettings must collect values from the schema-rendered inputs")
 
     def test_click_handler_stops_propagation_so_chip_does_not_select_session(self):
         # The session-rail row carries data-session-select. Without

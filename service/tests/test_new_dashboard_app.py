@@ -157,7 +157,9 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn('data-page="environments"', html)
         self.assertIn('data-page="diagnostics"', html)
         self.assertIn('data-page="settings"', html)
-        self.assertNotIn('data-page="chat"', html)
+        # Phase 1.1 (2026-06-16): chat-first landing added a Chat page (the new default).
+        self.assertIn('data-page="chat"', html)
+        self.assertIn('data-page="files"', html)
         self.assertIn('id="attention-strip"', html)
         self.assertIn('id="session-rail"', html)
         self.assertIn('id="session-view"', html)

@@ -87,7 +87,7 @@ const pages = {
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
   files: ['Files', 'Shared artifacts (comms_share). Upload, download, and remove files.'],
-  settings: ['Settings', 'Configuration stays on the classic dashboard until this flow reaches parity.'],
+  settings: ['Settings', 'Curated service + dashboard configuration. Save writes to the live settings; rare knobs stay on classic.'],
 };
 
 const byId = (id) => document.getElementById(id);
@@ -443,38 +443,101 @@ function renderAll() {
 
 // Legacy setting mirror. Mode-switch chips are now always visible; ownership
 // changes are manual-only and no longer gated by this setting.
-function renderSettings() {
-  const toggle = byId('setting-manual-session-mode');
-  if (!toggle) return;
-  toggle.checked = state.settings?.manual_session_mode === true;
+// Settings parity (Phase 1.7): curated, GROUPED editor over PUT /settings (which merges a
+// partial). Rare/advanced knobs stay on the classic dashboard. Each item: key + type
+// (toggle/number/text/select). The effort selects use the standard tiers.
+const EFFORT_OPTS = ['low', 'medium', 'high'];
+const SETTINGS_SCHEMA = [
+  { group: 'Status & lifecycle', items: [
+    { key: 'status_engine', label: 'Status engine', type: 'select', options: ['old', 'new'], hint: 'The live-status derivation engine. `new` is the event-driven engine.' },
+    { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number' },
+    { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number' },
+    { key: 'worker_idle_close_enabled', label: 'Auto-close idle managed workers', type: 'toggle' },
+    { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number' },
+    { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
+  ] },
+  { group: 'Reply contracts', items: [
+    { key: 'reply_contracts_enabled', label: 'Reply contracts enabled', type: 'toggle' },
+    { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number' },
+    { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number' },
+    { key: 'reply_reminder_max_count', label: 'Max reminders', type: 'number' },
+  ] },
+  { group: 'Managed runtimes', items: [
+    { key: 'managed_terminal_backing_enabled', label: 'Terminal-backed managed sessions', type: 'toggle' },
+    { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
+    { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
+    { key: 'console_auto_confirm_claude_dev_channels', label: 'Auto-confirm claude dev-channels prompt', type: 'toggle' },
+    { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
+    { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },
+    { key: 'managed_codex_model', label: 'Managed codex model', type: 'text' },
+    { key: 'managed_codex_effort', label: 'Managed codex effort', type: 'select', options: EFFORT_OPTS },
+    { key: 'managed_pi_model', label: 'Managed pi model', type: 'text' },
+    { key: 'managed_pi_effort', label: 'Managed pi effort', type: 'select', options: EFFORT_OPTS },
+  ] },
+  { group: 'Retention & rotation', items: [
+    { key: 'rotation_enabled', label: 'Rotation enabled', type: 'toggle' },
+    { key: 'retention_days', label: 'Retention (days)', type: 'number' },
+    { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number' },
+    { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number' },
+    { key: 'stale_agent_hours', label: 'Stale agent after (h)', type: 'number' },
+  ] },
+  { group: 'Dashboard', items: [
+    { key: 'dashboard_refresh_seconds', label: 'Poll fallback (s)', type: 'number', hint: 'A safety net only — live updates arrive over WebSocket.' },
+    { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
+  ] },
+];
+
+function settingsItemHtml(item, value) {
+  const id = `set-${item.key}`;
+  const hint = item.hint ? `<small class="settings-hint">${esc(item.hint)}</small>` : '';
+  let control;
+  if (item.type === 'toggle') {
+    control = `<input type="checkbox" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="toggle"${value === true ? ' checked' : ''}>`;
+    return `<label class="settings-row settings-toggle-row">${control}<span class="settings-label">${esc(item.label)}${hint}</span></label>`;
+  }
+  if (item.type === 'select') {
+    const opts = (item.options || []).map((o) => `<option value="${esc(o)}"${String(value) === String(o) ? ' selected' : ''}>${esc(o)}</option>`).join('');
+    control = `<select id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="select">${opts}</select>`;
+  } else if (item.type === 'number') {
+    control = `<input type="number" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="number" value="${esc(value ?? '')}">`;
+  } else {
+    control = `<input type="text" id="${id}" data-setting-key="${esc(item.key)}" data-setting-type="text" value="${esc(value ?? '')}">`;
+  }
+  return `<div class="settings-row"><label class="settings-label" for="${id}">${esc(item.label)}${hint}</label>${control}</div>`;
 }
 
-async function setManualSessionMode(enabled) {
-  const url = `${apiBase}/settings`;
-  const statusEl = byId('setting-manual-session-mode-status');
+function renderSettings() {
+  const host = byId('settings-form');
+  if (!host) return;
+  const s = state.settings || {};
+  host.innerHTML = SETTINGS_SCHEMA.map((grp) => `
+    <section class="settings-group">
+      <h3 class="settings-group-title">${esc(grp.group)}</h3>
+      <div class="settings-grid">${grp.items.map((item) => settingsItemHtml(item, s[item.key])).join('')}</div>
+    </section>`).join('');
+}
+
+async function saveSettings() {
+  const statusEl = byId('settings-status');
+  const payload = {};
+  document.querySelectorAll('#settings-form [data-setting-key]').forEach((el) => {
+    const key = el.dataset.settingKey;
+    const type = el.dataset.settingType;
+    if (type === 'toggle') payload[key] = el.checked;
+    else if (type === 'number') { const n = Number(el.value); if (el.value !== '' && Number.isFinite(n)) payload[key] = n; }
+    else payload[key] = el.value;
+  });
   if (statusEl) statusEl.textContent = 'Saving…';
-  let res;
   try {
-    res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manual_session_mode: Boolean(enabled) }),
-    });
-  } catch (err) {
-    if (statusEl) statusEl.textContent = `Save failed: ${err?.message || err}`;
-    return;
+    const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    state.settings = res && typeof res === 'object' ? res : { ...state.settings, ...payload };
+    if (statusEl) statusEl.textContent = 'Saved';
+    toast('Settings saved', 'ok');
+    renderSettings();
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `Save failed: ${error?.message || error}`;
+    toast(`Save failed: ${error?.message || error}`, 'error');
   }
-  if (!res.ok) {
-    if (statusEl) statusEl.textContent = `Save failed: HTTP ${res.status}`;
-    return;
-  }
-  try {
-    state.settings = await res.json();
-  } catch {
-    state.settings = { ...(state.settings || {}), manual_session_mode: Boolean(enabled) };
-  }
-  if (statusEl) statusEl.textContent = `manual_session_mode = ${state.settings.manual_session_mode}`;
-  refreshSoon();
 }
 
 function metric(label, value, tone = 'neutral') {
@@ -2210,7 +2273,6 @@ connectRealtimeSocket();
 refresh();
 setInterval(refresh, 15000);
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
-// Legacy manual_session_mode toggle; chips stay visible regardless.
-byId('setting-manual-session-mode')?.addEventListener('change', (event) => {
-  setManualSessionMode(event.target.checked);
+byId('settings-save')?.addEventListener('click', () => {
+  saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
 });
