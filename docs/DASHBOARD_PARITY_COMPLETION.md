@@ -60,6 +60,14 @@ Core xterm PTY already works (stream+input+resize). Missing the UX/robustness sh
 - [x] F8. Message-detail surface (inspector view for a single message).
 - [~] F9. Inbox Hygiene panel; bulk contract close; chat artifact-attach button.
 
+## Status: COMPLETE (2026-06-16)
+
+All six workstreams shipped, browser-verified, and pushed (commits 62993f1, ac81b92, ea27308,
+d88f79a, 702f50d, d49e425). New modules: `theme.js`, `analytics.js` (+ unit tests). Suites green:
+46 JS, 759 Python. Deferred (lowest-value): bulk multi-select contract close + Inbox Hygiene
+panel. Open before the §6 replacement gate (operator's call): live multi-session soak + parity
+sign-off; 8800 remains the default until then.
+
 ## Operating rules
 - Browser-verify EACH chunk against the old dashboard (chrome-devtools), screenshot compare, console clean.
 - Rebuild `new-dashboard` container after each chunk; reload with ignoreCache.
