@@ -263,6 +263,89 @@
           </div>
           <div id="settings-form" class="settings-form"></div>
         </section>
+
+        <!-- Slice 7 "Help" half: deliberately NOT a re-bake of the 8800 five-tab essay
+             (the plan forbids a third copy of the status doc). Just canonical-doc links +
+             a compact quick-start + an endpoint reference spot-checked against the router. -->
+        <section class="band help-band">
+          <div class="section-head">
+            <h2>Help &amp; Reference</h2>
+            <span class="subtle">canonical docs live in the repo</span>
+          </div>
+
+          <div class="help-grid">
+            <div class="help-card">
+              <h3>Documentation</h3>
+              <p class="subtle">Authoritative guides — kept in the repo, not duplicated here.</p>
+              <ul class="help-links">
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/README.md" target="_blank" rel="noreferrer">README — what it is, setup, usage, API</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/install.claude.md" target="_blank" rel="noreferrer">Install: Claude Code</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/install.codex.md" target="_blank" rel="noreferrer">Install: Codex</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/install.opencode.md" target="_blank" rel="noreferrer">Install: OpenCode</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/install.pi.md" target="_blank" rel="noreferrer">Install: Oh My Pi</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/DECISIONS.md" target="_blank" rel="noreferrer">DECISIONS — design rationale &amp; limits</a></li>
+                <li><a href="https://github.com/zimdin12/aify-comms/blob/main/KNOWN_ISSUES.md" target="_blank" rel="noreferrer">KNOWN_ISSUES — caveats &amp; watch-items</a></li>
+              </ul>
+            </div>
+
+            <div class="help-card">
+              <h3>Quick start</h3>
+              <p class="subtle">Install a client, then run a bridge.</p>
+              <pre class="help-pre">bash install.sh --client claude \
+  http://192.168.100.10:8800 --with-hook</pre>
+              <p class="subtle">Managed (the normal team workflow — one bridge per host/runtime):</p>
+              <pre class="help-pre">cd /path/to/workspace-parent
+aify-comms              # aify-comms.cmd on native Windows</pre>
+              <p class="subtle">Resident (a terminal you drive directly):</p>
+              <pre class="help-pre">claude-aify --aify-agent manager --aify-role manager</pre>
+            </div>
+          </div>
+
+          <div class="help-card help-endpoints">
+            <h3>Endpoint reference</h3>
+            <p class="subtle">Base <code>/api/v1</code> unless noted. Spot-checked against the FastAPI router.</p>
+            <div class="help-endpoint-grid">
+              <div>
+                <h4>Chat &amp; channels</h4>
+                <ul>
+                  <li><code>GET /messages/recent</code></li>
+                  <li><code>GET /messages/inbox/{agent}</code></li>
+                  <li><code>POST /messages/send</code></li>
+                  <li><code>GET /channels</code> · <code>POST /channels</code></li>
+                  <li><code>POST /channels/{name}/join|leave|read|send</code></li>
+                </ul>
+              </div>
+              <div>
+                <h4>Agents &amp; sessions</h4>
+                <ul>
+                  <li><code>GET /agents</code> · <code>GET /agents/{id}</code></li>
+                  <li><code>POST /agents/{id}/control</code></li>
+                  <li><code>PATCH /agents/{id}/session-mode</code></li>
+                  <li><code>GET /sessions</code> · <code>DELETE /sessions/{id}</code></li>
+                  <li><code>GET /environments</code></li>
+                </ul>
+              </div>
+              <div>
+                <h4>Work loop &amp; runs</h4>
+                <ul>
+                  <li><code>GET /contracts</code></li>
+                  <li><code>GET /dispatch/runs</code></li>
+                  <li><code>GET /dispatch/runs/{id}/events</code></li>
+                  <li><code>GET /analytics</code> · <code>/analytics/agent/{id}</code></li>
+                </ul>
+              </div>
+              <div>
+                <h4>Files &amp; service</h4>
+                <ul>
+                  <li><code>GET /shared</code> · <code>POST /shared</code></li>
+                  <li><code>DELETE /shared/{name}</code></li>
+                  <li><code>GET /settings</code> · <code>PUT /settings</code></li>
+                  <li><code>GET /health</code> · <code>/version</code> <span class="subtle">(origin root)</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
 

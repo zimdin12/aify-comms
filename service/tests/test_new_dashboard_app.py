@@ -321,6 +321,23 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn("items.map((contract) => contractCard(contract, { selectable: false }))", script)
         self.assertIn("contracts.map(contractCard)", script)
 
+    def test_help_reference_lives_on_settings_page_as_links_not_essay(self):
+        # Slice 7 "Help" half: canonical-doc links + compact quick-start + endpoint
+        # reference, NOT a third copy of the 8800 status essay. Static HTML on the
+        # Settings page (plan pairs "Settings + Help").
+        html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
+        styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("help-band", html)
+        self.assertIn("Help &amp; Reference", html)
+        # Links out to the canonical repo docs rather than duplicating them.
+        self.assertIn("github.com/zimdin12/aify-comms/blob/main/README.md", html)
+        self.assertIn("github.com/zimdin12/aify-comms/blob/main/KNOWN_ISSUES.md", html)
+        # Compact quick-start + endpoint reference present.
+        self.assertIn("install.sh --client claude", html)
+        self.assertIn("Endpoint reference", html)
+        self.assertIn(".help-endpoint-grid", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

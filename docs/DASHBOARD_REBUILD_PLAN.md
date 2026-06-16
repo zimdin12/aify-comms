@@ -51,24 +51,24 @@ bug fixes only — no new features on the monolith from now on (every new featur
 Do these before any feature work; `app.js` is 2,210 lines and grew 6x in 9 days — one sprint
 from a second monolith.
 
-- [ ] **0.1 ES modules + file split.** `<script type="module">`; split `app.js` into
+- [x] **0.1 ES modules + file split.** `<script type="module">`; split `app.js` into
   `api.js` (fetch + WS + auth), `state.js`, `status.js` (the canonical status resolver, F2),
   `console/{chooser,xterm,hermes,codex}.js`, `render/{sessions,runs,work,environments,...}.js`,
   `ui/{actions,toast,dialog}.js`. Tests then import pure helpers directly — delete the brittle
   regex+`new Function` extraction in `app.test.mjs`.
-- [ ] **0.2 Delete the dead code.** `renderAgents`/`renderMessages`/`renderConversations`/
+- [x] **0.2 Delete the dead code.** `renderAgents`/`renderMessages`/`renderConversations`/
   `renderAnalytics` (+ their orphaned event paths) target DOM ids that don't exist and
   null-crash anyone wiring them naively.
-- [ ] **0.3 Vendor xterm.js** (the index.html comment already promises it) — no CDN dependency;
+- [x] **0.3 Vendor xterm.js** (the index.html comment already promises it) — no CDN dependency;
   the console must work offline/LAN.
-- [ ] **0.4 Kill whole-app innerHTML re-render.** Per-section render keyed on input signatures
+- [x] **0.4 Kill whole-app innerHTML re-render.** Per-section render keyed on input signatures
   computed in ONE place (not 5 hand-rolled ones); never re-render the console pane when its
   inputs are unchanged. This removes the disease that forced the terminalId cache + remount
   guard workarounds, and preserves scroll/focus/checkbox state for free.
-- [ ] **0.5 One async-action wrapper** for all delegated handlers (toast on failure — today
+- [x] **0.5 One async-action wrapper** for all delegated handlers (toast on failure — today
   several have unhandled rejections), and an inline dialog component replacing every
   `prompt()`/`confirm()`.
-- [ ] **0.6 Test harness:** keep node:test; add a thin DOM-less render-contract test per module
+- [x] **0.6 Test harness:** keep node:test; add a thin DOM-less render-contract test per module
   (input state → HTML contains/escapes), and keep the "no hardcoded origins" server test.
 
 ## 3. Phase 1+ — feature slices to parity (each slice = ship + test + check off)
@@ -76,7 +76,7 @@ from a second monolith.
 Order chosen so every slice is operator-usable immediately. The 8800 inventory's judgments
 (§4) define what each slice INCLUDES vs drops.
 
-- [ ] **1. Chat as landing** (the biggest missing surface): conversation rail (DMs + channels)
+- [x] **1. Chat as landing** (the biggest missing surface): conversation rail (DMs + channels)
   with presence dots (8 statuses), unread, favorites (server-side), identity switcher
   ("viewing as"), search; threaded timeline with reply/follow-up, read/unread, wake-vs-stored
   badge, message-detail; composer with send/queue, reply threading, artifact/image paste, and
@@ -86,38 +86,47 @@ Order chosen so every slice is operator-usable immediately. The 8800 inventory's
   to search + live/all + pin; one "expects reply?" toggle instead of raw type/priority selects
   (infer type); per-DM analytics behind an explicit inspector button (NOT the undiscoverable
   click-again-to-deselect gesture — it caused must-fix bugs twice).
-- [ ] **2. Granular WS consumption + conversation endpoint.** The server already broadcasts
+- [x] **2. Granular WS consumption + conversation endpoint.** The server already broadcasts
   ~25 event types that 8800 throws away (everything collapses to a debounced full refetch with
   an N+1 per-agent inbox loop — ~26 requests/refresh at 15 agents). 8801 must consume
   `dispatch_updated`/`channel_message`/`agent_registered`/session events granularly. ONE
   additive server endpoint is justified here (the parity doc's freeze is "no changes *for*
   8801's sake" — this fixes 8800's N+1 too): `GET /conversations?identity=` returning rail
   summaries + unread counts in one call.
-- [ ] **3. Sessions: one canonical agent-detail surface.** Keep the agent-centric
+- [x] **3. Sessions: one canonical agent-detail surface.** Keep the agent-centric
   one-row-per-agent model + status multiselect + batch stop/delete + the 13 lifecycle actions —
   but as ONE "agent detail" drawer used by BOTH the sessions page and the chat inspector
   (8800 currently duplicates ~9 actions across three surfaces: Sessions menu, chat inspector,
   Identity Directory modal — the modal dies). Compact/Continue-as keeps the WEB_APP_DESIGN
   compaction-packet UX.
-- [ ] **4. Channels + Files.** Channels: create/join/leave/read + member management (in the
+- [x] **4. Channels + Files.** Channels: create/join/leave/read + member management (in the
   chat rail, not a separate page). Files: simple list+upload+delete as a chat side panel.
-- [ ] **5. Control Room (slim) + Analytics merge.** One landing-overview page: ops strip,
+- [x] **5. Control Room (slim) + Analytics merge.** One landing-overview page: ops strip,
   needs-attention (server-acknowledged dismiss — NOT the 8800 localStorage mute layer),
   working-now, recent flow. The Analytics page folds in as a tab (its SVG chart + range
   selector port over; drop the always-refetch-even-when-hidden behavior). Per-DM analytics
   already exists via `GET /analytics/agent/{id}`.
-- [ ] **6. Work Loop (simplified).** Contracts list + filters + close + reminders. The three
+- [x] **6. Work Loop (simplified).** Contracts list + filters + close + reminders. The three
   self-repair buttons (repair delivered reads / repair handoffs ×2) exist because server
   bookkeeping drifted; the 2026-06-10 reaper/mirror fixes addressed the causes — verify, then
   DON'T port the buttons (keep the endpoints for emergencies). One hide mechanism (server
   close), not two.
-- [ ] **7. Settings + Help.** Settings: port the 4 tabs but AUDIT each knob (drop "Legacy
+- [x] **7. Settings + Help.** Settings: port the 4 tabs but AUDIT each knob (drop "Legacy
   Console injection" if the legacy path is gone; fix the stale "Default: 15" refresh hint;
   group bridge-policy vs dashboard-prefs). Help: do NOT bake a third copy of the status essay —
   link the canonical docs; keep only the quick-start + endpoint reference (generated or
   spot-checked against the router).
-- [ ] **8. Version badge + update awareness** (port from 8800: `GET /version`, behind-count
+- [x] **8. Version badge + update awareness** (port from 8800: `GET /version`, behind-count
   warning pill).
+
+> **Status (2026-06-16): all Phase 0 + Phase 1 slices shipped, browser-verified, committed.**
+> Two intentional deviations from the plan text: (a) slice 2's optional additive
+> `GET /conversations` endpoint was NOT added — the rail is built on the existing
+> `/messages/inbox/{id}` + `/messages/recent` + `/channels` endpoints, keeping the 8800 API
+> fully frozen; (b) slice 7's Help is a compact links + quick-start + endpoint-reference band
+> on the Settings page (NOT a re-baked 5-tab essay), per the "don't bake a third status doc"
+> instruction. Remaining before the §6 replacement gate: live multi-session round-trip soak +
+> the operator's parity sign-off.
 
 ## 4. 8800 features that do NOT survive (the "doesn't make sense anymore" list)
 
