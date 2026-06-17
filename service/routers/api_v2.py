@@ -2489,6 +2489,30 @@ async def _is_turn_busy_fresh(db, agent_id: str) -> bool:
     return fresh
 
 
+async def _agent_engine_busy_for_queue(db, agent_id: str) -> bool:
+    """WS-3 (2026-06-17): True when the agent is GENUINELY mid-turn per the
+    liveness-aware engine status — the same value the dashboard shows. Used to
+    gate explicitly-queued delivery (queueIfBusy) so it (a) holds exactly while
+    the target is working/blocked and releases the instant it returns to ready
+    (online), and (b) never holds behind a DEAD worker's stale turn_busy=1 (the
+    engine resolves that to available/offline, not working — status-F2/WS-2).
+
+    Reads the cached agent_live_state.status, kept real-time by the
+    turn-transition pushes (WS-1) and self-healed by the 60s reconcile. Falls
+    back to the raw turn-busy freshness signal only when the cache row is absent
+    (cold start), preserving the prior behavior in that window."""
+    try:
+        row = await (await db.execute(
+            "SELECT status FROM agent_live_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+    except Exception:
+        row = None
+    if row and "status" in row.keys() and row["status"]:
+        return str(row["status"]).strip().lower() in {"working", "blocked"}
+    # Cache cold: fall back to the raw turn-busy freshness (prior gate behavior).
+    return await _is_turn_busy_fresh(db, agent_id)
+
+
 async def _fresh_same_mode_bridge_conflict(
     db,
     *,
@@ -14653,8 +14677,14 @@ async def send_message(req: MessageSend, request: Request):
                         )).fetchone()
                         if tb_row and int(tb_row["turn_busy"] or 0) == 1:
                             tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
+                            # 120s freshness = anti-strand bound (same as the claim gate).
                             if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                                is_turn_busy = True
+                                # WS-3 (2026-06-17): within the window, queue only when the
+                                # liveness-aware engine status (working/blocked) — the value
+                                # the dashboard shows — agrees, so the send releases the
+                                # instant the target returns to ready and never queues
+                                # behind a dead worker's stale turn_busy.
+                                is_turn_busy = await _agent_engine_busy_for_queue(db, recipient_id)
                     except Exception:
                         is_turn_busy = False
                     if (
@@ -16668,18 +16698,31 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
             )).fetchone()
             if tb_row and int(tb_row["turn_busy"] or 0) == 1:
                 tb_epoch = _iso_to_epoch(str(tb_row["turn_updated_at"] or ""))
+                # The 120s freshness bound is the ANTI-STRAND backstop: the gate opens
+                # once the turn signal goes stale so a missed turn-end can't hold a
+                # queued run for the long status ceiling (#5).
                 if tb_epoch and (datetime.now(timezone.utc).timestamp() - tb_epoch) <= TURN_BUSY_STALE_SECONDS:
-                    if not await _has_claimable_steerable_run(
-                        db,
-                        agent_row=agent,
-                        supported_modes=supported_modes,
-                        agent_runtime=agent_runtime,
-                    ):
-                        await db.commit()
-                        return {"ok": True, "run": None}
+                    # WS-3 (2026-06-17): within that window, HOLD only when the
+                    # liveness-aware engine ALSO says the target is genuinely working/
+                    # blocked — the same value the dashboard shows. So (a) the queue
+                    # releases the instant the agent returns to ready (online) instead
+                    # of waiting out the raw window, and (b) a DEAD worker's stale-but-
+                    # fresh turn_busy (engine → available/offline) never strands a run.
+                    # The channel/resident STEER bypass is PRESERVED unchanged: an
+                    # ordinary (non-queued) comms_send still injects mid-turn into a
+                    # steer-capable target; only explicitly-queued sends wait for ready.
+                    if await _agent_engine_busy_for_queue(db, req.agentId):
+                        if not await _has_claimable_steerable_run(
+                            db,
+                            agent_row=agent,
+                            supported_modes=supported_modes,
+                            agent_runtime=agent_runtime,
+                        ):
+                            await db.commit()
+                            return {"ok": True, "run": None}
         except Exception:
-            # If turn_busy state is unreadable, fall through and let the
-            # normal claim flow proceed — better to deliver than block.
+            # If turn state is unreadable, fall through and let the normal claim
+            # flow proceed — better to deliver than block.
             pass
 
         run_cursor = await db.execute(

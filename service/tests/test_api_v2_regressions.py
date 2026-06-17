@@ -2825,6 +2825,42 @@ class ApiV2RegressionTests(FastApiTestCase):
                 f"claim-gate must NOT use the long status ceiling: {ln.strip()}",
             )
 
+    def test_engine_busy_for_queue_releases_on_ready_status(self):
+        # WS-3 (2026-06-17): the queue/claim busy-check consults the liveness-aware
+        # engine status (cached agent_live_state.status) so a queued send (a) releases
+        # the instant the target returns to ready (online) even while the raw turn_busy
+        # window is still open, and (b) never holds behind a DEAD worker's stale
+        # turn_busy (engine → available). Cold cache falls back to raw freshness.
+        import asyncio
+        from service.db import get_db
+        self._register("wq-target", runtime="claude-code", sessionMode="resident")
+        self._seed_fresh_turn_busy("wq-target", "run-wq", "bridge-wq")  # raw window OPEN
+
+        def busy():
+            async def _run():
+                db = await get_db()
+                try:
+                    return await api_v2._agent_engine_busy_for_queue(db, "wq-target")
+                finally:
+                    await db.close()
+            return asyncio.run(_run())
+
+        self.assertTrue(busy(), "cold cache → fall back to raw turn_busy freshness (busy)")
+        self._execute(
+            """
+            INSERT INTO agent_live_state (agent_id, status, reason, environment_id, session_id,
+                terminal_id, active_run_id, refresh_after, updated_at)
+            VALUES (?, 'working', '', '', '', '', '', '9999-12-31T23:59:59Z', ?)
+            ON CONFLICT(agent_id) DO UPDATE SET status='working'
+            """,
+            ("wq-target", api_v2._now()),
+        )
+        self.assertTrue(busy(), "engine working → busy (queue holds)")
+        self._execute("UPDATE agent_live_state SET status='online' WHERE agent_id=?", ("wq-target",))
+        self.assertFalse(busy(), "engine online (ready) → not busy; queue releases instantly")
+        self._execute("UPDATE agent_live_state SET status='available' WHERE agent_id=?", ("wq-target",))
+        self.assertFalse(busy(), "engine available (dead worker) → not busy; no strand")
+
     def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
         # pure-event-status change #2: a DEAD resident worker stuck with
         # turn_busy=1 must derive `stale`/offline from its stale bridge lease —
@@ -12166,6 +12202,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         })
         self._register("busy-target", runtime="hermes", sessionMode="resident")
         # Fresh resident bridge so the target is alive; in_turn=1 → engine `working`.
+        # status-F2/WS-2 (2026-06-17): `working` now REQUIRES liveness, so the bridge
+        # must be linked via runtime_state.bridgeInstanceId for _resident_bridge_is_fresh
+        # to recognize it (previously the in_turn→working bug made this pass without a
+        # genuinely-fresh bridge).
         live_seen = api_v2._now()
         self._execute(
             """
@@ -12173,6 +12213,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             VALUES (?,?,?,?,?,?,?)
             """,
             ("bridge-busy-1", "busy-target", "test-machine", "hermes", "resident", live_seen, live_seen),
+        )
+        self._execute(
+            "UPDATE agents SET runtime_state = ? WHERE id = ?",
+            ('{"bridgeInstanceId": "bridge-busy-1"}', "busy-target"),
         )
         self._execute(
             """
