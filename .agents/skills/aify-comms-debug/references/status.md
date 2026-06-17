@@ -23,12 +23,12 @@ as `online`?" They are distinct signals. Canonical reference:
 |-------|---------|
 | `online` | Live worker, idle (no active turn). |
 | `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
-| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
-| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
-| `blocked` | Active run, but the terminal tail looks like it needs operator input/a decision (a prompt/question awaiting an answer, not healthy generation). |
+| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). **NOT emitted under the live `new` engine** (`idle_too_long` is inert) — a long-quiet worker reads `online`. |
+| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). **Liveness-gated (2026-06-17, WS-2):** requires a LIVE worker — a dead managed worker / stale resident bridge no longer reads `working`, it falls to `available`/`offline`/`stale` within the liveness lease. |
+| `blocked` | Active run, but the terminal tail looks like it needs operator input/a decision (a prompt/question awaiting an answer, not healthy generation). **NOT emitted under the live `new` engine** — a stuck-at-prompt agent currently reads `working`. |
 | `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
 | `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
-| `stopped` | Operator-stopped, or set by `resident-lost` on clean close. |
+| `stopped` | Operator-stopped, wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
 
 Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
 adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
@@ -45,9 +45,14 @@ and means a LIVE-but-expired bridge lease, not an old label that "stuck".
 `old` (per-request, `agent_turn_state`/`turn_busy` window) engine is the DEFAULT_SETTINGS
 value (`api_v2.py` `status_engine="old"`), but the live DB has `status_engine=new` SET — the
 event-driven engine (`service/status_engine.py` `derive()` over `agent_status_state`) is what
-is actually authoritative on this deployment. The 8-status table above is UNCHANGED across
-engines; what differs is HOW `working` is decided (a pure `in_turn` flag vs the old timed
-`turn_busy` window). Most of the old-engine turn-detector prose below (claude transcript
+is actually authoritative on this deployment. The 8-status VOCABULARY is unchanged across
+engines, BUT under `new` two labels — `idle` and `blocked` — are currently inert/unreachable
+(nothing wires `idle_too_long` or posts `blocked` status-events), so `online` is the effective
+ready/idle state and a stuck-at-prompt agent reads `working`; restoring them is the deferred
+"Phase I flip" (see KNOWN_ISSUES.md and docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md).
+What also differs is HOW `working` is decided (a pure, liveness-gated `in_turn` flag vs the old
+timed `turn_busy` window), and that turn transitions PUSH to both dashboards in real time
+(2026-06-17 WS-1). Most of the old-engine turn-detector prose below (claude transcript
 detector, hermes gateway-status detector, the 120s/30-min constants) still describes the
 BRIDGE-side signals that feed BOTH engines.
 

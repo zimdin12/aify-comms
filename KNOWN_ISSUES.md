@@ -31,8 +31,8 @@ The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide
 |-------|---------|
 | `online` | Live worker, idle (no active turn). |
 | `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
-| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). |
-| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). |
+| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). **NOT emitted under the live `new` engine** (`idle_too_long` inert) — a long-quiet worker reads `online`. |
+| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). **Liveness-gated (WS-2):** a dead managed worker / stale resident bridge no longer reads `working` — it falls to `available`/`offline`/`stale` within the liveness lease. (`blocked`, the awaiting-input sub-state, is also NOT emitted under the live `new` engine — reads `working`.) |
 | `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
 | `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
 | `stopped` | Operator-stopped, wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
