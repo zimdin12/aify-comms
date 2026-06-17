@@ -12788,13 +12788,19 @@ _CONSOLE_TAIL_MAX_BYTES = 16 * 1024
 
 
 async def _resolve_live_console_terminal(db, agent_id: str):
-    """Resolve an agent's LIVE console terminal row from its runtime_state.
+    """Resolve an agent's LIVE console terminal row.
 
-    Returns the (non-terminated) terminal_sessions row pointed at by
-    runtime_state.consoleTerminal.terminalId (managed claude) or
-    runtime_state.virtualTerminalId (pi/hermes virtual), or None when the
-    agent has no live console. Resolution is agent-scoped on purpose: callers
-    can only reach a terminal *through* the agent, never by arbitrary id.
+    Prefers the terminal_sessions row pointed at by runtime_state.consoleTerminal.
+    terminalId (managed claude) or runtime_state.virtualTerminalId (pi/hermes
+    virtual). If that pointer is unset or points at an ended terminal, FALL BACK to
+    the agent's newest genuinely-live PTY terminal (2026-06-17): the consoleTerminal
+    pointer is only written on a register-with-console path, so a managed console that
+    LAZY-STARTS on a message leaves it empty — console_tail/console_input then wrongly
+    reported "no live console" while the dashboard (which resolves via the live terminal
+    row) showed it. The fallback makes the MCP tools agree with the dashboard. Returns
+    None only when the agent truly has no live console. Agent-scoped on purpose: callers
+    can only reach a terminal *through* the agent, never by arbitrary id; the fallback
+    only ever returns a LIVE row that belongs to this agent (no stale/foreign extras).
     """
     agent_row = await (
         await db.execute("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
@@ -12802,28 +12808,32 @@ async def _resolve_live_console_terminal(db, agent_id: str):
     if not agent_row:
         return None
     runtime_state = _json_loads_or(agent_row["runtime_state"], {})
-    if not isinstance(runtime_state, dict):
-        return None
     terminal_id = ""
-    console_terminal = runtime_state.get("consoleTerminal")
-    if isinstance(console_terminal, dict):
-        terminal_id = str(console_terminal.get("terminalId") or "").strip()
-    if not terminal_id:
-        terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
-    if not terminal_id:
-        return None
-    terminal = await (
+    if isinstance(runtime_state, dict):
+        console_terminal = runtime_state.get("consoleTerminal")
+        if isinstance(console_terminal, dict):
+            terminal_id = str(console_terminal.get("terminalId") or "").strip()
+        if not terminal_id:
+            terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
+    if terminal_id:
+        terminal = await (
+            await db.execute(
+                "SELECT * FROM terminal_sessions WHERE id = ? AND agent_id = ?",
+                (terminal_id, agent_id),
+            )
+        ).fetchone()
+        if terminal and str(terminal["status"] or "").strip().lower() not in _TERMINAL_END_STATUSES:
+            return terminal
+    # Fallback: the agent's newest LIVE, non-virtual PTY terminal (the same live-terminal
+    # source the dashboard renders), for lazy-started managed consoles whose pointer is unset.
+    return await (
         await db.execute(
-            "SELECT * FROM terminal_sessions WHERE id = ? AND agent_id = ?",
-            (terminal_id, agent_id),
+            "SELECT * FROM terminal_sessions WHERE agent_id = ? "
+            "AND status IN ('starting','attached','running','active','idle','recovering') "
+            "AND id NOT LIKE 'vterm_%' ORDER BY updated_at DESC LIMIT 1",
+            (agent_id,),
         )
     ).fetchone()
-    if not terminal:
-        return None
-    status = str(terminal["status"] or "").strip().lower()
-    if status in _TERMINAL_END_STATUSES:
-        return None
-    return terminal
 
 
 @router.get("/agents/{agent_id}/console")
@@ -18393,6 +18403,7 @@ async def _prune_terminal_history(
     dispatch_event_ttl_hours: int = 72,
     ended_output_ttl_hours: int = 24,
     terminal_control_ttl_hours: int = 24,
+    keep_terminal_rows_per_agent: int = 8,
     chunk: int = 5000,
     max_chunks: int = 200,
 ) -> dict[str, int]:
@@ -18405,7 +18416,7 @@ async def _prune_terminal_history(
     output blob of long-ended terminals. Chunked deletes keep each statement
     short so a live control plane is never locked for long.
     """
-    counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0, "terminal_controls": 0}
+    counts = {"terminal_events": 0, "terminal_events_capped": 0, "dispatch_events": 0, "ended_output_cleared": 0, "terminal_controls": 0, "terminal_sessions": 0}
     keep_events_per_terminal = 200
 
     async def _chunked_delete(sql: str, params: tuple) -> int:
@@ -18484,6 +18495,23 @@ async def _prune_terminal_history(
         f"WHERE handled_at IS NOT NULL AND handled_at < datetime('now', ?) "
         f"ORDER BY id ASC LIMIT {int(chunk)})",
         (f"-{max(1, int(terminal_control_ttl_hours))} hours",),
+    )
+    # terminal_sessions ROW retention (2026-06-17): the rows themselves were never pruned
+    # — only their events/output blobs — so ENDED consoles accumulated forever (one managed
+    # claude had 184 rows; 99% of the table was stopped/failed cruft). Keep the newest N per
+    # agent (any status, so every LIVE console and recent history survives) and delete only
+    # the OLDER ended (stopped/failed/ended/cancelled) rows. The status filter guarantees a
+    # live console is NEVER deleted; the per-agent keep window guarantees recent debugging
+    # history survives. Chunked so the control plane is never locked for long.
+    keep_n = max(1, int(keep_terminal_rows_per_agent))
+    counts["terminal_sessions"] = await _chunked_delete(
+        f"DELETE FROM terminal_sessions WHERE id IN ("
+        f"  SELECT t.id FROM terminal_sessions t"
+        f"  WHERE LOWER(COALESCE(t.status,'')) IN ('stopped','failed','ended','cancelled')"
+        f"    AND (SELECT COUNT(*) FROM terminal_sessions t2"
+        f"         WHERE t2.agent_id = t.agent_id AND t2.updated_at > t.updated_at) >= {keep_n}"
+        f"  ORDER BY t.updated_at ASC LIMIT {int(chunk)})",
+        (),
     )
     return counts
 

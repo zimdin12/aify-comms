@@ -13909,6 +13909,57 @@ class ApiV2RegressionTests(FastApiTestCase):
             [],
         )
 
+    def test_agent_console_tail_resolves_live_terminal_when_pointer_unset(self):
+        # 2026-06-17: a managed console that LAZY-STARTS on a message leaves
+        # runtime_state.consoleTerminal unset, but a live terminal_sessions row exists (the
+        # dashboard renders it). console_tail must FALL BACK to the agent's live terminal
+        # instead of falsely reporting "no live console".
+        self._seed_managed_claude_with_attached_terminal("console-lazy", "term_lazy_live")
+        # Simulate the lazy-start gap: a live terminal but NO consoleTerminal pointer.
+        self._execute("UPDATE agents SET runtime_state='{}' WHERE id='console-lazy'")
+        resp = self.client.get("/api/v1/agents/console-lazy/console")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertTrue(data["live"], data)
+        self.assertEqual(data["terminalId"], "term_lazy_live", data)
+        # A STOPPED-only agent still reports no live console (no false-positive extras).
+        self._execute("UPDATE terminal_sessions SET status='stopped' WHERE id='term_lazy_live'")
+        resp2 = self.client.get("/api/v1/agents/console-lazy/console")
+        self.assertFalse(resp2.json()["live"], resp2.text)
+
+    def test_prune_terminal_history_caps_terminal_rows_per_agent(self):
+        # 2026-06-17: terminal_sessions ROWS were never pruned (only events/output), so ended
+        # consoles accumulated forever. The row prune keeps the newest N per agent and deletes
+        # older ended rows — and NEVER a live one.
+        import asyncio, datetime as _dt
+        from service.db import get_db
+        from service.routers import api_v2
+        # Helper seeds env + sess_cruft-agent + 1 live terminal (t_live).
+        self._seed_managed_claude_with_attached_terminal("cruft-agent", "t_live")
+        base = _dt.datetime.now(_dt.timezone.utc)
+        for i in range(12):
+            ts = (base - _dt.timedelta(minutes=100 - i)).isoformat().replace("+00:00", "Z")
+            self._execute(
+                "INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, bridge_id, runtime, "
+                "workspace, command, output, status, requested_by, created_at, updated_at, stopped_at, error) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"t_old_{i}", "sess_cruft-agent", "cruft-agent", "linux:test-host:default", "b",
+                 "claude-code", "/w", "claude-aify", "", "stopped", "dashboard", ts, ts, None, ""),
+            )
+
+        async def _run():
+            db = await get_db()
+            try:
+                return await api_v2._prune_terminal_history(db, keep_terminal_rows_per_agent=8)
+            finally:
+                await db.close()
+        counts = asyncio.run(_run())
+        remaining = [r["id"] for r in self._fetchall(
+            "SELECT id FROM terminal_sessions WHERE agent_id=? ORDER BY updated_at DESC", ("cruft-agent",))]
+        self.assertIn("t_live", remaining, "the live terminal must never be pruned")
+        self.assertEqual(len(remaining), 8, f"capped to keep-window (8); got {remaining}")
+        self.assertGreater(counts["terminal_sessions"], 0)
+
     def test_agent_console_input_appends_control_with_caller_recorded(self):
         self._seed_managed_claude_with_attached_terminal("console-inputee", "term_console_in")
         # The caller must be a registered agent.
