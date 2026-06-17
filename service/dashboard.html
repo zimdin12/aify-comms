@@ -1880,14 +1880,9 @@ codex-aify --aify-agent coder --aify-role coder</pre>
         <div class="hint">How often this dashboard auto-updates. Default: 15</div>
       </div>
       <div class="form-group">
-        <label>Idle Threshold (minutes)</label>
-        <input type="number" id="s-idle" min="1" max="120">
-        <div class="hint">Presence shows "idle" after this many minutes of inactivity. Default: 5</div>
-      </div>
-      <div class="form-group">
-        <label>Offline Threshold (minutes)</label>
-        <input type="number" id="s-offline" min="5" max="1440">
-        <div class="hint">Presence shows "offline" after this many minutes of inactivity. Default: 30</div>
+        <label>Agent offline after no heartbeat (seconds)</label>
+        <input type="number" id="s-liveness" min="30" max="600">
+        <div class="hint">An agent shows "offline" if its wrapper heartbeat is silent this long. Status is otherwise proof-based (the wrapper reports working/online). Default: 90</div>
       </div>
       <div class="form-group">
         <label>Stale Agent Threshold (hours)</label>
@@ -8954,8 +8949,7 @@ async function loadSettings() {
   document.getElementById('s-max-msgs').value = s.max_messages_per_agent;
   document.getElementById('s-max-shared').value = s.max_shared_size_mb;
   document.getElementById('s-refresh').value = s.dashboard_refresh_seconds;
-  document.getElementById('s-idle').value = s.idle_minutes;
-  document.getElementById('s-offline').value = s.offline_minutes;
+  document.getElementById('s-liveness').value = Number(s.agent_liveness_seconds || 90);
   document.getElementById('s-stale').value = s.stale_agent_hours;
   document.getElementById('s-rotation').value = String(s.rotation_enabled);
   document.getElementById('s-env-offline').value = Number(s.environment_offline_seconds || 90);
@@ -9007,8 +9001,7 @@ async function saveSettings(e) {
       max_messages_per_agent: settingsNumber('s-max-msgs', 1000, {min: 10, max: 100000}),
       max_shared_size_mb: settingsNumber('s-max-shared', 500, {min: 10, max: 100000}),
       dashboard_refresh_seconds: settingsNumber('s-refresh', 15, {min: 5, max: 300}),
-      idle_minutes: settingsNumber('s-idle', 5, {min: 1, max: 120}),
-      offline_minutes: settingsNumber('s-offline', 30, {min: 5, max: 1440}),
+      agent_liveness_seconds: settingsNumber('s-liveness', 90, {min: 30, max: 600}),
       stale_agent_hours: settingsNumber('s-stale', 24, {min: 1, max: 720}),
       rotation_enabled: settingsBool('s-rotation'),
       environment_offline_seconds: settingsNumber('s-env-offline', 90, {min: 30, max: 3600}),
