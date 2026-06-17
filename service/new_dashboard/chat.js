@@ -98,6 +98,46 @@ export function chatConversationItems(state) {
   return items;
 }
 
+// Chat overview shown when no conversation is open (re-click an open chat to return here).
+// Pure + computed from already-loaded state (no fetch), so it paints instantly.
+export function chatStatsHtml(state) {
+  const items = chatConversationItems(state);
+  const dms = items.filter((i) => i.kind === 'dm');
+  const channels = items.filter((i) => i.kind === 'channel');
+  const unread = items.reduce((s, i) => s + (i.unread || 0), 0);
+  const byStatus = {};
+  for (const a of (state.agents || [])) {
+    if (!a.id || a.id === 'dashboard') continue;
+    const k = resolveStatus(a.status).kind;
+    byStatus[k] = (byStatus[k] || 0) + 1;
+  }
+  const sc = (k) => byStatus[k] || 0;
+  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  const recent = (state.messages || []).filter((m) => {
+    const t = Date.parse(String(m.timestamp || m.createdAt || ''));
+    return Number.isFinite(t) && t >= dayAgo;
+  }).length;
+  const top = dms.filter((i) => i.msgCount > 0).sort((a, b) => b.msgCount - a.msgCount).slice(0, 6);
+  const card = (n, l, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}"><b>${esc(String(n))}</b><span>${esc(l)}</span></div>`;
+  const dot = (k) => `<span class="status-dot ${esc(k)}"></span>`;
+  const statusChip = (k, label) => `<span class="chat-stats-status">${dot(k)}${sc(k)} ${esc(label)}</span>`;
+  return `<div class="chat-stats">
+    <div class="chat-stats-head"><h3>Chat overview</h3><p class="em">Pick a conversation on the left — or re-click the open one to return here.</p></div>
+    <div class="chat-stats-cards">
+      ${card(dms.length, 'Direct chats')}
+      ${card(channels.length, 'Channels')}
+      ${card(unread, 'Unread', unread ? 'warn' : '')}
+      ${card(recent, 'Messages · 24h')}
+    </div>
+    <div class="chat-stats-section"><h4>Fleet</h4><div class="chat-stats-statusrow">
+      ${statusChip('working', 'working')}${statusChip('online', 'online')}${statusChip('available', 'available')}
+      ${statusChip('blocked', 'blocked')}${statusChip('stale', 'stale')}${statusChip('offline', 'offline')}
+    </div></div>
+    ${top.length ? `<div class="chat-stats-section"><h4>Most active</h4><div class="chat-stats-top">${top.map((i) =>
+      `<button class="chat-stats-peer" data-chat-open="dm:${esc(i.id)}"><span class="chat-stats-peer-id">${dot(resolveStatus(i.status).dotKind)}${esc(i.id)}</span><span class="chat-stats-peer-n">${i.msgCount} msg${i.unread ? ` · ${i.unread} unread` : ''}</span></button>`).join('')}</div></div>` : ''}
+  </div>`;
+}
+
 function railItemHtml(item, selectedKey) {
   const active = item.key === selectedKey ? ' active' : '';
   const dot = item.kind === 'dm'
@@ -235,8 +275,10 @@ export function createChatController(deps) {
     }
     const key = state.chat.selected;
     if (!key) {
-      if (titleEl) titleEl.textContent = 'Select a conversation';
-      timeline.innerHTML = '<div class="empty-state"><span class="empty-icon">💬</span><strong>Pick a conversation</strong><p>Choose a direct message or channel from the left to start chatting.</p></div>';
+      if (titleEl) titleEl.textContent = 'Chat overview';
+      const actions = byId('chat-conv-actions');
+      if (actions) actions.innerHTML = '';
+      timeline.innerHTML = chatStatsHtml(state);
       const composer = byId('chat-composer');
       if (composer) composer.hidden = true;
       return;
@@ -341,6 +383,13 @@ export function createChatController(deps) {
     render();
   }
 
+  // Re-clicking the open conversation closes it back to the overview/stats view.
+  function close() {
+    state.chat.selected = '';
+    state.chat.analytics = { agent: '', data: null };
+    render();
+  }
+
   async function openAnalytics(agentId) {
     state.chat.analytics = { agent: agentId, data: null };
     renderConversation(); // shows the loading state immediately
@@ -387,5 +436,5 @@ export function createChatController(deps) {
     }
   }
 
-  return { render, open, openAnalytics, send, renderRail, renderConversation };
+  return { render, open, close, openAnalytics, send, renderRail, renderConversation };
 }

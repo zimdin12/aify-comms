@@ -2787,10 +2787,11 @@ document.addEventListener('click', (event) => {
   const chatOpen = event.target.closest('[data-chat-open]');
   if (chatOpen) {
     const key = chatOpen.dataset.chatOpen;
-    // Click-again gesture (parity with old dashboard): re-clicking the already-open DM
-    // reveals its analytics. Channels have no per-agent analytics, so they just re-open.
-    if (key === state.chat.selected && key.startsWith('dm:') && !state.chat.analytics.agent) {
-      chatController.openAnalytics(key.slice('dm:'.length));
+    // Click-again gesture: re-clicking the already-open conversation closes it back to the
+    // chat overview (fleet stats + most-active). Per-agent analytics stays reachable via the
+    // explicit "Analytics" action button. (Operator: re-click open chat → close + show stats.)
+    if (key === state.chat.selected && !state.chat.analytics.agent) {
+      chatController.close();
     } else {
       chatController.open(key);
     }

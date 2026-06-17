@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dmMessages, chatConversationItems, deliveryToastFor } from "./chat.js";
+import { dmMessages, chatConversationItems, deliveryToastFor, chatStatsHtml } from "./chat.js";
 
 test("dmMessages keeps only messages to/from the peer", () => {
   const msgs = [
@@ -85,4 +85,30 @@ test("deliveryToastFor maps the send response to the truthful ladder", () => {
   assert.equal(deliveryToastFor({ runs: [{ status: "running" }] }, "x").text, "Woke x");
   assert.equal(deliveryToastFor({ runs: [], notStarted: [{}] }, "x").tone, "warn");
   assert.equal(deliveryToastFor({ ok: false, error: "offline" }, "x").tone, "error");
+});
+
+test("chatStatsHtml summarizes conversations, fleet status, and most-active peers", () => {
+  const state = {
+    agents: [
+      { id: "alpha", status: "working" },
+      { id: "beta", status: "online" },
+      { id: "gamma", status: "offline" },
+      { id: "dashboard", status: "online" },
+    ],
+    messages: [
+      { from: "alpha", to: "dashboard", body: "hi", timestamp: new Date().toISOString() },
+      { from: "dashboard", to: "alpha", body: "yo", timestamp: new Date().toISOString() },
+      { from: "beta", to: "dashboard", body: "ping", unread: true, timestamp: new Date().toISOString() },
+    ],
+    chat: { identity: "dashboard", channels: [{ name: "general", members: ["dashboard"] }] },
+  };
+  const html = chatStatsHtml(state);
+  assert.match(html, /Chat overview/);
+  assert.match(html, /Direct chats/);
+  assert.match(html, /Channels/);
+  assert.match(html, /working/);
+  // Most-active section surfaces a peer button that re-opens the DM.
+  assert.match(html, /data-chat-open="dm:alpha"/);
+  // dashboard self is excluded from the fleet status counts (no crash on missing status).
+  assert.doesNotThrow(() => chatStatsHtml({ agents: [], messages: [], chat: { identity: "dashboard" } }));
 });
