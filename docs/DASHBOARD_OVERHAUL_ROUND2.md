@@ -46,11 +46,15 @@ audits (sorting/filtering, exhaustive feature gap, UI/UX design critique).
 - [~] I5. Confirm / Keep session-id governance (session/confirm, session/keep).
 - [x] I6. Reset / recreate session (fresh-context) action.
 - [x] I7. Channel add / remove member.
-- [~] I8. Console mode inside Chat (flip a DM to live console in the chat pane).
+- [x] I8. Console mode inside Chat (flip a DM to live console in the chat pane).
 - [x] I9. Compaction / spawn-lineage history viewer.
 - [x] I10. Follow-up (reply-as-request); resident stop / resume-wake; mode-switch force-on-409 retry.
 - [~] I11. Correctness/affordance: copy-run-id execCommand fallback; image paste in CHAT composer;
       Enter-to-send + jump-to-bottom in chat; preview-reminders dry-run; settings discard/reset.
+
+### WS-J — De-dupe Sessions vs Chat (2026-06-17)
+- [x] Sessions = terminal-first (Console default tab) + read-only Activity tab; duplicate composer removed; Message-in-Chat deep link.
+- [x] Collapsible+persisted session env-groups (<details>).
 
 ## Operating rules
 - Browser-verify EACH chunk vs old (chrome-devtools, screenshot, console clean); rebuild new-dashboard + reload ignoreCache.

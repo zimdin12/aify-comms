@@ -143,39 +143,19 @@
             <div class="session-head">
               <div>
                 <h2 id="session-title">Select a session</h2>
-                <p id="session-subtitle" class="preview">Chat and console stay bound to the selected session.</p>
+                <p id="session-subtitle" class="preview">Live terminal and lifecycle controls for the selected session.</p>
               </div>
               <div id="session-status" class="session-status"></div>
             </div>
             <div class="segmented" role="tablist" aria-label="Session view">
-              <button class="active" type="button" data-session-tab="chat">Chat</button>
-              <button type="button" data-session-tab="console">Console</button>
+              <button class="active" type="button" data-session-tab="console">Console</button>
+              <button type="button" data-session-tab="activity">Activity</button>
             </div>
-            <div id="session-chat-panel" class="session-panel active">
-              <div id="session-chat-thread" class="timeline session-thread"></div>
-              <form id="composer" class="composer">
-                <div class="composer-options">
-                  <select id="composer-type" title="Message type">
-                    <option value="info">Info</option>
-                    <option value="request">Request</option>
-                    <option value="review">Review</option>
-                  </select>
-                  <select id="composer-priority" title="Priority">
-                    <option value="normal">Normal</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
-                  <label class="check-row">
-                    <input id="composer-queue" type="checkbox">
-                    <span>Queue if busy</span>
-                  </label>
-                </div>
-                <textarea id="composer-body" placeholder="Select a session to send a message"></textarea>
-                <button type="submit" class="primary">Send</button>
-              </form>
-            </div>
-            <div id="session-console-panel" class="session-panel">
+            <div id="session-console-panel" class="session-panel active">
               <div id="session-console-summary" class="console-summary"></div>
+            </div>
+            <div id="session-activity-panel" class="session-panel">
+              <div id="session-activity" class="timeline session-thread"></div>
             </div>
           </section>
         </section>

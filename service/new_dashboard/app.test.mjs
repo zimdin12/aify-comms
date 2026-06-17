@@ -32,10 +32,12 @@ test("styles.css keeps ready internal: no separate ready dot, .status-ready text
   assert.ok(/\.status-ready\b/.test(styles), ".status-ready stays as an old-cache text alias");
 });
 
-test("composer defaults to live send instead of queue", () => {
+test("chat composer queue defaults to live send (not queued)", () => {
   const html = read("index.html");
-  const queueInput = html.match(/<input[^>]+id="composer-queue"[^>]*>/);
-  assert.ok(queueInput, "composer queue checkbox must exist");
+  // WS-J: the Sessions composer was removed (it duplicated Chat); messaging lives in the chat
+  // composer. Queue-if-busy must not default to checked.
+  const queueInput = html.match(/<input[^>]+id="chat-queue"[^>]*>/);
+  assert.ok(queueInput, "chat queue checkbox must exist");
   assert.ok(!/\schecked(\s|>|=)/.test(queueInput[0]),
     "normal Send must not default queueIfBusy=true; Queue is an explicit operator choice");
 });

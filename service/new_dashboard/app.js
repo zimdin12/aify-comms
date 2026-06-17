@@ -47,7 +47,7 @@ const state = {
   chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
-  selectedSessionTab: 'chat',
+  selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
   selectedSessionIds: new Set(),
   selectedDiagnosticIds: new Set(),
   inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
@@ -67,7 +67,7 @@ const state = {
 // render it as online instead of introducing a second positive idle label.
 const flowAssertions = {
   foundations: () => Boolean(STATUS_KINDS.unknown && state.terminalOwners && typeof connectRealtimeSocket === 'function'),
-  sessions: () => Boolean(byId('session-rail') && byId('session-chat-thread') && typeof renderSessionWorkspace === 'function'),
+  sessions: () => Boolean(byId('session-rail') && byId('session-activity') && typeof renderSessionWorkspace === 'function'),
   runs: () => Boolean(state.stats.dispatch_runs_by_status !== undefined || byId('run-status-filter')),
   workLoop: () => Boolean(byId('send-reminders') && typeof closeWorkContract === 'function'),
   runInspector: () => Boolean(state.inspector.kind === 'run' && state.inspector.runId && byId('run-inspector-events') && byId('run-inspector-controls') && typeof resolveStatus === 'function'),
@@ -91,7 +91,7 @@ const flowGates = {
 
 const pages = {
   chat: ['Chat', 'Direct messages and channels across the fleet — the operator landing surface.'],
-  sessions: ['Sessions', 'Environment-backed sessions with chat and console in one workspace.'],
+  sessions: ['Sessions', 'Live terminal and lifecycle controls per session — messaging lives in Chat.'],
   environments: ['Environments', 'Connected bridges, runtimes, roots, and capacity.'],
   diagnostics: ['Diagnostics', 'Runs and Work Loop evidence stay secondary to the session workspace.'],
   analytics: ['Analytics', 'Fleet-wide message traffic, run outcomes, and live capacity.'],
@@ -1184,8 +1184,8 @@ function renderSessionRail() {
   renderSessionBulkToolbar();
   renderSessionStatusFilter();
   byId('session-rail').innerHTML = groups.length ? groups.map((group) => `
-    <section class="session-env-group">
-      <div class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></div>
+    <details class="session-env-group" data-env-group="${esc(group.id)}"${sessionGroupCollapsed(group.id) ? '' : ' open'}>
+      <summary class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></summary>
       ${group.sessions.map((session) => {
         const id = sessionId(session);
         const agent = agentForSession(session);
@@ -1206,27 +1206,49 @@ function renderSessionRail() {
             </div>
           </article>`;
       }).join('')}
-    </section>`).join('') : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>';
+    </details>`).join('') : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>';
 }
 
-function renderSessionChat(session) {
-  const messages = messagesForSession(session);
-  byId('session-chat-thread').innerHTML = messages.length ? messages.map((message) => {
-    const runId = messageRunId(message);
-    const id = messageId(message);
-    return `
-    <article class="message" data-kind="message" data-id="${esc(id)}" id="message-${esc(id)}">
-      <div class="item-title">
-        <strong>${esc(message.from || 'unknown')}</strong>
-        <span class="button-row">
-          ${runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-run-source="chat" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : ''}
-          ${renderStatusChip(message.read ? 'completed' : 'queued', { label: esc(message.type || (message.read ? 'read' : 'unread')), why: `Message is ${message.read ? 'read' : 'unread'}; type ${message.type || 'unknown'}.` })}
-        </span>
-      </div>
-      <h3>${esc(message.subject || '(no subject)')}</h3>
-      <p class="preview">${esc(message.body || message.preview || '')}</p>
+// Persisted collapse state for session env-groups (WS-J collapsibles).
+function sessionGroupCollapsed(envId) {
+  try { return (JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []).includes(envId); } catch { return false; }
+}
+function toggleSessionGroupCollapsed(envId, collapsed) {
+  try {
+    const set = new Set(JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []);
+    if (collapsed) set.add(envId); else set.delete(envId);
+    localStorage.setItem('aifyCollapsedSessionGroups', JSON.stringify([...set]));
+  } catch { /* ignore */ }
+}
+
+// Read-only Activity log for a session (WS-J): recent runs + messages, NO composer (messaging
+// lives in Chat). Merges the agent's dispatch runs and message thread, newest first.
+function renderSessionActivity(session) {
+  const agentId = sessionAgentId(session);
+  const host = byId('session-activity');
+  if (!host) return;
+  const ts = (v) => { const n = Date.parse(String(v || '')); return Number.isFinite(n) ? n : 0; };
+  const runItems = state.runs
+    .filter((r) => runTargetAgent(r) === agentId || runFrom(r) === agentId)
+    .map((r) => ({ kind: 'run', ts: ts(r.updatedAt || r.createdAt || r.created_at), r }));
+  const msgItems = messagesForSession(session)
+    .map((m) => ({ kind: 'msg', ts: ts(m.timestamp || m.createdAt), m }));
+  const items = [...runItems, ...msgItems].sort((a, b) => b.ts - a.ts).slice(0, 60);
+  host.innerHTML = items.length ? items.map((it) => {
+    if (it.kind === 'run') {
+      const r = it.r;
+      return `<article class="activity-row" data-kind="run" data-id="${esc(r.id)}">
+        <div class="item-title"><span class="button-row">${renderStatusChip(r.status, statusWhyContext('run', r, r.status))}<strong class="clip">${esc(r.subject || r.id)}</strong></span>
+          <button class="ghost" data-run-inspector="${esc(r.id)}" data-run-source="activity">Inspect</button></div>
+        ${r.summary || r.error ? `<p class="preview">${esc(r.summary || r.error)}</p>` : ''}
+      </article>`;
+    }
+    const m = it.m; const id = messageId(m);
+    return `<article class="activity-row" data-kind="message" data-id="${esc(id)}">
+      <div class="item-title"><strong>${esc(m.from || 'unknown')}</strong>${renderStatusChip(m.read ? 'completed' : 'queued', { label: esc(m.type || (m.read ? 'read' : 'unread')), why: `Message ${m.read ? 'read' : 'unread'}.` })}</div>
+      <p class="preview">${esc(m.subject ? m.subject + ' — ' : '')}${esc(m.body || m.preview || '')}</p>
     </article>`;
-  }).join('') : '<div class="empty-state"><span class="empty-icon">💬</span><strong>No messages yet</strong><p>Send the first message below, or switch to the Console tab to drive this session directly.</p></div>';
+  }).join('') : '<div class="empty-state"><span class="empty-icon">📋</span><strong>No activity yet</strong><p>Runs and messages for this session appear here. Use Chat to message the agent.</p></div>';
 }
 
 // Convert a hermes tui_gateway WS URL into its sibling HTTP root URL.
@@ -1647,6 +1669,7 @@ function renderSessionConsole(session) {
       <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
       <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
       <div class="contract-actions">
+        ${agentIdForCodex ? `<button class="ghost" data-open-chat="${esc(agentIdForCodex)}" title="Message this agent in Chat">Message in Chat</button>` : ''}
         ${renderModeSwitchChip(agent)}
         <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
         <button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}" title="Restart with a FRESH context (discards native session)">Reset</button>
@@ -1760,26 +1783,25 @@ function renderSessionConsole(session) {
 function renderSessionWorkspace() {
   const session = ensureSelectedSession();
   renderSessionRail();
+  const tab = state.selectedSessionTab === 'activity' ? 'activity' : 'console';
   document.querySelectorAll('[data-session-tab]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.sessionTab === state.selectedSessionTab);
+    button.classList.toggle('active', button.dataset.sessionTab === tab);
   });
-  byId('session-chat-panel').classList.toggle('active', state.selectedSessionTab === 'chat');
-  byId('session-console-panel').classList.toggle('active', state.selectedSessionTab === 'console');
+  byId('session-console-panel').classList.toggle('active', tab === 'console');
+  byId('session-activity-panel').classList.toggle('active', tab === 'activity');
   if (!session) {
     byId('session-title').textContent = 'No sessions loaded';
     byId('session-subtitle').textContent = 'Spawn or connect an agent to start a session workspace.';
     byId('session-status').innerHTML = renderStatusChip('unknown', statusWhyContext('session', {}, 'unknown'));
-    byId('session-chat-thread').innerHTML = '<div class="empty-state"><span class="empty-icon">💬</span><strong>No session selected</strong><p>Pick a session from the rail to see its chat and console.</p></div>';
-    byId('session-console-summary').innerHTML = '';
-    byId('composer-body').placeholder = 'Select a session to send a message';
+    byId('session-activity').innerHTML = '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No session selected</strong><p>Pick a session from the rail to see its live terminal and activity.</p></div>';
+    byId('session-console-summary').innerHTML = '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No session selected</strong><p>Pick a session from the rail to open its live terminal.</p></div>';
     return;
   }
   const agentId = sessionAgentId(session);
   byId('session-title').textContent = agentId || sessionId(session);
-  byId('session-subtitle').textContent = session.workspace || session.cwd || 'Chat and console are bound to this session.';
+  byId('session-subtitle').textContent = session.workspace || session.cwd || 'Live terminal and lifecycle for this session.';
   byId('session-status').innerHTML = renderStatusChip(session.status || agentForSession(session).status || 'unknown', statusWhyContext('session', session, session.status || agentForSession(session).status || 'unknown'));
-  byId('composer-body').placeholder = agentId ? `Send to ${agentId}` : 'Select a session to send a message';
-  renderSessionChat(session);
+  renderSessionActivity(session);
   renderSessionConsole(session);
 }
 
@@ -2502,21 +2524,20 @@ async function createSpawnRequest() {
   await refresh();
 }
 
+// WS-J: open a message's thread in the real Chat page (not the removed Sessions composer).
 function openMessageThread(messageIdValue) {
   const message = state.messages.find((item) => messageId(item) === String(messageIdValue));
   if (!message) return;
   const agentId = message.from === 'dashboard' ? message.to : message.from;
-  const session = sessionForAgent(agentId) || selectedSession();
-  if (session) {
-    state.selectedSessionId = sessionId(session);
-    state.selectedConversation = sessionAgentId(session) || 'dashboard';
-  }
-  state.selectedSessionTab = 'chat';
-  setPage('sessions');
-  renderSessionWorkspace();
-  setTimeout(() => {
-    document.getElementById(`message-${messageId(message)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, 50);
+  openAgentChat(agentId);
+}
+
+// Deep-link to the Chat page for a given agent (used by "Message in Chat" + message threads).
+function openAgentChat(agentId) {
+  if (!agentId || agentId === 'dashboard') { setPage('chat'); return; }
+  setPage('chat');
+  chatController.open(`dm:${agentId}`);
+  byId('chat-composer-body')?.focus();
 }
 
 function openRunConsole(run) {
@@ -2921,6 +2942,8 @@ document.addEventListener('click', (event) => {
   }
   const envControl = event.target.closest('[data-env-control]');
   if (envControl) { controlEnvironment(envControl.dataset.envId, envControl.dataset.envControl); return; }
+  const openChat = event.target.closest('[data-open-chat]');
+  if (openChat) { openAgentChat(openChat.dataset.openChat); return; }
   const sessionCheckbox = event.target.closest('[data-session-checkbox]');
   if (sessionCheckbox) {
     const id = sessionCheckbox.dataset.sessionCheckbox;
@@ -2950,7 +2973,7 @@ document.addEventListener('click', (event) => {
   }
   const sessionTab = event.target.closest('[data-session-tab]');
   if (sessionTab) {
-    state.selectedSessionTab = sessionTab.dataset.sessionTab || 'chat';
+    state.selectedSessionTab = sessionTab.dataset.sessionTab || 'console';
     renderSessionWorkspace();
     return;
   }
@@ -3030,6 +3053,11 @@ byId('global-filter').addEventListener('input', (event) => {
   renderAll();
   renderSessionWorkspace(); // WS-H6: Find also narrows the Sessions rail
 });
+// Persist session env-group collapse (WS-J). `toggle` doesn't bubble → capture phase.
+document.addEventListener('toggle', (event) => {
+  const grp = event.target.closest?.('[data-env-group]');
+  if (grp) toggleSessionGroupCollapsed(grp.dataset.envGroup, !grp.open);
+}, true);
 byId('contract-state').addEventListener('change', renderContracts);
 byId('contract-category')?.addEventListener('change', renderContracts);
 byId('run-status-filter').addEventListener('change', async (event) => {
@@ -3142,37 +3170,12 @@ byId('chat-new-channel-form')?.addEventListener('submit', (event) => {
     .catch((err) => toast(`Create channel failed: ${err?.message || err}`, 'error'));
 });
 
-byId('composer').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const body = byId('composer-body').value.trim();
-  const session = selectedSession();
-  const to = session ? sessionAgentId(session) : state.selectedConversation;
-  if (!body || to === 'dashboard') return;
-  const type = byId('composer-type').value || 'info';
-  const queueIfBusy = byId('composer-queue').checked;
-  try {
-    await sendMessageWithTimeout({
-      from_agent: 'dashboard',
-      to,
-      type,
-      priority: byId('composer-priority').value,
-      subject: body.slice(0, 80),
-      body,
-      trigger: true,
-      queueIfBusy,
-      requireReply: ['request', 'review'].includes(type),
-    });
-    byId('composer-body').value = '';
-    await refresh();
-    renderSessionWorkspace();
-  } catch (error) {
-    inspect('send-error', { message: error.message || 'Send failed' });
-  }
-});
+// WS-J: the Sessions composer was removed (it duplicated Chat). Messaging happens in Chat;
+// Sessions is terminal + lifecycle only.
 document.addEventListener('paste', (event) => {
   const target = event.target;
-  // Image paste works in BOTH the Sessions composer and the chat composer (the landing surface).
-  if (!target || (target.id !== 'composer-body' && target.id !== 'chat-composer-body')) return;
+  // Image paste in the chat composer (the landing surface).
+  if (!target || target.id !== 'chat-composer-body') return;
   const items = event.clipboardData?.items ? [...event.clipboardData.items] : [];
   const imageItem = items.find((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
   if (!imageItem) return;

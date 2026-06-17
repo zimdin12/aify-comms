@@ -90,14 +90,14 @@ class NewDashboardAppTest(unittest.TestCase):
         html = (ROOT / "service" / "new_dashboard" / "index.html").read_text(encoding="utf-8")
         script = _dashboard_js()
 
-        self.assertIn('id="composer-type"', html)
-        self.assertIn('id="composer-priority"', html)
-        self.assertIn('id="composer-queue"', html)
+        # WS-J: messaging consolidated into the Chat composer (the Sessions composer was a
+        # duplicate and was removed). Type/priority/queue + paste-to-share live in chat now.
+        self.assertIn('id="chat-expects-reply"', html)
+        self.assertIn('id="chat-queue"', html)
         self.assertIn("sendMessageWithTimeout", script)
         self.assertIn("uploadPastedImage", script)
         self.assertIn("document.addEventListener('paste'", script)
         self.assertIn("/shared", script)
-        self.assertIn("priority: byId('composer-priority').value", script)
         self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}", script)
         self.assertIn("/dispatch/runs/${encodeURIComponent(runId)}/control", script)
         self.assertIn("closeWorkContract", script)
@@ -164,11 +164,13 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn('id="session-rail"', html)
         self.assertIn('id="session-view"', html)
         self.assertIn('id="session-bulk-toolbar"', html)
-        self.assertIn('id="session-chat-thread"', html)
+        # WS-J: Sessions is terminal-first (Console default) + a read-only Activity tab; the
+        # duplicate message composer was removed (messaging lives in Chat).
         self.assertIn('id="session-console-panel"', html)
-        self.assertIn('data-session-tab="chat"', html)
+        self.assertIn('id="session-activity"', html)
         self.assertIn('data-session-tab="console"', html)
-        self.assertEqual(html.count('id="composer"'), 1)
+        self.assertIn('data-session-tab="activity"', html)
+        self.assertEqual(html.count('id="composer"'), 0)
         self.assertEqual(html.count('id="contract-list"'), 1)
         self.assertEqual(html.count('id="run-list"'), 1)
         self.assertIn("function renderSessionWorkspace", script)

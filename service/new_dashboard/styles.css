@@ -548,16 +548,32 @@ small, .subtle { color: var(--muted); }
   overflow: auto;
 }
 .session-main { padding: 12px; }
-.session-env-group { display: grid; gap: 7px; margin-bottom: 12px; }
+.session-env-group { margin-bottom: 10px; }
+.session-env-group > .session-env-title { margin-bottom: 7px; }
+.session-env-group[open] > .session-env-title { margin-bottom: 7px; }
 .session-env-title {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
+  cursor: pointer;
+  list-style: none;
+  padding: 4px 2px;
+  border-radius: 6px;
 }
+.session-env-title::-webkit-details-marker { display: none; }
+.session-env-title::before { content: '▾'; font-size: 9px; transition: transform .15s ease; margin-right: 2px; color: var(--muted); }
+.session-env-group:not([open]) > .session-env-title::before { transform: rotate(-90deg); }
+.session-env-title:hover { background: var(--panel-2); color: var(--soft); }
+.session-env-title span { margin-left: auto; }
+/* Read-only Activity rows (WS-J). */
+.activity-row { background: var(--panel-3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
+.activity-row .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .session-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
