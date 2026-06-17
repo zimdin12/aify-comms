@@ -219,6 +219,17 @@ small, .subtle { color: var(--muted); }
   margin-bottom: 12px;
   box-shadow: var(--shadow-card);
 }
+/* Collapse toggle → full-screen chat: hide the metrics + list, keep a slim header. */
+.attention-collapse {
+  background: transparent; border: 0; color: var(--muted); cursor: pointer;
+  font-size: .8em; padding: 0 6px 0 0; transition: transform .15s ease; line-height: 1;
+}
+.attention-collapse:hover { color: var(--text); }
+.attention-strip.collapsed .attention-collapse { transform: rotate(-90deg); }
+.attention-strip.collapsed { padding-bottom: 10px; margin-bottom: 10px; }
+.attention-strip.collapsed #metrics,
+.attention-strip.collapsed #attention-list { display: none; }
+.attention-strip.collapsed .section-head { margin-bottom: 0; }
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -382,6 +393,17 @@ small, .subtle { color: var(--muted); }
   margin-top: 4px;
 }
 .contract { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; }
+/* Long workflow text must never break the card: clamp the preview + wrap unbreakable tokens,
+   and keep the action column from squeezing the text into a thin sliver (operator: a long
+   Needs-Attention note filled the screen and compressed the text). */
+.contract .preview { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.contract .item-title strong { overflow-wrap: anywhere; }
+.contract-actions { min-width: max-content; }
+@media (max-width: 620px) {
+  /* Stack the action buttons below the text on a phone instead of stealing the text column. */
+  .contract { grid-template-columns: 28px minmax(0, 1fr); }
+  .contract-actions { grid-column: 1 / -1; grid-auto-flow: column; justify-content: start; min-width: 0; }
+}
 .contract-actions, .run-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; }
 /* Session console header actions read as a compact wrapping row, not a full-width stack (WS-J). */
 .runtime-card .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }

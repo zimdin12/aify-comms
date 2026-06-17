@@ -138,7 +138,7 @@ test('fleetPulseHtml renders KPIs + an online-agent board with last-worked', () 
     ],
   };
   const html = fleetPulseHtml(data, 60);
-  assert.match(html, /Fleet pulse/);
+  assert.match(html, /Comms performance/);
   assert.match(html, /42\/hr/);
   assert.match(html, /35%/);
   assert.match(html, /data-pulse-window="60"/);

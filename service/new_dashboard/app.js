@@ -3304,20 +3304,35 @@ byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
   chatController.render();
 });
+// Persist the rail filter prefs so "live only" (which hides offline/archived agents) and the
+// other declutter toggles STICK across reloads — the old dashboard remembered these; not
+// persisting them is why the rail re-cluttered with offline conversations on every refresh.
+function persistChatPrefs() {
+  try {
+    localStorage.setItem('aify.next.chatPrefs', JSON.stringify({
+      liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
+      workingUp: state.chat.workingUp, sortMode: state.chat.sortMode,
+    }));
+  } catch { /* ignore */ }
+}
 byId('chat-live-only')?.addEventListener('change', (event) => {
   state.chat.liveOnly = event.target.checked;
+  persistChatPrefs();
   chatController.renderRail();
 });
 byId('chat-sort')?.addEventListener('change', (event) => {
   state.chat.sortMode = event.target.value || 'activity';
+  persistChatPrefs();
   chatController.renderRail();
 });
 byId('chat-open-only')?.addEventListener('change', (event) => {
   state.chat.openOnly = event.target.checked;
+  persistChatPrefs();
   chatController.renderRail();
 });
 byId('chat-working-up')?.addEventListener('change', (event) => {
   state.chat.workingUp = event.target.checked;
+  persistChatPrefs();
   chatController.renderRail();
 });
 byId('chat-composer')?.addEventListener('submit', (event) => {
@@ -3410,6 +3425,24 @@ installRejectionToast();
 applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings
 try { state.settingsTab = localStorage.getItem('aifySettingsTab') || ''; } catch { /* ignore */ }
 try { const sf = JSON.parse(localStorage.getItem('aifySessionStatusFilter') || '[]'); if (Array.isArray(sf)) state.sessionStatusFilter = new Set(sf); } catch { /* ignore */ }
+// Restore persisted chat rail prefs (sticky declutter) + reflect into the controls.
+try {
+  const p = JSON.parse(localStorage.getItem('aify.next.chatPrefs') || '{}') || {};
+  state.chat.liveOnly = !!p.liveOnly;
+  state.chat.openOnly = !!p.openOnly;
+  state.chat.workingUp = !!p.workingUp;
+  if (p.sortMode) state.chat.sortMode = p.sortMode;
+  const lo = byId('chat-live-only'); if (lo) lo.checked = state.chat.liveOnly;
+  const oo = byId('chat-open-only'); if (oo) oo.checked = state.chat.openOnly;
+  const wu = byId('chat-working-up'); if (wu) wu.checked = state.chat.workingUp;
+  const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
+} catch { /* ignore */ }
+// Restore the collapsed Needs-Attention preference (full-screen chat).
+try {
+  if (localStorage.getItem('aify.next.attentionCollapsed') === '1') {
+    byId('attention-strip')?.classList.add('collapsed');
+  }
+} catch { /* ignore */ }
 loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();
@@ -3417,6 +3450,12 @@ setNavCollapsed(preferredNavCollapsed());
 connectRealtimeSocket();
 refresh();
 setInterval(refresh, 15000);
+byId('attention-collapse')?.addEventListener('click', () => {
+  const strip = byId('attention-strip');
+  if (!strip) return;
+  const collapsed = strip.classList.toggle('collapsed');
+  try { localStorage.setItem('aify.next.attentionCollapsed', collapsed ? '1' : '0'); } catch { /* ignore */ }
+});
 byId('open-classic-settings')?.addEventListener('click', () => openClassic('settings'));
 byId('settings-save')?.addEventListener('click', () => {
   saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
