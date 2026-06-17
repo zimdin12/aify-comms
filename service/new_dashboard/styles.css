@@ -845,6 +845,10 @@ small, .subtle { color: var(--muted); }
   .diagnostics-bulk-toolbar { display: grid; }
   .section-head { align-items: stretch; flex-direction: column; }
   .button-row { display: grid; }
+  /* The attention-strip's quick-jump buttons are short — wrap them in a row instead of three
+     full-width stacked rows, so the strip header stays compact on a phone. */
+  .attention-strip .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .attention-strip .button-row .ghost { flex: 1 1 auto; }
   .contract { grid-template-columns: 1fr; }
   .contract-actions { grid-template-columns: 1fr; }
   .run-actions { grid-template-columns: 1fr; }

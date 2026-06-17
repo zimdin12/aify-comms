@@ -193,9 +193,19 @@ const chatController = createChatController({
 
 // Mount an agent's live console inline inside the Chat conversation pane. Reuses the exact
 // Sessions terminal widget (PTY xterm / hermes iframe / codex synth / start-console offer).
+// Signature-guarded: called on every render while Console is open, but only rebuilds the host
+// when the resolved console actually changed — so a freshly-started console auto-appears while
+// idle polls don't remount (and flicker) the live xterm.
 function mountChatConsole(agentId, hostEl) {
   if (!hostEl) return;
   const session = sessionForAgent(agentId);
+  const sig = session
+    ? [sessionId(session), session.status || '', session.terminalStatus || session.terminal_status || '',
+       agentForSession(session)?.runtimeState?.virtualTerminalId || '',
+       (state.sessionTerminals && state.sessionTerminals[sessionId(session)]) || ''].join('|')
+    : 'none';
+  if (hostEl.dataset.consoleSig === sig) return; // unchanged → leave the mounted terminal alone
+  hostEl.dataset.consoleSig = sig;
   if (!session) {
     disposeActiveXterm();
     hostEl.innerHTML = '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'

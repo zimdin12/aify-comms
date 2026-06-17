@@ -338,13 +338,16 @@ export function createChatController(deps) {
     // timeline. Guard against poll re-renders re-mounting the xterm — only (re)build the host
     // when it's missing or points at a different agent, so the terminal stays stable.
     if (!isChannel && state.chat.view === 'console') {
-      const existing = byId('chat-console-host');
-      if (!existing || existing.dataset.agent !== id) {
+      let host = byId('chat-console-host');
+      if (!host || host.dataset.agent !== id) {
         timeline.innerHTML = `<div id="chat-console-host" class="chat-console-host" data-agent="${esc(id)}"></div>`;
-        if (mountChatConsole) mountChatConsole(id, byId('chat-console-host'));
+        host = byId('chat-console-host');
       }
       const composer = byId('chat-composer'); if (composer) composer.hidden = true;
       const search = byId('chat-msg-search'); if (search) search.hidden = true;
+      // Always hand off to the mounter — it's signature-guarded, so it only rebuilds when the
+      // resolved console actually changed (e.g. a freshly-started console). No poll-flicker.
+      if (mountChatConsole && host) mountChatConsole(id, host);
       return;
     }
     const allMsgs = isChannel
