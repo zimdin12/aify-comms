@@ -261,18 +261,15 @@ DEFAULT_SETTINGS = {
     # switches. The wrappers still auto-detect at launch; this governs only
     # visibility of the manual override controls.
     "manual_session_mode": True,
-    # Status read-path engine selector (status v2, 2026-06-04). "old" (default)
-    # serves the legacy per-request _compute_live_status_cache derivation; "new"
-    # switches the read paths to the event-driven engine (service.status_engine.derive
-    # via engine_status / _gather_status_inputs) — which carries the real-time
-    # turn-transition pushes (WS-1), liveness-gated in-turn states (WS-2), and
-    # engine-status-gated queued delivery (WS-3). The LIVE deployment runs "new" (set
-    # in its DB). The code default stays "old" because flipping it surfaces remaining
-    # old→new divergences the new engine doesn't yet replicate (booting-console→online
-    # promotion, blocked-via-terminal-hint, resident-hermes missing-handle nuances) —
-    # those must be closed first (the deferred "Phase I flip"); see
-    # docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md (WS-5 + gaps).
-    "status_engine": "old",
+    # Status read-path engine selector (status v2). "new" (default since 2026-06-17,
+    # the Phase I flip) serves the event-driven engine (service.status_engine.derive via
+    # engine_status / _gather_status_inputs) — the path with the real-time turn-transition
+    # pushes (WS-1), liveness-gated in-turn states (WS-2), engine-status-gated queued
+    # delivery (WS-3), restored `blocked` (WS-5) and booting-console→online (WS-12). The
+    # live deployment already ran "new"; the default now matches so new installs get the
+    # same accurate, real-time status. "old" still selects the legacy per-request
+    # _compute_live_status_cache derivation as a fallback.
+    "status_engine": "new",
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",
@@ -3855,6 +3852,25 @@ async def _managed_owning_environment_row(db, agent_row, *, resolved_environment
             env_id = str(runtime_config.get("environmentId") or "").strip()
         except Exception:
             env_id = ""
+    # 2.5 (2026-06-17, Phase I flip parity): the agent's LIVE session binding. The
+    # event-engine status callers (_gather_status_inputs / the _compute_live_status_cache
+    # byproduct) pass resolved_environment_id="" — they don't pre-resolve the session env
+    # the way the legacy derivation does (it passes environment_id at line ~4562). Without
+    # this, a managed agent whose owning env is recorded only on its agent_sessions row
+    # (no machine_id / no runtime_config.environmentId) resolved to NO env and wrongly read
+    # `offline` under the new engine. Restores legacy parity. A dead env still reads offline
+    # (the row resolves but its _environment_effective_status is offline → env_reachable False).
+    if not env_id:
+        try:
+            sess = await (await db.execute(
+                "SELECT environment_id FROM agent_sessions WHERE agent_id = ? "
+                "AND status IN ('starting','running','recovering','restarting','cli-takeover') "
+                "ORDER BY last_seen DESC LIMIT 1",
+                (agent_row["id"],),
+            )).fetchone()
+            env_id = str((sess["environment_id"] if sess else "") or "").strip()
+        except Exception:
+            env_id = ""
     if env_id:
         row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))).fetchone()
         if row:
@@ -3874,6 +3890,25 @@ async def _managed_owning_environment_row(db, agent_row, *, resolved_environment
         if _runtime_capability_for_environment(environment, runtime):
             return row
     return None
+
+
+def _managed_env_reachable(agent_row, env_row, settings) -> bool:
+    """Phase I flip parity: whether a MANAGED agent's owning environment is reachable
+    (the engine's `available`/`online` gate). A RESOLVED env gates on its effective
+    status; an UNRESOLVABLE env (None — unbound agent) is reachable ONLY while the agent
+    is still heartbeating within the offline window, so a freshly-registered unbound
+    agent is `available` (env resolves at claim time) while an ancient one is `offline`
+    (matches the legacy last_seen offline threshold; without the heartbeat term an unbound
+    dead agent would wrongly read `available`)."""
+    if env_row is not None:
+        return _environment_effective_status(
+            env_row, offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90))
+        ) in {"online", "degraded"}
+    last_seen_epoch = _iso_to_epoch(str(agent_row["last_seen"] or ""))
+    if not last_seen_epoch:
+        return False
+    offline_secs = max(60, int(settings.get("offline_minutes", 30) or 30) * 60)
+    return (datetime.now(timezone.utc).timestamp() - last_seen_epoch) <= offline_secs
 
 
 def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, Any]:
@@ -4348,9 +4383,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     )
     if mode == "managed":
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
-        env_reachable = bool(env_row) and _environment_effective_status(
-            env_row, offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90))
-        ) in {"online", "degraded"}
+        env_reachable = _managed_env_reachable(agent_row, env_row, settings)
         worker_present = await _has_live_worker_for(db, agent_row, settings=settings)
         alive = worker_present
         # WS-12 (2026-06-17): a managed console that is up but whose sidecar hasn't claimed yet
@@ -4366,10 +4399,15 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
                             console_booting=console_booting)
     fresh = await _resident_bridge_is_fresh(db, agent_row,
                 lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150))
+    # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
+    # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
+    # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
+    # (mirrors the legacy resident missing-handle gate; matches the dashboard's red dot).
+    missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
     return StatusInputs(mode=mode, alive=fresh, in_turn=in_turn, awaiting_input=awaiting,
                         worker_present=fresh, env_reachable=True, disabled=disabled,
-                        bridge_stale=(not fresh), has_live_session=fresh, idle_too_long=False,
-                        console_booting=False)
+                        bridge_stale=(not fresh) or missing_handle, has_live_session=fresh,
+                        idle_too_long=False, console_booting=False)
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
@@ -4867,10 +4905,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     )
     if agent_session_mode == "managed":
         _si_env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
-        _si_env_reachable = bool(_si_env_row) and _environment_effective_status(
-            _si_env_row,
-            offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
-        ) in {"online", "degraded"}
+        _si_env_reachable = _managed_env_reachable(agent_row, _si_env_row, settings)
         # WS-12 parity: booting-console → display online (same helper as _gather_status_inputs).
         _si_console_booting = (
             not has_live_worker and _si_env_reachable
@@ -4885,12 +4920,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         )
     else:
         _si_fresh = bool(resident_bridge_fresh)
+        # Phase I flip parity (see _gather_status_inputs): a *-missing-handle resident → stale.
+        _si_missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
         status_inputs = StatusInputs(
             mode=agent_session_mode, alive=_si_fresh, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=_si_fresh,
             env_reachable=True, disabled=_si_disabled,
-            bridge_stale=(not _si_fresh), has_live_session=_si_fresh, idle_too_long=False,
-            console_booting=False,
+            bridge_stale=(not _si_fresh) or _si_missing_handle, has_live_session=_si_fresh,
+            idle_too_long=False, console_booting=False,
         )
     # Subagents mini-tag (2026-06-11): surfaced through the reason string (the dashboard
     # already derives nuances like awaiting-reply from it) so no payload-shape change.

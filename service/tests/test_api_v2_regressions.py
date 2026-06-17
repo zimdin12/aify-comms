@@ -2995,6 +2995,16 @@ class ApiV2RegressionTests(FastApiTestCase):
             """,
             ("turnend-hermes", "run-turnend-1", "channel-linux:test-host-turnend-hermes", "hermes", now),
         )
+        # status_engine=new reads in_turn from agent_status_state (not agent_turn_state), so
+        # seed it too for the mid-turn precondition.
+        self._execute(
+            """
+            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
+            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
+            """,
+            ("turnend-hermes", "run-turnend-1", now, now),
+        )
         asyncio.run(self._async_invalidate("turnend-hermes"))
         agent = self.client.get("/api/v1/agents/turnend-hermes").json()["agent"]
         self.assertEqual(agent["status"], "working", f"precondition: mid-turn → working; got {agent}")
@@ -4934,6 +4944,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("do it without console open", controls[2]["body"])
 
     def test_managed_claude_active_run_without_terminal_backing_reports_blocked(self):
+        # Legacy-only `active_run_terminal_missing → blocked` — pin old (see WS-5 note).
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -4964,6 +4976,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("terminal", agent["statusNote"].lower())
 
     def test_terminal_backed_codex_active_run_without_terminal_backing_reports_blocked(self):
+        # Legacy-only `active_run_terminal_missing → blocked` (codex) — pin old (see WS-5).
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         session_id = self._create_running_session(
             terminal=True,
             runtime="codex",
@@ -4995,6 +5009,9 @@ class ApiV2RegressionTests(FastApiTestCase):
 
 
     def test_managed_claude_active_run_with_ended_terminal_backing_reports_blocked(self):
+        # Legacy-only: `active_run_terminal_missing → blocked`. The new engine derives blocked
+        # from in_turn + the console-input hint (WS-5), not a missing terminal backing — pin old.
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -5350,6 +5367,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(controls[1]["body"].endswith("\r"))
 
     def test_managed_claude_terminal_prompt_reports_blocked_not_working(self):
+        # Legacy-path blocked derivation (no in_turn/sidecar seeded). The new-engine
+        # equivalent is test_blocked_reachable_when_console_awaits_input — pin old here.
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -5386,6 +5406,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], dispatched["consoleDeliveries"][0]["contractRunId"])
 
     def test_managed_claude_dev_channel_prompt_reports_blocked_without_active_run(self):
+        # Legacy-only: blocked WITHOUT an active run/turn. New gates blocked on in_turn, so a
+        # prompt with no turn derives online (the statusNote still shows the awaiting hint) — pin old.
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         session_id = self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -11342,6 +11365,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminalRuntimes=["claude-code"],
         )
         self._register("channel-claude", runtime="claude-code", sessionMode="resident")
+        # status_engine=new: a resident's liveness is its bridge freshness; stamp a live
+        # channel-sidecar (proof-of-life) so it reads online (not stale) like under old.
+        self._stamp_live_channel_sidecar("channel-claude")
 
         # Baseline: no runs → not working.
         agent_response = self.client.get("/api/v1/agents/channel-claude")
@@ -11871,7 +11897,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         # in the periodic reconciler. Bridge-side .catch handler now
         # also retries the failure-PATCH 3 times so the service-side
         # safety net is only needed when the bridge crashed entirely.
-        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
+        # The orphan-close failure MESSAGE ("no owning bridge" vs the status-aware
+        # available/offline variants) is legacy-derivation-coupled; pin old for this
+        # message assertion (the reaper itself runs under both engines).
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5, "status_engine": "old"})
         self._register("orphan-hermes", runtime="hermes", sessionMode="managed")
         # Seed: dispatch_run started 10 minutes ago, no claim_bridge_id,
         # non-terminal dispatch_mode → orphan candidate.
@@ -12215,8 +12244,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("bridge-busy-1", "busy-target", "test-machine", "hermes", "resident", live_seen, live_seen),
         )
         self._execute(
-            "UPDATE agents SET runtime_state = ? WHERE id = ?",
-            ('{"bridgeInstanceId": "bridge-busy-1"}', "busy-target"),
+            "UPDATE agents SET runtime_state = ?, runtime_config = ? WHERE id = ?",
+            # gatewayUrl → wake-mode hermes-live (not *-missing-handle, which would derive stale).
+            ('{"bridgeInstanceId": "bridge-busy-1"}', '{"gatewayUrl": "ws://127.0.0.1:9999"}', "busy-target"),
         )
         self._execute(
             """
@@ -13035,6 +13065,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(after["status"], "available", after)
 
     def test_status_taxonomy_available_when_no_live_worker_online_when_session_alive(self):
+        # Legacy resident persistent-worker taxonomy (available→online from a live
+        # agent_sessions row); the new engine models resident liveness via bridge freshness,
+        # not the session row, so it derives differently — pin old for this legacy contract.
+        self.client.put("/api/v1/settings", json={"status_engine": "old"})
         # Persistent-worker model (Phase 2 of plan
         # docs/plans/persistent-worker-status-taxonomy.md). An agent
         # registered with env online but no live agent_session reports
@@ -13247,6 +13281,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminalRuntimes=["claude-code"],
         )
         self._register("resident-claude", runtime="claude-code", sessionMode="resident")
+        self._stamp_live_channel_sidecar("resident-claude")  # status_engine=new resident proof-of-life
         self._execute(
             """
             INSERT INTO dispatch_runs (
@@ -13303,6 +13338,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             terminalRuntimes=["claude-code"],
         )
         self._register("clearer-claude", runtime="claude-code", sessionMode="resident")
+        self._stamp_live_channel_sidecar("clearer-claude")  # status_engine=new resident proof-of-life
         # Seed: dashboard's original message → a delivered+require_reply run
         # → a fresh turn_busy=true pulse. Message must exist BEFORE the
         # dispatch_run row that FKs to it.
@@ -13361,6 +13397,16 @@ class ApiV2RegressionTests(FastApiTestCase):
             ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
             """,
             ("clearer-claude", "run_clearer_1", "bridge-clear-busy", "claude-code", now),
+        )
+        # status_engine=new reads in_turn from agent_status_state; seed it for the `before`
+        # working precondition (the reply-landing clear below clears it via _clear_status_state_in_turn).
+        self._execute(
+            """
+            INSERT INTO agent_status_state (agent_id, status, in_turn, awaiting_input, turn_run_id, last_event, last_event_at, updated_at)
+            VALUES (?, 'working', 1, 0, ?, 'turn_start', ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at, updated_at=excluded.updated_at
+            """,
+            ("clearer-claude", "run_clearer_1", now, now),
         )
         asyncio.run(self._async_invalidate("clearer-claude"))
         before = self.client.get("/api/v1/agents/clearer-claude").json()["agent"]
