@@ -67,6 +67,10 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("a1")["in_turn"]), 0)
 
     def test_status_engine_setting_defaults_old(self):
+        # The code default stays "old": flipping it to "new" surfaces remaining old→new
+        # divergences the new engine doesn't yet replicate (booting-console→online,
+        # blocked-via-terminal-hint, resident-hermes missing-handle) — the deferred
+        # "Phase I flip". The LIVE deployment runs "new" via its DB setting.
         r = self.client.get("/api/v1/settings")
         self.assertEqual(r.json().get("status_engine"), "old")
 

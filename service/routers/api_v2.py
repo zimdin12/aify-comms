@@ -262,10 +262,16 @@ DEFAULT_SETTINGS = {
     # visibility of the manual override controls.
     "manual_session_mode": True,
     # Status read-path engine selector (status v2, 2026-06-04). "old" (default)
-    # serves the legacy per-request _compute_live_status_cache derivation;
-    # "new" switches the read paths to the event-driven engine
-    # (service.status_engine.derive via engine_status / _gather_status_inputs).
-    # Disagreements are logged while "old" stays authoritative until the flip.
+    # serves the legacy per-request _compute_live_status_cache derivation; "new"
+    # switches the read paths to the event-driven engine (service.status_engine.derive
+    # via engine_status / _gather_status_inputs) — which carries the real-time
+    # turn-transition pushes (WS-1), liveness-gated in-turn states (WS-2), and
+    # engine-status-gated queued delivery (WS-3). The LIVE deployment runs "new" (set
+    # in its DB). The code default stays "old" because flipping it surfaces remaining
+    # old→new divergences the new engine doesn't yet replicate (booting-console→online
+    # promotion, blocked-via-terminal-hint, resident-hermes missing-handle nuances) —
+    # those must be closed first (the deferred "Phase I flip"); see
+    # docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md (WS-5 + gaps).
     "status_engine": "old",
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
