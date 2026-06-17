@@ -106,7 +106,10 @@ export function runStatusMixHtml(runsByStatus = {}) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([status, count]) => {
       const width = Math.max(3, Math.round((Number(count || 0) / max) * 100));
-      return `<div class="status-bar-row"><span class="status-bar-label"><span class="status-dot ${esc(status)}"></span>${esc(status)}</span><span class="status-bar-track"><span class="status-bar-fill" data-status="${esc(status)}" style="width:${width}%"></span></span><span class="status-bar-value">${Number(count || 0)}</span></div>`;
+      // Color the dot by run-status via the same data-status taxonomy as the fill
+      // (run statuses queued/claimed/running/completed/failed/cancelled/lost have no
+      // .status-dot.<x> rule, so a raw class rendered them all muted-grey — WS-6).
+      return `<div class="status-bar-row"><span class="status-bar-label"><span class="status-dot" data-status="${esc(status)}"></span>${esc(status)}</span><span class="status-bar-track"><span class="status-bar-fill" data-status="${esc(status)}" style="width:${width}%"></span></span><span class="status-bar-value">${Number(count || 0)}</span></div>`;
     }).join('') + `</div>`;
 }
 

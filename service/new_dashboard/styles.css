@@ -1158,6 +1158,14 @@ small, .subtle { color: var(--muted); }
 .status-bar-fill[data-status="queued"], .status-bar-fill[data-status="pending"], .status-bar-fill[data-status="idle"], .status-bar-fill[data-status="stale"] { background: linear-gradient(90deg, var(--amber, #e6b455), color-mix(in srgb, var(--amber, #e6b455) 45%, #0a0b0c)); }
 .status-bar-fill[data-status="failed"], .status-bar-fill[data-status="blocked"], .status-bar-fill[data-status="error"], .status-bar-fill[data-status="timeout"] { background: linear-gradient(90deg, var(--red), color-mix(in srgb, var(--red) 45%, #0a0b0c)); }
 .status-bar-fill[data-status="offline"], .status-bar-fill[data-status="stopped"], .status-bar-fill[data-status="cancelled"] { background: linear-gradient(90deg, var(--muted), color-mix(in srgb, var(--muted) 45%, #0a0b0c)); }
+/* Run-status-mix dot tints (WS-6) — keyed on data-status so the dot matches its bar.
+   Run statuses (queued/claimed/running/completed/failed/cancelled/lost) have no
+   .status-dot.<status> rule, so without this the dot defaulted to muted-grey. */
+.status-dot[data-status="completed"], .status-dot[data-status="ok"] { background: var(--green); box-shadow: none; }
+.status-dot[data-status="running"], .status-dot[data-status="delivered"] { background: var(--blue); box-shadow: none; animation: none; }
+.status-dot[data-status="queued"], .status-dot[data-status="pending"], .status-dot[data-status="claimed"] { background: var(--amber); box-shadow: none; }
+.status-dot[data-status="failed"], .status-dot[data-status="error"], .status-dot[data-status="timeout"] { background: var(--red); box-shadow: none; }
+.status-dot[data-status="cancelled"], .status-dot[data-status="lost"] { background: var(--muted); box-shadow: none; }
 .status-bar-value { text-align: right; color: var(--muted); font-size: .78em; }
 @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } #analytics-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { #analytics-stats, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

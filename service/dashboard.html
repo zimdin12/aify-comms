@@ -716,6 +716,19 @@ tr:hover{background:#1b1f21}
 .status-bar-label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;min-width:0}
 .status-bar-track{height:8px;border-radius:999px;background:#0a0b0c;border:1px solid #282d30;overflow:hidden}
 .status-bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--state-info),color-mix(in srgb,var(--state-info) 45%,#0a0b0c))}
+/* Run-status-mix dot + bar tints by status (WS-6 2026-06-17) — keyed on data-status so
+   run statuses (queued/claimed/running/completed/failed/cancelled/lost) read at a glance
+   instead of all rendering muted-grey. Mirrors the new dashboard. */
+.status-bar-fill[data-status="completed"],.status-bar-fill[data-status="ok"]{background:linear-gradient(90deg,var(--state-online),color-mix(in srgb,var(--state-online) 45%,#0a0b0c))}
+.status-bar-fill[data-status="running"],.status-bar-fill[data-status="delivered"]{background:linear-gradient(90deg,var(--state-info),color-mix(in srgb,var(--state-info) 45%,#0a0b0c))}
+.status-bar-fill[data-status="queued"],.status-bar-fill[data-status="pending"],.status-bar-fill[data-status="claimed"]{background:linear-gradient(90deg,#e3a008,color-mix(in srgb,#e3a008 45%,#0a0b0c))}
+.status-bar-fill[data-status="failed"],.status-bar-fill[data-status="error"],.status-bar-fill[data-status="timeout"]{background:linear-gradient(90deg,#ff6a74,color-mix(in srgb,#ff6a74 45%,#0a0b0c))}
+.status-bar-fill[data-status="cancelled"],.status-bar-fill[data-status="lost"]{background:linear-gradient(90deg,var(--muted),color-mix(in srgb,var(--muted) 45%,#0a0b0c))}
+.status-dot[data-status="completed"],.status-dot[data-status="ok"]{background:var(--state-online)}
+.status-dot[data-status="running"],.status-dot[data-status="delivered"]{background:var(--state-info)}
+.status-dot[data-status="queued"],.status-dot[data-status="pending"],.status-dot[data-status="claimed"]{background:#e3a008}
+.status-dot[data-status="failed"],.status-dot[data-status="error"],.status-dot[data-status="timeout"]{background:#ff6a74}
+.status-dot[data-status="cancelled"],.status-dot[data-status="lost"]{background:var(--muted)}
 .status-bar-value{text-align:right;color:var(--muted);font-size:.78em}
 .chat-analytics{padding:6px 4px 18px}
 .chat-analytics-h{margin:18px 0 4px;font-size:.82em;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
@@ -4581,7 +4594,7 @@ function renderRunStatusMix(runsByStatus = {}) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([status, count]) => {
       const width = Math.max(3, Math.round((Number(count || 0) / max) * 100));
-      return `<div class="status-bar-row"><span class="status-bar-label"><span class="status-dot ${esc(status)}"></span>${esc(status)}</span><span class="status-bar-track"><span class="status-bar-fill" style="width:${width}%"></span></span><span class="status-bar-value">${Number(count || 0)}</span></div>`;
+      return `<div class="status-bar-row"><span class="status-bar-label"><span class="status-dot" data-status="${esc(status)}"></span>${esc(status)}</span><span class="status-bar-track"><span class="status-bar-fill" data-status="${esc(status)}" style="width:${width}%"></span></span><span class="status-bar-value">${Number(count || 0)}</span></div>`;
     }).join('') + `</div>`;
 }
 
