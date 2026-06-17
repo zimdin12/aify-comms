@@ -15439,10 +15439,14 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # bridge wins. turnBusy=false: only the owning bridge+run may clear,
         # so a stale false from a superseded bridge/run cannot wipe a newer
         # active turn.
+        turn_flip = False  # WS-1: did this heartbeat actually change turn_busy (working⇄ready)?
         if "turnBusy" in body:
             turn_busy = bool(body.get("turnBusy"))
             turn_run_id = str(body.get("turnRunId", "") or "").strip()
             turn_runtime = str(body.get("turnRuntime", "") or "").strip()
+            _prev_row = await (await db.execute(
+                "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,))).fetchone()
+            _prev_busy = bool(_prev_row and _prev_row["turn_busy"])
             if turn_busy:
                 await db.execute(
                     """
@@ -15457,6 +15461,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     """,
                     (agent_id, turn_run_id, bridge_id, turn_runtime, now),
                 )
+                turn_flip = not _prev_busy  # to-working transition
                 # status v2 (Fix A, 2026-06-05): the /heartbeat turnBusy field is the
                 # DOMINANT turn signal for MANAGED runtimes (hermes/codex/pi/opencode)
                 # and claude channel-woken turns — the dispatch lifecycle pulses it,
@@ -15487,12 +15492,21 @@ async def agent_heartbeat(agent_id: str, request: Request):
                         # turn_busy=0 write uses — never clears where the old code
                         # would not clear turn_busy.
                         await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
+                        turn_flip = _prev_busy  # to-ready transition (only when we actually cleared)
             # A turn_busy flip changes derived status (working ⇄ idle). Invalidate
             # the live-state cache so the next read recomputes immediately, instead
             # of lagging up to the 60s reconcile sweep. Symmetric with the dedicated
             # /turn-start and /turn-end endpoints, which already invalidate.
             await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
+        # WS-1 (2026-06-17): the /heartbeat turnBusy field is the DOMINANT turn signal for
+        # managed runtimes, but it only invalidated the cache — the dashboard still waited its
+        # ~60s poll to see the flip. Push it immediately, but ONLY on an actual working⇄ready
+        # flip (not every 3s liveness/refresh beat), flag-gated to keep `old` unchanged.
+        if turn_flip:
+            settings = await _load_settings(db)
+            if str(settings.get("status_engine", "old")).lower() == "new":
+                await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True}
     finally:
         await db.close()
@@ -15782,6 +15796,11 @@ async def agent_console_working(agent_id: str, request: Request):
         # work, review M1 2026-06-10). Mirrors /turn-start//turn-end ordering.
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
+        # WS-1 (2026-06-17): push the working lease immediately (flag-gated, mirrors
+        # /status-event) so the spinner-driven to-working shows without the ~60s poll wait.
+        settings = await _load_settings(db)
+        if str(settings.get("status_engine", "old")).lower() == "new":
+            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
     finally:
         await db.close()
     return {"ok": True}
@@ -15847,6 +15866,12 @@ async def agent_turn_start(agent_id: str, request: Request):
         await _apply_status_event(db, agent_id, {"kind": "turn_start", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
+        # WS-1 (2026-06-17): push the transition immediately so the dashboard reflects
+        # to-working within a second instead of waiting out its ~60s poll. Mirrors the
+        # /status-event pattern; gated on the flag so `old` is byte-for-byte unchanged.
+        settings = await _load_settings(db)
+        if str(settings.get("status_engine", "old")).lower() == "new":
+            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id}
     finally:
         await db.close()
@@ -15901,6 +15926,12 @@ async def agent_turn_end(agent_id: str, request: Request):
         await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
+        # WS-1 (2026-06-17): push the to-ready transition immediately — this is the hop
+        # the operator most needs ("send queued work after the agent goes ready"); waiting
+        # the ~60s dashboard poll made to-ready look stuck. Mirrors /status-event; flag-gated.
+        settings = await _load_settings(db)
+        if str(settings.get("status_engine", "old")).lower() == "new":
+            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id}
     finally:
         await db.close()

@@ -197,6 +197,54 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(self._agent_status_events(), [],
                          "old flag must not push engine agent_status from status-event")
 
+    def test_turn_end_endpoint_pushes_status_under_new(self):
+        # WS-1 (2026-06-17): the dedicated /turn-end endpoint must push the to-ready
+        # transition immediately under new (was invalidate-only → ~60s dashboard lag).
+        self._register("we1", mode="resident")
+        self.client.post("/api/v1/agents/we1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.client.post("/api/v1/agents/we1/turn-start", json={"runtime": "claude-code", "bridgeId": "b1"})
+        self._set("status_engine", "new")
+        self.ws.broadcasts.clear()
+        r = self.client.post("/api/v1/agents/we1/turn-end", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        events = self._agent_status_events()
+        self.assertTrue(events and events[-1]["agentId"] == "we1",
+                        "/turn-end (flag=new) must push an agent_status event")
+
+    def test_turn_end_endpoint_no_push_under_old(self):
+        # Safety: default `old` flag keeps /turn-end push-free (byte-for-byte unchanged).
+        self._register("we2", mode="resident")
+        self.client.post("/api/v1/agents/we2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
+        self.ws.broadcasts.clear()
+        r = self.client.post("/api/v1/agents/we2/turn-end", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._agent_status_events(), [],
+                         "old flag must not push from /turn-end")
+
+    def test_heartbeat_turnbusy_flip_pushes_only_on_transition_under_new(self):
+        # WS-1: the /heartbeat turnBusy field is the dominant managed turn signal. Under
+        # new it must push on an actual working⇄ready FLIP, but NOT on every refresh beat.
+        self._register("we3", mode="managed", runtime="hermes")
+        self._set("status_engine", "new")
+        # to-working flip → push
+        self.ws.broadcasts.clear()
+        self.client.post("/api/v1/agents/we3/heartbeat",
+                         json={"bridgeId": "b1", "turnBusy": True, "turnRunId": "r1", "turnRuntime": "hermes"})
+        self.assertTrue([e for e in self._agent_status_events() if e["agentId"] == "we3"],
+                        "to-working turnBusy flip must push")
+        # same turnBusy=true again → NO new push (not a flip, just a refresh beat)
+        self.ws.broadcasts.clear()
+        self.client.post("/api/v1/agents/we3/heartbeat",
+                         json={"bridgeId": "b1", "turnBusy": True, "turnRunId": "r1", "turnRuntime": "hermes"})
+        self.assertEqual([e for e in self._agent_status_events() if e["agentId"] == "we3"], [],
+                         "a repeated turnBusy=true (no flip) must not push")
+        # to-ready flip (owning bridge clears) → push
+        self.ws.broadcasts.clear()
+        self.client.post("/api/v1/agents/we3/heartbeat",
+                         json={"bridgeId": "b1", "turnBusy": False, "turnRunId": "r1", "turnRuntime": "hermes"})
+        self.assertTrue([e for e in self._agent_status_events() if e["agentId"] == "we3"],
+                        "to-ready turnBusy flip must push")
+
 
 class StatusEngineHotRefreshParityTests(FastApiTestCase):
     """status v2 CPU-fix: under status_engine=new, _refresh_agent_live_state must
