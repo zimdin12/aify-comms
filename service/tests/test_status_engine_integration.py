@@ -1,6 +1,48 @@
 import sqlite3
 from service.tests._base import FastApiTestCase
 
+
+def _seed_live_channel_worker(db_path, env_id, aid, runtime="claude-code"):
+    """Seed a genuinely-live managed worker: a running session + an attached console
+    terminal_session + a FRESH channel-sidecar bridge heartbeat. status-F2 (2026-06-17)
+    made the engine gate the in-turn states (working/blocked) on worker liveness, so a
+    test asserting a managed agent reads `working` mid-turn must reflect the real
+    co-occurrence of a turn signal AND a live worker (claude/hermes managed `online`
+    REQUIRES BOTH a live console PTY and a live channel sidecar — _worker_liveness_for)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    tid = f"term_{aid}"
+    c = sqlite3.connect(str(db_path))
+    try:
+        c.execute(
+            """INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,
+                mode, owner_mode, terminal_id, terminal_status, spawn_spec_id,
+                spawn_request_id, status, started_at, last_seen)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (f"sess_{aid}", aid, env_id, runtime, "/workspace/repo",
+             "managed-warm", "managed", tid, "attached", None, None, "running", now, now))
+        c.execute(
+            """INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id,
+                bridge_id, runtime, workspace, command, output, status, requested_by,
+                created_at, updated_at, stopped_at, error)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (tid, f"sess_{aid}", aid, env_id, "bridge-current", runtime,
+             "/workspace/repo", f"{runtime}-aify --aify-agent " + aid, "", "attached",
+             "dashboard", now, now, None, ""))
+        # The channel-sidecar heartbeat is the deliverability proof claude/hermes managed
+        # `online` requires (CHANNEL_SIDECAR_STALE_SECONDS window) — without it has_live_worker
+        # is False and the agent reads `available`, not `working`.
+        c.execute(
+            """INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,
+                session_handle, terminal_id, bridge_kind, registered_at, last_seen, superseded_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (f"sidecar_{aid}", aid, "linux:test-host", runtime, "managed", "", tid,
+             "channel-sidecar", now, now, ""))
+        c.commit()
+    finally:
+        c.close()
+
+
 class StatusEventIngestTests(FastApiTestCase):
     def _register(self, aid="a1", mode="managed", runtime="claude-code"):
         r = self.client.post("/api/v1/agents", json={"agentId": aid, "role": "coder",
@@ -417,6 +459,10 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
     def test_managed_turn_busy_serves_working_under_new(self):
         self._heartbeat_environment("hermes")
         self._register("hb3", mode="managed", runtime="hermes")
+        # status-F2: a genuinely mid-turn managed agent has a LIVE worker; seed it so the
+        # engine's liveness-gated `working` reflects reality (was implicitly relying on the
+        # old in_turn→working bug that ignored worker presence).
+        _seed_live_channel_worker(self._db_path, self.ENV_ID, "hb3", runtime="hermes")
         self._set("status_engine", "new")
         self.client.post("/api/v1/agents/hb3/heartbeat",
                          json={"bridgeId": "sidecar-1", "turnBusy": True,
@@ -528,29 +574,7 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
 
     def _seed_live_worker(self, aid):
-        import datetime as _dt
-        now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
-        tid = f"term_{aid}"
-        c = sqlite3.connect(str(self._db_path))
-        try:
-            c.execute(
-                """INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,
-                    mode, owner_mode, terminal_id, terminal_status, spawn_spec_id,
-                    spawn_request_id, status, started_at, last_seen)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (f"sess_{aid}", aid, self.ENV_ID, "claude-code", "/workspace/repo",
-                 "managed-warm", "managed", tid, "attached", None, None, "running", now, now))
-            c.execute(
-                """INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id,
-                    bridge_id, runtime, workspace, command, output, status, requested_by,
-                    created_at, updated_at, stopped_at, error)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (tid, f"sess_{aid}", aid, self.ENV_ID, "bridge-current", "claude-code",
-                 "/workspace/repo", "claude-aify --aify-agent " + aid, "", "attached",
-                 "dashboard", now, now, None, ""))
-            c.commit()
-        finally:
-            c.close()
+        _seed_live_channel_worker(self._db_path, self.ENV_ID, aid, runtime="claude-code")
 
     def _byproduct_status(self, aid):
         import asyncio

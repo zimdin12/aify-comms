@@ -39,10 +39,14 @@ def derive(i: StatusInputs) -> str:
         return "offline"
     # AFTER those short-circuits, a turn in flight dominates the remaining LIVE states (so a
     # long turn never falls back to idle/online/available — NOT offline, which already won above).
-    if i.in_turn and i.awaiting_input:
-        return "blocked"
-    if i.in_turn:
-        return "working"
+    # BUT liveness gates the in-turn states (status-F2, 2026-06-17): a turn signal must not
+    # outlive the worker. A dead managed worker / stale resident bridge with a stale in_turn=1
+    # previously latched `working` for up to the 30-min backstop; now it falls through to
+    # available/offline/stale. Live turns are unaffected — every real in_turn→working path has
+    # worker_present (managed) / has_live_session (resident) true.
+    live = i.worker_present if i.mode == "managed" else (i.has_live_session and not i.bridge_stale)
+    if i.in_turn and live:
+        return "blocked" if i.awaiting_input else "working"
     if i.mode == "managed":
         if i.alive and i.worker_present:
             return "idle" if i.idle_too_long else "online"

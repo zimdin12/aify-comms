@@ -51,6 +51,20 @@ def test_hermes_working_while_delivering_is_working():
     # #172: a turn in flight reads working even though it's "online"-ish underneath
     assert derive(_inp(mode="managed", in_turn=True, worker_present=True)) == "working"
 
+def test_managed_in_turn_dead_worker_is_not_working():
+    # status-F2 (2026-06-17): liveness gates the in-turn states. A managed agent whose
+    # worker died mid-turn (stale in_turn, no turn-end) must NOT read working — it falls
+    # through to available (env reachable, lazy-autostartable), never a 30-min stuck `working`.
+    assert derive(_inp(mode="managed", in_turn=True, worker_present=False, alive=False,
+                       env_reachable=True)) == "available"
+    assert derive(_inp(mode="managed", in_turn=True, awaiting_input=True, worker_present=False,
+                       alive=False, env_reachable=True)) == "available"
+
+def test_resident_in_turn_stale_bridge_is_not_working():
+    # status-F2: a resident whose bridge went stale mid-turn must read stale, not working.
+    assert derive(_inp(mode="resident", in_turn=True, alive=False, bridge_stale=True,
+                       has_live_session=True)) == "stale"
+
 def test_resident_stale_bridge_is_stale():
     assert derive(_inp(mode="resident", alive=False, bridge_stale=True, has_live_session=True)) == "stale"
 
