@@ -27,6 +27,7 @@ class StatusInputs:
     bridge_stale: bool        # resident: bridge heartbeat missing
     has_live_session: bool    # resident: a live runtime session exists
     idle_too_long: bool       # online but quiet beyond idle window
+    console_booting: bool = False  # managed: console up, sidecar not yet claimed (display online)
 
 
 def derive(i: StatusInputs) -> str:
@@ -51,7 +52,12 @@ def derive(i: StatusInputs) -> str:
         if i.alive and i.worker_present:
             return "idle" if i.idle_too_long else "online"
         if i.env_reachable:
-            return "available"      # idle, no live worker, but lazy-autostartable
+            # A console that is up but whose sidecar hasn't claimed yet is BOOTING →
+            # display `online` so the operator doesn't miss the live terminal (parity
+            # with the legacy display-only promotion). Routing is unaffected: delivery
+            # keys on worker_present/has_live_worker, which stays False until the sidecar
+            # claims, so a send during boot still queues.
+            return "online" if i.console_booting else "available"
         return "offline"
     # resident
     if i.alive and i.has_live_session and not i.bridge_stale:

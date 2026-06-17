@@ -4064,6 +4064,36 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     return ""
 
 
+async def _agent_awaiting_input(db, agent_id: str) -> bool:
+    """WS-5 (2026-06-17): True when the agent's live console tail looks like it is
+    awaiting operator input/a decision (the `_terminal_awaiting_input_hint` signal).
+
+    This is the engine input that makes `blocked` reachable under status_engine=new:
+    derive() returns `blocked` for `in_turn AND live AND awaiting_input`. Callers gate
+    the call on in_turn (a turn must be in flight for `blocked` to apply), so the
+    terminal read happens only for the few agents currently mid-turn. Both StatusInputs
+    build sites (_gather_status_inputs and the _compute_live_status_cache byproduct)
+    call THIS helper so they derive the same value (the byproduct-parity promise)."""
+    if db is None:
+        return False
+    try:
+        row = await (await db.execute(
+            """
+            SELECT output FROM terminal_sessions
+            WHERE agent_id = ?
+              AND status IN ('starting','attached','running','active','idle','recovering')
+              AND id NOT LIKE 'vterm_%'
+            ORDER BY updated_at DESC LIMIT 1
+            """,
+            (agent_id,),
+        )).fetchone()
+    except Exception:
+        return False
+    if not row:
+        return False
+    return bool(_terminal_awaiting_input_hint(row["output"] if "output" in row.keys() else ""))
+
+
 def _terminal_idle_prompt_hint(output: str) -> str:
     clean = _ANSI_RE.sub("", str(output or ""))
     clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", clean)
@@ -4302,6 +4332,11 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             datetime.now(timezone.utc).timestamp() - last_event_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
+    # WS-5 (2026-06-17): make `blocked` reachable under new — an in-turn agent whose console
+    # tail looks like it awaits operator input derives `blocked`. Gate on in_turn (blocked only
+    # applies mid-turn) so the terminal read is bounded to agents currently working.
+    if in_turn and not awaiting:
+        awaiting = await _agent_awaiting_input(db, aid)
     # DISABLED = explicit stop OR wake disabled (launch_mode='none' — the operator's "Stop
     # wake"). The engine only knew 'stopped' (2026-06-12 audit): wake-disabled agents served
     # `available` under status_engine=new — inviting sends that can never wake them — while
@@ -4318,14 +4353,23 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
         ) in {"online", "degraded"}
         worker_present = await _has_live_worker_for(db, agent_row, settings=settings)
         alive = worker_present
+        # WS-12 (2026-06-17): a managed console that is up but whose sidecar hasn't claimed yet
+        # is BOOTING → display `online` (parity with the legacy display-only promotion). Only
+        # relevant when it would otherwise read `available` (no worker, env reachable).
+        console_booting = (
+            not worker_present and env_reachable
+            and await _managed_console_is_booting(db, aid)
+        )
         return StatusInputs(mode=mode, alive=alive, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
-                            bridge_stale=False, has_live_session=worker_present, idle_too_long=False)
+                            bridge_stale=False, has_live_session=worker_present, idle_too_long=False,
+                            console_booting=console_booting)
     fresh = await _resident_bridge_is_fresh(db, agent_row,
                 lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150))
     return StatusInputs(mode=mode, alive=fresh, in_turn=in_turn, awaiting_input=awaiting,
                         worker_present=fresh, env_reachable=True, disabled=disabled,
-                        bridge_stale=(not fresh), has_live_session=fresh, idle_too_long=False)
+                        bridge_stale=(not fresh), has_live_session=fresh, idle_too_long=False,
+                        console_booting=False)
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
@@ -4810,6 +4854,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # short TTL, so OR-ing it after the staleness clamp can't resurrect a truly-stale turn.)
     _si_in_turn = _si_raw_in_turn or (console_working_lease and has_live_worker)
     _si_awaiting = bool(_si_st and _si_st["awaiting_input"])
+    # WS-5 parity: compute the awaiting-input signal via the SAME helper _gather_status_inputs
+    # uses (NOT the legacy terminal_input_hint above, which keys on the bound terminal_id) so
+    # both StatusInputs builders agree. Gated on _si_in_turn (blocked only applies mid-turn).
+    if _si_in_turn and not _si_awaiting:
+        _si_awaiting = await _agent_awaiting_input(db, agent_row["id"])
     # Mirrors _gather_status_inputs exactly (the byproduct-parity promise): disabled =
     # stopped OR wake disabled (launch_mode='none') — see the 2026-06-12 audit note there.
     _si_disabled = (
@@ -4822,11 +4871,17 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             _si_env_row,
             offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
         ) in {"online", "degraded"}
+        # WS-12 parity: booting-console → display online (same helper as _gather_status_inputs).
+        _si_console_booting = (
+            not has_live_worker and _si_env_reachable
+            and await _managed_console_is_booting(db, agent_row["id"])
+        )
         status_inputs = StatusInputs(
             mode=agent_session_mode, alive=has_live_worker, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=has_live_worker,
             env_reachable=_si_env_reachable, disabled=_si_disabled,
             bridge_stale=False, has_live_session=has_live_worker, idle_too_long=False,
+            console_booting=_si_console_booting,
         )
     else:
         _si_fresh = bool(resident_bridge_fresh)
@@ -4835,6 +4890,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             awaiting_input=_si_awaiting, worker_present=_si_fresh,
             env_reachable=True, disabled=_si_disabled,
             bridge_stale=(not _si_fresh), has_live_session=_si_fresh, idle_too_long=False,
+            console_booting=False,
         )
     # Subagents mini-tag (2026-06-11): surfaced through the reason string (the dashboard
     # already derives nuances like awaiting-reply from it) so no payload-shape change.

@@ -65,6 +65,18 @@ def test_resident_in_turn_stale_bridge_is_not_working():
     assert derive(_inp(mode="resident", in_turn=True, alive=False, bridge_stale=True,
                        has_live_session=True)) == "stale"
 
+def test_managed_console_booting_is_online():
+    # WS-12 (2026-06-17): a managed console up but whose sidecar hasn't claimed yet (no live
+    # worker, env reachable) displays `online` (booting), not `available`.
+    assert derive(_inp(mode="managed", worker_present=False, alive=False, env_reachable=True,
+                       console_booting=True)) == "online"
+    # Without the booting flag the same shape is `available` (lazy-autostartable).
+    assert derive(_inp(mode="managed", worker_present=False, alive=False, env_reachable=True,
+                       console_booting=False)) == "available"
+    # console_booting must NOT override env-down (offline) or a dead worker w/o env.
+    assert derive(_inp(mode="managed", worker_present=False, alive=False, env_reachable=False,
+                       console_booting=True)) == "offline"
+
 def test_resident_stale_bridge_is_stale():
     assert derive(_inp(mode="resident", alive=False, bridge_stale=True, has_live_session=True)) == "stale"
 

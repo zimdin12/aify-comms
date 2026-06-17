@@ -676,3 +676,48 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
         self.assertEqual(self._byproduct_status("cl4"), "working",
                          "a FRESH in_turn must still serve working (clamp must not over-fire)")
 
+    def test_blocked_reachable_when_console_awaits_input(self):  # WS-5
+        # An in-turn managed agent with a LIVE worker whose console tail looks like it awaits
+        # operator input must derive `blocked` under new (was unreachable: nothing fed awaiting).
+        self._heartbeat_environment(); self._register("clb"); self._seed_live_worker("clb")
+        self.client.post("/api/v1/agents/clb/status-event", json={"kind": "turn_start", "runId": "r"})
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            c.execute("UPDATE terminal_sessions SET output=? WHERE agent_id=?",
+                      ("Apply this change? (y/n)", "clb"))
+            c.commit()
+        finally:
+            c.close()
+        self.assertEqual(self._byproduct_status("clb"), "blocked",
+                         "in-turn agent whose console awaits input must derive blocked")
+
+    def test_booting_console_displays_online(self):  # WS-12
+        # A managed console that is up but whose channel-sidecar hasn't registered since the
+        # console started is BOOTING → display `online` (not `available`).
+        import datetime as _dt
+        self._heartbeat_environment(); self._register("clboot")
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            # A live console terminal, but NO channel-sidecar bridge row → has_live_worker False,
+            # _managed_console_is_booting True.
+            c.execute(
+                """INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,
+                    mode, owner_mode, terminal_id, terminal_status, status, started_at, last_seen)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ("sess_clboot", "clboot", self.ENV_ID, "claude-code", "/workspace/repo",
+                 "managed-warm", "managed", "term_clboot", "attached", "running", now, now))
+            c.execute(
+                """INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id,
+                    bridge_id, runtime, workspace, command, output, status, requested_by,
+                    created_at, updated_at, stopped_at, error)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ("term_clboot", "sess_clboot", "clboot", self.ENV_ID, "bridge-current", "claude-code",
+                 "/workspace/repo", "claude-aify --aify-agent clboot", "", "attached",
+                 "dashboard", now, now, None, ""))
+            c.commit()
+        finally:
+            c.close()
+        self.assertEqual(self._byproduct_status("clboot"), "online",
+                         "a booting managed console (no sidecar yet) must display online, not available")
+
