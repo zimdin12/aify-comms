@@ -119,8 +119,10 @@ DEFAULT_SETTINGS = {
     "stale_agent_hours": 24,
     "dashboard_refresh_seconds": 15,
     "rotation_enabled": True,
-    "idle_minutes": 5,
-    "offline_minutes": 30,
+    # Proof-based status (2026-06-18): a single short liveness window replaces the old
+    # idle_minutes(5)/offline_minutes(30) time-decay. Wrappers beat liveness every 30s, so
+    # 90s = 3 missed beats cleanly separates "missed one" from "gone". No idle/stale decay.
+    "agent_liveness_seconds": 90,
     "environment_offline_seconds": 90,
     # When a runtime reports (via bridge-heartbeat) a session id that DIFFERS from
     # the pinned handle and it is NOT owned by another live agent (a safe
@@ -3923,7 +3925,7 @@ def _managed_env_reachable(agent_row, env_row, settings) -> bool:
     last_seen_epoch = _iso_to_epoch(str(agent_row["last_seen"] or ""))
     if not last_seen_epoch:
         return False
-    offline_secs = max(60, int(settings.get("offline_minutes", 30) or 30) * 60)
+    offline_secs = max(60, int(settings.get("agent_liveness_seconds", 90) or 90))
     return (datetime.now(timezone.utc).timestamp() - last_seen_epoch) <= offline_secs
 
 
@@ -3968,10 +3970,12 @@ def _iso_add_seconds(value: str, seconds: int) -> str:
     return _iso_from_ms(int((epoch + max(0, int(seconds))) * 1000))
 
 
-def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, idle_minutes: int, offline_minutes: int, env_offline_seconds: int) -> str:
+def _status_refresh_after(agent_last_seen: str, env_last_seen: str, *, liveness_seconds: int, env_offline_seconds: int) -> str:
+    # Cache TTL keyed on the liveness windows (proof-based, 2026-06-18): recompute when the
+    # agent could cross its liveness window or its env could go offline — no idle/offline
+    # minute decay. The reconcile sweep + push events also keep the cache fresh.
     candidates = [
-        _iso_add_seconds(agent_last_seen, int(idle_minutes or 0) * 60),
-        _iso_add_seconds(agent_last_seen, int(offline_minutes or 0) * 60),
+        _iso_add_seconds(agent_last_seen, int(liveness_seconds or 0)),
         _iso_add_seconds(env_last_seen, int(env_offline_seconds or 0)),
     ]
     candidates = [value for value in candidates if value]
@@ -4869,8 +4873,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     refresh_after = _status_refresh_after(
         agent_last_seen,
         env_last_seen,
-        idle_minutes=int(settings.get("idle_minutes", 5) or 5),
-        offline_minutes=int(settings.get("offline_minutes", 30) or 30),
+        liveness_seconds=int(settings.get("agent_liveness_seconds", 90) or 90),
         env_offline_seconds=max(30, int(settings.get("environment_offline_seconds", 90) or 90)),
     )
     # When `working` is driven by a fresh turn_busy (NOT an active run, which has
@@ -6095,7 +6098,7 @@ def _merge_runtime_policy_for_wrapper_reregister(existing: dict[str, Any], incom
     return {**durable_previous, **current}
 
 
-async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db=None):
+async def _compute_agent_status(row, db=None):
     # Single source of truth: delegate to the live-state engine that
     # list_agents/get_agent already use, so write endpoints (heartbeat,
     # register, dispatch status) never disagree with the dashboard about
@@ -6146,16 +6149,18 @@ async def _compute_agent_status(row, idle_minutes: int, offline_minutes: int, db
             if not has_terminal and not has_rpc:
                 return "available"
 
-    if status != "stale":
-        try:
-            last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
-            age = datetime.now(timezone.utc) - last
-            if age > timedelta(minutes=offline_minutes):
-                status = "offline"
-            elif age > timedelta(minutes=idle_minutes):
-                status = "idle"
-        except Exception:
-            pass
+    # Proof-based (2026-06-18): no idle/offline MINUTE decay. The only time element is the
+    # short liveness window — heartbeat older than it = offline (gone). Otherwise online.
+    try:
+        last = datetime.fromisoformat(str(row["last_seen"] or "").replace("Z", "+00:00"))
+        age = datetime.now(timezone.utc) - last
+        liveness = int(DEFAULT_SETTINGS.get("agent_liveness_seconds", 90) or 90)
+        if age > timedelta(seconds=liveness):
+            status = "offline"
+        elif status in ("idle", "active", "ready"):
+            status = "online"  # legacy raw values are not engine statuses
+    except Exception:
+        pass
     return status
 
 
@@ -6417,12 +6422,7 @@ async def _preflight_live_send_recipients(
         active = dispatch_state.get("activeRun")
         if active and await _discard_unusable_active_run(db, recipient_id, active):
             dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
-        base_status = await _compute_agent_status(
-            row,
-            settings.get("idle_minutes", 5),
-            settings.get("offline_minutes", 30),
-            db,
-        )
+        base_status = await _compute_agent_status(row, db)
         effective_status = _status_with_dispatch(base_status, dispatch_state)
 
         if effective_status in unavailable_statuses:
@@ -8350,12 +8350,7 @@ async def _create_dispatch_runs(
                 has_active = False
                 if recipient_row:
                     settings = await _load_settings(db)
-                    recipient_status = await _compute_agent_status(
-                        recipient_row,
-                        settings.get("idle_minutes", 5),
-                        settings.get("offline_minutes", 30),
-                        db,
-                    )
+                    recipient_status = await _compute_agent_status(recipient_row, db)
                     dispatch_state = await _get_dispatch_state_for_agent(db, recipient_id)
                     has_active = bool(dispatch_state.get("hasActiveRun"))
                     recipient_status = _status_with_dispatch(recipient_status, dispatch_state)
@@ -13493,7 +13488,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         settings = await _load_settings(db)
-        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)
         if ws:
@@ -13607,7 +13602,7 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 await db.commit()
                 updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
                 settings = await _load_settings(db)
-                status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+                status = await _compute_agent_status(updated, db)
                 dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
                 ws = await _get_ws(request)
                 if ws:
@@ -13694,7 +13689,7 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
             await db.commit()
             updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
             settings = await _load_settings(db)
-            status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+            status = await _compute_agent_status(updated, db)
             dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
             ws = await _get_ws(request)
             if ws:
@@ -13798,7 +13793,7 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
 
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         settings = await _load_settings(db)
-        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)
         if ws:
@@ -13868,7 +13863,7 @@ async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, 
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         settings = await _load_settings(db)
-        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)
         if ws:
@@ -13940,7 +13935,7 @@ async def keep_agent_session(agent_id: str, req: AgentSessionResolveRequest, req
         await db.commit()
         updated = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         settings = await _load_settings(db)
-        status = await _compute_agent_status(updated, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        status = await _compute_agent_status(updated, db)
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
         ws = await _get_ws(request)
         if ws:
@@ -14544,7 +14539,7 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
-        status = await _compute_agent_status(returned, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+        status = await _compute_agent_status(returned, db)
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("agent_resident_lost", {"agentId": agent_id, "transition": transition})
@@ -20235,7 +20230,7 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
             mode = _agent_wake_mode(row)
             if mode != "message-only" and mode != "disabled":
                 live_agents += 1
-            status = await _compute_agent_status(row, settings.get("idle_minutes", 5), settings.get("offline_minutes", 30), db)
+            status = await _compute_agent_status(row, db)
             if not status.startswith("offline") and not status.startswith("stale"):
                 online_agents += 1
             if status.startswith("working"):
@@ -20699,9 +20694,7 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
                 last_worked[r["target_agent"]] = r["lw"]
                 active_now[r["target_agent"]] = int(r["active"] or 0) > 0
 
-        # Online-agent board (exclude offline/stale/stopped).
-        idle_m = settings.get("idle_minutes", 5)
-        off_m = settings.get("offline_minutes", 30)
+        # Online-agent board (exclude offline/stopped).
         agents_c = await db.execute("SELECT * FROM agents")
         board = []
         online_count = 0
@@ -20710,8 +20703,8 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
         for row in await agents_c.fetchall():
             if row["id"] == "dashboard":
                 continue
-            status = await _compute_agent_status(row, idle_m, off_m, db)
-            if status.startswith("offline") or status.startswith("stopped") or status.startswith("stale"):
+            status = await _compute_agent_status(row, db)
+            if status.startswith("offline") or status.startswith("stopped"):
                 continue
             online_count += 1
             aid = row["id"]

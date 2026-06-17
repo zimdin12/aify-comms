@@ -42,7 +42,7 @@ def test_managed_agent_no_worker_returns_available(monkeypatch):
 
     with mock.patch("service.routers.api_v2._has_live_terminal_session", side_effect=fake_terminal), \
          mock.patch("service.routers.api_v2._has_live_rpc_controller", side_effect=fake_rpc):
-        result = asyncio.run(_compute_agent_status(row, idle_minutes=5, offline_minutes=30, db=None))
+        result = asyncio.run(_compute_agent_status(row, db=None))
         assert result == "available", f"managed-no-worker should be 'available', got {result!r}"
 
 

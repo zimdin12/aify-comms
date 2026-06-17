@@ -150,8 +150,8 @@ class StatusEventIngestTests(FastApiTestCase):
                 """
                 INSERT INTO agent_live_state (agent_id, status, reason, environment_id,
                     session_id, terminal_id, active_run_id, refresh_after, updated_at)
-                VALUES (?, 'idle', 'sentinel', '', '', '', '', '9999-12-31T23:59:59Z', '2026-06-04T00:00:00Z')
-                ON CONFLICT(agent_id) DO UPDATE SET status='idle', reason='sentinel',
+                VALUES (?, 'blocked', 'sentinel', '', '', '', '', '9999-12-31T23:59:59Z', '2026-06-04T00:00:00Z')
+                ON CONFLICT(agent_id) DO UPDATE SET status='blocked', reason='sentinel',
                     refresh_after='9999-12-31T23:59:59Z'
                 """,
                 ("e1",),
@@ -164,13 +164,13 @@ class StatusEventIngestTests(FastApiTestCase):
             db = await get_db()
             try:
                 row = await (await db.execute("SELECT * FROM agents WHERE id='e1'")).fetchone()
-                return await api_v2._compute_agent_status(row, 5, 30, db)
+                return await api_v2._compute_agent_status(row, db)
             finally:
                 await db.close()
 
         # If the hot path recomputed, a fresh resident with no turn would derive
-        # `online`; serving the cache must yield the sentinel `idle` instead.
-        self.assertEqual(asyncio.run(run()), "idle",
+        # `online`; serving the cache must yield the sentinel `blocked` instead.
+        self.assertEqual(asyncio.run(run()), "blocked",
                          "hot read under flag=new must serve the fresh cached status, not recompute")
 
     def test_turn_start_endpoint_feeds_engine_state(self):
