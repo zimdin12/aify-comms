@@ -84,4 +84,16 @@ function isEnded(s) {
   assert.equal(isEnded(s), true, "partial leading line is ignored; task_complete still ends");
 }
 
-console.log("ok - codex-rollout-tail: 7 groups passed");
+// 8. An ABORTED/errored turn (no task_complete written) must read ENDED, not latch working.
+{
+  for (const ev of ["turn_aborted", "turn_failed", "error", "stream_error"]) {
+    const text = [
+      L({ type: "response_item", payload: { type: "function_call", name: "shell", arguments: "{}" } }),
+      L({ type: "event_msg", payload: { type: ev } }),
+    ].join("\n");
+    const s = summarizeCodexRolloutTail(text);
+    assert.equal(isEnded(s), true, `${ev} after a tool call must classify as ended (not latch working)`);
+  }
+}
+
+console.log("ok - codex-rollout-tail: 8 groups passed");

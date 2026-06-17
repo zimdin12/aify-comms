@@ -4099,6 +4099,26 @@ def _terminal_awaiting_input_hint(output: str) -> str:
     return ""
 
 
+async def _console_working_lease_fresh(db, agent_id: str) -> bool:
+    """True when the agent's console-working spinner lease (agent_console_signal.working_at)
+    is within CONSOLE_WORKING_LEASE_SECONDS. Both StatusInputs builders OR this (gated on a
+    live worker) into in_turn so the spinner-driven `working` is identical on the served
+    byproduct path AND the WS-push path (_gather_status_inputs) — without this, /console-working
+    pushes `online` while the next poll serves `working` (push/poll flicker)."""
+    if db is None:
+        return False
+    try:
+        row = await (await db.execute(
+            "SELECT working_at FROM agent_console_signal WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+    except Exception:
+        return False
+    if not row:
+        return False
+    seen = _iso_to_epoch(str((row["working_at"] if "working_at" in row.keys() else "") or "").strip())
+    return bool(seen and datetime.now(timezone.utc).timestamp() - seen <= CONSOLE_WORKING_LEASE_SECONDS)
+
+
 async def _agent_awaiting_input(db, agent_id: str) -> bool:
     """WS-5 (2026-06-17): True when the agent's live console tail looks like it is
     awaiting operator input/a decision (the `_terminal_awaiting_input_hint` signal).
@@ -4354,7 +4374,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     st = await (await db.execute(
         "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
     in_turn = bool(st and st["in_turn"])
-    awaiting = bool(st and st["awaiting_input"])
+    awaiting_stored = bool(st and st["awaiting_input"])
     # status v2 (Fix B, 2026-06-05): in_turn staleness backstop. The OLD engine
     # clamps a stuck `working` via TURN_BUSY_BACKSTOP_SECONDS, but the NEW engine
     # had NO ceiling on in_turn — so an agent with a turn-START signal but a
@@ -4367,11 +4387,6 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             datetime.now(timezone.utc).timestamp() - last_event_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
-    # WS-5 (2026-06-17): make `blocked` reachable under new — an in-turn agent whose console
-    # tail looks like it awaits operator input derives `blocked`. Gate on in_turn (blocked only
-    # applies mid-turn) so the terminal read is bounded to agents currently working.
-    if in_turn and not awaiting:
-        awaiting = await _agent_awaiting_input(db, aid)
     # DISABLED = explicit stop OR wake disabled (launch_mode='none' — the operator's "Stop
     # wake"). The engine only knew 'stopped' (2026-06-12 audit): wake-disabled agents served
     # `available` under status_engine=new — inviting sends that can never wake them — while
@@ -4381,11 +4396,25 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
         str(agent_row["status"] or "").lower() == "stopped"
         or str(agent_row["launch_mode"] or "").lower() == "none"
     )
+    # Compute the live-worker signal first (it gates the console-working lease below), then
+    # fold the worker-gated spinner lease into in_turn — MUST match the byproduct path so the
+    # WS-push status equals the served poll status (bughunt: lease was missing here).
+    console_lease = await _console_working_lease_fresh(db, aid)
     if mode == "managed":
         env_row = await _managed_owning_environment_row(db, agent_row, resolved_environment_id="")
         env_reachable = _managed_env_reachable(agent_row, env_row, settings)
         worker_present = await _has_live_worker_for(db, agent_row, settings=settings)
-        alive = worker_present
+        live_signal = worker_present
+    else:
+        worker_present = await _resident_bridge_is_fresh(db, agent_row,
+            lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150))
+        live_signal = worker_present
+    in_turn = in_turn or (console_lease and live_signal)
+    # WS-5 (2026-06-17): make `blocked` reachable under new — an in-turn agent whose console
+    # tail looks like it awaits operator input derives `blocked`. Gate on the (lease-folded)
+    # in_turn so the terminal read is bounded to agents currently mid-turn.
+    awaiting = awaiting_stored or (in_turn and await _agent_awaiting_input(db, aid))
+    if mode == "managed":
         # WS-12 (2026-06-17): a managed console that is up but whose sidecar hasn't claimed yet
         # is BOOTING → display `online` (parity with the legacy display-only promotion). Only
         # relevant when it would otherwise read `available` (no worker, env reachable).
@@ -4393,20 +4422,18 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             not worker_present and env_reachable
             and await _managed_console_is_booting(db, aid)
         )
-        return StatusInputs(mode=mode, alive=alive, in_turn=in_turn, awaiting_input=awaiting,
+        return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
                             bridge_stale=False, has_live_session=worker_present, idle_too_long=False,
                             console_booting=console_booting)
-    fresh = await _resident_bridge_is_fresh(db, agent_row,
-                lease_seconds=int(settings.get("resident_lease_seconds", 150) or 150))
     # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
     # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
     # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
     # (mirrors the legacy resident missing-handle gate; matches the dashboard's red dot).
     missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
-    return StatusInputs(mode=mode, alive=fresh, in_turn=in_turn, awaiting_input=awaiting,
-                        worker_present=fresh, env_reachable=True, disabled=disabled,
-                        bridge_stale=(not fresh) or missing_handle, has_live_session=fresh,
+    return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
+                        worker_present=worker_present, env_reachable=True, disabled=disabled,
+                        bridge_stale=(not worker_present) or missing_handle, has_live_session=worker_present,
                         idle_too_long=False, console_booting=False)
 
 

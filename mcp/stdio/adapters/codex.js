@@ -144,15 +144,18 @@ export class CodexAdapter extends RuntimeAdapter {
     }
   }
 
-  // Resolve the active rollout file: prefer the one whose filename uuid matches the
-  // agent's current session id; else the newest .jsonl by mtime (the live session is
-  // the one being appended). Bounded walk of the date-sharded sessions layout.
+  // Resolve THIS agent's active rollout file by matching its current session-id uuid in
+  // the filename. We do NOT fall back to "newest .jsonl by mtime": on a host running 2+
+  // codex sessions that would read a DIFFERENT agent's rollout and drive turn-busy for the
+  // wrong agent. When the session id is unknown (or no matching rollout exists) we return
+  // null so the detector NO-OPS — the UserPromptSubmit/Stop hooks + the 30-min server
+  // backstop still cover turn state; a wrong-agent guess is worse than no signal.
   async _resolveRolloutPath(opts = {}) {
     const wantId = String(
       (typeof this.getCurrentSessionId === "function" ? this.getCurrentSessionId() : "") ||
       opts.sessionId || ""
     ).trim().toLowerCase();
-    let newest = null;
+    if (!wantId) return null;
     let byId = null;
     async function walk(p, depth) {
       if (depth > MAX_WALK_DEPTH) return;
@@ -164,20 +167,17 @@ export class CodexAdapter extends RuntimeAdapter {
           if (ent.isDirectory()) {
             await walk(full, depth + 1);
           } else if (ent.isFile() && ent.name.endsWith(".jsonl")) {
-            const stat = await fs.stat(full);
-            if (!newest || stat.mtimeMs > newest.mtime) newest = { full, mtime: stat.mtimeMs };
-            if (wantId) {
-              const m = ent.name.match(UUID_RE);
-              if (m && m[0].toLowerCase() === wantId && (!byId || stat.mtimeMs > byId.mtime)) {
-                byId = { full, mtime: stat.mtimeMs };
-              }
+            const m = ent.name.match(UUID_RE);
+            if (m && m[0].toLowerCase() === wantId) {
+              const stat = await fs.stat(full);
+              if (!byId || stat.mtimeMs > byId.mtime) byId = { full, mtime: stat.mtimeMs };
             }
           }
         } catch { /* skip unreadable */ }
       }
     }
     try { await walk(CODEX_SESSIONS_DIR, 0); } catch { return null; }
-    return (byId && byId.full) || (newest && newest.full) || null;
+    return (byId && byId.full) || null;
   }
 }
 
@@ -199,6 +199,16 @@ const CODEX_BOOKKEEPING_EVENTS = new Set([
   "agent_reasoning_raw_content_delta", "background_event",
 ]);
 
+// Terminal event_msg payload types — a turn YIELDED (back to the operator). `task_complete`
+// is the clean finish; the rest are abnormal ends (interrupt/ESC, error, stream failure)
+// after which codex writes NO `task_complete`, so without treating them as terminal the
+// walk would reach the in-flight tool/message line and latch `working` until the server
+// backstop. Best-effort over the observed/plausible schema; an unknown abort string just
+// falls back to the backstop (no worse than before).
+const CODEX_TERMINAL_EVENTS = new Set([
+  "task_complete", "turn_aborted", "turn_failed", "turn_complete", "error", "stream_error",
+]);
+
 export function summarizeCodexRolloutTail(text) {
   const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false };
   if (!text) return empty;
@@ -212,7 +222,8 @@ export function summarizeCodexRolloutTail(text) {
     const payload = o.payload && typeof o.payload === "object" ? o.payload : null;
     const ptype = payload ? payload.type : null;
     if (o.type === "event_msg") {
-      if (ptype === "task_complete") {
+      if (CODEX_TERMINAL_EVENTS.has(ptype)) {
+        // task_complete or an abnormal end (abort/error) → the turn yielded.
         return { lastRole: "assistant", lastStopReason: "end_turn", pendingToolUse: false };
       }
       if (ptype === "task_started") {
