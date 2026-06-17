@@ -384,6 +384,9 @@ small, .subtle { color: var(--muted); }
 }
 .contract { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; }
 .contract-actions, .run-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; }
+/* Session console header actions read as a compact wrapping row, not a full-width stack (WS-J). */
+.runtime-card .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.runtime-card .contract-actions button { padding: 6px 11px; font-size: .82em; }
 .contract-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .env-runtime-list, .env-root-list {
