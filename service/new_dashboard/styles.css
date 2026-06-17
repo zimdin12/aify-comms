@@ -969,6 +969,16 @@ small, .subtle { color: var(--muted); }
 .chat-stats-peer-id { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
 .chat-stats-peer-n { color: var(--muted); font-size: .84em; white-space: nowrap; }
 @media (max-width: 900px) { .chat-stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Messenger | Console segmented toggle in the conversation header. */
+.chat-view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-right: 6px; }
+.chat-view-toggle .seg { background: transparent; border: 0; color: var(--muted); padding: 5px 11px; cursor: pointer; font: inherit; font-size: .86em; }
+.chat-view-toggle .seg + .seg { border-left: 1px solid var(--line); }
+.chat-view-toggle .seg.active { background: var(--accent, var(--blue)); color: #fff; }
+.chat-view-toggle .seg:not(.active):hover { background: var(--panel-2); color: var(--text); }
+/* Inline console host inside the chat timeline — fills the pane like the Sessions console. */
+.chat-console-host { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.chat-console-host .console-embed { flex: 1; min-height: 280px; }
+.chat-console-host .xterm-host { min-height: 260px; }
 .chat-msg { background: var(--panel-3); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; }
 .chat-msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-msg-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }

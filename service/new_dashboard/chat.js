@@ -240,7 +240,7 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
 // loadChannels, refresh, loadConversation, loadAgentAnalytics }.
 export function createChatController(deps) {
-  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics } = deps;
+  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole } = deps;
 
   function renderRail() {
     const host = byId('chat-rail-list');
@@ -310,10 +310,30 @@ export function createChatController(deps) {
           actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button></span>`).join('')}</div>`;
         }
       } else {
-        actions.innerHTML = `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`
+        // Messenger | Console segmented toggle — inline terminal access without leaving Chat.
+        const view = state.chat.view === 'console' ? 'console' : 'messenger';
+        const toggle = `<span class="chat-view-toggle" role="group" aria-label="Conversation view">`
+          + `<button class="seg${view === 'messenger' ? ' active' : ''}" data-chat-view="messenger" aria-pressed="${view === 'messenger'}">Messenger</button>`
+          + `<button class="seg${view === 'console' ? ' active' : ''}" data-chat-view="console" aria-pressed="${view === 'console'}" title="Open ${esc(id)}'s live terminal inline">Console</button>`
+          + `</span>`;
+        actions.innerHTML = toggle
+          + `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`
           + `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
           + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
       }
+    }
+    // Console view (DMs only): render the agent's live terminal inline instead of the message
+    // timeline. Guard against poll re-renders re-mounting the xterm — only (re)build the host
+    // when it's missing or points at a different agent, so the terminal stays stable.
+    if (!isChannel && state.chat.view === 'console') {
+      const existing = byId('chat-console-host');
+      if (!existing || existing.dataset.agent !== id) {
+        timeline.innerHTML = `<div id="chat-console-host" class="chat-console-host" data-agent="${esc(id)}"></div>`;
+        if (mountChatConsole) mountChatConsole(id, byId('chat-console-host'));
+      }
+      const composer = byId('chat-composer'); if (composer) composer.hidden = true;
+      const search = byId('chat-msg-search'); if (search) search.hidden = true;
+      return;
     }
     const allMsgs = isChannel
       ? (state.chat.channelMessages?.[id] || [])
@@ -375,6 +395,7 @@ export function createChatController(deps) {
 
   async function open(key) {
     state.chat.analytics = { agent: '', data: null }; // leaving analytics view
+    if (key !== state.chat.selected) state.chat.view = 'messenger'; // new conversation → messenger
     state.chat.selected = key;
     if (key.startsWith('channel:')) {
       const name = key.slice('channel:'.length);

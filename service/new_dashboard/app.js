@@ -44,7 +44,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -188,7 +188,22 @@ const chatController = createChatController({
   refresh: () => refresh(),
   loadConversation: chatLoadConversation,
   loadAgentAnalytics: (id) => api(`/analytics/agent/${encodeURIComponent(id)}`),
+  mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
 });
+
+// Mount an agent's live console inline inside the Chat conversation pane. Reuses the exact
+// Sessions terminal widget (PTY xterm / hermes iframe / codex synth / start-console offer).
+function mountChatConsole(agentId, hostEl) {
+  if (!hostEl) return;
+  const session = sessionForAgent(agentId);
+  if (!session) {
+    disposeActiveXterm();
+    hostEl.innerHTML = '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
+      + `<p>${esc(agentId)} has no active session. Most managed agents lazy-start a console when you send the first message — send one from the Messenger tab, then reopen Console.</p></div>`;
+    return;
+  }
+  renderSessionConsole(session, hostEl, { source: 'chat' });
+}
 
 // Shared files (Phase 1.4b): list/upload/delete artifacts via /shared.
 async function loadFiles() {
@@ -567,7 +582,7 @@ const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(
 
 function renderAll() {
   const f = state.filter || '';
-  renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.filter, state.chat.identity, state.chat.liveOnly, state.chat.analytics.agent, !!state.chat.analytics.data], () => chatController.render());
+  renderSection('chat', [_agentSig(), _msgSig(), _chatChanSig(), _chatConvSig(), state.chat.selected, state.chat.view, state.chat.filter, state.chat.identity, state.chat.liveOnly, state.chat.analytics.agent, !!state.chat.analytics.data], () => chatController.render());
   renderSection('metrics', [_agentSig(), _contractSig().map((c) => [c[1], c[3]]), state.stats], renderMetrics);
   renderSection('attention', [_contractSig(), f], renderAttention);
   // Session workspace + console: not signature-gated (own internal guards preserve live state).
@@ -1271,6 +1286,7 @@ function disposeActiveXterm() {
   const entry = state.activeXterm;
   if (!entry) return;
   try { entry.resizeObserver?.disconnect(); } catch {}
+  try { if (entry.wheelHandler && entry.container) entry.container.removeEventListener('wheel', entry.wheelHandler); } catch {}
   try { entry.term.dispose(); } catch {}
   state.activeXterm = null;
 }
@@ -1352,16 +1368,71 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
       term.write(`\r\n\x1b[31m[input post failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
     }
   });
+  // Emit-resize-only-on-change (hermes parity): xterm fires onResize on every fit even when the
+  // grid dims didn't actually change — debounce AND dedupe so we don't spam the PTY with no-ops.
   let resizeTimer = 0;
+  let lastCols = 0;
+  let lastRows = 0;
   term.onResize(({ cols, rows }) => {
+    const c = Math.max(20, cols);
+    const r = Math.max(5, rows);
+    if (c === lastCols && r === lastRows) return;
+    lastCols = c; lastRows = r;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
         method: 'POST',
-        body: JSON.stringify({ cols: Math.max(20, cols), rows: Math.max(5, rows), requestedBy: 'dashboard' }),
+        body: JSON.stringify({ cols: c, rows: r, requestedBy: 'dashboard' }),
       }).catch(() => {});
     }, 120);
   });
+
+  // OSC-52 clipboard (hermes parity): honor programs inside the PTY that emit the OSC 52 "set
+  // clipboard" sequence (vim "+y, tmux, etc.) by copying to the browser clipboard — works on the
+  // http loopback origin via the execCommand fallback in copyText().
+  try {
+    term.parser.registerOscHandler(52, (data) => {
+      const payload = String(data || '');
+      const b64 = payload.slice(payload.indexOf(';') + 1);
+      if (!b64 || b64 === '?') return true;
+      try { copyText(atob(b64)); } catch { /* malformed base64 — ignore */ }
+      return true;
+    });
+  } catch { /* older xterm without parser.registerOscHandler */ }
+
+  // Copy/paste key handler for the http LAN origin (navigator.clipboard is undefined there):
+  // Ctrl+Shift+C copies the selection, Ctrl+Shift+V / Ctrl+V pastes via the clipboard API when
+  // available (loopback secure context) and otherwise leaves the keystroke to flow to the PTY.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true;
+    if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+      if (term.hasSelection()) { copyText(term.getSelection()); return false; }
+    }
+    if ((e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) || (e.ctrlKey && !e.shiftKey && (e.key === 'V' || e.key === 'v'))) {
+      if (navigator.clipboard?.readText) {
+        navigator.clipboard.readText().then((txt) => { if (txt) term.paste(txt); }).catch(() => {});
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Wheel → arrow keys when a full-screen TUI owns the alternate screen buffer (claude/hermes Ink
+  // UIs): a raw wheel does nothing inside the alt-screen, so translate it to cursor up/down so the
+  // operator can scroll the agent's UI with the mouse like the old dashboard allowed.
+  const onWheel = (ev) => {
+    try {
+      if (term.buffer?.active?.type !== 'alternate') return; // normal buffer scrolls natively
+      const lines = Math.min(5, Math.max(1, Math.round(Math.abs(ev.deltaY) / 40)));
+      const seq = (ev.deltaY > 0 ? '\x1b[B' : '\x1b[A').repeat(lines);
+      if (state.activeXterm?.canInput === false) return;
+      api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
+        method: 'POST', body: JSON.stringify({ body: seq, requestedBy: 'dashboard' }),
+      }).catch(() => {});
+      ev.preventDefault();
+    } catch { /* leave native behavior */ }
+  };
+  try { container.addEventListener('wheel', onWheel, { passive: false }); } catch {}
 
   // Re-fit on container/window resize so the terminal tracks the pane size.
   let resizeObserver = null;
@@ -1370,7 +1441,7 @@ async function mountXtermForTerminal(terminalId, agentId, container, { canInput 
     try { resizeObserver.observe(container); } catch {}
   }
 
-  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, lastSeq: -1, canInput };
+  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput };
 
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).
@@ -1645,7 +1716,12 @@ async function switchAgentSessionMode(agentId, targetMode, { force = false } = {
   return body;
 }
 
-function renderSessionConsole(session) {
+// Renders an agent's live console (PTY xterm / hermes iframe / codex synth / start-console
+// offer) into `targetEl`. Defaults to the Sessions page summary pane, but the Chat page passes
+// its own host so the same terminal widget is reachable inline from a conversation.
+function renderSessionConsole(session, targetEl, opts = {}) {
+  const host = targetEl || byId('session-console-summary');
+  if (!host) return;
   const id = sessionId(session);
   const status = String(session?.status || '').toLowerCase();
   const canStop = !['stopped', 'failed', 'lost', 'ended', 'completed', 'cancelled'].includes(status);
@@ -1771,12 +1847,14 @@ function renderSessionConsole(session) {
        </div>`
     : '';
 
-  byId('session-console-summary').innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${hermesIframe}${codexConsole}`;
+  host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${hermesIframe}${codexConsole}`;
 
   // Mount xterm.js into the terminal container we just rendered. If a
   // different terminal was previously mounted, dispose its xterm first.
+  // Query within `host` (not by global id) so a Chat-embedded console and the
+  // Sessions console can't fight over a duplicate element id.
   if (hasTerminal) {
-    const container = byId(ptyContainerId);
+    const container = host.querySelector('.xterm-host');
     if (container) mountXtermForTerminal(terminalId, agentIdForCodex, container, { canInput: canStop }).catch(() => {});
   } else {
     disposeActiveXterm();
@@ -2794,6 +2872,16 @@ document.addEventListener('click', (event) => {
       chatController.close();
     } else {
       chatController.open(key);
+    }
+    return;
+  }
+  const chatView = event.target.closest('[data-chat-view]');
+  if (chatView) {
+    const next = chatView.dataset.chatView === 'console' ? 'console' : 'messenger';
+    if (next !== state.chat.view) {
+      state.chat.view = next;
+      if (next === 'messenger') disposeActiveXterm(); // free the inline terminal when leaving Console
+      chatController.renderConversation();
     }
     return;
   }
