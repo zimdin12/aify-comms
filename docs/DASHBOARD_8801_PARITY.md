@@ -101,3 +101,29 @@ the old dashboard. Missing any → 8801 stays opt-in, old stays default.
 - No big-bang cutover; no flow enabled without its assertion.
 - No new features on 8801 before its underlying flow reaches parity (build
   new capability on the parity base, per the architecture plan).
+
+## 6. Shipped on the parity base (2026-06-17 round)
+
+Built on top of the parity foundation, not replacing it:
+
+- **Chat overview (landing).** Re-clicking the open conversation in the rail
+  closes it back to a "Chat overview": direct/channel/unread counts, 24h
+  message volume, a fleet status breakdown, and a most-active-peers list
+  (click to reopen). Per-agent analytics stays on its explicit action button.
+- **Inline terminal in chat.** A `Messenger | Console` toggle in each DM
+  header opens that agent's live terminal inline — the *same* console widget
+  the Sessions page uses (`renderSessionConsole(session, targetEl)`): PTY
+  xterm / hermes iframe / codex synth / start-console offer. The Sessions
+  terminal is unchanged. Console upgrades borrowed from the hermes dashboard:
+  OSC-52 clipboard, Ctrl+Shift+C/V copy-paste on the http LAN origin,
+  wheel→cursor-key while a TUI owns the alt-screen, and resize-dedupe.
+- **Real fleet analytics.** `GET /analytics` gained (additive, julianday-safe,
+  windowed): dispatch success rate, open + overdue (>30min) reply contracts,
+  fleet median reply, 14-day stacked completed/failed outcomes, an agent
+  leaderboard with per-agent success rate, busiest channels, and
+  failure-reason buckets. No token/cost metrics (not in the schema). The
+  per-agent panel also surfaces `runs7d.open` and an all-time hour-of-day
+  histogram.
+- **Mobile (Android).** Verified on a 393px viewport: no horizontal overflow
+  on Chat/Analytics, bottom tabbar, 2-up metric cards, 44px tap targets,
+  `theme-color` + web-app-capable meta, `viewport-fit=cover` safe areas.
