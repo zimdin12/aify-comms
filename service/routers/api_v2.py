@@ -15995,6 +15995,24 @@ async def agent_turn_end(agent_id: str, request: Request):
         agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
+        # WS-4a (2026-06-17): a turn-end carrying a bridgeId comes from a bridge-side turn
+        # DETECTOR (the harness Stop hook posts no body, so it stays authoritative). If that
+        # bridge has been SUPERSEDED by a newer one for this agent, ignore the clear — a stale
+        # detector from a replaced bridge must not false-clear the live successor's turn (the
+        # F5 working→idle flap on bridge restart mid-turn). The heartbeat turnBusy=false path
+        # already has this guard; this brings the dedicated endpoint in line for detector posts.
+        try:
+            _body = await request.json()
+        except Exception:
+            _body = {}
+        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
+        if _posting_bridge:
+            _sup = await (await db.execute(
+                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+                (_posting_bridge, agent_id),
+            )).fetchone()
+            if _sup and str((_sup["superseded_by"] if "superseded_by" in _sup.keys() else "") or "").strip():
+                return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
         now = _now()
         await db.execute(
             """

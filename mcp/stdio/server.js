@@ -424,6 +424,44 @@ if (
   });
 }
 
+// CODEX turn-STATE via the rollout-tail detector (WS-4b, 2026-06-17). Resident codex
+// has ONLY the UserPromptSubmit/Stop hooks for turn state — inert on old CLIs, lost on
+// a dropped Stop — so a real turn could read `online` or latch `working` to the 30-min
+// ceiling (unlike claude's transcript detector / hermes's gateway detector). The codex
+// adapter's transcriptTail reads the active rollout's tail (process truth) and yields
+// the same structural summary the generic detector consumes, driving /turn-start /
+// /turn-end. Armed for codex regardless of mode (idempotent with managed's .finally
+// clear); transcriptTail returns null when no rollout is found, so the detector no-ops.
+let __stopCodexTurnDetector = () => {};
+if (
+  AIFY_AGENT_ID &&
+  __runtimeAdapter &&
+  __runtimeAdapter.name === "codex" &&
+  typeof __runtimeAdapter.transcriptTail === "function"
+) {
+  __stopCodexTurnDetector = startClaudeTurnEndDetector({
+    intervalMs: 30_000,
+    workingRefreshMs: 45_000,
+    readTranscript: async () => __runtimeAdapter.transcriptTail({ agentId: AIFY_AGENT_ID }),
+    postTurnStart: async () => {
+      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-start`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        turnRuntime: "codex",
+        source: "bridge-codex-rollout-detector",
+      });
+    },
+    postTurnEnd: async () => {
+      if (!AIFY_AGENT_ID || !__serverUrl) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(AIFY_AGENT_ID)}/turn-end`, {
+        bridgeId: BRIDGE_INSTANCE_ID,
+        turnRuntime: "codex",
+        source: "bridge-codex-rollout-detector",
+      });
+    },
+  });
+}
+
 // RESIDENT-HERMES turn-END via the gateway detector (status-accuracy Task 1,
 // 2026-06-07). The managed delivery loop runs startHermesGatewayTurnDetector
 // against the gateway's session.active_list status and posts /turn-start /
@@ -677,6 +715,7 @@ function cleanupOnExit() {
   try { __stopGatewayProbe(); } catch { /* best effort */ }
   try { __stopResidentHermesTurnDetector(); } catch { /* best effort */ }
   try { __stopClaudeTurnEndDetector(); } catch { /* best effort */ }
+  try { __stopCodexTurnDetector(); } catch { /* best effort */ }
   if (spawnLoopTimer) {
     clearInterval(spawnLoopTimer);
     spawnLoopTimer = null;

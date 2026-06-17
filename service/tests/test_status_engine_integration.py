@@ -225,6 +225,36 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(self._agent_status_events(), [],
                          "old flag must not push from /turn-end")
 
+    def test_turn_end_from_superseded_bridge_is_ignored(self):
+        # WS-4a (2026-06-17): a /turn-end carrying a bridgeId from a SUPERSEDED bridge
+        # (a stale detector on a replaced bridge) must NOT clear a live turn; the hook
+        # turn-end (no bridgeId) stays authoritative.
+        from service.routers import api_v2
+        self._register("se1", mode="resident")
+        self.client.post("/api/v1/agents/se1/turn-start", json={"runtime": "claude-code", "bridgeId": "b-new"})
+        self.assertEqual(int(self._state("se1")["in_turn"]), 1)
+        # Seed a superseded bridge row for the OLD bridge.
+        c = sqlite3.connect(str(self._db_path))
+        try:
+            now = api_v2._now()
+            c.execute(
+                """INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,
+                    registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?)""",
+                ("b-old", "se1", "linux:test", "claude-code", "resident", now, now, "b-new"))
+            c.commit()
+        finally:
+            c.close()
+        # Stale detector on the OLD (superseded) bridge fires /turn-end → must be IGNORED.
+        r = self.client.post("/api/v1/agents/se1/turn-end", json={"bridgeId": "b-old"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("se1")["in_turn"]), 1,
+                         "superseded bridge's turn-end must not clear a live turn")
+        # The authoritative hook turn-end (no bridgeId) still clears.
+        r = self.client.post("/api/v1/agents/se1/turn-end", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(int(self._state("se1")["in_turn"]), 0,
+                         "hook turn-end (no bridgeId) must still clear authoritatively")
+
     def test_heartbeat_turnbusy_flip_pushes_only_on_transition_under_new(self):
         # WS-1: the /heartbeat turnBusy field is the dominant managed turn signal. Under
         # new it must push on an actual working⇄ready FLIP, but NOT on every refresh beat.
