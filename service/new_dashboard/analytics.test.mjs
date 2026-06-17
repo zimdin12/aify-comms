@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef } from './analytics.js';
+import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 const sample = {
   messagesPerHour: Array.from({ length: 24 }, (_, i) => ({ label: `${i}:00`, count: i })),
@@ -65,4 +65,55 @@ test('runStatusMixHtml empty state', () => {
 test('rangeSelectorHtml marks the active range', () => {
   const html = rangeSelectorHtml('day');
   assert.match(html, /class="active" data-analytics-range="day"/);
+});
+
+const fleet = {
+  successRate: 80, runsCompleted: 20, runsFailed: 5,
+  openReplyContracts: 3, overdueReplyContracts: 1, fleetMedianReplyMinutes: 42,
+  dispatchOutcomes: [{ date: '2026-06-16', completed: 4, failed: 1 }, { date: '2026-06-17', completed: 6, failed: 0 }],
+  agentLeaderboard: [{ agent: 'alpha', completed: 9, failed: 1, total: 10, successRate: 90 }, { agent: 'beta', completed: 2, failed: 3, total: 5, successRate: 40 }],
+  busiestChannels: [{ channel: 'general', count: 12 }, { channel: 'ops', count: 4 }],
+  failureReasons: [{ reason: 'timeout waiting for reply', count: 3 }],
+};
+
+test('opsKpisHtml renders success rate with tone + overdue contracts', () => {
+  const html = opsKpisHtml(fleet);
+  assert.match(html, /80%/);
+  assert.match(html, /Dispatch success/);
+  assert.match(html, /class="sc warn"/); // 80% success → warn tone
+  assert.match(html, /class="sc bad"/);  // 1 overdue contract → bad tone
+  assert.match(html, /Median reply/);
+});
+
+test('opsKpisHtml tolerates null success rate / median', () => {
+  const html = opsKpisHtml({ successRate: null, fleetMedianReplyMinutes: null });
+  assert.match(html, /—/);
+});
+
+test('dispatchOutcomesHtml stacks completed + failed with legend', () => {
+  const html = dispatchOutcomesHtml(fleet);
+  assert.match(html, /outcome-comp/);
+  assert.match(html, /outcome-fail/);
+  assert.match(html, /Completed/);
+  assert.match(dispatchOutcomesHtml({}), /No dispatch runs/);
+});
+
+test('agentLeaderboardHtml ranks agents and tones their success rate', () => {
+  const html = agentLeaderboardHtml(fleet);
+  assert.match(html, /alpha/);
+  assert.match(html, /lb-sr good/); // 90%
+  assert.match(html, /lb-sr bad/);  // 40%
+  assert.match(agentLeaderboardHtml({}), /No dispatch activity/);
+});
+
+test('busiestChannelsHtml prefixes channel names with #', () => {
+  const html = busiestChannelsHtml(fleet);
+  assert.match(html, /#general/);
+  assert.match(busiestChannelsHtml({}), /No channel traffic/);
+});
+
+test('failureReasonsHtml lists reasons; celebrates a clean window', () => {
+  assert.match(failureReasonsHtml(fleet), /timeout waiting for reply/);
+  assert.match(failureReasonsHtml(fleet), /3×/);
+  assert.match(failureReasonsHtml({}), /No failed or cancelled runs/);
 });

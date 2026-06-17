@@ -163,6 +163,79 @@ class ChatAnalyticsTests(FastApiTestCase):
         self.assertAlmostEqual(data["medianReplyMinutes7d"], 10.0, places=1)
         self.assertEqual(data["openContracts"], 1)
 
+    def test_fleet_analytics_operational_fields(self):
+        """2026-06-17 round: GET /analytics gains fleet operational metrics —
+        success rate, open/overdue reply contracts, fleet median reply, dispatch
+        outcomes over time, agent leaderboard, busiest channels, failure reasons."""
+        self._register("fa-alpha")
+        self._register("fa-beta")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+            now_ms = int(now.timestamp() * 1000)
+            # Channel traffic (busiest channels).
+            for mid, chan in (("ch1", "general"), ("ch2", "general"), ("ch3", "ops")):
+                conn.execute(
+                    "INSERT INTO messages (id, from_agent, to_agent, channel, source, type, subject, body, "
+                    "priority, dispatch_requested, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (mid, "fa-alpha", None, chan, "channel", "info", "", "", "normal", 0, None, now_ms),
+                )
+            # Runs: 2 completed (one rr=1 with 10-min reply), 1 failed w/ error text, 1 overdue contract.
+            t0 = now - timedelta(hours=2)
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, result_message_id, "
+                "requested_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("fr1", "fa-beta", "fa-alpha", "completed", 1, "rmsg", iso(t0), iso(t0 + timedelta(minutes=2)), iso(t0 + timedelta(minutes=10))),
+            )
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, "
+                "requested_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?)",
+                ("fr2", "fa-beta", "fa-alpha", "completed", 0, iso(t0), iso(t0), iso(t0 + timedelta(minutes=3))),
+            )
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, error_text, "
+                "requested_at, finished_at) VALUES (?,?,?,?,?,?,?,?)",
+                ("fr3", "fa-beta", "fa-beta", "failed", 0, "timeout waiting for worker", iso(t0), iso(t0 + timedelta(minutes=1))),
+            )
+            # Overdue open contract: rr=1, delivered, no reply, requested > 30 min ago.
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, "
+                "requested_at) VALUES (?,?,?,?,?,?)",
+                ("fr4", "fa-beta", "fa-alpha", "delivered", 1, iso(now - timedelta(hours=1))),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        data = self.client.get("/api/v1/analytics?range=all").json()
+        self.assertTrue(data["ok"])
+        # success rate = 2 completed / (2 completed + 1 failed) = 66.7%
+        self.assertEqual(data["runsCompleted"], 2)
+        self.assertEqual(data["runsFailed"], 1)
+        self.assertAlmostEqual(data["successRate"], 66.7, places=1)
+        # one overdue open reply contract (fr4).
+        self.assertEqual(data["openReplyContracts"], 1)
+        self.assertEqual(data["overdueReplyContracts"], 1)
+        # fleet median reply over completed rr=1 runs = 10 minutes (fr1 only).
+        self.assertAlmostEqual(data["fleetMedianReplyMinutes"], 10.0, places=1)
+        # dispatch outcomes: 14 zero-filled days, today has 2 completed + 1 failed.
+        self.assertEqual(len(data["dispatchOutcomes"]), 14)
+        self.assertEqual(data["dispatchOutcomes"][-1]["completed"], 2)
+        self.assertEqual(data["dispatchOutcomes"][-1]["failed"], 1)
+        # leaderboard: fa-alpha has 2 completed.
+        leaders = {r["agent"]: r for r in data["agentLeaderboard"]}
+        self.assertEqual(leaders["fa-alpha"]["completed"], 2)
+        self.assertEqual(leaders["fa-alpha"]["successRate"], 100.0)
+        # busiest channels: general (2) before ops (1).
+        chans = data["busiestChannels"]
+        self.assertEqual(chans[0]["channel"], "general")
+        self.assertEqual(chans[0]["count"], 2)
+        # failure reasons surface the error text.
+        reasons = {r["reason"]: r["count"] for r in data["failureReasons"]}
+        self.assertEqual(reasons.get("timeout waiting for worker"), 1)
+
     def test_agent_analytics_empty_agent(self):
         # An agent with no messages/runs must return a valid zeroed shape,
         # not 500.

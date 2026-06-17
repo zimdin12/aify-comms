@@ -222,17 +222,29 @@ export function renderAnalyticsPanelHtml(agentId, data) {
     return `<div class="an-bar-row"><span class="an-bar-label clip">${esc(p.peer)}</span><span class="an-bar-track"><span class="an-bar-fill" style="width:${w}%"></span></span><span class="an-bar-val">${Number(p.count || 0)}</span></div>`;
   }).join('') : '<p class="subtle">No peers yet.</p>';
   const owed = Number(data.openContracts || 0);
+  // Hour-of-day histogram (0..23, all-time) — when is this agent most active?
+  const hod = Array.isArray(data.messagesPerHourOfDay) ? data.messagesPerHourOfDay : [];
+  const hodMax = Math.max(1, ...hod.map((b) => Number(b.count || 0)));
+  const hodBars = hod.length ? hod.map((b) => {
+    const c = Number(b.count || 0);
+    const h = Math.max(2, Math.round((c / hodMax) * 100));
+    return `<span class="an-hod-col" title="${String(b.hour).padStart(2, '0')}:00 — ${c} msg"><span class="an-hod-fill" style="height:${h}%"></span></span>`;
+  }).join('') : '';
+  const hodSection = hod.length
+    ? `<h4 class="an-h">By hour of day (UTC, all-time)</h4><div class="an-hod">${hodBars}</div>`
+    : '';
   return `<div class="chat-analytics">
     <div class="an-cards">
       <div class="an-card"><div class="an-n">${Number(data.messagesReceived || 0)}</div><div class="an-l">Received</div></div>
       <div class="an-card"><div class="an-n">${Number(data.messagesSent || 0)}</div><div class="an-l">Sent</div></div>
-      <div class="an-card"><div class="an-n">${esc(workLabel)}</div><div class="an-l">Working</div></div>
+      <div class="an-card"><div class="an-n" title="Total time this agent has spent as a dispatch target, all-time">${esc(workLabel)}</div><div class="an-l">Working (total)</div></div>
       <div class="an-card"><div class="an-n">${mr ? esc(mrLabel) : '—'}</div><div class="an-l">Median reply 7d</div></div>
       <div class="an-card"><div class="an-n${owed ? ' an-bad' : ''}">${owed}</div><div class="an-l">Owes replies</div></div>
     </div>
     <h4 class="an-h">Activity — 14 days (received↓ / sent↑)</h4>${dayBars}
     <h4 class="an-h">Work runs — 7 days</h4>
-    <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}${runs.lastFailedSubject ? ` <span class="subtle clip" title="${esc(runs.lastFailedSubject)}">· ${esc(runs.lastFailedSubject)}</span>` : ''}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
+    <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}${runs.lastFailedSubject ? ` <span class="subtle clip" title="${esc(runs.lastFailedSubject)}">· ${esc(runs.lastFailedSubject)}</span>` : ''}</dd><dt>Open</dt><dd>${Number(runs.open || 0)}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
+    ${hodSection}
     <h4 class="an-h">Top peers</h4>${peerBars}
   </div>`;
 }

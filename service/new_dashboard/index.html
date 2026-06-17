@@ -275,6 +275,7 @@
       </section>
 
       <section id="page-analytics" class="page">
+        <div class="metric-grid" id="analytics-ops"></div>
         <div class="metric-grid" id="analytics-stats"></div>
         <section class="band">
           <div class="section-head">
@@ -282,6 +283,20 @@
             <div class="segmented analytics-range" id="analytics-range" role="group" aria-label="Analytics range"></div>
           </div>
           <div id="analytics-traffic"></div>
+        </section>
+        <section class="band">
+          <div class="section-head"><h2>Dispatch outcomes — last 14 days</h2></div>
+          <div id="analytics-outcomes"></div>
+        </section>
+        <section class="split analytics-grid">
+          <div class="band">
+            <div class="section-head"><h2>Agent leaderboard</h2><span class="subtle">completed / total · success rate</span></div>
+            <div id="analytics-leaderboard"></div>
+          </div>
+          <div class="band">
+            <div class="section-head"><h2>Busiest channels</h2></div>
+            <div id="analytics-channels"></div>
+          </div>
         </section>
         <section class="split analytics-grid">
           <div class="band">
@@ -292,6 +307,10 @@
             <div class="section-head"><h2>Run status mix</h2></div>
             <div id="analytics-runs"></div>
           </div>
+        </section>
+        <section class="band">
+          <div class="section-head"><h2>Failure reasons</h2><span class="subtle">what's breaking, this window</span></div>
+          <div id="analytics-failures"></div>
         </section>
       </section>
 

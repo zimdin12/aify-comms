@@ -7,7 +7,7 @@ import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-ch
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
 import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
-import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef } from './analytics.js';
+import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
 
 function resolveApiOrigin() {
   const params = new URLSearchParams(location.search);
@@ -843,13 +843,23 @@ function renderAnalyticsPage() {
     if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'Open to load analytics.'}</p>`;
     return;
   }
+  const ops = byId('analytics-ops');
+  if (ops) ops.innerHTML = opsKpisHtml(data);
   statsHost.innerHTML = statCardsHtml(data);
   const traffic = byId('analytics-traffic');
   if (traffic) traffic.innerHTML = trafficChartHtml(data, state.analytics.range);
+  const outcomes = byId('analytics-outcomes');
+  if (outcomes) outcomes.innerHTML = dispatchOutcomesHtml(data);
+  const leaderboard = byId('analytics-leaderboard');
+  if (leaderboard) leaderboard.innerHTML = agentLeaderboardHtml(data);
+  const channels = byId('analytics-channels');
+  if (channels) channels.innerHTML = busiestChannelsHtml(data);
   const health = byId('analytics-health');
   if (health) health.innerHTML = healthGridHtml(data);
   const runs = byId('analytics-runs');
   if (runs) runs.innerHTML = runStatusMixHtml(data.runsByStatus || {});
+  const failures = byId('analytics-failures');
+  if (failures) failures.innerHTML = failureReasonsHtml(data);
 }
 
 function metric(label, value, tone = 'neutral') {

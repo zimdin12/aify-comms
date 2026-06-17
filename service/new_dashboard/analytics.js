@@ -113,6 +113,83 @@ export function runStatusMixHtml(runsByStatus = {}) {
     }).join('') + `</div>`;
 }
 
+// ── Fleet operational analytics (2026-06-17 "real analytics" round) ─────────────
+// All builders are pure + null-safe; app.js fetches /analytics and mounts these.
+
+function fmtMins(m) {
+  if (m == null) return '—';
+  const n = Number(m);
+  return n >= 60 ? `${Math.floor(n / 60)}h ${Math.round(n % 60)}m` : `${Math.round(n)}m`;
+}
+
+// Headline operational KPIs: dispatch success rate, fleet median reply, open + overdue contracts.
+export function opsKpisHtml(data = {}) {
+  const sr = data.successRate;
+  const srTone = sr == null ? '' : (sr >= 90 ? 'good' : sr >= 70 ? 'warn' : 'bad');
+  const overdue = Number(data.overdueReplyContracts || 0);
+  const open = Number(data.openReplyContracts || 0);
+  const card = (n, l, sub, tone) => `<div class="sc${tone ? ` ${tone}` : ''}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div><div class="s">${esc(sub)}</div></div>`;
+  return card(sr == null ? '—' : `${sr}%`, 'Dispatch success', `${Number(data.runsCompleted || 0)} ok · ${Number(data.runsFailed || 0)} failed`, srTone)
+    + card(fmtMins(data.fleetMedianReplyMinutes), 'Median reply', 'completed required replies')
+    + card(open, 'Open contracts', 'awaiting reply now', open ? 'warn' : '')
+    + card(overdue, 'Overdue', '> 30 min unanswered', overdue ? 'bad' : '');
+}
+
+// Stacked completed/failed dispatch outcomes over the last 14 days.
+export function dispatchOutcomesHtml(data = {}) {
+  const days = Array.isArray(data.dispatchOutcomes) ? data.dispatchOutcomes : [];
+  if (!days.length) return '<p class="em">No dispatch runs in the last 14 days.</p>';
+  const max = Math.max(1, ...days.map((d) => Number(d.completed || 0) + Number(d.failed || 0)));
+  return `<div class="outcome-chart">` + days.map((d) => {
+    const comp = Number(d.completed || 0); const fail = Number(d.failed || 0); const tot = comp + fail;
+    const ch = Math.round((comp / max) * 100); const fh = Math.round((fail / max) * 100);
+    return `<span class="outcome-col" title="${esc(String(d.date || '').slice(5))}: ${comp} completed · ${fail} failed">`
+      + `<span class="outcome-stack">`
+      + `<span class="outcome-fail" style="height:${fh}%"></span>`
+      + `<span class="outcome-comp" style="height:${ch}%"></span>`
+      + `</span><span class="outcome-x">${esc(String(d.date || '').slice(5))}</span><span class="outcome-n">${tot || ''}</span></span>`;
+  }).join('') + `</div>`
+    + `<div class="outcome-legend"><span><i class="swatch comp"></i>Completed</span><span><i class="swatch fail"></i>Failed</span></div>`;
+}
+
+// Top dispatch targets with per-agent success rate.
+export function agentLeaderboardHtml(data = {}) {
+  const rows = Array.isArray(data.agentLeaderboard) ? data.agentLeaderboard : [];
+  if (!rows.length) return '<p class="em">No dispatch activity in this window.</p>';
+  const max = Math.max(1, ...rows.map((r) => Number(r.total || 0)));
+  return `<div class="lb">` + rows.map((r) => {
+    const total = Number(r.total || 0);
+    const w = Math.max(3, Math.round((total / max) * 100));
+    const sr = r.successRate;
+    const srTone = sr == null ? '' : (sr >= 90 ? 'good' : sr >= 70 ? 'warn' : 'bad');
+    return `<div class="lb-row"><span class="lb-name clip">${esc(r.agent)}</span>`
+      + `<span class="lb-track"><span class="lb-fill" style="width:${w}%"></span></span>`
+      + `<span class="lb-meta">${Number(r.completed || 0)}/${total}${sr == null ? '' : ` <b class="lb-sr ${srTone}">${sr}%</b>`}</span></div>`;
+  }).join('') + `</div>`;
+}
+
+// Busiest channels by message volume.
+export function busiestChannelsHtml(data = {}) {
+  const rows = Array.isArray(data.busiestChannels) ? data.busiestChannels : [];
+  if (!rows.length) return '<p class="em">No channel traffic in this window.</p>';
+  const max = Math.max(1, ...rows.map((r) => Number(r.count || 0)));
+  return `<div class="lb">` + rows.map((r) => {
+    const w = Math.max(3, Math.round((Number(r.count || 0) / max) * 100));
+    return `<div class="lb-row"><span class="lb-name clip">#${esc(r.channel)}</span>`
+      + `<span class="lb-track"><span class="lb-fill" style="width:${w}%"></span></span>`
+      + `<span class="lb-meta">${Number(r.count || 0)}</span></div>`;
+  }).join('') + `</div>`;
+}
+
+// Failure reasons — what's actually breaking, grouped by error text.
+export function failureReasonsHtml(data = {}) {
+  const rows = Array.isArray(data.failureReasons) ? data.failureReasons : [];
+  if (!rows.length) return '<p class="em good-note">No failed or cancelled runs in this window. 🎉</p>';
+  return `<ul class="fail-list">` + rows.map((r) =>
+    `<li><span class="fail-n">${Number(r.count || 0)}×</span> <span class="fail-r clip" title="${esc(r.reason)}">${esc(r.reason)}</span></li>`
+  ).join('') + `</ul>`;
+}
+
 export function rangeSelectorHtml(activeRange = 'hour') {
   return ANALYTICS_RANGES.map((r) =>
     `<button type="button" class="${r.key === activeRange ? 'active' : ''}" data-analytics-range="${r.key}">${esc(r.label)}</button>`
