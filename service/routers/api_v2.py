@@ -2060,7 +2060,7 @@ def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:
         hint["fix"] = "Register the target agent first, then try triggering again."
         return hint
 
-    if session_mode == "resident" and "resident bridge is stale" in reason:
+    if session_mode == "resident" and "resident bridge" in reason:
         runtime_name = {
             "claude-code": "Claude",
             "codex": "Codex",
@@ -6408,8 +6408,8 @@ async def _preflight_live_send_recipients(
                 continue
         if _normalize_session_mode(row["session_mode"] or "resident") == "resident":
             if not await _resident_bridge_is_fresh(db, row, lease_seconds=settings.get("resident_lease_seconds", 150)):
-                hint = _dispatch_fix_hint(recipient_id, row, "resident bridge is stale; switch to managed or restart the resident wrapper")
-                hint["recipientStatus"] = "stale"
+                hint = _dispatch_fix_hint(recipient_id, row, "resident bridge heartbeat is gone; restart the resident wrapper or switch to managed")
+                hint["recipientStatus"] = "offline"
                 not_started.append(hint)
                 continue
 

@@ -19,7 +19,7 @@ from service.status_engine import StatusInputs, derive
 def _inp(**kw):
     base = dict(mode="managed", alive=True, in_turn=False, awaiting_input=False,
                 worker_present=True, env_reachable=True, disabled=False,
-                bridge_stale=False, has_live_session=True, idle_too_long=False)
+                bridge_stale=False, has_live_session=True)
     base.update(kw); return StatusInputs(**base)
 
 def test_working_when_in_turn():
@@ -31,8 +31,10 @@ def test_blocked_when_in_turn_and_awaiting_input():
 def test_managed_online_when_alive_worker_present():
     assert derive(_inp()) == "online"
 
-def test_managed_idle_when_quiet_too_long():
-    assert derive(_inp(idle_too_long=True)) == "idle"
+def test_managed_alive_is_online_never_idle():
+    # Proof-based (2026-06-18): 'idle' is removed — an alive managed worker, however long
+    # quiet, is `online` (working comes from a turn event, not elapsed-time decay).
+    assert derive(_inp()) == "online"
 
 
 def test_managed_reachable_env_dead_worker_is_available_not_offline():
@@ -61,9 +63,10 @@ def test_managed_in_turn_dead_worker_is_not_working():
                        alive=False, env_reachable=True)) == "available"
 
 def test_resident_in_turn_stale_bridge_is_not_working():
-    # status-F2: a resident whose bridge went stale mid-turn must read stale, not working.
+    # status-F2: a resident whose bridge went silent mid-turn must read offline, not working
+    # (proof-based: heartbeat gone = offline; there is no 'stale' decay state anymore).
     assert derive(_inp(mode="resident", in_turn=True, alive=False, bridge_stale=True,
-                       has_live_session=True)) == "stale"
+                       has_live_session=True)) == "offline"
 
 def test_managed_console_booting_is_online():
     # WS-12 (2026-06-17): a managed console up but whose sidecar hasn't claimed yet (no live
@@ -77,8 +80,9 @@ def test_managed_console_booting_is_online():
     assert derive(_inp(mode="managed", worker_present=False, alive=False, env_reachable=False,
                        console_booting=True)) == "offline"
 
-def test_resident_stale_bridge_is_stale():
-    assert derive(_inp(mode="resident", alive=False, bridge_stale=True, has_live_session=True)) == "stale"
+def test_resident_silent_bridge_is_offline():
+    # Proof-based: a resident whose bridge heartbeat is gone is OFFLINE (was 'stale').
+    assert derive(_inp(mode="resident", alive=False, bridge_stale=True, has_live_session=True)) == "offline"
 
 def test_resident_no_live_session_is_offline():
     assert derive(_inp(mode="resident", alive=False, has_live_session=False, bridge_stale=False)) == "offline"

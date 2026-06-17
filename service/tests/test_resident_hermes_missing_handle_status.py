@@ -96,14 +96,14 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
             f"a resident hermes that cannot be woken (missing handle) must not read available/online; got {info['status']!r}",
         )
 
-    def test_resident_hermes_missing_handle_is_stale(self):
-        # The chosen consistent landing: `stale` (what the dashboard dot already
-        # renders for an unwakeable resident), so dot and label agree.
+    def test_resident_hermes_missing_handle_is_offline(self):
+        # Proof-based (2026-06-18): an unwakeable resident (no live bridge / no handle) is
+        # OFFLINE — 'stale' was a time-decay artifact and is gone.
         self._register_resident_hermes("hermes-nohandle2", runtime_config={})
         info = self._agent("hermes-nohandle2")
         self.assertEqual(
-            info["status"], "stale",
-            f"missing-handle resident hermes should compute stale; got {info['status']!r}",
+            info["status"], "offline",
+            f"missing-handle resident hermes should compute offline; got {info['status']!r}",
         )
 
     def test_dot_and_label_status_agree_for_missing_handle(self):
@@ -140,18 +140,17 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
             f"a live-bound resident hermes should be available/online; got {info['status']!r}",
         )
 
-    def test_resident_hermes_with_gateway_url_but_stale_bridge_is_stale(self):
-        # Existing behavior preserved: a live-bound resident hermes whose bridge
-        # has gone stale is `stale` (a dead worker). This is the OTHER half of the
-        # consistency contract and must keep working.
+    def test_resident_hermes_with_gateway_url_but_silent_bridge_is_offline(self):
+        # Proof-based (2026-06-18): a live-bound resident hermes whose bridge heartbeat has
+        # gone silent is OFFLINE (the heartbeat going away is the proof it's gone; no 'stale').
         self._register_resident_hermes(
             "hermes-livestale", runtime_config={"gatewayUrl": self.GATEWAY_URL}
         )
         self._age_resident_bridge("hermes-livestale", minutes=20)
         info = self._agent("hermes-livestale")
         self.assertEqual(
-            info["status"], "stale",
-            f"a live-bound resident hermes with a stale bridge must be stale; got {info['status']!r}",
+            info["status"], "offline",
+            f"a live-bound resident hermes with a silent bridge must be offline; got {info['status']!r}",
         )
 
 

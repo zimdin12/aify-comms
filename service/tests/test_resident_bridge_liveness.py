@@ -42,7 +42,8 @@ class ResidentBridgeLivenessTests(FastApiTestCase):
 
         info = self.client.get("/api/v1/agents/target")
         self.assertEqual(info.status_code, 200, info.text)
-        self.assertEqual(info.json()["agent"]["status"], "stale")
+        # Proof-based (2026-06-18): a resident with no live bridge is OFFLINE (was 'stale').
+        self.assertEqual(info.json()["agent"]["status"], "offline")
 
         send = self.client.post(
             "/api/v1/messages/send",
@@ -60,7 +61,7 @@ class ResidentBridgeLivenessTests(FastApiTestCase):
         self.assertFalse(body["ok"], body)
         self.assertEqual(body.get("dispatchRuns") or [], [])
         not_started = (body.get("notStarted") or [{}])[0]
-        self.assertEqual(not_started.get("recipientStatus"), "stale")
+        self.assertEqual(not_started.get("recipientStatus"), "offline")
         self.assertIn("Restart the visible resident wrapper", not_started.get("fix", ""))
 
     def test_resident_registration_with_current_bridge_remains_dispatchable(self):
