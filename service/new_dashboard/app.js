@@ -3116,6 +3116,16 @@ byId('chat-msg-search')?.addEventListener('input', (event) => {
   state.chat.msgFilter = event.target.value;
   chatController.renderConversation();
 });
+// Collapsible chat sort/filters/channels panel (kept out of the way until needed).
+byId('chat-filter-toggle')?.addEventListener('click', () => {
+  const panel = byId('chat-rail-options');
+  const btn = byId('chat-filter-toggle');
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn?.setAttribute('aria-expanded', String(open));
+  btn?.classList.toggle('active', open);
+});
 byId('chat-identity')?.addEventListener('change', (event) => {
   state.chat.identity = event.target.value || 'dashboard';
   chatController.render();

@@ -186,7 +186,14 @@ small, .subtle { color: var(--muted); }
 .nav-footer { margin-top: auto; display: grid; gap: 10px; }
 .nav-footer a { color: var(--muted); text-decoration: none; }
 .mobile-tabbar { display: none; }
-.workspace { min-width: 0; padding: 18px; overflow: auto; }
+/* Viewport-fit shell: the workspace fills the viewport and never page-scrolls. The topbar +
+   (chat-only) attention strip pin to the top; the active page fills the rest and scrolls
+   internally. Chat in particular fits exactly — only its timeline/rail scroll. */
+.workspace { min-width: 0; padding: 18px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; gap: 0; }
+.workspace > .topbar, .workspace > .attention-strip { flex: 0 0 auto; }
+.page { display: none; }
+.page.active { display: block; flex: 1 1 auto; min-height: 0; overflow: auto; }
+#page-chat.active { display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -198,8 +205,6 @@ small, .subtle { color: var(--muted); }
 .top-actions { display: flex; gap: 10px; align-items: end; }
 .search { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .search input { width: 260px; }
-.page { display: none; }
-.page.active { display: block; }
 .two-pane.active { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; }
 /* Landing "pulse" hero (chat only). Subtle gradient surface so it reads as the app's face,
    compact so it never pushes messages far down (WS-G1/G3). */
@@ -920,7 +925,7 @@ small, .subtle { color: var(--muted); }
 .version-badge.behind { color: var(--amber); border-color: rgba(223,177,86,.4); }
 
 /* Chat-first landing (Phase 1). 2-pane shell: conversation rail + conversation pane. */
-.chat-shell { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; height: calc(100vh - 220px); min-height: 420px; }
+.chat-shell { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; flex: 1 1 auto; min-height: 0; }
 .chat-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
 .chat-rail-controls { padding: 11px; border-bottom: 1px solid var(--line-soft, var(--line)); display: flex; flex-direction: column; gap: 8px; }
 .chat-rail-controls input[type="search"] { width: 100%; background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: .85em; }
@@ -956,8 +961,11 @@ small, .subtle { color: var(--muted); }
 .chat-msg-time { color: var(--muted); font-size: .72em; }
 .chat-conversation .composer { border-top: 1px solid var(--line-soft, var(--line)); padding: 11px; }
 @media (max-width: 760px) {
-  .chat-shell { grid-template-columns: 1fr; height: auto; }
-  .chat-rail { max-height: 38vh; }
+  /* On narrow screens the workspace scrolls normally (single-column stacks need it). */
+  .workspace { height: auto; min-height: 100vh; overflow: visible; display: block; }
+  #page-chat.active { display: block; overflow: visible; }
+  .chat-shell { grid-template-columns: 1fr; flex: none; min-height: 0; }
+  .chat-rail { max-height: 42vh; }
 }
 
 /* Channels management (Phase 1.4): rail create-control + conversation-header actions. */
@@ -1256,6 +1264,13 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 .runs-search-field input { width: 100%; }
 .chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
 .chat-rail-toggles .check-row { font-size: .8em; }
+/* Collapsible chat sort/filters/channels panel. */
+.chat-search-row { display: flex; gap: 7px; align-items: center; }
+.chat-search-row input[type="search"] { flex: 1; }
+.chat-filter-toggle { flex: 0 0 auto; width: 38px; min-height: 38px; }
+.chat-filter-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.chat-rail-options { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line-soft); }
+.chat-rail-options[hidden] { display: none; }
 .chat-msg-search { max-width: 200px; min-height: 34px; }
 .chat-search-banner { color: var(--muted); font-size: .8em; margin: 0 0 8px; padding: 4px 8px; background: var(--panel-3); border-radius: 8px; }
 .filter-presets { display: inline-flex; gap: 3px; margin-right: 6px; }

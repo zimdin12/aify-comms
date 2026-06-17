@@ -77,31 +77,36 @@
         <section class="chat-shell">
           <aside class="chat-rail" aria-label="Conversations">
             <div class="chat-rail-controls">
-              <input id="chat-filter" type="search" placeholder="Search conversations + messages">
-              <div class="chat-rail-row">
-                <label class="chat-as">Viewing as
-                  <select id="chat-identity" title="Send and read as this identity"></select>
-                </label>
-                <label class="chat-as">Sort
-                  <select id="chat-sort" title="Conversation sort order">
-                    <option value="activity">Recent activity</option>
-                    <option value="unread">Unread first</option>
-                    <option value="name">Name (A–Z)</option>
-                    <option value="name-desc">Name (Z–A)</option>
-                    <option value="status">Status</option>
-                    <option value="runtime">Runtime</option>
-                  </select>
-                </label>
+              <div class="chat-search-row">
+                <input id="chat-filter" type="search" placeholder="Search conversations + messages">
+                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" title="Sort, filters & channels" aria-expanded="false">⚙</button>
               </div>
-              <div class="chat-rail-row chat-rail-toggles">
-                <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
-                <label class="check-row"><input id="chat-open-only" type="checkbox"><span>Has messages</span></label>
-                <label class="check-row"><input id="chat-working-up" type="checkbox"><span>Working first</span></label>
+              <div id="chat-rail-options" class="chat-rail-options" hidden>
+                <div class="chat-rail-row">
+                  <label class="chat-as">Viewing as
+                    <select id="chat-identity" title="Send and read as this identity"></select>
+                  </label>
+                  <label class="chat-as">Sort
+                    <select id="chat-sort" title="Conversation sort order">
+                      <option value="activity">Recent activity</option>
+                      <option value="unread">Unread first</option>
+                      <option value="name">Name (A–Z)</option>
+                      <option value="name-desc">Name (Z–A)</option>
+                      <option value="status">Status</option>
+                      <option value="runtime">Runtime</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="chat-rail-row chat-rail-toggles">
+                  <label class="check-row chat-live-toggle"><input id="chat-live-only" type="checkbox"><span>Live only</span></label>
+                  <label class="check-row"><input id="chat-open-only" type="checkbox"><span>Has messages</span></label>
+                  <label class="check-row"><input id="chat-working-up" type="checkbox"><span>Working first</span></label>
+                </div>
+                <form id="chat-new-channel-form" class="chat-new-channel">
+                  <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
+                  <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+ Channel</button>
+                </form>
               </div>
-              <form id="chat-new-channel-form" class="chat-new-channel">
-                <input id="chat-new-channel" type="text" placeholder="New channel name" autocomplete="off">
-                <button type="submit" class="ghost" title="Create a channel and join as the viewing identity">+</button>
-              </form>
             </div>
             <div id="chat-rail-list" class="chat-rail-list"></div>
           </aside>
