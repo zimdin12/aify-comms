@@ -4943,110 +4943,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("do it without console open", controls[1]["body"])
         self.assertIn("do it without console open", controls[2]["body"])
 
-    def test_managed_claude_active_run_without_terminal_backing_reports_blocked(self):
-        # Legacy-only `active_run_terminal_missing → blocked` — pin old (see WS-5 note).
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="work",
-            body="do it without console open",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        self._execute(
-            "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
-            (session_id,),
-        )
-        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
-        self.assertEqual(agent["status"], "blocked")
-        self.assertIn("terminal", agent["statusNote"].lower())
-
-    def test_terminal_backed_codex_active_run_without_terminal_backing_reports_blocked(self):
-        # Legacy-only `active_run_terminal_missing → blocked` (codex) — pin old (see WS-5).
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="codex",
-            terminal_runtimes=["codex"],
-            session_handle="codex-thread-1",
-        )
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="codex work",
-            body="do it through terminal backing",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        self._execute(
-            "UPDATE agent_sessions SET terminal_id = '', terminal_status = '' WHERE id = ?",
-            (session_id,),
-        )
-        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
-        self.assertEqual(agent["status"], "blocked")
-        self.assertIn("terminal", agent["statusNote"].lower())
-
-
-    def test_managed_claude_active_run_with_ended_terminal_backing_reports_blocked(self):
-        # Legacy-only: `active_run_terminal_missing → blocked`. The new engine derives blocked
-        # from in_turn + the console-input hint (WS-5), not a missing terminal backing — pin old.
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="work",
-            body="do it without console open",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        session = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped' WHERE id = ?",
-            (session["terminal_id"],),
-        )
-        self._execute(
-            "UPDATE agent_sessions SET terminal_status = 'stopped' WHERE id = ?",
-            (session_id,),
-        )
-        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], run_id)
-        self.assertEqual(agent["status"], "blocked")
-        self.assertIn("terminal", agent["statusNote"].lower())
-
-
     def test_managed_claude_dispatch_does_not_create_channel_only_run(self):
         self._create_running_session(
             terminal=True,
@@ -5365,109 +5261,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("\x1b[200~", controls[1]["body"])
         self.assertIn("\x1b[201~", controls[1]["body"])
         self.assertTrue(controls[1]["body"].endswith("\r"))
-
-    def test_managed_claude_terminal_prompt_reports_blocked_not_working(self):
-        # Legacy-path blocked derivation (no in_turn/sidecar seeded). The new-engine
-        # equivalent is test_blocked_reachable_when_console_awaits_input — pin old here.
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="state",
-            body="what is the current state",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": "Your call — I need a decision:\n1. I drive hands-on.\n2. Revert runtime.\n3. Debug pi.\nSay the word and I execute.",
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(api_v2.flush_terminal_output_writes_for_tests())
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "blocked")
-        self.assertEqual(agent["statusRaw"], "blocked")
-        self.assertIn("Awaiting console input", agent["statusNote"])
-        self.assertEqual(agent["dispatchState"]["activeRun"]["runId"], dispatched["consoleDeliveries"][0]["contractRunId"])
-
-    def test_managed_claude_dev_channel_prompt_reports_blocked_without_active_run(self):
-        # Legacy-only: blocked WITHOUT an active run/turn. New gates blocked on in_turn, so a
-        # prompt with no turn derives online (the statusNote still shows the awaiting hint) — pin old.
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-        self._stamp_live_channel_sidecar()  # status-F1: live managed claude has a sidecar
-        fresh = api_v2._now()
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, output, status, requested_by,
-                created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "term_claude_blocked_prompt",
-                session_id,
-                "console-agent",
-                "linux:test-host:default",
-                "bridge-current",
-                "claude-code",
-                "/workspace/repo",
-                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
-                (
-                    "WARNING: Loading development channels\n"
-                    "Channels: server:aify-comms-channel\n"
-                    "❯ 1. I am using this for local development ✔\n"
-                    "Enter to confirm · Esc to cancel\n"
-                ),
-                "attached",
-                "dashboard",
-                fresh,
-                fresh,
-                None,
-                "",
-            ),
-        )
-        self._execute(
-            """
-            UPDATE agent_sessions
-            SET terminal_id = ?, terminal_status = ?, terminal_command = ?, terminal_workspace = ?
-            WHERE id = ?
-            """,
-            (
-                "term_claude_blocked_prompt",
-                "attached",
-                "claude-aify --aify-agent console-agent --auto --resume claude-session-1",
-                "/workspace/repo",
-                session_id,
-            ),
-        )
-        asyncio.run(self._async_invalidate("console-agent"))
-
-        agent = self.client.get("/api/v1/agents/console-agent").json()["agent"]
-        self.assertEqual(agent["status"], "blocked", agent)
-        self.assertIn("Awaiting console confirmation", agent["statusNote"])
-        self.assertFalse(agent["dispatchState"]["hasActiveRun"])
 
     def test_claude_prompt_footer_alone_does_not_report_blocked(self):
         self._create_running_session(
@@ -11897,10 +11690,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         # in the periodic reconciler. Bridge-side .catch handler now
         # also retries the failure-PATCH 3 times so the service-side
         # safety net is only needed when the bridge crashed entirely.
-        # The orphan-close failure MESSAGE ("no owning bridge" vs the status-aware
-        # available/offline variants) is legacy-derivation-coupled; pin old for this
-        # message assertion (the reaper itself runs under both engines).
-        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5, "status_engine": "old"})
+        # The orphan-close failure MESSAGE is now status-aware under the proof engine
+        # (names the target's state + the no-progress/wall-clock reason).
+        self.client.put("/api/v1/settings", json={"active_managed_run_stale_minutes": 5})
         self._register("orphan-hermes", runtime="hermes", sessionMode="managed")
         # Seed: dispatch_run started 10 minutes ago, no claim_bridge_id,
         # non-terminal dispatch_mode → orphan candidate.
@@ -11944,7 +11736,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Run is now failed.
         run_row = self._fetchone("SELECT status, error_text FROM dispatch_runs WHERE id = ?", ("run_orphan_1",))
         self.assertEqual(run_row["status"], "failed")
-        self.assertIn("no owning bridge", (run_row["error_text"] or "").lower())
+        self.assertIn("made no progress", (run_row["error_text"] or "").lower())
 
         # turn_busy auto-cleared.
         tb = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", ("orphan-hermes",))
@@ -13063,87 +12855,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Derived status flips to available.
         after = self.client.get("/api/v1/agents/stop-pi").json()["agent"]
         self.assertEqual(after["status"], "available", after)
-
-    def test_status_taxonomy_available_when_no_live_worker_online_when_session_alive(self):
-        # Legacy resident persistent-worker taxonomy (available→online from a live
-        # agent_sessions row); the new engine models resident liveness via bridge freshness,
-        # not the session row, so it derives differently — pin old for this legacy contract.
-        self.client.put("/api/v1/settings", json={"status_engine": "old"})
-        # Persistent-worker model (Phase 2 of plan
-        # docs/plans/persistent-worker-status-taxonomy.md). An agent
-        # registered with env online but no live agent_session reports
-        # "available" — the wake-on-message path will spawn the worker.
-        # Once a live agent_session exists, status flips to "online"
-        # (worker alive, idle).
-        self._heartbeat_environment(
-            id="env_taxonomy",
-            bridgeId="bridge-taxonomy",
-            machineId="linux:taxonomy",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        self._register("taxonomy-claude", runtime="claude-code", sessionMode="resident")
-
-        avail = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
-        self.assertEqual(avail["status"], "available", avail)
-
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, workspace, mode,
-                owner_mode, owner_bridge_id, terminal_id, terminal_status,
-                terminal_command, terminal_workspace, process_id, session_handle,
-                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
-                telemetry, status, started_at, last_seen, ended_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "sess_taxonomy_1",
-                "taxonomy-claude",
-                "env_taxonomy",
-                "claude-code",
-                "/workspace",
-                "managed",
-                "managed",
-                "bridge-taxonomy",
-                "",
-                "",
-                "",
-                "/workspace",
-                "",
-                "claude-handle-tax",
-                "",
-                None,
-                None,
-                "{}",
-                "{}",
-                "running",
-                "2026-05-22T00:00:00Z",
-                "2026-05-22T00:00:00Z",
-                None,
-            ),
-        )
-        # Use a fresh heartbeat so the idle-staleness override doesn't fire.
-        fresh = api_v2._now()
-        self._execute(
-            "UPDATE agents SET last_seen = ? WHERE id = ?",
-            (fresh, "taxonomy-claude"),
-        )
-        self._execute(
-            "UPDATE agent_sessions SET last_seen = ? WHERE id = ?",
-            (fresh, "sess_taxonomy_1"),
-        )
-        asyncio.run(self._async_invalidate("taxonomy-claude"))
-        online = self.client.get("/api/v1/agents/taxonomy-claude").json()["agent"]
-        self.assertEqual(online["status"], "online", online)
 
     def test_managed_wrapper_attached_terminal_counts_as_online_at_read_gate(self):
         # Hermes/Codex managed-via-wrapper PTYs settle at status='attached'

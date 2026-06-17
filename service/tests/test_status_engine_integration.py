@@ -66,13 +66,6 @@ class StatusEventIngestTests(FastApiTestCase):
         r = self.client.post("/api/v1/agents/a1/status-event", json={"kind": "turn_end", "runId": "r1"})
         self.assertEqual(int(self._state("a1")["in_turn"]), 0)
 
-    def test_status_engine_setting_defaults_new(self):
-        # Phase I flip (2026-06-17): the default is now "new" — the event engine is the
-        # validated path with the old→new divergences closed (blocked WS-5, booting-console
-        # WS-12, missing-handle, env-resolution parity). "old" remains as a fallback setting.
-        r = self.client.get("/api/v1/settings")
-        self.assertEqual(r.json().get("status_engine"), "new")
-
     def test_engine_status_working_after_turn_start(self):
         self._register("a2", mode="resident", runtime="claude-code")
         # mark a fresh resident bridge so alive=True (mirror existing heartbeat path)
@@ -189,19 +182,6 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("t1")["in_turn"]), 0,
                          "/turn-end must clear in_turn in agent_status_state")
 
-    def test_turn_start_event_no_push_under_old_flag(self):
-        # Safety: under the `old` flag the status-event ingest does NOT broadcast
-        # engine-derived agent_status (the legacy path is push-unchanged). The default
-        # is now `new` (Phase I flip), so this test sets `old` explicitly.
-        self._register("d2", mode="resident")
-        self._set("status_engine", "old")
-        self.client.post("/api/v1/agents/d2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
-        self.ws.broadcasts.clear()
-        r = self.client.post("/api/v1/agents/d2/status-event", json={"kind": "turn_start", "runId": "r1"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._agent_status_events(), [],
-                         "old flag must not push engine agent_status from status-event")
-
     def test_turn_end_endpoint_pushes_status_under_new(self):
         # WS-1 (2026-06-17): the dedicated /turn-end endpoint must push the to-ready
         # transition immediately under new (was invalidate-only → ~60s dashboard lag).
@@ -215,18 +195,6 @@ class StatusEventIngestTests(FastApiTestCase):
         events = self._agent_status_events()
         self.assertTrue(events and events[-1]["agentId"] == "we1",
                         "/turn-end (flag=new) must push an agent_status event")
-
-    def test_turn_end_endpoint_no_push_under_old(self):
-        # Safety: the `old` flag keeps /turn-end push-free (legacy path unchanged). The
-        # default is now `new` (Phase I flip), so this test sets `old` explicitly.
-        self._register("we2", mode="resident")
-        self._set("status_engine", "old")
-        self.client.post("/api/v1/agents/we2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
-        self.ws.broadcasts.clear()
-        r = self.client.post("/api/v1/agents/we2/turn-end", json={})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._agent_status_events(), [],
-                         "old flag must not push from /turn-end")
 
     def test_turn_end_from_superseded_bridge_is_ignored(self):
         # WS-4a (2026-06-17): a /turn-end carrying a bridgeId from a SUPERSEDED bridge

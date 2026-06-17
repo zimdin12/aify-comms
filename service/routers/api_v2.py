@@ -263,15 +263,8 @@ DEFAULT_SETTINGS = {
     # switches. The wrappers still auto-detect at launch; this governs only
     # visibility of the manual override controls.
     "manual_session_mode": True,
-    # Status read-path engine selector (status v2). "new" (default since 2026-06-17,
-    # the Phase I flip) serves the event-driven engine (service.status_engine.derive via
-    # engine_status / _gather_status_inputs) — the path with the real-time turn-transition
-    # pushes (WS-1), liveness-gated in-turn states (WS-2), engine-status-gated queued
-    # delivery (WS-3), restored `blocked` (WS-5) and booting-console→online (WS-12). The
-    # live deployment already ran "new"; the default now matches so new installs get the
-    # same accurate, real-time status. "old" still selects the legacy per-request
-    # _compute_live_status_cache derivation as a fallback.
-    "status_engine": "new",
+    # (status_engine flag removed 2026-06-18: the proof-based event engine
+    # service.status_engine.derive is now the ONE status authority.)
     "dashboard_title": "AIFY Comms",
     "dashboard_theme": "default",
     "dashboard_primary_color": "",
@@ -1172,19 +1165,13 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
         settings = await _load_settings(db)
         cache = await _compute_live_status_cache(db, row, settings=settings)
         status = cache.get("status") or ""
-        # PUSH/POLL PARITY (2026-06-12 audit): polled reads serve the NEW-engine value under
-        # status_engine=new, but this push broadcast the LEGACY derivation unconditionally —
-        # wherever the two disagreed, a WS push momentarily overwrote a correct polled status
-        # in the dashboard (status flicker). Apply the same flag-gated override the cache
-        # refresh applies.
-        if (
-            str(settings.get("status_engine", "old")).lower() == "new"
-            and status not in _MANUAL_STATUSES
-        ):
+        # PUSH/POLL PARITY: the WS push serves the SAME proof-engine value the polled read does
+        # (derive of the assembled inputs), so a push never overwrites a correct polled status.
+        if status not in _MANUAL_STATUSES:
             try:
                 status = derive(cache["status_inputs"])
             except Exception:
-                pass  # fall back to the legacy value, same as the refresh path
+                pass
         await ws.broadcast("agent_status", {
             "agentId": agent_id,
             "status": status,
@@ -5005,39 +4992,16 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
     # Disagreements are always logged so the new engine can be validated before
     # the flip. Manual statuses (stop/disable) short-circuit the engine too — they
     # are operator overrides that both paths must honor identically.
-    old_status = cache["status"]
-    if (
-        str(settings.get("status_engine", "old")).lower() == "new"
-        and old_status not in _MANUAL_STATUSES
-    ):
+    # Proof-based engine is the ONE authority (2026-06-18: the status_engine old|new flag is
+    # gone). Manual statuses (stop/disable) are an operator override derive() already encodes
+    # via the `disabled` input; we keep the short-circuit so a stopped agent never depends on
+    # the rest of the input gather. The served status is derive() of the assembled inputs (a
+    # PURE call on the byproduct _compute_live_status_cache already built — no second gather).
+    if cache["status"] not in _MANUAL_STATUSES:
         try:
-            # status v2 CPU fix (2026-06-04): derive from the StatusInputs byproduct
-            # _compute_live_status_cache already assembled (a PURE derive() call) —
-            # NOT engine_status(), which would re-run the expensive _gather_status_inputs
-            # double-gather (the 10x idle-CPU regression). The byproduct mirrors
-            # _gather_status_inputs exactly, so derive() yields the same value.
-            new_status = derive(cache["status_inputs"])
-            if old_status != new_status:
-                # De-dup (2026-06-12 audit): the same stable divergence (e.g. dead-machine
-                # residents: legacy offline vs engine stale — tolerated per the status-v2
-                # spec) logged on EVERY refresh and drowned the log (1,700+ entries). Log
-                # each (agent, old, new) transition once per process; a CHANGED pair logs
-                # again (that's the signal worth seeing).
-                _memo = getattr(_refresh_agent_live_state, "_disagreement_memo", None)
-                if _memo is None:
-                    _memo = {}
-                    _refresh_agent_live_state._disagreement_memo = _memo
-                if _memo.get(agent_id) != (old_status, new_status):
-                    _memo[agent_id] = (old_status, new_status)
-                    logger.info(
-                        "status-disagreement agent=%s old=%s new=%s",
-                        agent_id, old_status, new_status,
-                    )
-            cache["status"] = new_status
+            cache["status"] = derive(cache["status_inputs"])
         except Exception:
-            # Never let the engine path break a live-state refresh — fall back to
-            # the legacy derivation (the `old` behavior).
-            logger.exception("engine_status failed for agent=%s; serving legacy status", agent_id)
+            logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
     await db.execute(
         """
         INSERT INTO agent_live_state (
@@ -6108,27 +6072,20 @@ async def _compute_agent_status(row, db=None):
     if status in _MANUAL_STATUSES:
         return status
     if db is not None:
-        # Phase E1 (the CPU fix): under status_engine=new the cached
-        # agent_live_state row is kept fresh by push events (status-event ingest
-        # invalidates it) + the reconcile backstop, so a hot read serves the
-        # cached status directly instead of recomputing the legacy matrix +
-        # engine on EVERY call (claim deliverability / write endpoints / send
-        # preflight all funnel through here). Only recompute when the cache row
-        # is missing or expired (refresh_after passed). Gated on the flag so the
-        # default `old` path recomputes exactly as before.
+        # The CPU fix: the cached agent_live_state row is kept fresh by push events
+        # (status-event ingest invalidates it) + the reconcile backstop, so a hot read
+        # serves the cached status directly instead of recomputing on EVERY call (claim
+        # deliverability / write endpoints / send preflight all funnel through here).
+        # Only recompute when the cache row is missing or expired (refresh_after passed).
         settings = await _load_settings(db)
-        if str(settings.get("status_engine", "old")).lower() == "new":
-            cached = await (await db.execute(
-                "SELECT status, refresh_after FROM agent_live_state WHERE agent_id = ?",
-                (row["id"],),
-            )).fetchone()
-            refresh_after = str((cached["refresh_after"] if cached else "") or "").strip()
-            if cached and refresh_after and refresh_after > _now():
-                return cached["status"]
-            cache = await _refresh_agent_live_state(db, row["id"], settings=settings)
-            if cache:
-                return cache["status"]
-        cache = await _refresh_agent_live_state(db, row["id"])
+        cached = await (await db.execute(
+            "SELECT status, refresh_after FROM agent_live_state WHERE agent_id = ?",
+            (row["id"],),
+        )).fetchone()
+        refresh_after = str((cached["refresh_after"] if cached else "") or "").strip()
+        if cached and refresh_after and refresh_after > _now():
+            return cached["status"]
+        cache = await _refresh_agent_live_state(db, row["id"], settings=settings)
         if cache:
             return cache["status"]
 
@@ -15689,8 +15646,7 @@ async def agent_heartbeat(agent_id: str, request: Request):
         # flip (not every 3s liveness/refresh beat), flag-gated to keep `old` unchanged.
         if turn_flip:
             settings = await _load_settings(db)
-            if str(settings.get("status_engine", "old")).lower() == "new":
-                await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
+            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True}
     finally:
         await db.close()
@@ -15932,13 +15888,11 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
         # invalidate's DELETE needs its own commit or it is rolled back on close()
         # (review M1, 2026-06-10).
         await db.commit()
-        # Phase D1: under the event engine, push the transition immediately so the
-        # dashboard updates the instant a turn starts/ends. Gated on the flag so
-        # the default `old` path is byte-for-byte unchanged (no engine broadcast).
+        # Push the transition immediately so the dashboard updates the instant a turn
+        # starts/ends (proof-based engine is the only path).
         settings = await _load_settings(db)
-        if str(settings.get("status_engine", "old")).lower() == "new":
-            ws = await _get_ws(request)
-            await _broadcast_engine_status(ws, db, agent_id, settings=settings)
+        ws = await _get_ws(request)
+        await _broadcast_engine_status(ws, db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id, "kind": req.kind}
     finally:
         await db.close()
@@ -15980,11 +15934,10 @@ async def agent_console_working(agent_id: str, request: Request):
         # work, review M1 2026-06-10). Mirrors /turn-start//turn-end ordering.
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
-        # WS-1 (2026-06-17): push the working lease immediately (flag-gated, mirrors
-        # /status-event) so the spinner-driven to-working shows without the ~60s poll wait.
+        # Push the working lease immediately so the spinner-driven to-working shows without
+        # the ~60s poll wait.
         settings = await _load_settings(db)
-        if str(settings.get("status_engine", "old")).lower() == "new":
-            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
+        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
     finally:
         await db.close()
     return {"ok": True}
@@ -16050,12 +16003,10 @@ async def agent_turn_start(agent_id: str, request: Request):
         await _apply_status_event(db, agent_id, {"kind": "turn_start", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
-        # WS-1 (2026-06-17): push the transition immediately so the dashboard reflects
-        # to-working within a second instead of waiting out its ~60s poll. Mirrors the
-        # /status-event pattern; gated on the flag so `old` is byte-for-byte unchanged.
+        # Push the transition immediately so the dashboard reflects to-working within a
+        # second instead of waiting out its ~60s poll.
         settings = await _load_settings(db)
-        if str(settings.get("status_engine", "old")).lower() == "new":
-            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
+        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id}
     finally:
         await db.close()
@@ -16128,12 +16079,10 @@ async def agent_turn_end(agent_id: str, request: Request):
         await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
-        # WS-1 (2026-06-17): push the to-ready transition immediately — this is the hop
-        # the operator most needs ("send queued work after the agent goes ready"); waiting
-        # the ~60s dashboard poll made to-ready look stuck. Mirrors /status-event; flag-gated.
+        # Push the to-ready transition immediately — this is the hop the operator most needs
+        # ("send queued work after the agent goes ready"); waiting the ~60s poll looked stuck.
         settings = await _load_settings(db)
-        if str(settings.get("status_engine", "old")).lower() == "new":
-            await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
+        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
         return {"ok": True, "agentId": agent_id}
     finally:
         await db.close()
@@ -17297,7 +17246,6 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
     now = _now()
-    engine_on = str(settings.get("status_engine", "old")).lower() == "new"
     for row in rows:
         run_id = str(row["id"] or "").strip()
         target_agent = str(row["target_agent"] or "").strip()
@@ -17314,9 +17262,8 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         #                         an HONEST reason naming the target's state.
         #   - online/idle (genuinely orphaned past the window) → keep the existing
         #                         ceiling, but with an honest reason.
-        # Gated on status_engine=new so the default `old` path is unchanged.
         honest_reason = None
-        if engine_on and target_agent:
+        if target_agent:
             try:
                 target_row = await (await db.execute(
                     "SELECT * FROM agents WHERE id = ?", (target_agent,)

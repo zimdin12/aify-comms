@@ -3,16 +3,17 @@
 // surface — never re-implemented per page. Pure (no DOM, no shared state) so it unit-tests
 // directly.
 //
-// The table covers BOTH the 8-label agent contract (working/online/idle/available/blocked/
-// stale/offline/stopped) AND run/contract statuses (queued/claimed/running/completed/failed/
-// cancelled/lost), since the resolver serves runs and contracts too. `active` and `ready` are
-// legacy aliases the server may still emit on some paths; they normalize to online here so the
-// UI shows one positive live state.
+// The table covers BOTH the 6-state proof-based agent contract (working/online/available/
+// blocked/offline/stopped) AND run/contract statuses (queued/claimed/running/completed/failed/
+// cancelled/lost), since the resolver serves runs and contracts too. `active`/`ready`/`idle`/
+// `stale` are LEGACY aliases the proof-based engine no longer emits (idle/stale were time-decay
+// states, removed 2026-06-18); they normalize here (idle→online, stale→offline) so any
+// straggler from old data renders correctly instead of as a grey unknown.
 import { esc } from './util.js';
 
 export const STATUS_KINDS = {
-  active: { label: 'active', dotKind: 'ok', tone: 'ok', inputEnabled: true },
-  idle: { label: 'idle', dotKind: 'online', tone: 'ok', inputEnabled: true },
+  active: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
+  idle: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   available: { label: 'available', dotKind: 'available', tone: 'muted', inputEnabled: false },
   starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
   recovering: { label: 'recovering', dotKind: 'working', tone: 'warn', inputEnabled: false },
@@ -20,7 +21,7 @@ export const STATUS_KINDS = {
   ready: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
   blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },
-  stale: { label: 'stale', dotKind: 'offline', tone: 'muted', inputEnabled: false },
+  stale: { label: 'offline', dotKind: 'offline', tone: 'muted', inputEnabled: false },
   queued: { label: 'queued', dotKind: 'queued', tone: 'muted', inputEnabled: false },
   claimed: { label: 'claimed', dotKind: 'working', tone: 'warn', inputEnabled: false },
   running: { label: 'running', dotKind: 'working', tone: 'warn', inputEnabled: false },

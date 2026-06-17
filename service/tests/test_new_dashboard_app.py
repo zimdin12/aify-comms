@@ -380,7 +380,7 @@ class NewDashboardAppTest(unittest.TestCase):
         # Settings parity — keys that were missing from the new schema
         for key in (
             "dashboard_theme", "dashboard_primary_color", "auto_confirm_session_id",
-            "managed_via_wrapper", "contract_stale_hours", "idle_minutes", "offline_minutes",
+            "managed_via_wrapper", "contract_stale_hours", "agent_liveness_seconds",
             "active_run_stale_minutes", "active_managed_run_stale_minutes",
         ):
             self.assertIn(f"key: '{key}'", script, f"settings schema must expose {key}")
