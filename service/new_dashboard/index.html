@@ -123,8 +123,10 @@
                 <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
                 <label class="chat-attach ghost" title="Share a file and insert its reference"><span>📎 Attach</span><input id="chat-attach-input" type="file"></label>
               </div>
-              <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
-              <button type="submit" class="primary">Send</button>
+              <div class="composer-send-row">
+                <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
+                <button type="submit" class="primary">Send</button>
+              </div>
             </form>
           </section>
         </section>
@@ -204,7 +206,7 @@
           <div class="band">
             <div class="section-head">
               <h2>Work Loop</h2>
-              <button id="send-reminders" class="primary" title="Runs existing due-reminder endpoint">Send Due Reminders</button>
+              <button id="send-reminders" class="ghost" title="Runs existing due-reminder endpoint">Send due reminders</button>
             </div>
             <div class="toolbar">
               <label><span class="subtle">State</span>

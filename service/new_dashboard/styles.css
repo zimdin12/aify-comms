@@ -203,6 +203,8 @@ small, .subtle { color: var(--muted); }
 }
 .topbar p { color: var(--muted); margin-top: 5px; }
 .top-actions { display: flex; gap: 10px; align-items: end; }
+/* Find input + Refresh share one row; match their heights so Refresh doesn't sit "dropped". */
+.top-actions .search input, .top-actions > button { min-height: 40px; }
 .search { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .search input { width: 260px; }
 .two-pane.active { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; }
@@ -233,7 +235,7 @@ small, .subtle { color: var(--muted); }
   border-radius: 8px;
 }
 .metric {
-  padding: 12px;
+  padding: 12px 12px 12px 15px; /* +3px left so the number isn't tight against the accent bar */
   min-width: 0;
   border-left: 4px solid #44504e;
 }
@@ -393,7 +395,14 @@ small, .subtle { color: var(--muted); }
 .runtime-card .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .runtime-card .contract-actions button { padding: 6px 11px; font-size: .82em; }
 .contract-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
-.runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: stretch; }
+/* Env cards: equal height with the action row pinned to the bottom so side-by-side cards line
+   up regardless of how many actions they have (QA E4). */
+#environment-list .runtime-card { display: flex; flex-direction: column; gap: 7px; }
+#environment-list .runtime-card .contract-actions { margin-top: auto; padding-top: 4px; }
+/* Spawn button gets its own right-aligned row so the form has no ragged last row (QA E1). */
+.environment-spawn-grid .spawn-submit { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.environment-spawn-grid .spawn-submit button { min-width: 130px; }
 .env-runtime-list, .env-root-list {
   display: flex;
   flex-wrap: wrap;
@@ -425,11 +434,16 @@ small, .subtle { color: var(--muted); }
   font-size: 11px;
   overflow-wrap: anywhere;
 }
-.run-row { display: grid; grid-template-columns: 28px 150px 150px minmax(0, 1fr) 120px; gap: 12px; align-items: start; }
+.run-row { display: grid; grid-template-columns: 28px 150px 150px minmax(0, 1fr) 120px; gap: 12px; align-items: center; }
 .timeline { max-height: calc(100vh - 245px); overflow: auto; padding-right: 4px; }
 .message { max-width: 900px; }
-.composer { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 10px; margin-top: 12px; align-items: end; }
-.composer-options { display: grid; gap: 8px; }
+/* Composer: options on one row, then [textarea | Send] aligned as a row (QA C3 — Send no longer
+   floats with a gap above it). */
+.composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.composer-options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.composer-send-row { display: flex; gap: 10px; align-items: stretch; }
+.composer-send-row textarea { flex: 1; min-height: 52px; }
+.composer-send-row .primary { align-self: stretch; padding-inline: 18px; }
 .check-row { display: flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; }
 .check-row input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
 .inspector {
@@ -578,7 +592,7 @@ small, .subtle { color: var(--muted); }
 .session-env-title::before { content: '▾'; font-size: 9px; transition: transform .15s ease; margin-right: 2px; color: var(--muted); }
 .session-env-group:not([open]) > .session-env-title::before { transform: rotate(-90deg); }
 .session-env-title:hover { background: var(--panel-2); color: var(--soft); }
-.session-env-title span { margin-left: auto; }
+.session-env-title span { margin-left: auto; background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 10px; }
 /* Read-only Activity rows (WS-J). */
 .activity-row { background: var(--panel-3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
 .activity-row .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -596,7 +610,7 @@ small, .subtle { color: var(--muted); }
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.session-check { min-height: 0; margin-top: 6px; }
+.session-check { min-height: 0; align-self: start; margin-top: 2px; width: 16px; height: 16px; accent-color: var(--accent); }
 .session-row-body { min-width: 0; display: grid; gap: 5px; }
 .session-runtime-badge {
   width: fit-content;
@@ -978,14 +992,20 @@ small, .subtle { color: var(--muted); }
 .chat-conv-actions button { padding: 4px 10px; font-size: .78em; }
 
 /* Shared Files page (Phase 1.4b). */
-.files-upload { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; }
-.files-upload input[type="text"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 8px 10px; font-size: .85em; }
+.files-upload { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px 12px; align-items: end; }
+.files-upload input[type="text"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: .85em; min-height: 40px; }
+/* Theme the native file input so it matches the text fields beside it (QA F1). */
+.files-upload input[type="file"] { background: var(--panel-3); border: 1px solid var(--line); color: var(--soft); border-radius: 8px; padding: 7px 10px; font-size: .82em; min-height: 40px; width: 100%; }
+.files-upload input[type="file"]::file-selector-button { background: var(--panel-2); color: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; margin-right: 9px; cursor: pointer; }
+.files-upload .spawn-submit button { min-height: 40px; }
 .files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: calc(100vh - 320px); overflow-y: auto; }
 .file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 11px 14px; }
 .file-main { min-width: 0; }
-.file-main small { color: var(--muted); font-size: .74em; }
-.file-actions { display: inline-flex; gap: 7px; flex: 0 0 auto; }
-.file-actions a, .file-actions button { padding: 5px 11px; font-size: .8em; text-decoration: none; }
+.file-main small { color: var(--muted); font-size: .74em; display: block; margin-top: 4px; }
+.file-actions { display: inline-flex; gap: 7px; flex: 0 0 auto; align-items: center; }
+/* Download (link) + Delete (button) read as matching controls (QA F2). */
+.file-actions a, .file-actions button { padding: 6px 11px; font-size: .8em; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--soft); }
+.file-actions a:hover { border-color: var(--accent-border); color: var(--text); }
 @media (max-width: 760px) { .files-upload { grid-template-columns: 1fr; } .file-row { flex-direction: column; align-items: stretch; } }
 
 /* Settings editor (Phase 1.7): grouped, schema-driven. */
@@ -1003,15 +1023,18 @@ small, .subtle { color: var(--muted); }
 .settings-panel.active { display: block; padding: 4px 2px 2px; }
 .settings-panel-desc { color: var(--muted); font-size: .84em; margin: 6px 2px 2px; }
 
-/* Aligned field row: label (+hint) left, control right, divider between. */
+/* Aligned field row: label (+hint) left, control right, divider between. Uniform min row
+   height so toggle rows don't read shorter than input rows (QA S-set4). */
 .settings-field {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
-  align-items: center; gap: 14px 24px; padding: 12px 2px;
+  align-items: center; gap: 14px 24px; padding: 11px 2px; min-height: 62px;
 }
 .settings-field + .settings-field { border-top: 1px solid var(--line-soft); }
 .settings-field .field-label { font-size: .9em; color: var(--soft); font-weight: 550; }
 .settings-field .field-hint { display: block; color: var(--muted); font-size: .82em; font-weight: 400; margin-top: 3px; line-height: 1.4; }
-.settings-field .field-control { justify-self: end; width: 100%; }
+/* Control cell: a flex box that right-aligns its content + fixed 40px height, so toggles and
+   inputs share the same right edge and vertical center (QA S-set1). */
+.settings-field .field-control { display: flex; align-items: center; justify-content: flex-end; min-height: 40px; width: 100%; }
 .settings-field .field-control > input[type="text"], .settings-field .field-control > input[type="number"], .settings-field .field-control > select {
   width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 8px 10px; font-size: .9em; min-height: 40px;
@@ -1104,7 +1127,9 @@ small, .subtle { color: var(--muted); }
 #analytics-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .sc { background: var(--panel-3); border: 1px solid var(--line); border-radius: 10px; padding: 13px 16px; min-width: 0; box-shadow: var(--shadow-card); }
 .sc .n { font-size: 1.7em; font-weight: 750; color: var(--secondary); line-height: 1; }
-.sc .l { color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 6px; letter-spacing: .03em; }
+.sc { display: flex; flex-direction: column; }
+.sc .l { color: var(--muted); font-size: .72em; text-transform: uppercase; margin-top: 6px; letter-spacing: .03em; min-height: 2.1em; }
+.sc .s { margin-top: auto; } /* pin the sub-line to the bottom so cards stay equal height */
 .sc .s { color: var(--muted); font-size: .7em; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sc.warn .n { color: var(--amber); }
 .chart-wrap { position: relative; min-height: 290px; padding: 10px 4px 0; }
@@ -1243,8 +1268,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */
 .session-row { padding: 7px 8px; }
-.session-row-body .mode-switch-chip { width: fit-content; padding: 3px 10px; min-height: 26px; font-size: .76em; }
-.session-row-body { gap: 4px; }
+.session-row-body .mode-switch-chip { width: fit-content; padding: 3px 10px; min-height: 26px; font-size: .76em; margin-top: 2px; }
+.session-row-body { gap: 6px; justify-items: start; }
+.session-row-body .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .session-row .session-runtime-badge { margin-top: 1px; }
 .empty-state {
   display: grid; justify-items: center; gap: 8px; text-align: center;
@@ -1259,7 +1285,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 /* WS-H toolbars: runs filter row + chat rail toggle row. */
 .runs-toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
 .runs-toolbar label { display: grid; gap: 3px; font-size: .8em; }
-.runs-toolbar select, .runs-toolbar input { min-height: 34px; }
+.runs-toolbar select, .runs-toolbar input { min-height: 38px; }
 .runs-search-field { flex: 1 1 180px; }
 .runs-search-field input { width: 100%; }
 .chat-rail-toggles { flex-wrap: wrap; gap: 10px 14px; }
