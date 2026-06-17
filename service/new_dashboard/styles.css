@@ -431,6 +431,7 @@ small, .subtle { color: var(--muted); }
 /* Composer: options on one row, then [textarea | Send] aligned as a row (QA C3 — Send no longer
    floats with a gap above it). */
 .composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.composer[hidden] { display: none; } /* the [hidden] attr must win over display:flex (overview/analytics/console views) */
 .composer-options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .composer-send-row { display: flex; gap: 10px; align-items: stretch; }
 .composer-send-row textarea { flex: 1; min-height: 52px; }
@@ -835,7 +836,9 @@ small, .subtle { color: var(--muted); }
     color: #061615;
     font-weight: 800;
   }
-  .metric-grid { grid-template-columns: 1fr; }
+  /* 2-up metric cards on a phone keeps the attention strip + analytics KPIs from becoming an
+     endless single column (each card is short). Long-form grids below still drop to 1 col. */
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .environment-summary { grid-template-columns: 1fr; }
   .environment-spawn-grid { grid-template-columns: 1fr; }
   .diagnostics-summary { grid-template-columns: 1fr; }
@@ -957,8 +960,7 @@ small, .subtle { color: var(--muted); }
 .chat-empty { color: var(--muted); text-align: center; margin-top: 40px; }
 /* Chat overview (shown when no conversation is open; re-click an open chat to return here). */
 .chat-stats { display: flex; flex-direction: column; gap: 18px; padding: 4px 2px; }
-.chat-stats-head h3 { margin: 0 0 2px; font-size: 1.05em; }
-.chat-stats-head .em { margin: 0; color: var(--muted); font-size: .86em; }
+.chat-stats-hint { margin: 0; color: var(--muted); font-size: .86em; }
 .chat-stats-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .chat-stats-section h4 { margin: 0 0 8px; font-size: .82em; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .chat-stats-statusrow { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -1221,7 +1223,12 @@ small, .subtle { color: var(--muted); }
 .status-dot[data-status="cancelled"], .status-dot[data-status="lost"] { background: var(--muted); box-shadow: none; }
 .status-bar-value { text-align: right; color: var(--muted); font-size: .78em; }
 @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } #analytics-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 760px) { #analytics-stats, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { #analytics-stats, #analytics-ops, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* On a phone the inline chat console + Sessions terminal need a tappable, tall-enough surface. */
+@media (max-width: 760px) {
+  .chat-console-host .xterm-host, .console-embed .xterm-host { min-height: 320px; }
+  .chat-view-toggle .seg { min-height: 40px; }
+}
 
 /* Console toolbar + await-pill + start/fallback (WS-D). */
 .console-embed-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }

@@ -122,7 +122,7 @@ export function chatStatsHtml(state) {
   const dot = (k) => `<span class="status-dot ${esc(k)}"></span>`;
   const statusChip = (k, label) => `<span class="chat-stats-status">${dot(k)}${sc(k)} ${esc(label)}</span>`;
   return `<div class="chat-stats">
-    <div class="chat-stats-head"><h3>Chat overview</h3><p class="em">Pick a conversation on the left — or re-click the open one to return here.</p></div>
+    <p class="chat-stats-hint em">Pick a conversation on the left — or re-click the open one to return here.</p>
     <div class="chat-stats-cards">
       ${card(dms.length, 'Direct chats')}
       ${card(channels.length, 'Channels')}

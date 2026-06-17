@@ -103,7 +103,7 @@ test("chatStatsHtml summarizes conversations, fleet status, and most-active peer
     chat: { identity: "dashboard", channels: [{ name: "general", members: ["dashboard"] }] },
   };
   const html = chatStatsHtml(state);
-  assert.match(html, /Chat overview/);
+  assert.match(html, /chat-stats/);
   assert.match(html, /Direct chats/);
   assert.match(html, /Channels/);
   assert.match(html, /working/);
