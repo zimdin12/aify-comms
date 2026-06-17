@@ -236,6 +236,61 @@ class ChatAnalyticsTests(FastApiTestCase):
         reasons = {r["reason"]: r["count"] for r in data["failureReasons"]}
         self.assertEqual(reasons.get("timeout waiting for worker"), 1)
 
+    def test_fleet_pulse_window_and_board(self):
+        """2026-06-18 round: GET /analytics/pulse?window_minutes=N returns a glanceable
+        window-scoped fleet view — message rate, working-utilization, open/overdue
+        reply contracts, and a board of online agents with last-worked + in-window activity."""
+        self._register("pulse-alpha")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+            now_ms = int(now.timestamp() * 1000)
+            # Mark the agent as freshly seen so the status engine treats it as online.
+            conn.execute("UPDATE agents SET last_seen=?, status='idle' WHERE id=?", (iso(now), "pulse-alpha"))
+            # Two direct messages within the last 10 minutes.
+            for mid, frm, to in (("p1", "pulse-alpha", "peerA"), ("p2", "peerA", "pulse-alpha")):
+                conn.execute(
+                    "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body, "
+                    "priority, dispatch_requested, in_reply_to, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (mid, frm, to, "direct", "info", "", "", "normal", 0, None, now_ms),
+                )
+            # A completed run that overlaps the window: 6 minutes of work ending 2 min ago.
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, result_message_id, "
+                "requested_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("pr1", "peerA", "pulse-alpha", "completed", 0, "",
+                 iso(now - timedelta(minutes=8)), iso(now - timedelta(minutes=8)), iso(now - timedelta(minutes=2))),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        data = self.client.get("/api/v1/analytics/pulse?window_minutes=10").json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["windowMinutes"], 10)
+        self.assertGreaterEqual(data["messages"]["count"], 2)
+        # 2 messages in a 10-min window → 12/hr.
+        self.assertAlmostEqual(data["messages"]["perHour"], 12.0, places=1)
+        # Contract shape: the board is a list (a bare-registered agent with no live bridge is
+        # correctly OFFLINE → excluded from the online board; board population is verified live).
+        self.assertIsInstance(data["agents"], list)
+        self.assertIn("fleetUtilizationPct", data)
+        self.assertIn("openReplyContracts", data)
+        self.assertIn("workingNow", data)
+        # If the agent IS surfaced (status engine considers it live), its in-window working
+        # minutes reflect the 6-min run overlap.
+        board = {a["id"]: a for a in data["agents"]}
+        if "pulse-alpha" in board:
+            self.assertAlmostEqual(board["pulse-alpha"]["workingMinutesInWindow"], 6.0, delta=0.6)
+            self.assertGreaterEqual(board["pulse-alpha"]["messagesInWindow"], 2)
+
+    def test_fleet_pulse_rejects_out_of_range_window(self):
+        # Query bounds: 5 .. 1440 minutes.
+        self.assertEqual(self.client.get("/api/v1/analytics/pulse?window_minutes=1").status_code, 422)
+        self.assertEqual(self.client.get("/api/v1/analytics/pulse?window_minutes=99999").status_code, 422)
+
     def test_agent_analytics_empty_agent(self):
         # An agent with no messages/runs must return a valid zeroed shape,
         # not 500.

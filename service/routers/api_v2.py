@@ -19407,11 +19407,17 @@ async def share_artifact(
         now = _now()
         size = 0
         is_binary = False
+        # Enforce the configured upload cap (Settings → max_shared_size_mb) on both paths.
+        settings = await _load_settings(db)
+        max_mb = settings.get("max_shared_size_mb", DEFAULT_SETTINGS.get("max_shared_size_mb", 500))
+        max_bytes = int(max_mb) * 1024 * 1024 if max_mb else 0
         if file:
             shared_dir = _shared_dir(request)
             file_path = shared_dir / name
             data = await file.read()
             size = len(data)
+            if max_bytes and size > max_bytes:
+                raise HTTPException(status_code=413, detail=f"File exceeds the {max_mb} MB shared-file limit ({size // (1024 * 1024)} MB).")
             is_binary = True
             file_path.write_bytes(data)
             await db.execute(
@@ -19420,7 +19426,9 @@ async def share_artifact(
             )
         else:
             text = content or ""
-            size = len(text)
+            size = len(text.encode("utf-8"))
+            if max_bytes and size > max_bytes:
+                raise HTTPException(status_code=413, detail=f"Content exceeds the {max_mb} MB shared-file limit.")
             await db.execute(
                 "INSERT OR REPLACE INTO shared_artifacts (name, from_agent, description, content, size, is_binary, shared_at) VALUES (?,?,?,?,?,?,?)",
                 (name, from_agent, description, text, size, 0, now)
@@ -20586,6 +20594,145 @@ async def get_agent_analytics(agent_id: str, request: Request):
             "avgRunMinutes7d": round(avg_run_minutes, 1),
             "medianReplyMinutes7d": round(median_reply_minutes, 1),
             "openContracts": open_contracts,
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/analytics/pulse")
+async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, ge=5, le=1440)):
+    """Fleet 'pulse' for the Chat landing dashboard — a glanceable, window-scoped
+    (5min .. 24h) view of comms performance + a board of online agents.
+
+    Returns message rate, fleet working-utilization (working agent-minutes over
+    available online agent-minutes in the window), open/overdue reply contracts,
+    and per online agent: status, last-worked, currently-working, and in-window
+    message + working-minute activity. All run-time math uses julianday() on the
+    ISO TEXT run columns (never epoch arithmetic), NULL-guarded and clamped >= 0.
+    """
+    db = await get_db()
+    try:
+        from datetime import datetime as _dt
+        settings = await _load_settings(db)
+        now_s = int(time.time())
+        win_s = now_s - window_minutes * 60
+        win_ms = win_s * 1000
+        now_iso = _iso_from_ms(now_s * 1000)
+        win_iso = _iso_from_ms(win_ms)
+
+        def _ep(value):
+            try:
+                return _dt.fromisoformat(str(value or "").replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return None
+
+        # Messages in window (direct + channel, same filter as GET /analytics).
+        msg_where = "((source='direct' AND to_agent IS NOT NULL) OR (source='channel' AND to_agent IS NULL))"
+        mc = await db.execute(f"SELECT COUNT(*) FROM messages WHERE {msg_where} AND timestamp >= ?", (win_ms,))
+        msg_count = int((await mc.fetchone())[0])
+        per_hour = round(msg_count / (window_minutes / 60.0), 1) if window_minutes else 0.0
+
+        # Per-agent direct-message counts in window (credit both parties).
+        mpa = await db.execute(
+            "SELECT agent, COUNT(*) c FROM ("
+            " SELECT from_agent AS agent FROM messages WHERE source='direct' AND timestamp >= ?"
+            " UNION ALL"
+            " SELECT to_agent AS agent FROM messages WHERE source='direct' AND to_agent IS NOT NULL AND timestamp >= ?"
+            ") GROUP BY agent",
+            (win_ms, win_ms),
+        )
+        msgs_by_agent = {r["agent"]: int(r["c"] or 0) for r in await mpa.fetchall() if r["agent"]}
+
+        # Working minutes per agent = clamped overlap of each run with the window.
+        runs_c = await db.execute(
+            "SELECT target_agent, started_at, finished_at FROM dispatch_runs "
+            "WHERE started_at IS NOT NULL AND julianday(COALESCE(finished_at, ?)) >= julianday(?)",
+            (now_iso, win_iso),
+        )
+        working_min = {}
+        for r in await runs_c.fetchall():
+            a = r["target_agent"]
+            if not a:
+                continue
+            s = _ep(r["started_at"])
+            f = _ep(r["finished_at"]) if r["finished_at"] else now_s
+            if s is None:
+                continue
+            overlap = min(f, now_s) - max(s, win_s)
+            if overlap > 0:
+                working_min[a] = working_min.get(a, 0.0) + overlap / 60.0
+
+        # Last-worked + currently-working across ALL runs (not just the window).
+        lw_c = await db.execute(
+            "SELECT target_agent, MAX(COALESCE(finished_at, ?)) AS lw, "
+            "SUM(CASE WHEN finished_at IS NULL AND status IN ('running','delivered','claimed') THEN 1 ELSE 0 END) AS active "
+            "FROM dispatch_runs WHERE started_at IS NOT NULL GROUP BY target_agent",
+            (now_iso,),
+        )
+        last_worked = {}
+        active_now = {}
+        for r in await lw_c.fetchall():
+            if r["target_agent"]:
+                last_worked[r["target_agent"]] = r["lw"]
+                active_now[r["target_agent"]] = int(r["active"] or 0) > 0
+
+        # Online-agent board (exclude offline/stale/stopped).
+        idle_m = settings.get("idle_minutes", 5)
+        off_m = settings.get("offline_minutes", 30)
+        agents_c = await db.execute("SELECT * FROM agents")
+        board = []
+        online_count = 0
+        working_now = 0
+        fleet_working = 0.0
+        for row in await agents_c.fetchall():
+            if row["id"] == "dashboard":
+                continue
+            status = await _compute_agent_status(row, idle_m, off_m, db)
+            if status.startswith("offline") or status.startswith("stopped") or status.startswith("stale"):
+                continue
+            online_count += 1
+            aid = row["id"]
+            wm = round(working_min.get(aid, 0.0), 1)
+            fleet_working += wm
+            if status.startswith("working"):
+                working_now += 1
+            board.append({
+                "id": aid,
+                "role": row["role"],
+                "runtime": row["runtime"],
+                "mode": row["session_mode"],
+                "status": status,
+                "lastWorkedAt": last_worked.get(aid),
+                "workingNow": active_now.get(aid, False),
+                "messagesInWindow": msgs_by_agent.get(aid, 0),
+                "workingMinutesInWindow": wm,
+            })
+        # Working agents first, then most-active, then alphabetical.
+        board.sort(key=lambda a: (0 if a["workingNow"] else 1, -a["messagesInWindow"], a["id"]))
+        utilization = (
+            round((fleet_working / (online_count * window_minutes)) * 100, 1)
+            if online_count and window_minutes else 0.0
+        )
+
+        # Open + overdue (>30min) reply contracts, fleet-wide, right now.
+        owed_c = await db.execute(
+            "SELECT requested_at FROM dispatch_runs WHERE require_reply=1 "
+            "AND status IN ('queued','claimed','running','delivered') AND COALESCE(result_message_id,'')=''"
+        )
+        owed = await owed_c.fetchall()
+        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < now_s - 30 * 60)
+
+        return {
+            "ok": True,
+            "windowMinutes": window_minutes,
+            "messages": {"count": msg_count, "perHour": per_hour},
+            "onlineAgents": online_count,
+            "workingNow": working_now,
+            "fleetWorkingMinutes": round(fleet_working, 1),
+            "fleetUtilizationPct": utilization,
+            "openReplyContracts": len(owed),
+            "overdueReplyContracts": overdue,
+            "agents": board,
         }
     finally:
         await db.close()

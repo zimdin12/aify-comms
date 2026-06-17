@@ -5,7 +5,66 @@
 // (every field of which the new dashboard previously ignored). Kept pure (DOM-free) so the
 // chart geometry is unit-testable; app.js owns fetching + mounting.
 
-import { esc } from './util.js';
+import { esc, relTime } from './util.js';
+import { resolveStatus } from './status.js';
+
+// ── Fleet pulse (Chat landing dashboard) ─────────────────────────────────────
+// Window-scoped, glanceable fleet state: comms rate, working-utilization, and a
+// board of online agents (last worked + in-window activity). Consumes
+// GET /analytics/pulse?window_minutes=N. Pure builders; app.js fetches + mounts.
+
+export const PULSE_WINDOWS = [
+  { m: 10, label: '10m' }, { m: 30, label: '30m' }, { m: 60, label: '1h' },
+  { m: 180, label: '3h' }, { m: 360, label: '6h' }, { m: 720, label: '12h' }, { m: 1440, label: '24h' },
+];
+
+export function pulseWindowSelectorHtml(active = 60) {
+  return PULSE_WINDOWS.map((w) =>
+    `<button type="button" class="${w.m === active ? 'active' : ''}" data-pulse-window="${w.m}">${esc(w.label)}</button>`
+  ).join('');
+}
+
+function pulseWorkedLabel(iso) {
+  if (!iso) return 'no work yet';
+  const t = Date.parse(String(iso));
+  if (!Number.isFinite(t)) return 'no work yet';
+  return `worked ${relTime(iso)} ago`;
+}
+
+export function fleetPulseHtml(data, windowMinutes = 60) {
+  const winLabel = (PULSE_WINDOWS.find((w) => w.m === windowMinutes) || { label: `${windowMinutes}m` }).label;
+  const head = `<div class="pulse-head"><h3>Fleet pulse</h3>`
+    + `<div class="segmented pulse-window" role="group" aria-label="Pulse window">${pulseWindowSelectorHtml(windowMinutes)}</div></div>`;
+  if (!data || data.ok === false) {
+    return `<div class="pulse">${head}<p class="em">${data ? 'Pulse unavailable.' : 'Loading fleet pulse…'}</p></div>`;
+  }
+  const m = data.messages || {};
+  const util = data.fleetUtilizationPct;
+  const utilTone = util == null ? '' : (util >= 50 ? 'good' : util >= 15 ? 'warn' : '');
+  const overdue = Number(data.overdueReplyContracts || 0);
+  const card = (n, l, sub, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}">`
+    + `<b>${esc(String(n))}</b><span>${esc(l)}</span>${sub ? `<small class="pulse-sub">${esc(sub)}</small>` : ''}</div>`;
+  const dot = (k) => `<span class="status-dot ${esc(k)}"></span>`;
+  const rows = (data.agents || []).map((a) => {
+    const st = resolveStatus(a.status);
+    const worked = a.workingNow ? '<span class="pulse-now">● working now</span>' : esc(pulseWorkedLabel(a.lastWorkedAt));
+    return `<button class="pulse-agent" data-chat-open="dm:${esc(a.id)}" title="Open chat with ${esc(a.id)}">`
+      + `<span class="pulse-agent-id">${dot(st.dotKind)}<strong>${esc(a.id)}</strong>`
+      + `<small>${esc(a.role || '')}${a.runtime ? ` · ${esc(a.runtime)}` : ''}${a.mode ? ` · ${esc(a.mode)}` : ''}</small></span>`
+      + `<span class="pulse-agent-meta"><span class="pulse-worked">${worked}</span>`
+      + `<span class="pulse-counts">${Number(a.messagesInWindow || 0)} msg · ${Number(a.workingMinutesInWindow || 0)}m work</span></span></button>`;
+  }).join('');
+  return `<div class="pulse">${head}
+    <div class="pulse-cards metric-grid">
+      ${card(m.count ?? 0, `Messages · ${winLabel}`, `${m.perHour ?? 0}/hr`)}
+      ${card(util == null ? '—' : `${util}%`, 'Utilization', `${data.fleetWorkingMinutes || 0}m working`, utilTone)}
+      ${card(data.workingNow ?? 0, 'Working now', `${data.onlineAgents || 0} online`)}
+      ${card(data.openReplyContracts ?? 0, 'Open replies', overdue ? `${overdue} overdue` : 'all current', overdue ? 'bad' : '')}
+    </div>
+    <div class="pulse-board-head"><h4>Online agents</h4><span class="em">${data.onlineAgents || 0} online · working first</span></div>
+    <div class="pulse-board">${rows || '<p class="em">No online agents right now.</p>'}</div>
+  </div>`;
+}
 
 export const ANALYTICS_RANGES = [
   { key: 'hour', label: '24h', seriesKey: 'messagesPerHour', maxItems: 24, windowLabel: 'last 24 hours' },

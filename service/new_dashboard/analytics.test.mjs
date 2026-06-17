@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
+import { analyticsSeries, trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml, fleetPulseHtml, pulseWindowSelectorHtml, PULSE_WINDOWS } from './analytics.js';
 
 const sample = {
   messagesPerHour: Array.from({ length: 24 }, (_, i) => ({ label: `${i}:00`, count: i })),
@@ -116,4 +116,40 @@ test('failureReasonsHtml lists reasons; celebrates a clean window', () => {
   assert.match(failureReasonsHtml(fleet), /timeout waiting for reply/);
   assert.match(failureReasonsHtml(fleet), /3×/);
   assert.match(failureReasonsHtml({}), /No failed or cancelled runs/);
+});
+
+test('pulseWindowSelectorHtml marks the active window and offers all windows', () => {
+  const html = pulseWindowSelectorHtml(180);
+  assert.equal(PULSE_WINDOWS.length, 7);
+  assert.match(html, /class="active" data-pulse-window="180"/);
+  assert.match(html, /data-pulse-window="10"/);
+  assert.match(html, /data-pulse-window="1440"/);
+});
+
+test('fleetPulseHtml renders KPIs + an online-agent board with last-worked', () => {
+  const data = {
+    ok: true, windowMinutes: 60,
+    messages: { count: 42, perHour: 42 },
+    onlineAgents: 3, workingNow: 1, fleetWorkingMinutes: 12.5, fleetUtilizationPct: 35,
+    openReplyContracts: 2, overdueReplyContracts: 1,
+    agents: [
+      { id: 'alpha', role: 'manager', runtime: 'claude-code', mode: 'managed', status: 'working', lastWorkedAt: null, workingNow: true, messagesInWindow: 9, workingMinutesInWindow: 12.5 },
+      { id: 'beta', role: 'coder', runtime: 'codex', mode: 'resident', status: 'online', lastWorkedAt: '2026-06-18T00:00:00Z', workingNow: false, messagesInWindow: 3, workingMinutesInWindow: 0 },
+    ],
+  };
+  const html = fleetPulseHtml(data, 60);
+  assert.match(html, /Fleet pulse/);
+  assert.match(html, /42\/hr/);
+  assert.match(html, /35%/);
+  assert.match(html, /data-pulse-window="60"/);
+  assert.match(html, /data-chat-open="dm:alpha"/);
+  assert.match(html, /working now/);          // alpha is currently working
+  assert.match(html, /9 msg · 12.5m work/);   // in-window activity
+  assert.match(html, /1 overdue/);
+});
+
+test('fleetPulseHtml is safe on loading / error / empty states', () => {
+  assert.match(fleetPulseHtml(null, 60), /Loading fleet pulse/);
+  assert.match(fleetPulseHtml({ ok: false }, 60), /Pulse unavailable/);
+  assert.match(fleetPulseHtml({ ok: true, agents: [] }, 30), /No online agents/);
 });

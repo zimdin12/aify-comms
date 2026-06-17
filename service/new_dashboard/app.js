@@ -44,7 +44,7 @@ const state = {
   sessionTerminals: new Map(), // sessionId → most-recent terminalId seen for this session (cache prevents widget oscillation when the server clears runtime_state.virtualTerminalId mid-conversation per Bug #3 root cause)
   realtimeConnected: false,
   // Chat-first landing (Phase 1): conversation rail + timeline + composer state.
-  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, drafts: {}, replyTo: null, msgFilter: '' },
+  chat: { identity: 'dashboard', selected: '', view: 'messenger', filter: '', liveOnly: false, openOnly: false, workingUp: false, sortMode: 'activity', channels: [], channelMessages: {}, analytics: { agent: '', data: null }, pulse: { window: 60, data: null, loading: false }, drafts: {}, replyTo: null, msgFilter: '' },
   selectedConversation: 'dashboard',
   selectedSessionId: '',
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
@@ -189,6 +189,7 @@ const chatController = createChatController({
   loadConversation: chatLoadConversation,
   loadAgentAnalytics: (id) => api(`/analytics/agent/${encodeURIComponent(id)}`),
   mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
+  loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
 });
 
 // Mount an agent's live console inline inside the Chat conversation pane. Reuses the exact
@@ -208,8 +209,13 @@ function mountChatConsole(agentId, hostEl) {
   hostEl.dataset.consoleSig = sig;
   if (!session) {
     disposeActiveXterm();
-    hostEl.innerHTML = '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
-      + `<p>${esc(agentId)} has no active session. Most managed agents lazy-start a console when you send the first message — send one from the Messenger tab, then reopen Console.</p></div>`;
+    const agent = (state.agents || []).find((a) => a.id === agentId);
+    const resident = String(agent?.sessionMode || '').toLowerCase() === 'resident';
+    hostEl.innerHTML = resident
+      ? '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>Resident agent</strong>'
+        + `<p>${esc(agentId)} runs in its own CLI (a <code>${esc(agent?.runtime || 'runtime')}-aify</code> terminal you launched) — there's no dashboard-owned console to show here. Switch it to managed from <strong>Details</strong> to get one.</p></div>`
+      : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No live console</strong>'
+        + `<p>${esc(agentId)} has no active session. Most managed agents lazy-start a console when you send the first message — send one from the Messenger tab, then reopen Console.</p></div>`;
     return;
   }
   renderSessionConsole(session, hostEl, { source: 'chat' });
@@ -246,6 +252,12 @@ async function uploadSharedFile() {
   const input = byId('files-upload-input');
   const file = input?.files?.[0];
   if (!file) { toast('Choose a file to upload', 'warn'); return; }
+  // Pre-check the configured size cap so we don't push a huge file just to get a 413.
+  const maxMb = Number(state.settings?.max_shared_size_mb || 0);
+  if (maxMb && file.size > maxMb * 1024 * 1024) {
+    toast(`File is ${Math.round(file.size / (1024 * 1024))} MB — over the ${maxMb} MB limit (Settings → Max shared file size).`, 'error');
+    return;
+  }
   const name = (byId('files-upload-name')?.value || '').trim() || file.name;
   const description = (byId('files-upload-desc')?.value || '').trim();
   const form = new FormData();
@@ -609,6 +621,10 @@ function renderAll() {
   renderSection('settings', [state.settings], renderSettings);
   // Keep the analytics page live while it's the active page (re-fetch on the poll cycle).
   if (byId('page-analytics')?.classList.contains('active')) loadAnalytics();
+  // Keep the Fleet pulse live while it's the Chat landing view (no conversation open).
+  if (byId('page-chat')?.classList.contains('active') && !state.chat.selected && !state.chat.analytics.agent) {
+    chatController.refreshPulse();
+  }
 }
 
 // Legacy setting mirror. Mode-switch chips are now always visible; ownership
@@ -1761,21 +1777,26 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   })();
   const codexAttachable = codexAppServerUrl && codexIsLoopback;
   const agentIdForCodex = sessionAgentId(session) || '';
-
+  const normalizedSessionMode = String(agent?.sessionMode || session?.sessionMode || session?.session_mode || '').toLowerCase();
+  const isResident = normalizedSessionMode === 'resident';
+  // When this console is embedded in the Chat conversation pane, the lifecycle actions
+  // (Restart/Reset/Stop/Switch/Message-in-Chat) already live in the chat header + Details
+  // drawer — so we don't duplicate them here (audit finding C5). Sessions page keeps the full set.
+  const isChatSource = opts.source === 'chat';
+  const connectActions = `${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}`
+    + `${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}`;
+  const lifecycleActions = `${agentIdForCodex ? `<button class="ghost" data-open-chat="${esc(agentIdForCodex)}" title="Message this agent in Chat">Message in Chat</button>` : ''}`
+    + `${renderModeSwitchChip(agent)}`
+    + `<button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>`
+    + `<button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}" title="Restart with a FRESH context (discards native session)">Reset</button>`
+    + `${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}`;
+  const headerActions = isChatSource ? connectActions : (lifecycleActions + connectActions);
   const headerCard = `
     <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
       <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown', statusWhyContext('session', session || {}, session?.status || 'unknown'))}</div>
       <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
       <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
-      <div class="contract-actions">
-        ${agentIdForCodex ? `<button class="ghost" data-open-chat="${esc(agentIdForCodex)}" title="Message this agent in Chat">Message in Chat</button>` : ''}
-        ${renderModeSwitchChip(agent)}
-        <button class="ghost" data-session-control="restart" data-session-id="${esc(id)}">Restart</button>
-        <button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}" title="Restart with a FRESH context (discards native session)">Reset</button>
-        ${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}
-        ${hermesGatewayHttp ? `<button class="ghost" data-action="open-hermes-tab" data-url="${esc(hermesGatewayHttp)}">Open in new tab</button>` : ''}
-        ${codexAttachable ? `<button class="ghost" data-action="codex-console-connect" data-agent-id="${esc(agentIdForCodex)}" data-app-server-url="${esc(codexAppServerUrl)}" data-thread-id="${esc(codexThreadId)}">Connect live console</button>` : ''}
-      </div>
+      ${headerActions ? `<div class="contract-actions">${headerActions}</div>` : ''}
     </article>`;
 
   // For hermes resident agents with a live tui_gateway, embed the upstream
@@ -1826,16 +1847,31 @@ function renderSessionConsole(session, targetEl, opts = {}) {
        </div>`
     : '';
 
-  // No live terminal yet (widgetChoice 'none') but the session is a managed/PTY-capable one:
-  // offer to start a console (parity with the old dashboard's Start console / Start fresh).
-  const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !hermesGatewayHttp && !codexAttachable;
+  // No live terminal yet (widgetChoice 'none') and the session is a MANAGED PTY-capable one:
+  // offer to start a console. Resident agents are excluded — starting a managed console for a
+  // resident identity would spawn a second process alongside the operator's own terminal
+  // (audit finding C3); for those we show a switch-to-managed note instead. "Start fresh" is
+  // only meaningful for pi without a saved handle (audit findings C1/C2), so we show a single
+  // button otherwise — the truly-fresh path is the Reset (recreate) lifecycle action.
+  const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !isResident && !hermesGatewayHttp && !codexAttachable;
+  const piNeedsFresh = runtime === 'pi' && !String(agent?.sessionHandle || runtimeConfig.handle || '').trim();
   const startConsoleEmbed = canStartConsole
     ? `<div class="console-embed" data-kind="console-start">
          <div class="console-embed-label"><span>No live console for this session.</span></div>
          <div class="console-start-actions">
-           <button class="primary" data-console-action="start" data-session-id="${esc(id)}">Start console</button>
-           <button class="ghost" data-console-action="start-fresh" data-session-id="${esc(id)}" title="Start a console with a fresh context">Start fresh</button>
+           ${piNeedsFresh
+             ? `<button class="primary" data-console-action="start-fresh" data-session-id="${esc(id)}" title="No saved session — start a fresh console">Start fresh console</button>`
+             : `<button class="primary" data-console-action="start" data-session-id="${esc(id)}">Start console</button>`}
          </div>
+       </div>`
+    : '';
+
+  // Resident agent with no embeddable widget: do NOT offer to start a managed console (that
+  // would conflict with the operator's own CLI). Point them at the mode switch instead.
+  const residentConsoleNote = (widgetChoice.kind === 'none' && isResident)
+    ? `<div class="console-embed" data-kind="console-resident">
+         <div class="console-embed-label"><span>${esc(agentIdForCodex || 'This agent')} is <strong>resident</strong> — its terminal is the CLI you launched (${esc(agent?.runtime || 'runtime')}-aify), not a dashboard-owned console.</span></div>
+         <div class="console-start-actions">${renderModeSwitchChip(agent) || '<span class="em">Switch it to managed to get a dashboard console.</span>'}</div>
        </div>`
     : '';
 
@@ -1867,7 +1903,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
        </div>`
     : '';
 
-  host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${hermesIframe}${codexConsole}`;
+  host.innerHTML = `${headerCard}${ptyEmbed}${startConsoleEmbed}${residentConsoleNote}${hermesIframe}${codexConsole}`;
 
   // Mount xterm.js into the terminal container we just rendered. If a
   // different terminal was previously mounted, dispose its xterm first.
@@ -1995,8 +2031,7 @@ function renderRuntime() {
         <button class="ghost" data-env-spawn="${esc(env.id)}">Spawn here</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
-          : `<button class="ghost" data-env-control="restart" data-env-id="${esc(env.id)}" title="Ask this bridge to restart">Restart bridge</button>
-             <button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
+          : `<button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
       </div>
     </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start an aify-comms bridge on a host to see it here.</p></div>';
 }
@@ -2487,7 +2522,7 @@ function preferredNavCollapsed() {
 
 async function requestRunControl(runId) {
   const body = await uiPrompt('Steer this active run');
-  if (!body) return;
+  if (!body || !body.trim()) return;
   await api(`/dispatch/runs/${encodeURIComponent(runId)}/control`, {
     method: 'POST',
     body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
@@ -2570,9 +2605,15 @@ async function requestBulkDiagnosticAction(action) {
   }
   if (action === 'remind') {
     const contracts = selected.filter((entry) => entry.kind === 'contract');
+    if (!contracts.length) {
+      // Only reply-contracts can be reminded; don't silently drop a runs-only selection.
+      toast('No reply-contract items in the selection to remind.', 'warn');
+      return;
+    }
     for (const item of contracts) {
       await remindWorkContract(item.id, false);
     }
+    toast(`Reminder sent for ${contracts.length} contract${contracts.length === 1 ? '' : 's'}.`, 'ok');
     state.selectedDiagnosticIds.clear();
     await refresh();
     return;
@@ -2692,7 +2733,7 @@ async function handleRunInspectorControl(action) {
   }
   if (action === 'steer') {
     const body = await uiPrompt('Steer this active run');
-    if (!body) return;
+    if (!body || !body.trim()) return;
     await api(`/dispatch/runs/${encodeURIComponent(run.id)}/control`, {
       method: 'POST',
       body: JSON.stringify({ from_agent: 'dashboard', action: 'steer', body }),
@@ -2705,10 +2746,11 @@ async function handleRunInspectorControl(action) {
     });
   } else if (action === 'queue-after') {
     const body = await uiPrompt('Queue a follow-up after this run');
-    if (!body) return;
+    if (!body || !body.trim()) return;
     await sendRunFollowup(run, { body });
   } else if (action === 'retry') {
-    if (!await uiConfirm(`Retry this run? This will kill 1 active run + ${runPendingControlCount(run)} pending controls.`)) return;
+    const target = runTargetAgent(run);
+    if (!await uiConfirm(`Retry this run? A new follow-up request will be sent to ${target || 'the target'} (queued if busy). It does not interrupt anything currently running.`)) return;
     await sendRunFollowup(run, { retry: true });
   } else if (action === 'close') {
     if (!await uiConfirm('Close this run as operator-reviewed?')) return;
@@ -2892,6 +2934,15 @@ document.addEventListener('click', (event) => {
       chatController.close();
     } else {
       chatController.open(key);
+    }
+    return;
+  }
+  const pulseWindow = event.target.closest('[data-pulse-window]');
+  if (pulseWindow) {
+    const mins = Number(pulseWindow.dataset.pulseWindow) || 60;
+    if (mins !== state.chat.pulse.window) {
+      state.chat.pulse.window = mins;
+      chatController.refreshPulse();
     }
     return;
   }

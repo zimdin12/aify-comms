@@ -6,6 +6,7 @@
 import { esc, relTime } from './util.js';
 import { renderStatusChip, resolveStatus } from './status.js';
 import { toast } from './ui.js';
+import { fleetPulseHtml } from './analytics.js';
 
 // Which of state.messages belong to a DM conversation with `agentId`, scoped to the viewing
 // identity. (The server already scopes the dashboard inbox; this is the per-peer filter.)
@@ -99,45 +100,6 @@ export function chatConversationItems(state) {
 }
 
 // Chat overview shown when no conversation is open (re-click an open chat to return here).
-// Pure + computed from already-loaded state (no fetch), so it paints instantly.
-export function chatStatsHtml(state) {
-  const items = chatConversationItems(state);
-  const dms = items.filter((i) => i.kind === 'dm');
-  const channels = items.filter((i) => i.kind === 'channel');
-  const unread = items.reduce((s, i) => s + (i.unread || 0), 0);
-  const byStatus = {};
-  for (const a of (state.agents || [])) {
-    if (!a.id || a.id === 'dashboard') continue;
-    const k = resolveStatus(a.status).kind;
-    byStatus[k] = (byStatus[k] || 0) + 1;
-  }
-  const sc = (k) => byStatus[k] || 0;
-  const dayAgo = Date.now() - 24 * 3600 * 1000;
-  const recent = (state.messages || []).filter((m) => {
-    const t = Date.parse(String(m.timestamp || m.createdAt || ''));
-    return Number.isFinite(t) && t >= dayAgo;
-  }).length;
-  const top = dms.filter((i) => i.msgCount > 0).sort((a, b) => b.msgCount - a.msgCount).slice(0, 6);
-  const card = (n, l, tone) => `<div class="metric${tone ? ` ${tone}` : ''}" data-tone="${tone || ''}"><b>${esc(String(n))}</b><span>${esc(l)}</span></div>`;
-  const dot = (k) => `<span class="status-dot ${esc(k)}"></span>`;
-  const statusChip = (k, label) => `<span class="chat-stats-status">${dot(k)}${sc(k)} ${esc(label)}</span>`;
-  return `<div class="chat-stats">
-    <p class="chat-stats-hint em">Pick a conversation on the left — or re-click the open one to return here.</p>
-    <div class="chat-stats-cards">
-      ${card(dms.length, 'Direct chats')}
-      ${card(channels.length, 'Channels')}
-      ${card(unread, 'Unread', unread ? 'warn' : '')}
-      ${card(recent, 'Messages · 24h')}
-    </div>
-    <div class="chat-stats-section"><h4>Fleet</h4><div class="chat-stats-statusrow">
-      ${statusChip('working', 'working')}${statusChip('online', 'online')}${statusChip('available', 'available')}
-      ${statusChip('blocked', 'blocked')}${statusChip('stale', 'stale')}${statusChip('offline', 'offline')}
-    </div></div>
-    ${top.length ? `<div class="chat-stats-section"><h4>Most active</h4><div class="chat-stats-top">${top.map((i) =>
-      `<button class="chat-stats-peer" data-chat-open="dm:${esc(i.id)}"><span class="chat-stats-peer-id">${dot(resolveStatus(i.status).dotKind)}${esc(i.id)}</span><span class="chat-stats-peer-n">${i.msgCount} msg${i.unread ? ` · ${i.unread} unread` : ''}</span></button>`).join('')}</div></div>` : ''}
-  </div>`;
-}
-
 function railItemHtml(item, selectedKey) {
   const active = item.key === selectedKey ? ' active' : '';
   const dot = item.kind === 'dm'
@@ -208,14 +170,7 @@ export function renderAnalyticsPanelHtml(agentId, data) {
   const mr = Number(data.medianReplyMinutes7d || 0);
   const mrLabel = mr >= 60 ? `${Math.floor(mr / 60)}h ${Math.round(mr % 60)}m` : `${Math.round(mr)}m`;
   const runs = data.runs7d || {};
-  const days = Array.isArray(data.dailyActivity) ? data.dailyActivity : [];
-  const dayMax = Math.max(1, ...days.map((d) => Number(d.sent || 0) + Number(d.received || 0)));
-  const dayBars = days.length ? days.map((d) => {
-    const inN = Number(d.received || 0); const outN = Number(d.sent || 0);
-    const w = Math.max(2, Math.round(((inN + outN) / dayMax) * 100));
-    return `<div class="an-bar-row"><span class="an-bar-label">${esc(String(d.date || '').slice(5))}</span><span class="an-bar-track"><span class="an-bar-fill" style="width:${w}%"></span></span><span class="an-bar-val" title="${inN} received · ${outN} sent">${inN}↓ ${outN}↑</span></div>`;
-  }).join('') : '<p class="subtle">No activity in 14 days.</p>';
-  const peers = (Array.isArray(data.byPeer) ? data.byPeer : []).slice(0, 8);
+  const peers = (Array.isArray(data.byPeer) ? data.byPeer : []).slice(0, 5);
   const peerMax = Math.max(1, ...peers.map((p) => Number(p.count || 0)));
   const peerBars = peers.length ? peers.map((p) => {
     const w = Math.max(2, Math.round((Number(p.count || 0) / peerMax) * 100));
@@ -241,7 +196,6 @@ export function renderAnalyticsPanelHtml(agentId, data) {
       <div class="an-card"><div class="an-n">${mr ? esc(mrLabel) : '—'}</div><div class="an-l">Median reply 7d</div></div>
       <div class="an-card"><div class="an-n${owed ? ' an-bad' : ''}">${owed}</div><div class="an-l">Owes replies</div></div>
     </div>
-    <h4 class="an-h">Activity — 14 days (received↓ / sent↑)</h4>${dayBars}
     <h4 class="an-h">Work runs — 7 days</h4>
     <dl class="an-runs"><dt>Completed</dt><dd>${Number(runs.completed || 0)}</dd><dt>Failed</dt><dd>${Number(runs.failed || 0)}${runs.lastFailedSubject ? ` <span class="subtle clip" title="${esc(runs.lastFailedSubject)}">· ${esc(runs.lastFailedSubject)}</span>` : ''}</dd><dt>Open</dt><dd>${Number(runs.open || 0)}</dd><dt>Avg turn</dt><dd>${data.avgRunMinutes7d ? `${data.avgRunMinutes7d} min` : '—'}</dd></dl>
     ${hodSection}
@@ -252,7 +206,7 @@ export function renderAnalyticsPanelHtml(agentId, data) {
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
 // loadChannels, refresh, loadConversation, loadAgentAnalytics }.
 export function createChatController(deps) {
-  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole } = deps;
+  const { state, byId, sendMessage, loadChannels, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse } = deps;
 
   function renderRail() {
     const host = byId('chat-rail-list');
@@ -287,12 +241,16 @@ export function createChatController(deps) {
     }
     const key = state.chat.selected;
     if (!key) {
-      if (titleEl) titleEl.textContent = 'Chat overview';
+      if (titleEl) titleEl.textContent = 'Fleet pulse';
       const actions = byId('chat-conv-actions');
       if (actions) actions.innerHTML = '';
-      timeline.innerHTML = chatStatsHtml(state);
+      timeline.innerHTML = fleetPulseHtml(state.chat.pulse.data, state.chat.pulse.window);
       const composer = byId('chat-composer');
       if (composer) composer.hidden = true;
+      const search = byId('chat-msg-search');
+      if (search) search.hidden = true;
+      // Lazy-load the pulse the first time we land here; window changes/refresh force a refetch.
+      if (!state.chat.pulse.data && !state.chat.pulse.loading) loadFleetPulse();
       return;
     }
     const isChannel = key.startsWith('channel:');
@@ -419,11 +377,35 @@ export function createChatController(deps) {
     render();
   }
 
-  // Re-clicking the open conversation closes it back to the overview/stats view.
+  // Re-clicking the open conversation closes it back to the Fleet pulse view.
   function close() {
     state.chat.selected = '';
     state.chat.analytics = { agent: '', data: null };
+    state.chat.pulse.data = null; // force a fresh pulse fetch on return
     render();
+  }
+
+  // Fetch the window-scoped fleet pulse for the landing dashboard.
+  async function loadFleetPulse() {
+    if (!loadPulse) return;
+    const w = state.chat.pulse.window;
+    state.chat.pulse.loading = true;
+    try {
+      const d = await loadPulse(w);
+      if (state.chat.pulse.window === w) state.chat.pulse.data = d;
+    } catch (_) {
+      state.chat.pulse.data = { ok: false };
+    }
+    state.chat.pulse.loading = false;
+    // Only repaint if we're still on the pulse view (no conversation / analytics open).
+    if (!state.chat.selected && !state.chat.analytics.agent) renderConversation();
+  }
+
+  // Refetch the pulse without blanking the current numbers (window change / poll tick).
+  // Repaint first so the window selector reflects the new selection immediately.
+  function refreshPulse() {
+    if (!state.chat.selected && !state.chat.analytics.agent) renderConversation();
+    loadFleetPulse();
   }
 
   async function openAnalytics(agentId) {
@@ -472,5 +454,5 @@ export function createChatController(deps) {
     }
   }
 
-  return { render, open, close, openAnalytics, send, renderRail, renderConversation };
+  return { render, open, close, openAnalytics, send, renderRail, renderConversation, refreshPulse };
 }
