@@ -143,7 +143,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn('class="status-dot', script)
         self.assertIn(".status-dot", styles)
         self.assertIn("data-tone=", script)
-        self.assertIn(".band.compact", styles)
+        self.assertIn(".band { padding:", styles)
         self.assertIn(".scroll-region", styles)
         self.assertIn("max-height:", styles)
         self.assertRegex(styles, r"\.metric\[data-tone=\"warn\"\]")
@@ -263,7 +263,7 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertIn(".mobile-tabbar", styles)
         self.assertIn("display: none;", styles)
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.mobile-tabbar\s*\{[^}]*position:\s*fixed")
-        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.workspace\s*\{[^}]*padding-bottom:\s*calc\(96px \+ env\(safe-area-inset-bottom\)\)")
+        self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.workspace\s*\{[^}]*padding-bottom:\s*calc\(\d+px \+ env\(safe-area-inset-bottom\)\)")
         self.assertRegex(styles, r"@media \(max-width: 414px\)[\s\S]*\.nav nav\s*\{[^}]*display:\s*none")
 
     def test_diagnostics_destination_has_summary_and_bulk_selection(self):

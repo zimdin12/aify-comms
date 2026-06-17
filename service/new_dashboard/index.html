@@ -79,7 +79,7 @@
             <div class="chat-rail-controls">
               <div class="chat-search-row">
                 <input id="chat-filter" type="search" placeholder="Search conversations + messages">
-                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" title="Sort, filters & channels" aria-expanded="false">⚙</button>
+                <button type="button" class="icon-button chat-filter-toggle" id="chat-filter-toggle" aria-label="Sort, filters & channels" title="Sort, filters & channels" aria-expanded="false">⚙</button>
               </div>
               <div id="chat-rail-options" class="chat-rail-options" hidden>
                 <div class="chat-rail-row">
@@ -154,7 +154,7 @@
               </div>
               <div id="session-status" class="session-status"></div>
             </div>
-            <div class="segmented" role="tablist" aria-label="Session view">
+            <div class="segmented" role="group" aria-label="Session view">
               <button class="active" type="button" data-session-tab="console">Console</button>
               <button type="button" data-session-tab="activity">Activity</button>
             </div>
@@ -279,7 +279,7 @@
         <section class="band">
           <div class="section-head">
             <h2>Message traffic</h2>
-            <div class="segmented analytics-range" id="analytics-range" role="tablist" aria-label="Analytics range"></div>
+            <div class="segmented analytics-range" id="analytics-range" role="group" aria-label="Analytics range"></div>
           </div>
           <div id="analytics-traffic"></div>
         </section>

@@ -35,10 +35,21 @@ export function chatConversationItems(state) {
   const statusSet = chat.statusFilter instanceof Set ? chat.statusFilter : null;
   const ts = (v) => { const n = Date.parse(String(v || '')); return Number.isFinite(n) ? n : Number(v) || 0; };
 
+  // Bucket messages by peer once (O(M)) so per-agent lookups and search are O(1) instead of
+  // re-filtering the whole message list per agent (was O(A·M), doubled on every search keystroke).
+  const buckets = new Map();
+  const push = (peer, m) => { const b = buckets.get(peer); if (b) b.push(m); else buckets.set(peer, [m]); };
+  for (const m of (state.messages || [])) {
+    const from = String(m.from || '');
+    const to = String(m.to || m.targetAgentId || m.target_agent_id || '');
+    if (from) push(from, m);
+    if (to && to !== from) push(to, m);
+  }
+
   const dms = (state.agents || [])
     .filter((a) => a.id && a.id !== 'dashboard')
     .map((a) => {
-      const msgs = dmMessages(state.messages, a.id, identity);
+      const msgs = buckets.get(a.id) || [];
       const last = msgs[msgs.length - 1];
       const unread = msgs.filter((m) => m.read === false).length;
       return {
@@ -66,7 +77,7 @@ export function chatConversationItems(state) {
   if (filter) {
     // Global search (parity with old dashboard): match id/preview AND any loaded message body.
     const bodyMatch = (i) => i.kind === 'dm'
-      && dmMessages(state.messages, i.id, identity).some((m) => String(m.body || m.subject || m.preview || '').toLowerCase().includes(filter));
+      && (buckets.get(i.id) || []).some((m) => String(m.body || m.subject || m.preview || '').toLowerCase().includes(filter));
     items = items.filter((i) => i.id.toLowerCase().includes(filter) || i.preview.toLowerCase().includes(filter) || bodyMatch(i));
   }
 
@@ -95,7 +106,7 @@ function railItemHtml(item, selectedKey) {
   const unread = item.unread > 0 ? `<span class="chat-unread">${item.unread}</span>` : '';
   // DMs get a clickable star (PATCH /agents/{id}/favorite); channels have no server favorite.
   const fav = item.kind === 'dm'
-    ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
+    ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" tabindex="0" aria-label="${item.favorited ? 'Unfavorite' : 'Favorite'} ${esc(item.id)}" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
     : (item.favorited ? '<span class="chat-fav" title="Favorite">★</span>' : '');
   return `<button class="chat-rail-item${active}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
     <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${fav}${unread}</span>
@@ -121,7 +132,7 @@ function messageHtml(m, identity = 'dashboard') {
   const runChip = runId ? `<button class="run-chip" data-run-chip="${esc(runId)}" data-message-id="${esc(id)}">Run ${esc(runId.slice(0, 10))}</button>` : '';
   const readToggle = !mine ? `<button class="chat-msg-act" data-msg-read="${esc(id)}" data-read="${m.read === false ? '0' : '1'}" title="Mark ${m.read === false ? 'read' : 'unread'}">${m.read === false ? 'Mark read' : 'Unread'}</button>` : '';
   const unsendBtn = mine ? `<button class="chat-msg-act danger" data-msg-unsend="${esc(id)}" title="Unsend this message">Unsend</button>` : '';
-  const actions = `${runChip}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" title="Message details">⋯</button>`;
+  const actions = `${runChip}<button class="chat-msg-reply" data-chat-reply="${esc(id)}" title="Reply to this message">Reply</button>${readToggle}${unsendBtn}<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>`;
   return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${actions}</span>
@@ -254,7 +265,7 @@ export function createChatController(deps) {
           + addControl;
         // Member chips with remove buttons below the action row.
         if (members.length) {
-          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button></span>`).join('')}</div>`;
+          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button></span>`).join('')}</div>`;
         }
       } else {
         actions.innerHTML = `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`

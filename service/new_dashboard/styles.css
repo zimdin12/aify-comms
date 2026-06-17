@@ -207,7 +207,6 @@ small, .subtle { color: var(--muted); }
 .top-actions .search input, .top-actions > button { min-height: 40px; }
 .search { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .search input { width: 260px; }
-.two-pane.active { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; }
 /* Landing "pulse" hero (chat only). Subtle gradient surface so it reads as the app's face,
    compact so it never pushes messages far down (WS-G1/G3). */
 .attention-strip {
@@ -250,8 +249,7 @@ small, .subtle { color: var(--muted); }
 .attention-strip .metric { padding: 9px 11px; }
 .attention-strip .metric b { font-size: 19px; }
 .attention-strip .metric span { margin-top: 5px; font-size: .82em; }
-.band, .context-rail, .pane { padding: 12px; }
-.band.compact { padding: 10px; }
+.band { padding: 12px; }
 .section-head {
   display: flex;
   justify-content: space-between;
@@ -283,12 +281,6 @@ small, .subtle { color: var(--muted); }
   min-height: 0;
   overflow: auto;
   padding-right: 2px;
-}
-.agent {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
 }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
 /* Agent status colors:
@@ -436,7 +428,6 @@ small, .subtle { color: var(--muted); }
 }
 .run-row { display: grid; grid-template-columns: 28px 150px 150px minmax(0, 1fr) 120px; gap: 12px; align-items: center; }
 .timeline { max-height: calc(100vh - 245px); overflow: auto; padding-right: 4px; }
-.message { max-width: 900px; }
 /* Composer: options on one row, then [textarea | Send] aligned as a row (QA C3 — Send no longer
    floats with a gap above it). */
 .composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -548,10 +539,6 @@ small, .subtle { color: var(--muted); }
   opacity: .45;
   cursor: not-allowed;
 }
-.bar-stack { display: grid; gap: 9px; }
-.bar-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 50px; gap: 10px; align-items: center; }
-.bar-track { height: 10px; background: #0d1010; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-.bar-fill { height: 100%; background: var(--accent); }
 .session-shell {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
@@ -812,7 +799,8 @@ small, .subtle { color: var(--muted); }
   .session-thread { max-height: 46vh; }
 }
 @media (max-width: 414px) {
-  .workspace { padding: 14px; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* Single 48px tabbar row → reserve ~76px so the last page row isn't clipped (deep-audit D). */
+  .workspace { padding: 14px; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   .nav { padding: 14px; }
   .nav nav { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav-footer { display: none; }
@@ -822,20 +810,24 @@ small, .subtle { color: var(--muted); }
     right: 0;
     bottom: 0;
     z-index: 12;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: flex;
+    overflow-x: auto;
     gap: 4px;
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     background: #0b0f0e;
     border-top: 1px solid var(--line);
     box-shadow: 0 -12px 30px rgba(0,0,0,.28);
+    scrollbar-width: none;
   }
+  .mobile-tabbar::-webkit-scrollbar { display: none; }
   .mobile-tabbar button {
+    flex: 1 0 auto;
+    min-width: 52px;
     min-height: 48px;
-    padding: 6px 4px;
+    padding: 6px 8px;
     border-radius: 8px;
     font-size: 11px;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
   }
   .mobile-tabbar button.active {
     background: var(--accent);
@@ -1106,8 +1098,6 @@ small, .subtle { color: var(--muted); }
 @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; } }
 
 /* Appearance settings editor (WS-A) — theme tiles + color pickers. */
-.settings-row-wide { grid-column: 1 / -1; }
-.settings-color-row input[type="color"] { width: 56px; height: 34px; min-height: 34px; padding: 2px; border-radius: 8px; cursor: pointer; background: #0d1010; }
 .theme-preview-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }
 .theme-preview {
   display: grid; gap: 7px; text-align: left; padding: 10px;
@@ -1153,11 +1143,21 @@ small, .subtle { color: var(--muted); }
 .health-card.warn b { color: var(--amber); }
 .health-card.bad b { color: var(--red); }
 .health-card.good b { color: var(--green); }
+/* Inline empty/placeholder text (analytics panels). The full .empty-state block is overkill for
+   a one-line "nothing yet" note, so .em is just muted small copy. */
+.em { color: var(--muted); font-size: .82em; margin: 4px 0; }
 .status-bars { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
 .status-bar-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 34px; gap: 8px; align-items: center; }
 .status-bar-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78em; min-width: 0; }
 .status-bar-track { height: 8px; border-radius: 999px; background: #0a0b0c; border: 1px solid var(--line); overflow: hidden; }
 .status-bar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 45%, #0a0b0c)); }
+/* Tint the run-status-mix bars by status so the chart reads at a glance (deep-audit), mirroring
+   the old dashboard's red/amber/green. Falls back to the blue default for unknown statuses. */
+.status-bar-fill[data-status="completed"], .status-bar-fill[data-status="online"], .status-bar-fill[data-status="ok"] { background: linear-gradient(90deg, var(--green), color-mix(in srgb, var(--green) 45%, #0a0b0c)); }
+.status-bar-fill[data-status="working"], .status-bar-fill[data-status="running"], .status-bar-fill[data-status="available"] { background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 45%, #0a0b0c)); }
+.status-bar-fill[data-status="queued"], .status-bar-fill[data-status="pending"], .status-bar-fill[data-status="idle"], .status-bar-fill[data-status="stale"] { background: linear-gradient(90deg, var(--amber, #e6b455), color-mix(in srgb, var(--amber, #e6b455) 45%, #0a0b0c)); }
+.status-bar-fill[data-status="failed"], .status-bar-fill[data-status="blocked"], .status-bar-fill[data-status="error"], .status-bar-fill[data-status="timeout"] { background: linear-gradient(90deg, var(--red), color-mix(in srgb, var(--red) 45%, #0a0b0c)); }
+.status-bar-fill[data-status="offline"], .status-bar-fill[data-status="stopped"], .status-bar-fill[data-status="cancelled"] { background: linear-gradient(90deg, var(--muted), color-mix(in srgb, var(--muted) 45%, #0a0b0c)); }
 .status-bar-value { text-align: right; color: var(--muted); font-size: .78em; }
 @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } #analytics-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { #analytics-stats, .chart-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1305,3 +1305,20 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 /* WS-F chat attach button. */
 .chat-attach { display: inline-flex; align-items: center; gap: 4px; }
 .chat-attach input[type="file"] { display: none; }
+
+/* ============================================================================
+   WS-L accessibility — visible keyboard focus + reduced-motion (deep-audit P1/P5).
+   ============================================================================ */
+/* A single visible focus ring for keyboard users across every interactive control.
+   :focus-visible only matches keyboard focus, so mouse clicks stay ring-free; the
+   !important overrides the few `outline:none` input rules for keyboard focus only. */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="button"]:focus-visible {
+  outline: 2px solid var(--accent) !important; outline-offset: 2px; border-radius: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}

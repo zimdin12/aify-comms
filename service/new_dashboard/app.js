@@ -2,7 +2,7 @@
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
 import { esc, relTime } from './util.js';
-import { STATUS_KINDS, resolveStatus, renderStatusChip, renderStatusDot } from './status.js';
+import { STATUS_KINDS, resolveStatus, renderStatusChip } from './status.js';
 import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
 import { toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
 import { createChatController } from './chat.js';
@@ -726,9 +726,12 @@ function activeSettingsTab() {
 function renderSettings() {
   const host = byId('settings-form');
   if (!host) return;
+  // Don't rebuild while the operator is editing a field — the 15s poll re-renders settings and
+  // would otherwise wipe an in-progress edit (deep-audit C1).
+  if (host.contains(document.activeElement)) return;
   const s = state.settings || {};
   const active = activeSettingsTab();
-  const tabBar = `<div class="settings-tabs" role="tablist">`
+  const tabBar = `<div class="settings-tabs" role="group" aria-label="Settings sections">`
     + SETTINGS_SCHEMA.map((g) => `<button type="button" class="settings-tab${g.group === active ? ' active' : ''}" data-settings-tab="${esc(g.group)}">${esc(SETTINGS_TAB_LABELS[g.group] || g.group)}</button>`).join('')
     + `<button type="button" class="settings-tab${active === HELP_TAB ? ' active' : ''}" data-settings-tab="${HELP_TAB}">${HELP_TAB}</button>`
     + `</div>`;
@@ -1859,6 +1862,9 @@ function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environme
   const envSelect = byId('env-spawn-environment');
   const runtimeSelect = byId('env-spawn-runtime');
   if (!envSelect || !runtimeSelect) return;
+  // Don't rebuild the spawn dropdowns while the operator is interacting with the form — the 15s
+  // poll would otherwise reset an open/selected dropdown (deep-audit C minor).
+  if (byId('environment-spawn-form')?.contains(document.activeElement)) return;
   const currentEnv = state.environments.some((env) => String(env.id) === selectedEnvId)
     ? selectedEnvId
     : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id || state.environments[0]?.id || '');
@@ -3038,6 +3044,11 @@ document.addEventListener('keydown', (event) => {
   if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-status-why]')) {
     event.preventDefault();
     openStatusWhy(event.target);
+  }
+  // Keyboard-operable favorite star (role=button span) — WS-L a11y.
+  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-fav-toggle]')) {
+    event.preventDefault();
+    toggleFavorite(event.target.dataset.favToggle);
   }
   // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as
   // SIGINT into the PTY, so the copy shortcut is shifted — parity with the old dashboard).
