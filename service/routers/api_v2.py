@@ -3753,11 +3753,25 @@ async def _fail_pending_controls_for_run(
 
 
 def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]]) -> str:
+    # Only an actively-RUNNING dispatch run means the agent is 'working'. A merely
+    # 'claimed' run (a bridge claimed it to deliver, but the turn hasn't started — or
+    # the agent already finished and the run just isn't closed yet) does NOT: an idle
+    # agent with a stale claimed run must reflect the engine's turn_busy-based verdict
+    # (online), not a phantom 'working'. This was the root cause of agents showing
+    # 'working' while actually idle (2026-06-18). The running→working promotion is kept
+    # so a just-delivered turn reads 'working' before the bridge's turn-start event lands.
     if not dispatch_state:
         return status
-    if dispatch_state.get("hasActiveRun") and status not in _MANUAL_STATUSES and status not in {"stale", "offline", "blocked"}:
+    active = dispatch_state.get("activeRun") or {}
+    if active.get("status") == "running" and status not in _MANUAL_STATUSES and status not in {"stale", "offline", "blocked"}:
         return "working"
     return status
+
+
+# Legacy raw agents.status values that predate the 8-status engine vocabulary. The
+# bridge heartbeat still stamps agents.status='active'; if a live_state row is ever
+# missing, that raw value must NOT leak to the UI as a non-canonical status.
+_LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online"}
 
 
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
@@ -3769,6 +3783,8 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
     # the public agent taxonomy so operators see one idle-live state: online.
     if base_status.lower() == "ready":
         base_status = "online"
+    # Never surface a legacy raw status (e.g. heartbeat-stamped 'active') as-is.
+    base_status = _LEGACY_RAW_STATUS_TO_CANONICAL.get(base_status.lower(), base_status)
     effective_status = _status_with_dispatch(base_status, dispatch_state)
     return {
         "role": row["role"],
