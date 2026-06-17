@@ -33,7 +33,8 @@ function pulseWorkedLabel(iso) {
 
 export function fleetPulseHtml(data, windowMinutes = 60) {
   const winLabel = (PULSE_WINDOWS.find((w) => w.m === windowMinutes) || { label: `${windowMinutes}m` }).label;
-  const head = `<div class="pulse-head"><h3>Fleet pulse</h3>`
+  // Title lives in the conversation header bar; here we just offer the window selector.
+  const head = `<div class="pulse-head"><span class="pulse-head-label em">Comms performance + online agents</span>`
     + `<div class="segmented pulse-window" role="group" aria-label="Pulse window">${pulseWindowSelectorHtml(windowMinutes)}</div></div>`;
   if (!data || data.ok === false) {
     return `<div class="pulse">${head}<p class="em">${data ? 'Pulse unavailable.' : 'Loading fleet pulse…'}</p></div>`;

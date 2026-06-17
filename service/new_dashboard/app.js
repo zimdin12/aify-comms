@@ -1854,14 +1854,17 @@ function renderSessionConsole(session, targetEl, opts = {}) {
   // only meaningful for pi without a saved handle (audit findings C1/C2), so we show a single
   // button otherwise — the truly-fresh path is the Reset (recreate) lifecycle action.
   const canStartConsole = widgetChoice.kind === 'none' && canStop && runtime && !isResident && !hermesGatewayHttp && !codexAttachable;
-  const piNeedsFresh = runtime === 'pi' && !String(agent?.sessionHandle || runtimeConfig.handle || '').trim();
+  // Runtime-agnostic: with no saved native handle there's nothing to resume, so starting IS a
+  // fresh start (and sending freshContext lets handle-required runtimes start without a 409).
+  // With a handle, a plain start resumes it; the truly-discard-and-restart path is Reset.
+  const noSavedHandle = !String(agent?.sessionHandle || runtimeConfig.handle || runtimeConfig.threadId || '').trim();
   const startConsoleEmbed = canStartConsole
     ? `<div class="console-embed" data-kind="console-start">
          <div class="console-embed-label"><span>No live console for this session.</span></div>
          <div class="console-start-actions">
-           ${piNeedsFresh
-             ? `<button class="primary" data-console-action="start-fresh" data-session-id="${esc(id)}" title="No saved session — start a fresh console">Start fresh console</button>`
-             : `<button class="primary" data-console-action="start" data-session-id="${esc(id)}">Start console</button>`}
+           ${noSavedHandle
+             ? `<button class="primary" data-console-action="start-fresh" data-session-id="${esc(id)}" title="No saved native session — start a fresh console">Start fresh console</button>`
+             : `<button class="primary" data-console-action="start" data-session-id="${esc(id)}" title="Resume this session's console">Start console</button>`}
          </div>
        </div>`
     : '';
