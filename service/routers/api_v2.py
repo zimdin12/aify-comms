@@ -5356,6 +5356,13 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
         if not refresh_after or refresh_after <= now:
             await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
             refreshed += 1
+            # Commit each row's upsert immediately. This runs on the hot read path
+            # (every GET /agents | /sessions poll) AND in the reconcile sweep; batching the
+            # whole loop into one transaction held SQLite's single writer lock across N
+            # per-agent status computes — right after a restart EVERY row is expired, so a
+            # roster poll alone could pin the lock long enough to 503 the fleet's
+            # claim/heartbeat writes. Per-row commits keep the lock held for milliseconds.
+            await db.commit()
     return refreshed
 
 
