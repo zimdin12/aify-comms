@@ -83,36 +83,48 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
 
     db = await _get_db()
     try:
-        repaired_active = await _repair_unusable_active_runs(db, limit=500)
+        # CRITICAL (perf/correctness): commit after EACH reconciler step. These steps are
+        # independent, idempotent cleanups with no cross-step atomicity requirement. A single
+        # trailing commit kept ONE write transaction open across the whole multi-second sweep,
+        # holding SQLite's single writer lock the entire time — so every bridge claim/heartbeat
+        # write (which the fleet polls constantly) got SQLITE_BUSY and 503'd as "database is
+        # locked" once per minute. Committing per step releases the lock between steps (held for
+        # ms, not seconds) so bridge writes interleave. `_commit_step` keeps that one-liner DRY.
+        async def _commit_step(result):
+            await db.commit()
+            return result
+
+        repaired_active = await _commit_step(await _repair_unusable_active_runs(db, limit=500))
         closed_delivered_total = 0
         for _ in range(10):  # hard cap: <= 10 * 500 = 5k runs per pass
             batch = await _close_reconcilable_delivered_runs(db, limit=500)
+            await db.commit()  # release the lock between batches
             closed_delivered_total += len(batch)
             if len(batch) < 500:
                 break
-        pruned = await _prune_terminal_history(db)
-        pruned_bridges = await _prune_superseded_bridges(db)
+        pruned = await _commit_step(await _prune_terminal_history(db))
+        pruned_bridges = await _commit_step(await _prune_superseded_bridges(db))
         # WS4 Task 4.3: GC TERMINAL dispatch_runs whose endpoints have no live
         # owner (tombstoned/removed/unknown), past the retention TTL. Never
         # touches non-terminal runs or any run referencing a live agent.
         _reconcile_settings = await _load_settings(db)
-        pruned_orphaned_runs = await _prune_orphaned_dispatch_runs(
+        pruned_orphaned_runs = await _commit_step(await _prune_orphaned_dispatch_runs(
             db,
             ttl_hours=int(
                 _reconcile_settings.get("orphaned_dispatch_run_retention_hours", 24) or 24
             ),
-        )
-        reminders = await _run_contract_reminders_once(db, limit=50, recent_only=True)
+        ))
+        reminders = await _commit_step(await _run_contract_reminders_once(db, limit=50, recent_only=True))
         # Event-driven (service-start event): clear stale managed PTY rows
         # for agents that are currently registered as resident. A previous
         # service container died holding those PTY processes; the rows
         # still show "attached" but no bridge owns them. Without this
         # the dashboard renders ghost consoles for resident agents.
-        stale_resident_terminals = await _reconcile_stale_managed_terminals_for_resident_agents(db)
+        stale_resident_terminals = await _commit_step(await _reconcile_stale_managed_terminals_for_resident_agents(db))
         # Auto-close persistent workers idle longer than the configured
         # window (default 0 = disabled). Returns the closed terminals
         # so the periodic-reconcile log shows them.
-        closed_idle_workers = await _close_idle_virtual_rpc_workers(db, limit=200)
+        closed_idle_workers = await _commit_step(await _close_idle_virtual_rpc_workers(db, limit=200))
         # Tight-window cleanup for managed-mode runs whose bridge
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.
@@ -125,7 +137,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # whose claim bridge is dead/stale; a live-bridge claim is left alone.
         # MUST run BEFORE _close_orphaned_managed_runs: that reaper would FAIL the
         # same claimed-never-delivered orphan (recovery is preferable to failure).
-        requeued_orphaned_claims = await _requeue_orphaned_claimed_runs(db, limit=200)
+        requeued_orphaned_claims = await _commit_step(await _requeue_orphaned_claimed_runs(db, limit=200))
         # Spawn-initial channel-routing fix (2026-06-03): re-route a queued
         # 'managed' run to 'channel' when its target has a live channel-sidecar.
         # The spawn-initial message is created before the agent's sidecar/flag is
@@ -133,7 +145,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # channel/resident) never picks it up — "managed agents can't talk on the
         # first message". MUST run BEFORE _reap_undeliverable_queued_runs so the
         # re-routed run is claimed, not failed.
-        rerouted_channel_runs = await _reroute_orphaned_managed_channel_runs(db, limit=200)
+        rerouted_channel_runs = await _commit_step(await _reroute_orphaned_managed_channel_runs(db, limit=200))
         # BUG 1 (2026-06-03): clear a stuck turn_busy=1 whose owning bridge
         # (agent_turn_state.turn_bridge_id) is dead/stale. A managed delivery loop
         # or resident channel-sidecar that set turn_busy on submit fires NO
@@ -141,32 +153,32 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # agent falsely shows `working` until the ~30-min ceiling. This is the
         # dead-claimer complement to the pure-event turn model — keyed on the
         # bridge's heartbeat, never the derived status, and only ever CLEARS.
-        cleared_dead_turn_busy = await _clear_turn_busy_for_dead_bridges(db, limit=200)
+        cleared_dead_turn_busy = await _commit_step(await _clear_turn_busy_for_dead_bridges(db, limit=200))
         # WS3 Task 3.2 (2026-06-02): backstop for `queued` runs no other reaper
         # covers — a queued run whose target has NO live claimer past the backstop
         # window would otherwise pile up to buffer_full. FAIL it + mirror to the
         # sender. MUST run AFTER requeue (a requeued orphan becomes `queued` and a
         # live bridge should get a chance to re-claim it first) and BEFORE
         # _close_orphaned_managed_runs.
-        reaped_queued = await _reap_undeliverable_queued_runs(db, limit=200)
-        closed_orphaned_managed = await _close_orphaned_managed_runs(db, limit=200)
+        reaped_queued = await _commit_step(await _reap_undeliverable_queued_runs(db, limit=200))
+        closed_orphaned_managed = await _commit_step(await _close_orphaned_managed_runs(db, limit=200))
         # Sender notices for runs the REAPERS failed (vs a bridge PATCH, which mirrors
         # inline): without this sweep a require_reply run failed by the orphan-closer /
         # claim auto-heal never told the sender (review, 2026-06-10). Idempotent.
-        mirrored_failed_handoffs = await _sweep_unmirrored_failed_handoffs(db)
+        mirrored_failed_handoffs = await _commit_step(await _sweep_unmirrored_failed_handoffs(db))
         # Managed console↔worker lifetime coupling (Workstream B): reap ghost
         # console rows (dead worker, terminal still 'attached') and detect
         # headless orphan workers (live sidecar, no console PTY) so a managed
         # claude is either online-with-console or fully down — never a headless
         # background worker (visible-TUI hard requirement).
-        managed_hygiene = await _reconcile_managed_worker_hygiene(db)
+        managed_hygiene = await _commit_step(await _reconcile_managed_worker_hygiene(db))
         # Self-heal the inverse: a console ghost-reaped on an INFERRED death (heartbeat lapse /
         # host starvation) whose worker is provably alive again (live channel-sidecar + fresh
         # output) is re-activated so the agent recovers `online` instead of staying stranded
         # `available` while it works headless (the next-manager incident, 2026-06-08). Runs AFTER
         # the reaper — they never fight in one pass (the reaper only reaps when signals are stale;
         # this only resurrects when they are fresh). Strictly scoped to the ghost-reap reason.
-        resurrected_consoles = await _reconcile_resurrected_managed_consoles(db)
+        resurrected_consoles = await _commit_step(await _reconcile_resurrected_managed_consoles(db))
         # Downgrade a live-status agent_sessions row to 'stopped' once its backing is
         # dead (2026-06-03): a managed session whose terminal is failed/stopped/
         # exited/lost, a session whose agent is stopped, or a resident session whose
@@ -176,11 +188,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # set when case (a) reads terminal_status. Keyed only on bridge heartbeat for
         # the resident case — never on the derived 'stale' — so a live resident with
         # a fresh bridge is never stopped.
-        dead_sessions_stopped = await _reconcile_dead_session_status(db, limit=500)
+        dead_sessions_stopped = await _commit_step(await _reconcile_dead_session_status(db, limit=500))
         # Collapse duplicate/stale resident sessions to one-per-agent so the
         # dashboard stops showing 2+ resident_* rows the operator can't tell apart
         # (2026-06-03). Keeps the freshest; retires the rest.
-        deduped_resident_sessions = await _reconcile_duplicate_resident_sessions(db)
+        deduped_resident_sessions = await _commit_step(await _reconcile_duplicate_resident_sessions(db))
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
