@@ -1807,13 +1807,14 @@ function renderSessionConsole(session, targetEl, opts = {}) {
     + `<button class="ghost" data-session-control="recreate" data-session-id="${esc(id)}" title="Restart with a FRESH context (discards native session)">Reset</button>`
     + `${canStop ? `<button class="ghost danger" data-session-control="stop" data-session-id="${esc(id)}">Stop</button>` : ''}`;
   const headerActions = isChatSource ? connectActions : (lifecycleActions + connectActions);
+  // Lean action/meta bar — the agent name, status chip, and workspace already render in the panel
+  // header (session-title / session-status / session-subtitle), so repeating them here was the
+  // duplicated "doubled header". Keep only the runtime/env/mode meta line + the lifecycle actions.
   const headerCard = `
-    <article class="runtime-card" data-kind="session" data-id="${esc(id)}">
-      <div class="item-title"><strong>${esc(sessionAgentId(session) || id || 'No session selected')}</strong>${renderStatusChip(session?.status || 'unknown', statusWhyContext('session', session || {}, session?.status || 'unknown'))}</div>
-      <p class="preview">${esc(session?.workspace || session?.cwd || '')}</p>
-      <small>${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
+    <div class="session-actions-bar" data-kind="session" data-id="${esc(id)}">
+      <small class="session-meta-line">${esc(sessionRuntime(session))} · ${esc(sessionEnvironmentId(session))}${hermesGatewayHttp ? ' · live tui_gateway' : ''}${codexAttachable ? ' · live app-server' : ''}${renderSessionModeLabel(agent)}</small>
       ${headerActions ? `<div class="contract-actions">${headerActions}</div>` : ''}
-    </article>`;
+    </div>`;
 
   // For hermes resident agents with a live tui_gateway, embed the upstream
   // hermes web dashboard chat surface as an iframe. The dashboard runs at
@@ -1896,7 +1897,7 @@ function renderSessionConsole(session, targetEl, opts = {}) {
 
   const hermesIframe = (widgetChoice.kind === 'hermes-iframe')
     ? `<div class="console-embed" data-kind="hermes-gateway">
-         <div class="console-embed-label">Hermes live chat — embedded from <code>${esc(hermesGatewayHttp.split('?')[0])}</code> (resident; switch to dashboard-spawned managed for true PTY render)</div>
+         <div class="console-embed-label">Hermes TUI — embedded live from <code>${esc(hermesGatewayHttp.split('?')[0])}</code></div>
          <iframe src="${esc(hermesGatewayHttp)}" title="Hermes live chat" allow="clipboard-read; clipboard-write"></iframe>
        </div>`
     : '';

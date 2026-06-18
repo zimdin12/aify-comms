@@ -64,7 +64,12 @@ export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, term
       codexThreadId: '',
     };
   }
-  if (normalizedSessionMode === 'resident' && runtime === 'hermes' && hermesGatewayHttp) {
+  // Hermes (resident OR managed) with no PTY terminal: embed the loopback gateway INLINE so the
+  // TUI shows IN our dashboard rather than forcing an "Open in new tab" out to the hermes web UI.
+  // Managed hermes runs in the tui_gateway (no node-pty wrapper to xterm), so the gateway iframe is
+  // its real in-dashboard surface. Only reached when there's no effectiveTerminalId (xterm wins
+  // above), and hermesGatewayHttp is loopback-only (hermesGatewayUrlToHttp gates non-loopback).
+  if (runtime === 'hermes' && hermesGatewayHttp) {
     return {
       kind: 'hermes-iframe',
       terminalId: '',

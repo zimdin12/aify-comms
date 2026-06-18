@@ -400,10 +400,31 @@ small, .subtle { color: var(--muted); }
 .diagnostic-check {
   align-self: start;
   justify-self: center;
-  min-height: 20px;
-  width: 20px;
-  margin-top: 4px;
+  margin-top: 3px;
 }
+/* Clean custom checkboxes — the native boxes were oversized (16/20px), inconsistent, and ugly.
+   One 16px rounded box with an accent fill + checkmark, shared by Diagnostics + Sessions. */
+.diagnostic-check, .session-check {
+  appearance: none; -webkit-appearance: none;
+  width: 16px; height: 16px; min-height: 16px; flex: 0 0 auto;
+  border: 1.5px solid var(--line); border-radius: 5px; background: var(--bg);
+  cursor: pointer; display: inline-grid; place-content: center;
+  transition: border-color .12s ease, background .12s ease;
+}
+.diagnostic-check:hover, .session-check:hover { border-color: var(--accent); }
+.diagnostic-check:checked, .session-check:checked { background: var(--accent); border-color: var(--accent); }
+.diagnostic-check:checked::after, .session-check:checked::after {
+  content: ''; width: 10px; height: 10px; background: var(--accent-contrast, #061615);
+  clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 18%, 86% 4%, 40% 72%);
+}
+.diagnostic-check:focus-visible, .session-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Session console action/meta bar (replaced the duplicated header card). */
+.session-actions-bar { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 6px; }
+.session-actions-bar .session-meta-line { color: var(--muted); }
+/* Keep the lifecycle actions a compact horizontal row (the base .contract-actions is a 1fr grid =
+   full-width stacked; the old .runtime-card override made it flex — restore that for the bar). */
+.session-actions-bar .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.session-actions-bar .contract-actions button { padding: 6px 12px; font-size: .82em; min-height: 32px; }
 .contract { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; }
 /* Long workflow text must never break the card: clamp the preview + wrap unbreakable tokens,
    and keep the action column from squeezing the text into a thin sliver (operator: a long
@@ -1426,14 +1447,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"], input[type="co
 
 /* WS-F sessions status filter chips. */
 .session-status-filter { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-.session-filter-chip { padding: 3px 10px; min-height: 26px; font-size: .74em; border-radius: 999px; text-transform: capitalize; background: transparent; border-color: transparent; color: var(--muted); }
+.session-filter-chip { padding: 3px 11px; min-height: 26px; font-size: .82em; border-radius: 999px; text-transform: capitalize; background: transparent; border-color: transparent; color: var(--muted); }
 .session-filter-chip:hover { color: var(--soft); background: var(--panel-2); }
 .session-filter-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 700; }
 
 /* WS-G7/G8 density: tighter session rows, small inline mode chip (not a full-width button),
    designed empty states. */
 .session-row { padding: 7px 8px; }
-.session-row-body .mode-switch-chip { width: fit-content; padding: 3px 10px; min-height: 26px; font-size: .76em; margin-top: 2px; }
+.session-row-body .mode-switch-chip { width: fit-content; padding: 4px 11px; min-height: 28px; font-size: .82em; margin-top: 2px; }
 .session-row-body { gap: 6px; justify-items: start; }
 .session-row-body .item-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .session-row .session-runtime-badge { margin-top: 1px; }
