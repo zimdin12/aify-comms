@@ -1863,6 +1863,11 @@ function renderSessionConsole(session, targetEl, opts = {}) {
     codexAppServerUrl,
     codexThreadId,
     codexAttachable,
+    // Auto-attach: the session row itself may carry the live terminal id (terminal binding
+    // recorded server-side on register/dispatch), so a running console mounts without the
+    // operator pressing Start. chooseSessionConsoleWidget treats this as the lowest-priority
+    // source (after runtime_state) so it never overrides the true owner's PTY.
+    sessionTerminalId: session?.terminalId || session?.terminal?.id || session?.terminal_id || '',
   });
   const terminalId = widgetChoice.terminalId;
   const hasTerminal = widgetChoice.kind === 'xterm';

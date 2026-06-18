@@ -39,12 +39,20 @@ export function hermesGatewayUrlToHttp(wsUrl) {
 // Plan 4 Task 18: prefer the wrapper PTY (runtimeState.terminalId) over the synth virtual-rpc
 // terminal (runtimeState.virtualTerminalId) — the wrapper PTY is the real operator-facing Ink
 // TUI; the synth is the lower-fidelity JSON-RPC shim.
-export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable }) {
+export function chooseSessionConsoleWidget({ agent, sessionId, sessionMode, terminalStatus, runtime, runtimeConfig, cache, hermesGatewayHttp, codexAppServerUrl, codexThreadId, codexAttachable, sessionTerminalId }) {
   const normalizedSessionMode = String(sessionMode || agent?.sessionMode || agent?.session_mode || '').trim().toLowerCase();
   const normalizedTerminalStatus = String(terminalStatus || agent?.terminalStatus || agent?.terminal_status || '').trim().toLowerCase();
   const terminalCanRepresentCurrentOwner = normalizedSessionMode !== 'resident' && !['stopping', 'stopped', 'failed'].includes(normalizedTerminalStatus);
+  // AUTO-ATTACH FIX (2026-06-19): a terminal that went live via dispatch/register/bind lands in
+  // runtime_state.consoleTerminal.terminalId (nested) or agent_sessions.terminal_id (session-bound),
+  // NOT the top-level runtime_state.terminalId (only the dashboard-start path writes that). Reading
+  // only the top-level field made live terminals fall through to the "Start console" offer. Honor
+  // all real sources (wrapper PTY first, then the console pointer, then synth, then session-bound)
+  // so a running terminal AUTO-MOUNTS and Start is only offered when genuinely none exists.
+  const rs = agent?.runtimeState || {};
+  const consoleTerminalId = String(rs?.consoleTerminal?.terminalId || '').trim();
   const liveTerminalId = terminalCanRepresentCurrentOwner
-    ? String(agent?.runtimeState?.terminalId || agent?.runtimeState?.virtualTerminalId || '').trim()
+    ? String(rs.terminalId || consoleTerminalId || rs.virtualTerminalId || String(sessionTerminalId || '').trim() || '').trim()
     : '';
   if (liveTerminalId && cache && typeof cache.set === 'function') {
     cache.set(String(sessionId || ''), liveTerminalId);

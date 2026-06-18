@@ -189,6 +189,56 @@ test("managed Codex with stale resident app-server does not render resident synt
   assert.equal(r.kind, "none");
 });
 
+test("auto-attach: mounts xterm from runtimeState.consoleTerminal.terminalId (live console pointer)", () => {
+  // AUTO-ATTACH FIX (2026-06-19): a terminal that went live via dispatch/register/bind lands in
+  // runtime_state.consoleTerminal.terminalId, NOT the top-level runtime_state.terminalId. Reading
+  // only the top-level field left running terminals showing the "Start console" offer (operator
+  // was afraid to press Start → spawn a duplicate session). The console pointer must auto-mount.
+  const cache = new Map();
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "claude-code", runtimeState: { consoleTerminal: { terminalId: "term-live-1" } } },
+    sessionId: "sess-console-ptr", runtime: "claude-code", runtimeConfig: {}, cache,
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(r.terminalId, "term-live-1");
+  assert.equal(r.isLive, true);
+});
+
+test("auto-attach: mounts xterm from the session-bound terminal id (lowest-priority source)", () => {
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "codex", runtimeState: {} },
+    sessionId: "sess-bound", runtime: "codex", runtimeConfig: {}, cache: new Map(),
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+    sessionTerminalId: "term-bound-9",
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(r.terminalId, "term-bound-9");
+});
+
+test("auto-attach: top-level/console/synth all beat the session-bound id (priority order)", () => {
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "codex", runtimeState: { consoleTerminal: { terminalId: "term-console" } } },
+    sessionId: "sess-priority", runtime: "codex", runtimeConfig: {}, cache: new Map(),
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+    sessionTerminalId: "term-bound-LOSER",
+  });
+  assert.equal(r.kind, "xterm");
+  assert.equal(r.terminalId, "term-console", "console pointer must win over the session-bound id");
+});
+
+test("auto-attach: a stopped terminal is NOT auto-mounted (offers Start instead)", () => {
+  // Don't auto-attach a dead terminal — terminalCanRepresentCurrentOwner is false for stopped.
+  const r = chooseSessionConsoleWidget({
+    agent: { runtime: "claude-code", runtimeState: { consoleTerminal: { terminalId: "term-dead" } } },
+    sessionId: "sess-stopped", sessionMode: "managed", terminalStatus: "stopped", runtime: "claude-code",
+    runtimeConfig: {}, cache: new Map(),
+    hermesGatewayHttp: "", codexAppServerUrl: "", codexThreadId: "", codexAttachable: false,
+    sessionTerminalId: "term-also-dead",
+  });
+  assert.equal(r.kind, "none", "a stopped terminal must not auto-mount");
+});
+
 test("hermesGatewayUrlToHttp embeds loopback only, never a public host", () => {
   assert.equal(
     hermesGatewayUrlToHttp("ws://127.0.0.1:9119/api/ws?token=abc"),
