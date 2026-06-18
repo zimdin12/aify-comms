@@ -20542,13 +20542,17 @@ async def get_agent_analytics(agent_id: str, request: Request):
 
         # Working minutes from dispatch_runs where this agent is the target.
         # julianday() gives fractional days; *1440 -> minutes. Guard NULL run
-        # timestamps and clamp the sum >= 0.
+        # timestamps and clamp the sum >= 0. Work-start proxy = COALESCE(started_at,
+        # claimed_at): production runs go queued→claimed→completed and almost never
+        # populate started_at, so the old `started_at IS NOT NULL` gate made this 0
+        # for every agent (operator-reported "work amount is 0 for all agents",
+        # 2026-06-19). Same fix as the /analytics/pulse working-minutes query.
         work_c = await db.execute(
             """
-            SELECT COALESCE(SUM(MAX(0, (julianday(finished_at) - julianday(started_at)) * 1440)), 0)
+            SELECT COALESCE(SUM(MAX(0, (julianday(finished_at) - julianday(COALESCE(started_at, claimed_at))) * 1440)), 0)
             FROM dispatch_runs
             WHERE target_agent = ?
-              AND started_at IS NOT NULL
+              AND COALESCE(started_at, claimed_at) IS NOT NULL
               AND finished_at IS NOT NULL
             """,
             (agent_id,),
@@ -20733,9 +20737,16 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
         msgs_by_agent = {r["agent"]: int(r["c"] or 0) for r in await mpa.fetchall() if r["agent"]}
 
         # Working minutes per agent = clamped overlap of each run with the window.
+        # Work-start proxy = COALESCE(started_at, claimed_at): production dispatch runs go
+        # queued→claimed→completed and almost never populate started_at, so gating on
+        # started_at IS NOT NULL left working_min empty for every agent → Utilization stuck
+        # at 0 forever (operator-reported 2026-06-19). claimed_at is the moment the worker
+        # took the run, which is the correct work-start signal. Same COALESCE convention as
+        # the Runs queries (lines ~2167/2190).
         runs_c = await db.execute(
-            "SELECT target_agent, started_at, finished_at FROM dispatch_runs "
-            "WHERE started_at IS NOT NULL AND julianday(COALESCE(finished_at, ?)) >= julianday(?)",
+            "SELECT target_agent, started_at, claimed_at, finished_at FROM dispatch_runs "
+            "WHERE COALESCE(started_at, claimed_at) IS NOT NULL "
+            "AND julianday(COALESCE(finished_at, ?)) >= julianday(?)",
             (now_iso, win_iso),
         )
         working_min = {}
@@ -20743,7 +20754,7 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             a = r["target_agent"]
             if not a:
                 continue
-            s = _ep(r["started_at"])
+            s = _ep(r["started_at"] or r["claimed_at"])
             f = _ep(r["finished_at"]) if r["finished_at"] else now_s
             if s is None:
                 continue
@@ -20751,11 +20762,13 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             if overlap > 0:
                 working_min[a] = working_min.get(a, 0.0) + overlap / 60.0
 
-        # Last-worked + currently-working across ALL runs (not just the window).
+        # Last-worked + currently-working across ALL runs (not just the window). Same
+        # COALESCE(started_at, claimed_at) work-start proxy as the working-minutes query —
+        # gating on started_at IS NOT NULL hid every production run (started_at unpopulated).
         lw_c = await db.execute(
             "SELECT target_agent, MAX(COALESCE(finished_at, ?)) AS lw, "
             "SUM(CASE WHEN finished_at IS NULL AND status IN ('running','delivered','claimed') THEN 1 ELSE 0 END) AS active "
-            "FROM dispatch_runs WHERE started_at IS NOT NULL GROUP BY target_agent",
+            "FROM dispatch_runs WHERE COALESCE(started_at, claimed_at) IS NOT NULL GROUP BY target_agent",
             (now_iso,),
         )
         last_worked = {}

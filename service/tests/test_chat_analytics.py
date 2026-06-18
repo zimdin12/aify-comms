@@ -111,6 +111,31 @@ class ChatAnalyticsTests(FastApiTestCase):
         # workingMinutes: 30 from run1; run2 (NULL finished_at) skipped.
         self.assertAlmostEqual(data["workingMinutes"], 30.0, places=3)
 
+    def test_agent_analytics_counts_claimed_only_runs(self):
+        """Regression (2026-06-19): production dispatch runs go queued→claimed→completed
+        and almost never populate started_at — only claimed_at. workingMinutes must use
+        COALESCE(started_at, claimed_at) as the work-start proxy, else it reads 0 for every
+        agent ('work amount is 0 for all agents'). A claimed-only run (started_at NULL)
+        must contribute its claimed→finished duration."""
+        self._register("ca-claimed")
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            # started_at NULL (the production shape), claimed_at set, 15 minutes of work.
+            conn.execute(
+                "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, "
+                "requested_at, claimed_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("rc1", None, "peerA", "ca-claimed", "completed",
+                 "2021-06-07T01:00:00Z", "2021-06-07T01:00:00Z", None, "2021-06-07T01:15:00Z"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        data = self.client.get("/api/v1/analytics/agent/ca-claimed").json()
+        self.assertEqual(data["ok"], True)
+        # 15 minutes from the claimed→finished span, despite started_at being NULL.
+        self.assertAlmostEqual(data["workingMinutes"], 15.0, places=3)
+
     def test_agent_analytics_revamp_fields(self):
         """2026-06-12 revamp: sent/received split, 14-day dailyActivity, runs7d,
         reply latency, and openContracts. Old fields stay (back-compat)."""
@@ -259,11 +284,13 @@ class ChatAnalyticsTests(FastApiTestCase):
                     (mid, frm, to, "direct", "info", "", "", "normal", 0, None, now_ms),
                 )
             # A completed run that overlaps the window: 6 minutes of work ending 2 min ago.
+            # Production shape — claimed_at set, started_at NULL — so this also exercises the
+            # COALESCE(started_at, claimed_at) work-start proxy (2026-06-19 utilization fix).
             conn.execute(
                 "INSERT INTO dispatch_runs (id, from_agent, target_agent, status, require_reply, result_message_id, "
-                "requested_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "requested_at, claimed_at, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 ("pr1", "peerA", "pulse-alpha", "completed", 0, "",
-                 iso(now - timedelta(minutes=8)), iso(now - timedelta(minutes=8)), iso(now - timedelta(minutes=2))),
+                 iso(now - timedelta(minutes=8)), iso(now - timedelta(minutes=8)), None, iso(now - timedelta(minutes=2))),
             )
             conn.commit()
         finally:
