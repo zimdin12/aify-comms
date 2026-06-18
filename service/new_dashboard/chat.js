@@ -247,6 +247,7 @@ export function createChatController(deps) {
     if (!timeline) return;
     const msgSearch = byId('chat-msg-search');
     if (msgSearch) msgSearch.hidden = true; // shown only in the message view below
+    byId('chat-scroll-bottom')?.classList.add('hidden'); // re-shown only in the message view below
     // Analytics view survives polls/re-renders (state-tracked, not a one-shot DOM write).
     const an = state.chat.analytics || {};
     if (an.agent) {
@@ -345,6 +346,18 @@ export function createChatController(deps) {
       ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
     if (nearBottom && !msgFilter) timeline.scrollTop = timeline.scrollHeight;
+    // Scroll-to-newest button: wire its scroll listener + click once, and refresh visibility now.
+    const scrollBtn = byId('chat-scroll-bottom');
+    if (scrollBtn) {
+      const atBottom = () => (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
+      const sync = () => scrollBtn.classList.toggle('hidden', atBottom());
+      if (!scrollBtn.dataset.wired) {
+        scrollBtn.dataset.wired = '1';
+        timeline.addEventListener('scroll', sync, { passive: true });
+        scrollBtn.addEventListener('click', () => { timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' }); });
+      }
+      sync();
+    }
     const composer = byId('chat-composer');
     if (composer) composer.hidden = false;
     // Type/Priority/Subject only apply to DMs — channel posts are plain {from, body}, so hide the

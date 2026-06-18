@@ -31,7 +31,7 @@
           <strong>AIFY Comms</strong>
           <small>Dashboard Next</small>
         </div>
-        <button id="toggle-nav" class="icon-button" type="button" title="Collapse sidebar">Nav</button>
+        <button id="toggle-nav" class="icon-button" type="button" title="Collapse sidebar" aria-label="Toggle sidebar">☰</button>
       </div>
       <nav>
         <p>Fleet</p>
@@ -99,11 +99,13 @@
                    Status-color filters, less-used toggles, identity + channel-create all live in
                    the ⚙ panel so the rail stays uncluttered. -->
               <div class="chat-filter-bar">
-                <div class="chat-chip-group" role="group" aria-label="Scope and quick filters">
+                <div class="chat-chip-group scope-group" role="group" aria-label="Scope">
                   <button type="button" class="chat-chip scope active" data-chat-scope="all">All</button>
                   <button type="button" class="chat-chip scope" data-chat-scope="dm">DMs</button>
                   <button type="button" class="chat-chip scope" data-chat-scope="channel">Chans</button>
                   <button type="button" class="chat-chip scope" data-chat-scope="favorites" title="Favorites only">★</button>
+                </div>
+                <div class="chat-chip-group toggle-group" role="group" aria-label="Quick filters">
                   <button type="button" class="chat-chip toggle" data-chat-toggle="unreadOnly">Unread</button>
                   <button type="button" class="chat-chip toggle" data-chat-toggle="liveOnly">Live</button>
                 </div>
@@ -140,7 +142,10 @@
               <input id="chat-msg-search" class="chat-msg-search" type="search" placeholder="Search this chat" hidden>
               <div id="chat-conv-actions" class="chat-conv-actions"></div>
             </div>
-            <div id="chat-timeline" class="chat-timeline"></div>
+            <div class="chat-timeline-wrap">
+              <div id="chat-timeline" class="chat-timeline"></div>
+              <button id="chat-scroll-bottom" class="chat-scroll-bottom hidden" type="button" title="Jump to the newest message" aria-label="Scroll to newest">↓ Newest</button>
+            </div>
             <form id="chat-composer" class="composer" hidden>
               <!-- Default composer is a clean textarea + Send (8800 parity). Type/Priority/Subject
                    + reply/queue/attach live behind the "Options" disclosure so the common case
