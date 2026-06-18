@@ -87,6 +87,15 @@ class JsonApiRoute(APIRoute):
 
 router = APIRouter(tags=["api"], route_class=JsonApiRoute)
 
+
+def _is_lock_error(exc: BaseException) -> bool:
+    """True for a transient SQLite contention error (`database is locked` / `busy`). Used by
+    the read endpoints to skip their best-effort cache writes and serve cached data rather than
+    503 — a SELECT never takes the write lock in WAL, so a read can always succeed."""
+    message = str(exc or "").lower()
+    return "locked" in message or "busy" in message
+
+
 def _now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -10449,9 +10458,18 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
 async def list_sessions(request: Request, agentId: Optional[str] = None, environmentId: Optional[str] = None, limit: int = Query(100, ge=1, le=500)):
     db = await get_db()
     try:
-        await _repair_superseded_recovering_sessions(db)
-        await _repair_current_session_freshness(db)
-        await _repair_terminal_session_consistency(db)
+        # Best-effort consistency repairs — serve cached on a write-lock rather than 503 (see list_agents).
+        try:
+            await _repair_superseded_recovering_sessions(db)
+            await _repair_current_session_freshness(db)
+            await _repair_terminal_session_consistency(db)
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_error(exc):
+                raise
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         where = []
         params: list[Any] = []
         if agentId:
@@ -12062,15 +12080,24 @@ async def delete_session(session_id: str, request: Request):
 async def list_agents(request: Request):
     db = await get_db()
     try:
-        repaired_active_runs = await _repair_unusable_active_runs(db)
         settings = await _load_settings(db)
-        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT)
-        if repaired_active_runs or refreshed_live_states:
-            # Persist the refreshed cache rows — without this commit they roll back on
-            # close() and every subsequent poll re-derives them (2026-06-12 audit). With the
-            # offline-revalidate horizon (2026-06-18) settled agents are not expired here, so
-            # this refreshes only the few genuinely-changed rows, not the whole roster.
-            await db.commit()
+        # The cache refresh/repair below is BEST-EFFORT: a SELECT never takes SQLite's write
+        # lock (WAL), so when the single writer is briefly contended we serve slightly-stale
+        # cached rows instead of 503ing the whole roster — a 503 here broke the dashboard load
+        # entirely (the browser surfaces it as "Failed to fetch"). The 60s reconcile sweep
+        # persists the refresh on its next pass. (2026-06-18 — read paths must never 503 on a lock.)
+        try:
+            repaired_active_runs = await _repair_unusable_active_runs(db)
+            refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT)
+            if repaired_active_runs or refreshed_live_states:
+                await db.commit()
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_error(exc):
+                raise
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         cursor = await db.execute(
             """
             SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
@@ -12789,10 +12816,18 @@ async def get_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
         settings = await _load_settings(db)
-        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[agent_id])
-        if refreshed_live_states:
-            # Persist the refreshed cache row (rolls back on close otherwise — 2026-06-12 audit).
-            await db.commit()
+        # Best-effort cache refresh — serve cached on a write-lock rather than 503 (see list_agents).
+        try:
+            refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[agent_id])
+            if refreshed_live_states:
+                await db.commit()
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_error(exc):
+                raise
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         cursor = await db.execute(
             """
             SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
