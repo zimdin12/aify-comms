@@ -513,6 +513,18 @@ small, .subtle { color: var(--muted); }
    floats with a gap above it). */
 .composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .composer[hidden] { display: none; } /* the [hidden] attr must win over display:flex (overview/analytics/console views) */
+/* "Options" disclosure — keeps the default composer a clean textarea + Send (8800 parity). */
+.composer-advanced { border: 0; }
+.composer-advanced > summary {
+  list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  width: fit-content; font-size: var(--fs-sm); color: var(--muted); padding: 3px 6px;
+  border-radius: var(--radius-sm); user-select: none;
+}
+.composer-advanced > summary::-webkit-details-marker { display: none; }
+.composer-advanced > summary::before { content: '⚙'; font-size: .9em; }
+.composer-advanced > summary:hover { color: var(--text); }
+.composer-advanced[open] > summary { color: var(--soft); }
+.composer-advanced-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 2px; }
 .composer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .composer-meta[hidden] { display: none; } /* [hidden] must win over display:flex (channel posts) */
 .composer-meta .composer-select { flex: 0 0 auto; min-width: 96px; }

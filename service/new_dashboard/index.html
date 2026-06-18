@@ -142,27 +142,35 @@
             </div>
             <div id="chat-timeline" class="chat-timeline"></div>
             <form id="chat-composer" class="composer" hidden>
-              <div class="composer-meta">
-                <select id="chat-type" class="composer-select" title="Message type" aria-label="Message type">
-                  <option value="info">info</option>
-                  <option value="request">request</option>
-                  <option value="review">review</option>
-                  <option value="approval">approval</option>
-                  <option value="response">response</option>
-                  <option value="error">error</option>
-                </select>
-                <select id="chat-priority" class="composer-select" title="Priority" aria-label="Priority">
-                  <option value="normal">normal</option>
-                  <option value="high">high</option>
-                  <option value="urgent">urgent</option>
-                </select>
-                <input id="chat-subject" class="composer-subject" placeholder="Subject (optional — for tasks / handoffs)" aria-label="Subject">
-              </div>
-              <div class="composer-options">
-                <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
-                <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
-                <label class="chat-attach ghost" title="Share a file and insert its reference"><span>📎 Attach</span><input id="chat-attach-input" type="file"></label>
-              </div>
+              <!-- Default composer is a clean textarea + Send (8800 parity). Type/Priority/Subject
+                   + reply/queue/attach live behind the "Options" disclosure so the common case
+                   (just type a message) is uncluttered. -->
+              <details class="composer-advanced">
+                <summary>Options</summary>
+                <div class="composer-advanced-body">
+                  <div class="composer-meta">
+                    <select id="chat-type" class="composer-select" title="Message type" aria-label="Message type">
+                      <option value="info">info</option>
+                      <option value="request">request</option>
+                      <option value="review">review</option>
+                      <option value="approval">approval</option>
+                      <option value="response">response</option>
+                      <option value="error">error</option>
+                    </select>
+                    <select id="chat-priority" class="composer-select" title="Priority" aria-label="Priority">
+                      <option value="normal">normal</option>
+                      <option value="high">high</option>
+                      <option value="urgent">urgent</option>
+                    </select>
+                    <input id="chat-subject" class="composer-subject" placeholder="Subject (optional — for tasks / handoffs)" aria-label="Subject">
+                  </div>
+                  <div class="composer-options">
+                    <label class="check-row"><input id="chat-expects-reply" type="checkbox"><span>Expects reply</span></label>
+                    <label class="check-row"><input id="chat-queue" type="checkbox"><span>Queue if busy</span></label>
+                    <label class="chat-attach ghost" title="Share a file and insert its reference"><span>📎 Attach</span><input id="chat-attach-input" type="file"></label>
+                  </div>
+                </div>
+              </details>
               <div class="composer-send-row">
                 <textarea id="chat-composer-body" placeholder="Select a conversation"></textarea>
                 <button type="submit" class="primary">Send</button>
