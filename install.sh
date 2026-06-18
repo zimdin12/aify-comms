@@ -3410,21 +3410,28 @@ install_claude_turn_start_hook() {
     }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
-    // Wire /turn-start on UserPromptSubmit (turn START) ONLY.
+    // Wire /turn-start on UserPromptSubmit AND PostToolUse (proof-based turn signal,
+    // 2026-06-18). POSTing /turn-start is an idempotent RE-ASSERT of the engine in_turn
+    // sub-state (it does not start a fresh turn; it refreshes last_event_at).
     //
-    // pure-event-status change #4 (2026-06-02): the PostToolUse RE-PULSE was
-    // REMOVED. It used to re-assert turn_busy on every tool call so the dashboard
-    // held 'working' past the old short status window (task #134). STATUS is now
-    // PURE-EVENT: turn_busy is set ONCE at turn START and cleared ONLY by an event
-    // — the Stop hook (install_claude_turn_end_hook) as the fast-path clear, or the
-    // bridge transcript turn-END detector (change #1) as the hook-independent
-    // backstop — or the single long ceiling. Re-arming turn_busy on every tool call
-    // would defeat that turn-END event (an idle agent that just finished a
-    // tool-using turn would keep re-pulsing). So we wire UserPromptSubmit only and
-    // NOT PostToolUse. Idempotent: filtered by the turn-start marker. (A long
-    // GENERATION phase is held 'working' simply because turn_busy stays set until
-    // the turn-END event — the long status ceiling needs no re-pulse; a turn that
-    // outlives a missed end-event self-heals at that single long ceiling.)
+    // WHY PostToolUse is back (reverses pure-event #4, 2026-06-02): that change wired
+    // UserPromptSubmit ONLY, on the premise that turn_busy stays set until the turn-END
+    // event (the Stop hook), making a re-assert redundant. Two findings invalidated that
+    // premise. (1) UserPromptSubmit does NOT fire for an MCP/channel-WOKEN managed turn
+    // (only the channel claim sets turn_busy there). (2) The Stop hook is NOT a clean
+    // once-per-turn signal: it fires prematurely / multiple times within one logical turn
+    // (Claude Code issue 54360) and around transient API errors such as rate-limit retries,
+    // clearing turn_busy mid-work. With no mid-turn re-assert, a still-working managed
+    // claude then fell to online until the operator opened the Console (the only other
+    // backstop, the console-spinner lease, was observed 30 MIN stale on live agents -- it
+    // needs a rendered PTY, so it is not a real backstop). See task 224 + KNOWN_ISSUES.
+    //
+    // WHY this can NOT re-pin an idle agent (the original removal fear): PostToolUse fires
+    // ONLY on a real tool call. An idle agent runs no tools, fires no hook, no re-assert,
+    // so in_turn clears on the Stop hook and stays cleared. A tool call firing AFTER a Stop
+    // means the turn was NOT actually over (premature Stop) -- re-asserting is CORRECT there.
+    // A genuinely missed turn-END still self-heals at the single long ceiling, unchanged.
+    // No time-window is introduced. Idempotent: filtered by the turn-start marker.
     const wireTurnStart = (eventKey) => {
       if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
       settings.hooks[eventKey] = settings.hooks[eventKey].filter(
@@ -3434,15 +3441,8 @@ install_claude_turn_start_hook() {
         hooks: [{ type: 'command', command, timeout: 3 }]
       });
     };
-    // Remove any PostToolUse turn-start hook a prior install wired (pure-event #4):
-    // a re-pulse left behind would defeat the pure-event turn-END transition.
-    if (Array.isArray(settings.hooks.PostToolUse)) {
-      settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-        h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-start')
-      );
-      if (settings.hooks.PostToolUse.length === 0) delete settings.hooks.PostToolUse;
-    }
     wireTurnStart('UserPromptSubmit');
+    wireTurnStart('PostToolUse');
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   " "$node_settings_file" "$hook_command"
 }

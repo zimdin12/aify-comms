@@ -5,14 +5,16 @@ pi agent_end). The dashboard's "working" status is driven by turn_busy, which th
 turn-START hook (UserPromptSubmit → /turn-start) sets and the turn-END hook (Stop
 → /turn-end) clears.
 
-pure-event-status change #4 (2026-06-02): STATUS is now PURE-EVENT. The
-PostToolUse turn_busy RE-PULSE was REMOVED — it re-armed turn_busy on every tool
-call to hold status past the old short status window, which with a pure-event
-model would defeat the turn-END event. turn_busy is now set ONLY at turn START
-(UserPromptSubmit) and cleared ONLY by an event (the Stop hook fast-path, or the
-bridge transcript turn-END detector — change #1) or the single long ceiling. So
-the generated wrapper must wire UserPromptSubmit → /turn-start and Stop →
-/turn-end, but must NOT wire PostToolUse → /turn-start.
+proof-based turn signal (2026-06-18): PostToolUse → /turn-start is wired AGAIN,
+reversing pure-event #4 (2026-06-02). The re-assert (idempotent /turn-start on every
+tool call) is required because (1) UserPromptSubmit does NOT fire for an MCP/channel-
+woken managed turn, and (2) the Stop hook is not a clean once-per-turn signal — it
+fires prematurely / around rate-limit retries, clearing turn_busy mid-work. Without a
+mid-turn re-assert a still-working managed claude fell to `online` until the Console was
+opened (task #224). It can NOT pin an idle agent: PostToolUse fires only on a real tool
+call, so an idle agent re-asserts nothing and the Stop-hook turn-end stands. So the
+generated wrapper must wire UserPromptSubmit AND PostToolUse → /turn-start, and Stop →
+/turn-end.
 """
 from pathlib import Path
 
@@ -26,15 +28,16 @@ def install_text() -> str:
     return _INSTALL_SH.read_text(encoding="utf-8")
 
 
-def test_turn_start_hook_wires_userpromptsubmit_only_not_posttooluse(install_text: str):
-    # pure-event-status #4: turn-start fires at turn START (UserPromptSubmit) ONLY.
-    # The PostToolUse re-pulse is REMOVED — re-arming turn_busy on every tool call
-    # would defeat the pure-event turn-END transition (status no longer relies on a
-    # short window that needed re-pulsing).
+def test_turn_start_hook_wires_userpromptsubmit_and_posttooluse(install_text: str):
+    # proof-based turn signal (2026-06-18, reverses pure-event #4): turn-start fires at
+    # turn START (UserPromptSubmit) AND re-asserts on every tool call (PostToolUse), so a
+    # managed/channel-woken turn (no UserPromptSubmit) and a turn that survives a premature
+    # Stop hook / rate-limit retry both keep reading `working`. The re-assert can't pin an
+    # idle agent (no tool calls → no re-assert). See task #224.
     assert "install_claude_turn_start_hook()" in install_text
     assert "wireTurnStart('UserPromptSubmit')" in install_text, "turn-start must wire UserPromptSubmit (turn start)"
-    assert "wireTurnStart('PostToolUse')" not in install_text, (
-        "turn-start must NOT re-pulse on PostToolUse (pure-event #4 removes the window-defeat re-pulse)"
+    assert "wireTurnStart('PostToolUse')" in install_text, (
+        "turn-start must re-assert on PostToolUse (proof-based #224: channel-woken + premature-Stop coverage)"
     )
     assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-start" in install_text
 
