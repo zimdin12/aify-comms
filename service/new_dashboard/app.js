@@ -3570,12 +3570,16 @@ try {
   const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
   syncChatChips();
 } catch { /* ignore */ }
-// Restore the collapsed Needs-Attention preference (full-screen chat).
+// Default-collapse Needs-Attention so chat is the hero on landing (operator UX request).
+// Honor an explicit user choice either way; with no saved preference, start collapsed (the
+// header + quick-jumps stay visible as a slim one-line banner; the ▾ toggle re-expands).
 try {
-  if (localStorage.getItem('aify.next.attentionCollapsed') === '1') {
+  if (localStorage.getItem('aify.next.attentionCollapsed') !== '0') {
     byId('attention-strip')?.classList.add('collapsed');
   }
-} catch { /* ignore */ }
+} catch {
+  byId('attention-strip')?.classList.add('collapsed');
+}
 loadVersionBadge();
 setPage('chat'); // chat-first landing: sync the page title/subtitle with the default page
 updateStaticLinks();
