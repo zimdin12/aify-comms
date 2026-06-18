@@ -417,7 +417,7 @@ TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
 # flap, and a genuinely-ended turn flips to `online` once the grace lapses. derive() still
 # gates the in-turn input on `live` (worker_present), so a recent clear on a DEAD worker never
 # shows working — the grace only smooths an actively-alive worker's between-tool gaps.
-TURN_END_GRACE_SECONDS = 12
+TURN_END_GRACE_SECONDS = 20
 # Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an
 # explicit cache-invalidating event (a returning heartbeat/turn/operator action all DELETE the
 # row). Its refresh_after is otherwise `last_seen + liveness`, which is ANCIENT for a long-dead
