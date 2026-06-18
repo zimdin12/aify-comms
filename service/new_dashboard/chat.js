@@ -340,6 +340,10 @@ export function createChatController(deps) {
     if (nearBottom && !msgFilter) timeline.scrollTop = timeline.scrollHeight;
     const composer = byId('chat-composer');
     if (composer) composer.hidden = false;
+    // Type/Priority/Subject only apply to DMs — channel posts are plain {from, body}, so hide the
+    // meta row on channels rather than show inert controls.
+    const composerMeta = composer?.querySelector('.composer-meta');
+    if (composerMeta) composerMeta.hidden = isChannel;
     // Reply-context banner: when replying to a message, show what we're replying to + a clear button.
     const reply = state.chat.replyTo;
     let banner = byId('chat-reply-banner');

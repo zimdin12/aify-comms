@@ -474,6 +474,7 @@ small, .subtle { color: var(--muted); }
 .composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .composer[hidden] { display: none; } /* the [hidden] attr must win over display:flex (overview/analytics/console views) */
 .composer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.composer-meta[hidden] { display: none; } /* [hidden] must win over display:flex (channel posts) */
 .composer-meta .composer-select { flex: 0 0 auto; min-width: 96px; }
 .composer-meta .composer-subject { flex: 1 1 200px; min-width: 140px; }
 .composer-options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
