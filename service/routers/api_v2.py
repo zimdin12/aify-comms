@@ -17335,11 +17335,23 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
                   AND de.event_type NOT IN ('reply_reminder_skipped')
               )
             )
+            -- Branch 3 (2026-06-18): CLAIMED but never STARTED past the stale window, regardless
+            -- of bridge liveness. A live claim bridge does NOT prove the turn began — a managed/
+            -- hermes claim whose prompt.submit silently failed to start a turn sits 'claimed'
+            -- (so the target reads falsely 'busy' and reply-reminders skip with "target is busy")
+            -- until the 30-min wall ceiling. Once claimed, a turn starts within seconds; started_at
+            -- still NULL past stale_seconds means the start silently failed. The per-row
+            -- working/blocked status guard below still protects a genuinely mid-turn target from a
+            -- false reap (a real long turn has started_at set, so it isn't even a candidate here).
+            OR (
+              r.started_at IS NULL
+              AND datetime(COALESCE(r.claimed_at, r.requested_at)) <= datetime('now', ?)
+            )
           )
         ORDER BY r.requested_at ASC
         LIMIT ?
         """,
-        (cutoff_param, cutoff_param, cutoff_param, ceiling_param, ceiling_param, limit),
+        (cutoff_param, cutoff_param, cutoff_param, ceiling_param, ceiling_param, cutoff_param, limit),
     )
     rows = await cursor.fetchall()
     closed: list[dict[str, str]] = []
@@ -17349,6 +17361,7 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
         target_agent = str(row["target_agent"] or "").strip()
         dispatch_mode = str(row["dispatch_mode"] or "").strip()
         execution_mode = str(row["execution_mode"] or "").strip()
+        started_at = str(row["started_at"] or "").strip()
         if not run_id:
             continue
         # Phase F1 (folds in the false-failed-busy-run fix): under the event
@@ -17373,13 +17386,24 @@ async def _close_orphaned_managed_runs(db, *, limit: int = 200) -> list[dict[str
                     target_status = await engine_status(db, target_row, settings=settings)
                 except Exception:
                     target_status = ""
-                if target_status in {"working", "blocked"}:
-                    # Mid-turn = progress. Leave the run alone this cycle.
+                if target_status in {"working", "blocked"} and started_at:
+                    # Mid-turn = progress. Leave the run alone this cycle. BUT only when this
+                    # candidate actually STARTED (started_at set) — a claimed-never-started run
+                    # (Branch 3) is itself what drives the agent's false `working`/active-run
+                    # reading, so honoring that guard would shield the stuck run from reaping
+                    # forever (the #233 catch-22: false-busy → guard skips → never reaped → still
+                    # false-busy). An unstarted claim can't be a real turn, so reap it regardless.
                     continue
                 if target_status in {"stale", "offline", "stopped"}:
                     honest_reason = (
                         f"target '{target_agent}' is {target_status}; "
                         f"run cannot be delivered."
+                    )
+                elif target_status and not started_at:
+                    honest_reason = (
+                        f"target '{target_agent}' is {target_status} but the run was claimed "
+                        f"without ever starting a turn for {stale_seconds}s (the claim succeeded "
+                        f"but turn-start silently failed); run cannot be delivered."
                     )
                 elif target_status:
                     honest_reason = (
