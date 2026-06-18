@@ -5309,15 +5309,7 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     return True
 
 
-# Hot-read-path cap on the per-poll live-state re-derive burst. Tests register at most a
-# couple of agents, the live fleet ~28; 8 fully refreshes steady-state (only a few rows are
-# ever expired at once) yet bounds the post-restart all-expired storm to 8 serialized writes
-# per poll, with the reconcile sweep + warm-on-boot catching the rest. See
-# _refresh_expired_agent_live_states and the write-serialization note in db.py.
-LIST_AGENTS_REFRESH_LIMIT = 8
-
-
-async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None, limit: Optional[int] = None) -> int:
+async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> int:
     """Recompute expired/missing agent_live_state rows. Returns how many were refreshed.
 
     CALLERS MUST COMMIT when the return value is > 0 (2026-06-12 audit): aiosqlite runs in
@@ -5325,16 +5317,7 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     but ROLL BACK on close() without commit. The read endpoints (list_agents / get_agent)
     previously never committed in the common path — the cache only ever persisted via the
     60s reconcile sweep, and every roster poll silently re-derived every expired row (the
-    exact poll-load the cache exists to absorb).
-
-    `limit` BOUNDS the per-call write burst (2026-06-18). On the hot GET /agents read path
-    this is set (LIST_AGENTS_REFRESH_LIMIT) so a single roster poll never re-derives the
-    whole fleet at once — critical under write serialization, where each upsert pays fair
-    FIFO queue latency: right after a restart EVERY row is expired, and an unbounded roster
-    re-derive would queue ~28 writes behind the fleet and stall the dashboard (the failure
-    that reverted 258cb82). Rows are refreshed oldest-(most-stale)-first; the remainder are
-    caught by the next poll and the unbounded (limit=None) reconcile sweep. None = no bound
-    (reconcile / warm-on-boot)."""
+    exact poll-load the cache exists to absorb)."""
     settings = settings or await _load_settings(db)
     now = _now()
     where = ""
@@ -5349,15 +5332,12 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
         FROM agents a
         LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
         {where}
-        ORDER BY (ls.refresh_after IS NULL) DESC, ls.refresh_after ASC
         """,
         tuple(params),
     )
     rows = await cursor.fetchall()
     refreshed = 0
     for row in rows:
-        if limit is not None and refreshed >= limit:
-            break
         refresh_after = str((row["refresh_after"] if "refresh_after" in row.keys() else "") or "").strip()
         if not refresh_after or refresh_after <= now:
             await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
@@ -12028,7 +12008,7 @@ async def list_agents(request: Request):
     try:
         repaired_active_runs = await _repair_unusable_active_runs(db)
         settings = await _load_settings(db)
-        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT)
+        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings)
         if repaired_active_runs or refreshed_live_states:
             # Persist the refreshed cache rows — without this commit they roll back on
             # close() and every subsequent poll re-derives them (2026-06-12 audit). With the
