@@ -45,6 +45,23 @@
   /* Depth tiers (WS-E). */
   --shadow-card: 0 6px 20px rgba(0, 0, 0, .28);
   --shadow-panel: 0 12px 38px rgba(0, 0, 0, .34);
+
+  /* Design tokens (consistency audit 2026-06-18). Collapse the ad-hoc scales the dashboard
+     accreted: ~13 control heights, ~18 em font sizes, 7 "card" radii, hardcoded surfaces. */
+  --control-h: 34px;        /* standard button / input / select / segmented */
+  --control-h-sm: 26px;     /* chips, pills, small toggles, filter presets */
+  --control-h-xs: 20px;     /* status-dot toggle buttons */
+  --fs-xs: 11px;            /* smallest legible (floor) — chips, meta labels */
+  --fs-sm: 12px;            /* secondary text, small buttons */
+  --fs-md: 13px;            /* body-ish */
+  --radius-card: 12px;      /* cards, panels, rails, message bubbles */
+  --radius-control: 8px;    /* buttons, inputs, selects */
+  --radius-pill: 999px;     /* status pills, chips */
+  --radius-sm: 6px;         /* tight chips, badges, small affordances */
+  --input-bg: #0d1010;      /* form-control background (was hardcoded ~7×) */
+  --console-bg: #0b0e13;    /* terminal/console background (was hardcoded ~6×) */
+  --nav-bg: #0b0f0e;        /* left nav background */
+  --border-hover: #465454;  /* hover border on cards/rows */
 }
 
 /* Theme presets — set the brand palette; status colors untouched. */
@@ -65,7 +82,9 @@ body {
   color: var(--text);
   font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-button, input, select, textarea { font: inherit; min-height: 44px; }
+button, input, select, textarea { font: inherit; min-height: var(--control-h); }
+/* Keep comfortable touch targets on phones; desktop uses the tighter --control-h. */
+@media (max-width: 540px) { button, input, select, textarea { min-height: 42px; } }
 button {
   border: 1px solid var(--line);
   background: var(--panel-2);
@@ -1021,9 +1040,10 @@ small, .subtle { color: var(--muted); }
 .chat-filter-bar { display: flex; flex-direction: column; gap: 6px; }
 .chat-chip-group { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .chat-status-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-.chat-status-label { font-size: .64em; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-right: 2px; }
+.chat-status-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-right: 2px; }
 .chat-chip {
-  font-size: .7em; font-weight: 650; line-height: 1; padding: 4px 8px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 650; line-height: 1; padding: 5px 10px; min-height: var(--control-h-sm);
+  border-radius: var(--radius-pill); display: inline-flex; align-items: center;
   background: var(--panel-3); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
   white-space: nowrap; transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
@@ -1041,7 +1061,7 @@ small, .subtle { color: var(--muted); }
 .chat-chip.s-stopped::before { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
 .chat-rail-options { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line-soft, var(--line)); }
 .chat-rail-list { flex: 1; overflow-y: auto; padding: 6px; }
-.chat-rail-section { font-size: .68em; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 10px 8px 4px; }
+.chat-rail-section { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 10px 8px 4px; }
 .chat-rail-empty { padding: 4px 8px 8px; }
 .chat-rail-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 8px 9px; cursor: pointer; color: var(--text); }
 .chat-rail-item:hover { background: var(--panel-2); }
@@ -1049,7 +1069,7 @@ small, .subtle { color: var(--muted); }
 .chat-rail-head { display: flex; align-items: center; gap: 7px; }
 .chat-rail-name { font-weight: 650; font-size: .88em; flex: 1; min-width: 0; }
 .chat-rail-hash { color: var(--muted); font-weight: 700; width: 9px; display: inline-block; text-align: center; }
-.chat-rail-preview { font-size: .76em; color: var(--muted); }
+.chat-rail-preview { font-size: var(--fs-xs); color: var(--muted); }
 .chat-fav { color: var(--amber); font-size: .82em; }
 .chat-unread { background: var(--accent); color: #061615; font-weight: 800; font-size: .68em; border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center; }
 .chat-conversation { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
