@@ -43,33 +43,21 @@ class RegistrationLiveStateInvalidationTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_register_invalidates_future_cached_live_state(self):
+        from service.routers.api_v2 import _LIVE_STATE_CACHE, _live_state_get
         self._register()
-        conn = sqlite3.connect(self._db_path)
-        try:
-            conn.execute(
-                """
-                INSERT INTO agent_live_state
-                    (agent_id, status, reason, updated_at, refresh_after)
-                VALUES (?, 'stale', 'future-cache', '2026-05-26T00:00:00Z',
-                        '2099-01-01T00:00:00Z')
-                """,
-                ("cache-register-agent",),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        _LIVE_STATE_CACHE["cache-register-agent"] = {
+            "status": "stale", "reason": "future-cache", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z",
+            "updated_at": "2026-05-26T00:00:00Z",
+        }
 
         self._register()
 
-        conn = sqlite3.connect(self._db_path)
-        try:
-            row = conn.execute(
-                "SELECT status FROM agent_live_state WHERE agent_id = ?",
-                ("cache-register-agent",),
-            ).fetchone()
-            self.assertIsNone(row, "registration must invalidate cached live state")
-        finally:
-            conn.close()
+        self.assertIsNone(
+            _live_state_get("cache-register-agent"),
+            "registration must invalidate cached live state",
+        )
 
 
 if __name__ == "__main__":

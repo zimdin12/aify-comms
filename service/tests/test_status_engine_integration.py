@@ -126,32 +126,24 @@ class StatusEventIngestTests(FastApiTestCase):
     def test_hot_read_serves_cached_status_under_new_flag(self):
         # Phase E1 (the CPU fix): under status_engine=new, a hot read
         # (_compute_agent_status) must serve the ALREADY-CACHED
-        # agent_live_state.status when the cache row is still fresh, instead of
-        # recomputing the legacy matrix / engine per call. Seed a fresh cache row
+        # live-state status when the cache entry is still fresh, instead of
+        # recomputing the legacy matrix / engine per call. Seed a fresh cache entry
         # with a sentinel status and assert the hot read returns it verbatim.
         import asyncio, json
         from service.db import get_db
         from service.routers import api_v2
+        from service.routers.api_v2 import _LIVE_STATE_CACHE
         self._register("e1", mode="resident")
         self.client.post("/api/v1/agents/e1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
         self._set("status_engine", "new")
-        # Seed a cache row whose status would NEVER be derived (sentinel) and a
+        # Seed a cache entry whose status would NEVER be derived (sentinel) and a
         # refresh_after far in the future so it is unambiguously "fresh".
-        c = sqlite3.connect(str(self._db_path))
-        try:
-            c.execute(
-                """
-                INSERT INTO agent_live_state (agent_id, status, reason, environment_id,
-                    session_id, terminal_id, active_run_id, refresh_after, updated_at)
-                VALUES (?, 'blocked', 'sentinel', '', '', '', '', '9999-12-31T23:59:59Z', '2026-06-04T00:00:00Z')
-                ON CONFLICT(agent_id) DO UPDATE SET status='blocked', reason='sentinel',
-                    refresh_after='9999-12-31T23:59:59Z'
-                """,
-                ("e1",),
-            )
-            c.commit()
-        finally:
-            c.close()
+        _LIVE_STATE_CACHE["e1"] = {
+            "status": "blocked", "reason": "sentinel", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "9999-12-31T23:59:59Z",
+            "updated_at": "2026-06-04T00:00:00Z",
+        }
 
         async def run():
             db = await get_db()
@@ -286,16 +278,16 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         return asyncio.run(runner())
 
     def _refreshed_status(self, aid):
-        """Run _refresh_agent_live_state and read back the written status."""
+        """Run _refresh_agent_live_state and read back the status from the
+        in-memory cache (refresh is in-memory now — no DB row to SELECT)."""
         from service.routers import api_v2
 
         async def factory(db):
             settings = await api_v2._load_settings(db)
             await api_v2._invalidate_agent_live_state(db, aid)
             await api_v2._refresh_agent_live_state(db, aid, settings=settings)
-            row = await (await db.execute(
-                "SELECT status FROM agent_live_state WHERE agent_id=?", (aid,))).fetchone()
-            return str(row["status"]) if row else None
+            entry = api_v2._live_state_get(aid)
+            return str(entry["status"]) if entry else None
 
         return self._run(factory)
 

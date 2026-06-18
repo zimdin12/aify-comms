@@ -131,25 +131,17 @@ class ReadyStatusEndpointTests(FastApiTestCase):
             conn.close()
 
     def test_patch_ready_invalidates_cached_live_state(self):
-        """Ready changes must invalidate agent_live_state; otherwise the
+        """Ready changes must invalidate the cached live state; otherwise the
         dashboard can keep showing a future cached ready/online status after
         the bridge has explicitly changed readiness."""
-        import sqlite3
+        from service.routers.api_v2 import _LIVE_STATE_CACHE, _live_state_get
         self._register("ready-cache", runtime="codex", sessionMode="managed")
-        conn = sqlite3.connect(self._db_path)
-        try:
-            conn.execute(
-                """
-                INSERT INTO agent_live_state
-                    (agent_id, status, reason, updated_at, refresh_after)
-                VALUES (?, 'ready', 'future-cache', '2026-05-26T00:00:00Z',
-                        '2099-01-01T00:00:00Z')
-                """,
-                ("ready-cache",),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        _LIVE_STATE_CACHE["ready-cache"] = {
+            "status": "ready", "reason": "future-cache", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z",
+            "updated_at": "2026-05-26T00:00:00Z",
+        }
 
         resp = self.client.patch(
             "/api/v1/agents/ready-cache/ready",
@@ -157,15 +149,10 @@ class ReadyStatusEndpointTests(FastApiTestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
 
-        conn = sqlite3.connect(self._db_path)
-        try:
-            row = conn.execute(
-                "SELECT status FROM agent_live_state WHERE agent_id = ?",
-                ("ready-cache",),
-            ).fetchone()
-            self.assertIsNone(row, "ready PATCH must invalidate cached live state")
-        finally:
-            conn.close()
+        self.assertIsNone(
+            _live_state_get("ready-cache"),
+            "ready PATCH must invalidate cached live state",
+        )
 
 
 if __name__ == "__main__":

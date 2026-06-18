@@ -1755,13 +1755,12 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_agents_list_uses_cached_live_status_without_recomputing_ledgers(self):
         self._register("cached-agent", runtime="codex", sessionMode="managed", launchMode="managed")
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            """,
-            ("cached-agent", "offline", "cached for read path", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
-        )
+        api_v2._LIVE_STATE_CACHE["cached-agent"] = {
+            "status": "offline", "reason": "cached for read path", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
 
         with patch.object(api_v2, "_compute_agent_status", side_effect=AssertionError("read path should use cached live status")):
             listed = self.client.get("/api/v1/agents")
@@ -2461,11 +2460,12 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
             ("4242", terminal_id),
         )
-        # Seed a live_state row so we can prove invalidation deletes it.
-        self._execute(
-            "INSERT INTO agent_live_state (agent_id, status, updated_at) VALUES (?,?,?)",
-            ("dead-pty-hermes", "online", api_v2._now()),
-        )
+        # Seed a live_state entry so we can prove invalidation drops it.
+        api_v2._LIVE_STATE_CACHE["dead-pty-hermes"] = {
+            "status": "online", "reason": "", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "", "updated_at": api_v2._now(),
+        }
 
         resp = self.client.post(
             f"/api/v1/terminals/{terminal_id}/report-dead",
@@ -2476,8 +2476,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(term["status"], "stopped", term)
         self.assertIn("host pid not alive", term["error"] or "")
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("dead-pty-hermes",))
-        self.assertIsNone(live, "agent live-state must be invalidated on host-reported dead PTY")
+        self.assertIsNone(
+            api_v2._live_state_get("dead-pty-hermes"),
+            "agent live-state must be invalidated on host-reported dead PTY",
+        )
 
     def test_host_reported_dead_pty_is_idempotent_and_pid_guarded(self):
         # A report for a terminal that is already stopped is a harmless no-op
@@ -2616,14 +2618,12 @@ class ApiV2RegressionTests(FastApiTestCase):
         terminal_id = "term_orphan_worker"
         self._seed_managed_claude_with_attached_terminal("orphan-claude", terminal_id)
         self._stamp_live_channel_sidecar("orphan-claude")  # worker alive
-        # Stamp a cached live_state row so we can prove invalidation deletes it.
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            """,
-            ("orphan-claude", "online", "stale", api_v2._now(), "2099-01-01T00:00:00Z"),
-        )
+        # Stamp a cached live_state entry so we can prove invalidation drops it.
+        api_v2._LIVE_STATE_CACHE["orphan-claude"] = {
+            "status": "online", "reason": "stale", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+        }
         # Newest terminal row terminal-state with stopped_at ~200s in the past.
         old = "2000-01-01T00:00:00Z"
         self._execute(
@@ -2637,8 +2637,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("orphan-claude",))
         rs = json.loads(agent["runtime_state"] or "{}")
         self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("orphan-claude",))
-        self.assertIsNone(live, "agent_live_state row must be invalidated (deleted)")
+        self.assertIsNone(
+            api_v2._live_state_get("orphan-claude"),
+            "agent live-state must be invalidated (dropped)",
+        )
         event = self._fetchone(
             "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
             (terminal_id, "reconciled_managed_orphan_worker"),
@@ -2846,19 +2848,15 @@ class ApiV2RegressionTests(FastApiTestCase):
             return asyncio.run(_run())
 
         self.assertTrue(busy(), "cold cache → fall back to raw turn_busy freshness (busy)")
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, environment_id, session_id,
-                terminal_id, active_run_id, refresh_after, updated_at)
-            VALUES (?, 'working', '', '', '', '', '', '9999-12-31T23:59:59Z', ?)
-            ON CONFLICT(agent_id) DO UPDATE SET status='working'
-            """,
-            ("wq-target", api_v2._now()),
-        )
+        api_v2._LIVE_STATE_CACHE["wq-target"] = {
+            "status": "working", "reason": "", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "9999-12-31T23:59:59Z", "updated_at": api_v2._now(),
+        }
         self.assertTrue(busy(), "engine working → busy (queue holds)")
-        self._execute("UPDATE agent_live_state SET status='online' WHERE agent_id=?", ("wq-target",))
+        api_v2._LIVE_STATE_CACHE["wq-target"]["status"] = "online"
         self.assertFalse(busy(), "engine online (ready) → not busy; queue releases instantly")
-        self._execute("UPDATE agent_live_state SET status='available' WHERE agent_id=?", ("wq-target",))
+        api_v2._LIVE_STATE_CACHE["wq-target"]["status"] = "available"
         self.assertFalse(busy(), "engine available (dead worker) → not busy; no strand")
 
     def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
@@ -3252,17 +3250,17 @@ class ApiV2RegressionTests(FastApiTestCase):
         # cache so working/idle reflects the flip immediately — not after the 60s
         # sweep. (The /turn-start and /turn-end endpoints already invalidate.)
         self._register("hb-turn-claude", runtime="claude-code", sessionMode="resident")
-        # Seed a fresh cached live_state row with refresh_after far in the future.
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            """,
-            ("hb-turn-claude", "online", "cached", api_v2._now(), "2099-01-01T00:00:00Z"),
+        # Seed a fresh cached live_state entry with refresh_after far in the future.
+        api_v2._LIVE_STATE_CACHE["hb-turn-claude"] = {
+            "status": "online", "reason": "cached", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+        }
+        # Pre-condition: the cache entry exists.
+        self.assertIsNotNone(
+            api_v2._live_state_get("hb-turn-claude"),
+            "precondition: live_state cache entry must exist before heartbeat",
         )
-        # Pre-condition: the cache row exists.
-        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
-        self.assertIsNotNone(pre, "precondition: live_state cache row must exist before heartbeat")
 
         resp = self.client.post(
             "/api/v1/agents/hb-turn-claude/heartbeat",
@@ -3274,8 +3272,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             },
         )
         self.assertEqual(resp.status_code, 200, resp.text)
-        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("hb-turn-claude",))
-        self.assertIsNone(post, "turnBusy heartbeat must invalidate (delete) the live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("hb-turn-claude"),
+            "turnBusy heartbeat must invalidate (drop) the live_state cache entry",
+        )
 
     def test_channel_pending_reply_online_only_when_live(self):
         # FIX 3 (a): a managed claude with a channel_pending_reply run AND a LIVE
@@ -3352,15 +3352,13 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
 
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
-        """Stamp a fresh, far-future cached agent_live_state row so a test can
-        prove a code path invalidated (deleted) it."""
-        self._execute(
-            """
-            INSERT OR REPLACE INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            """,
-            (agent_id, status, "seeded", api_v2._now(), "2099-01-01T00:00:00Z"),
-        )
+        """Stamp a fresh, far-future cached live_state entry so a test can
+        prove a code path invalidated (dropped) it."""
+        api_v2._LIVE_STATE_CACHE[agent_id] = {
+            "status": status, "reason": "seeded", "environment_id": "",
+            "session_id": "", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": api_v2._now(),
+        }
 
     def test_virtual_worker_start_invalidates_live_state(self):
         # FIX 1: a virtual/RPC worker START (ensure_virtual_terminal) sets
@@ -3387,8 +3385,10 @@ class ApiV2RegressionTests(FastApiTestCase):
              "managed-warm", "managed", None, None, "running", now, now),
         )
         self._seed_cached_live_state("vw-pi")
-        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("vw-pi",))
-        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+        self.assertIsNotNone(
+            api_v2._live_state_get("vw-pi"),
+            "precondition: cached live_state entry must exist",
+        )
 
         resp = self.client.post(
             "/api/v1/agents/vw-pi/virtual-terminal/ensure",
@@ -3401,8 +3401,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             str(json.loads(agent_rs["runtime_state"] or "{}").get("virtualTerminalId") or "").strip(),
             "precondition: virtualTerminalId must be set by the start path",
         )
-        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("vw-pi",))
-        self.assertIsNone(post, "virtual worker start must invalidate (delete) the live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("vw-pi"),
+            "virtual worker start must invalidate (drop) the live_state cache entry",
+        )
 
     def test_console_stop_reconcile_invalidates_live_state(self):
         # FIX 2: the console-stop reconcile branch (terminal already stopped/failed
@@ -3446,8 +3448,10 @@ class ApiV2RegressionTests(FastApiTestCase):
              "dashboard", now, now, None, ""),
         )
         self._seed_cached_live_state("cs-pi", status="online")
-        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("cs-pi",))
-        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+        self.assertIsNotNone(
+            api_v2._live_state_get("cs-pi"),
+            "precondition: cached live_state entry must exist",
+        )
 
         resp = self.client.post(
             "/api/v1/terminals/term_cs_recon/stop",
@@ -3460,8 +3464,10 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("term_cs_recon", "console_stop_reconciled"),
         )
         self.assertIsNotNone(event, "precondition: reconcile branch must have fired")
-        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("cs-pi",))
-        self.assertIsNone(post, "console-stop reconcile must invalidate (delete) the live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("cs-pi"),
+            "console-stop reconcile must invalidate (drop) the live_state cache entry",
+        )
 
     def test_orphan_reason_says_no_console_not_no_sidecar(self):
         # FIX 3 (#166): the status-F1 block must distinguish the headless-orphan case
@@ -3518,8 +3524,10 @@ class ApiV2RegressionTests(FastApiTestCase):
              "managed-warm", "managed", None, None, "running", now, now),
         )
         self._seed_cached_live_state("envdis-pi", status="online")
-        pre = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("envdis-pi",))
-        self.assertIsNotNone(pre, "precondition: cached live_state row must exist")
+        self.assertIsNotNone(
+            api_v2._live_state_get("envdis-pi"),
+            "precondition: cached live_state entry must exist",
+        )
 
         resp = self.client.post(
             "/api/v1/environments/linux:test-host:default/control",
@@ -3528,8 +3536,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         agent = self._fetchone("SELECT status FROM agents WHERE id = ?", ("envdis-pi",))
         self.assertEqual(agent["status"], "offline", agent)
-        post = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("envdis-pi",))
-        self.assertIsNone(post, "env-disable must invalidate (delete) bound agents' live_state cache rows")
+        self.assertIsNone(
+            api_v2._live_state_get("envdis-pi"),
+            "env-disable must invalidate (drop) bound agents' live_state cache entries",
+        )
 
     def test_stale_claimed_run_aged_out_despite_live_bridge(self):
         # FIX 5: a claimed/running run with a LIVE (fresh) bridge but a dead inner
@@ -3597,8 +3607,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(stale_row["status"], "failed")
         fresh_row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_aged_fresh",))
         self.assertEqual(fresh_row["status"], "running")
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("aged-hermes",))
-        self.assertIsNone(live, "aging out a stale run must invalidate the agent's live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("aged-hermes"),
+            "aging out a stale run must invalidate the agent's live_state cache entry",
+        )
 
     def _seed_claimed_run(self, run_id: str, agent_id: str, *, claim_bridge_id: str, claimed_minutes_ago: float, status: str = "claimed"):
         claimed_at = (datetime.now(timezone.utc) - timedelta(minutes=claimed_minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -3659,8 +3671,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNotNone(event, "requeued_orphaned_claim event must be appended")
         self.assertIn("dead-bridge", (event["body"] or ""), "event should note the dead bridge id")
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("orphan-claim-hermes",))
-        self.assertIsNone(live, "requeue must invalidate the agent's false-busy live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("orphan-claim-hermes"),
+            "requeue must invalidate the agent's false-busy live_state cache entry",
+        )
 
     def test_claimed_run_with_live_bridge_not_requeued(self):
         # GUARD: a claimed run whose claim bridge IS fresh/live is genuinely being
@@ -3773,8 +3787,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(int(row["turn_busy"]), 0, "turn_busy must be cleared")
         self.assertEqual(row["turn_bridge_id"] or "", "")
         self.assertEqual(row["turn_run_id"] or "", "")
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("ci-senior-dev",))
-        self.assertIsNone(live, "clearing a stuck turn_busy must invalidate the false-working live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("ci-senior-dev"),
+            "clearing a stuck turn_busy must invalidate the false-working live_state cache entry",
+        )
 
     def test_turn_busy_NOT_cleared_when_owning_bridge_is_fresh(self):
         # GUARD: turn_bridge_id IS a fresh, heartbeating bridge — the loop is
@@ -3864,8 +3880,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNotNone(mirror, "an undeliverable queued run must mirror a reply to the sender")
         # Status cache invalidated so the agent stops showing false `online`.
-        live = self._fetchone("SELECT agent_id FROM agent_live_state WHERE agent_id = ?", ("deaf-hermes",))
-        self.assertIsNone(live, "reaping must invalidate the target's live_state cache row")
+        self.assertIsNone(
+            api_v2._live_state_get("deaf-hermes"),
+            "reaping must invalidate the target's live_state cache entry",
+        )
 
     def test_queued_run_with_live_claimer_not_reaped(self):
         # GUARD: a queued run whose target has a LIVE channel-sidecar claimer is
@@ -10636,30 +10654,23 @@ class ApiV2RegressionTests(FastApiTestCase):
             "recon-agent", session_handle="recon-thread", bridge_id="recon-bridge", port=4111
         )
         # Freeze a stale, EXPIRED offline verdict (refresh_after well in the past).
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                status = excluded.status,
-                reason = excluded.reason,
-                updated_at = excluded.updated_at,
-                refresh_after = excluded.refresh_after
-            """,
-            ("recon-agent", "offline", "Environment is offline.", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z"),
-        )
+        api_v2._LIVE_STATE_CACHE["recon-agent"] = {
+            "status": "offline", "reason": "Environment is offline.",
+            "environment_id": "", "session_id": "", "terminal_id": "",
+            "active_run_id": "", "refresh_after": "2026-01-01T00:01:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
 
         asyncio.run(service_main._run_dispatch_reconcile_once())
 
-        row = self._fetchone(
-            "SELECT status, updated_at FROM agent_live_state WHERE agent_id = ?", ("recon-agent",)
-        )
+        entry = api_v2._live_state_get("recon-agent")
+        self.assertIsNotNone(entry, "reconcile must keep a refreshed live-status entry")
         self.assertNotEqual(
-            row["updated_at"], "2026-01-01T00:00:00Z",
+            entry["updated_at"], "2026-01-01T00:00:00Z",
             "periodic reconcile did not refresh the expired live-status cache",
         )
         self.assertNotEqual(
-            row["status"], "offline",
+            entry["status"], "offline",
             "a live resident must not stay frozen offline after a reconcile pass",
         )
 

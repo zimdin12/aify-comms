@@ -174,6 +174,10 @@ class FastApiTestCase(unittest.TestCase):
 
     # ---- per test: fresh DB + fresh app.state, cheap ----
     def setUp(self):
+        # The live-status cache is a PROCESS-GLOBAL dict (2026-06-18: status moved out of the
+        # DB into memory). Clear it per test so cross-test state never leaks.
+        from service.routers.api_v2 import _LIVE_STATE_CACHE
+        _LIVE_STATE_CACHE.clear()
         self._tmpdir = tempfile.TemporaryDirectory()
         self._db_path = Path(self._tmpdir.name) / self.DB_NAME
         # When the class pre-seeded a LEGACY_SETTINGS template, copy that so the

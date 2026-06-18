@@ -905,11 +905,9 @@ async def _enforce_env_reachable_gate(
     env_id = str((payload.get("runtimeState") or {}).get("environmentId") or "").strip()
     if not env_id:
         # The binding may live on the session row instead of runtime_state — the cached
-        # live-state row carries whichever environment the derivation actually used.
-        _ls = await (await db.execute(
-            "SELECT environment_id FROM agent_live_state WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-        env_id = str((_ls["environment_id"] if _ls else "") or "").strip()
+        # live-state entry carries whichever environment the derivation actually used.
+        _ls = _live_state_get(agent_id)
+        env_id = str((_ls or {}).get("environment_id") or "").strip()
     env_row = None
     if env_id:
         env_row = await (await db.execute(
@@ -2500,14 +2498,9 @@ async def _agent_engine_busy_for_queue(db, agent_id: str) -> bool:
     turn-transition pushes (WS-1) and self-healed by the 60s reconcile. Falls
     back to the raw turn-busy freshness signal only when the cache row is absent
     (cold start), preserving the prior behavior in that window."""
-    try:
-        row = await (await db.execute(
-            "SELECT status FROM agent_live_state WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-    except Exception:
-        row = None
-    if row and "status" in row.keys() and row["status"]:
-        return str(row["status"]).strip().lower() in {"working", "blocked"}
+    entry = _live_state_get(agent_id)
+    if entry and entry.get("status"):
+        return str(entry["status"]).strip().lower() in {"working", "blocked"}
     # Cache cold: fall back to the raw turn-busy freshness (prior gate behavior).
     return await _is_turn_busy_fresh(db, agent_id)
 
@@ -3809,10 +3802,16 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
 _LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online", "stale": "offline"}
 
 
-def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
+def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
-    status_note = str((row["live_reason"] if "live_reason" in row.keys() else "") or _row_status_note(row) or "").strip()
+    # live_reason is the derived status reason from the in-memory cache (the live_state table
+    # was retired 2026-06-18). Fall back to the row's live_reason column (legacy/JOIN paths) or
+    # the raw status note. `status` carries the derived live status from the cache.
+    status_note = str(
+        (live_reason if live_reason is not None else (row["live_reason"] if "live_reason" in row.keys() else ""))
+        or _row_status_note(row) or ""
+    ).strip()
     base_status = str((row["live_status"] if "live_status" in row.keys() else "") or status or row["status"] or "idle").strip()
     # `ready` is an internal bridge/controller readiness bit. Keep it out of
     # the public agent taxonomy so operators see one idle-live state: online.
@@ -5030,6 +5029,41 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     }
 
 
+# ---- In-memory live-status cache (2026-06-18) --------------------------------------------
+# The derived agent status is a CACHE, not durable state: it is recomputed from inputs and is
+# rebuilt from scratch on restart. Storing it in SQLite made every dashboard poll refresh-WRITE
+# it (the single-writer `database is locked` storm) AND kept readers hammering the DB (blocking
+# the WAL checkpoint → WAL bloat → slow commits). It now lives in this process-global dict.
+# SAFE: the service is ONE uvicorn process / one event loop (the dashboard-next container only
+# proxies in, it never opens the DB), so dict access between `await`s is atomic — no mutex
+# needed. Lost on restart = fine (recomputed in a single reconcile pass — that's what a cache
+# is). NOTE: if the service is ever run multi-worker, this must move to a shared store (Redis)
+# or the workers need sticky routing. The agent_live_state TABLE is retained only for schema
+# compatibility; it is no longer read or written on any path.
+_LIVE_STATE_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _live_state_get(agent_id: str) -> Optional[dict[str, Any]]:
+    return _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
+
+
+def _live_state_fresh(agent_id: str, *, now: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """Return the cached entry only if its refresh_after is still in the future."""
+    entry = _LIVE_STATE_CACHE.get(str(agent_id or "").strip())
+    if not entry:
+        return None
+    refresh_after = str(entry.get("refresh_after") or "").strip()
+    return entry if (refresh_after and refresh_after > (now or _now())) else None
+
+
+def _live_state_set(agent_id: str, data: dict[str, Any]) -> None:
+    _LIVE_STATE_CACHE[str(agent_id or "").strip()] = data
+
+
+def _live_state_drop(agent_id: str) -> None:
+    _LIVE_STATE_CACHE.pop(str(agent_id or "").strip(), None)
+
+
 async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dict[str, Any]] = None, now: Optional[str] = None):
     row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
     if not row:
@@ -5052,40 +5086,15 @@ async def _refresh_agent_live_state(db, agent_id: str, *, settings: Optional[dic
             cache["status"] = derive(cache["status_inputs"])
         except Exception:
             logger.exception("status derive failed for agent=%s; keeping computed status", agent_id)
-    await db.execute(
-        """
-        INSERT INTO agent_live_state (
-            agent_id, status, reason, environment_id, session_id, terminal_id, active_run_id, refresh_after, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(agent_id) DO UPDATE SET
-            status = excluded.status,
-            reason = excluded.reason,
-            environment_id = excluded.environment_id,
-            session_id = excluded.session_id,
-            terminal_id = excluded.terminal_id,
-            active_run_id = excluded.active_run_id,
-            refresh_after = excluded.refresh_after,
-            updated_at = excluded.updated_at
-        """,
-        (
-            agent_id,
-            cache["status"],
-            cache["reason"],
-            cache["environment_id"],
-            cache["session_id"],
-            cache["terminal_id"],
-            cache["active_run_id"],
-            cache["refresh_after"],
-            cache["updated_at"],
-        ),
-    )
+    # Store in the in-memory cache — NOT the DB (was the write-storm source). No lock possible.
+    _live_state_set(agent_id, cache)
     return cache
 
 
 async def _invalidate_agent_live_state(db, agent_id: str) -> None:
-    agent_id = str(agent_id or "").strip()
-    if agent_id:
-        await db.execute("DELETE FROM agent_live_state WHERE agent_id = ?", (agent_id,))
+    # Drop from the in-memory cache (db kept in the signature for the ~45 existing call sites;
+    # no DB write happens). The next read recomputes; the reconcile keeps it warm.
+    _live_state_drop(agent_id)
 
 
 async def _fail_pending_terminal_controls(db, terminal_id: str, *, handled_at: str, response_text: str) -> int:
@@ -5356,64 +5365,44 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     return True
 
 
-# Hot-read-path cap on the per-poll live-state re-derive burst. Tests register at most a
-# couple of agents, the live fleet ~28; 8 fully refreshes steady-state (only a few rows are
-# ever expired at once) yet bounds the post-restart all-expired storm to 8 writes per poll,
-# with the reconcile sweep + warm-on-boot catching the rest. Cuts the read-path write
-# contention that feeds `database is locked` without making the roster stale.
+# Hot-read-path cap on the per-poll live-state re-derive burst. The re-derive is now an
+# in-memory recompute (no DB writes — see _LIVE_STATE_CACHE), so this only bounds CPU per poll
+# (each recompute does a handful of SELECTs). Most polls have few expired entries, so it rarely
+# bites; right after a restart it caps how many of the ~28 agents recompute per poll, the rest
+# caught by the next poll + the reconcile sweep.
 LIST_AGENTS_REFRESH_LIMIT = 8
 
 
 async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None, limit: Optional[int] = None) -> int:
-    """Recompute expired/missing agent_live_state rows. Returns how many were refreshed.
+    """Recompute expired/missing live-status entries INTO THE IN-MEMORY CACHE. Returns how many
+    were refreshed. No DB writes happen here anymore — the status cache lives in _LIVE_STATE_CACHE
+    (2026-06-18), so there is nothing to commit and a read can never take SQLite's write lock.
 
-    CALLERS MUST COMMIT when the return value is > 0 (2026-06-12 audit): aiosqlite runs in
-    implicit-transaction mode, so the upserts here are visible to THIS connection's reads
-    but ROLL BACK on close() without commit. The read endpoints (list_agents / get_agent)
-    previously never committed in the common path — the cache only ever persisted via the
-    60s reconcile sweep, and every roster poll silently re-derived every expired row (the
-    exact poll-load the cache exists to absorb).
-
-    `limit` BOUNDS the per-call write burst (2026-06-18). On the hot GET /agents read path it
-    is set (LIST_AGENTS_REFRESH_LIMIT) so a single roster poll never re-derives the whole
-    fleet at once — right after a restart EVERY row is expired, and an unbounded roster
-    re-derive is a big write burst right when the fleet is also reconnecting. Rows are
-    refreshed oldest-(most-stale)-first; the remainder are caught by the next poll and the
-    unbounded (limit=None) reconcile sweep. None = no bound (reconcile / warm-on-boot)."""
+    `limit` bounds the per-call recompute count (CPU only) for the hot GET /agents path; the
+    reconcile sweep calls it unbounded (limit=None). Missing entries are refreshed first, then
+    the oldest, so the most-stale agents recompute soonest under the cap."""
     settings = settings or await _load_settings(db)
     now = _now()
-    where = ""
-    params: list[Any] = []
     if agent_ids:
-        placeholders = ",".join("?" for _ in agent_ids)
-        where = f"WHERE a.id IN ({placeholders})"
-        params.extend(agent_ids)
-    cursor = await db.execute(
-        f"""
-        SELECT a.id, ls.refresh_after
-        FROM agents a
-        LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
-        {where}
-        ORDER BY (ls.refresh_after IS NULL) DESC, ls.refresh_after ASC
-        """,
-        tuple(params),
-    )
-    rows = await cursor.fetchall()
+        ids = [str(a or "").strip() for a in agent_ids if str(a or "").strip()]
+    else:
+        rows = await (await db.execute("SELECT id FROM agents")).fetchall()
+        ids = [r["id"] for r in rows]
+    # Order: missing-from-cache first, then by oldest refresh_after — so the most-stale recompute
+    # soonest when `limit` caps the batch.
+    def _sort_key(aid: str):
+        entry = _LIVE_STATE_CACHE.get(aid)
+        if not entry:
+            return (0, "")
+        return (1, str(entry.get("refresh_after") or ""))
+    ids.sort(key=_sort_key)
     refreshed = 0
-    for row in rows:
+    for aid in ids:
         if limit is not None and refreshed >= limit:
             break
-        refresh_after = str((row["refresh_after"] if "refresh_after" in row.keys() else "") or "").strip()
-        if not refresh_after or refresh_after <= now:
-            await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
+        if _live_state_fresh(aid, now=now) is None:
+            await _refresh_agent_live_state(db, aid, settings=settings, now=now)
             refreshed += 1
-            # Commit each row's upsert immediately. This runs on the hot read path
-            # (every GET /agents | /sessions poll) AND in the reconcile sweep; batching the
-            # whole loop into one transaction held SQLite's single writer lock across N
-            # per-agent status computes — right after a restart EVERY row is expired, so a
-            # roster poll alone could pin the lock long enough to 503 the fleet's
-            # claim/heartbeat writes. Per-row commits keep the lock held for milliseconds.
-            await db.commit()
     return refreshed
 
 
@@ -6140,18 +6129,14 @@ async def _compute_agent_status(row, db=None):
     if status in _MANUAL_STATUSES:
         return status
     if db is not None:
-        # The CPU fix: the cached agent_live_state row is kept fresh by push events
+        # The CPU fix: the in-memory live-status entry is kept fresh by push events
         # (status-event ingest invalidates it) + the reconcile backstop, so a hot read
         # serves the cached status directly instead of recomputing on EVERY call (claim
         # deliverability / write endpoints / send preflight all funnel through here).
-        # Only recompute when the cache row is missing or expired (refresh_after passed).
+        # Only recompute when the cache entry is missing or expired.
         settings = await _load_settings(db)
-        cached = await (await db.execute(
-            "SELECT status, refresh_after FROM agent_live_state WHERE agent_id = ?",
-            (row["id"],),
-        )).fetchone()
-        refresh_after = str((cached["refresh_after"] if cached else "") or "").strip()
-        if cached and refresh_after and refresh_after > _now():
+        cached = _live_state_fresh(row["id"])
+        if cached:
             return cached["status"]
         cache = await _refresh_agent_live_state(db, row["id"], settings=settings)
         if cache:
@@ -6379,21 +6364,17 @@ async def _get_recipient_info(db, recipient_id: str):
         }
     settings = await _load_settings(db)
     await _refresh_expired_agent_live_states(db, settings=settings, agent_ids=[recipient_id])
-    c = await db.execute(
-        """
-        SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
-        FROM agents a
-        LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
-        WHERE a.id = ?
-        """,
-        (recipient_id,),
-    )
+    c = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
     row = await c.fetchone()
     if not row:
         return None
     unread_map = await _get_unread_count_map(db, [recipient_id])
     dispatch_state = await _get_dispatch_state_map(db, [recipient_id])
-    return _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(recipient_id, 0), dispatch_state.get(recipient_id))
+    entry = _live_state_get(recipient_id) or {}
+    return _agent_record_to_dict(
+        row, entry.get("status") or row["status"], unread_map.get(recipient_id, 0),
+        dispatch_state.get(recipient_id), live_reason=entry.get("reason"),
+    )
 
 
 async def _preflight_live_send_recipients(
@@ -12098,13 +12079,7 @@ async def list_agents(request: Request):
                 await db.rollback()
             except Exception:
                 pass
-        cursor = await db.execute(
-            """
-            SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
-            FROM agents a
-            LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
-            """
-        )
+        cursor = await db.execute("SELECT * FROM agents")
         agents = await cursor.fetchall()
         agent_ids = [row["id"] for row in agents]
         unread_map = await _get_unread_count_map(db, agent_ids)
@@ -12112,7 +12087,8 @@ async def list_agents(request: Request):
         result = {}
         for row in agents:
             aid = row["id"]
-            payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
+            entry = _live_state_get(aid) or {}
+            payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"))
             # Plan 5 Section C: read-path live-worker gate — see
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
@@ -12828,15 +12804,7 @@ async def get_agent(agent_id: str, request: Request):
                 await db.rollback()
             except Exception:
                 pass
-        cursor = await db.execute(
-            """
-            SELECT a.*, ls.status AS live_status, ls.reason AS live_reason, ls.refresh_after AS live_refresh_after
-            FROM agents a
-            LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
-            WHERE a.id = ?
-            """,
-            (agent_id,),
-        )
+        cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
         row = await cursor.fetchone()
         if not row:
             tombstone = await _agent_tombstone(db, agent_id)
@@ -12845,7 +12813,8 @@ async def get_agent(agent_id: str, request: Request):
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         unread_map = await _get_unread_count_map(db, [agent_id])
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
-        payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))
+        entry = _live_state_get(agent_id) or {}
+        payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"))
         # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
         # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
