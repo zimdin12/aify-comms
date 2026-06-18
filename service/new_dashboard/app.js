@@ -537,47 +537,67 @@ function asArray(payload, key) {
 async function refresh() {
   byId('api-status').textContent = 'refreshing';
   byId('api-status').className = 'status-chip muted';
-  try {
-    const [agents, contracts, inboxMessages, recentMessages, runs, sessions, environments, spawnRequests, stats, settings] = await Promise.all([
-      api('/agents'),
-      api('/contracts?limit=80'),
-      api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),
-      api('/messages/recent?limit=80'),
-      api(runQueryPath()),
-      api('/sessions?limit=80'),
-      api('/environments'),
-      api('/spawn-requests?limit=200').catch(() => ({})),
-      api('/stats'),
-      // Settings are still loaded for legacy controls; mode-switch chips are
-      // always visible for managed/resident agents.
-      api('/settings').catch(() => ({})),
-    ]);
-    state.agents = asAgentArray(agents);
-    state.contracts = contracts.contracts || [];
-    state.messages = recentMessages.messages || inboxMessages.messages || [];
-    state.runs = runs.runs || [];
-    state.sessions = asArray(sessions, 'sessions');
-    state.environments = asArray(environments, 'environments');
-    state.spawnRequests = asArray(spawnRequests, 'spawnRequests');
-    state.stats = stats || {};
-    state.settings = settings && typeof settings === 'object' ? settings : {};
-    applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
+  // RESILIENT POLL (2026-06-18): use allSettled, not Promise.all. The single-worker service can
+  // transiently drop a request under poll load ("Failed to fetch"); with Promise.all ONE such blip
+  // rejected the whole refresh → no state updated, renderAll never ran → the entire dashboard
+  // (incl. every agent's status) froze on its last render and looked stale/"wrong". Now each slice
+  // applies independently; a slice whose fetch blipped keeps its last-good value, and we always
+  // re-render with whatever fresh data arrived this cycle.
+  const settled = await Promise.allSettled([
+    api('/agents'),                                                       // 0
+    api('/contracts?limit=80'),                                           // 1
+    api('/messages/inbox/dashboard?filter=all&peek=true&limit=80'),       // 2
+    api('/messages/recent?limit=80'),                                     // 3
+    api(runQueryPath()),                                                  // 4
+    api('/sessions?limit=80'),                                            // 5
+    api('/environments'),                                                 // 6
+    api('/spawn-requests?limit=200'),                                     // 7
+    api('/stats'),                                                        // 8
+    api('/settings'),                                                     // 9
+  ]);
+  const ok = (i) => settled[i].status === 'fulfilled';
+  const val = (i) => (ok(i) ? settled[i].value : undefined);
+  const failed = settled.filter((s) => s.status === 'rejected').length;
+
+  if (ok(0)) state.agents = asAgentArray(val(0));
+  if (ok(1)) state.contracts = val(1).contracts || [];
+  // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
+  if (ok(2) || ok(3)) {
+    state.messages = (ok(3) && val(3).messages) || (ok(2) && val(2).messages) || state.messages || [];
+  }
+  if (ok(4)) state.runs = val(4).runs || [];
+  if (ok(5)) {
+    state.sessions = asArray(val(5), 'sessions');
     state.sessions.forEach((session) => {
       const terminalId = session.terminalId || session.terminal?.id;
       const agentId = session.agentId || session.agent_id;
       if (terminalId && agentId) state.terminalOwners.set(String(terminalId), String(agentId));
     });
-    await chatLoadChannels();
-    await loadFiles();
-    state.loaded = true; // first successful refresh complete — rail shows real empty states now
-    evaluateFlowGates();
-    renderAll();
+  }
+  if (ok(6)) state.environments = asArray(val(6), 'environments');
+  if (ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
+  if (ok(8)) state.stats = val(8) || {};
+  if (ok(9) && val(9) && typeof val(9) === 'object') {
+    state.settings = val(9);
+    applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)
+  }
+  try { await chatLoadChannels(); } catch (_) { /* keep prior channels */ }
+  try { await loadFiles(); } catch (_) { /* keep prior files */ }
+  state.loaded = true; // first refresh attempt complete — rail shows real empty states now
+  evaluateFlowGates();
+  renderAll();
+  // Status chip: green while the CORE roster (agents) is fresh, even if a non-critical slice
+  // blipped (don't alarm the operator over a transient). Only show "reconnecting" when the core
+  // roster itself didn't refresh — we keep last-good and retry next cycle (no scary "API error").
+  if (failed === 0) {
     byId('api-status').textContent = 'live';
     byId('api-status').className = 'status-chip ok';
-  } catch (error) {
-    byId('api-status').textContent = 'API error';
-    byId('api-status').className = 'status-chip bad';
-    inspect('API error', { message: error.message });
+  } else if (ok(0)) {
+    byId('api-status').textContent = 'live';
+    byId('api-status').className = 'status-chip ok';
+  } else {
+    byId('api-status').textContent = 'reconnecting';
+    byId('api-status').className = 'status-chip warn';
   }
 }
 
