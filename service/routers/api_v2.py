@@ -124,6 +124,12 @@ DEFAULT_SETTINGS = {
     # 90s = 3 missed beats cleanly separates "missed one" from "gone". No idle/stale decay.
     "agent_liveness_seconds": 90,
     "environment_offline_seconds": 90,
+    # How long a SETTLED `offline` agent's status cache is trusted before the reconcile
+    # sweep re-validates it. An offline agent only leaves that state via a cache-invalidating
+    # event, so the hot read path need not re-derive it every poll (that was the `database is
+    # locked` write-storm root cause, 2026-06-18). Bounds env-return lag in the rare no-event
+    # case; recovery on any real agent event is immediate via invalidation.
+    "agent_offline_revalidate_seconds": 180,
     # When a runtime reports (via bridge-heartbeat) a session id that DIFFERS from
     # the pinned handle and it is NOT owned by another live agent (a safe
     # self-change — e.g. claude compacted/restarted into a fresh session id),
@@ -395,6 +401,15 @@ CONSOLE_WORKING_LEASE_SECONDS = 20
 # ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
 # ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
 TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
+# Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an
+# explicit cache-invalidating event (a returning heartbeat/turn/operator action all DELETE the
+# row). Its refresh_after is otherwise `last_seen + liveness`, which is ANCIENT for a long-dead
+# agent — so every roster poll re-derived + re-PERSISTED every offline agent, saturating SQLite's
+# single writer (observed: 16/29 agents permanently expired -> sustained `database is locked`).
+# Give offline a moderate future horizon so the hot read path serves cache; the reconcile sweep
+# still re-validates each offline agent ~every interval (env-return safety), and recovery is
+# immediate via invalidation. Tune via the agent_offline_revalidate_seconds setting.
+OFFLINE_CACHE_REVALIDATE_SECONDS = 180
 # Runtimes with native managed adapters. Codex/Hermes may be promoted to the
 # wrapper-backed channel path by managed_via_wrapper; otherwise these runtimes
 # are claimed by the bridge's native controller. PTY-input is a legacy
@@ -4873,6 +4888,21 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         lease_deadline = _iso_add_seconds(console_lease_iso, CONSOLE_WORKING_LEASE_SECONDS)
         if lease_deadline:
             refresh_after = min([v for v in (refresh_after, lease_deadline) if v])
+    # POLL-LOAD FIX (2026-06-18): a settled `offline` agent computes refresh_after from
+    # agent_last_seen + liveness — ANCIENT for a long-dead agent, so it is PERMANENTLY expired
+    # and gets re-derived + re-persisted on EVERY roster poll (GET /agents | /sessions), a
+    # write storm that saturated the single SQLite writer (sustained `database is locked`).
+    # An offline agent needs no poll-driven recompute: its status only changes via an explicit
+    # cache-invalidating event (heartbeat/turn/operator action -> _invalidate_agent_live_state).
+    # Push refresh_after to a moderate future horizon so the hot read path serves cache; the
+    # reconcile sweep still re-validates it each horizon (env-return safety), recovery on any
+    # real event is immediate via invalidation. (`stopped`/manual already short-circuit at the
+    # top with a 9999 horizon.)
+    if effective_status == "offline":
+        offline_revalidate = int(settings.get("agent_offline_revalidate_seconds", OFFLINE_CACHE_REVALIDATE_SECONDS) or OFFLINE_CACHE_REVALIDATE_SECONDS)
+        horizon = _iso_add_seconds(now, max(60, offline_revalidate))
+        if horizon:
+            refresh_after = horizon
     # status v2 (2026-06-04): assemble the engine's StatusInputs from the raw
     # signals THIS function already computed, so _refresh_agent_live_state can
     # derive the `new` status with a PURE derive() call instead of re-running the
