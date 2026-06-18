@@ -58,6 +58,7 @@ export function chatConversationItems(state) {
       return {
         kind: 'dm', key: `dm:${a.id}`, id: a.id, status: a.status || 'unknown',
         statusNote: a.statusNote || a.status_note || '',
+        role: a.role || '',
         runtime: a.runtime || a.runtimeId || '',
         preview: last ? (last.subject || last.preview || last.body || '') : '',
         msgCount: msgs.length,
@@ -77,7 +78,7 @@ export function chatConversationItems(state) {
   if (scope === 'dm') items = items.filter((i) => i.kind === 'dm');
   else if (scope === 'channel') items = items.filter((i) => i.kind === 'channel');
   else if (scope === 'favorites') items = items.filter((i) => i.favorited);
-  const live = new Set(['working', 'online', 'idle', 'available', 'blocked']);
+  const live = new Set(['working', 'online', 'available', 'blocked']);
   if (liveOnly) items = items.filter((i) => i.kind === 'channel' || live.has(resolveStatus(i.status).kind));
   if (unreadOnly) items = items.filter((i) => i.unread > 0);
   if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind) || i.unread > 0 || i.favorited);
@@ -117,9 +118,15 @@ function railItemHtml(item, selectedKey) {
   const fav = item.kind === 'dm'
     ? `<span class="chat-fav-toggle${item.favorited ? ' on' : ''}" data-fav-toggle="${esc(item.id)}" role="button" tabindex="0" aria-label="${item.favorited ? 'Unfavorite' : 'Favorite'} ${esc(item.id)}" title="${item.favorited ? 'Unfavorite' : 'Favorite'}">${item.favorited ? '★' : '☆'}</span>`
     : (item.favorited ? '<span class="chat-fav" title="Favorite">★</span>' : '');
+  // Sub-line carries the same compact context the old dashboard showed: "role · status · preview"
+  // for DMs (parity target), preview-only for channels. Keeps each row scannable at a glance.
+  const meta = item.kind === 'dm'
+    ? [item.role, resolveStatus(item.status).label].filter(Boolean).join(' · ')
+    : '';
+  const sub = [meta, item.preview || ''].filter(Boolean).join(' · ');
   return `<button class="chat-rail-item${active}" data-chat-open="${esc(item.key)}" title="${esc(item.id)}">
     <span class="chat-rail-head">${dot}<span class="chat-rail-name clip">${esc(item.id)}</span>${fav}${unread}</span>
-    <span class="chat-rail-preview clip">${esc(item.preview || '')}</span>
+    <span class="chat-rail-preview clip">${esc(sub)}</span>
   </button>`;
 }
 
