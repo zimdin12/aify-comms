@@ -236,34 +236,31 @@ class AgentStatusReadGateTests(FastApiTestCase):
     # Task C2 — downgrade is written back to the cache
     # ------------------------------------------------------------------
 
-    def test_downgrade_writeback_persists_to_agent_live_state(self):
-        """After the read-path gate fires, agent_live_state.status must
-        be updated so the dashboard's next poll sees the corrected value
-        without re-running the live-worker check."""
+    def test_downgrade_corrects_response_without_persisting(self):
+        """READ-ONLY gate (2026-06-18, reverses the Plan-5 C2 writeback): the read-path
+        gate corrects the SERVED response to `available`, but must NOT write the cache on
+        the read path — the per-agent gate writeback was a `database is locked` write storm.
+        The reconcile sweep persists the same correction; the read stays write-free."""
         self._heartbeat_environment("codex")
         self._register_managed_agent(agent_id="codex-writeback", runtime="codex")
         self._stamp_stale_online_cache("codex-writeback")
 
-        # First read — gate fires and the response is downgraded.
+        # Read — gate fires and the RESPONSE is downgraded.
         res = self.client.get("/api/v1/agents/codex-writeback")
         self.assertEqual(res.status_code, 200, res.text)
-        self.assertNotEqual(res.json()["agent"]["status"], "online")
+        self.assertEqual(res.json()["agent"]["status"], "available")
 
-        # Cache row should reflect the downgrade.
+        # The cache row is NOT written back on the read path (still the stale 'online');
+        # the 60s reconcile sweep is the durable writer.
         cached = self._read_agent_live_state("codex-writeback")
-        self.assertNotEqual(
-            cached.get("status"), "online",
-            f"Plan 5 C2: agent_live_state should reflect downgrade after "
-            f"read-path gate fires; got cached row {cached!r}",
-        )
         self.assertEqual(
-            cached.get("status"), "available",
-            f"Cache should hold 'available' after gate fires; got {cached!r}",
+            cached.get("status"), "online",
+            f"read path must not persist the downgrade (no write on read); got {cached!r}",
         )
 
-    def test_ready_cache_without_live_worker_is_downgraded_and_written_back(self):
-        """`ready` is just as wrong as `online` when the wrapper PTY is gone:
-        operators can click/send to it, but no worker exists to take the turn."""
+    def test_ready_cache_without_live_worker_is_downgraded_in_response(self):
+        """`ready` is just as wrong as `online` when the wrapper PTY is gone: the served
+        response must downgrade to `available`. Read-only — no cache writeback (2026-06-18)."""
         self._heartbeat_environment("hermes")
         self._register_managed_agent(agent_id="hermes-stale-ready", runtime="hermes")
         self._stamp_stale_ready_cache("hermes-stale-ready")
@@ -273,8 +270,9 @@ class AgentStatusReadGateTests(FastApiTestCase):
         agent = res.json()["agent"]
         self.assertEqual(agent["status"], "available", res.text)
 
+        # No write on read: the stale cache row is untouched (reconcile persists later).
         cached = self._read_agent_live_state("hermes-stale-ready")
-        self.assertEqual(cached.get("status"), "available", cached)
+        self.assertEqual(cached.get("status"), "ready", cached)
 
     # ------------------------------------------------------------------
     # Plan 5 follow-up (2026-05-26) — stale synth (`vterm_*`) rows must

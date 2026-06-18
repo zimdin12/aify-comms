@@ -862,28 +862,13 @@ async def _enforce_live_worker_gate(
     payload["status"] = "available"
     payload["statusRaw"] = "available"
     payload["statusNote"] = "no-live-worker (Plan 5 read-path gate)"
-    # Task C2 — writeback so the dashboard's next poll sees the downgrade
-    # without re-running the live-worker check. Best-effort: a failure
-    # only means the next read re-runs the gate, which is still cheap.
-    try:
-        await db.execute(
-            """UPDATE agent_live_state
-               SET status = ?, reason = ?, updated_at = ?
-               WHERE agent_id = ?""",
-            (
-                "available",
-                "no-live-worker (Plan 5 read-path gate)",
-                _now(),
-                agent_id,
-            ),
-        )
-        await db.commit()
-    except Exception:
-        logger.debug(
-            "live-worker writeback failed for agent_id=%s; next read will re-run the gate",
-            agent_id,
-            exc_info=True,
-        )
+    # READ-ONLY (2026-06-18): the cache writeback was REMOVED. This gate runs on the hot
+    # read path (GET /agents | /agents/{id}) per agent; persisting the downgrade here meant
+    # up to N writes per roster poll, which starved SQLite's single writer and 503'd the
+    # fleet's claim/heartbeat writes (`database is locked`). The downgrade is computed
+    # in-memory for THIS response; the 60s reconcile sweep persists the same correction
+    # (it re-derives via _compute_live_status_cache, which applies the identical
+    # terminal_sessions check). A read re-running the gate is just a couple of cheap reads.
     return payload
 
 
@@ -936,20 +921,18 @@ async def _enforce_env_reachable_gate(
     offline_seconds = max(30, int(settings.get("environment_offline_seconds", 90) or 90))
     if env_row and _environment_effective_status(env_row, offline_seconds=offline_seconds) in {"online", "degraded"}:
         return payload
-    # Env is gone but the cached status predates its death → recompute now.
-    try:
-        await _invalidate_agent_live_state(db, agent_id)
-        await _refresh_agent_live_state(db, agent_id, settings=settings)
-        fresh = await (await db.execute(
-            "SELECT status, reason FROM agent_live_state WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-        await db.commit()
-        if fresh:
-            payload["status"] = str(fresh["status"] or payload.get("status") or "")
-            payload["statusRaw"] = payload["status"]
-            payload["statusNote"] = str(fresh["reason"] or "")
-    except Exception:
-        logger.debug("env-reachable gate recompute failed for %s; serving cached", agent_id, exc_info=True)
+    # Env is gone but the cached status predates its death → correct it IN-MEMORY for this
+    # response. READ-ONLY (2026-06-18): the previous invalidate + _refresh_agent_live_state +
+    # commit ran on the hot read path per agent — a per-poll write storm that starved SQLite's
+    # single writer (`database is locked`, fleet-wide). A managed agent whose owning environment
+    # is not online/degraded is `offline` (the same conclusion _compute_live_status_cache's
+    # managed_env_bridge_offline branch reaches); set it here without persisting. The 60s
+    # reconcile sweep persists the correction (env death has no transition event, so the sweep
+    # is the durable re-derivation path).
+    env_label = env_id or "owning environment"
+    payload["status"] = "offline"
+    payload["statusRaw"] = "offline"
+    payload["statusNote"] = f'Environment "{env_label}" is offline; only its bridge can host this managed worker.'
     return payload
 
 
@@ -12028,7 +12011,9 @@ async def list_agents(request: Request):
         refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings)
         if repaired_active_runs or refreshed_live_states:
             # Persist the refreshed cache rows — without this commit they roll back on
-            # close() and every subsequent poll re-derives them (2026-06-12 audit).
+            # close() and every subsequent poll re-derives them (2026-06-12 audit). With the
+            # offline-revalidate horizon (2026-06-18) settled agents are not expired here, so
+            # this refreshes only the few genuinely-changed rows, not the whole roster.
             await db.commit()
         cursor = await db.execute(
             """
@@ -12046,7 +12031,8 @@ async def list_agents(request: Request):
             aid = row["id"]
             payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(aid, 0), dispatch_map.get(aid))
             # Plan 5 Section C: read-path live-worker gate — see
-            # _enforce_live_worker_gate for full rationale.
+            # _enforce_live_worker_gate for full rationale. (In-memory correction
+            # only; the writeback was removed 2026-06-18 to cut read-path writes.)
             payload = await _enforce_live_worker_gate(payload, db, settings, aid)
             payload = await _enforce_env_reachable_gate(payload, db, settings, aid)
             result[aid] = payload
@@ -12769,8 +12755,8 @@ async def get_agent(agent_id: str, request: Request):
         unread_map = await _get_unread_count_map(db, [agent_id])
         dispatch_map = await _get_dispatch_state_map(db, [agent_id])
         payload = _agent_record_to_dict(row, row["live_status"] if "live_status" in row.keys() else row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id))
-        # Plan 5 Section C: read-path live-worker gate — see
-        # _enforce_live_worker_gate for full rationale.
+        # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
+        # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)
         payload = await _enforce_env_reachable_gate(payload, db, settings, agent_id)
         return {"ok": True, "agentId": agent_id, "agent": payload}
