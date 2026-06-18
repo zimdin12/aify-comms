@@ -410,6 +410,14 @@ CONSOLE_WORKING_LEASE_SECONDS = 20
 # ANTI-FEEDBACK-LOOP: only a bridge/event sets turn_busy; only an event/this
 # ceiling/the run-reply clear clears it. Status is NEVER read back to re-arm it.
 TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
+# Turn-end grace (#224, 2026-06-18). A managed wrapper (claude) fires premature/duplicate Stop
+# hooks BETWEEN tool calls of one logical turn, briefly clearing turn_busy before the next
+# tool's re-assert — so the derived status flapped `working`→`online`→`working`. Hold `working`
+# for this short grace after turn_busy is cleared: a re-assert within the window absorbs the
+# flap, and a genuinely-ended turn flips to `online` once the grace lapses. derive() still
+# gates the in-turn input on `live` (worker_present), so a recent clear on a DEAD worker never
+# shows working — the grace only smooths an actively-alive worker's between-tool gaps.
+TURN_END_GRACE_SECONDS = 12
 # Poll-load fix (2026-06-18): a settled `offline` agent's cached status only changes via an
 # explicit cache-invalidating event (a returning heartbeat/turn/operator action all DELETE the
 # row). Its refresh_after is otherwise `last_seen + liveness`, which is ANCIENT for a long-dead
@@ -4424,7 +4432,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     aid = agent_row["id"]
     mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
     st = await (await db.execute(
-        "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
+        "SELECT in_turn, awaiting_input, last_event, last_event_at FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
     in_turn = bool(st and st["in_turn"])
     awaiting_stored = bool(st and st["awaiting_input"])
     # status v2 (Fix B, 2026-06-05): in_turn staleness backstop. The OLD engine
@@ -4439,6 +4447,14 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             datetime.now(timezone.utc).timestamp() - last_event_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
+    # Turn-end grace (#224, 2026-06-18): hold in_turn briefly after a turn-END so a managed
+    # wrapper's premature Stop-then-re-assert doesn't flap the WS-pushed status to `online`.
+    # Mirrors the byproduct path (_compute_live_status_cache); derive() still gates on `live`,
+    # so a recent turn-end on a dead worker can't surface as working.
+    if (not in_turn) and st and str(st["last_event"] or "") == "turn_end":
+        _end_epoch = _iso_to_epoch(st["last_event_at"] if st else "")
+        if _end_epoch and (datetime.now(timezone.utc).timestamp() - _end_epoch) <= TURN_END_GRACE_SECONDS:
+            in_turn = True
     # DISABLED = explicit stop OR wake disabled (launch_mode='none' — the operator's "Stop
     # wake"). The engine only knew 'stopped' (2026-06-12 audit): wake-disabled agents served
     # `available` under status_engine=new — inviting sends that can never wake them — while
@@ -4524,6 +4540,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # public idle-live status is `online` so operators do not see both
     # `ready` and `available` as competing positive states.
     turn_state_ready = False
+    turn_grace = False  # working held by the turn-end grace (#224 flap absorber), not a live turn
     try:
         _tb = await (await db.execute(
             "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state WHERE agent_id = ?",
@@ -4538,6 +4555,17 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
                 # wall-clock ceiling rather than racing the re-pulse cadence.
                 if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_BACKSTOP_SECONDS:
                     turn_busy = True
+                    turn_runtime = str(_tb["turn_runtime"] or "").strip()
+                    turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
+            # Turn-end grace (#224): turn_busy is currently 0, but if it was cleared only moments
+            # ago (turn_updated_at == the clear time), keep deriving in-turn through the grace so a
+            # managed wrapper's premature Stop-then-re-assert doesn't flap to `online`. derive()
+            # still requires `live`, so a recent clear on a dead worker can't surface as working.
+            if not turn_busy:
+                _cleared_at = _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+                if _cleared_at and (datetime.now(timezone.utc).timestamp() - _cleared_at) <= TURN_END_GRACE_SECONDS:
+                    turn_busy = True
+                    turn_grace = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
                     turn_updated_at = str(_tb["turn_updated_at"] or "").strip()
             try:
@@ -4909,6 +4937,13 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         busy_deadline = _iso_add_seconds(turn_updated_at, TURN_BUSY_BACKSTOP_SECONDS)
         if busy_deadline:
             refresh_after = min([v for v in (refresh_after, busy_deadline) if v])
+    # Turn-end grace (#224): when `working` is held only by the grace, expire the cache right at
+    # the grace deadline so a turn that truly ended flips to `online` promptly (no minutes-long
+    # lingering `working`). A re-assert before then re-arms turn_busy and supersedes this.
+    if effective_status == "working" and turn_grace and turn_updated_at:
+        grace_deadline = _iso_add_seconds(turn_updated_at, TURN_END_GRACE_SECONDS)
+        if grace_deadline:
+            refresh_after = min([v for v in (refresh_after, grace_deadline) if v])
     # M2: when `working` is driven by the console-working lease (turn_updated_at is unset,
     # so the backstop clamp above is skipped), clamp refresh_after to the lease TTL so the
     # cache self-expires when the spinner stops — the bridge stops POSTing, so nothing else
