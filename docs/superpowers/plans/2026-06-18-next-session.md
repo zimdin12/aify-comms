@@ -1,5 +1,15 @@
 # Next session — turnkey plan (prepped 2026-06-18, pre-compaction)
 
+> **PROGRESS 2026-06-18 (post-compaction execution session):** Part 1 status fix SHIPPED (cf6ef25) —
+> but via a SLOW RE-PROBE (not the audit's fresh-output gate, which had a catch-22; see the status memory).
+> Staged via install.sh; needs an env-bridge restart + live-validation to close #224. Part 2 HIGH ports
+> SHIPPED + browser-verified: composer Type/Priority/Subject (cfecedb, #230), Identity Directory +
+> Spawn-requests table (5511c3a, #231). UX SHIPPED: chat-as-hero default-collapse + status legend
+> (f3da47d). UX#4/#5/#6 assessed already-good (prior polish). STILL OPEN (#232): UX#7 button audit + the
+> MED endpoint-button ports below. All pushed (HEAD f3da47d).
+
+
+
 > Operator said: **"lets do both"** = (1) fix the bridge spinner-lease so statuses are 100% correct, AND (2) keep grinding the new-dashboard UX/feature list. Then: verify holistically, port the missing old-dashboard features that make sense, and report.
 
 Two detailed source docs back this plan — read them first:
