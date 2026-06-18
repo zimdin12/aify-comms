@@ -2950,6 +2950,42 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
     return len(rows)
 
 
+STUCK_STOPPING_GRACE_SECONDS = 900  # a 'stopping' PTY that never reached 'stopped' is wedged
+
+
+async def _reconcile_stuck_terminal_and_session_rows(db) -> dict[str, int]:
+    """Self-heal two stuck-row patterns the other reapers miss (2026-06-18 fleet audit).
+
+    1. terminal_sessions wedged in the TRANSITIONAL 'stopping' state: a stop was
+       requested but the owning bridge died / never PATCHed the row to 'stopped'
+       (observed: a PTY stuck 'stopping' for 17 days). The managed-worker-hygiene
+       reaper only scans active states (attached/running/...), NOT 'stopping', so
+       it never catches these. After a grace window, force 'stopped' so the
+       dashboard stops rendering a phantom "stopping" console.
+    2. agent_sessions marked status='ended' but with ended_at STILL NULL: any
+       "live session" query keys on `ended_at IS NULL`, so such a row reads as
+       active forever despite being ended (observed: a 3-week-old ghost). Backfill
+       ended_at from last_seen.
+
+    Both idempotent, both DB-only. Returns counts for the reconcile summary.
+    """
+    now = _now()
+    result = {"stuck_stopping_terminals_closed": 0, "ended_sessions_backfilled": 0}
+    cur = await db.execute(
+        "UPDATE terminal_sessions SET status = 'stopped', stopped_at = COALESCE(stopped_at, ?) "
+        "WHERE status = 'stopping' AND datetime(updated_at) < datetime('now', ? || ' seconds')",
+        (now, f"-{STUCK_STOPPING_GRACE_SECONDS}"),
+    )
+    result["stuck_stopping_terminals_closed"] = cur.rowcount or 0
+    cur = await db.execute(
+        "UPDATE agent_sessions SET ended_at = COALESCE(ended_at, last_seen, ?) "
+        "WHERE status = 'ended' AND ended_at IS NULL",
+        (now,),
+    )
+    result["ended_sessions_backfilled"] = cur.rowcount or 0
+    return result
+
+
 async def _reconcile_managed_worker_hygiene(db) -> dict[str, int]:
     """Periodic managed-worker hygiene sweep (Workstream B).
 
@@ -3755,10 +3791,13 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
     return status
 
 
-# Legacy raw agents.status values that predate the 8-status engine vocabulary. The
-# bridge heartbeat still stamps agents.status='active'; if a live_state row is ever
-# missing, that raw value must NOT leak to the UI as a non-canonical status.
-_LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online"}
+# Legacy raw agents.status values that predate the proof-based 6-status vocabulary. The
+# bridge heartbeat still stamps agents.status='active', and older DBs may carry 'idle'/
+# 'stale' rows; if a live_state row is ever missing, that raw value must NOT leak to the UI
+# as a non-canonical status. 'stale' was a time-decay state removed 2026-06-18 — any lingering
+# row normalizes to 'offline' (the proof-based engine never writes it; the cleanup writer that
+# used to stamp it was removed in the same pass).
+_LEGACY_RAW_STATUS_TO_CANONICAL = {"active": "online", "idle": "online", "stale": "offline"}
 
 
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None):
@@ -4429,7 +4468,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
         )
         return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
-                            bridge_stale=False, has_live_session=worker_present, idle_too_long=False,
+                            bridge_stale=False, has_live_session=worker_present,
                             console_booting=console_booting)
     # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
     # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
@@ -4439,7 +4478,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                         worker_present=worker_present, env_reachable=True, disabled=disabled,
                         bridge_stale=(not worker_present) or missing_handle, has_live_session=worker_present,
-                        idle_too_long=False, console_booting=False)
+                        console_booting=False)
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
@@ -4905,7 +4944,6 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     #   - resident liveness: the `resident_bridge_fresh` local captured above (the
     #     SAME _resident_bridge_is_fresh call _gather_status_inputs makes, computed
     #     once and reused).
-    #   - idle_too_long: False for both modes, matching _gather_status_inputs.
     _si_st = await (await db.execute(
         "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?",
         (agent_row["id"],),
@@ -4951,7 +4989,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             mode=agent_session_mode, alive=has_live_worker, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=has_live_worker,
             env_reachable=_si_env_reachable, disabled=_si_disabled,
-            bridge_stale=False, has_live_session=has_live_worker, idle_too_long=False,
+            bridge_stale=False, has_live_session=has_live_worker,
             console_booting=_si_console_booting,
         )
     else:
@@ -4963,7 +5001,7 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             awaiting_input=_si_awaiting, worker_present=_si_fresh,
             env_reachable=True, disabled=_si_disabled,
             bridge_stale=(not _si_fresh) or _si_missing_handle, has_live_session=_si_fresh,
-            idle_too_long=False, console_booting=False,
+            console_booting=False,
         )
     # Subagents mini-tag (2026-06-11): surfaced through the reason string (the dashboard
     # already derives nuances like awaiting-reply from it) so no payload-shape change.
@@ -5309,7 +5347,15 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     return True
 
 
-async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None) -> int:
+# Hot-read-path cap on the per-poll live-state re-derive burst. Tests register at most a
+# couple of agents, the live fleet ~28; 8 fully refreshes steady-state (only a few rows are
+# ever expired at once) yet bounds the post-restart all-expired storm to 8 writes per poll,
+# with the reconcile sweep + warm-on-boot catching the rest. Cuts the read-path write
+# contention that feeds `database is locked` without making the roster stale.
+LIST_AGENTS_REFRESH_LIMIT = 8
+
+
+async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str, Any]] = None, agent_ids: Optional[list[str]] = None, limit: Optional[int] = None) -> int:
     """Recompute expired/missing agent_live_state rows. Returns how many were refreshed.
 
     CALLERS MUST COMMIT when the return value is > 0 (2026-06-12 audit): aiosqlite runs in
@@ -5317,7 +5363,14 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
     but ROLL BACK on close() without commit. The read endpoints (list_agents / get_agent)
     previously never committed in the common path — the cache only ever persisted via the
     60s reconcile sweep, and every roster poll silently re-derived every expired row (the
-    exact poll-load the cache exists to absorb)."""
+    exact poll-load the cache exists to absorb).
+
+    `limit` BOUNDS the per-call write burst (2026-06-18). On the hot GET /agents read path it
+    is set (LIST_AGENTS_REFRESH_LIMIT) so a single roster poll never re-derives the whole
+    fleet at once — right after a restart EVERY row is expired, and an unbounded roster
+    re-derive is a big write burst right when the fleet is also reconnecting. Rows are
+    refreshed oldest-(most-stale)-first; the remainder are caught by the next poll and the
+    unbounded (limit=None) reconcile sweep. None = no bound (reconcile / warm-on-boot)."""
     settings = settings or await _load_settings(db)
     now = _now()
     where = ""
@@ -5332,12 +5385,15 @@ async def _refresh_expired_agent_live_states(db, *, settings: Optional[dict[str,
         FROM agents a
         LEFT JOIN agent_live_state ls ON ls.agent_id = a.id
         {where}
+        ORDER BY (ls.refresh_after IS NULL) DESC, ls.refresh_after ASC
         """,
         tuple(params),
     )
     rows = await cursor.fetchall()
     refreshed = 0
     for row in rows:
+        if limit is not None and refreshed >= limit:
+            break
         refresh_after = str((row["refresh_after"] if "refresh_after" in row.keys() else "") or "").strip()
         if not refresh_after or refresh_after <= now:
             await _refresh_agent_live_state(db, row["id"], settings=settings, now=now)
@@ -12008,7 +12064,7 @@ async def list_agents(request: Request):
     try:
         repaired_active_runs = await _repair_unusable_active_runs(db)
         settings = await _load_settings(db)
-        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings)
+        refreshed_live_states = await _refresh_expired_agent_live_states(db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT)
         if repaired_active_runs or refreshed_live_states:
             # Persist the refreshed cache rows — without this commit they roll back on
             # close() and every subsequent poll re-derives them (2026-06-12 audit). With the
@@ -18739,18 +18795,14 @@ def _contract_reminder_body(row) -> str:
         if message_id and sender
         else f'comms_send(from="{target}", to="{sender or "original-sender"}", type="response", body="<answer, blocker, or result>")'
     )
+    # Terse on purpose (2026-06-18): efficacy comes from the reply ANCHOR, not prose. The
+    # sender/subject/ids are already in the agent's inbox, so we don't restate them at length —
+    # that was ~210 tokens of context burn per reminder (the system already reminds rarely).
     return (
-        "Automated aify-comms reminder: this work message still needs an explicit reply.\n\n"
-        f"Original sender: {sender}\n"
-        f"Original subject: {subject}\n"
-        f"Original message id: {message_id or '(run has no source message id)'}\n"
-        f"Original run id: {row['id']}\n\n"
-        "Read it if needed:\n"
-        f"{read_hint}\n\n"
-        "Use this exact reply anchor when closing the original contract:\n"
-        f"{reply_hint}\n\n"
-        "Close the contract by replying to the original sender/result, not by merely acknowledging this reminder. "
-        "If you are blocked, reply with blocker, evidence checked, and next action."
+        f'aify-comms reminder: "{subject}" from {sender} still needs an explicit reply (run {row["id"]}).\n'
+        f"Reply to the ORIGINAL, not this nudge: {reply_hint}\n"
+        f"Read it first if needed: {read_hint}\n"
+        "If blocked, reply with the blocker, what you checked, and your next action."
     )
 
 
@@ -20833,13 +20885,13 @@ async def rotate(request: Request):
                     (aid, trim),
                 )
 
-        # Mark stale agents
-        stale_hours = settings["stale_agent_hours"]
-        cursor = await db.execute(
-            "UPDATE agents SET status = 'stale' WHERE status != 'stale' AND datetime(last_seen) < datetime('now', ? || ' hours')",
-            (f"-{stale_hours}",)
-        )
-        stats["stale_agents"] = cursor.rowcount
+        # NOTE (2026-06-18): the old "Mark stale agents" UPDATE (stamped agents.status='stale'
+        # for agents not seen in stale_agent_hours) was REMOVED. Under the proof-based status
+        # model, offline/staleness is DERIVED from liveness at read time (status_engine.derive),
+        # never stamped — and 'stale' is no longer a valid status word. Stamping it was a pure
+        # write (one per cleanup cycle) of a dead vocabulary value that the live-state cache
+        # already overrode. Any legacy 'stale' raw row now canonicalizes to 'offline' via
+        # _LEGACY_RAW_STATUS_TO_CANONICAL.
 
         # Clean orphaned read receipts
         await db.execute("DELETE FROM read_receipts WHERE message_id NOT IN (SELECT id FROM messages)")

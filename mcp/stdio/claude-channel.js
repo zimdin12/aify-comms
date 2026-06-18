@@ -201,10 +201,12 @@ export function dispatchContent(agentId, run) {
   // deferred reply — root-caused 2026-06-02: a session that split read (turn 1)
   // from reply (turn 2) stranded the reply ~20min until the next dispatch
   // happened to re-wake it. So instruct the same-turn reply explicitly.
+  // Terse on purpose (2026-06-18): the full "why same-turn" rationale lives once in the
+  // MCP server `instructions` the session already loaded — don't re-pay it on every delivery.
   const replyLine = run.messageId
     ? (requireReply
-        ? `Send your reply now, in THIS turn, before you end: call comms_send with inReplyTo="${run.messageId}". Do NOT defer the reply to a later turn — a managed session will not be re-woken to finish a deferred reply, and the reply would strand.`
-        : `When you reply, include inReplyTo="${run.messageId}" so the sender sees your response linked to their original message.`)
+        ? `Reply THIS turn before you end: comms_send(inReplyTo="${run.messageId}", ...). A deferred reply strands — the session is not re-woken for it.`
+        : `When you reply, include inReplyTo="${run.messageId}".`)
     : "Reply through aify when the task is done.";
   return [
     claudeAifyReceiptLine(),

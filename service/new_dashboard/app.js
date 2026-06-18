@@ -644,7 +644,6 @@ const SETTINGS_SCHEMA = [
     { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
   ] },
   { group: 'Status & lifecycle', items: [
-    { key: 'status_engine', label: 'Status engine', type: 'select', options: ['old', 'new'], hint: 'The live-status derivation engine. `new` is the event-driven engine.' },
     { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number', min: 30, max: 3600 },
     { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number', min: 30, max: 3600 },
     { key: 'agent_liveness_seconds', label: 'Agent offline after no heartbeat (s)', type: 'number', min: 30, max: 600 },

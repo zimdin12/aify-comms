@@ -31,7 +31,6 @@ class StatusInputs:
     disabled: bool            # explicit stop/disable
     bridge_stale: bool        # resident: bridge heartbeat missing (→ offline)
     has_live_session: bool    # resident: a live runtime session exists
-    idle_too_long: bool = False   # DEPRECATED (unused) — removed with the byproduct builder in Phase 3
     console_booting: bool = False  # managed: console up, sidecar not yet claimed (display online)
 
 

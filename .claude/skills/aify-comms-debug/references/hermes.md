@@ -352,14 +352,17 @@ online"), and because `working` is set off the live gateway-running truth there 
 aify server's derived status. The dispatch delivery pulse + in-flight re-pulse remain the
 instant path; this detector is the continuous backstop in both directions; the staleness
 window is the 30-min `TURN_BUSY_BACKSTOP_SECONDS` dropped-event ceiling. Relaunch
-`hermes-aify` to load it. The residual is the **resident** (operator-launched, non-managed,
-NO delivery loop and therefore NO gateway turn detector) hermes turn: Hermes has no
-upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys
-on the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
-off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action needed
-if delivery itself works. (Separately, a resident hermes with no usable
-wake handle — wake-mode `*-missing-handle` — reads `offline`, not `available`, so this
-residual is now ONLY the missing turn-state detector, not a false-`available`.)
+`hermes-aify` to load it. **Correction (2026-06-18 audit): resident hermes DOES arm this same
+detector** — `startHermesGatewayTurnDetector` runs for resident hermes whenever
+`AIFY_HERMES_GATEWAY_URL` is set (`server.js`), so an operator-launched `hermes-aify` with its
+gateway URL exported (the normal wrapper path) gets the same continuous bidirectional turn
+detector as managed. Hermes still exposes no upstream turn-END *hook* and the bridge's
+bidirectional transcript turn-state detector keys on the *claude* transcript only, so the
+gateway detector is the resident hermes turn-end mechanism. The residual is only a
+**gateway-less** resident hermes (no `AIFY_HERMES_GATEWAY_URL`): it has no turn detector and
+self-heals off `working` at the 30-min ceiling — but with no usable wake handle (wake-mode
+`*-missing-handle`) it reads `offline`, not `available`, anyway — see KNOWN_ISSUES.md (#172).
+No action needed if delivery itself works.
 
 ## EVERY managed-hermes dispatch fails "Queued >180s … up-but-deaf" (gateway host died — hermes 0.15.1 `--tui`)
 

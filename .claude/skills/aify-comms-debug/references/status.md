@@ -53,8 +53,12 @@ the proof-based rewrite. There is now ONE derivation: `service/status_engine.py`
 and a resident whose bridge lease lapsed reads `offline`, not `stale`. `working` is a pure,
 **liveness-gated** `in_turn` flag (a dead worker / gone heartbeat can't latch `working`), queued
 delivery is gated on the liveness-aware engine status, and turn transitions PUSH to both
-dashboards in real time. Liveness uses a single window, `agent_liveness_seconds` (default 90s =
-3× the uniform 30s wrapper heartbeat) — there is no `idle_minutes`/`offline_minutes` any more.
+dashboards in real time. Liveness uses TWO windows (no `idle_minutes`/`offline_minutes` any
+more): `agent_liveness_seconds` (default 90s = 3× the uniform 30s wrapper heartbeat) governs the
+managed offline gate + the live-state cache refresh horizon, and `resident_lease_seconds`
+(default 150s) governs resident bridge freshness (`_resident_bridge_is_fresh`) — the longer
+resident window is intentional, because idle residents don't beat as often as a managed worker's
+continuous loop.
 Most of the turn-detector prose below (claude transcript detector, hermes gateway-status
 detector, the codex rollout-tail detector) describes the BRIDGE-side signals that feed the
 engine; the historical `status_engine=new` fixes below are kept as a record of how the
@@ -260,8 +264,11 @@ a pending `tool_use` (or a static parent transcript — sub-agents write a separ
 false-cleared on those — fixed `8efbbaf`). Backstop only: a still-alive agent with both end-paths missed
 self-heals at the single 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`); the claim-gate
 keeps the 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send isn't stranded. Resident
-hermes has no upstream turn-end event and relies on the 30-min ceiling
-(KNOWN_ISSUES.md #172). A send to a busy channel-capable target (managed/resident
+hermes has no upstream turn-end HOOK, but it DOES arm the continuous gateway turn detector
+(`startHermesGatewayTurnDetector`, `server.js`) whenever `AIFY_HERMES_GATEWAY_URL` is set —
+same as managed — so a gateway-bound resident hermes reports turn-end normally; only a
+gateway-less resident hermes leans on the 30-min ceiling (and, lacking a usable wake handle,
+derives `offline`) (KNOWN_ISSUES.md #172). A send to a busy channel-capable target (managed/resident
 claude) now STEERS in immediately instead of deferring behind `turn_busy`, and an
 `rr=0` channel/resident delivery clears the recipient's `turn_busy`.
 

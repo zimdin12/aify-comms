@@ -17,6 +17,12 @@ async def _apply_connection_pragmas(db: aiosqlite.Connection) -> None:
         f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};"
         "PRAGMA synchronous=NORMAL;"
         "PRAGMA foreign_keys=ON;"
+        # Cap the -wal file SQLite leaves behind after a checkpoint truncates it.
+        # Under continuous dashboard polling the WAL grew to ~83MB (checkpoint
+        # starvation); this makes every checkpoint that DOES advance reclaim the
+        # file back to <=16MB instead of leaving it bloated. Pairs with the
+        # explicit TRUNCATE checkpoint in the reconcile loop. (2026-06-18)
+        "PRAGMA journal_size_limit=16777216;"
     )
 
 _db_path: Path = None

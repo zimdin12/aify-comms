@@ -75,6 +75,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         _reconcile_resurrected_managed_consoles,
         _reroute_orphaned_managed_channel_runs,
         _reconcile_stale_managed_terminals_for_resident_agents,
+        _reconcile_stuck_terminal_and_session_rows,
         _refresh_expired_agent_live_states,
         _repair_unusable_active_runs,
         _requeue_orphaned_claimed_runs,
@@ -193,6 +194,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # dashboard stops showing 2+ resident_* rows the operator can't tell apart
         # (2026-06-03). Keeps the freshest; retires the rest.
         deduped_resident_sessions = await _commit_step(await _reconcile_duplicate_resident_sessions(db))
+        # Self-heal wedged 'stopping' PTYs + ended-but-not-closed sessions (2026-06-18 audit).
+        stuck_rows = await _commit_step(await _reconcile_stuck_terminal_and_session_rows(db))
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
@@ -203,7 +206,22 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # has passed, so it is cheap.
         await _refresh_expired_agent_live_states(db)
         await db.commit()
+        # WAL checkpoint hygiene (2026-06-18). WAL mode + connection-per-request +
+        # CONTINUOUS dashboard polling (~40 short reads/s across both dashboards) means
+        # the passive auto-checkpoint (1000 pages) can almost never advance past the
+        # oldest live reader snapshot, so the -wal file grew unbounded (observed 83 MB).
+        # A bloated WAL slows every read and lengthens each commit → longer SQLite
+        # write-lock windows → more `database is locked` collisions. Run an explicit
+        # TRUNCATE checkpoint each reconcile pass: it checkpoints as far as readers
+        # allow and truncates the file whenever a reader gap appears (returns busy
+        # otherwise — non-fatal). Bounds WAL growth without touching the hot path.
+        try:
+            row = await (await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")).fetchone()
+            checkpoint_result = tuple(row) if row else None
+        except Exception as exc:
+            checkpoint_result = f"skipped: {exc}"
         return {
+            "wal_checkpoint": checkpoint_result,
             "repaired_active": repaired_active,
             "closed_delivered": closed_delivered_total,
             "reply_reminders": len(reminders.get("reminded", [])),
@@ -214,6 +232,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "rerouted_channel_runs": rerouted_channel_runs,
             "deduped_resident_sessions": deduped_resident_sessions,
+            "stuck_stopping_terminals_closed": stuck_rows.get("stuck_stopping_terminals_closed", 0),
+            "ended_sessions_backfilled": stuck_rows.get("ended_sessions_backfilled", 0),
             "dead_sessions_stopped": dead_sessions_stopped,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),
