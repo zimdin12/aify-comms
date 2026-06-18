@@ -27,6 +27,8 @@ const apiBase = `${apiOrigin}/api/v1`;
 const RUN_INSPECTOR_EVENT_LIMIT = 50;
 
 const state = {
+  loaded: false, // false until the first successful refresh — lets the chat rail show
+                 // "Loading…" instead of "No agents." on a cold load.
   agents: [],
   contracts: [],
   messages: [],
@@ -556,6 +558,7 @@ async function refresh() {
     });
     await chatLoadChannels();
     await loadFiles();
+    state.loaded = true; // first successful refresh complete — rail shows real empty states now
     evaluateFlowGates();
     renderAll();
     byId('api-status').textContent = 'live';

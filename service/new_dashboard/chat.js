@@ -221,11 +221,16 @@ export function createChatController(deps) {
     const items = chatConversationItems(state);
     const dmItems = items.filter((i) => i.kind === 'dm');
     const chItems = items.filter((i) => i.kind === 'channel');
+    // Before the first successful refresh, show "Loading…" rather than "No agents." so a cold
+    // load (or a slow cross-origin fetch) never looks like an empty/broken roster.
+    const loaded = state.loaded !== false;
+    const dmEmpty = loaded ? 'No agents.' : 'Loading…';
+    const chEmpty = loaded ? 'No channels.' : 'Loading…';
     host.innerHTML = (
       `<div class="chat-rail-section">Direct messages</div>`
-      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : '<p class="subtle chat-rail-empty">No agents.</p>')
+      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
-      + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : '<p class="subtle chat-rail-empty">No channels.</p>')
+      + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
     );
   }
 

@@ -2,6 +2,24 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Live-status cache is in-memory, not SQLite — and the service MUST stay single-worker (2026-06-18)
+
+The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified live: 0 locks, down from ~18/min steady-state and 137/min in the post-restart storm). The non-obvious choices:
+
+**The root cause was that the live-status cache was a SQLite table written on the hot READ path.** `agent_live_state` held *derived* agent status — a pure cache, recomputed from scratch on restart — yet it was refresh-WRITTEN on every dashboard poll. With a connection-per-request, single-writer SQLite, those constant status-refresh writes were the write storm that produced the lock contention; worse, the constant status READS kept the WAL from ever checkpointing, so it bloated to 41–83MB → slow commits → more lock windows. It was a cache masquerading as durable state, on the busiest path in the service.
+
+**The fix: the live-status cache now lives in a process-global in-memory dict (`_LIVE_STATE_CACHE` in `service/routers/api_v2.py`).** Reads serve from memory — ZERO DB writes on the hot read path, so a read can NEVER take SQLite's write lock — and with the read-path writes gone the WAL checkpoints normally and stays small (~5MB). The `agent_live_state` TABLE is RETAINED for schema compatibility but is no longer read or written on any path (vestigial).
+
+**SINGLE-WORKER IS NOW A HARD REQUIREMENT.** The cache is PROCESS-GLOBAL and is only correct because the service runs as exactly ONE uvicorn process / one event loop. (The `aify-comms-dashboard-next` container only PROXIES to it — it never opens the DB.) If the service is EVER scaled to multiple workers, this in-memory cache MUST move to a shared store (Redis) or use sticky routing; otherwise different workers would serve divergent status. Do not add `--workers > 1` / multiple uvicorn processes without first relocating the cache.
+
+**Trade-off: the cache is lost on restart — accepted, because the startup reconcile warms it before serving.** A cold process recomputes the live state on boot, so a restart re-derives rather than reads stale rows.
+
+**Belt-and-suspenders (commit `581341d`): the read endpoints degrade gracefully under a transient lock.** `GET /agents`, `GET /agents/{id}`, and `GET /sessions` catch a transient `database is locked` and serve the cached data instead of returning a 503.
+
+**Reconciliation with the older attempts.** In-process write-serialization was tried TWICE and abandoned both times (it worked in steady state but serialized the read-path's 29-row status writeback into a post-restart timeout → empty dashboard). The two prior entries below — "Coalescing terminal writes + `busy_timeout`" and the original lock-DOS analysis — addressed a *different* load source (a runaway flickering console's ~80–94 output POSTs/sec) and remain valid for terminal output; they were never the steady-state lock cause. The steady-state + post-restart lock storm is what the in-memory cache fixes, and it is the durable fix (no serialization, no timeout tuning).
+
+**Remaining headroom (NOT yet done).** Heartbeat `last_seen` and turn-state still write SQLite at low frequency (they did not lock in testing). Stages 2–3 of `docs/superpowers/plans/2026-06-18-in-memory-hot-state.md` move those to memory too for much-higher agent counts.
+
 ## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
 
 The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry below:
@@ -430,6 +448,8 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 **Decision.** Terminal output is batched through an idle/max-latency coalescing queue before hitting SQLite, every connection sets `PRAGMA busy_timeout` (WAL is persistent at the file level), and OperationalError surfaces as a JSON 503, never an HTML 500.
 
 **Why.** A runaway flickering console produced ~80–94 output POSTs/sec, saturating SQLite's single write lock and starving heartbeat/dispatch/spawn-claim writers — that DOS'd the control plane and produced "database is locked" 500s that the dashboard then failed to parse. Fixing the flicker removed the load source; coalescing + `busy_timeout` + a JSON error contract make the remaining contention graceful.
+
+> **Update (2026-06-18):** this entry addressed the *terminal-output* load source and remains valid for it, but it was NOT the steady-state `database is locked` cause. That cause was the live-status cache being a SQLite table written on every dashboard poll (the read-path write storm + WAL bloat). It is resolved by moving the cache in-memory — see "Live-status cache is in-memory, not SQLite" at the top of this file.
 
 ## One live-state engine is the single source of truth for status
 

@@ -183,6 +183,17 @@ another heartbeat kept the cache row fresh, so the UI kept showing
 immediately, and readiness/registration changes could leave future-dated cache
 rows in place.
 
+> **Note (2026-06-18):** the live-status cache no longer lives in the
+> `agent_live_state` SQLite table at all — it is a process-global in-memory dict
+> (`_LIVE_STATE_CACHE`, `service/routers/api_v2.py`). The table is RETAINED for
+> schema compatibility but is no longer read or written on any path (vestigial), so
+> a dump of `agent_live_state` is NOT the live status — don't debug from it. This
+> also resolved the recurring `database is locked` 503s (the table was being
+> refresh-WRITTEN on every dashboard poll — the read-path write storm + WAL bloat);
+> reads now serve from memory with zero DB writes on the hot path. The cache is
+> process-global, so the service MUST stay single-worker. See DECISIONS.md,
+> "Live-status cache is in-memory, not SQLite".
+
 **Fix (2026-06-01 / 2026-06-02).** Update and restart/rebuild the service. Current
 builds downgrade managed wrapper-backed agents with no live `terminal_sessions` row
 to `available`, persist that downgrade, invalidate live-state cache on
@@ -301,7 +312,12 @@ ensure the self-heal/per-agent-id build is deployed).
 
 **Symptom.** Dashboard shows a managed agent as `online`. Clicking through to the agent never loads a Console widget; no live terminal_session attaches. The wrapper PTY exited some time ago, but the agent never downgraded.
 
-**Detection.** Compare cached status against actual worker presence:
+**Detection.** Compare cached status against actual worker presence. **Note
+(2026-06-18):** the live status is now served from the in-memory `_LIVE_STATE_CACHE`,
+NOT the `agent_live_state` table (which is vestigial — see the note above), so the
+query below reads a table the service no longer uses; trust `comms_agent_info` / the
+dashboard for the actual served status, and use the `terminal_sessions` half of the
+query to confirm worker presence:
 
 ```bash
 docker exec aify-comms-service python -c "

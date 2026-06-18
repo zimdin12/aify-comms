@@ -15949,10 +15949,9 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
         if not row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         await _apply_status_event(db, agent_id, req.model_dump())
-        await _invalidate_agent_live_state(db, agent_id)  # existing cache invalidator
-        # _apply_status_event commits internally BEFORE the invalidate above, so the
-        # invalidate's DELETE needs its own commit or it is rolled back on close()
-        # (review M1, 2026-06-10).
+        await _invalidate_agent_live_state(db, agent_id)  # pops the in-memory live-status cache
+        # The invalidate is an in-memory dict pop now (2026-06-18) — immediate, not tied to a
+        # commit. The commit below persists _apply_status_event's turn-state write.
         await db.commit()
         # Push the transition immediately so the dashboard updates the instant a turn
         # starts/ends (proof-based engine is the only path).
@@ -15994,10 +15993,8 @@ async def agent_console_working(agent_id: str, request: Request):
             "subagents_at = CASE WHEN ? THEN excluded.working_at ELSE '' END",
             (agent_id, now, now if subagents else "", 1 if subagents else 0),
         )
-        # Invalidate BEFORE the commit — the invalidate is itself a DELETE on agent_live_state,
-        # so issued after the only commit it is rolled back on close() and the cached `online`
-        # keeps serving until refresh_after (the spinner lease was inert for operator-typed
-        # work, review M1 2026-06-10). Mirrors /turn-start//turn-end ordering.
+        # Invalidate the in-memory live-status cache (a dict pop now, 2026-06-18 — immediate,
+        # not tied to the commit) so the next read recomputes the spinner-driven to-working.
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         # Push the working lease immediately so the spinner-driven to-working shows without
