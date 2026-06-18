@@ -27,17 +27,18 @@ The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide
 
 ### Canonical status labels (operator reference)
 
+Proof-based 6-state model (2026-06-18). Status is PROVEN, not time-assumed — no minute thresholds, no time-decay states.
+
 | Label | Meaning |
 |-------|---------|
-| `online` | Live worker, idle (no active turn). |
-| `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
-| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). **NOT emitted under the live `new` engine** (`idle_too_long` inert) — a long-quiet worker reads `online`. |
-| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). **Liveness-gated (WS-2):** a dead managed worker / stale resident bridge no longer reads `working` — it falls to `available`/`offline`/`stale` within the liveness lease. (`blocked` is the in-turn awaiting-input sub-state — produced when the live console tail looks like it needs operator input.) |
-| `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
-| `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
-| `stopped` | Operator-stopped, wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
+| `working` | Wrapper reported a turn in progress (active run or fresh `turn_busy`). **Liveness-gated:** a dead managed worker / expired resident bridge no longer reads `working` — it falls to `available`/`offline` within the liveness window (`agent_liveness_seconds`, default 90s). (`blocked` is the in-turn awaiting-input sub-state — produced when the live console tail looks like it needs operator input.) |
+| `online` | Live worker, no turn in progress. The ready/idle state — a long-quiet live agent stays `online` (operators rely on it as "ready for queued work"). |
+| `available` | Managed, env reachable, NO live worker yet; auto-starts a worker on the next send. |
+| `blocked` | In-turn agent whose live console tail looks like it needs operator input/a decision. Liveness-gated like `working`. |
+| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, else within the no-heartbeat window (`agent_liveness_seconds`, 90s). Covers managed (env bridge down) and resident (bridge lease lapsed / no usable wake handle). `offline` ≠ `stopped`. |
+| `stopped` | Operator hard-disabled — wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
 
-Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
+Managed lifecycle: `available` → `working` ⇄ `online` (+ `blocked`, `offline`, `stopped`). Resident lifecycle: `working` ⇄ `online` (+ `blocked`, `offline` when the bridge lease lapses, `stopped` on clean close). The old time-decay states `idle` and `stale` were removed 2026-06-18 (see DECISIONS.md, "Status is proof-based").
 
 ### Open limitations (not cleanly fixable yet)
 
@@ -53,10 +54,10 @@ Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/off
   read by nothing — `_apply_status_event` maintains only `in_turn` / `awaiting_input` /
   `turn_run_id` / `last_event*`. Its stale values (often `offline`) mislead anyone
   debugging by table dump. Drop the column in a future schema pass; until then, ignore it.
-- **Engine vs legacy: long-dead remote RESIDENTS read `stale` (engine) where legacy said
-  `offline`.** Tolerated per the status-v2 spec (resident stale→stale/offline both
-  accepted); the `status-disagreement` log is de-duped per (agent, old→new) transition so
-  this stable divergence no longer floods the log (was 1,700+ entries).
+- ~~**Engine vs legacy: long-dead remote RESIDENTS read `stale` (engine) where legacy said
+  `offline`.**~~ RESOLVED 2026-06-18 by the proof-based rewrite: there is no legacy engine to
+  disagree with, and `stale` was removed — a long-dead resident reads `offline` unambiguously.
+  The dual-engine `status-disagreement` logging was removed with the `status_engine` flag.
 - **The 60s reconcile sweep doesn't push status deltas over WebSocket.** When the periodic self-heal corrects a stale status, dashboards see it on their next poll rather than instantly. Event-driven push (C1) already covers operator-driven transitions; the reconcile loop has no WS handle, so wiring a broadcast there is awkward for modest benefit. Tracked in task #171.
 
 ### Watch (revisit only if the symptom recurs)

@@ -4,7 +4,7 @@
 
 - [Lifecycle verbs: what is Spawn / Stop / Restart / Reset / Resume-wake](#lifecycle-verbs-what-is-spawn-stop-restart-reset-resume-wake)
 - [resident↔managed switch is now safe (handle carries; pi/opencode managed-only)](#residentmanaged-switch-is-now-safe-handle-carries-piopencode-managed-only)
-- [Resident send rejected: `resident bridge is stale`](#resident-send-rejected-resident-bridge-is-stale)
+- [Resident send rejected: `resident bridge heartbeat is gone`](#resident-send-rejected-resident-bridge-heartbeat-is-gone)
 - [Send to a managed agent with no live claimer (always queues; backstop reaper is the net)](#send-to-a-managed-agent-with-no-live-claimer-always-queues-backstop-reaper-is-the-net)
 - [Restarting aify-comms kills all managed sessions (by design — clean slate)](#restarting-aify-comms-kills-all-managed-sessions-by-design-clean-slate)
 - [Managed agent finished but its reply never landed](#managed-agent-finished-but-its-reply-never-landed)
@@ -74,22 +74,23 @@ resident→managed lost its native chat memory (the worker started a fresh threa
   (e.g. two agents sharing one codex thread); the dashboard offers a confirm→`force` retry on
   the active-run 409.
 
-## Resident send rejected: `resident bridge is stale`
+## Resident send rejected: `resident bridge heartbeat is gone`
 
 **Symptom.** `comms_agent_info` or the dashboard shows a resident Hermes,
 Claude, or Codex agent with live-looking metadata (`wakeMode: hermes-live`,
 `claude-live`, or `codex-live`), but sending returns `ok: false`,
-`recipientStatus: stale`, and a reason like `resident bridge is stale; switch
-to managed or restart the resident wrapper`. In Hermes, the open terminal does
-not receive the prompt.
+`recipientStatus: offline`, and a reason like `resident bridge heartbeat is
+gone; restart the resident wrapper or switch to managed`. In Hermes, the open
+terminal does not receive the prompt.
 
 **Cause.** The agent record was updated without a current wrapper bridge. The
 common bad workaround is a raw Node/curl `POST /api/v1/agents` that passes
 `runtimeConfig.gatewayUrl` or a session handle. That writes metadata, but it
 does not start the MCP stdio bridge inside the visible `*-aify` wrapper, does
 not create `runtimeState.bridgeInstanceId`, and does not heartbeat
-`bridge_instances`. Current servers mark this as `stale` and refuse live
-delivery instead of forking hidden work.
+`bridge_instances`. With no live bridge heartbeat the agent reads `offline`
+(the proof-based engine no longer has a separate `stale` state), so the server
+refuses live delivery instead of forking hidden work.
 
 **Fix.** Restart the exact visible wrapper that should own delivery, then
 register from inside that same session with the MCP tool:

@@ -357,8 +357,8 @@ NO delivery loop and therefore NO gateway turn detector) hermes turn: Hermes has
 upstream turn-END hook and the bridge's bidirectional transcript turn-state detector keys
 on the *claude* transcript only, so resident hermes has NO turn-end event and self-heals
 off `working` only at the 30-min ceiling — see KNOWN_ISSUES.md (#172). No action needed
-if delivery itself works. (Separately, as of `4611588` a resident hermes with no usable
-wake handle — wake-mode `*-missing-handle` — reads `stale`, not `available`, so this
+if delivery itself works. (Separately, a resident hermes with no usable
+wake handle — wake-mode `*-missing-handle` — reads `offline`, not `available`, so this
 residual is now ONLY the missing turn-state detector, not a false-`available`.)
 
 ## EVERY managed-hermes dispatch fails "Queued >180s … up-but-deaf" (gateway host died — hermes 0.15.1 `--tui`)

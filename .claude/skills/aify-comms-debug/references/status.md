@@ -2,8 +2,8 @@
 
 ## Contents
 
-- [Status labels: online vs available vs idle vs working vs blocked vs stale vs offline vs stopped](#status-labels-online-vs-available-vs-idle-vs-working-vs-blocked-vs-stale-vs-offline-vs-stopped)
-- [`status_engine=new` is the live event engine — managed/channel `working` is FIXED (4d52571)](#status_enginenew-is-the-live-event-engine-managedchannel-working-is-fixed-4d52571)
+- [Status labels (proof-based 6-state model, 2026-06-18)](#status-labels-proof-based-6-state-model-2026-06-18)
+- [`derive()` is the SOLE status authority — the `status_engine` flag is GONE (2026-06-18)](#derive-is-the-sole-status-authority--the-status_engine-flag-is-gone-2026-06-18)
 - [`available→online` is prompt now (and unrelated to auto-close); resident clean-exit drops `online` fast](#availableonline-is-prompt-now-and-unrelated-to-auto-close-resident-clean-exit-drops-online-fast)
 - [Session status is derived now — no more "Stopped/Stale but running"](#session-status-is-derived-now-no-more-stoppedstale-but-running)
 - [Agent shows `online`, but no live worker exists](#agent-shows-online-but-no-live-worker-exists)
@@ -14,51 +14,53 @@
 - [Managed claude flaps to `online` while working — but only when the Console is CLOSED](#managed-claude-flaps-to-online-while-working-but-only-when-the-console-is-closed)
 - [Managed claude showed `blocked` mid-generation (2026-06-07)](#managed-claude-showed-blocked-mid-generation-2026-06-07)
 
-## Status labels: online vs available vs idle vs working vs blocked vs stale vs offline vs stopped
+## Status labels (proof-based 6-state model, 2026-06-18)
 
-**Question.** Operator confusion — "is `idle` the same as `stale`? is `available` the same
-as `online`?" They are distinct signals. Canonical reference:
+**Principle.** Status is **PROVEN, not time-assumed.** The `*-aify` wrapper is the source of
+truth for what the agent is doing (turn-start → `working`, turn-end → `online`,
+awaiting-input → `blocked`) and beats a liveness heartbeat every ~30s. aify-comms reflects the
+wrapper's signal verbatim and only ADDS the states the wrapper can't know about: `offline`
+(heartbeat gone), `available` (managed, no live worker yet), `stopped` (operator hard-disable).
+There are **no minute thresholds** and **no time-decay states** — the old `idle` (online-gone-
+quiet) and `stale` (resident-only expired-lease) labels were removed because they ASSUMED a
+state from elapsed time instead of proving it. Canonical reference:
 
 | Label | Meaning |
 |-------|---------|
-| `online` | Live worker, idle (no active turn). |
-| `available` | Reachable but NO live worker; auto-starts a worker on the next send. |
-| `idle` | An ONLINE worker quiet >5 min (only ever demoted from `online`). **NOT emitted under the live `new` engine** (`idle_too_long` is inert) — a long-quiet worker reads `online`. |
-| `working` | Executing a turn / claimed run (active run or fresh `turn_busy`). **Liveness-gated (2026-06-17, WS-2):** requires a LIVE worker — a dead managed worker / stale resident bridge no longer reads `working`, it falls to `available`/`offline`/`stale` within the liveness lease. |
-| `blocked` | An IN-TURN agent whose live console tail looks like it needs operator input/a decision (a prompt/question awaiting an answer, not healthy generation). Requires a live worker — gated like `working`. Emitted under the default `new` engine from the console-awaiting-input hint. |
-| `stale` | RESIDENT-ONLY; the resident bridge heartbeat is past its ~150s lease (live-but-expired — NOT an old/sticky label). |
-| `offline` | Bound env bridge down, or heartbeat past the ~30min window. |
-| `stopped` | Operator-stopped, wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
+| `working` | Wrapper reported a turn in progress (turn-start, not yet turn-end). Liveness-gated: a dead worker / gone heartbeat can't latch `working` — it falls to `offline`/`available`. |
+| `online` | Live worker, no turn in progress (heartbeat fresh, wrapper between turns). This is the ready/idle state — operators rely on `online` as "ready for queued work". |
+| `available` | Managed agent, env reachable, but NO live worker. Auto-starts a worker on the next send. `available` ≠ `online`: no worker yet, it boots one on send. |
+| `blocked` | Wrapper reported the turn is awaiting operator input/a decision (a prompt/question, not healthy generation). Liveness-gated like `working`. |
+| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s = 3× the 30s beat). Covers both managed (env bridge down) and resident (bridge lease lapsed). `offline` ≠ `stopped`: offline is "we lost the signal", stopped is "operator disabled it". |
+| `stopped` | Operator hard-disabled the agent (wake-disabled, `launch_mode='none'`), or set by `resident-lost` on clean close. A deliberate down-state, not a lost signal. |
 
-Managed lifecycle: `available` → `working` ⇄ `online` → `idle` (+ stop/offline). Resident
-adds `stale` when its bridge lease lapses, and (2026-06-03) `stopped` on clean close.
-`blocked` is a sub-state of an active run (not a separate down-state): the run is live but
-the terminal tail reads as awaiting operator input/a decision rather than healthy generation
-(2026-06-07 — see "Managed claude showed `blocked` mid-generation"). Key
-distinctions: `available` ≠ `online` (no live worker yet — it boots one on send); `idle` is
-NOT a separate down-state, it's an `online` worker just gone quiet; `stale` is resident-only
-and means a LIVE-but-expired bridge lease, not an old label that "stuck".
+Managed lifecycle: `available` → `working` ⇄ `online` (+ `blocked` mid-turn, `offline` when
+the heartbeat lapses, `stopped` on hard-disable). Resident lifecycle: `working` ⇄ `online`
+(+ `blocked`, `offline` when the bridge lease lapses, `stopped` on clean close). `blocked` is
+a sub-state of an in-turn agent (not a separate down-state): the turn is live but the wrapper
+reports it as awaiting operator input rather than healthy generation. Key distinctions:
+`available` ≠ `online` (no live worker yet — it boots one on send); `offline` ≠ `stopped`
+(lost-signal vs operator-disabled — kept separate deliberately).
 
-## `status_engine=new` is the DEFAULT live event engine (Phase I flip done, 2026-06-17)
+## `derive()` is the SOLE status authority — the `status_engine` flag is GONE (2026-06-18)
 
-**Context.** aify-comms has TWO status derivations behind the `status_engine` setting. `new`
-(the event-driven `service/status_engine.py` `derive()` over `agent_status_state`) is the
-DEFAULT and the authoritative served path; `old` (the legacy per-request `agent_turn_state`/
-`turn_busy`-window derivation) remains only as a fallback setting. The 8-status VOCABULARY is
-the same across engines, and under `new` every state is produced EXCEPT `idle` — a long-quiet
-live agent stays `online` (the effective ready/idle state; operators rely on `online` as
-"ready for queued work"), so `idle` is intentionally not emitted. `blocked` (in-turn +
-console-awaiting-input, gated on a live worker), booting-console→`online`, and resident
-`*-missing-handle`→`stale` ARE all produced under `new` (status-accuracy remediation
-2026-06-17; see docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md). What also
-differs from `old`: `working` is a pure, **liveness-gated** `in_turn` flag (a dead worker /
-stale bridge can't latch `working`), queued delivery is gated on the liveness-aware engine
-status, and turn transitions PUSH to both dashboards in real time (WS-1). Most of the
-turn-detector prose below (claude transcript detector, hermes gateway-status detector, the
-codex rollout-tail detector, the 120s/30-min constants) describes the BRIDGE-side signals that
-feed the engine.
+**Context.** The `status_engine: old|new` setting and the dual-engine machinery were REMOVED in
+the proof-based rewrite. There is now ONE derivation: `service/status_engine.py` `derive()` over
+`agent_status_state`, served from `_compute_live_status_cache`. The legacy per-request
+`agent_turn_state`/`turn_busy`-window cascade no longer produces a served status (the proof-based
+`derive()` output always wins). `derive()` emits the 6-state vocabulary above — it never emits
+`idle` or `stale` (both removed as time-decay states): a long-quiet live agent stays `online`,
+and a resident whose bridge lease lapsed reads `offline`, not `stale`. `working` is a pure,
+**liveness-gated** `in_turn` flag (a dead worker / gone heartbeat can't latch `working`), queued
+delivery is gated on the liveness-aware engine status, and turn transitions PUSH to both
+dashboards in real time. Liveness uses a single window, `agent_liveness_seconds` (default 90s =
+3× the uniform 30s wrapper heartbeat) — there is no `idle_minutes`/`offline_minutes` any more.
+Most of the turn-detector prose below (claude transcript detector, hermes gateway-status
+detector, the codex rollout-tail detector) describes the BRIDGE-side signals that feed the
+engine; the historical `status_engine=new` fixes below are kept as a record of how the
+event-driven path was built — read "new" as "the (now sole) `derive()` path".
 
-**The fix (`4d52571`, 2026-06-05).** Under `new`, two gaps in the event engine are closed:
+**Historical record (`4d52571`, 2026-06-05 — building the event-driven path, then behind `status_engine=new`; now the sole path).** Two gaps in the event engine were closed:
 - **Fix A — managed + claude channel-woken turns now show `working`.** The bridge `/heartbeat`
   `turnBusy` field is the DOMINANT turn signal for managed runtimes (hermes/codex/pi/opencode)
   and claude channel-woken turns, but it previously only wrote `agent_turn_state` (OLD engine)

@@ -2,6 +2,18 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Status is proof-based: 6 states, no time-decay, no engine flag (2026-06-18)
+
+The status system was rewritten to be **PROVEN, not time-assumed** — the conclusion of many incremental patches that had accreted into a confusing 8-state model with multiple minute thresholds. The non-obvious choices, superseding the 2026-06-04/06-17 entry below:
+
+**The vocabulary is now 6 states: `working` / `online` / `available` / `blocked` / `offline` / `stopped`.** The two time-decay states were DROPPED. `idle` (an `online` worker gone quiet past a minute threshold) is gone — a long-quiet live agent simply stays `online`, which operators already rely on as "ready for queued work". `stale` (resident-only, bridge lease past ~150s) is gone — a resident whose bridge heartbeat lapsed or that has no usable wake handle (`*-missing-handle`) now reads `offline`. *Why:* both labels ASSUMED a state from elapsed wall-clock time rather than proving it, which is exactly the class of inaccuracy operators kept reporting ("shows idle but it's working", "shows working but it's done").
+
+**The `*-aify` wrapper is the source of truth; aify-comms reflects it and only ADDS what the wrapper can't know.** The wrapper signals turn-start → `working`, turn-end → `online`, awaiting-input → `blocked`, and beats a liveness heartbeat every ~30s. aify-comms reflects those verbatim and adds only: `offline` (heartbeat gone), `available` (managed, env reachable, no live worker — boots one on send), `stopped` (operator hard-disable). `offline` ≠ `stopped` is kept deliberately: offline is "we lost the signal", stopped is "operator disabled it".
+
+**No minute thresholds. One liveness window.** `idle_minutes` (5) and `offline_minutes` (30) were removed from settings; a single `agent_liveness_seconds` (default 90 = 3× the uniform 30s heartbeat) governs when a missing heartbeat reads `offline`. `offline` is also instant on a clean wrapper disconnect (`resident-lost`), so the window is only the fallback for an unclean drop. The `TURN_BUSY_BACKSTOP_SECONDS` in-turn ceiling is KEPT — it is the dropped-turn-end safety net (resident hermes has a start hook but no end hook), not a time-decay state.
+
+**`derive()` is the sole authority; the `status_engine` flag was removed.** The dual-engine machinery (`status_engine: old|new`) and the legacy per-request `agent_turn_state`/`turn_busy`-window cascade are gone. `service/status_engine.py` `derive()` over `agent_status_state` is the one served derivation. *Why no fallback flag now (the 2026-06-04 entry kept one):* the event-driven engine has been the live default and validated since the 2026-06-17 flip; carrying a dead second engine was cruft that made the system harder to reason about, which was itself part of the problem being fixed.
+
 ## Status engine v2 is event-driven, flag-gated, and LIVE; derive() is pure; settings are cached (2026-06-04 / 06-05)
 
 The real-time, event-driven status engine (`docs/superpowers/plans/2026-06-04-status-event-engine.md`) shipped. The non-obvious choices:
