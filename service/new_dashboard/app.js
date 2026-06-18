@@ -1228,8 +1228,10 @@ function renderSessionBulkToolbar() {
 }
 
 // WS-F: status multiselect filter chips for the Sessions rail.
-const SESSION_FILTER_KINDS = ['working', 'online', 'idle', 'available', 'blocked', 'stale', 'offline', 'stopped'];
-const SESSION_LIVE_KINDS = ['working', 'online', 'idle', 'available', 'blocked'];
+// Proof-based 6-state model only — `idle`/`stale` were removed in the status rewrite, so they must
+// not appear as session filter chips (dead chips that match nothing).
+const SESSION_FILTER_KINDS = ['working', 'online', 'available', 'blocked', 'offline', 'stopped'];
+const SESSION_LIVE_KINDS = ['working', 'online', 'available', 'blocked'];
 function renderSessionStatusFilter() {
   const host = byId('session-status-filter');
   if (!host) return;

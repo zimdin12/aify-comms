@@ -460,7 +460,14 @@ small, .subtle { color: var(--muted); }
   font-size: 11px;
   overflow-wrap: anywhere;
 }
-.run-row { display: grid; grid-template-columns: 28px 150px 150px minmax(0, 1fr) 120px; gap: 12px; align-items: center; }
+/* Compact columns: the Runs list sits in a ~560px half-panel, so wide status/agent columns left
+   almost nothing for the subject. Tightened so the subject (the key info) gets real width. */
+.run-row { display: grid; grid-template-columns: 22px 104px 104px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+/* The subject cell must be allowed to shrink and its single-line title must truncate — `.clip`
+   on an inline <strong> never ellipsized, so a long subject overflowed into (and overlapped) the
+   Inspect button. */
+.run-row > div { min-width: 0; }
+.run-row > div > .clip { display: block; }
 .timeline { max-height: calc(100vh - 245px); overflow: auto; padding-right: 4px; }
 /* Composer: options on one row, then [textarea | Send] aligned as a row (QA C3 — Send no longer
    floats with a gap above it). */
@@ -1148,6 +1155,11 @@ small, .subtle { color: var(--muted); }
 /* Full-width field (theme picker): label/control on row 1, tiles span both columns on row 2. */
 .settings-field-wide { grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); }
 .settings-field-wide .settings-field-extra { grid-column: 1 / -1; }
+/* Constrain simple field rows to a readable column. Full-width rows flung the control ~900px to
+   the right with a dead gulf between label and control, which read as unfinished. The wide theme
+   field keeps full width for its tile row. */
+.settings-field:not(.settings-field-wide) { max-width: 880px; }
+.settings-panel-desc { max-width: 880px; }
 
 /* Real toggle switch (replaces tiny native checkbox). */
 .switch { position: relative; display: inline-flex; width: 46px; height: 26px; cursor: pointer; }
