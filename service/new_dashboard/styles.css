@@ -258,7 +258,7 @@ small, .subtle { color: var(--muted); }
 /* Slim "all clear" line replaces the tall empty card. */
 .attention-list.is-clear { max-height: none; }
 .attention-clear { margin: 2px 2px 0; color: var(--green); font-size: .84em; }
-.metric, .band, .context-rail, .pane, .inspector {
+.metric, .band, .inspector {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -301,18 +301,18 @@ small, .subtle { color: var(--muted); }
 }
 .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
-.item-list, .agent-list, .rail-list, .contract-list, .runtime-grid, .run-list, .timeline {
+.item-list, .contract-list, .runtime-grid, .run-list, .timeline {
   display: grid;
   gap: 7px;
 }
-.item, .agent, .contract, .runtime-card, .run-row, .message {
+.item, .contract, .runtime-card, .run-row {
   border: 1px solid var(--line);
   background: var(--panel-3);
   border-radius: 8px;
   padding: 9px;
   min-width: 0;
 }
-.item:hover, .agent:hover, .contract:hover, .runtime-card:hover, .run-row:hover, .message:hover {
+.item:hover, .contract:hover, .runtime-card:hover, .run-row:hover {
   border-color: #465454;
 }
 .item-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
@@ -890,7 +890,6 @@ small, .subtle { color: var(--muted); }
   .search input { width: 100%; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .run-row { grid-template-columns: 1fr; }
-  .composer { grid-template-columns: 1fr; }
   .toolbar { display: grid; }
   .toolbar label { min-width: 0; }
   .session-head { display: grid; }
@@ -1404,8 +1403,8 @@ body::before {
 }
 
 /* E1 — depth tier on cards/panels/rows. */
-.metric, .band, .context-rail, .pane, .runtime-card, .chat-rail, .chat-conversation,
-.session-rail-wrap, .session-main, .inspector, .agent, .file-row {
+.metric, .band, .runtime-card, .chat-rail, .chat-conversation,
+.session-rail-wrap, .session-main, .inspector, .file-row {
   box-shadow: var(--shadow-card);
 }
 .attention-strip { box-shadow: var(--shadow-card); }
