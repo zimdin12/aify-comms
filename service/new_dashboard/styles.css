@@ -1042,8 +1042,7 @@ small, .subtle { color: var(--muted); }
 .chat-as select { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 3px 6px; margin-left: 6px; max-width: 150px; }
 .chat-live-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 /* Search row: search input + inline sort + gear on one line. */
-.chat-search-row { display: flex; align-items: center; gap: 6px; }
-.chat-search-row input[type="search"] { flex: 1; min-width: 0; }
+.chat-search-row input[type="search"] { flex: 1; min-width: 0; } /* canonical .chat-search-row layout is lower in the file */
 .chat-sort-inline select { background: var(--panel-3); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 7px 6px; font-size: .76em; max-width: 96px; cursor: pointer; }
 /* Compact always-visible filter bar: scope + key quick filters wrap on one row, status as a
    tight row of color dots. Surfaced by default so filtering never needs the gear, but kept
@@ -1070,7 +1069,6 @@ small, .subtle { color: var(--muted); }
 .chat-chip.s-blocked::before { background: var(--red, #ee6a74); }
 .chat-chip.s-offline::before { background: var(--muted); }
 .chat-chip.s-stopped::before { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
-.chat-rail-options { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line-soft, var(--line)); }
 .chat-rail-list { flex: 1; overflow-y: auto; padding: 6px; }
 .chat-rail-section { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 10px 8px 4px; }
 .chat-rail-empty { padding: 4px 8px 8px; }
@@ -1084,8 +1082,6 @@ small, .subtle { color: var(--muted); }
 .chat-fav { color: var(--amber); font-size: .82em; }
 .chat-unread { background: var(--accent); color: #061615; font-weight: 800; font-size: .68em; border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center; }
 .chat-conversation { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
-.chat-conv-head { padding: 12px 15px; border-bottom: 1px solid var(--line-soft, var(--line)); }
-.chat-conv-head h2 { margin: 0; font-size: 1em; }
 .chat-timeline { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .chat-empty { color: var(--muted); text-align: center; margin-top: 40px; }
 /* Chat overview (shown when no conversation is open; re-click an open chat to return here). */
@@ -1146,7 +1142,7 @@ small, .subtle { color: var(--muted); }
 /* Conversation header: title flexes on the left, search stays compact, the action cluster
    stays grouped on the right and wraps as ONE unit (was a cramped mix of title + search + 5
    buttons fighting on one line). (2026-06-18 UI fix.) */
-.chat-conv-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 14px; }
+.chat-conv-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line-soft, var(--line)); }
 .chat-conv-head h2 { margin: 0; font-size: 1em; flex: 1 1 130px; min-width: 0; overflow-wrap: anywhere; }
 .chat-msg-search { flex: 0 1 180px; }
 .chat-conv-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; justify-content: flex-end; }
